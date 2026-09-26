@@ -6,7 +6,7 @@
 #include <cstring>
 
 #include <Engine/ShaderResources/ShaderReflectionTypes.hpp>
-#include <Engine/Graphic/Materials/Properties/PropertyDirty.hpp>
+#include <Engine/Graphic/Materials/Properties/PropertyVersion.hpp>
 #include <Common/Core/Memory/Buffer.hpp>
 
 namespace Desert::Graphic
@@ -27,8 +27,6 @@ namespace Desert::Graphic
             // Born-dirty bought nothing anyway: the local data is zeroed below, so flushing an unwritten
             // field pushed zeroes. Real values arrive through ApplyDefaults and SetParamRaw, and both
             // WRITE the field, which is what makes it dirty.
-            m_DirtyCount.fill( 0u );
-            m_LastCleanFrame.fill( PropertyDirty::kNeverCleaned );
             m_LocalData.Allocate( field.Size );
             // Common::Memory::Buffer::Allocate is a bare `new std::byte[]`, so without this the shadow
             // copy of a field nobody has written yet is whatever the heap last held. The fill-kind
@@ -36,12 +34,6 @@ namespace Desert::Graphic
             // route we have not thought of ever flushes an unwritten field, the result is a
             // deterministic black that a test can pin, not a frame that differs between runs.
             m_LocalData.ZeroInitialize();
-        }
-
-        static uint32_t ActiveSlot()
-        {
-            const uint32_t slot = EngineContext::GetInstance().GetActiveRendererSlot();
-            return slot < Engine::kMaxRendererSlots ? slot : 0;
         }
 
         [[nodiscard]] bool IsArray() const
@@ -72,26 +64,12 @@ namespace Desert::Graphic
             return result;
         }
 
-        // Per RENDERER SLOT, like MaterialProperty and for the same reason: the uniform buffer this field
-        // lands in has a copy per (frame x slot), and a field cleaned by the view that is recording would
-        // otherwise never be written into the other view's copy.
-        void MarkDirty()
+        // The version of this field's latest write; PropertyVersion::kNeverWritten until it has one. The
+        // owning buffer's copies each remember the newest version they applied, so "dirty" is a question
+        // about a (view x frame) copy, not about the field (UniformBufferProperty::UpdateFields).
+        [[nodiscard]] uint64_t GetVersion() const noexcept
         {
-            m_DirtyCount.fill( PropertyDirty::DirtyLifetime() );
-        }
-        void MarkClean()
-        {
-            // Clean at most once per frame so the dirty window spans frames-in-flight distinct frames,
-            // even when the owning uniform buffer is flushed multiple times within a single frame.
-            const uint32_t slot = ActiveSlot();
-            if ( PropertyDirty::ConsumeCleanThisFrame( m_LastCleanFrame[slot] ) && m_DirtyCount[slot] > 0 )
-            {
-                m_DirtyCount[slot]--;
-            }
-        }
-        bool IsDirty() const
-        {
-            return m_DirtyCount[ActiveSlot()] > 0;
+            return m_Version;
         }
 
         const ShaderResources::ShaderLayout::ShaderFieldLayout& GetFieldInfo() const
@@ -121,14 +99,12 @@ namespace Desert::Graphic
             if ( size > m_Field.Size )
                 return false;
             memcpy( m_LocalData.Data, data, size );
-            MarkDirty(); // every slot owes itself this write
+            m_Version = PropertyVersion::Next();
             return true;
         }
 
         ShaderResources::ShaderLayout::ShaderFieldLayout m_Field;
         Common::Memory::Buffer                           m_LocalData;
-        // One counter per renderer slot — see MarkDirty.
-        std::array<uint32_t, Engine::kMaxRendererSlots> m_DirtyCount{};
-        std::array<uint64_t, Engine::kMaxRendererSlots> m_LastCleanFrame{};
+        uint64_t                                         m_Version = PropertyVersion::kNeverWritten;
     };
 } // namespace Desert::Graphic

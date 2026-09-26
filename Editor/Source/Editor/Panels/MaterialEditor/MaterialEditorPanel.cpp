@@ -2454,7 +2454,7 @@ namespace Desert::Editor
         // recorded — the editor has been bitten by exactly that.
         if ( m_PreviewUnavailable.empty() && m_Preview && m_UIHelper && m_Preview->HasContent() )
         {
-            m_Preview->Draw( *m_UIHelper, ImVec2( imageSide, imageSide ) );
+            m_Preview->Draw( *m_UIHelper, ImVec2( imageSide, imageSide ), PreviewInteraction::Interactive );
         }
         else
         {

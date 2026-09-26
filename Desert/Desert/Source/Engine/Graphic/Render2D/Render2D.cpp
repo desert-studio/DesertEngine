@@ -9,7 +9,6 @@
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
-#include <Engine/Graphic/Materials/Properties/PropertyDirty.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -345,11 +344,10 @@ namespace Desert::Graphic::Render2D
 
     void Render2D::RetireUnusedExecutors()
     {
-        // The window is the material properties' own: frames-in-flight times renderer slots. Taking it
-        // from there rather than writing a number here is what stops the two from ever disagreeing about
-        // how long a recorded frame lives.
+        // The window is ExecutorRetireWindow(), shared with UIMaterialCache: one answer to how long a
+        // recorded frame lives, not a number written here.
         const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
-        const uint32_t window = PropertyDirty::DirtyLifetime();
+        const uint32_t window = ExecutorRetireWindow();
 
         for ( ExecutorCache* cache : { &m_Executors, &m_TextExecutors, &m_GlassExecutors } )
         {

@@ -7,6 +7,8 @@
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
+#include <Editor/Widgets/PreviewInput.hpp>
+
 #include <ImGui/imgui.h>
 
 #include <functional>
@@ -306,11 +308,14 @@ namespace Desert::Editor
         // scrolled-away row should skip it so an inspector full of assets doesn't render them all.
         void Update( uint32_t width, uint32_t height );
 
-        // Draws the last rendered image and handles interaction: LMB-drag orbits, RMB-drag pans, wheel
-        // zooms, double-click re-frames. Returns true while the user is manipulating it.
-        bool Draw( UI::UIHelper& uiHelper, const ImVec2& size );
+        // Draws the last rendered image and handles interaction as @p mode says (Editor/Widgets/PreviewInput.hpp):
+        // Interactive — LMB-drag orbits, RMB-drag pans, wheel zooms, double-click re-frames; Static — the
+        // camera never moves and double-click reports Open, which the CALLER turns into opening the asset,
+        // because only the caller knows which asset the picture stands for. The result says what happened
+        // this frame (Interacting while the user is manipulating it).
+        PreviewInputResult Draw( UI::UIHelper& uiHelper, const ImVec2& size, PreviewInteraction mode );
 
-        // Re-frame on the current content's bounds (what double-click does).
+        // Re-frame on the current content's bounds (what an Interactive double-click does).
         void ResetView();
 
         // Point the orbit somewhere specific (radians; pitch clamped to the same limit the mouse has).

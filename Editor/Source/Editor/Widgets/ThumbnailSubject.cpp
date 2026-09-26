@@ -106,10 +106,10 @@ namespace Desert::Editor::ThumbnailSubject
 
     Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager, const std::string& sourcePath )
     {
-        // A PURE PATH COMPUTATION, hoisted above every filesystem question: CookPaths::CookedMesh is
-        // fs::relative and a string replace, no stat. The `exists` check below is the filesystem question
+        // A PURE PATH COMPUTATION, hoisted above every filesystem question: CookPaths::MeshAsset is
+        // an extension swap, no stat. The `exists` check below is the filesystem question
         // and it stays where it is.
-        const std::string cooked = CookPaths::CookedMesh( sourcePath, ".stmesh" ).generic_string();
+        const std::string cooked = CookPaths::MeshAsset( sourcePath ).generic_string();
 
         std::error_code ec;
         if ( !std::filesystem::exists( cooked, ec ) )

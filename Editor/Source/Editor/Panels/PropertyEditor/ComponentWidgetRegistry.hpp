@@ -52,7 +52,11 @@ namespace Desert::Editor
         // Draws the shared preview at @p size and marks it as used. Returns false when the panel did not
         // lend one, so a component never has to know where it came from — the caller falls back to a
         // cached thumbnail.
-        bool DrawPreview( const ImVec2& size ) const;
+        //
+        // Always Static (Editor/Widgets/PreviewInput.hpp): a Details row is a summary of a field, so the
+        // picture keeps one angle and double-click opens @p openHandle — the asset the row stands for —
+        // through the same AssetFieldRequests queue every other asset field in Details uses.
+        [[nodiscard]] bool DrawPreview( const ImVec2& size, uint64_t openHandle ) const;
 
         // Details search box: while non-empty, reflected components draw only the fields that match.
         // A hand-written widget cannot filter itself — the panel decides whether to draw it at all.

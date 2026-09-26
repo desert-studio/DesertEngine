@@ -5,7 +5,6 @@
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
-#include <Engine/Graphic/Materials/Properties/PropertyDirty.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/Render2D/DrawList2D.hpp>
@@ -248,7 +247,7 @@ namespace Desert::Graphic::Render2D
     void UIMaterialCache::RetireUnused()
     {
         const uint64_t frame  = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
-        const uint32_t window = PropertyDirty::DirtyLifetime();
+        const uint32_t window = ExecutorRetireWindow();
 
         for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
         {

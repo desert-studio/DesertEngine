@@ -47,6 +47,12 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t     FrameIndex;
     };
 
+    struct QueryPoolDeletionEntry
+    {
+        VkQueryPool QueryPool;
+        uint32_t    FrameIndex;
+    };
+
     struct DescriptorPoolDeletionEntry
     {
         VkDescriptorPool DescriptorPool;
@@ -93,6 +99,9 @@ namespace Desert::Graphic::API::Vulkan
                               const std::vector<VkImageView>& mipImageViews = {} );
         void RT_DestroyFramebuffer( VkFramebuffer framebuffer );
         void RT_DestroyRenderPass( VkRenderPass renderPass );
+        // A timestamp pool the GPU profiler outgrew: the frame that last wrote into it may still be in
+        // flight, so it waits for that frame like any other per-frame object.
+        void RT_DestroyQueryPool( VkQueryPool queryPool );
         // Takes every set allocated from the pool with it, so it waits for the frame that last bound one of
         // them exactly as a buffer does: a material or a view destroyed mid-session may still have its sets
         // in a command buffer the GPU has not finished.
@@ -150,6 +159,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
+        std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
     };
 } // namespace Desert::Graphic::API::Vulkan

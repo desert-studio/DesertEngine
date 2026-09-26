@@ -10,6 +10,8 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <fstream>
+#include <span>
 #include <string>
 #include <cstdio>
 
@@ -188,10 +190,44 @@ namespace Common::Content
         return best;
     }
 
+    namespace
+    {
+        // A STATIC MESH IS A MESH SOURCE ASSET (AF4d): its box is the envelope's Meta bounds, the cache of the
+        // source that the asset's reader verifies. Only the header and that one section are read. nullopt =
+        // no box could be read, which the census then reports as a mesh without header bounds.
+        std::optional<MeshHeaderBounds> ReadMeshAssetMetaBounds( const std::filesystem::path& file )
+        {
+            std::ifstream in( file, std::ios::binary );
+            if ( !in )
+                return std::nullopt;
+            const auto header = ReadEnvelopeHeader( in, AssetHeaderReadContext{ {}, true } );
+            if ( !header )
+                return std::nullopt;
+            const auto meta = header.GetValue().Find( EnvelopeSection::Meta );
+            if ( !meta || meta->Codec != EnvelopeCodec::Stored )
+                return std::nullopt;
+            // Read as the stream's own char type and view it as bytes: no cast of the destination pointer.
+            std::vector<char> chars( meta->Size );
+            in.clear();
+            in.seekg( static_cast<std::streamoff>( meta->Offset ) );
+            if ( !in.read( chars.data(), static_cast<std::streamsize>( chars.size() ) ) )
+                return std::nullopt;
+            const auto decoded = DecodeEnvelopeMeta( std::as_bytes( std::span<const char>( chars ) ) );
+            if ( !decoded )
+                return std::nullopt;
+            MeshHeaderBounds bounds{ true, std::nullopt };
+            if ( const auto& b = decoded.GetValue().Bounds )
+                bounds.Bounds = Math::AABB{ { b->Lo[0], b->Lo[1], b->Lo[2] }, { b->Hi[0], b->Hi[1], b->Hi[2] } };
+            return bounds;
+        }
+    } // namespace
+
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
     {
         ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
-        if ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh )
+        if ( kind == ContentKind::StaticMesh )
+            described.MeshBounds = ReadMeshAssetMetaBounds( file );
+        else if ( kind == ContentKind::SkinnedMesh )
         {
             // The mesh's box, from its 64-byte header and not its body — the reason the box is in the header.
             const auto head = Utils::FileSystem::ReadFileContentPrefix( file, sizeof( MeshBinaryFileHeader ) );

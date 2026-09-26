@@ -645,7 +645,7 @@ namespace Desert::Editor
         //
         // A card whose mesh has never been cooked still shows a PNG it has from a previous session:
         // ThumbnailFreshness::Judge treats unreadable stamps as no evidence of staleness, deliberately.
-        const std::string cookedStr = CookPaths::CookedMesh( item.MeshPath, ".stmesh" ).generic_string();
+        const std::string cookedStr = CookPaths::MeshAsset( item.MeshPath ).generic_string();
         const std::string pngPath   = ThumbnailKey::DiskPath( cookedStr );
 
         // Rendered preview already on disk, and still a picture OF this mesh? Show it. The freshness half

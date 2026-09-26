@@ -13,15 +13,11 @@ namespace Desert::Graphic
         {
         }
 
-        // The backend is asked EVERY time, not only while dirty: a clean buffer can still be owed a
-        // descriptor write when the view's copy was re-made (ViewCopiedBlock.hpp, DescriptorCopyRecord).
-        // The backend decides; the dirty window is consumed exactly as before.
+        // The backend is asked EVERY time: whether this view's set needs a write is the set's own record
+        // (DescriptorCopyRecord: the copy it points at and the version it applied), not a flag here.
         void Apply( MaterialBackend* backend ) override
         {
-            const bool dirty = IsDirty();
             backend->ApplyStorageBuffer( this );
-            if ( dirty )
-                MarkClean();
         }
 
         void SetRawData( const void* data, uint32_t size )
@@ -41,7 +37,7 @@ namespace Desert::Graphic
                            "contents -- {}",
                            size, wrote.GetError() );
 
-            MarkDirty(); // every slot owes itself this write
+            NoteWritten();
         }
 
         // Replace the reflection-created buffer with an externally-owned one (the particle simulation's
@@ -50,7 +46,7 @@ namespace Desert::Graphic
         void SetBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
             m_Buffer     = buffer;
-            MarkDirty(); // every slot owes itself this write
+            NoteWritten();
         }
 
         const auto& GetStorageBuffer() const

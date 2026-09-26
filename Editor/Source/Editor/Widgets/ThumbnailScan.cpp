@@ -64,7 +64,7 @@ namespace Desert::Editor
             // exists is asked at drain time, where the refusal can be reported with the manager's own
             // words rather than guessed at from a missing file.
             candidate.Subject = format->By == ThumbnailFormats::Producer::RenderedMesh
-                                     ? CookPaths::CookedMesh( file, ".stmesh" ).generic_string()
+                                     ? CookPaths::MeshAsset( file ).generic_string()
                                      : path;
 
             candidate.Png = ThumbnailKey::DiskPath( candidate.Subject );

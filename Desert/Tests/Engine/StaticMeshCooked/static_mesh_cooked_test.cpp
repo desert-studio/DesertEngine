@@ -20,8 +20,9 @@
 // WHY THIS SUITE EXISTS AT ALL, WHICH IS THE OTHER HALF OF THE DEFECT. Until 2026-09-08 not one scene in
 // this repository named a `.stmesh`, and no suite parsed one. The cooked STATIC mesh path was reachable
 // only by importing a file by hand — so a break in it was invisible for as long as nobody imported
-// anything. `Editor/Cooked/Meshes/StaticProbe.stmesh` is the answer: a real cooked static mesh, 7 KB,
-// committed, placed by `Editor/Resources/Assets/Scenes/M10_MeshSlot.desce`, and parsed here.
+// anything. `Editor/Resources/Assets/Meshes/StaticProbe.stmesh` is the answer: a real static mesh source
+// asset, committed, its render form derived by the editor's builder, placed by
+// `Editor/Resources/Assets/Scenes/M10_MeshSlot.desce`, and parsed here.
 //
 // WHY THE PROBE HAS TWO SUBMESHES. One submesh cannot distinguish "the count survived" from "the count is
 // always one", and a submesh at a NON-ZERO VertexOffset/IndexOffset is the only kind whose ranges can be
@@ -47,7 +48,12 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
+#include "../../TestSupport/cooked_static_mesh.hpp"
+
+#include <Editor/Import/MeshDeriver.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 
@@ -58,6 +64,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using Desert::Assets::AssetManager;
 using Desert::Assets::AssetPriority;
@@ -68,8 +75,8 @@ namespace
 {
     // The shipped probe, by the path the scene stores it under. Its handle is derived from that
     // project-relative spelling, so the constant below is the same number on every machine.
-    constexpr const char*   kProbeCookedPath    = "Cooked/Meshes/StaticProbe.stmesh";
-    constexpr std::uint64_t kProbeMeshHandle    = 10064960323608083546ull;
+    constexpr const char*   kProbeCookedPath    = "Resources/Assets/Meshes/StaticProbe.stmesh";
+    constexpr std::uint64_t kProbeMeshHandle    = 11618737799735426630ull;
     constexpr std::size_t   kProbeSubmeshes     = 2;
     constexpr std::size_t   kProbeVertices      = 48; // two boxes, 24 per-face vertices each
     constexpr std::size_t   kProbeTriangles     = 24; // 12 per box
@@ -81,7 +88,8 @@ namespace
     std::filesystem::path RepositoryRoot()
     {
         std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Cooked" / "Meshes" ); ++up )
+        for ( int up = 0;
+              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Meshes" ); ++up )
             here = here.parent_path();
         return here;
     }
@@ -108,20 +116,22 @@ namespace
             // THROUGH THE SAME READER THE ENGINE USES (B11). The probe is a binary container now, so a
             // bare `rfl::json::read` here would fail on the shipped file while the engine loaded it
             // perfectly — a suite reading the fixture by a route the engine does not take.
+            // The probe is a mesh SOURCE asset now; its render form is what the builder derives from it.
+            const auto source = Desert::Assets::ReadMeshSourceAssetFile( ProbeFile() );
+            EXPECT_TRUE( source.IsSuccess() ) << ( source.IsSuccess() ? std::string{} : source.GetError() );
+            if ( !source.IsSuccess() )
+                return MeshAssetData{};
+            const auto built = Desert::Editor::BuildMeshPlatformData( source.GetValue() );
+            EXPECT_TRUE( built.IsSuccess() ) << ( built.IsSuccess() ? std::string{} : built.GetError() );
+            if ( !built.IsSuccess() )
+                return MeshAssetData{};
             const auto parsed =
-                 Desert::Assets::Serialization::ReadMeshAssetData( ReadFile( ProbeFile() ), ProbeFile().string() );
+                 Desert::Assets::Serialization::ReadMeshAssetData( built.GetValue(), ProbeFile().string() );
             EXPECT_TRUE( parsed.IsSuccess() ) << "the shipped probe does not parse as a cooked mesh: "
                                               << ( parsed.IsSuccess() ? std::string{} : parsed.GetError() );
             return parsed.IsSuccess() ? parsed.GetValue() : MeshAssetData{};
         }();
         return data;
-    }
-
-    void WriteText( const std::filesystem::path& path, const std::string& text )
-    {
-        std::filesystem::create_directories( path.parent_path() );
-        std::ofstream out( path, std::ios::binary | std::ios::trunc );
-        out << text;
     }
 
     // One scratch directory per test, removed with it, so a file left behind cannot make the next one pass.
@@ -140,23 +150,25 @@ namespace
         {
             std::error_code ec;
             std::filesystem::remove_all( m_Dir, ec );
+            for ( const auto& entry : m_DerivedEntries )
+                std::filesystem::remove( entry, ec );
         }
 
         ScratchDir( const ScratchDir& )            = delete;
         ScratchDir& operator=( const ScratchDir& ) = delete;
 
-        std::string Write( const char* stem, const MeshAssetData& data ) const
+        // A mesh source asset at <stem>.stmesh whose render form in the DDC is @p data.
+        std::string Write( const char* stem, const MeshAssetData& data )
         {
-            // THE CONTAINER, NOT JSON. The JSON arm of the reader was removed — cooked content is
-            // derived, so a stale one is deleted and cooked again rather than migrated — and a fixture
-            // written in a form nothing reads any more tests nothing.
             const auto path = m_Dir / ( std::string( stem ) + ".stmesh" );
-            WriteText( path, Desert::Assets::Serialization::EncodeMeshBinary( data ) );
+            m_DerivedEntries.push_back( Desert::TestSupport::WriteCookedStaticMesh(
+                 path, Desert::Assets::Serialization::EncodeMeshBinary( data ) ) );
             return path.generic_string();
         }
 
     private:
-        std::filesystem::path m_Dir;
+        std::filesystem::path              m_Dir;
+        std::vector<std::filesystem::path> m_DerivedEntries;
     };
 } // namespace
 
@@ -254,7 +266,7 @@ TEST( StaticMeshCooked, AnUnparsedShellReportsNoSubmeshesAndSaysItIsNotReady )
 // every caller — which is the state `MeshService::Get` was in for the whole of this defect's life.
 TEST( StaticMeshCooked, AFileWithNoSubmeshesIsRefusedRatherThanLoadedEmpty )
 {
-    const ScratchDir scratch( "empty" );
+    ScratchDir scratch( "empty" );
 
     MeshAssetData data     = ProbeFileContents();
     const auto    vertices = data.StaticVertices.size();
@@ -279,7 +291,7 @@ TEST( StaticMeshCooked, AFileWithNoSubmeshesIsRefusedRatherThanLoadedEmpty )
 // placed after the clears would empty an asset that was previously good — an eviction nobody asked for.
 TEST( StaticMeshCooked, ARefusedLoadDoesNotDestroyWhatTheAssetAlreadyHeld )
 {
-    const ScratchDir scratch( "keep" );
+    ScratchDir scratch( "keep" );
 
     const auto      path = scratch.Write( "Probe", ProbeFileContents() );
     StaticMeshAsset asset( AssetPriority::Low, Common::Filepath( path ) );
@@ -295,7 +307,7 @@ TEST( StaticMeshCooked, ARefusedLoadDoesNotDestroyWhatTheAssetAlreadyHeld )
     // one the reader accepts and the asset rejects, not one the reader cannot parse at all.
     MeshAssetData broken = ProbeFileContents();
     broken.Submeshes.clear();
-    WriteText( path, Desert::Assets::Serialization::EncodeMeshBinary( broken ) );
+    scratch.Write( "Probe", broken );
 
     EXPECT_FALSE( asset.Load().IsSuccess() );
     EXPECT_EQ( asset.GetSubmeshes().size(), submeshes );
@@ -307,7 +319,7 @@ TEST( StaticMeshCooked, ARefusedLoadDoesNotDestroyWhatTheAssetAlreadyHeld )
 // and the other not. Comparing them to each other is what catches the next divergence.
 TEST( StaticMeshCooked, TheEagerAndDeferredRoutesReachTheSameGeometry )
 {
-    const ScratchDir scratch( "routes" );
+    ScratchDir scratch( "routes" );
 
     // Two copies at two paths so the manager keeps them as two records.
     const auto eagerPath    = scratch.Write( "Eager", ProbeFileContents() );
@@ -477,5 +489,7 @@ TEST( StaticMeshCooked, TheServiceHasExactlyOnePlaceThatBuildsAMeshFromAnAsset )
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
+    // The editor's builder derives a cooked mesh's render form on a DDC miss, as it does in the editor.
+    Desert::Assets::SetMeshPlatformDataBuilder( Desert::Editor::BuildMeshPlatformData );
     return RUN_ALL_TESTS();
 }

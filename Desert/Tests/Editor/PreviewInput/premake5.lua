@@ -1,3 +1,8 @@
+-- What a preview does with the mouse: Static (Details rows) never moves the camera and turns double-click
+-- into "open"; Interactive (asset windows) orbits, pans, zooms and re-frames. The mapping is header-only
+-- (Editor/Widgets/PreviewInput.hpp), so nothing else is compiled in.
+local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
+
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 
@@ -8,19 +13,13 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    files {
-        test_files,
-        -- Unit under test (pure CPU data transform; depends only on the serialization struct header).
-        "%{wks.location}/Editor/Source/Editor/Import/LODFold.cpp",
-        "%{wks.location}/Desert/Common/Source/Common/Core/UUID.cpp", -- SubmeshData holds a Common::UUID
-    }
+    files { test_files }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
     }
-
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
@@ -29,9 +28,21 @@ project(test_name)
         externalincludedirs { path }
     end
 
+    for _, define in ipairs(deps.Common.Defines) do
+        defines { define }
+    end
+
     for _, define in ipairs(deps.TestSpecific.Defines) do
         defines { define }
     end
+
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

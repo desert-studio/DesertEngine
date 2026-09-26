@@ -1,7 +1,6 @@
 // AF4c: the mesh deriver - the DDC key is (SRCE hash, build settings, builder version) and nothing else, and a
 // second load of the same asset is a hit, not a rebuild.
 #include <Common/Core/Constants.hpp>
-#include <Editor/Import/LODFold.hpp>
 #include <Editor/Import/MeshDeriver.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -218,9 +217,10 @@ TEST( MeshDerivedData, EveryLodModelIsAKeyInput )
     }
 }
 
-// The builder's fold against the importer's: the same three meshes, imported the old way as one file with
-// "<section>_LOD<k>" siblings and folded by FoldExternalLODMeshes, give the same render form byte for byte.
-TEST( MeshDerivedData, ThreeModelsFoldLikeTheImporterFold )
+// The fold's layout, stated against each model built alone: section j of the folded mesh holds LOD0's section of
+// the same slot, then LOD1's and LOD2's vertices appended inside ITS block, and LOD level k is model k's faces
+// offset by the vertices of the models before it - so the draw path's baseVertex = VertexOffset reaches them.
+TEST( MeshDerivedData, ThreeModelsFoldIntoTheLodZeroSectionOfTheirSlot )
 {
     namespace Ser                       = Assets::Serialization;
     const Assets::MeshSourceAsset asset = MakeThreeLodAsset();
@@ -229,13 +229,6 @@ TEST( MeshDerivedData, ThreeModelsFoldLikeTheImporterFold )
     {
         ADD_FAILURE();
         return;
-    }
-    ASSERT_EQ( built->Submeshes.size(), 2u );
-    for ( const Ser::SubmeshData& section : built->Submeshes )
-    {
-        ASSERT_EQ( section.LODs.size(), 2u ) << section.Name << ": two authored levels, none simplified";
-        EXPECT_EQ( section.LODs[0].size(), 4u ) << section.Name;
-        EXPECT_EQ( section.LODs[1].size(), 1u ) << section.Name;
     }
     EXPECT_EQ( built->PolyGroups.size(), built->Indices.size() );
 
@@ -253,27 +246,48 @@ TEST( MeshDerivedData, ThreeModelsFoldLikeTheImporterFold )
         }
         parts.push_back( std::move( *part ) );
     }
-    Ser::MeshAssetData old = parts[0];
-    for ( size_t k = 1; k < parts.size(); ++k )
-        for ( Ser::SubmeshData sub : parts[k].Submeshes )
+    ASSERT_EQ( built->Submeshes.size(), parts[0].Submeshes.size() );
+    ASSERT_EQ( built->Submeshes.size(), 2u );
+
+    const auto sameVertex = []( const Ser::StaticVertexData& x, const Ser::StaticVertexData& y )
+    {
+        return x.Position == y.Position && x.Normal == y.Normal && x.Tangent == y.Tangent &&
+               x.Bitangent == y.Bitangent && x.TexCoord == y.TexCoord;
+    };
+    for ( size_t j = 0; j < built->Submeshes.size(); ++j )
+    {
+        const Ser::SubmeshData& section = built->Submeshes[j];
+        ASSERT_EQ( section.LODs.size(), 2u ) << section.Name << ": two authored levels, none simplified";
+        EXPECT_EQ( section.LODs[0].size(), 4u ) << section.Name;
+        EXPECT_EQ( section.LODs[1].size(), 1u ) << section.Name;
+        EXPECT_EQ( section.Name, parts[0].Submeshes[j].Name );
+        EXPECT_EQ( section.IndexCount, parts[0].Submeshes[j].IndexCount ) << section.Name;
+
+        uint32_t vBase = 0;
+        for ( size_t k = 0; k < parts.size(); ++k )
         {
-            for ( const Ser::SubmeshData& base : parts[0].Submeshes )
-                if ( base.MaterialGuid == sub.MaterialGuid )
-                    sub.Name = base.Name + "_LOD" + std::to_string( k );
-            const auto firstVertex = static_cast<uint32_t>( old.StaticVertices.size() );
-            old.StaticVertices.insert( old.StaticVertices.end(),
-                                       parts[k].StaticVertices.begin() + sub.VertexOffset,
-                                       parts[k].StaticVertices.begin() + sub.VertexOffset + sub.VertexCount );
-            const uint32_t firstFace = sub.IndexOffset / 3;
-            sub.IndexOffset          = static_cast<uint32_t>( old.Indices.size() * 3 );
-            old.Indices.insert( old.Indices.end(), parts[k].Indices.begin() + firstFace,
-                                parts[k].Indices.begin() + firstFace + sub.IndexCount / 3 );
-            sub.VertexOffset = firstVertex;
-            old.Submeshes.push_back( std::move( sub ) );
+            const Ser::SubmeshData* from = nullptr;
+            for ( const Ser::SubmeshData& sub : parts[k].Submeshes )
+                if ( sub.MaterialGuid == section.MaterialGuid && sub.Name == section.Name )
+                    from = &sub;
+            ASSERT_NE( from, nullptr ) << section.Name << " LOD" << k << " has no section of its slot";
+            for ( uint32_t v = 0; v < from->VertexCount; ++v )
+                EXPECT_TRUE( sameVertex( built->StaticVertices[section.VertexOffset + vBase + v],
+                                         parts[k].StaticVertices[from->VertexOffset + v] ) )
+                     << section.Name << " LOD" << k << " vertex " << v;
+            for ( uint32_t t = 0; t < from->IndexCount / 3; ++t )
+            {
+                const Ser::IndexData& want = parts[k].Indices[from->IndexOffset / 3 + t];
+                const Ser::IndexData& got =
+                     k == 0 ? built->Indices[section.IndexOffset / 3 + t] : section.LODs[k - 1][t];
+                EXPECT_EQ( got.V1, want.V1 + vBase ) << section.Name << " LOD" << k << " face " << t;
+                EXPECT_EQ( got.V2, want.V2 + vBase ) << section.Name << " LOD" << k << " face " << t;
+                EXPECT_EQ( got.V3, want.V3 + vBase ) << section.Name << " LOD" << k << " face " << t;
+            }
+            vBase += from->VertexCount;
         }
-    EXPECT_EQ( Editor::FoldExternalLODMeshes( old ), 4 );
-    old.PolyGroups = parts[0].PolyGroups; // the importer's fold leaves them alone; only LOD0's faces remain
-    EXPECT_EQ( Ser::EncodeMeshBinary( *built ), Ser::EncodeMeshBinary( old ) );
+        EXPECT_EQ( section.VertexCount, vBase ) << section.Name << ": the block holds all three models";
+    }
 }
 
 TEST( MeshDerivedData, LodPolicyNoneKeepsOnlyLodZero )

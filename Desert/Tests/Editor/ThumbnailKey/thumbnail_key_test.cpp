@@ -222,9 +222,9 @@ namespace
     // THREE PANELS, TWO WAYS OF GETTING THERE, ONE PICTURE.
     //
     // The Details 3D Model row keys a mesh thumbnail on the REGISTERED asset's path, because a scene holds
-    // a cooked handle and can reach nothing else: `mesh->GetMetadata().Filepath`, a `.stmesh` under the
-    // cooked tree. The asset browser and the Collections grid start from a SOURCE the user is looking at —
-    // an `.fbx` — and reach the same picture through `CookPaths::CookedMesh`. Two derivations, and until
+    // a cooked handle and can reach nothing else: `mesh->GetMetadata().Filepath`, the `.stmesh` asset
+    // beside its source (AF4d). The asset browser and the Collections grid start from a SOURCE the user is looking
+    // at — an `.fbx` — and reach the same picture through `CookPaths::MeshAsset`. Two derivations, and until
     // 2026-09-08 they produced two different cache files for one mesh: the same 370 ms render, stored
     // twice under two names, neither able to satisfy the other panel.
     //
@@ -233,21 +233,25 @@ namespace
     // shows a picture, so the only symptom is a second capture nobody counts. That is this project's most
     // repeated defect shape stated as a relation: assert that the two ends AGREE, not that each end runs.
     //
-    // It fails if CookedMesh's root ladder changes, if the cooked extension changes on one side only, or
-    // if any panel goes back to keying a mesh on its source.
+    // It fails if the asset's place changes on one side only (a static mesh under Cooked/ again), if the
+    // extension changes on one side only, or if any panel goes back to keying a mesh on its source.
     TEST_F( ThumbnailKeyTest, TheBrowsersCookedMappingAndTheScenesRegisteredPathGiveOneKey )
     {
         // What the browser holds: the source the user clicked.
         const fs::path source = UnderAssets( "Meshes/Rock.fbx" );
 
         // What the browser derives from it, and what it now asks the thumbnail service for.
-        const fs::path viaCookPaths = Desert::Editor::CookPaths::CookedMesh( source, ".stmesh" );
+        const fs::path viaCookPaths = Desert::Editor::CookPaths::MeshAsset( source );
 
         // What the Details row holds instead: the registered cooked asset's own recorded path. Spelled
         // independently here rather than reused from the line above, or the test would compare a value
         // with itself and pass over any divergence at all.
-        const fs::path viaRegistry =
-             ( Common::Constants::Path::MESH_PATH_COOKED / "Rock.stmesh" ).lexically_normal();
+        const fs::path viaRegistry = UnderAssets( "Meshes/Rock.stmesh" ).lexically_normal();
+
+        // A STATIC MESH IS NEVER COOKED UNDER Cooked/ ANY MORE: that root holds only the skinned outputs.
+        const fs::path cookedRoot = Common::Constants::Path::MESH_PATH_COOKED;
+        EXPECT_TRUE( fs::relative( viaCookPaths, cookedRoot ).begin()->string() == ".." )
+             << viaCookPaths.string() << " lies under the skinned cook root " << cookedRoot.string();
 
         EXPECT_EQ( TK::Identity( viaCookPaths.string() ), TK::Identity( viaRegistry.string() ) )
              << "the browser's cooked mapping and the scene's registered path no longer name one asset:\n"

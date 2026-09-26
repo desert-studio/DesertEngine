@@ -125,7 +125,7 @@ namespace Desert::Editor
                 // The HANDLE only. The rotation, tint and intensity deliberately do NOT enter the key:
                 // they change the cubes in place (MaterialSkybox::EnsureBaked) and the pane re-resolves
                 // the cube every frame, so re-pointing and re-framing the preview on every slider tick
-                // would throw the orbit the person had set away for no picture change at all.
+                // would rebuild the view for no picture change at all.
                 return ( entityId | 1ull ) * 1099511628211ull ^ static_cast<uint64_t>( sky.SkyboxHandle );
             }
 

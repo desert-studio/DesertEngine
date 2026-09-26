@@ -18,15 +18,17 @@ namespace Desert::Graphic
 
         void Apply( MaterialBackend* backend ) override
         {
-            if ( IsDirty() )
+            if ( m_Texture == nullptr )
+                return; // nothing assigned yet: every set keeps the fallback it was born with
+
+            // The uniform is shared by every view, so it is re-pointed once per write, not per view.
+            if ( m_UniformVersion != GetVersion() )
             {
-                if ( m_Texture )
-                {
-                    m_Uniform->SetImage2D( m_Texture );
-                    backend->ApplyTexture2D( this );
-                }
-                MarkClean();
+                m_Uniform->SetImage2D( m_Texture );
+                m_UniformVersion = GetVersion();
             }
+            // Asked every time: whether THIS view's set is behind is the set's record, not a flag here.
+            backend->ApplyTexture2D( this );
         }
 
         /// Point this sampler at @p texture. NEVER null — "empty" is a picture, not the absence of one,
@@ -53,7 +55,7 @@ namespace Desert::Graphic
             }
 
             m_Texture = texture;
-            MarkDirty(); // every slot owes itself this write
+            NoteWritten();
         }
 
         const auto& GetUniform() const
@@ -63,6 +65,7 @@ namespace Desert::Graphic
 
     private:
         std::shared_ptr<ShaderResources::UniformImage2D> m_Uniform;
-        const Image2D*                                   m_Texture = nullptr;
+        const Image2D*                                   m_Texture        = nullptr;
+        uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
     };
 } // namespace Desert::Graphic

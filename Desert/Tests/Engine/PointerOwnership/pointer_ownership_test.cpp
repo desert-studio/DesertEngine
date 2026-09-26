@@ -575,14 +575,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   held for the one call that moves them into a view).
     //   AV1b +1 Raw +1 Unique: TextureViewerDocument::m_Assets (row in the register) and its m_UIHelper,
     //   the ImGui texture cache the document alone owns: 453 / 354 / 145 / 42 = 994.
+    //   RT2g +2 Raw: VulkanGpuProfiler::m_Recording (the frame slot recording now, inside its own m_Frames)
+    //   and GpuScopeRecorder::m_Stacks (a per-view stack keyed by owner identity), rows in the register:
+    //   455 / 354 / 145 / 42 = 996.
     //   AV1e +1 Raw +2 Unique: SkyboxViewerDocument::m_Assets (row in the register), its m_Preview (the
     //   PreviewViewport whose destruction returns the renderer slot) and m_UIHelper, each owned by the
     //   document alone: 454 / 354 / 147 / 42 = 997.
-    EXPECT_EQ( CountOf( Form::Raw ), 454 );
+    //   Both together (B2 after B3): 456 / 354 / 147 / 42 = 999.
+    EXPECT_EQ( CountOf( Form::Raw ), 456 );
     EXPECT_EQ( CountOf( Form::Shared ), 354 );
     EXPECT_EQ( CountOf( Form::Unique ), 147 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 997 )
+    EXPECT_EQ( (int)Members().size(), 999 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -1043,7 +1047,7 @@ TEST( PointerOwnership, Render2DExecutorRetirementRespectsFramesInFlight )
     // REFUSED rather than written is the whole content of this test — destroying an executor destroys
     // descriptor sets a submitted frame may still be reading, which corrupts a frame instead of crashing
     // a process. So the window is the condition, and here it is where it can fail.
-    constexpr uint32_t kWindow = 9; // 3 frames in flight x 3 slots, a plausible DirtyLifetime()
+    constexpr uint32_t kWindow = 9; // 3 frames in flight x 3 slots, a plausible ExecutorRetireWindow()
 
     // Nothing may be retired inside the window, and the EDGE belongs to the GPU: an entry last used
     // exactly `window` frames ago is still reachable by the oldest frame in flight.
@@ -1064,12 +1068,12 @@ TEST( PointerOwnership, Render2DExecutorRetirementRespectsFramesInFlight )
     EXPECT_FALSE( MayRetireExecutor( 100, 50, kWindow ) );
 
     // A window of zero would mean "retire on the next frame", which is inside the in-flight range for
-    // every real configuration. It is not reachable through PropertyDirty::DirtyLifetime() -- that
+    // every real configuration. It is not reachable through ExecutorRetireWindow() -- that
     // function floors frames-in-flight at 3 -- and the sweep must not invent its own number.
     const std::string src = ReadRepoFile( "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
-    EXPECT_NE( src.find( "PropertyDirty::DirtyLifetime()" ), std::string::npos )
-         << "Render2D::RetireUnusedExecutors no longer takes its window from the material properties' "
-            "own frame window. A literal here is a second answer to 'how long does a frame live', and the "
+    EXPECT_NE( src.find( "ExecutorRetireWindow()" ), std::string::npos )
+         << "Render2D::RetireUnusedExecutors no longer takes its window from ExecutorRetireWindow(). A literal "
+            "here is a second answer to 'how long does a frame live', and the "
             "two would drift.";
     EXPECT_NE( src.find( "MayRetireExecutor(" ), std::string::npos )
          << "the sweep no longer goes through the tested predicate.";

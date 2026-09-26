@@ -1,9 +1,8 @@
 #include "StaticMeshAsset.hpp"
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
-
-#include <Common/Utilities/FileSystem.hpp>
 
 namespace Desert::Assets
 {
@@ -17,14 +16,15 @@ namespace Desert::Assets
 
     Common::BoolResultStr StaticMeshAsset::LoadFromFile()
     {
-        const auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
+        // A STATIC MESH ON DISK IS ITS SOURCE ASSET (MeshSourceAsset, AF4d); what this class draws is the render
+        // form DERIVED from it (UE: FStaticMeshRenderData from the source models via the DDC). The DDC answers
+        // with the MeshBinary container, built on a miss where a builder is registered (the editor). A file
+        // that is not a mesh asset is refused there by name; there is no second reader for the old cook.
+        const auto raw = LoadMeshPlatformData( m_Metadata.Filepath );
         if ( !raw )
             return Common::MakeError( raw.GetError() );
 
-        // ONE READER, ONE FORM. A cooked mesh is a binary container; the JSON arm that used to open a
-        // clone's older cooks was removed by owner decision — cooked content is DERIVED, so a stale one
-        // is deleted and cooked again rather than migrated. Neither this class nor its skinned twin
-        // knows how the bytes are laid out, and that is the point: one place decides, and it is
+        // ONE READER, ONE FORM: the render data is the binary container, decoded in one place that is
         // testable without a filesystem.
         const auto dataReflected =
              Serialization::ReadMeshAssetData( raw.GetValue(), m_Metadata.Filepath.string() );

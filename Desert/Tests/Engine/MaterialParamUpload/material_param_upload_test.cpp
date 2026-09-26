@@ -54,10 +54,12 @@ namespace
                                                          Bytes.size() );
             if ( size != 0 )
                 std::memcpy( Bytes.data() + offset, data, size );
+            ++Writes;
             return Common::MakeSuccess( true );
         }
 
         std::vector<std::byte> Bytes;
+        uint32_t               Writes = 0; // the seed counts as one
     };
 
     // Records what the GPU would have received, per (view, frame), through the production ViewCopiedBlock.
@@ -83,6 +85,24 @@ namespace
         const void* GetData() const override
         {
             return nullptr;
+        }
+
+        [[nodiscard]] uint64_t ActiveAppliedVersion() const override
+        {
+            return m_Block.ActiveAppliedVersion( Frame() );
+        }
+
+        void NoteActiveApplied( uint64_t version ) override
+        {
+            m_Block.NoteActiveApplied( Frame(), version );
+        }
+
+        // Writes `view`'s copy for `frame` has received, or 0 when it has no copy.
+        [[nodiscard]] uint32_t Writes( const Graphic::ViewResources& view, uint32_t frame ) const
+        {
+            const auto* copy = view.Find( m_Block.GetKey(), frame );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            return copy != nullptr ? static_cast<const BytesCopy*>( copy )->Writes : 0;
         }
 
         // The copy the descriptor would be written with now (VulkanUniformBuffer::BindActiveCopy's id).
@@ -308,8 +328,8 @@ TEST_F( MaterialParamUpload, AViewOpenedAfterAOneShotWriteIsSeededWithIt )
     {
         const Graphic::ActiveViewScope scope( main );
         RunRoute( prop, Route::ApplyOnceThenFlush, kFramesInFlight * kSlots * 2, value );
+        ASSERT_FALSE( prop.HasDirtyFields() ) << "the viewport's copies must all have applied the write";
     }
-    ASSERT_FALSE( prop.HasDirtyFields() ) << "the dirty window must be over for this to test the seed";
 
     Graphic::ViewResources         preview( "preview" );
     const Graphic::ActiveViewScope scope( preview );
@@ -342,29 +362,126 @@ TEST_F( MaterialParamUpload, ACleanPropertyStillAsksTheBackend )
 }
 
 // Regression A, half two: a preview closed and another opened (the slot's set was written for the closed
-// one's copy) must be rewritten although nothing is dirty. Red when NeedsWrite looks at dirtiness alone.
+// one's copy) must be rewritten although nothing was written. Red when NeedsWrite looks at the version alone.
 TEST_F( MaterialParamUpload, ASetWrittenForAClosedViewsCopyIsRewrittenForTheNextView )
 {
     auto                 buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
     DescriptorCopyRecord set; // one [frame][slot] set, reused by both previews
     constexpr uint32_t   kBinding = 1;
+    constexpr uint64_t   kVersion = 7; // unchanged throughout: nothing is written to the property
 
     uint64_t closedCopy = 0;
     {
         Graphic::ViewResources         first( "preview A" );
         const Graphic::ActiveViewScope scope( first );
         closedCopy = buffer->BindActiveCopy();
-        ASSERT_TRUE( set.NeedsWrite( kBinding, closedCopy, /*propertyDirty=*/false ) );
-        set.NoteWritten( kBinding, closedCopy );
-        EXPECT_FALSE( set.NeedsWrite( kBinding, closedCopy, false ) ) << "an up-to-date set was rewritten";
+        ASSERT_TRUE( set.NeedsWrite( kBinding, closedCopy, kVersion ) );
+        set.NoteWritten( kBinding, closedCopy, kVersion );
+        EXPECT_FALSE( set.NeedsWrite( kBinding, closedCopy, kVersion ) ) << "an up-to-date set was rewritten";
     } // preview A closes: its copy is dropped (deferred-deleted in production)
 
     Graphic::ViewResources         second( "preview B" );
     const Graphic::ActiveViewScope scope( second );
     const uint64_t                 liveCopy = buffer->BindActiveCopy();
     EXPECT_NE( liveCopy, closedCopy ) << "copy ids were reused — the ABA a VkBuffer handle would have";
-    EXPECT_TRUE( set.NeedsWrite( kBinding, liveCopy, false ) )
+    EXPECT_TRUE( set.NeedsWrite( kBinding, liveCopy, kVersion ) )
          << "the set still points at the closed preview's freed copy and would not be rewritten";
+}
+
+// RT2f. Dirtiness is a question about one (view x frame) copy, answered by versions. The three tests below were
+// red under the per-renderer-slot countdown (MaterialProperty/FieldProperty::m_DirtyCount): ActiveViewScope does
+// not assign slots, so every view here shares one, exactly as views beyond the slot count and the frame
+// context do in the editor.
+
+// A view created 100 frames after a one-off write owes itself the write through the PROPERTY, not only through
+// the copy's seed: the countdown had drained, so HasDirtyFields said "nothing to do" to a view that had applied
+// nothing.
+TEST_F( MaterialParamUpload, AViewCreatedAHundredFramesAfterAOneOffWriteStillReceivesIt )
+{
+    const auto                     value  = Authored( 0.3f, 0.6f, 0.9f, 1.0f );
+    auto                           buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    Graphic::UniformBufferProperty prop( buffer );
+    Graphic::ViewResources         main( "viewport" );
+    {
+        const Graphic::ActiveViewScope scope( main );
+        RunRoute( prop, Route::ApplyOnceThenFlush, 100, value );
+    }
+
+    Graphic::ViewResources         preview( "preview" );
+    const Graphic::ActiveViewScope scope( preview );
+    for ( uint32_t f = 0; f < kFramesInFlight; ++f )
+    {
+        EXPECT_TRUE( prop.HasDirtyFields() )
+             << "a view that has applied nothing was told it is up to date (frame " << f << ")";
+        prop.UpdateFields();
+        EXPECT_FALSE( prop.HasDirtyFields() ) << "applying did not bring this view's copy up to date";
+        const auto copy = buffer->Copy( preview, Engine::FrameManager::GetInstance().GetCurrentFrameIndex() );
+        ASSERT_TRUE( copy.has_value() );
+        EXPECT_EQ( copy, value ) << "frame " << f;
+        Engine::FrameManager::GetInstance().NextFrame();
+    }
+}
+
+// The preview made its copies, then sat idle while the viewport rendered 100 frames after a one-off write. Its
+// EXISTING copies (no seed happens) must take the write when it records again.
+TEST_F( MaterialParamUpload, AnIdleViewsExistingCopiesReceiveAWriteMadeWhileItWasIdle )
+{
+    const auto                     before = Authored( 0.2f, 0.2f, 0.2f, 1.0f );
+    const auto                     after  = Authored( 0.9f, 0.1f, 0.1f, 1.0f );
+    auto                           buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    Graphic::UniformBufferProperty prop( buffer );
+    Graphic::ViewResources         main( "viewport" );
+    Graphic::ViewResources         preview( "preview" );
+    {
+        const Graphic::ActiveViewScope scope( preview );
+        RunRoute( prop, Route::ApplyOnceThenFlush, kFramesInFlight, before );
+    }
+    {
+        const Graphic::ActiveViewScope scope( main );
+        RunRoute( prop, Route::ApplyOnceThenFlush, 100, after );
+    }
+
+    const Graphic::ActiveViewScope scope( preview );
+    for ( uint32_t f = 0; f < kFramesInFlight; ++f )
+    {
+        if ( prop.HasDirtyFields() )
+            prop.UpdateFields();
+        const auto copy = buffer->Copy( preview, Engine::FrameManager::GetInstance().GetCurrentFrameIndex() );
+        ASSERT_TRUE( copy.has_value() );
+        EXPECT_EQ( copy, after ) << "the idle view kept the old value in frame copy " << f;
+        Engine::FrameManager::GetInstance().NextFrame();
+    }
+}
+
+// A write after the view has applied everything reaches each of its frame copies EXACTLY once: not zero (the
+// value would be missing) and not once per frame of some window (the countdown rewrote every frame it lasted).
+TEST_F( MaterialParamUpload, AWriteAfterTheViewAppliedIsWrittenOnceIntoEachFrameCopy )
+{
+    const auto                     first  = Authored( 0.1f, 0.1f, 0.1f, 1.0f );
+    const auto                     second = Authored( 0.5f, 0.4f, 0.3f, 1.0f );
+    auto                           buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    Graphic::UniformBufferProperty prop( buffer );
+    Graphic::ViewResources         view( "viewport" );
+    const Graphic::ActiveViewScope scope( view );
+    RunRoute( prop, Route::ApplyOnceThenFlush, kFramesInFlight * 2, first );
+
+    std::vector<uint32_t> writesBefore;
+    for ( uint32_t f = 0; f < kFramesInFlight; ++f )
+        writesBefore.push_back( buffer->Writes( view, f ) );
+
+    ASSERT_TRUE( prop.WriteField( prop.GetField( "Tint" ), second.data(), second.size() ) );
+    for ( uint32_t i = 0; i < kFramesInFlight * 4; ++i )
+    {
+        if ( prop.HasDirtyFields() )
+            prop.UpdateFields();
+        Engine::FrameManager::GetInstance().NextFrame();
+    }
+
+    for ( uint32_t f = 0; f < kFramesInFlight; ++f )
+    {
+        EXPECT_EQ( buffer->Writes( view, f ) - writesBefore[f], 1u ) << "frame copy " << f;
+        EXPECT_EQ( buffer->Copy( view, f ), std::optional( second ) ) << "frame copy " << f;
+    }
 }
 
 TEST_F( MaterialParamUpload, DestroyingTheBufferTakesItsCopiesBackFromEveryView )

@@ -259,6 +259,9 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Geometry/UECore/Selections/MeshConnectedComponents.hpp",
           "FMeshConnectedComponents", "Mesh", Guard::HostOutlivesUs,
           "ported UE code (P12, GeometryCore), kept in UE's shape: a connected-components walk built over a mesh the caller holds for the walk's lifetime; never stored beyond it" },
+        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp",
+          "VulkanGpuProfiler", "m_Recording", Guard::OwnedByThisObject,
+          "the frame-in-flight slot recording now, an element of this object's own m_Frames; the address is stable because m_Frames is sized once in Init and only cleared in Shutdown, which nulls m_Recording in the same step, and EndFrame nulls it between frames" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp",
           "OutputBinding", "Image", Guard::ReboundBeforeEveryUse,
           "an entry of m_BoundOutputs, which is never cleared -- not even by Release() -- so after a "
@@ -391,6 +394,9 @@ namespace Desert::Tests::PointerCensus
           "The table has static storage duration, so Q2 is closed by the language; Q1 does not arise "
           "because nobody allocated it. Never null after Get() — the constructor resolves the source "
           "language and says so loudly if that row has been deleted" },
+        { "Desert/Desert/Source/Engine/Graphic/GpuTimestampLayout.hpp",
+          "GpuScopeRecorder", "m_Stacks", Guard::IdentityOnly,
+          "the owner key of a per-view scope stack (the view that opened the scopes), compared and never dereferenced; Reset clears m_Stacks at every frame's start, so a key lives one frame, inside which the view it names is still recording and its address cannot be recycled" },
         { "Desert/Desert/Source/Engine/Graphic/MappedMemory.hpp",
           "MappedMemory", "kNeverAttempted", Guard::StaticStorage,
           "a string literal held by a constexpr static" },
