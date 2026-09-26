@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include "BackgroundCook.hpp"
 #include "IAssetImporter.hpp"
 #include "ImportResult.hpp"
 #include "TextureImporter.hpp"
@@ -17,7 +18,11 @@ namespace Desert::Editor
         ImportManager();
 
         // force = re-cook even if an up-to-date cooked output already exists (Rebuild Cooked Assets).
-        void         Import( const std::filesystem::path& path, bool force = false );
+        // The verdict is what the background startup cook (EditorLayer::DrainBackgroundCook) acts on.
+        CookVerdict Import( const std::filesystem::path& path, bool force = false );
+        // The mesh sources under `root` the bulk cook reaches (`.blend` excluded: a headless Blender run is
+        // imported on demand only).
+        static std::vector<std::filesystem::path> MeshSources( const std::filesystem::path& root );
         void         ImportAllFromDirectory( const std::filesystem::path& root, bool force = false );
         Common::UUID ImportTexture( const std::filesystem::path& path );
 
