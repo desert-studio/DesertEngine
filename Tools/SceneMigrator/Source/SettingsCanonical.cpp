@@ -7,6 +7,7 @@
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -53,8 +54,20 @@ namespace Desert::Migration
         // constructed SceneSettings is exactly what the loader does (a key the file omits keeps the C++
         // default), and writing it back out is exactly what the saver does - so the result is the saver's
         // bytes by construction rather than by a list maintained here.
-        Core::SceneSettings values;
-        Reflection::DeserializeReflected( *type, &values, stated );
+        // A wrong-typed value would be replaced by its default in the rewritten block, which is not a
+        // canonicalisation but a data loss: the block is refused and named instead.
+        Core::SceneSettings        values;
+        const Common::Json::Value  statedValue( stated );
+        Common::Json::Issues       issues;
+        Reflection::DeserializeReflected( *type, &values,
+                                          Common::Json::Root( statedValue, Common::Json::Path().Key( "Settings" ) ),
+                                          issues );
+        if ( !issues.empty() )
+        {
+            Common::Json::ReportIssues( issues, "[SceneMigration] the Settings block stays as it is" );
+            report.Refused = true;
+            return report;
+        }
         rfl::Generic::Object canonical = Reflection::SerializeReflected( *type, &values );
 
         // AN ASSET HANDLE HAS TWO ON-DISK FORMS AND THIS TOOL CAN ONLY PRODUCE ONE OF THEM. The saver

@@ -7,6 +7,7 @@
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Json/Document.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -93,6 +94,27 @@ namespace Desert::Core::Serialize
 
         // Builds a handler for a component whose serializable payload is a reflected data block. Adding a
         // PROPERTY field to that block automatically extends serialization — no code change here.
+        // Where a component block of `e` sits in the scene document, so a wrong-typed value names its entity,
+        // component and field ("Entities[id=4127].Light.Intensity"). Built here until the registry threads the
+        // load's own Path and Issues through Deserialize (JS1c S4).
+        Common::Json::Path ComponentPath( ECS::Entity e, const std::string& key )
+        {
+            const Common::Json::Path entities = Common::Json::Path().Key( "Entities" );
+            const Common::Json::Path record =
+                 e.HasComponent<ECS::UUIDComponent>()
+                      ? entities.Record( e.GetComponent<ECS::UUIDComponent>().UUID.ToString() )
+                      : entities;
+            return record.Key( key );
+        }
+
+        // A reflected block's wrong-typed values: one error line per component (the wrong-type rule,
+        // Common/Json/Document.hpp); the fields keep their values and the load continues.
+        void ReportReflectedIssues( const Common::Json::Issues& issues )
+        {
+            if ( !issues.empty() )
+                Common::Json::ReportIssues( issues, "scene component" );
+        }
+
         template <class TComponent, class TData>
         ComponentSerializer MakeReflected( std::string key, std::string typeName, TData TComponent::*member )
         {
@@ -116,19 +138,22 @@ namespace Desert::Core::Serialize
                 return Reflection::SerializeReflected( *type, &( comp.*member ), &resolver );
             };
 
-            s.Deserialize =
-                 [member, typeName]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& mgr )
+            s.Deserialize = [member, typeName, key = s.Key]( ECS::Entity e, const rfl::Generic& g,
+                                                            const Assets::AssetManager& mgr )
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
                     return;
-                auto obj = g.to_object();
-                if ( !obj.has_value() )
-                    return;
-                auto& comp =
-                     e.HasComponent<TComponent>() ? e.GetComponent<TComponent>() : e.AddComponent<TComponent>();
-                auto resolver = MakeAssetResolver( mgr );
-                Reflection::DeserializeReflected( *type, &( comp.*member ), obj.value(), &resolver );
+                Common::Json::Issues issues;
+                const auto           block = Common::Json::Root( g, ComponentPath( e, key ) );
+                if ( block.ExpectKind( Common::Json::Kind::Object, issues ) )
+                {
+                    auto& comp = e.HasComponent<TComponent>() ? e.GetComponent<TComponent>()
+                                                              : e.AddComponent<TComponent>();
+                    auto  resolver = MakeAssetResolver( mgr );
+                    Reflection::DeserializeReflected( *type, &( comp.*member ), block, issues, &resolver );
+                }
+                ReportReflectedIssues( issues );
             };
 
             return s;
@@ -880,18 +905,22 @@ namespace Desert::Core::Serialize
                 return Reflection::SerializeReflected( *type, &e.GetComponent<TComponent>(), &resolver );
             };
 
-            s.Deserialize = [typeName]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& mgr )
+            s.Deserialize = [typeName, key = s.Key]( ECS::Entity e, const rfl::Generic& g,
+                                                    const Assets::AssetManager& mgr )
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
                     return;
-                auto obj = g.to_object();
-                if ( !obj.has_value() )
-                    return;
-                auto  resolver = MakeAssetResolver( mgr );
-                auto& comp =
-                     e.HasComponent<TComponent>() ? e.GetComponent<TComponent>() : e.AddComponent<TComponent>();
-                Reflection::DeserializeReflected( *type, &comp, obj.value(), &resolver );
+                Common::Json::Issues issues;
+                const auto           block = Common::Json::Root( g, ComponentPath( e, key ) );
+                if ( block.ExpectKind( Common::Json::Kind::Object, issues ) )
+                {
+                    auto  resolver = MakeAssetResolver( mgr );
+                    auto& comp     = e.HasComponent<TComponent>() ? e.GetComponent<TComponent>()
+                                                                  : e.AddComponent<TComponent>();
+                    Reflection::DeserializeReflected( *type, &comp, block, issues, &resolver );
+                }
+                ReportReflectedIssues( issues );
             };
 
             return s;

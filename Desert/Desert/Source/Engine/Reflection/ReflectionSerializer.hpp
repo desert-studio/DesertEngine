@@ -2,11 +2,14 @@
 
 #include <Engine/Reflection/ReflectionTypes.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
+#include <Common/Json/Document.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 namespace Desert::Reflection
 {
@@ -41,21 +44,65 @@ namespace Desert::Reflection
                              const char* type, const std::string& what );
 
     // Generic, reflection-driven (de)serialization. Walks a TypeInfo's fields and reads/writes the raw
-    // object bytes at each field offset into an rfl::Generic tree. This is the single code path that makes
+    // object bytes at each field offset into a JSON value tree. This is the single code path that makes
     // "everything reflected serializes the same way" true: materials, light/camera data blocks, and any
     // future reflected struct all round-trip through here without a hand-written mirror struct.
-    //
-    // When the reflection core gains enum/nested/container support (#4), this serializer picks it up for
-    // free — no per-type serialization code to update.
 
-    // Serializes a reflected object (described by `type`) into a generic JSON object. When `resolver` is
-    // given, AssetHandle fields are written as path strings (else as raw uint64).
-    rfl::Generic::Object SerializeReflected( const TypeInfo& type, const void* obj,
+    // Serializes a reflected object (described by `type`) into a JSON object. When `resolver` is given,
+    // AssetHandle fields are written as path strings (else as raw uint64).
+    Common::Json::Object SerializeReflected( const TypeInfo& type, const void* obj,
                                              const AssetResolver* resolver = nullptr );
 
-    // Deserializes from a generic JSON object into a reflected object, in place. Fields missing from
-    // `src` keep their current (default) value — this gives forward/backward field compatibility. An
-    // AssetHandle value that is a string is resolved via `resolver`; a number is read as a raw handle.
-    void DeserializeReflected( const TypeInfo& type, void* obj, const rfl::Generic::Object& src,
-                               const AssetResolver* resolver = nullptr );
+    // Deserializes the object `src` into a reflected object, in place, under THE WRONG-TYPE RULE
+    // (Common/Json/Document.hpp): a field missing from `src` keeps its current value (forward/backward field
+    // compatibility); a field of the wrong type — a string where a float belongs, a vec of the wrong length,
+    // an integer outside the field's range — also keeps its current value and appends an Issue naming its
+    // full path, and the walk continues. `src` that is not an object is one Issue and nothing is read. An
+    // AssetHandle value that is a string is resolved via `resolver`; an integer is read as a raw handle.
+    // Root `src` at the component's path so an Issue names the entity and component, not just the field.
+    void DeserializeReflected( const TypeInfo& type, void* obj, const Common::Json::Node& src,
+                               Common::Json::Issues& issues, const AssetResolver* resolver = nullptr );
+
+    // THE CODEGEN'S HALVES OF A std::vector FIELD (FieldInfo::SerializeContainer / DeserializeContainer).
+    // Each element is written as JSON spells `Stored`. A 64-bit handle is stored as `std::uint64_t`, which
+    // the value tree keeps in its int64 alternative (reinterpreted, so ids above 2^63 survive) and which
+    // ReadContainer reinterprets back the same way.
+    template <typename Vector, typename Stored = typename Vector::value_type>
+    [[nodiscard]] Common::Json::Value WriteContainer( const void* field )
+    {
+        Common::Json::Value::Array array;
+        for ( const auto& element : *static_cast<const Vector*>( field ) )
+            array.push_back( Common::Json::Detail::ToValue( static_cast<Stored>( element ) ) );
+        return Common::Json::Value( std::move( array ) );
+    }
+
+    // Reads the array back under the wrong-type rule, and a vector is ONE field: any element of the wrong
+    // type is an Issue (with its index in the path) and the WHOLE vector keeps its current value — a
+    // vector with one element silently missing would shift every later index.
+    template <typename Vector, typename Stored = typename Vector::value_type>
+    void ReadContainer( void* field, const Common::Json::Node& src, Common::Json::Issues& issues )
+    {
+        if ( !src.ExpectKind( Common::Json::Kind::Array, issues ) )
+            return;
+        Vector            read;
+        const std::size_t before = issues.size();
+        src.ForEachElement(
+             [&]( std::size_t, const Common::Json::Node& element )
+             {
+                 if constexpr ( std::is_same_v<Stored, std::uint64_t> )
+                 {
+                     std::int64_t raw = 0;
+                     element.ReadValue( raw, issues );
+                     read.push_back( typename Vector::value_type( static_cast<std::uint64_t>( raw ) ) );
+                 }
+                 else
+                 {
+                     Stored value{};
+                     element.ReadValue( value, issues );
+                     read.push_back( static_cast<typename Vector::value_type>( value ) );
+                 }
+             } );
+        if ( issues.size() == before )
+            *static_cast<Vector*>( field ) = std::move( read );
+    }
 } // namespace Desert::Reflection

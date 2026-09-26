@@ -28,6 +28,26 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 using Desert::Reflection::FieldInfo;
 using Desert::Reflection::FieldType;
@@ -1640,7 +1660,7 @@ TEST( VolumetricCloudReflection, AnAuthoredValueSurvivesTheSaveAndTheLoad )
             "the У13 defect, in a sixth component";
 
     Desert::ECS::VolumetricCloudData loaded;
-    Desert::Reflection::DeserializeReflected( cloud, &loaded, saved );
+    ReadReflectedValue( cloud, &loaded, saved );
 
     EXPECT_FLOAT_EQ( loaded.LayerAltitudeOffset, 3.4f );
     EXPECT_FLOAT_EQ( loaded.MaxViewDistance, 7'000'000.0f );
@@ -1670,7 +1690,7 @@ TEST( VolumetricCloudReflection, AKeyThatIsNotInTheSceneLeavesTheFieldAlone )
     Desert::ECS::VolumetricCloudData loaded;
     loaded.LayerAltitudeOffset = 9.0f; // deliberately neither the default nor the authored value
 
-    Desert::Reflection::DeserializeReflected( cloud, &loaded, olderScene );
+    ReadReflectedValue( cloud, &loaded, olderScene );
 
     EXPECT_FLOAT_EQ( loaded.LayerAltitudeOffset, 9.0f )
          << "a missing key OVERWROTE the field, so loading an old scene would move every cloud layer in "

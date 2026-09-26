@@ -230,14 +230,28 @@ namespace Common::Json
         template <typename T>
         void ReadValue( T& out, Issues& issues ) const;
 
+        // True when this node is of `kind`; otherwise an Issue naming this path and false — for a reader that
+        // walks a container itself (a reflected block, a vector field) rather than reading one member.
+        bool ExpectKind( Kind kind, Issues& issues ) const
+        {
+            if ( GetKind() == kind )
+                return true;
+            Report( issues, Detail::KindName( kind ) );
+            return false;
+        }
+
+        // Records that this value is not what the reader expected: an Issue with this path, `expected`, and
+        // what the file holds — for a reader whose rule is its own (an enum stored by its integer, an asset
+        // reference with several accepted forms).
+        void Report( Issues& issues, std::string expected ) const
+        {
+            issues.push_back( { m_Path.ToString(), std::move( expected ), Detail::DescribeFound( *m_Value ) } );
+        }
+
     private:
         [[nodiscard]] std::string Located( const std::string& message ) const
         {
             return m_Path.ToString() + ": " + message;
-        }
-        void Report( Issues& issues, std::string expected ) const
-        {
-            issues.push_back( { m_Path.ToString(), std::move( expected ), Detail::DescribeFound( *m_Value ) } );
         }
 
         const Value* m_Value;

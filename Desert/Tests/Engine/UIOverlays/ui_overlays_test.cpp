@@ -38,6 +38,26 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 // The renderer resolves sprites, fonts, icons and video through these. Every one of them owns GPU objects,
 // and every draw helper already copes with the service being absent. The service METHODS below can then
@@ -749,7 +769,7 @@ TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
     const rfl::Generic::Object written = SerializeReflected( *type, &authored, nullptr );
 
     ECS::UIOverlayData reloaded;
-    DeserializeReflected( *type, &reloaded, written, nullptr );
+    ReadReflectedValue( *type, &reloaded, written, nullptr );
 
     EXPECT_EQ( reloaded.Kind, authored.Kind );
     EXPECT_EQ( reloaded.Name, authored.Name );
@@ -772,7 +792,7 @@ TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
     ASSERT_NE( ttype, nullptr ) << "UIOverlayTriggerData is not reflected, so it is not serialized either";
     const rfl::Generic::Object twritten = SerializeReflected( *ttype, &trigger, nullptr );
     ECS::UIOverlayTriggerData  treloaded;
-    DeserializeReflected( *ttype, &treloaded, twritten, nullptr );
+    ReadReflectedValue( *ttype, &treloaded, twritten, nullptr );
     EXPECT_EQ( treloaded.Overlay, trigger.Overlay );
     EXPECT_EQ( treloaded.On, trigger.On );
     EXPECT_EQ( treloaded.Text, trigger.Text );

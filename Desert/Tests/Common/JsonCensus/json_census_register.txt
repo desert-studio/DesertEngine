@@ -16,9 +16,6 @@ Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c: scene/componen
 Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/WorldStreamer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Reflection/ReflectionTypes.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Tests/Common/AssetEnvelope/text_header_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Common/AssetRedirector/asset_redirector_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Common/CanonicalText/canonical_text_test.cpp | KEEP: proves the canonical printer against yyjson directly
@@ -98,7 +95,6 @@ Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp | JS1d: editor/to
 Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp | JS1d: editor/tools protocols move to the facade
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
 Tools/DesertCtl/Source/Main.cpp | JS1d: editor/tools protocols move to the facade
-Tools/DesertHeaderTool/main.cpp | JS1d: editor/tools protocols move to the facade
 Tools/FbxMeshSplitter/FbxMeshSplitter.cpp | JS1d: editor/tools protocols move to the facade
 Tools/WorldGen/Source/WorldBuild.cpp | JS1d: editor/tools protocols move to the facade
 Tools/WorldGen/Source/WorldGenMain.cpp | JS1d: editor/tools protocols move to the facade

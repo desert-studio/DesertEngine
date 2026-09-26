@@ -26,6 +26,26 @@
 
 #include <string>
 #include <vector>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 // The renderer resolves sprites, fonts, icons and video through these. Every one of them owns GPU objects,
 // and every draw helper already copes with the service being absent -- a sprite that will not resolve falls
@@ -537,7 +557,7 @@ TEST( UIEventPersistence, PhaseAndStopPropagationSurviveTheRoundTrip )
     const rfl::Generic::Object written = SerializeReflected( *type, &authored, nullptr );
 
     ECS::UIPointerEventsData reloaded;
-    DeserializeReflected( *type, &reloaded, written, nullptr );
+    ReadReflectedValue( *type, &reloaded, written, nullptr );
 
     EXPECT_EQ( reloaded.OnDownMessage, "open:settings" );
     EXPECT_EQ( reloaded.Phase, ECS::UIEventPhase::Tunnel ) << "the phase did not survive a save and load";
@@ -560,7 +580,7 @@ TEST( UIEventPersistence, AListenerSavedBeforeTheseFieldsExistedComesBackWithThe
     // Default-constructed, because that is what the load path hands the deserializer: ComponentRegistry's
     // MakeReflected deserializes into `AddComponent<T>()` on an entity that does not have one yet.
     ECS::UIPointerEventsData reloaded;
-    DeserializeReflected( *type, &reloaded, old, nullptr );
+    ReadReflectedValue( *type, &reloaded, old, nullptr );
 
     EXPECT_EQ( reloaded.OnDownMessage, "open:settings" );
     EXPECT_EQ( reloaded.Phase, ECS::UIEventPhase::Bubble );
@@ -585,7 +605,7 @@ TEST( UIEventPersistence, AnAbsentKeyLeavesTheTargetUntouchedRatherThanResetting
     ECS::UIPointerEventsData live;
     live.Phase           = ECS::UIEventPhase::Tunnel;
     live.StopPropagation = true;
-    DeserializeReflected( *type, &live, old, nullptr );
+    ReadReflectedValue( *type, &live, old, nullptr );
 
     EXPECT_EQ( live.Phase, ECS::UIEventPhase::Tunnel );
     EXPECT_TRUE( live.StopPropagation );

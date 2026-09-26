@@ -6,7 +6,13 @@
 #include <string>
 #include <vector>
 
-#include <rflcpp/rfl/Generic.hpp>
+#include <Common/Json/Json.hpp>
+
+namespace Common::Json
+{
+    class Node;
+    struct Issue;
+} // namespace Common::Json
 
 namespace Desert::Reflection
 {
@@ -122,10 +128,13 @@ namespace Desert::Reflection
 
         // Containers (std::vector<...>). The byte-offset serializer can't iterate/resize a vector
         // generically (it needs the element type at compile time), so the codegen emits typed lambdas
-        // here. When set, the serializer routes this field through them instead of the switch above.
+        // here. When set, the serializer routes this field through them instead of the switch above. The
+        // codegen plugs in WriteContainer/ReadContainer (ReflectionSerializer.hpp); the reader follows the
+        // wrong-type rule and appends to the Issues it is given.
         bool                                                    IsContainer = false;
-        std::function<rfl::Generic( const void* /*field*/ )>    SerializeContainer;
-        std::function<void( void* /*field*/, const rfl::Generic& )> DeserializeContainer;
+        std::function<Common::Json::Value( const void* /*field*/ )> SerializeContainer;
+        std::function<void( void* /*field*/, const Common::Json::Node&, std::vector<Common::Json::Issue>& )>
+             DeserializeContainer;
 
         const std::string& DisplayName() const
         {

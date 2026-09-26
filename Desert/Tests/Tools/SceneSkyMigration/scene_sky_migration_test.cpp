@@ -26,6 +26,26 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 using Desert::Assets::EntityData;
 using Desert::ECS::SkyAtmosphereData;
@@ -106,7 +126,7 @@ namespace
         EXPECT_NE( type, nullptr );
         if ( !type )
             return data;
-        Desert::Reflection::DeserializeReflected( *type, &data, PayloadOf( e, "SkyAtmosphere" ) );
+        ReadReflectedValue( *type, &data, PayloadOf( e, "SkyAtmosphere" ) );
         return data;
     }
 
@@ -433,11 +453,11 @@ TEST( SceneSkyMigration, RoundTripThroughTheReflectedSerializers )
 
     // Load exactly as ComponentRegistry's reflected serializers do, then save the same way.
     Desert::ECS::SkyAtmosphereComponent skyComponent;
-    Desert::Reflection::DeserializeReflected( *skyType, &skyComponent.Data,
+    ReadReflectedValue( *skyType, &skyComponent.Data,
                                               PayloadOf( entities[0], "SkyAtmosphere" ) );
 
     Desert::ECS::SkyboxComponent skyboxComponent;
-    Desert::Reflection::DeserializeReflected( *skyboxType, &skyboxComponent, PayloadOf( entities[0], "Skybox" ) );
+    ReadReflectedValue( *skyboxType, &skyboxComponent, PayloadOf( entities[0], "Skybox" ) );
 
     const rfl::Generic::Object savedSky = Desert::Reflection::SerializeReflected( *skyType, &skyComponent.Data );
     const rfl::Generic::Object savedSkybox =
@@ -450,7 +470,7 @@ TEST( SceneSkyMigration, RoundTripThroughTheReflectedSerializers )
     // The saved sky survives a second load with the same values - the payload the migration produced is a
     // fixed point, not a shape that degrades each time the scene is opened.
     Desert::ECS::SkyAtmosphereData reloaded;
-    Desert::Reflection::DeserializeReflected( *skyType, &reloaded, savedSky );
+    ReadReflectedValue( *skyType, &reloaded, savedSky );
     EXPECT_FLOAT_EQ( reloaded.ZenithColor.x, skyComponent.Data.ZenithColor.x );
     EXPECT_FLOAT_EQ( reloaded.SunAngularDiameter, skyComponent.Data.SunAngularDiameter );
     EXPECT_EQ( reloaded.Enabled, skyComponent.Data.Enabled );
