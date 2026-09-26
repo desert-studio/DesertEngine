@@ -82,12 +82,12 @@ namespace Desert::Graphic::PipelineBuilds
         }
 
     private:
-        mutable std::mutex      m_Mutex;
+        mutable std::mutex       m_Mutex;
         std::chrono::nanoseconds m_CallerBlocked{};
         std::chrono::nanoseconds m_CallerBlockedMax{};
-        std::condition_variable m_Idle;
-        size_t                  m_Pending = 0;
-        uint64_t                m_Started = 0;
+        std::condition_variable  m_Idle;
+        size_t                   m_Pending = 0;
+        uint64_t                 m_Started = 0;
     };
 
     inline Tracker& Get()

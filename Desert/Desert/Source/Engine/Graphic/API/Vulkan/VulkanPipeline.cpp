@@ -423,7 +423,8 @@ namespace Desert::Graphic::API::Vulkan
              .blendConstants  = { 0.0f, 0.0f, 0.0f, 0.0f } };
     }
 
-    void VulkanPipeline::CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader, const CompileOn where )
+    void VulkanPipeline::CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader,
+                                                 const CompileOn where )
     {
         // The `throw std::runtime_error( "Framebuffer is required for pipeline creation" )` that stood
         // here is now a REFUSAL at the top of Invalidate, before a pipeline layout is created and
@@ -434,30 +435,29 @@ namespace Desert::Graphic::API::Vulkan
              m_Specification.UseLoadRenderPass ? vkFb->GetVKRenderPassLoad() : vkFb->GetVKRenderPass();
 
         // Tessellation: patch-list topology needs a tessellation state (control points per patch).
-        m_Tessellation = {
-             .sType              = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
-             .patchControlPoints = m_Specification.PatchControlPoints };
+        m_Tessellation              = { .sType              = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
+                                        .patchControlPoints = m_Specification.PatchControlPoints };
         const bool usesTessellation = m_Specification.PatchControlPoints > 0;
 
         // Members, not locals: a compile on a worker reads them after this function has returned.
-        m_PipelineInfo = {
-             .sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-             .stageCount = static_cast<uint32_t>( vulkanShader->GetPipelineShaderStageCreateInfos().size() ),
-             .pStages    = vulkanShader->GetPipelineShaderStageCreateInfos().data(),
-             .pVertexInputState   = &m_VertexInputInfo,
-             .pInputAssemblyState = &m_InputAssembly,
-             .pTessellationState  = usesTessellation ? &m_Tessellation : nullptr,
-             .pViewportState      = &m_ViewportState,
-             .pRasterizationState = &m_Rasterizer,
-             .pMultisampleState   = &m_Multisampling,
-             .pDepthStencilState  = &m_DepthStencil,
-             .pColorBlendState    = &m_ColorBlending,
-             .pDynamicState       = &m_DynamicStateInfo,
-             .layout              = m_PipelineLayout,
-             .renderPass          = renderPass,
-             .subpass             = 0,
-             .basePipelineHandle  = VK_NULL_HANDLE,
-             .basePipelineIndex   = -1 };
+        m_PipelineInfo = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                           .stageCount =
+                                static_cast<uint32_t>( vulkanShader->GetPipelineShaderStageCreateInfos().size() ),
+                           .pStages             = vulkanShader->GetPipelineShaderStageCreateInfos().data(),
+                           .pVertexInputState   = &m_VertexInputInfo,
+                           .pInputAssemblyState = &m_InputAssembly,
+                           .pTessellationState  = usesTessellation ? &m_Tessellation : nullptr,
+                           .pViewportState      = &m_ViewportState,
+                           .pRasterizationState = &m_Rasterizer,
+                           .pMultisampleState   = &m_Multisampling,
+                           .pDepthStencilState  = &m_DepthStencil,
+                           .pColorBlendState    = &m_ColorBlending,
+                           .pDynamicState       = &m_DynamicStateInfo,
+                           .layout              = m_PipelineLayout,
+                           .renderPass          = renderPass,
+                           .subpass             = 0,
+                           .basePipelineHandle  = VK_NULL_HANDLE,
+                           .basePipelineIndex   = -1 };
 
         // The device-wide, disk-persisted cache: the driver reuses binaries across runs. VkPipelineCache is
         // internally synchronized (the spec requires no external lock for vkCreate*Pipelines), so workers
@@ -471,11 +471,12 @@ namespace Desert::Graphic::API::Vulkan
         }
         m_State.store( BuildState::Compiling, std::memory_order_release );
         PipelineBuilds::Get().OnStarted();
-        m_Compile = Common::JobSystem::Get().Async( [this, device, pipelineCache]
-        {
-            Compile( device, pipelineCache );
-            PipelineBuilds::Get().OnFinished();
-        } );
+        m_Compile = Common::JobSystem::Get().Async(
+             [this, device, pipelineCache]
+             {
+                 Compile( device, pipelineCache );
+                 PipelineBuilds::Get().OnFinished();
+             } );
     }
 
     void VulkanPipeline::Compile( VkDevice device, VkPipelineCache pipelineCache )

@@ -165,7 +165,7 @@ namespace Desert::Graphic::API::Vulkan
         std::filesystem::path                 m_PipelineCacheFile; // empty = not persisted (reason logged)
         uint64_t                              m_PersistedPipelineHash  = 0; // of the entry on disk, 0 = none
         // Rewritten during the run, not only at a clean exit, which a crash or a kill never reaches.
-        PipelineCacheFile::PersistSchedule   m_PersistSchedule{ std::chrono::seconds( 2 ) };
+        PipelineCacheFile::PersistSchedule    m_PersistSchedule{ std::chrono::seconds( 2 ) };
         std::string                           m_DeviceName;
 
         // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining

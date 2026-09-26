@@ -39,7 +39,6 @@ namespace Desert::Graphic::API::Vulkan
             return identity;
         }
 
-
         // A kill -9, a crash or a lost device never reaches Destroy, and the pipelines built in that run
         // were then rebuilt from scratch on the next start. So the cache is written while the app runs,
         // as soon as the driver has built new pipelines, and at most this often while it keeps building.

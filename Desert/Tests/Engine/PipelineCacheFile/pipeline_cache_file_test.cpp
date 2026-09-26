@@ -109,11 +109,13 @@ TEST( PipelineBuilds, WaitIdleReturnsOnlyAfterTheLastCompileFinished )
     Desert::Graphic::PipelineBuilds::Tracker builds;
     builds.OnStarted();
     std::atomic<bool> finished{ false };
-    std::thread       worker( [&] {
-        std::this_thread::sleep_for( 50ms );
-        finished = true;
-        builds.OnFinished();
-    } );
+    std::thread       worker(
+         [&]
+         {
+             std::this_thread::sleep_for( 50ms );
+             finished = true;
+             builds.OnFinished();
+         } );
     builds.WaitIdle();
     EXPECT_TRUE( finished ) << "hot reload would replace a shader a compile is still reading";
     worker.join();
