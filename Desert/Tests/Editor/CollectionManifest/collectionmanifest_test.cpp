@@ -63,8 +63,8 @@ namespace
     CollectionManifest SplitterShaped()
     {
         CollectionManifest manifest;
-        manifest.Name      = R"(Oak "Grove" \ Pack)";
-        manifest.Author    = "FbxMeshSplitter";
+        manifest.Name   = R"(Oak "Grove" \ Pack)";
+        manifest.Author = "FbxMeshSplitter";
         // Every field named, absent ones as nullopt: a designated initializer that skips a field is what
         // -Wmissing-field-initializers reports, and naming them also shows which paths the writer must omit.
         manifest.Materials = std::vector<CollectionManifestMaterial>{

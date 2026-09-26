@@ -1892,40 +1892,41 @@ namespace Desert::Editor
 
         const SortMode mode = m_SortMode;
         const bool     desc = m_SortDescending;
-        std::sort(
-             order.begin(), order.end(),
-             [&]( size_t a, size_t b )
-             {
-                 const auto* ca = children[a];
-                 const auto* cb = children[b];
-                 if ( ca->IsFile != cb->IsFile )
-                     return !ca->IsFile; // folders always first, regardless of sort
-                 int cmp = 0;
-                 switch ( mode )
-                 {
-                     case SortMode::DateModified:
-                         cmp = static_cast<int>( ca->LastWriteTime > cb->LastWriteTime ) -
-                               static_cast<int>( ca->LastWriteTime < cb->LastWriteTime );
-                         break;
-                     case SortMode::Type:
-                         cmp = static_cast<int>( ca->Type ) - static_cast<int>( cb->Type );
-                         break;
-                     case SortMode::Size:
-                         cmp = static_cast<int>( ca->FileSize > cb->FileSize ) -
-                               static_cast<int>( ca->FileSize < cb->FileSize );
-                         break;
-                     case SortMode::Name:
-                     default:
-                         break;
-                 }
-                 if ( cmp == 0 ) // Name mode + tiebreak: case-insensitive filename
-                 {
-                     const auto na = ToLowerCopy( std::filesystem::path( ca->AssetPath ).filename().string() );
-                     const auto nb = ToLowerCopy( std::filesystem::path( cb->AssetPath ).filename().string() );
-                     cmp           = na.compare( nb );
-                 }
-                 return desc ? cmp > 0 : cmp < 0;
-             } );
+        std::sort( order.begin(), order.end(),
+                   [&]( size_t a, size_t b )
+                   {
+                       const auto* ca = children[a];
+                       const auto* cb = children[b];
+                       if ( ca->IsFile != cb->IsFile )
+                           return !ca->IsFile; // folders always first, regardless of sort
+                       int cmp = 0;
+                       switch ( mode )
+                       {
+                           case SortMode::DateModified:
+                               cmp = static_cast<int>( ca->LastWriteTime > cb->LastWriteTime ) -
+                                     static_cast<int>( ca->LastWriteTime < cb->LastWriteTime );
+                               break;
+                           case SortMode::Type:
+                               cmp = static_cast<int>( ca->Type ) - static_cast<int>( cb->Type );
+                               break;
+                           case SortMode::Size:
+                               cmp = static_cast<int>( ca->FileSize > cb->FileSize ) -
+                                     static_cast<int>( ca->FileSize < cb->FileSize );
+                               break;
+                           case SortMode::Name:
+                           default:
+                               break;
+                       }
+                       if ( cmp == 0 ) // Name mode + tiebreak: case-insensitive filename
+                       {
+                           const auto na =
+                                ToLowerCopy( std::filesystem::path( ca->AssetPath ).filename().string() );
+                           const auto nb =
+                                ToLowerCopy( std::filesystem::path( cb->AssetPath ).filename().string() );
+                           cmp = na.compare( nb );
+                       }
+                       return desc ? cmp > 0 : cmp < 0;
+                   } );
         return order;
     }
 

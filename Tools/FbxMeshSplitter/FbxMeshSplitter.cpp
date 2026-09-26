@@ -190,7 +190,7 @@ namespace FbxSplit
                         continue;
 
                     const std::filesystem::path rel = std::filesystem::relative( entry.path(), projectDir, ec );
-                    const std::string     relPath = ec ? entry.path().generic_string() : rel.generic_string();
+                    const std::string relPath       = ec ? entry.path().generic_string() : rel.generic_string();
 
                     MaterialDef* def = nullptr;
                     for ( auto& m : mats )
