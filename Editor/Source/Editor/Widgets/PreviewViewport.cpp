@@ -717,6 +717,17 @@ namespace Desert::Editor
         m_CubemapPass->SetBackdrop( cubeIsBackdrop );
     }
 
+    void PreviewViewport::SetCubemapProjection( bool longLat )
+    {
+        if ( m_Fill != Fill::Cubemap || !m_CubemapPass )
+        {
+            LOG_ERROR(
+                 "[Preview] SetCubemapProjection without a cubemap on show — call SetCubemapMaterial first." );
+            return;
+        }
+        m_CubemapPass->SetLongLat( longLat );
+    }
+
     void PreviewViewport::SetVolumeMaterial( const Assets::AssetHandle& material )
     {
         ++m_ContentRevision;

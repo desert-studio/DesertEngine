@@ -91,5 +91,7 @@ namespace Desert::Graphic
     {
         const ImageCube* Cube = nullptr;
         SkyLook          Look{};
+        // The mip read with textureLod: the skybox viewer walks the prefiltered chain with it. 0 elsewhere.
+        float Lod = 0.0f;
     };
 } // namespace Desert::Graphic
