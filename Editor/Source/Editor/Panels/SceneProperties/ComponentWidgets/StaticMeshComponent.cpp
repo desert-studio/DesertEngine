@@ -95,7 +95,7 @@ namespace Desert::Editor
 
             if ( ImGui::BeginPopup( "mesh_selector" ) )
             {
-                const auto meshAssets = Assets::ContentRegistry::Rows( Common::Content::ContentKind::StaticMesh );
+                const auto             meshAssets = Assets::ContentRegistry::MeshRows( false );
                 static ImGuiTextFilter meshFilter;
                 meshFilter.Draw( "##Search", 200 );
                 ImGui::Separator();

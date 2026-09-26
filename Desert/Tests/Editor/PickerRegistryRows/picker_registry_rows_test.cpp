@@ -158,6 +158,55 @@ TEST( PickerRegistryRows, OnTheCorpusTheRowsAreTheListThePreloaderBuiltObjectsFr
     EXPECT_GT( total, 50u );
 }
 
+// THE NAME AND THE SKELETON ARE TAGS THE SCAN READ, NOT OBJECTS THE LIST LOADED (UE's FAssetData tags). The
+// five kinds that state a display name at the top of their document list it; the mesh pickers split on the
+// header's skinned flag. Literal names from the corpus files, so a scan that read the wrong member fails.
+TEST( PickerRegistryRows, OnTheCorpusNamesAndTheSkinnedSplitComeFromTheRegistryTags )
+{
+    using Common::Content::ContentKind;
+    const ProjectRootGuard guard;
+    const fs::path         root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    Path::SetProjectRoot( root / "Editor", "Resources/Assets" );
+    ContentRegistry::ResetForTest();
+    ASSERT_TRUE( ContentRegistry::Gather() );
+    const auto nameOf = []( ContentKind kind, std::string_view keySuffix ) -> std::string
+    {
+        for ( const auto& row : ContentRegistry::Rows( kind ) )
+        {
+            if ( row.Key.ends_with( keySuffix ) )
+                return row.DisplayName;
+        }
+        return "<no row>";
+    };
+    EXPECT_EQ( nameOf( ContentKind::UITheme, "Desert_Dark.detheme" ), "Desert Dark" );
+    EXPECT_EQ( nameOf( ContentKind::ControlRig, "IKProbe_Arm.derig" ), "IKProbe Arm" );
+    EXPECT_EQ( nameOf( ContentKind::Retarget, "ForeignArm_To_IKProbe.retarget" ), "ForeignArm to IKProbe" );
+    EXPECT_EQ( nameOf( ContentKind::AnimGraph, "OneBoneBlend.danimgraph" ), "OneBoneBlend" );
+    EXPECT_EQ( nameOf( ContentKind::CloudType, "Altocumulus.decloudtype" ), "Altocumulus" );
+    // Rigs, retargets and graphs REQUIRE the member; every one of their rows must carry a name.
+    for ( const ContentKind kind : { ContentKind::ControlRig, ContentKind::Retarget, ContentKind::AnimGraph } )
+    {
+        for ( const auto& row : ContentRegistry::Rows( kind ) )
+            EXPECT_FALSE( row.DisplayName.empty() ) << row.Key << " states a name the scan did not read";
+    }
+
+    const auto skinned = ContentRegistry::MeshRows( true );
+    const auto statics = ContentRegistry::MeshRows( false );
+    const auto hasKey  = []( const auto& rows, std::string_view suffix )
+    { return std::ranges::any_of( rows, [&]( const auto& row ) { return row.Key.ends_with( suffix ); } ); };
+    EXPECT_TRUE( hasKey( statics, "StaticProbe.stmesh" ) );
+    EXPECT_FALSE( hasKey( skinned, "StaticProbe.stmesh" ) );
+    for ( const char* mesh : { "IKProbe.skmesh", "SkinProbe.skmesh", "TwoBoneProbe.skmesh" } )
+    {
+        EXPECT_TRUE( hasKey( skinned, mesh ) ) << mesh << " is missing from the skinned picker";
+        EXPECT_FALSE( hasKey( statics, mesh ) ) << mesh << " is on the static picker";
+    }
+    EXPECT_EQ( skinned.size() + statics.size(), ContentRegistry::Rows( ContentKind::StaticMesh ).size() +
+                                                     ContentRegistry::Rows( ContentKind::SkinnedMesh ).size() )
+         << "a mesh row is on neither picker";
+}
+
 TEST( PickerRegistryRows, AFileThatAppearsReachesTheRowsWithoutARescanAndLeavesWhenItGoes )
 {
     const ProjectRootGuard guard;

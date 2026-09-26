@@ -497,6 +497,10 @@ namespace Desert::Assets
             std::string                               Key;    // the stable key, `root:relative/path`
             std::filesystem::path                     Path;   // the key expanded on THIS machine
             std::optional<Common::Content::AssetGuid> Guid;   // the header's GUID, when the file states one
+            // The Name tag: what the file states as its display name, read by the scan without loading it;
+            // empty when the file states none (then a list shows the stem, as the asset itself does).
+            std::string DisplayName;
+            bool        Skinned = false; // the Skinned tag: a mesh whose header flags a skeleton
         };
 
         // The rows of one kind in registry order — the SAME order `FilesOfKind` hands the preloader, so a
@@ -512,7 +516,27 @@ namespace Desert::Assets
                   state.Registry.OfKind( Common::Content::KindName( kind ) ) )
             {
                 rows.push_back( { Common::AssetHandle( row->EffectiveHandle() ), row->Key,
-                                  Common::AssetHandle::PathForStableKey( row->Key ), row->Guid } );
+                                  Common::AssetHandle::PathForStableKey( row->Key ), row->Guid, row->DisplayName,
+                                  row->Skinned } );
+            }
+            return rows;
+        }
+
+        // THE MESH PICKERS' ROWS, split by the Skinned tag and not by extension (UE filters FAssetData by its
+        // tags the same way): every mesh row of both mesh kinds whose header does (`skinned`) or does not flag
+        // a skeleton. The header is read at scan time, so a mesh nobody has loaded is on the right list — the
+        // loaded-object filter this replaces put unloaded skinned meshes on the static list.
+        inline std::vector<PickerRow> MeshRows( bool skinned )
+        {
+            std::vector<PickerRow> rows;
+            for ( const Common::Content::ContentKind kind :
+                  { Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::SkinnedMesh } )
+            {
+                for ( PickerRow& row : Rows( kind ) )
+                {
+                    if ( row.Skinned == skinned )
+                        rows.push_back( std::move( row ) );
+                }
             }
             return rows;
         }

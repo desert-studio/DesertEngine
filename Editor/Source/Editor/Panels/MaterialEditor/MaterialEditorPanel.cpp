@@ -1829,10 +1829,7 @@ namespace Desert::Editor
                 for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::CloudType ) )
                 {
                     const bool selected = ( static_cast<uint64_t>( row.Handle ) == handle );
-                    if ( ImGui::Selectable(
-                              ::Desert::Editor::PickerDisplayName<Assets::CloudTypeAsset>( *m_AssetManager, row )
-                                   .c_str(),
-                              selected ) &&
+                    if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(), selected ) &&
                          row.Guid.has_value() && !row.Guid->IsNull() )
                     {
                         data.SetCloudAsset( p.Name, *row.Guid, row.Key );

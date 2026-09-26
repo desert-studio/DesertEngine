@@ -217,9 +217,7 @@ namespace Desert::Editor
                 for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::AnimGraph ) )
                 {
                     const bool selected = ( row.Handle == animation.GraphAsset );
-                    if ( ImGui::Selectable(
-                              ::Desert::Editor::PickerDisplayName<Assets::AnimGraphAsset>( *assets, row ).c_str(),
-                              selected ) )
+                    if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(), selected ) )
                     {
                         // ONLY THE HANDLE. The object is AnimationECSSystem's to hand over, from the
                         // asset, so that every entity naming one file ends up pointing at ONE object —

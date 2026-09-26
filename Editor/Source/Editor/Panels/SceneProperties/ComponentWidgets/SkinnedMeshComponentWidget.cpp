@@ -133,7 +133,7 @@ namespace Desert::Editor
 
         Utils::ImGuiUtilities::PushID();
 
-        const auto meshAssets = Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh );
+        const auto meshAssets = Assets::ContentRegistry::MeshRows( true );
 
         // The mesh that is ACTUALLY drawn: an in-editor rig (Convert to Skinned) overrides the asset.
         ::Desert::Mesh* mesh = skinnedMesh.RuntimeMesh.get();

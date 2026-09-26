@@ -899,9 +899,7 @@ namespace Desert::Editor
                                   Assets::ContentRegistry::Rows( Common::Content::ContentKind::UITheme ) )
                             {
                                 const bool selected = ( static_cast<uint64_t>( row.Handle ) == *themeHandle );
-                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName<Assets::UIThemeAsset>(
-                                                             *assetMgr, row )
-                                                             .c_str(),
+                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
                                                         selected ) )
                                 {
                                     *themeHandle = static_cast<uint64_t>( row.Handle );
@@ -995,11 +993,8 @@ namespace Desert::Editor
                                   Assets::ContentRegistry::Rows( Common::Content::ContentKind::ControlRig ) )
                             {
                                 const bool selected = ( static_cast<uint64_t>( row.Handle ) == *rigHandle );
-                                if ( ImGui::Selectable(
-                                          ::Desert::Editor::PickerDisplayName<Assets::ControlRigAsset>( *assetMgr,
-                                                                                                        row )
-                                               .c_str(),
-                                          selected ) )
+                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
+                                                        selected ) )
                                 {
                                     *rigHandle = static_cast<uint64_t>( row.Handle );
                                     changed    = true;
@@ -1105,9 +1100,7 @@ namespace Desert::Editor
                                   Assets::ContentRegistry::Rows( Common::Content::ContentKind::Retarget ) )
                             {
                                 const bool selected = ( static_cast<uint64_t>( row.Handle ) == *retargetHandle );
-                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName<Assets::RetargetAsset>(
-                                                             *assetMgr, row )
-                                                             .c_str(),
+                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
                                                         selected ) )
                                 {
                                     *retargetHandle = static_cast<uint64_t>( row.Handle );

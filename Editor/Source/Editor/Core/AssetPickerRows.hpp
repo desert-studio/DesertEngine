@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
 #include <filesystem>
@@ -8,19 +7,11 @@
 
 namespace Desert::Editor
 {
-    // WHAT A PICKER SHOWS FOR ONE REGISTRY ROW. The list itself comes from `ContentRegistry::Rows`; only the
-    // label may come from the object, because five kinds (UI theme, control rig, retarget, anim graph, cloud
-    // type) state a display name INSIDE the file that no registry column carries. When the object is
-    // resident its own name is shown — the name every picker showed before it read rows — and when it is
-    // not, the file's stem, which is exactly what those assets fall back to themselves when the file states
-    // none. Probing never loads and never logs a miss: a row with no object is the normal state the
-    // registry exists to serve.
-    template <typename TypeAsset>
-    [[nodiscard]] std::string PickerDisplayName( const Assets::AssetManager&               assets,
-                                                 const Assets::ContentRegistry::PickerRow& row )
+    // WHAT A PICKER SHOWS FOR ONE REGISTRY ROW: the display name the file states (the registry's Name tag,
+    // read by the scan from the document's top level, never by loading the asset), else the file's stem —
+    // exactly what those assets fall back to themselves when the file states none.
+    [[nodiscard]] inline std::string PickerDisplayName( const Assets::ContentRegistry::PickerRow& row )
     {
-        if ( const auto resident = assets.ProbeByHandle<TypeAsset>( row.Handle ) )
-            return resident->GetDisplayName();
-        return row.Path.stem().string();
+        return row.DisplayName.empty() ? row.Path.stem().string() : row.DisplayName;
     }
 } // namespace Desert::Editor

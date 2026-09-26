@@ -54,6 +54,12 @@ namespace Common::Content
         // A cooked mesh's box as its 64-byte header states it (MeshBinaryHeader.hpp); std::nullopt for every
         // other kind and for a mesh file whose header this host cannot read (the loader names that one).
         std::optional<MeshHeaderBounds> MeshBounds;
+        // The registry's tags (AssetRegistryEntry::DisplayName / Skinned): the name the document states under
+        // its kind's DisplayNameMember, and a cooked mesh header's skinned flag. A document that cannot be
+        // parsed states no name here; the loader names that fault when the asset is used (UE lists such a
+        // package and fails at load, never hides it).
+        std::string DisplayName;
+        bool        Skinned = false;
     };
 
     // The file at `file`, of `kind`: its size and its header, read the way the registry cook reads it.
