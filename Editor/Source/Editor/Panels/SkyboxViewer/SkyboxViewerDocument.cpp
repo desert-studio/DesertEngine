@@ -189,7 +189,7 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Starting the preview..." );
             return;
         }
-        m_Preview->Draw( *m_UIHelper, avail );
+        m_Preview->Draw( *m_UIHelper, avail, PreviewInteraction::Interactive );
     }
 
     SubjectEditorRegistry::PathOpenOutcome RequestSkyboxDocument( Assets::AssetManager*        assets,
