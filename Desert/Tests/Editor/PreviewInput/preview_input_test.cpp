@@ -237,8 +237,8 @@ TEST( PreviewInput, DetailsPreviewModeComesFromTheRowKind )
 
 TEST( PreviewInput, EachDetailsRowNamesItsOwnKind )
 {
-    const std::string mesh = ReadRepoFile(
-         "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp" );
+    const std::string mesh =
+         ReadRepoFile( "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp" );
     const std::string sky =
          ReadRepoFile( "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp" );
     ASSERT_FALSE( mesh.empty() );
@@ -254,7 +254,8 @@ TEST( PreviewInput, PreviewWidgetClaimsTheWheelThroughTheRule )
     const std::string source = ReadRepoFile( "Editor/Source/Editor/Widgets/PreviewViewport.cpp" );
     ASSERT_FALSE( source.empty() );
     const auto claim = source.find( "ImGui::SetItemUsingMouseWheel()" );
-    ASSERT_NE( claim, std::string::npos ) << "the preview no longer claims the wheel: Details scrolls while it zooms";
+    ASSERT_NE( claim, std::string::npos )
+         << "the preview no longer claims the wheel: Details scrolls while it zooms";
     // The claim is gated by the rule, not unconditional — a Static row must leave the wheel to the panel.
     const auto rule = source.rfind( "PreviewOwnsWheel(", claim );
     ASSERT_NE( rule, std::string::npos );

@@ -139,7 +139,8 @@ namespace Desert::Editor
         }
     }
 
-    bool ComponentEditContext::DrawPreview( const ImVec2& size, DetailsPreviewKind kind, uint64_t openHandle ) const
+    bool ComponentEditContext::DrawPreview( const ImVec2& size, DetailsPreviewKind kind,
+                                            uint64_t openHandle ) const
     {
         if ( !Preview || !PreviewUI )
             return false;
