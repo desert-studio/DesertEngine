@@ -13,6 +13,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -168,6 +170,57 @@ TEST( SceneMaterialGuidMigration, MigratePrefabRefusesTheSameUnknownId )
     ASSERT_FALSE( outcome.Refused.empty() );
     EXPECT_NE( outcome.Refused.find( std::to_string( kOldIdUnknown ) ), std::string::npos ) << outcome.Refused;
     EXPECT_NE( outcome.Refused.find( "Bad" ), std::string::npos ) << outcome.Refused;
+}
+
+// A v26 payload that named its materials by `MaterialPaths` ALONE (SKY_HDR_PolyHaven, SKY_N9_IBL_*): the
+// first version of the step skipped it, the scenes were stamped v27+ with no GUID, and the loader then left
+// every slot empty ("states no GUID but a path"). The step must read each `.demat`'s header GUID.
+namespace
+{
+    std::filesystem::path WritePathOnlyFixture( const char* leaf )
+    {
+        const auto root = std::filesystem::temp_directory_path() / leaf;
+        std::filesystem::remove_all( root );
+        std::filesystem::create_directories( root / "Materials" );
+        std::ofstream( root / "Materials" / "A.demat" )
+             << R"({"Header":{"Kind":"Material","Guid":")" << AssetGuidToText( kGuidA )
+             << R"(","Versions":{"MATL":4},"Dependencies":[]},"Params":[]})";
+        return root;
+    }
+
+    std::string PathOnlyScene( const char* path )
+    {
+        return std::string( "{" ) + V26Header( kSceneGuid ) +
+               R"(,"SceneName":"S","Entities":[
+        {"id":1,"Tag":"Floor","StaticMesh":{"Primitive":"Cube","MaterialPaths":[")" +
+               path + R"("]}}]})";
+    }
+} // namespace
+
+TEST( SceneMaterialGuidMigration, APathOnlySlotGainsTheGuidOfTheMaterialItNames )
+{
+    const auto root   = WritePathOnlyFixture( "rsky2_path_only_ok" );
+    auto       scene  = Parse( PathOnlyScene( "Materials/A.demat" ) );
+    const auto report = Migration::MigrateScene( scene, "", root, KnownLegacyIds() );
+
+    ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
+    EXPECT_EQ( report.MaterialGuids.Rewritten, 1 );
+    EXPECT_EQ( SlotText( scene, 0, "StaticMesh" ), AssetGuidToText( kGuidA ) )
+         << "a slot that stated only a path was stamped past v27 with no GUID - it loads as no material";
+    std::filesystem::remove_all( root );
+}
+
+TEST( SceneMaterialGuidMigration, APathOnlySlotWhoseMaterialIsMissingRefusesByName )
+{
+    const auto root   = WritePathOnlyFixture( "rsky2_path_only_missing" );
+    auto       scene  = Parse( PathOnlyScene( "Materials/Gone.demat" ) );
+    const auto report = Migration::MigrateScene( scene, "", root, KnownLegacyIds() );
+
+    ASSERT_FALSE( report.Refused.empty() ) << "a path naming no file must refuse, not stamp an empty slot";
+    EXPECT_NE( report.Refused.find( "Materials/Gone.demat" ), std::string::npos ) << report.Refused;
+    EXPECT_NE( report.Refused.find( "Floor" ), std::string::npos ) << report.Refused;
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), 26 );
+    std::filesystem::remove_all( root );
 }
 
 int main( int argc, char** argv )
