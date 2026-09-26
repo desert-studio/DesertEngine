@@ -30,12 +30,12 @@ namespace Desert::Geometry
         bool InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
         /** UE EdgeLoop.cpp:21-38: Vertices[i] is the vertex Edges[i-1] and Edges[i] share. */
         void InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
-        bool IsBoundaryLoop( const DynamicMesh3& Mesh ) const;
-        int  GetVertexCount() const
+        [[nodiscard]] bool IsBoundaryLoop( const DynamicMesh3& Mesh ) const;
+        [[nodiscard]] int  GetVertexCount() const
         {
             return static_cast<int32_t>( Vertices.size() );
         }
-        int GetEdgeCount() const
+        [[nodiscard]] int GetEdgeCount() const
         {
             return static_cast<int32_t>( Edges.size() );
         }
@@ -98,12 +98,12 @@ namespace Desert::Geometry
         std::vector<bool> m_Edges;     // region-boundary membership over [0, MaxEdgeID)
         std::vector<int>  m_EdgesRoi;
 
-        bool IsEdgeOnBoundary( int Eid ) const
+        [[nodiscard]] bool IsEdgeOnBoundary( int Eid ) const
         {
             return m_Edges[Eid];
         }
         bool     IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const;
-        Index2i  GetOrientedEdgeVerts( int Eid, int TidIn ) const;
+        [[nodiscard]] Index2i GetOrientedEdgeVerts( int Eid, int TidIn ) const;
         int      GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const;
     };
 } // namespace Desert::Geometry

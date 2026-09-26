@@ -86,7 +86,7 @@ namespace Desert::Geometry
             }
             return MeshNormals::ComputeVertexNormal( *m_PointSet, PointID );
         }
-        Frame3d GetFrame( const GraphNode& Node ) const
+        [[nodiscard]] Frame3d GetFrame( const GraphNode& Node ) const
         {
             return Frame3d( GetPosition( Node.PointID ), Node.CachedNormal );
         }
@@ -149,7 +149,7 @@ namespace Desert::Geometry
         void UpdateUVExpmapUpwind( GraphNode& Node )
         {
             const glm::dvec3 NodePos   = GetPosition( Node.PointID );
-            glm::dvec2       AverageUV = glm::dvec2( 0 );
+            auto             AverageUV = glm::dvec2( 0 );
             double          WeightSum = 0;
             for ( const int32_t NbrPointID : m_PointSet->VtxVerticesItr( Node.PointID ) )
             {

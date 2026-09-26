@@ -115,13 +115,13 @@ namespace Desert::Geometry
         }
 
         /** Returns true if there are vertex mappings. */
-        bool VertexMapIsSet() const
+        [[nodiscard]] bool VertexMapIsSet() const
         {
             return !m_VertMap.empty();
         }
 
         /** Returns true if there are triangle mappings. */
-        bool TriangleMapIsSet() const
+        [[nodiscard]] bool TriangleMapIsSet() const
         {
             return !m_TriMap.empty();
         }
@@ -159,7 +159,7 @@ namespace Desert::Geometry
         }
 
         /** Get mapping for three vertices, e.g. a triangle */
-        Index3i GetVertexMapping( Index3i FromIDs ) const
+        [[nodiscard]] Index3i GetVertexMapping( Index3i FromIDs ) const
         {
             return { m_VertMap[FromIDs[0]], m_VertMap[FromIDs[1]], m_VertMap[FromIDs[2]] };
         }
@@ -171,7 +171,7 @@ namespace Desert::Geometry
         }
 
         /** Check data for validity; for testing */
-        bool Validate() const
+        [[nodiscard]] bool Validate() const
         {
             for ( int32_t Idx = 0; Idx < static_cast<int32_t>( m_VertMap.size() ); Idx++ )
             {

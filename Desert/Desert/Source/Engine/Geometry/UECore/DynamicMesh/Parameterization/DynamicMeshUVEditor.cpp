@@ -78,7 +78,7 @@ namespace Desert::Geometry
             FrameOut = GetVertexFrame( Mesh, VertexIDOut, Normal );
             return false;
         }
-        const EdgeLoop* Loop = &LoopsCalc.m_Loops[0];
+        const EdgeLoop* Loop = LoopsCalc.m_Loops.data();
         for ( const EdgeLoop& Candidate : LoopsCalc.m_Loops )
         {
             if ( static_cast<int32_t>( Candidate.Vertices.size() ) >
@@ -87,6 +87,7 @@ namespace Desert::Geometry
         }
         using Dijkstra = MeshDijkstra<DynamicMesh3>;
         std::vector<Dijkstra::SeedPoint> SeedPoints;
+        SeedPoints.reserve( Loop->Vertices.size() );
         for ( const int32_t vid : Loop->Vertices )
             SeedPoints.push_back( Dijkstra::SeedPoint{ vid, vid, 0.0 } );
         Dijkstra Search( &Mesh );
@@ -142,7 +143,7 @@ namespace Desert::Geometry
             NewElementIDs.push_back( VtxElementIDs[vid] );
         }
 
-        int32_t NumFailed = static_cast<int32_t>( SubmeshCalc.GetFailedTriangles().size() );
+        auto NumFailed = static_cast<int32_t>( SubmeshCalc.GetFailedTriangles().size() );
         for ( const int32_t tid : Submesh.TriangleIndicesItr() )
         {
             const Index3i SubTri = Submesh.GetTriangle( tid );

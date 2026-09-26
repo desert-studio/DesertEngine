@@ -21,33 +21,31 @@ namespace Desert::Geometry
         using MapFunctionT = std::function<ToType( FromType )>;
 
     public:
-        inline MappedIterator()
-        {
-        }
+        MappedIterator() = default;
 
-        inline bool operator==( const MappedIterator& Other ) const
+        bool operator==( const MappedIterator& Other ) const
         {
             return m_Cur == Other.Cur;
         }
-        inline bool operator!=( const MappedIterator& Other ) const
+        bool operator!=( const MappedIterator& Other ) const
         {
             return m_Cur != Other.m_Cur;
         }
 
-        inline ToType operator*() const
+        ToType operator*() const
         {
             return m_MapFunction( *m_Cur );
         }
 
-        inline const MappedIterator& operator++() // prefix
+        const MappedIterator& operator++() // prefix
         {
             m_Cur++;
             return *this;
         }
 
-        inline MappedIterator( const IteratorT& CurItr, const MapFunctionT& MapFunctionIn )
+        MappedIterator( const IteratorT& CurItr, const MapFunctionT& MapFunctionIn ) : m_Cur( CurItr )
         {
-            m_Cur         = CurItr;
+
             m_MapFunction = MapFunctionIn;
         }
 
@@ -65,45 +63,43 @@ namespace Desert::Geometry
         using FilterFunctionT = std::function<bool( ValueType )>;
 
     public:
-        inline FilteredIterator()
-        {
-        }
+        FilteredIterator() = default;
 
-        inline bool operator==( const FilteredIterator& Other ) const
+        bool operator==( const FilteredIterator& Other ) const
         {
             return m_Cur == Other.Cur;
         }
-        inline bool operator!=( const FilteredIterator& Other ) const
+        bool operator!=( const FilteredIterator& Other ) const
         {
             return m_Cur != Other.m_Cur;
         }
 
-        inline ValueType operator*() const
+        ValueType operator*() const
         {
             return *m_Cur;
         }
 
-        inline const FilteredIterator& operator++() // prefix
+        const FilteredIterator& operator++() // prefix
         {
             GotoNextElement();
             return *this;
         }
 
-        inline void GotoNextElement()
+        void GotoNextElement()
         {
             do
             {
                 m_Cur++;
-            } while ( m_Cur != m_End && m_FilterFunc( *m_Cur ) == false );
+            } while ( m_Cur != m_End && !static_cast<bool>( m_FilterFunc( *m_Cur ) ) );
         }
 
-        inline FilteredIterator( const IteratorT& CurItr, const IteratorT& EndItr,
-                                 const FilterFunctionT& FilterFuncIn )
+        FilteredIterator( const IteratorT& CurItr, const IteratorT& EndItr, const FilterFunctionT& FilterFuncIn )
+             : m_Cur( CurItr )
         {
-            m_Cur              = CurItr;
+
             m_End              = EndItr;
             this->m_FilterFunc = FilterFuncIn;
-            if ( m_Cur != m_End && m_FilterFunc( *m_Cur ) == false )
+            if ( m_Cur != m_End && !static_cast<bool>( m_FilterFunc( *m_Cur ) ) )
             {
                 GotoNextElement();
             }
@@ -140,31 +136,29 @@ namespace Desert::Geometry
         using ExpandFunctionT = std::function<OutputType( InputType, int& )>;
 
     public:
-        inline ExpandIterator()
-        {
-        }
+        ExpandIterator() = default;
 
-        inline bool operator==( const ExpandIterator& Other ) const
+        bool operator==( const ExpandIterator& Other ) const
         {
             return m_Cur == Other.Cur;
         }
-        inline bool operator!=( const ExpandIterator& Other ) const
+        bool operator!=( const ExpandIterator& Other ) const
         {
             return m_Cur != Other.Cur;
         }
 
-        inline OutputType operator*() const
+        OutputType operator*() const
         {
             return m_CurValue;
         }
 
-        inline const ExpandIterator& operator++() // prefix
+        const ExpandIterator& operator++() // prefix
         {
             goto_next();
             return *this;
         }
 
-        inline void goto_next()
+        void goto_next()
         {
             while ( m_Cur != m_End )
             {
@@ -180,10 +174,11 @@ namespace Desert::Geometry
             }
         }
 
-        inline ExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
-                               const ExpandFunctionT& ExpandFuncIn )
+        ExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
+                        const ExpandFunctionT& ExpandFuncIn )
+             : m_Cur( CurItr )
         {
-            m_Cur        = CurItr;
+
             m_End        = EndItr;
             m_ExpandFunc = ExpandFuncIn;
             m_CurExpandI = -1;
@@ -193,7 +188,7 @@ namespace Desert::Geometry
         InputIteratorT  m_Cur;
         InputIteratorT  m_End;
         OutputType      m_CurValue;
-        int             m_CurExpandI;
+        int             m_CurExpandI{};
         ExpandFunctionT m_ExpandFunc;
     };
 
@@ -256,31 +251,29 @@ namespace Desert::Geometry
         using PairExpandFunctionT = std::function<Index2i( int )>;
 
     public:
-        inline PairExpandIterator()
-        {
-        }
+        PairExpandIterator() = default;
 
-        inline bool operator==( const PairExpandIterator& Other ) const
+        bool operator==( const PairExpandIterator& Other ) const
         {
             return m_Cur == Other.Cur;
         }
-        inline bool operator!=( const PairExpandIterator& Other ) const
+        bool operator!=( const PairExpandIterator& Other ) const
         {
             return m_Cur != Other.m_Cur;
         }
 
-        inline int operator*() const
+        int operator*() const
         {
             return m_CurValue;
         }
 
-        inline const PairExpandIterator& operator++() // prefix
+        const PairExpandIterator& operator++() // prefix
         {
             goto_next();
             return *this;
         }
 
-        inline void goto_next()
+        void goto_next()
         {
             while ( m_Cur != m_End )
             {
@@ -293,11 +286,9 @@ namespace Desert::Geometry
                         m_CurPairI = 1; // want to take second branch
                         return;       // let caller see value
                     }
-                    else
-                    {
-                        m_CurPairI = 0;
-                        ++m_Cur; // done with this base value
-                    }
+
+                    m_CurPairI = 0;
+                    ++m_Cur; // done with this base value
                 }
                 else if ( m_CurPairI == 1 )
                 {
@@ -307,11 +298,9 @@ namespace Desert::Geometry
                         m_CurPairI = 2; // want to take third branch
                         return;       // let caller see value
                     }
-                    else
-                    {
-                        m_CurPairI = 0;
-                        ++m_Cur; // done with this base value
-                    }
+
+                    m_CurPairI = 0;
+                    ++m_Cur; // done with this base value
                 }
                 else
                 {
@@ -321,10 +310,11 @@ namespace Desert::Geometry
             }
         }
 
-        inline PairExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
-                                   const PairExpandFunctionT& PairFuncIn )
+        PairExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
+                            const PairExpandFunctionT& PairFuncIn )
+             : m_Cur( CurItr )
         {
-            m_Cur      = CurItr;
+
             m_End      = EndItr;
             m_PairFunc = PairFuncIn;
             m_CurPairI = 0;
@@ -334,8 +324,8 @@ namespace Desert::Geometry
         InputIteratorT      m_Cur;
         InputIteratorT      m_End;
         Index2i             m_CurPair;
-        int                 m_CurValue;
-        int                 m_CurPairI;
+        int                 m_CurValue{};
+        int                 m_CurPairI{};
         PairExpandFunctionT m_PairFunc;
     };
 
@@ -413,11 +403,12 @@ namespace Desert::Geometry
         uint64_t ModuloNum   = 1;
 
         ModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 )
+             : Count( 0 )
         {
             MaxIndex   = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), MaxIndexIn ) );
             StartIndex = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), StartIndexIn ) );
             CurIndex   = StartIndex;
-            Count      = 0;
+
             ModuloNum  = std::max( static_cast<uint64_t>( 1 ),
                                    MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
                                                // is 0 we will terminate on first iteration anyway

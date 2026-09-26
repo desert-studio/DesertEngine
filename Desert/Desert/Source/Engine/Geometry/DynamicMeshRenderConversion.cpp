@@ -39,7 +39,7 @@ namespace Desert::Geometry
             explicit PositionWelder( float tolerance ) : m_Tolerance( tolerance )
             {
             }
-            int Find( const DynamicMesh3& mesh, const glm::vec3& p ) const
+            [[nodiscard]] int Find( const DynamicMesh3& mesh, const glm::vec3& p ) const
             {
                 const auto base = Cell( p );
                 for ( int dx = -1; dx <= 1; ++dx )
@@ -61,7 +61,7 @@ namespace Desert::Geometry
             }
 
         private:
-            std::array<int64_t, 3> Cell( const glm::vec3& p ) const
+            [[nodiscard]] std::array<int64_t, 3> Cell( const glm::vec3& p ) const
             {
                 const float size = m_Tolerance > 0.0f ? m_Tolerance : 1.0f;
                 return { static_cast<int64_t>( std::floor( p.x / size ) ),
@@ -132,7 +132,7 @@ namespace Desert::Geometry
                 const Index3i  en  = normals->GetTriangle( t );
                 const Index3i  et  = tangentSpace ? tangents->GetTriangle( t ) : Index3i::Invalid();
                 const Index3i  eb  = tangentSpace ? bitangents->GetTriangle( t ) : Index3i::Invalid();
-                const Index3i  eu  = uvs ? uvs->GetTriangle( t ) : Index3i::Invalid();
+                const Index3i  eu  = ( uvs != nullptr ) ? uvs->GetTriangle( t ) : Index3i::Invalid();
                 Index          index{};
                 uint32_t*      slots[3] = { &index.V1, &index.V2, &index.V3 };
                 for ( int j = 0; j < 3; ++j )
@@ -152,7 +152,7 @@ namespace Desert::Geometry
                             vertex.Tangent   = tangents->GetElement( et[c] );
                             vertex.Bitangent = bitangents->GetElement( eb[c] );
                         }
-                        if ( uvs )
+                        if ( uvs != nullptr )
                             vertex.TexCoord = uvs->GetElement( eu[c] );
                         const auto local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
                         out.Vertices.push_back( vertex );
@@ -167,7 +167,8 @@ namespace Desert::Geometry
 
             submesh.VertexCount = static_cast<uint32_t>( out.Vertices.size() ) - submesh.VertexOffset;
             submesh.IndexCount  = static_cast<uint32_t>( out.Indices.size() * 3 ) - submesh.IndexOffset;
-            glm::vec3 lo( 0.0f ), hi( 0.0f );
+            glm::vec3 lo( 0.0f );
+            glm::vec3 hi( 0.0f );
             for ( uint32_t i = 0; i < submesh.VertexCount; ++i )
             {
                 const glm::vec3& p = out.Vertices[submesh.VertexOffset + i].Position;
@@ -204,8 +205,8 @@ namespace Desert::Geometry
             const Range r{ s.VertexOffset, s.VertexCount, s.IndexOffset / 3, s.IndexCount / 3,
                            i < render.SubmeshMaterialIds.size() ? render.SubmeshMaterialIds[i]
                                                                 : static_cast<int>( i ) };
-            if ( uint64_t( r.VertexOffset ) + r.VertexCount > render.Vertices.size() ||
-                 uint64_t( r.FirstTriangle ) + r.TriangleCount > render.Indices.size() )
+            if ( static_cast<uint64_t>( r.VertexOffset ) + r.VertexCount > render.Vertices.size() ||
+                 static_cast<uint64_t>( r.FirstTriangle ) + r.TriangleCount > render.Indices.size() )
                 return MakeFormattedError<ImportedDynamicMesh>(
                      "FromRenderMesh: submesh {} spans vertices [{}, +{}) and triangles [{}, +{}) of {} / {}", i,
                      r.VertexOffset, r.VertexCount, r.FirstTriangle, r.TriangleCount, render.Vertices.size(),
@@ -239,7 +240,10 @@ namespace Desert::Geometry
         };
         // Per overlay and vertex, the elements already made there; a vertex has a handful, so a scan is the
         // whole lookup. A detached copy of a vertex is a different vertex and gets its own elements.
-        std::vector<std::vector<int>> normalAt, tangentAt, bitangentAt, uvAt;
+        std::vector<std::vector<int>> normalAt;
+        std::vector<std::vector<int>> tangentAt;
+        std::vector<std::vector<int>> bitangentAt;
+        std::vector<std::vector<int>> uvAt;
         const auto element = [&]( auto& overlay, std::vector<std::vector<int>>& at, int v, const auto& value )
         {
             if ( static_cast<int>( at.size() ) <= v )
@@ -309,7 +313,10 @@ namespace Desert::Geometry
                          "FromRenderMesh: triangle {} of a submesh was refused by the mesh ({})", k, t );
                 materialIds.SetValue( t, range.Material );
 
-                Index3i en, et, eb, eu;
+                Index3i en;
+                Index3i et;
+                Index3i eb;
+                Index3i eu;
                 for ( int j = 0; j < 3; ++j )
                 {
                     const Vertex& s = *source[j];

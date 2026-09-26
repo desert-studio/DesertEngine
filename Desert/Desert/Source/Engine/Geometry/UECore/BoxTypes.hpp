@@ -41,23 +41,23 @@ namespace Desert::Geometry
             return AxisAlignedBox3();
         }
 
-        glm::vec<3, RealType> Center() const
+        [[nodiscard]] glm::vec<3, RealType> Center() const
         {
             return glm::vec<3, RealType>( ( Min.x + Max.x ) * (RealType)0.5, ( Min.y + Max.y ) * (RealType)0.5,
                                           ( Min.z + Max.z ) * (RealType)0.5 );
         }
 
-        glm::vec<3, RealType> Extents() const
+        [[nodiscard]] glm::vec<3, RealType> Extents() const
         {
             return ( Max - Min ) * (RealType)0.5;
         }
 
-        RealType DiagonalLength() const
+        [[nodiscard]] RealType DiagonalLength() const
         {
             return std::sqrt( glm::length2( ( Max - Min ) ) );
         }
 
-        bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
             return Max.x < Min.x || Max.y < Min.y || Max.z < Min.z;
         }

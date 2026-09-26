@@ -43,7 +43,7 @@ namespace Desert::Geometry
     void SmallListSet::AllocateAt( int32_t ListIndex )
     {
         assert( ListIndex >= 0 );
-        if ( ListIndex >= (int)m_ListHeads.GetLength() )
+        if ( ListIndex >= static_cast<int>( m_ListHeads.GetLength() ) )
         {
             auto j = static_cast<int32_t>( m_ListHeads.GetLength() );
             m_ListHeads.InsertAt( NullValue, ListIndex );

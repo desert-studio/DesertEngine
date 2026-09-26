@@ -7,6 +7,7 @@
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include <Common/Core/Core.hpp>
+#include <utility>
 
 namespace Desert::Geometry
 {
@@ -27,7 +28,6 @@ namespace Desert::Geometry
     public:
         virtual ~DynamicAttributeBase() = default;
 
-    public:
         /** Get optional identifier for this attribute set. */
         [[nodiscard]] std::string GetName() const
         {
@@ -37,7 +37,7 @@ namespace Desert::Geometry
         /** Set optional identifier for this attribute set. */
         void SetName( std::string NameIn )
         {
-            m_Name = NameIn;
+            m_Name = std::move( NameIn );
         }
 
     protected:
@@ -116,7 +116,8 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
+        [[nodiscard]] virtual bool CheckValidity( bool /*bAllowNonmanifold*/,
+                                                  ValidityCheckFailMode /*FailMode*/ ) const
         {
             // default impl just doesn't check anything; override with any useful sanity checks
             return true;
@@ -177,7 +178,7 @@ namespace Desert::Geometry
         }
     };
 
-    typedef DynamicAttributeBase<DynamicMesh3> DynamicMeshAttributeBase;
+    using DynamicMeshAttributeBase = DynamicAttributeBase<DynamicMesh3>;
 
     /**
      * Generic base class for managing a set of registered attributes that must all be kept up to date
@@ -212,12 +213,12 @@ namespace Desert::Geometry
     public:
         virtual ~DynamicAttributeSetBase() = default;
 
-        int NumRegisteredAttributes() const
+        [[nodiscard]] int NumRegisteredAttributes() const
         {
             return m_RegisteredAttributes.Num();
         }
 
-        DynamicAttributeBase<ParentType>* GetRegisteredAttribute( int Idx ) const
+        [[nodiscard]] DynamicAttributeBase<ParentType>* GetRegisteredAttribute( int Idx ) const
         {
             return m_RegisteredAttributes[Idx];
         }
@@ -267,7 +268,7 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
+        [[nodiscard]] virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
         {
             bool bValid = true;
             for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
@@ -278,7 +279,7 @@ namespace Desert::Geometry
         }
 
         // mesh-specific on* functions; may be split out
-    public:
+
         virtual void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo )
         {
             for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
@@ -346,6 +347,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef DynamicAttributeSetBase<DynamicMesh3> DynamicMeshAttributeSetBase;
+    using DynamicMeshAttributeSetBase = DynamicAttributeSetBase<DynamicMesh3>;
 
 } // namespace Desert::Geometry
