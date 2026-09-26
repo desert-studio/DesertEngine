@@ -10,6 +10,7 @@
 // UVs the v21 file described - and the topology is now real (a cube's 24 render vertices are 8 corners).
 
 #include <SceneMigration.hpp>
+#include <assets_sandbox.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -248,6 +249,8 @@ TEST( SceneEditMeshMigration, ABlockItCannotReadIsNamedAndLeftInPlace )
 
 TEST( SceneEditMeshMigration, AV21SceneIsRaisedToV22ThroughTheWholeChain )
 {
+    const Desert::TestSupport::AssetsSandbox sandbox( "SceneEditMeshMigration",
+                                                      { "Materials/Starter_Prop.demat" } );
     std::vector<V>        vertices;
     std::vector<unsigned> indices;
     MakeCube( vertices, indices );

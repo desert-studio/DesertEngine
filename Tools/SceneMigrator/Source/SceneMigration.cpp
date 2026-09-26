@@ -1900,8 +1900,10 @@ namespace Desert::Migration
     namespace
     {
         // The GUID text of the `.demat` a v26 slot named by path alone: its header's GUID, or - for a file
-        // whose own header step has not run yet - the GUID that step stamps (MigrationGuidForPath). A file
-        // that cannot be read is refused by name; a path is never kept as the identity.
+        // whose own header step has not run yet (no header object) - the GUID that step stamps
+        // (MigrationGuidForPath). A file that cannot be opened, or whose header states no GUID, is refused by
+        // name; a path is never kept as the identity. Reads with std::ifstream and the pure header parser:
+        // the migrator is a plain tool and does not link the engine/Common file-system layer.
         Common::ResultStr<std::string> MaterialGuidOfPath( const std::string&           stored,
                                                            const std::filesystem::path& assetsRoot )
         {
@@ -1909,14 +1911,18 @@ namespace Desert::Migration
             std::ifstream               in( file, std::ios::binary );
             if ( !in )
                 return Common::MakeFormattedError<std::string>( "{}", "no file '" + file.generic_string() + "'" );
-            std::ostringstream text;
-            text << in.rdbuf();
-            const auto stated = ReadStatedMaterialIds( file.generic_string(), text.str() );
-            if ( !stated )
-                return Common::MakeError<std::string>( stated.GetError() );
-            const Common::Content::AssetGuid guid =
-                 stated.GetValue().Guid.IsNull() ? MigrationGuidForPath( stored ) : stated.GetValue().Guid;
-            return Common::MakeSuccess( Common::Content::AssetGuidToText( guid ) );
+            const auto object = Common::Content::ReadTextHeaderObject( in );
+            if ( !object )
+                return Common::MakeSuccess( Common::Content::AssetGuidToText( MigrationGuidForPath( stored ) ) );
+            const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+            if ( !header )
+                return Common::MakeError<std::string>( "'" + file.generic_string() +
+                                                       "': unreadable header: " + header.GetError() );
+            const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<std::string>( "'" + file.generic_string() +
+                                                       "': the header states no GUID" );
+            return Common::MakeSuccess( Common::Content::AssetGuidToText( guid.GetValue() ) );
         }
     } // namespace
 
