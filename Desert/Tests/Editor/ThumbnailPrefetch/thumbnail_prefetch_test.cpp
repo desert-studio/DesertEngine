@@ -15,6 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 using namespace Desert::Editor;
 namespace fs = std::filesystem;
@@ -101,6 +102,39 @@ TEST( ThumbnailPrefetch, ACachedPngIsDecodedOnAWorkerBeforeAnyoneDrawsIt )
     EXPECT_EQ( pixels->Width, 1 );
     EXPECT_EQ( pixels->Height, 1 );
     EXPECT_EQ( pixels->Rgba.size(), 4u );
+    EXPECT_NE( pixels->DecodedOn, std::this_thread::get_id() )
+         << "the prefetch decoded on the thread that asked for it: that is the main thread in the editor";
+}
+
+// The browser asks for its folder and draws it in the SAME frame. If Get() decoded a picture a worker already
+// holds, the main thread would pay for it anyway (the 52 ms gif at startup): a pending picture is announced,
+// and the cache waits for it instead of decoding it again.
+TEST( ThumbnailPrefetch, APictureAWorkerHoldsIsNotDecodedAgainByTheDraw )
+{
+    Fixture       f;
+    std::ofstream out( f.Png, std::ios::binary );
+    out.write( reinterpret_cast<const char*>( kOnePixelPng.data() ), kOnePixelPng.size() );
+    out.close();
+
+    ThumbnailPrefetch::Get().Request( { { f.Png.string(), {} } } );
+    EXPECT_TRUE( ThumbnailPrefetch::Get().Pending( f.Png.string() ) ) << "a requested picture is not announced";
+    ThumbnailPrefetch::Get().Tick();
+    EXPECT_TRUE( ThumbnailPrefetch::Get().Pending( f.Png.string() ) ||
+                 ThumbnailPrefetch::Get().ReadyCount() == 1u );
+    ThumbnailPrefetch::Get().Drain();
+    EXPECT_FALSE( ThumbnailPrefetch::Get().Pending( f.Png.string() ) );
+    EXPECT_FALSE( ThumbnailPrefetch::Get().Pending( ( f.Dir / "never_requested.png" ).string() ) );
+
+    // ThumbnailCache::Get needs a device, so its half of the contract is read from the source: the pending
+    // check comes before the one synchronous decode.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string cache = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
+    const auto        pending = cache.find( "if ( !decoded && ThumbnailPrefetch::Get().Pending( sourcePath ) )" );
+    const auto        decode  = cache.find( "decoded = ThumbnailPixels::Decode( sourcePath );" );
+    ASSERT_NE( pending, std::string::npos ) << "Get() decodes a picture a worker is already decoding";
+    ASSERT_NE( decode, std::string::npos );
+    EXPECT_LT( pending, decode );
 }
 
 TEST( ThumbnailPrefetch, NoPngOnDiskMeansNothingIsDecodedAndNothingIsCaptured )

@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <thread>
 
 namespace Desert::Editor
 {
@@ -65,7 +66,8 @@ namespace Desert::Editor
         }
         stbi_image_free( pixels );
 
-        out.DecodeMs =
+        out.DecodedOn = std::this_thread::get_id();
+        out.DecodeMs  =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
         return out;
     }
@@ -153,6 +155,14 @@ namespace Desert::Editor
         if ( decoded.Stamp != stamp )
             return std::nullopt;
         return std::move( decoded.Pixels );
+    }
+
+    bool ThumbnailPrefetch::Pending( const std::string& picture ) const
+    {
+        return std::any_of( m_InFlight.begin(), m_InFlight.end(),
+                            [&]( const InFlight& f ) { return f.Picture == picture; } ) ||
+               std::any_of( m_Waiting.begin(), m_Waiting.end(),
+                            [&]( const Item& i ) { return i.Picture == picture; } );
     }
 
     void ThumbnailPrefetch::Drain()

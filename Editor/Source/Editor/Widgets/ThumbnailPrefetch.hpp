@@ -18,6 +18,7 @@
 #include <future>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -45,6 +46,7 @@ namespace Desert::Editor
         int                        Height       = 0;
         std::vector<unsigned char> Rgba;
         double                     DecodeMs = 0.0; ///< stb decode + box filter, on whichever thread ran it
+        std::thread::id            DecodedOn;      ///< that thread: the proof the decode left the main thread
 
         /// Decode `path` and box-average it down to kMaxDim. The ONE implementation: ThumbnailCache::Get uses
         /// it synchronously on a prefetch miss, the prefetch jobs use it on a worker. Empty on failure.
@@ -81,6 +83,11 @@ namespace Desert::Editor
         /// (`stamp` = its last_write_time); the entry leaves the store either way it matched. Main thread.
         [[nodiscard]] std::optional<ThumbnailPixels> Take( const std::string&              picture,
                                                            std::filesystem::file_time_type stamp );
+
+        /// `picture` is waiting for a worker or on one now. ThumbnailCache::Get then draws the tile's icon for
+        /// the frame instead of decoding the same file a second time on the main thread — the race that put a
+        /// 52 ms gif decode on the main thread in the frame right after the browser asked for it.
+        [[nodiscard]] bool Pending( const std::string& picture ) const;
 
         /// Everything is dispatched and collected.
         [[nodiscard]] bool Idle() const

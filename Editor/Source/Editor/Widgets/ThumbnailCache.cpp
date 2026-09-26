@@ -84,6 +84,13 @@ namespace Desert::Editor
         if ( !stampEc )
             decoded = ThumbnailPrefetch::Get().Take( sourcePath, stamp );
         const bool prefetched = decoded.has_value();
+        // A worker already has this file, or is about to: decoding it here too would put the very cost the
+        // prefetch exists to move back on the main thread for this one frame — measured, it was the only
+        // main-thread decode left at startup (a 1672x941 gif, 52 ms, drawn in the frame the browser asked
+        // for it). The tile shows its icon until the worker's pixels arrive; nothing is cached, so the next
+        // Get() takes them.
+        if ( !decoded && ThumbnailPrefetch::Get().Pending( sourcePath ) )
+            return nullptr;
         if ( !decoded )
             decoded = ThumbnailPixels::Decode( sourcePath );
         if ( decoded )
