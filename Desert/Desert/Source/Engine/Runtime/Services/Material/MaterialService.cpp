@@ -113,8 +113,8 @@ namespace Desert::Runtime
                  m_Requests.erase( handle );
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
-                     LOG_ERROR( "[MaterialService] '{}' could not be read: {}", loaded->GetMetadata().Filepath.string(),
-                                error );
+                     LOG_ERROR( "[MaterialService] '{}' could not be read: {}",
+                                loaded->GetMetadata().Filepath.string(), error );
                      return;
                  }
                  // The shader is resolved by name through the manager, which a worker may not touch.

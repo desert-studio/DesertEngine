@@ -255,11 +255,11 @@ namespace Desert::Runtime
             return static_cast<size_t>( path ) * Graphic::kMeshPassCount + static_cast<size_t>( pass );
         }
 
-        mutable uint32_t                                                                    m_InvalidationVersion = 0;
+        mutable uint32_t                                              m_InvalidationVersion = 0;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
         // Mutable: discovery on a miss fills these from const lookups (Get, ShaderNameOf, ...), which is a
         // cache fill, not a change of what the service answers.
-        mutable std::unordered_map<Common::UUID, Assets::AssetHandle>                           m_ExternalToInternal;
+        mutable std::unordered_map<Common::UUID, Assets::AssetHandle> m_ExternalToInternal;
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>> m_MaterialAssets;
         /// Handles the registry has no row for; logged once each, not once per frame.
         mutable std::unordered_set<Assets::AssetHandle> m_ReportedMissing;
