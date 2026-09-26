@@ -162,28 +162,4 @@ namespace Desert::Graphic
         Texture2DProperty* m_Normal   = nullptr;
         Texture2DProperty* m_TileMask = nullptr;
     };
-
-    // SSR tile classification: one texel per screen tile, 1 where a pixel of the tile passes the trace's
-    // G-buffer gate. Drives SSRTileClassify.shader. Header-only.
-    class MaterialSSRTileClassify final : public Material
-    {
-    public:
-        MaterialSSRTileClassify() : Material( "MaterialSSRTileClassify", "SSRTileClassify" )
-        {
-            m_Normal = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
-        }
-
-        void BindInputs( const std::shared_ptr<Image2D>& normal, uint32_t gridWidth, uint32_t gridHeight )
-        {
-            if ( m_Normal && normal )
-                m_Normal->SetImage( normal.get() );
-
-            const glm::vec4 grid( static_cast<float>( gridWidth ), static_cast<float>( gridHeight ), 0.0f, 0.0f );
-            if ( auto* ub = Get<UniformBufferProperty>( "SSRTileClassifyUB" ) )
-                ub->SetRawData( reinterpret_cast<const std::byte*>( &grid ), sizeof( grid ) );
-        }
-
-    private:
-        Texture2DProperty* m_Normal = nullptr;
-    };
 } // namespace Desert::Graphic

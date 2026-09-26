@@ -6,8 +6,9 @@ Shader "SSR"
 
     Vertex
     {
-        // Drawn over the SSR tiles only (Common/SSRTiles.glslh): the tiles whose own pixels can reflect,
-        // because a pixel outside them early-outs to 0, the value the trace target is cleared to.
+        // Drawn over the SSR tiles only (Common/SSRTiles.glslh): the tiles whose pixels can reflect and their
+        // neighbours: a half-resolution texel traces from a G-buffer pixel up to one pixel away from its own
+        // centre, which may sit across a tile edge. Everywhere else the trace early-outs to 0, the clear value.
         #include <Common/QuadTextureCoords.glslh>
         #include <Common/SSRTiles.glslh>
 
@@ -15,7 +16,7 @@ Shader "SSR"
 
         void main()
         {
-        	gl_Position = SSRTileVertex(0, v_TexCoord);
+        	gl_Position = SSRTileVertex(1, v_TexCoord);
         }
     }
 
@@ -81,18 +82,26 @@ Shader "SSR"
 
         void main()
         {
-        	vec4 gb = texture(u_GBufferNormal, v_TexCoord);
+        	// HALF-RESOLUTION trace (SSRRenderer): this texel stands for a 2x2 block of G-buffer pixels and
+        	// traces from ONE of them, exactly (texelFetch - a filtered read would average normals and positions
+        	// across edges). Which one rotates every frame, so the full-resolution temporal resolve sees all four.
+        	ivec2 gSize = textureSize(u_GBufferNormal, 0);
+        	int   frame = int(u_CameraPos.w);
+        	ivec2 gPix  = min(ivec2(gl_FragCoord.xy) * 2 + ivec2(frame & 1, (frame >> 1) & 1), gSize - 1);
+        	vec2  gUV   = (vec2(gPix) + 0.5) / vec2(gSize);
+
+        	vec4 gb = texelFetch(u_GBufferNormal, gPix, 0);
         	vec3 N  = gb.rgb;
         	if (dot(N, N) <= 0.001) { oColor = vec4(0.0); return; } // sky / no geometry
 
-        	float metallic   = texture(u_GBufferAlbedo, v_TexCoord).a;
+        	float metallic   = texelFetch(u_GBufferAlbedo, gPix, 0).a;
         	float roughness  = gb.a;
         	// The G-buffer gate the tile classification shares (Common/SSRGate.glslh).
         	float smoothFade = SSRSmoothFade(roughness);
         	if (smoothFade < 0.01) { oColor = vec4(0.0); return; }
 
         	N = normalize(N);
-        	vec3 worldPos = texture(u_GBufferWorldPos, v_TexCoord).rgb;
+        	vec3 worldPos = texelFetch(u_GBufferWorldPos, gPix, 0).rgb;
         	vec3 V = normalize(u_CameraPos.xyz - worldPos);
         	vec3 R = reflect(-V, N);
 
@@ -122,7 +131,7 @@ Shader "SSR"
         	vec3  pPrev    = worldPos + N * 2.0;
         	// Jitter the start by a random fraction of the first step — DIFFERENT each frame (the seed in
         	// CameraPos.w) so the temporal accumulation averages a fresh estimate every frame and converges.
-        	pPrev += R * ( step0 * hash12(v_TexCoord * 4096.0 + vec2(u_CameraPos.w)) );
+        	pPrev += R * ( step0 * hash12(gUV * 4096.0 + vec2(u_CameraPos.w)) );
 
         	// Crossing = the ray's depth delta changes SIGN between two samples (in front of the surface ->
         	// behind it). Detecting by sign change instead of a "within a thickness band" test is what removes

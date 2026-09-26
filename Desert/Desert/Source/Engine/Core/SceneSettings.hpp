@@ -153,7 +153,8 @@ namespace Desert::Core
         float GIIntensity = 2.0f;
 
         // Screen-space reflections: mirrors/metal/polished floors reflect what is on screen. One jittered
-        // ray per pixel at FULL resolution, then a temporal resolve and a composite; still bound by the
+        // ray per 2x2 pixels (half resolution) over the tiles that can reflect, then a full-resolution
+        // temporal resolve and a composite; still bound by the
         // usual SSR limit (off-screen and occluded geometry cannot reflect).
         //
         // WHY THE DEFAULT IS OFF, measured twice on Apple M1 Pro / MoltenVK, GPU timestamps, Desert_Sandbox
@@ -161,20 +162,24 @@ namespace Desert::Core
         // the floor into the lower half of a chrome sphere - below the horizon the sky IBL can only return the
         // ground colour - so the look argues for ON; the price argues against.
         //   SS1  (2026-09-23, RGBA32F targets, all passes fullscreen, 0.56 Mpx)   1.6 - 3.1 ms
-        //   SSR1 (2026-09-27, 996x504 = 0.50 Mpx, three runs each):
+        //   SSR1 (2026-09-27, 996x504 = 0.50 Mpx):
         //     RGBA16F targets (2249a6eaf), all passes fullscreen   0.67 / 0.71 / 0.71 ms
-        //     + tiled (SSRRenderer: 8 px tiles, trace/resolve/composite over marked tiles only)
+        //     + 8 px tiles, trace/resolve/composite over marked tiles only (b43a22300)
         //                                                          0.61 / 0.63 / 0.64 ms
-        //       of which Classify 0.19 - 0.22, Trace 0.22 - 0.24, Resolve 0.07 - 0.09, Composite ~0.03,
-        //       ~0.08 outside the marks. Tiling left the reflection the same (max 5/255 on 210 of 0.5 M
-        //       pixels, all inside the reflection) and cut resolve+composite from ~0.4 to ~0.1 ms, but the
-        //       trace is content cost (this scene's floor passes the roughness gate, so its tiles are traced)
-        //       and the classify pass, one fragment per tile looping 64 texels, runs at low occupancy.
-        // Even a free classify leaves ~0.40 ms, so tiling alone cannot reach the budget below.
+        //     + classify as compute (one workgroup per tile) + half-resolution trace (SSRRenderer, kept)
+        //                                                          0.37 / 0.36 / 0.36 ms
+        //       Classify 0.05, Trace 0.13, Resolve 0.08, Composite 0.04, ~0.07 outside the marks. Picture
+        //       against the fullscreen pass: 2488 of 0.5 M pixels differ by more than 1/255, max 24/255,
+        //       all inside the reflections on the spheres.
+        //     + 16 march steps instead of 32 (UE's quality 2)       0.37 / 0.34 / 0.33 ms, max 49/255 on
+        //       2955 px - the trace barely moved (0.10 - 0.14), so the change was not kept.
+        // What is left is mostly fixed cost: four passes at 0.04 - 0.08 ms each whatever they draw (the
+        // composite over a few tiles is 0.04), plus ~0.07 of barriers/transitions between them. The roughness
+        // gate already matches UE's r.SSR.MaxRoughness 0.6 fade (full at 0.3, none at 0.6).
         // RETURN CONDITION: the "Deferred: SSR" line on Desert_Sandbox (same camera, --gpu-profile) at or
-        // under 0.3 ms. The levers left are (1) the classify as a compute pass, one thread per pixel reduced per
-        // tile in shared memory (~0.2 ms), and (2) the trace itself: half-resolution trace or fewer steps on
-        // rough-ish pixels - both change the picture, so they need a frame comparison, not just a timing.
+        // under 0.3 ms. Levers left: fold the passes together (trace + resolve as one compute dispatch over a
+        // tile list, the composite into the deferred composite) to shed the per-pass cost, and a
+        // hierarchical-Z march (UE's HZB) - this renderer has no HZB yet.
         // Scenes then need a schema step: every file states `false`, and none ever stated `true`
         // (git log -G), so the value is inherited everywhere - except where a frame comparison pins it.
         PROPERTY( DisplayName( "Enable SSR" ), Category( "Rendering" ) )

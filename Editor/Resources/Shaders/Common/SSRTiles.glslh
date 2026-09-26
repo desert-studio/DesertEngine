@@ -9,10 +9,8 @@
 // the v_TexCoord the fullscreen quad gave it.
 //
 // The grid is ceil(size / 8) per axis (SSRRenderer::kTileSize) and the tiles are stretched to cover the target
-// exactly, so a tile is between ~7.9 and 8 px wide. `dilate` = 1 also draws the tiles next to an active tile:
-// the resolve reads the trace 2 px around a pixel and the composite reads the resolved buffer up to 3 px
-// (+1 for the bilinear footprint) around it, so their non-zero output lies within 6 px of a reflecting pixel,
-// and one neighbouring tile covers that.
+// exactly, so a tile is between ~7.9 and 8 px wide. `dilate` also draws the tiles up to that many tiles away
+// from a marked one; each pass states why its reach needs the dilation it asks for.
 //
 // Requires QUAD_TEXTURE_COORDINATES (Common/QuadTextureCoords.glslh) included before this file.
 
