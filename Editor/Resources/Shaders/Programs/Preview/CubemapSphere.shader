@@ -42,7 +42,7 @@ Shader "CubemapSphere"
 
         In(0) vec3 v_Near;
         In(1) vec3 v_Far;
-        In(2) vec2 v_Uv;
+        In(2) vec2 v_Ndc;
         Out(0) vec4 o_Color;
 
         vec3 SkyBy( vec3 direction )
@@ -61,7 +61,7 @@ Shader "CubemapSphere"
             // THE 2D VIEW: the cube unwrapped by the bake's own panorama mapping, so it reads as the file does.
             if ( u.Params.w > 0.5 )
             {
-                o_Color      = vec4( SkyBy( PanoramaDirection( v_Uv ) ), 1.0 );
+                o_Color      = vec4( SkyBy( PanoramaDirection( PanoramaScreenUV( v_Ndc ) ) ), 1.0 );
                 gl_FragDepth = kBackdropDepth;
                 return;
             }
@@ -113,7 +113,7 @@ Shader "CubemapSphere"
 
         Out(0) vec3 v_Near;
         Out(1) vec3 v_Far;
-        Out(2) vec2 v_Uv;
+        Out(2) vec2 v_Ndc;
 
         vec3 Unproject( vec2 ndc, float z )
         {
@@ -134,7 +134,7 @@ Shader "CubemapSphere"
             // (Core/Projection.hpp).
             v_Near = Unproject( ndc, 1.0 );
             v_Far  = Unproject( ndc, 0.0 );
-            v_Uv   = ndc * 0.5 + 0.5; // Vulkan: ndc.y = -1 is the top row, the panorama's up
+            v_Ndc  = ndc; // the 2D view's unwrap is placed in the fragment stage (PanoramaScreenUV)
 
             gl_Position = vec4( ndc, 0.0, 1.0 );
         }

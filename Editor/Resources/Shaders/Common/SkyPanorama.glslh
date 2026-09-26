@@ -41,3 +41,12 @@ vec3 PanoramaDirection(vec2 uv)
     float s     = sin( theta );
     return vec3( s * cos( phi ), cos( theta ), s * sin( phi ) );
 }
+
+// The panorama texel a point of a fullscreen pass shows, from its NDC: the 2D view lays the file out on
+// screen with its top row at the top. The engine draws every pass through a NEGATIVE-HEIGHT viewport
+// (VulkanRenderer: y = height, height = -height), so ndc.y = +1 is the TOP of the image, not Vulkan's
+// usual bottom — reading ndc.y = -1 as the top drew every panorama upside down (sky at the bottom).
+vec2 PanoramaScreenUV(vec2 ndc)
+{
+    return vec2( ndc.x * float( 0.5 ) + float( 0.5 ), float( 0.5 ) - ndc.y * float( 0.5 ) );
+}

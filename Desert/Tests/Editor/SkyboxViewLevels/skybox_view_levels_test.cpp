@@ -101,6 +101,18 @@ TEST( SkyboxViewLevels, TheUnwrapIsTheInverseOfTheBakesPanoramaLookup )
     EXPECT_GT( PanoramaDirection( glm::vec2( 0.5f, 0.01f ) ).y, 0.99f );
 }
 
+TEST( SkyboxViewLevels, TheTwoDViewPutsTheSkyAtTheTopOfTheScreen )
+{
+    // The engine's viewport has a negative height (VulkanRenderer), so ndc.y = +1 is the top screen row.
+    // The frame that found this showed the road on top and the sun at the bottom.
+    EXPECT_GT( PanoramaDirection( PanoramaScreenUV( glm::vec2( 0.0f, 0.98f ) ) ).y, 0.99f );
+    EXPECT_LT( PanoramaDirection( PanoramaScreenUV( glm::vec2( 0.0f, -0.98f ) ) ).y, -0.99f );
+    // Left to right is the file's left to right: u grows with ndc.x.
+    EXPECT_LT( PanoramaScreenUV( glm::vec2( -0.5f, 0.0f ) ).x, PanoramaScreenUV( glm::vec2( 0.5f, 0.0f ) ).x );
+    EXPECT_NEAR( PanoramaScreenUV( glm::vec2( -1.0f, 1.0f ) ).x, 0.0f, 1e-6f );
+    EXPECT_NEAR( PanoramaScreenUV( glm::vec2( -1.0f, 1.0f ) ).y, 0.0f, 1e-6f );
+}
+
 namespace
 {
     // Runs the action the palette would list under `label`, as the document does: over one ViewState.
