@@ -2,8 +2,11 @@
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/GpuTimestampLayout.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 
 #if DESERT_DEV_INSTRUMENTS
 
@@ -69,40 +72,37 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
-        m_PeriodNs       = static_cast<double>( caps.TimestampPeriodNs );
-        m_FramesInFlight = EngineContext::GetInstance().GetMaxFramesInFlight();
-        if ( m_FramesInFlight == 0 )
-            m_FramesInFlight = 2;
+        m_PeriodNs = static_cast<double>( caps.TimestampPeriodNs );
 
-        // Per frame: every slot's scopes, plus one pair bracketing the whole command buffer. That last pair
-        // is the denominator the breakdown is checked against — without it "the parts sum to 14 ms" has
-        // nothing to be 14 ms OF.
-        m_QueriesPerFrame = GpuQueriesPerFrame( EngineContext::kMaxRendererSlots, kMaxScopesPerFrameSlot );
-        m_TotalQueries    = m_FramesInFlight * m_QueriesPerFrame;
+        uint32_t framesInFlight = EngineContext::GetInstance().GetMaxFramesInFlight();
+        if ( framesInFlight == 0 )
+            framesInFlight = 2;
 
-        VkQueryPoolCreateInfo createInfo{};
-        createInfo.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
-        createInfo.queryType  = VK_QUERY_TYPE_TIMESTAMP;
-        createInfo.queryCount = m_TotalQueries;
+        // Every frame starts sized for kGpuInitialScopeCapacity scopes plus the whole-frame bracket — the
+        // denominator the breakdown is checked against; without it "the parts sum to 14 ms" has nothing to
+        // be 14 ms OF. More views than that holds grow the pools on their next turn (GrowIfNeeded).
+        const uint32_t initialQueries = GpuGrownQueryCount( 0, kGpuInitialScopeCapacity );
 
-        if ( vkCreateQueryPool( m_Device, &createInfo, nullptr, &m_QueryPool ) != VK_SUCCESS )
+        m_Frames = std::vector<FrameQueries>( framesInFlight );
+        for ( FrameQueries& frame : m_Frames )
         {
-            LOG_ERROR( "[GpuProfiler] vkCreateQueryPool failed — GPU timing stays off." );
-            m_QueryPool = VK_NULL_HANDLE;
-            return;
+            frame.Pool = CreatePool( initialQueries );
+            if ( frame.Pool == VK_NULL_HANDLE )
+            {
+                LOG_ERROR( "[GpuProfiler] vkCreateQueryPool failed for {} queries — GPU timing stays off.",
+                           initialQueries );
+                Shutdown();
+                return;
+            }
+            frame.QueryCount = initialQueries;
         }
-
-        m_State.assign( static_cast<size_t>( m_FramesInFlight ) * EngineContext::kMaxRendererSlots,
-                        FrameSlotState{} );
-        m_ResultScratch.assign( static_cast<size_t>( m_QueriesPerFrame ) * kWordsPerQuery, 0ull );
 
         m_Active = true;
         Common::Profiling::Profiler::Get().SetGpuSink( this );
 
-        LOG_INFO( "[GpuProfiler] Timestamps on: {} queries ({} frames x {} slots x {} scopes), period {} "
-                  "ns/tick, results read {} frames late.",
-                  m_TotalQueries, m_FramesInFlight, EngineContext::kMaxRendererSlots, kMaxScopesPerFrameSlot,
-                  m_PeriodNs, m_FramesInFlight );
+        LOG_INFO( "[GpuProfiler] Timestamps on: {} pools of {} queries ({} scopes each, grown on demand), "
+                  "period {} ns/tick, results read {} frames late.",
+                  framesInFlight, initialQueries, GpuScopeCapacity( initialQueries ), m_PeriodNs, framesInFlight );
     }
 
     void VulkanGpuProfiler::Shutdown()
@@ -110,24 +110,63 @@ namespace Desert::Graphic::API::Vulkan
         if ( Common::Profiling::Profiler::Get().GetGpuSink() == this )
             Common::Profiling::Profiler::Get().SetGpuSink( nullptr );
 
-        if ( m_QueryPool != VK_NULL_HANDLE && m_Device != VK_NULL_HANDLE )
-        {
-            vkDestroyQueryPool( m_Device, m_QueryPool, nullptr );
-            m_QueryPool = VK_NULL_HANDLE;
-        }
+        // Direct, not deferred: shutdown runs with the device idle, and a pool replaced earlier is already
+        // in the allocator's queue, which the device teardown drains.
+        if ( m_Device != VK_NULL_HANDLE )
+            for ( FrameQueries& frame : m_Frames )
+                if ( frame.Pool != VK_NULL_HANDLE )
+                    vkDestroyQueryPool( m_Device, frame.Pool, nullptr );
+
+        m_Frames.clear();
         m_Active        = false;
+        m_Recording     = nullptr;
         m_CommandBuffer = VK_NULL_HANDLE;
-        m_State.clear();
     }
 
-    uint32_t VulkanGpuProfiler::SlotQueryBase( uint32_t frameIndex, uint32_t slot ) const
+    VkQueryPool VulkanGpuProfiler::CreatePool( uint32_t queryCount ) const
     {
-        return GpuSlotQueryBase( frameIndex, slot, EngineContext::kMaxRendererSlots, kMaxScopesPerFrameSlot );
+        VkQueryPoolCreateInfo createInfo{};
+        createInfo.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        createInfo.queryType  = VK_QUERY_TYPE_TIMESTAMP;
+        createInfo.queryCount = queryCount;
+
+        VkQueryPool pool = VK_NULL_HANDLE;
+        if ( vkCreateQueryPool( m_Device, &createInfo, nullptr, &pool ) != VK_SUCCESS )
+            return VK_NULL_HANDLE;
+        return pool;
     }
 
-    uint32_t VulkanGpuProfiler::FrameTotalQueryBase( uint32_t frameIndex ) const
+    void VulkanGpuProfiler::GrowIfNeeded( FrameQueries& frame )
     {
-        return GpuFrameTotalQueryBase( frameIndex, EngineContext::kMaxRendererSlots, kMaxScopesPerFrameSlot );
+        const uint32_t wanted = GpuGrownQueryCount( frame.QueryCount, m_HighWaterScopes );
+        if ( wanted == frame.QueryCount )
+            return;
+
+        // The new pool first: if it cannot be made, the old one keeps timing what it can hold rather than
+        // the frame losing every scope.
+        const VkQueryPool grown = CreatePool( wanted );
+        if ( grown == VK_NULL_HANDLE )
+        {
+            LOG_ERROR( "[GpuProfiler] vkCreateQueryPool failed growing a frame's pool from {} to {} queries "
+                       "for {} scopes; keeping the old pool, scopes past {} stay untimed.",
+                       frame.QueryCount, wanted, m_HighWaterScopes, GpuScopeCapacity( frame.QueryCount ) );
+            return;
+        }
+
+        // Deferred like every other per-frame GPU object: its last use has been resolved, but the rule is
+        // "the allocator decides when a frame's objects are free", not a judgement made at each call site.
+        const auto ctx       = EngineContext::GetInstance().GetRendererContext();
+        auto*      allocator = ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+        if ( allocator != nullptr )
+            allocator->RT_DestroyQueryPool( frame.Pool );
+        else
+            vkDestroyQueryPool( m_Device, frame.Pool, nullptr );
+
+        LOG_INFO( "[GpuProfiler] A frame asked for {} GPU scopes; frame pool grown from {} to {} queries.",
+                  m_HighWaterScopes, frame.QueryCount, wanted );
+
+        frame.Pool       = grown;
+        frame.QueryCount = wanted;
     }
 
     void VulkanGpuProfiler::BeginFrame( VkCommandBuffer commandBuffer )
@@ -136,21 +175,20 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        if ( frameIndex >= m_Frames.size() )
+            return;
+        FrameQueries& frame = m_Frames[frameIndex];
 
         // Everything this frame index submitted last time round has completed — VulkanQueue::Present()
-        // waited on its fence before handing the index back. So this read never blocks.
-        Resolve( frameIndex );
+        // waited on its fence before handing the index back. So this read never blocks, and afterwards
+        // nothing still refers to the pool, which is what makes this the one place it may be replaced.
+        Resolve( frame );
+        GrowIfNeeded( frame );
 
-        for ( uint32_t slot = 0; slot < EngineContext::kMaxRendererSlots; ++slot )
-        {
-            FrameSlotState& state = m_State[frameIndex * EngineContext::kMaxRendererSlots + slot];
-            state.Scopes.clear();
-            state.OpenStack.clear();
-            state.Pending = false;
-        }
-
-        m_CommandBuffer     = commandBuffer;
-        m_FrameTotalWritten = false;
+        frame.Recorder.Reset( GpuScopeCapacity( frame.QueryCount ) );
+        frame.FrameTotalWritten = false;
+        m_Recording             = &frame;
+        m_CommandBuffer         = commandBuffer;
 
         // Switched OFF means off: no reset, no writes, not one command in the buffer. The reset is
         // conditional with the writes rather than unconditional-and-cheap so that turning GPU timing off
@@ -158,171 +196,135 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Common::Profiling::Profiler::Get().GpuEnabled() )
             return;
 
-        // One reset for the frame's whole range, all slots at once, outside any render pass. A timestamp
-        // written to a query that was not reset is undefined, so this must precede every write.
-        vkCmdResetQueryPool( commandBuffer, m_QueryPool, frameIndex * m_QueriesPerFrame, m_QueriesPerFrame );
+        // One reset for the frame's whole pool, outside any render pass. A timestamp written to a query
+        // that was not reset is undefined, so this must precede every write.
+        vkCmdResetQueryPool( commandBuffer, frame.Pool, 0, frame.QueryCount );
 
-        vkCmdWriteTimestamp( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_QueryPool,
-                             FrameTotalQueryBase( frameIndex ) );
-        m_FrameTotalWritten = true;
+        vkCmdWriteTimestamp( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.Pool,
+                             kGpuFrameTotalQuery );
+        frame.FrameTotalWritten = true;
     }
 
     void VulkanGpuProfiler::EndFrame( VkCommandBuffer commandBuffer )
     {
-        if ( !m_Active || commandBuffer == VK_NULL_HANDLE )
+        if ( !m_Active || commandBuffer == VK_NULL_HANDLE || m_Recording == nullptr )
             return;
 
-        const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        FrameQueries& frame = *m_Recording;
+        if ( frame.FrameTotalWritten )
+            vkCmdWriteTimestamp( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.Pool,
+                                 kGpuFrameTotalQuery + 1 );
 
-        if ( m_FrameTotalWritten )
-        {
-            vkCmdWriteTimestamp( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_QueryPool,
-                                 FrameTotalQueryBase( frameIndex ) + 1 );
+        if ( frame.Recorder.Requested() > m_HighWaterScopes )
+            m_HighWaterScopes = frame.Recorder.Requested();
 
-            // Slot 0 carries the whole-frame bracket: it is one number per frame, not per renderer, and
-            // parking it in the slot that always exists keeps Resolve's loop uniform.
-            FrameSlotState& state = m_State[static_cast<size_t>( frameIndex ) * EngineContext::kMaxRendererSlots];
-            state.Scopes.push_back( ScopeRecord{ Common::Profiling::kGpuFrameTotalScope,
-                                                 FrameTotalQueryBase( frameIndex ), kNoParent } );
-            state.Pending = true;
-        }
-
+        m_Recording     = nullptr;
         m_CommandBuffer = VK_NULL_HANDLE;
     }
 
     int32_t VulkanGpuProfiler::BeginScope( const char* name )
     {
-        // m_FrameTotalWritten doubles as "this frame's queries have been reset". Without it, flipping the
+        // FrameTotalWritten doubles as "this frame's queries have been reset". Without it, flipping the
         // toggle on mid-frame would write timestamps into queries nobody reset — undefined, and the kind
         // of thing that reads as a wild number rather than an error.
-        if ( !m_Active || m_CommandBuffer == VK_NULL_HANDLE || !m_FrameTotalWritten )
+        if ( !m_Active || m_Recording == nullptr || !m_Recording->FrameTotalWritten )
             return -1;
 
-        const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
-        const uint32_t slot       = EngineContext::GetInstance().GetActiveRendererSlot();
+        // The owner is whichever view the ActiveViewScope targets, else the frame context. Its NAME is
+        // captured now, not read at resolve: the view may be gone by the time its queries are readable.
+        ViewResources&         active       = ViewResourceRegistry::Active();
+        const bool             frameContext = &active == &ViewResourceRegistry::FrameContext();
+        const std::string_view viewName = frameContext ? std::string_view{} : std::string_view{ active.GetName() };
 
-        FrameSlotState& state = m_State[frameIndex * EngineContext::kMaxRendererSlots + slot];
-
-        // A scope that cannot be timed must still not corrupt the nesting of the ones that can, so the
-        // overflow path below returns -1 and EndScope's matching -1 leaves the stack untouched.
-        if ( state.Scopes.size() >= kMaxScopesPerFrameSlot )
-        {
-            if ( !m_WarnedOverflow )
-            {
-                m_WarnedOverflow = true;
-                LOG_WARN( "[GpuProfiler] More than {} GPU scopes in one (frame x slot); the rest of this "
-                          "frame is untimed. Raise kMaxScopesPerFrameSlot or mark fewer passes.",
-                          kMaxScopesPerFrameSlot );
-            }
+        // A refused scope (pool full this frame) returns -1, and EndScope's matching -1 leaves the nesting
+        // of the scopes that were timed untouched. The refusal raises the high-water mark, so the pool
+        // is big enough the next time this frame index comes round.
+        const int32_t index = m_Recording->Recorder.Begin( GpuViewScopeName( viewName, name ), &active );
+        if ( index < 0 )
             return -1;
-        }
 
-        const int32_t  index     = static_cast<int32_t>( state.Scopes.size() );
-        const uint32_t queryBase = SlotQueryBase( frameIndex, slot ) + static_cast<uint32_t>( index ) * 2;
-        const int32_t  parent    = state.OpenStack.empty() ? kNoParent : state.OpenStack.back();
-
-        state.Scopes.push_back( ScopeRecord{ name, queryBase, parent } );
-        state.OpenStack.push_back( index );
-        state.Pending = true;
-
-        vkCmdWriteTimestamp( m_CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_QueryPool, queryBase );
-
-        return static_cast<int32_t>( queryBase );
+        vkCmdWriteTimestamp( m_CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
+                             GpuScopeQueryBase( static_cast<uint32_t>( index ) ) );
+        return index;
     }
 
     void VulkanGpuProfiler::EndScope( int32_t handle )
     {
-        if ( handle < 0 || !m_Active || m_CommandBuffer == VK_NULL_HANDLE )
+        if ( handle < 0 || !m_Active || m_Recording == nullptr )
             return;
 
-        // The handle is the absolute query index, which carries the frame and the slot with it — so a
-        // scope closes against the state it opened against even if the ambient slot moved meanwhile.
-        const uint32_t queryBase = static_cast<uint32_t>( handle );
-        const uint32_t frameIndex =
-             GpuDecodeFrame( queryBase, EngineContext::kMaxRendererSlots, kMaxScopesPerFrameSlot );
-        const uint32_t slot = GpuDecodeSlot( queryBase, EngineContext::kMaxRendererSlots, kMaxScopesPerFrameSlot );
-
-        if ( frameIndex < m_FramesInFlight && slot < EngineContext::kMaxRendererSlots )
-        {
-            FrameSlotState& state = m_State[frameIndex * EngineContext::kMaxRendererSlots + slot];
-            if ( !state.OpenStack.empty() )
-                state.OpenStack.pop_back();
-        }
-
-        vkCmdWriteTimestamp( m_CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_QueryPool, queryBase + 1 );
+        // The handle is the scope's index in the recording frame, and the recorder remembers which view's
+        // nesting it belongs to — so a scope closes against the view it opened in even if the active view
+        // moved meanwhile.
+        m_Recording->Recorder.End( handle );
+        vkCmdWriteTimestamp( m_CommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_Recording->Pool,
+                             GpuScopeQueryBase( static_cast<uint32_t>( handle ) ) + 1 );
     }
 
-    void VulkanGpuProfiler::Resolve( uint32_t frameIndex )
+    void VulkanGpuProfiler::Resolve( FrameQueries& frame )
     {
-        bool anyPending = false;
-        for ( uint32_t slot = 0; slot < EngineContext::kMaxRendererSlots; ++slot )
-            anyPending |= m_State[frameIndex * EngineContext::kMaxRendererSlots + slot].Pending;
-
-        if ( !anyPending )
+        if ( !frame.FrameTotalWritten )
             return;
+        frame.FrameTotalWritten = false;
 
-        // One read for the frame's whole range. WITHOUT VK_QUERY_RESULT_WAIT_BIT: the fence guarantees the
-        // data is there, and asking Vulkan to wait would turn a free read into a GPU stall.
+        const std::vector<GpuScopeRecorder::Scope>& scopes = frame.Recorder.Scopes();
+        const uint32_t queryCount = GpuQueriesForScopes( static_cast<uint32_t>( scopes.size() ) );
+        m_ResultScratch.assign( static_cast<size_t>( queryCount ) * kWordsPerQuery, 0ull );
+
+        // One read for the queries this frame actually wrote. WITHOUT VK_QUERY_RESULT_WAIT_BIT: the fence
+        // guarantees the data is there, and asking Vulkan to wait would turn a free read into a GPU stall.
         const VkResult result = vkGetQueryPoolResults(
-             m_Device, m_QueryPool, frameIndex * m_QueriesPerFrame, m_QueriesPerFrame,
-             m_ResultScratch.size() * sizeof( uint64_t ), m_ResultScratch.data(),
-             sizeof( uint64_t ) * kWordsPerQuery, VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT );
+             m_Device, frame.Pool, 0, queryCount, m_ResultScratch.size() * sizeof( uint64_t ),
+             m_ResultScratch.data(), sizeof( uint64_t ) * kWordsPerQuery,
+             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT );
 
         if ( result != VK_SUCCESS && result != VK_NOT_READY )
             return;
 
-        const uint32_t frameBase = frameIndex * m_QueriesPerFrame;
-
-        for ( uint32_t slot = 0; slot < EngineContext::kMaxRendererSlots; ++slot )
+        // Inclusive milliseconds of the pair starting at @p queryBase, or -1 when either end did not land.
+        const auto pairMs = [this]( uint32_t queryBase ) -> double
         {
-            FrameSlotState& state = m_State[frameIndex * EngineContext::kMaxRendererSlots + slot];
-            if ( !state.Pending )
-                continue;
+            const size_t beginWord = static_cast<size_t>( queryBase ) * kWordsPerQuery;
+            const size_t endWord   = beginWord + kWordsPerQuery;
+            if ( endWord + 1 >= m_ResultScratch.size() )
+                return -1.0;
+            if ( m_ResultScratch[beginWord + 1] == 0 || m_ResultScratch[endWord + 1] == 0 )
+                return -1.0; // a scope whose end never recorded (early-out inside the pass)
 
-            const size_t scopeCount = state.Scopes.size();
-            m_Inclusive.assign( scopeCount, -1.0 );
-            m_Parents.resize( scopeCount );
-            for ( size_t i = 0; i < scopeCount; ++i )
-                m_Parents[i] = state.Scopes[i].ParentIndex;
+            const uint64_t beginTicks = m_ResultScratch[beginWord];
+            const uint64_t endTicks   = m_ResultScratch[endWord];
+            if ( endTicks < beginTicks )
+                return -1.0; // counter wrapped; one lost sample beats a nonsense one
 
-            for ( size_t i = 0; i < scopeCount; ++i )
-            {
-                const ScopeRecord& scope     = state.Scopes[i];
-                const uint32_t     beginWord = ( scope.QueryBase - frameBase ) * kWordsPerQuery;
-                const uint32_t     endWord   = beginWord + kWordsPerQuery;
-                if ( endWord + 1 >= m_ResultScratch.size() )
-                    continue;
+            return static_cast<double>( endTicks - beginTicks ) * m_PeriodNs * 1e-6;
+        };
 
-                const uint64_t beginAvailable = m_ResultScratch[beginWord + 1];
-                const uint64_t endAvailable   = m_ResultScratch[endWord + 1];
-                if ( beginAvailable == 0 || endAvailable == 0 )
-                    continue; // a scope whose end never recorded (early-out inside the pass)
+        auto& profiler = Common::Profiling::Profiler::Get();
 
-                const uint64_t beginTicks = m_ResultScratch[beginWord];
-                const uint64_t endTicks   = m_ResultScratch[endWord];
-                if ( endTicks < beginTicks )
-                    continue; // counter wrapped; one lost sample beats a nonsense one
+        // The whole-frame bracket: one number per frame, belonging to no view, never anyone's child.
+        const double frameMs = pairMs( kGpuFrameTotalQuery );
+        if ( frameMs >= 0.0 )
+            profiler.AddGpuSample( Common::Profiling::kGpuFrameTotalScope, frameMs, frameMs );
 
-                m_Inclusive[i] = static_cast<double>( endTicks - beginTicks ) * m_PeriodNs * 1e-6;
-            }
-
-            // Self time = own interval minus the DIRECT children's, so the parts partition the frame
-            // instead of counting a parent's microseconds again in each child. The arithmetic lives in
-            // Engine/Graphic/GpuTimestampLayout.hpp and is asserted by Tests/Engine/GpuTimestampLayout.
-            m_Self = GpuSelfTimes( m_Inclusive, m_Parents );
-
-            for ( size_t i = 0; i < scopeCount; ++i )
-            {
-                if ( m_Inclusive[i] < 0.0 )
-                    continue;
-                Common::Profiling::Profiler::Get().AddGpuSample( state.Scopes[i].Name.c_str(), m_Inclusive[i],
-                                                                 m_Self[i] );
-            }
-
-            state.Scopes.clear();
-            state.OpenStack.clear();
-            state.Pending = false;
+        const size_t scopeCount = scopes.size();
+        m_Inclusive.assign( scopeCount, -1.0 );
+        m_Parents.resize( scopeCount );
+        for ( size_t i = 0; i < scopeCount; ++i )
+        {
+            m_Parents[i]   = scopes[i].Parent;
+            m_Inclusive[i] = pairMs( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
         }
+
+        // Self time = own interval minus the DIRECT children's, so the parts partition the frame instead
+        // of counting a parent's microseconds again in each child. Parents never cross views
+        // (GpuScopeRecorder), so one pass over the interleaved list is each view's partition at once. The
+        // arithmetic lives in Engine/Graphic/GpuTimestampLayout.hpp and is asserted by
+        // Tests/Engine/GpuTimestampLayout.
+        m_Self = GpuSelfTimes( m_Inclusive, m_Parents );
+
+        for ( size_t i = 0; i < scopeCount; ++i )
+            if ( m_Inclusive[i] >= 0.0 )
+                profiler.AddGpuSample( scopes[i].Name.c_str(), m_Inclusive[i], m_Self[i] );
     }
 } // namespace Desert::Graphic::API::Vulkan
 
