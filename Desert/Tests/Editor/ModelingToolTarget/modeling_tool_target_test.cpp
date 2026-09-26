@@ -5,6 +5,8 @@
 //  - the lift is cached by identity until the .stmesh is rewritten;
 //  - no Modeling tool reads StaticMeshComponent::EditableMesh itself (census over the tool sources).
 
+#include "../../TestSupport/cooked_static_mesh.hpp"
+
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -51,10 +53,11 @@ namespace
         return Assets::Serialization::EncodeMeshBinary( data.GetValue() );
     }
 
+    // A static mesh as the editor writes one since AF4d: a MeshSourceAsset (DAST envelope) whose render form
+    // sits in the DDC. The lift must read it the way the loader does; the file's own bytes are not a cook.
     void WriteFile( const fs::path& path, const std::string& bytes )
     {
-        std::ofstream out( path, std::ios::binary | std::ios::trunc );
-        out << bytes;
+        ASSERT_FALSE( TestSupport::WriteCookedStaticMesh( path, bytes ).empty() );
     }
 
     // Two meshes are the same when they render the same arrays.
@@ -108,6 +111,33 @@ TEST_F( ToolTarget, TheLiftOfAnAssetOnlyEntityIsTheP7RoundTrip )
     EXPECT_EQ( target.GetValue().Mesh->TriangleCount(), reference.GetValue().Mesh.TriangleCount() );
     EXPECT_EQ( target.GetValue().Mesh->VertexCount(), reference.GetValue().Mesh.VertexCount() );
     ExpectSameRender( *target.GetValue().Mesh, reference.GetValue().Mesh );
+}
+
+// CG3: the pick after a CubeGrid Accept was refused, because the lift decoded the .stmesh's own bytes with the
+// cooked-mesh reader (DESTMESH) while Accept writes a MeshSourceAsset. The file must be a DAST envelope here, so
+// the test cannot pass by accident on a cooked file.
+TEST_F( ToolTarget, AMeshSourceAssetLiftsThroughItsRenderForm )
+{
+    const std::string bytes = Bytes( Box( 2 ) );
+    WriteFile( m_File, bytes );
+    std::ifstream in( m_File, std::ios::binary );
+    std::string   magic( 4, '\0' );
+    in.read( magic.data(), 4 );
+    ASSERT_EQ( magic, "DAST" ) << "the fixture must be a source asset, not a cook";
+
+    auto target = Editor::GetToolTargetMeshAt( nullptr, m_File );
+    ASSERT_TRUE( target.IsSuccess() ) << target.GetError();
+    EXPECT_EQ( target.GetValue().Mesh->TriangleCount(), Box( 2 )->TriangleCount() );
+}
+
+// A file that is not a mesh source asset (here: a bare cooked container, the pre-AF4d form) is refused by name,
+// exactly as the loader refuses it: there is one reader, and it is the loader's.
+TEST_F( ToolTarget, ABareCookIsRefusedAsTheLoaderRefusesIt )
+{
+    std::ofstream( m_File, std::ios::binary | std::ios::trunc ) << Bytes( Box( 2 ) );
+    auto target = Editor::GetToolTargetMeshAt( nullptr, m_File );
+    ASSERT_FALSE( target.IsSuccess() );
+    EXPECT_NE( target.GetError().find( "Box.stmesh" ), std::string::npos ) << target.GetError();
 }
 
 TEST_F( ToolTarget, AnEditableMeshIsItsOwnTargetAndItsOwnUndoBefore )
