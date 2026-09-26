@@ -31,7 +31,7 @@ namespace Desert::Geometry
     // Every float is written as the double it widens to and read back to the same float, bit for bit.
     //
     // TWO CORES, ONE FORM. EditMeshSerialization and DynamicMeshSerialization both read and write this struct;
-    // it lives on its own so the FDynamicMesh3 side does not include EditMesh. The field layout IS the scene
+    // it lives on its own so the DynamicMesh3 side does not include EditMesh. The field layout IS the scene
     // format (StaticMesh.EditMesh): changing it is a schema change.
     struct EditMeshOverlaySer
     {

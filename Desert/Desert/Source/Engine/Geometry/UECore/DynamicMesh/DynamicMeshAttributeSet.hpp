@@ -8,6 +8,7 @@
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicAttribute.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
@@ -21,19 +22,19 @@ namespace Desert::Geometry
 {
 
     /** Standard UV overlay type - 2-element float */
-    typedef TDynamicMeshVectorOverlay<float, 2, FVector2f> FDynamicMeshUVOverlay;
+    typedef DynamicMeshVectorOverlay<float, 2, glm::vec2> DynamicMeshUVOverlay;
     /** Standard Normal overlay type - 3-element float */
-    typedef TDynamicMeshVectorOverlay<float, 3, FVector3f> FDynamicMeshNormalOverlay;
+    typedef DynamicMeshVectorOverlay<float, 3, glm::vec3> DynamicMeshNormalOverlay;
     /** Standard Color overlay type - 4-element float (rbga) */
-    typedef TDynamicMeshVectorOverlay<float, 4, FVector4f> FDynamicMeshColorOverlay;
+    typedef DynamicMeshVectorOverlay<float, 4, glm::vec4> DynamicMeshColorOverlay;
     /** Standard per-triangle integer material ID */
-    using FDynamicMeshMaterialAttribute = TDynamicMeshScalarTriangleAttribute<int32_t>;
+    using DynamicMeshMaterialAttribute = DynamicMeshScalarTriangleAttribute<int32_t>;
 
     /** Per-triangle integer polygroup ID */
-    using FDynamicMeshPolygroupAttribute = TDynamicMeshScalarTriangleAttribute<int32_t>;
+    using DynamicMeshPolygroupAttribute = DynamicMeshScalarTriangleAttribute<int32_t>;
 
     /**
-     * FDynamicMeshAttributeSet manages a set of extended attributes for a FDynamicMesh3.
+     * DynamicMeshAttributeSet manages a set of extended attributes for a DynamicMesh3.
      * This includes UV and Normal overlays, etc.
      *
      * Currently the default is to always have one UV layer and one Normal layer, but the number of layers can be
@@ -41,16 +42,16 @@ namespace Desert::Geometry
      *
      * @todo current internal structure is a work-in-progress
      */
-    class FDynamicMeshAttributeSet : public FDynamicMeshAttributeSetBase
+    class DynamicMeshAttributeSet : public DynamicMeshAttributeSetBase
     {
     public:
-        FDynamicMeshAttributeSet( FDynamicMesh3* Mesh );
+        DynamicMeshAttributeSet( DynamicMesh3* Mesh );
 
-        FDynamicMeshAttributeSet( FDynamicMesh3* Mesh, int32_t NumUVLayers, int32_t NumNormalLayers );
+        DynamicMeshAttributeSet( DynamicMesh3* Mesh, int32_t NumUVLayers, int32_t NumNormalLayers );
 
-        virtual ~FDynamicMeshAttributeSet() override;
+        virtual ~DynamicMeshAttributeSet() override;
 
-        void Copy( const FDynamicMeshAttributeSet& Copy );
+        void Copy( const DynamicMeshAttributeSet& Copy );
 
         /** returns true if the attached overlays/attributes are compact */
         bool IsCompact() const;
@@ -62,7 +63,7 @@ namespace Desert::Geometry
          * @param CompactMaps Maps indicating how vertices and triangles were changes in the parent
          * @param Copy The attribute set to be copied
          */
-        void CompactCopy( const FCompactMaps& CompactMaps, const FDynamicMeshAttributeSet& Copy );
+        void CompactCopy( const DynamicMeshCompactMaps& CompactMaps, const DynamicMeshAttributeSet& Copy );
 
         /**
          * Compacts the attribute set in place
@@ -70,7 +71,7 @@ namespace Desert::Geometry
          *
          * @param CompactMaps Maps of how the vertices and triangles were compacted in the parent
          */
-        void CompactInPlace( const FCompactMaps& CompactMaps );
+        void CompactInPlace( const DynamicMeshCompactMaps& CompactMaps );
 
         /**
          * Split all bowtie vertices in all layers
@@ -84,23 +85,23 @@ namespace Desert::Geometry
          * set has the same attributes as ToMatch. If bDiscardExtraAttributes=true and bClearExisting=false, extra
          * attributes not in ToMatch are discarded, but existing attributes are not cleared/reset
          */
-        void EnableMatchingAttributes( const FDynamicMeshAttributeSet& ToMatch, bool bClearExisting = true,
+        void EnableMatchingAttributes( const DynamicMeshAttributeSet& ToMatch, bool bClearExisting = true,
                                        bool bDiscardExtraAttributes = false );
 
         /** @return the parent mesh for this overlay */
-        const FDynamicMesh3* GetParentMesh() const
+        const DynamicMesh3* GetParentMesh() const
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
         /** @return the parent mesh for this overlay */
-        FDynamicMesh3* GetParentMesh()
+        DynamicMesh3* GetParentMesh()
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
 
     private:
         /** @set the parent mesh for this overlay.  Only safe for use during FDynamicMesh move */
-        void Reparent( FDynamicMesh3* NewParent );
+        void Reparent( DynamicMesh3* NewParent );
 
     public:
         /** @return true if the given edge is a seam edge in any overlay */
@@ -129,31 +130,31 @@ namespace Desert::Geometry
         /** @return number of UV layers */
         virtual int NumUVLayers() const
         {
-            return (int)UVLayers.size();
+            return (int)m_UVLayers.size();
         }
 
         /** Set number of UV (2-vector float overlay) layers */
         virtual void SetNumUVLayers( int Num );
 
         /** @return the UV layer at the given Index  if exists, else nullptr */
-        FDynamicMeshUVOverlay* GetUVLayer( int Index )
+        DynamicMeshUVOverlay* GetUVLayer( int Index )
         {
-            return ( Index >= 0 && Index < NumUVLayers() ) ? UVLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumUVLayers() ) ? m_UVLayers[Index].get() : nullptr;
         }
 
         /** @return the UV layer at the given Index  if exists, else nullptr */
-        const FDynamicMeshUVOverlay* GetUVLayer( int Index ) const
+        const DynamicMeshUVOverlay* GetUVLayer( int Index ) const
         {
-            return ( Index >= 0 && Index < NumUVLayers() ) ? UVLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumUVLayers() ) ? m_UVLayers[Index].get() : nullptr;
         }
 
         /** @return the primary UV layer (layer 0) */
-        FDynamicMeshUVOverlay* PrimaryUV()
+        DynamicMeshUVOverlay* PrimaryUV()
         {
             return GetUVLayer( 0 );
         }
         /** @return the primary UV layer (layer 0) */
-        const FDynamicMeshUVOverlay* PrimaryUV() const
+        const DynamicMeshUVOverlay* PrimaryUV() const
         {
             return GetUVLayer( 0 );
         }
@@ -165,7 +166,7 @@ namespace Desert::Geometry
         /** @return number of Normals layers */
         virtual int NumNormalLayers() const
         {
-            return (int)NormalLayers.size();
+            return (int)m_NormalLayers.size();
         }
 
         /** Set number of Normals (3-vector float overlay) layers */
@@ -178,44 +179,44 @@ namespace Desert::Geometry
         void DisableTangents();
 
         /** @return the Normal layer at the given Index  if exists, else nullptr */
-        FDynamicMeshNormalOverlay* GetNormalLayer( int Index )
+        DynamicMeshNormalOverlay* GetNormalLayer( int Index )
         {
-            return ( Index >= 0 && Index < NumNormalLayers() ) ? NormalLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumNormalLayers() ) ? m_NormalLayers[Index].get() : nullptr;
         }
 
         /** @return the Normal layer at the given Index  if exists, else nullptr */
-        const FDynamicMeshNormalOverlay* GetNormalLayer( int Index ) const
+        const DynamicMeshNormalOverlay* GetNormalLayer( int Index ) const
         {
-            return ( Index >= 0 && Index < NumNormalLayers() ) ? NormalLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumNormalLayers() ) ? m_NormalLayers[Index].get() : nullptr;
         }
 
         /** @return the primary Normal layer (normal layer 0) if it exists */
-        FDynamicMeshNormalOverlay* PrimaryNormals()
+        DynamicMeshNormalOverlay* PrimaryNormals()
         {
             return GetNormalLayer( 0 );
         }
         /** @return the primary Normal layer (normal layer 0) if it exists */
-        const FDynamicMeshNormalOverlay* PrimaryNormals() const
+        const DynamicMeshNormalOverlay* PrimaryNormals() const
         {
             return GetNormalLayer( 0 );
         }
         /** @return the primary tangent layer (normal layer 1) if it exists */
-        FDynamicMeshNormalOverlay* PrimaryTangents()
+        DynamicMeshNormalOverlay* PrimaryTangents()
         {
             return GetNormalLayer( 1 );
         }
         /** @return the primary tangent layer (normal layer 1) if it exists */
-        const FDynamicMeshNormalOverlay* PrimaryTangents() const
+        const DynamicMeshNormalOverlay* PrimaryTangents() const
         {
             return GetNormalLayer( 1 );
         }
         /** @return the primary bitangent layer (normal layer 2) if it exists */
-        FDynamicMeshNormalOverlay* PrimaryBiTangents()
+        DynamicMeshNormalOverlay* PrimaryBiTangents()
         {
             return GetNormalLayer( 2 );
         }
         /** @return the primary bitangent layer (normal layer 2) if it exists */
-        const FDynamicMeshNormalOverlay* PrimaryBiTangents() const
+        const DynamicMeshNormalOverlay* PrimaryBiTangents() const
         {
             return GetNormalLayer( 2 );
         }
@@ -229,17 +230,17 @@ namespace Desert::Geometry
 
         bool HasPrimaryColors() const
         {
-            return !!ColorLayer;
+            return !!m_ColorLayer;
         }
 
-        FDynamicMeshColorOverlay* PrimaryColors()
+        DynamicMeshColorOverlay* PrimaryColors()
         {
-            return ColorLayer.get();
+            return m_ColorLayer.get();
         }
 
-        const FDynamicMeshColorOverlay* PrimaryColors() const
+        const DynamicMeshColorOverlay* PrimaryColors() const
         {
-            return ColorLayer.get();
+            return m_ColorLayer.get();
         }
 
         void EnablePrimaryColors();
@@ -257,10 +258,10 @@ namespace Desert::Geometry
         virtual void SetNumPolygroupLayers( int32_t Num );
 
         /** @return the Polygroup layer at the given Index */
-        FDynamicMeshPolygroupAttribute* GetPolygroupLayer( int Index );
+        DynamicMeshPolygroupAttribute* GetPolygroupLayer( int Index );
 
         /** @return the Polygroup layer at the given Index */
-        const FDynamicMeshPolygroupAttribute* GetPolygroupLayer( int Index ) const;
+        const DynamicMeshPolygroupAttribute* GetPolygroupLayer( int Index ) const;
 
         //
         // Per-Triangle Material ID
@@ -268,103 +269,103 @@ namespace Desert::Geometry
 
         bool HasMaterialID() const
         {
-            return !!MaterialIDAttrib;
+            return !!m_MaterialIDAttrib;
         }
 
         void EnableMaterialID();
 
         void DisableMaterialID();
 
-        FDynamicMeshMaterialAttribute* GetMaterialID()
+        DynamicMeshMaterialAttribute* GetMaterialID()
         {
-            return MaterialIDAttrib.get();
+            return m_MaterialIDAttrib.get();
         }
 
-        const FDynamicMeshMaterialAttribute* GetMaterialID() const
+        const DynamicMeshMaterialAttribute* GetMaterialID() const
         {
-            return MaterialIDAttrib.get();
+            return m_MaterialIDAttrib.get();
         }
 
         //
         // Generic attributes
         //
 
-        void AttachAttribute( const std::string& AttribName, FDynamicMeshAttributeBase* Attribute )
+        void AttachAttribute( const std::string& AttribName, DynamicMeshAttributeBase* Attribute )
         {
-            if ( GenericAttributes.Contains( AttribName ) )
+            if ( m_GenericAttributes.contains( AttribName ) )
             {
-                UnregisterExternalAttribute( GenericAttributes[AttribName].get() );
+                UnregisterExternalAttribute( m_GenericAttributes[AttribName].get() );
             }
-            GenericAttributes.FindOrAdd( AttribName ) = std::unique_ptr<FDynamicMeshAttributeBase>( Attribute );
+            m_GenericAttributes[AttribName] = std::unique_ptr<DynamicMeshAttributeBase>( Attribute );
             RegisterExternalAttribute( Attribute );
         }
 
         void RemoveAttribute( const std::string& AttribName )
         {
-            if ( GenericAttributes.Contains( AttribName ) )
+            if ( m_GenericAttributes.contains( AttribName ) )
             {
-                UnregisterExternalAttribute( GenericAttributes[AttribName].get() );
-                GenericAttributes.Remove( AttribName );
+                UnregisterExternalAttribute( m_GenericAttributes[AttribName].get() );
+                m_GenericAttributes.erase( AttribName );
             }
         }
 
-        FDynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName )
+        DynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName )
         {
-            return GenericAttributes.Contains( AttribName ) ? GenericAttributes[AttribName].get() : nullptr;
+            return m_GenericAttributes.contains( AttribName ) ? m_GenericAttributes[AttribName].get() : nullptr;
         }
 
-        [[nodiscard]] const FDynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName ) const
+        [[nodiscard]] const DynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName ) const
         {
-            const std::unique_ptr<FDynamicMeshAttributeBase>* Found = GenericAttributes.Find( AttribName );
+            const std::unique_ptr<DynamicMeshAttributeBase>* Found = FindValue( m_GenericAttributes, AttribName );
             return Found ? Found->get() : nullptr;
         }
 
         int NumAttachedAttributes() const
         {
-            return GenericAttributes.Num();
+            return static_cast<int32_t>( m_GenericAttributes.size() );
         }
 
         [[nodiscard]] bool HasAttachedAttribute( const std::string& AttribName ) const
         {
-            return GenericAttributes.Contains( AttribName );
+            return m_GenericAttributes.contains( AttribName );
         }
 
         [[nodiscard]] size_t GetByteCount() const;
 
     protected:
         /** Parent mesh of this attribute set */
-        FDynamicMesh3* ParentMesh;
+        DynamicMesh3* m_ParentMesh;
 
-        std::vector<std::unique_ptr<FDynamicMeshUVOverlay>>     UVLayers;
-        std::vector<std::unique_ptr<FDynamicMeshNormalOverlay>> NormalLayers;
-        std::unique_ptr<FDynamicMeshColorOverlay>               ColorLayer;
+        std::vector<std::unique_ptr<DynamicMeshUVOverlay>>     m_UVLayers;
+        std::vector<std::unique_ptr<DynamicMeshNormalOverlay>> m_NormalLayers;
+        std::unique_ptr<DynamicMeshColorOverlay>               m_ColorLayer;
 
-        std::unique_ptr<FDynamicMeshMaterialAttribute> MaterialIDAttrib;
+        std::unique_ptr<DynamicMeshMaterialAttribute> m_MaterialIDAttrib;
 
-        std::vector<std::unique_ptr<FDynamicMeshPolygroupAttribute>> PolygroupLayers;
+        std::vector<std::unique_ptr<DynamicMeshPolygroupAttribute>> m_PolygroupLayers;
 
-        using GenericAttributesMap = TMap<std::string, std::unique_ptr<FDynamicMeshAttributeBase>>;
-        GenericAttributesMap GenericAttributes;
+        using GenericAttributesMap = std::unordered_map<std::string, std::unique_ptr<DynamicMeshAttributeBase>>;
+        GenericAttributesMap m_GenericAttributes;
 
     protected:
-        friend class FDynamicMesh3;
+        friend class DynamicMesh3;
 
         /**
          * Initialize the existing attribute layers with the given vertex and triangle sizes
          */
         void Initialize( int MaxVertexID, int MaxTriangleID )
         {
-            for ( std::unique_ptr<FDynamicMeshUVOverlay>& UVLayer : UVLayers )
+            for ( std::unique_ptr<DynamicMeshUVOverlay>& UVLayer : m_UVLayers )
             {
                 UVLayer->InitializeTriangles( MaxTriangleID );
             }
-            for ( std::unique_ptr<FDynamicMeshNormalOverlay>& NormalLayer : NormalLayers )
+            for ( std::unique_ptr<DynamicMeshNormalOverlay>& NormalLayer : m_NormalLayers )
             {
                 NormalLayer->InitializeTriangles( MaxTriangleID );
             }
         }
 
-        // These functions are called by the FDynamicMesh3 to update the various
+        // These functions are called by the DynamicMesh3 to update the various
         // attributes when the parent mesh topology has been modified.
         // TODO: would it be better to register all the overlays and attributes with the base set and not overload
         // these?  maybe!
@@ -373,14 +374,14 @@ namespace Desert::Geometry
         virtual void OnRemoveTriangle( int TriangleID ) override;
         virtual void OnRemoveVertex( int VertexID ) override;
         virtual void OnReverseTriOrientation( int TriangleID ) override;
-        virtual void OnSplitEdge( const DynamicMeshInfo::FEdgeSplitInfo& splitInfo ) override;
-        virtual void OnFlipEdge( const DynamicMeshInfo::FEdgeFlipInfo& flipInfo ) override;
-        virtual void OnCollapseEdge( const DynamicMeshInfo::FEdgeCollapseInfo& collapseInfo ) override;
-        virtual void OnPokeTriangle( const DynamicMeshInfo::FPokeTriangleInfo& pokeInfo ) override;
-        virtual void OnMergeEdges( const DynamicMeshInfo::FMergeEdgesInfo& mergeInfo ) override;
-        virtual void OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& mergeInfo ) override;
-        virtual void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                                    const TArrayView<const int>&             TrianglesToUpdate ) override;
+        virtual void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& splitInfo ) override;
+        virtual void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& flipInfo ) override;
+        virtual void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& collapseInfo ) override;
+        virtual void OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& pokeInfo ) override;
+        virtual void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& mergeInfo ) override;
+        virtual void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& mergeInfo ) override;
+        virtual void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
+                                    const std::span<const int>&             TrianglesToUpdate ) override;
 
         /**
          * Check validity of attributes
@@ -389,11 +390,11 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        virtual bool CheckValidity( bool bAllowNonmanifold, EValidityCheckFailMode FailMode ) const override;
+        virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const override;
 
     private:
-        void Append( const FDynamicMeshAttributeSet& ToAppend, const FDynamicMesh3::FAppendInfo& AppendInfo );
-        void AppendDefaulted( const FDynamicMesh3::FAppendInfo& AppendInfo );
+        void Append( const DynamicMeshAttributeSet& ToAppend, const DynamicMesh3::AppendInfo& AppendInfo );
+        void AppendDefaulted( const DynamicMesh3::AppendInfo& AppendInfo );
     };
 
 } // namespace Desert::Geometry

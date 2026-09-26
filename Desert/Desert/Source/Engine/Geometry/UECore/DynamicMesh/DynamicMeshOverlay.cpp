@@ -6,106 +6,109 @@
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 
 #include <array>
+#include <Common/Core/Core.hpp>
 
 using namespace Desert::Geometry;
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::ClearElements()
+void DynamicMeshOverlay<RealType, ElementSize>::ClearElements()
 {
-    Elements.Clear();
-    ElementsRefCounts = FRefCountVector();
-    ParentVertices.Clear();
-    InitializeTriangles( ParentMesh->MaxTriangleID() );
+    m_Elements.Clear();
+    m_ElementsRefCounts = RefCountVector();
+    m_ParentVertices.Clear();
+    InitializeTriangles( m_ParentMesh->MaxTriangleID() );
 }
 
 template <typename RealType, int ElementSize>
-int TDynamicMeshOverlay<RealType, ElementSize>::AppendElement( RealType ConstantValue )
+int DynamicMeshOverlay<RealType, ElementSize>::AppendElement( RealType ConstantValue )
 {
-    int vid = ElementsRefCounts.Allocate();
+    int vid = m_ElementsRefCounts.Allocate();
     int i   = ElementSize * vid;
     for ( int k = ElementSize - 1; k >= 0; --k )
     {
-        Elements.InsertAt( ConstantValue, i + k );
+        m_Elements.InsertAt( ConstantValue, i + k );
     }
-    ParentVertices.InsertAt( FDynamicMesh3::InvalidID, vid );
+    m_ParentVertices.InsertAt( DynamicMesh3::InvalidID, vid );
 
     // updateTimeStamp(true);
     return vid;
 }
 
 template <typename RealType, int ElementSize>
-int TDynamicMeshOverlay<RealType, ElementSize>::AppendElement( const RealType* Value )
+int DynamicMeshOverlay<RealType, ElementSize>::AppendElement( const RealType* Value )
 {
-    int vid = ElementsRefCounts.Allocate();
+    int vid = m_ElementsRefCounts.Allocate();
     int i   = ElementSize * vid;
 
     // insert in reverse order so that Resize() is only called once
     for ( int k = ElementSize - 1; k >= 0; --k )
     {
-        Elements.InsertAt( Value[k], i + k );
+        m_Elements.InsertAt( Value[k], i + k );
     }
-    ParentVertices.InsertAt( FDynamicMesh3::InvalidID, vid );
+    m_ParentVertices.InsertAt( DynamicMesh3::InvalidID, vid );
 
     // updateTimeStamp(true);
     return vid;
 }
 
 template <typename RealType, int ElementSize>
-EMeshResult TDynamicMeshOverlay<RealType, ElementSize>::InsertElement( int ElementID, const RealType* Value,
-                                                                       bool bUnsafe )
+MeshResult DynamicMeshOverlay<RealType, ElementSize>::InsertElement( int ElementID, const RealType* Value,
+                                                                     bool bUnsafe )
 {
-    if ( ElementsRefCounts.IsValid( ElementID ) )
+    if ( m_ElementsRefCounts.IsValid( ElementID ) )
     {
-        return EMeshResult::Failed_VertexAlreadyExists;
+        return MeshResult::Failed_VertexAlreadyExists;
     }
 
-    bool bOK =
-         ( bUnsafe ) ? ElementsRefCounts.AllocateAtUnsafe( ElementID ) : ElementsRefCounts.AllocateAt( ElementID );
+    bool bOK = ( bUnsafe ) ? m_ElementsRefCounts.AllocateAtUnsafe( ElementID )
+                           : m_ElementsRefCounts.AllocateAt( ElementID );
     if ( bOK == false )
     {
-        return EMeshResult::Failed_CannotAllocateVertex;
+        return MeshResult::Failed_CannotAllocateVertex;
     }
 
     int i = ElementSize * ElementID;
     // insert in reverse order so that Resize() is only called once
     for ( int k = ElementSize - 1; k >= 0; --k )
     {
-        Elements.InsertAt( Value[k], i + k );
+        m_Elements.InsertAt( Value[k], i + k );
     }
 
-    ParentVertices.InsertAt( FDynamicMesh3::InvalidID, ElementID, FDynamicMesh3::InvalidID );
+    m_ParentVertices.InsertAt( DynamicMesh3::InvalidID, ElementID, DynamicMesh3::InvalidID );
 
     // UpdateTimeStamp(true, true);
-    return EMeshResult::Ok;
+    return MeshResult::Ok;
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
+void DynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
      const std::function<bool( int ParentVertexIdx, int TriIDA, int TriIDB )>& TrisCanShareVertexPredicate,
      RealType                                                                  InitElementValue )
 {
     ClearElements(); // deletes all elements and initializes triangles to be 1:1 w/ parentmesh IDs
-    FDynamicMesh3::FLocalIntArray  TrisActiveSubGroup, AppendedElements;
-    FDynamicMesh3::FLocalIntArray  TriangleIDs, TriangleContigGroupLens;
-    FDynamicMesh3::FLocalBoolArray GroupIsLoop;
-    for ( int VertexID : ParentMesh->VertexIndicesItr() )
+    DynamicMesh3::LocalIntArray  TrisActiveSubGroup, AppendedElements;
+    DynamicMesh3::LocalIntArray  TriangleIDs, TriangleContigGroupLens;
+    DynamicMesh3::LocalBoolArray GroupIsLoop;
+    for ( int VertexID : m_ParentMesh->VertexIndicesItr() )
     {
 
         bool bActiveSubGroupBroken = false;
-        ParentMesh->GetVtxContiguousTriangles( VertexID, TriangleIDs, TriangleContigGroupLens, GroupIsLoop );
+        m_ParentMesh->GetVtxContiguousTriangles( VertexID, TriangleIDs, TriangleContigGroupLens, GroupIsLoop );
         int GroupStart = 0;
-        for ( int GroupIdx = 0; GroupIdx < TriangleContigGroupLens.Num(); GroupIdx++ )
+        for ( int GroupIdx = 0; GroupIdx < static_cast<int32_t>( TriangleContigGroupLens.size() ); GroupIdx++ )
         {
             bool bIsLoop  = GroupIsLoop[GroupIdx];
             int  GroupNum = TriangleContigGroupLens[GroupIdx];
-            if ( !UE_ENSURE( GroupNum > 0 ) ) // sanity check; groups should always have at least one element
+            if ( !Common::EnsureOrWarn(
+                      GroupNum > 0,
+                      "GroupNum > 0" ) ) // sanity check; groups should always have at least one element
             {
                 continue;
             }
 
-            TrisActiveSubGroup.Reset();
-            AppendedElements.Reset();
-            TrisActiveSubGroup.SetNumZeroed( GroupNum, EAllowShrinking::No );
+            TrisActiveSubGroup.clear();
+            AppendedElements.clear();
+            TrisActiveSubGroup.resize( GroupNum );
             int CurrentGroupID        = 0;
             int CurrentGroupRefSubIdx = 0;
             for ( int TriSubIdx = 0; TriSubIdx + 1 < GroupNum; TriSubIdx++ )
@@ -124,7 +127,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
 
             // for loops, merge first and last group if needed
             int NumGroupID = CurrentGroupID + 1;
-            if ( bIsLoop && TrisActiveSubGroup[0] != TrisActiveSubGroup.Last() )
+            if ( bIsLoop && TrisActiveSubGroup[0] != TrisActiveSubGroup.back() )
             {
                 if ( TrisCanShareVertexPredicate( VertexID, TriangleIDs[GroupStart],
                                                   TriangleIDs[GroupStart + GroupNum - 1] ) )
@@ -143,19 +146,19 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
 
             for ( int Idx = 0; Idx < NumGroupID; Idx++ )
             {
-                AppendedElements.Add( AppendElement( InitElementValue ) );
+                AppendedElements.push_back( AppendElement( InitElementValue ) );
             }
             for ( int TriSubIdx = 0; TriSubIdx < GroupNum; TriSubIdx++ )
             {
                 int      TriID        = TriangleIDs[GroupStart + TriSubIdx];
-                FIndex3i TriVertIDs   = ParentMesh->GetTriangle( TriID );
+                Index3i  TriVertIDs   = m_ParentMesh->GetTriangle( TriID );
                 int      VertSubIdx   = IndexUtil::FindTriIndex( VertexID, TriVertIDs );
                 int      i            = 3 * TriID;
                 int      ElementIndex = AppendedElements[TrisActiveSubGroup[TriSubIdx]];
-                ElementTriangles.InsertAt( ElementIndex, i + VertSubIdx, FDynamicMesh3::InvalidID );
-                ElementsRefCounts.Increment( ElementIndex );
-                ParentVertices.InsertAt( VertexID, ElementIndex ); // elements were appended one-by-one above, so
-                                                                   // default initialization not needed here
+                m_ElementTriangles.InsertAt( ElementIndex, i + VertSubIdx, DynamicMesh3::InvalidID );
+                m_ElementsRefCounts.Increment( ElementIndex );
+                m_ParentVertices.InsertAt( VertexID, ElementIndex ); // elements were appended one-by-one above, so
+                                                                     // default initialization not needed here
             }
             GroupStart += GroupNum;
         }
@@ -163,7 +166,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitElementValue, bool bExactMapIDs )
+void DynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitElementValue, bool bExactMapIDs )
 {
     ClearElements(); // deletes all elements and initializes triangles to be 1:1 w/ parentmesh IDs
     std::array<RealType, ElementSize> DefaultElement;
@@ -171,59 +174,59 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitE
     {
         DefaultElement[Idx] = InitElementValue;
     }
-    TArray<int32_t> VIDtoEID;
-    bool          bNeedsRemap = !bExactMapIDs && !ParentMesh->IsCompactV();
+    std::vector<int32_t> VIDtoEID;
+    bool                 bNeedsRemap = !bExactMapIDs && !m_ParentMesh->IsCompactV();
     if ( bNeedsRemap )
     {
-        VIDtoEID.SetNumUninitialized( ParentMesh->MaxVertexID() );
+        VIDtoEID.resize( m_ParentMesh->MaxVertexID() );
     }
-    for ( int32_t const VertexID : ParentMesh->VertexIndicesItr() )
+    for ( int32_t const VertexID : m_ParentMesh->VertexIndicesItr() )
     {
-        int32_t ElementID = FDynamicMesh3::InvalidID;
+        int32_t ElementID = DynamicMesh3::InvalidID;
         if ( bExactMapIDs )
         {
             ElementID          = VertexID;
-            EMeshResult Result = InsertElement( VertexID, DefaultElement.data() );
-            UE_CHECK_SLOW( Result == EMeshResult::Ok ); // because we allocate in increasing sequential order,
-                                                        // shouldn't be possible InsertElement to return failure
+            MeshResult Result  = InsertElement( VertexID, DefaultElement.data() );
+            assert( Result == MeshResult::Ok ); // because we allocate in increasing sequential order,
+                                                // shouldn't be possible InsertElement to return failure
         }
         else
         {
             ElementID = AppendElement( InitElementValue );
         }
-        ParentVertices.InsertAt( VertexID, ElementID, FDynamicMesh3::InvalidID );
+        m_ParentVertices.InsertAt( VertexID, ElementID, DynamicMesh3::InvalidID );
         if ( bNeedsRemap )
         {
             VIDtoEID[VertexID] = ElementID;
         }
         else
         {
-            UE_CHECK_SLOW( VertexID == ElementID );
+            assert( VertexID == ElementID );
         }
     }
 
-    for ( int32_t const TriangleID : ParentMesh->TriangleIndicesItr() )
+    for ( int32_t const TriangleID : m_ParentMesh->TriangleIndicesItr() )
     {
-        FIndex3i Tri   = ParentMesh->GetTriangle( TriangleID );
+        Index3i       Tri   = m_ParentMesh->GetTriangle( TriangleID );
         int32_t const Start = 3 * TriangleID;
         for ( int32_t SubIdx = 0; SubIdx < 3; ++SubIdx )
         {
             int32_t const VID = Tri[SubIdx];
             int32_t const EID = bNeedsRemap ? VIDtoEID[VID] : VID;
-            ElementTriangles.InsertAt( EID, Start + SubIdx, FDynamicMesh3::InvalidID );
-            ElementsRefCounts.Increment( EID );
+            m_ElementTriangles.InsertAt( EID, Start + SubIdx, DynamicMesh3::InvalidID );
+            m_ElementsRefCounts.Increment( EID );
         }
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::SplitVerticesWithPredicate(
+void DynamicMeshOverlay<RealType, ElementSize>::SplitVerticesWithPredicate(
      const std::function<bool( int ElementID, int TriID )>&              ShouldSplitOutVertex,
      std::function<void( int ElementID, int TriID, RealType* FillVect )> GetNewElementValue )
 {
-    for ( int TriID : ParentMesh->TriangleIndicesItr() )
+    for ( int TriID : m_ParentMesh->TriangleIndicesItr() )
     {
-        FIndex3i ElTri = GetTriangle( TriID );
+        Index3i ElTri = GetTriangle( TriID );
         if ( ElTri.A < 0 )
         {
             // skip un-set triangles
@@ -235,7 +238,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitVerticesWithPredicate(
             int ElementID = ElTri[SubIdx];
             // by convention for overlays, a ref count of 2 means that only one triangle has the element -- can't
             // split it out further
-            if ( ElementsRefCounts.GetRefCount( ElementID ) <= 2 )
+            if ( m_ElementsRefCounts.GetRefCount( ElementID ) <= 2 )
             {
                 // still set the new value though if the function wants to change it
                 if ( ShouldSplitOutVertex( ElementID, TriID ) )
@@ -261,61 +264,61 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitVerticesWithPredicate(
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::MergeElement( int SourceElementID, int TargetElementID )
+bool DynamicMeshOverlay<RealType, ElementSize>::MergeElement( int SourceElementID, int TargetElementID )
 {
     if ( SourceElementID == TargetElementID )
     {
         return false;
     }
 
-    int SourceParentID = ParentVertices[SourceElementID];
-    int TargetParentID = ParentVertices[TargetElementID];
+    int SourceParentID = m_ParentVertices[SourceElementID];
+    int TargetParentID = m_ParentVertices[TargetElementID];
 
     auto MergeElementForTriangle = [this, SourceElementID, TargetElementID]( int32_t TriID )
     {
         int ElementTriStart = TriID * 3;
         for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
         {
-            int CurElID = ElementTriangles[ElementTriStart + SubIdx];
+            int CurElID = m_ElementTriangles[ElementTriStart + SubIdx];
             if ( CurElID == SourceElementID )
             {
-                ElementsRefCounts.Decrement( SourceElementID );
-                ElementsRefCounts.Increment( TargetElementID );
-                ElementTriangles[ElementTriStart + SubIdx] = TargetElementID;
+                m_ElementsRefCounts.Decrement( SourceElementID );
+                m_ElementsRefCounts.Increment( TargetElementID );
+                m_ElementTriangles[ElementTriStart + SubIdx] = TargetElementID;
             }
         }
     };
 
-    UE_CHECK_SLOW( SourceParentID == TargetParentID );
+    assert( SourceParentID == TargetParentID );
     if ( SourceParentID != TargetParentID )
     {
         return false;
     }
 
-    ParentMesh->EnumerateVertexTriangles( SourceParentID, MergeElementForTriangle );
+    m_ParentMesh->EnumerateVertexTriangles( SourceParentID, MergeElementForTriangle );
 
-    UE_CHECK_SLOW( ElementsRefCounts.IsValid( SourceElementID ) );
-    UE_CHECK_SLOW( ElementsRefCounts.GetRefCount( SourceElementID ) == 1 );
-    if ( ElementsRefCounts.GetRefCount( SourceElementID ) == 1 )
+    assert( m_ElementsRefCounts.IsValid( SourceElementID ) );
+    assert( m_ElementsRefCounts.GetRefCount( SourceElementID ) == 1 );
+    if ( m_ElementsRefCounts.GetRefCount( SourceElementID ) == 1 )
     {
-        ElementsRefCounts.Decrement( SourceElementID );
-        ParentVertices[SourceElementID] = FDynamicMesh3::InvalidID;
+        m_ElementsRefCounts.Decrement( SourceElementID );
+        m_ParentVertices[SourceElementID] = DynamicMesh3::InvalidID;
     }
 
     return true;
 }
 
 template <typename RealType, int ElementSize>
-int TDynamicMeshOverlay<RealType, ElementSize>::SplitElement( int                          ElementID,
-                                                              const TArrayView<const int>& TrianglesToUpdate )
+int DynamicMeshOverlay<RealType, ElementSize>::SplitElement( int                         ElementID,
+                                                             const std::span<const int>& TrianglesToUpdate )
 {
-    int ParentID = ParentVertices[ElementID];
+    int ParentID = m_ParentVertices[ElementID];
     return SplitElementWithNewParent( ElementID, ParentID, TrianglesToUpdate );
 }
 
 template <typename RealType, int ElementSize>
-int TDynamicMeshOverlay<RealType, ElementSize>::SplitElementWithNewParent(
-     int ElementID, int NewParentID, const TArrayView<const int>& TrianglesToUpdate )
+int DynamicMeshOverlay<RealType, ElementSize>::SplitElementWithNewParent(
+     int ElementID, int NewParentID, const std::span<const int>& TrianglesToUpdate )
 {
     RealType SourceData[ElementSize];
     GetElement( ElementID, SourceData );
@@ -325,43 +328,43 @@ int TDynamicMeshOverlay<RealType, ElementSize>::SplitElementWithNewParent(
         int ElementTriStart = TriID * 3;
         for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
         {
-            int CurElID = ElementTriangles[ElementTriStart + SubIdx];
+            int CurElID = m_ElementTriangles[ElementTriStart + SubIdx];
             if ( CurElID == ElementID )
             {
-                ElementsRefCounts.Decrement( ElementID );
-                ElementsRefCounts.Increment( NewElID );
-                ElementTriangles[ElementTriStart + SubIdx] = NewElID;
+                m_ElementsRefCounts.Decrement( ElementID );
+                m_ElementsRefCounts.Increment( NewElID );
+                m_ElementTriangles[ElementTriStart + SubIdx] = NewElID;
             }
         }
     }
-    ParentVertices.InsertAt( NewParentID, NewElID, FDynamicMesh3::InvalidID );
+    m_ParentVertices.InsertAt( NewParentID, NewElID, DynamicMesh3::InvalidID );
 
-    UE_CHECK_SLOW( ElementsRefCounts.IsValid( ElementID ) );
+    assert( m_ElementsRefCounts.IsValid( ElementID ) );
 
     // An element may have become isolated after changing all of its incident triangles. Delete such an element.
-    if ( ElementsRefCounts.GetRefCount( ElementID ) == 1 )
+    if ( m_ElementsRefCounts.GetRefCount( ElementID ) == 1 )
     {
-        ElementsRefCounts.Decrement( ElementID );
-        ParentVertices[ElementID] = FDynamicMesh3::InvalidID;
+        m_ElementsRefCounts.Decrement( ElementID );
+        m_ParentVertices[ElementID] = DynamicMesh3::InvalidID;
     }
 
     return NewElID;
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowties( bool bParallel )
+void DynamicMeshOverlay<RealType, ElementSize>::SplitBowties( bool bParallel )
 {
 
     if ( bParallel )
     {
         // Bowties are typically rare, so we can test for bowties in parallel and only run the split on the
         // (hopefully) few needed cases
-        TArray<int32_t> BowtieVerts;
-        for ( int32_t VertexID = 0; VertexID < ParentMesh->MaxVertexID(); ++VertexID )
+        std::vector<int32_t> BowtieVerts;
+        for ( int32_t VertexID = 0; VertexID < m_ParentMesh->MaxVertexID(); ++VertexID )
         {
-            if ( ParentMesh->IsVertex( VertexID ) && IsBowtieInOverlay( VertexID ) )
+            if ( m_ParentMesh->IsVertex( VertexID ) && IsBowtieInOverlay( VertexID ) )
             {
-                BowtieVerts.Add( VertexID );
+                BowtieVerts.push_back( VertexID );
             }
         }
         for ( int32_t const VertexID : BowtieVerts )
@@ -371,7 +374,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowties( bool bParallel )
     }
     else
     {
-        for ( int VertexID : ParentMesh->VertexIndicesItr() )
+        for ( int VertexID : m_ParentMesh->VertexIndicesItr() )
         {
             SplitBowtiesAtVertex( VertexID );
         }
@@ -379,16 +382,16 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowties( bool bParallel )
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t          VertexID,
-                                                                       TArray<int32_t>* NewElementIDs )
+void DynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t               VertexID,
+                                                                      std::vector<int32_t>* NewElementIDs )
 {
     // arrays for storing contiguous triangle groups from parentmesh
-    FDynamicMesh3::FLocalIntArray  TrianglesOut, ContiguousGroupLengths;
-    FDynamicMesh3::FLocalBoolArray GroupIsLoop;
+    DynamicMesh3::LocalIntArray  TrianglesOut, ContiguousGroupLengths;
+    DynamicMesh3::LocalBoolArray GroupIsLoop;
 
     // per-vertex element group tracking data, reused in loop below
-    FDynamicMesh3::FLocalIntArray ElementIDSeen;
-    FDynamicMesh3::FLocalIntArray
+    DynamicMesh3::LocalIntArray ElementIDSeen;
+    DynamicMesh3::LocalIntArray
          GroupElementIDs, // stores element IDs of this vertex, 1:1 w/ contiguous triangles in the parent mesh
          SubGroupID,      // mapping from GroupElementIDs indices into SubGroupElementIDs indices, giving subgroup
                           // membership per triangle
@@ -396,24 +399,24 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
                              // same element ID, this would be an array of length 1, just containing that element
                              // ID)
 
-    UE_ENSURE( EMeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
-                                                                         ContiguousGroupLengths, GroupIsLoop ) );
-    int32_t const NumTris = TrianglesOut.Num();
+    DESERT_VERIFY_WARN( MeshResult::Ok == m_ParentMesh->GetVtxContiguousTriangles(
+                                               VertexID, TrianglesOut, ContiguousGroupLengths, GroupIsLoop ) );
+    int32_t const NumTris = static_cast<int32_t>( TrianglesOut.size() );
 
     auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
     {
-        FIndex3i TriVIDs = ParentMesh->GetTriangle( TriID );
-        FIndex3i TriEIDs = GetTriangle( TriID );
+        Index3i  TriVIDs = m_ParentMesh->GetTriangle( TriID );
+        Index3i  TriEIDs = GetTriangle( TriID );
         int      SubIdx  = TriVIDs.IndexOf( VertexID );
         return TriEIDs[SubIdx];
     };
 
     // Early out in the easy non-bowtie case of 1 element, 1 contiguous group
-    if ( NumTris > 0 && ContiguousGroupLengths.Num() == 1 )
+    if ( NumTris > 0 && static_cast<int32_t>( ContiguousGroupLengths.size() ) == 1 )
     {
         int32_t const FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
         bool  bSingleElement = true;
-        for ( int32_t Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
+        for ( int32_t Idx = 1; Idx < static_cast<int32_t>( TrianglesOut.size() ); ++Idx )
         {
             if ( FirstElSeen != ElementIDFromTriangle( TrianglesOut[Idx] ) )
             {
@@ -426,24 +429,24 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
         }
     }
 
-    ElementIDSeen.Reset();
+    ElementIDSeen.clear();
     // per contiguous group of triangles around vertex in ParentMesh, find contiguous sub-groups in overlay
-    for ( int32_t GroupIdx = 0, NumGroups = ContiguousGroupLengths.Num(), TriSubStart = 0; GroupIdx < NumGroups;
-          GroupIdx++ )
+    for ( int32_t GroupIdx = 0, NumGroups = static_cast<int32_t>( ContiguousGroupLengths.size() ), TriSubStart = 0;
+          GroupIdx < NumGroups; GroupIdx++ )
     {
         bool bIsLoop       = GroupIsLoop[GroupIdx];
         int  TriInGroupNum = ContiguousGroupLengths[GroupIdx];
-        if ( UE_ENSURE( TriInGroupNum > 0 ) == false )
+        if ( Common::EnsureOrWarn( TriInGroupNum > 0, "TriInGroupNum > 0" ) == false )
         {
             continue;
         }
         int TriSubEnd = TriSubStart + TriInGroupNum;
 
-        GroupElementIDs.Reset();
+        GroupElementIDs.clear();
         for ( int TriSubIdx = TriSubStart; TriSubIdx < TriSubEnd; TriSubIdx++ )
         {
             int TriID = TrianglesOut[TriSubIdx];
-            GroupElementIDs.Add( ElementIDFromTriangle( TriID ) );
+            GroupElementIDs.push_back( ElementIDFromTriangle( TriID ) );
         }
 
         auto IsConnected = [this, &GroupElementIDs, &TrianglesOut, &TriSubStart]( int TriOutIdxA, int TriOutIdxB )
@@ -452,23 +455,23 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
             {
                 return false;
             }
-            int EdgeID = ParentMesh->FindEdgeFromTriPair( TrianglesOut[TriOutIdxA], TrianglesOut[TriOutIdxB] );
+            int EdgeID = m_ParentMesh->FindEdgeFromTriPair( TrianglesOut[TriOutIdxA], TrianglesOut[TriOutIdxB] );
             return EdgeID >= 0 && !IsSeamEdge( EdgeID );
         };
 
-        SubGroupID.Reset();
-        SubGroupID.SetNum( TriInGroupNum );
-        SubGroupElementIDs.Reset();
+        SubGroupID.clear();
+        SubGroupID.resize( TriInGroupNum );
+        SubGroupElementIDs.clear();
         int MaxSubID  = 0;
         SubGroupID[0] = 0;
-        SubGroupElementIDs.Add( GroupElementIDs[0] );
+        SubGroupElementIDs.push_back( GroupElementIDs[0] );
 
         // Iterate through tris in current group, except last one
         for ( int TriSubIdx = TriSubStart; TriSubIdx + 1 < TriSubEnd; TriSubIdx++ )
         {
             if ( !IsConnected( TriSubIdx, TriSubIdx + 1 ) )
             {
-                SubGroupElementIDs.Add( GroupElementIDs[TriSubIdx + 1 - TriSubStart] );
+                SubGroupElementIDs.push_back( GroupElementIDs[TriSubIdx + 1 - TriSubStart] );
                 MaxSubID++;
             }
             SubGroupID[TriSubIdx - TriSubStart + 1] = MaxSubID;
@@ -477,16 +480,17 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
         // group
         if ( bIsLoop && MaxSubID > 0 && IsConnected( TriSubStart, TriSubStart + TriInGroupNum - 1 ) )
         {
-            int LastGroupID = SubGroupID.Last();
-            for ( int32_t Idx = SubGroupID.Num() - 1; Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
+            int LastGroupID = SubGroupID.back();
+            for ( int32_t Idx = static_cast<int32_t>( SubGroupID.size() ) - 1;
+                  Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
             {
                 SubGroupID[Idx] = 0;
             }
             MaxSubID--;
-            SubGroupElementIDs.Pop( EAllowShrinking::No );
+            SubGroupElementIDs.pop_back();
         }
 
-        for ( int SubID = 0; SubID < SubGroupElementIDs.Num(); SubID++ )
+        for ( int SubID = 0; SubID < static_cast<int32_t>( SubGroupElementIDs.size() ); SubID++ )
         {
             int ElementID = SubGroupElementIDs[SubID];
             if ( ElementID < 0 )
@@ -494,25 +498,25 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
                 continue; // skip if this is an invalid ElementID (eg from an invalid triangle)
             }
             // split needed the *second* time we see a sub-group using a given ElementID
-            if ( ElementIDSeen.Contains( ElementID ) )
+            if ( ( std::find( ElementIDSeen.begin(), ElementIDSeen.end(), ElementID ) != ElementIDSeen.end() ) )
             {
-                FDynamicMesh3::FLocalIntArray ConnectedTris;
+                DynamicMesh3::LocalIntArray ConnectedTris;
                 for ( int TriSubIdx = TriSubStart; TriSubIdx < TriSubEnd; TriSubIdx++ )
                 {
                     if ( SubID == SubGroupID[TriSubIdx - TriSubStart] )
                     {
-                        ConnectedTris.Add( TrianglesOut[TriSubIdx] );
+                        ConnectedTris.push_back( TrianglesOut[TriSubIdx] );
                     }
                 }
                 int32_t const NewElementID = SplitElement( ElementID, ConnectedTris );
                 if ( NewElementIDs )
                 {
-                    NewElementIDs->Add( NewElementID );
+                    NewElementIDs->push_back( NewElementID );
                 }
             }
             else
             {
-                ElementIDSeen.Add( ElementID );
+                ElementIDSeen.push_back( ElementID );
             }
         }
 
@@ -521,48 +525,49 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::InitializeTriangles( int MaxTriangleID )
+void DynamicMeshOverlay<RealType, ElementSize>::InitializeTriangles( int MaxTriangleID )
 {
-    ElementTriangles.SetNum( MaxTriangleID * 3 );
-    ElementTriangles.Fill( FDynamicMesh3::InvalidID );
+    m_ElementTriangles.SetNum( MaxTriangleID * 3 );
+    m_ElementTriangles.Fill( DynamicMesh3::InvalidID );
 }
 
 template <typename RealType, int ElementSize>
-EMeshResult TDynamicMeshOverlay<RealType, ElementSize>::SetTriangle( int tid, const FIndex3i& tv,
-                                                                     bool bAllowElementFreeing )
+MeshResult DynamicMeshOverlay<RealType, ElementSize>::SetTriangle( int tid, const Index3i& tv,
+                                                                   bool bAllowElementFreeing )
 {
     if ( IsElement( tv[0] ) == false || IsElement( tv[1] ) == false || IsElement( tv[2] ) == false )
     {
-        UE_CHECK_SLOW( false );
-        return EMeshResult::Failed_NotAVertex;
+        assert( false );
+        return MeshResult::Failed_NotAVertex;
     }
     if ( tv[0] == tv[1] || tv[0] == tv[2] || tv[1] == tv[2] )
     {
-        UE_CHECK_SLOW( false );
-        return EMeshResult::Failed_InvalidNeighbourhood;
+        assert( false );
+        return MeshResult::Failed_InvalidNeighbourhood;
     }
 
-    if ( ParentMesh->IsTriangle( tid ) == false )
+    if ( m_ParentMesh->IsTriangle( tid ) == false )
     {
-        UE_CHECK_SLOW( false );
-        return EMeshResult::Failed_NotATriangle;
+        assert( false );
+        return MeshResult::Failed_NotATriangle;
     }
 
     InternalSetTriangle( tid, tv, true, bAllowElementFreeing );
 
     // updateTimeStamp(true);
-    return EMeshResult::Ok;
+    return MeshResult::Ok;
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::FreeUnusedElements( const TSet<int>* ElementsToCheck )
+void DynamicMeshOverlay<RealType, ElementSize>::FreeUnusedElements(
+     const std::unordered_set<int>* ElementsToCheck )
 {
     auto FreeIfUnused = [this]( int ElementID )
     {
-        if ( ElementsRefCounts.IsValid( ElementID ) && ElementsRefCounts.GetRefCount( ElementID ) == 1 )
+        if ( m_ElementsRefCounts.IsValid( ElementID ) && m_ElementsRefCounts.GetRefCount( ElementID ) == 1 )
         {
-            ElementsRefCounts.Decrement( ElementID );
-            ParentVertices[ElementID] = FDynamicMesh3::InvalidID;
+            m_ElementsRefCounts.Decrement( ElementID );
+            m_ParentVertices[ElementID] = DynamicMesh3::InvalidID;
         }
     };
 
@@ -575,7 +580,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::FreeUnusedElements( const TSet<
     }
     else
     {
-        for ( int ElementID : ElementsRefCounts.Indices() )
+        for ( int ElementID : m_ElementsRefCounts.Indices() )
         {
             FreeIfUnused( ElementID );
         }
@@ -583,32 +588,32 @@ void TDynamicMeshOverlay<RealType, ElementSize>::FreeUnusedElements( const TSet<
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::UnsetTriangle( int TriangleID, bool bAllowElementFreeing )
+void DynamicMeshOverlay<RealType, ElementSize>::UnsetTriangle( int TriangleID, bool bAllowElementFreeing )
 {
     int i = 3 * TriangleID;
-    if ( ElementTriangles[i] == FDynamicMesh3::InvalidID )
+    if ( m_ElementTriangles[i] == DynamicMesh3::InvalidID )
     {
         return;
     }
     for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
     {
-        ElementsRefCounts.Decrement( ElementTriangles[i + SubIdx] );
+        m_ElementsRefCounts.Decrement( m_ElementTriangles[i + SubIdx] );
 
-        if ( bAllowElementFreeing && ElementsRefCounts.GetRefCount( ElementTriangles[i + SubIdx] ) == 1 )
+        if ( bAllowElementFreeing && m_ElementsRefCounts.GetRefCount( m_ElementTriangles[i + SubIdx] ) == 1 )
         {
-            ElementsRefCounts.Decrement( ElementTriangles[i + SubIdx] );
-            ParentVertices[ElementTriangles[i + SubIdx]] = FDynamicMesh3::InvalidID;
+            m_ElementsRefCounts.Decrement( m_ElementTriangles[i + SubIdx] );
+            m_ParentVertices[m_ElementTriangles[i + SubIdx]] = DynamicMesh3::InvalidID;
         }
-        ElementTriangles[i + SubIdx] = FDynamicMesh3::InvalidID;
+        m_ElementTriangles[i + SubIdx] = DynamicMesh3::InvalidID;
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, const FIndex3i& tv,
-                                                                      bool bUpdateRefCounts,
-                                                                      bool bAllowElementFreeing )
+void DynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, const Index3i& tv,
+                                                                     bool bUpdateRefCounts,
+                                                                     bool bAllowElementFreeing )
 {
-    if ( UE_ENSURE( ParentMesh ) == false )
+    if ( Common::EnsureOrWarn( m_ParentMesh, "ParentMesh" ) == false )
     {
         return;
     }
@@ -617,46 +622,46 @@ void TDynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, c
     // elements as soon as they lose their last reference, so a Decrement followed by Increment
     // can leave things in an invalid state.
     bool     bNeedToDecrement = false;
-    FIndex3i OldTriElements; // only used if need to decrement.
+    Index3i  OldTriElements; // only used if need to decrement.
 
     int i = 3 * tid;
 
     // See if triangle existed and make it exist if not
-    if ( !ElementTriangles.SetMinimumSize( i + 3, FDynamicMesh3::InvalidID ) && bUpdateRefCounts )
+    if ( !m_ElementTriangles.SetMinimumSize( i + 3, DynamicMesh3::InvalidID ) && bUpdateRefCounts )
     {
         OldTriElements   = GetTriangle( tid );
-        bNeedToDecrement = ( OldTriElements[0] != FDynamicMesh3::InvalidID );
+        bNeedToDecrement = ( OldTriElements[0] != DynamicMesh3::InvalidID );
     }
 
-    ElementTriangles[i + 2] = tv[2];
-    ElementTriangles[i + 1] = tv[1];
-    ElementTriangles[i]     = tv[0];
+    m_ElementTriangles[i + 2] = tv[2];
+    m_ElementTriangles[i + 1] = tv[1];
+    m_ElementTriangles[i]     = tv[0];
 
     if ( bUpdateRefCounts )
     {
-        ElementsRefCounts.Increment( tv[0] );
-        ElementsRefCounts.Increment( tv[1] );
-        ElementsRefCounts.Increment( tv[2] );
+        m_ElementsRefCounts.Increment( tv[0] );
+        m_ElementsRefCounts.Increment( tv[1] );
+        m_ElementsRefCounts.Increment( tv[2] );
 
         if ( bNeedToDecrement )
         {
             for ( int j = 0; j < 3; ++j )
             {
-                ElementsRefCounts.Decrement( OldTriElements[j] );
+                m_ElementsRefCounts.Decrement( OldTriElements[j] );
 
-                if ( bAllowElementFreeing && ElementsRefCounts.GetRefCount( OldTriElements[j] ) == 1 )
+                if ( bAllowElementFreeing && m_ElementsRefCounts.GetRefCount( OldTriElements[j] ) == 1 )
                 {
-                    ElementsRefCounts.Decrement( OldTriElements[j] );
-                    ParentVertices[OldTriElements[j]] = FDynamicMesh3::InvalidID;
+                    m_ElementsRefCounts.Decrement( OldTriElements[j] );
+                    m_ParentVertices[OldTriElements[j]] = DynamicMesh3::InvalidID;
                 }
             };
         }
     }
 
-    if ( tv != FDynamicMesh3::InvalidTriangle )
+    if ( tv != DynamicMesh3::InvalidTriangle )
     {
         // Set parent vertex IDs
-        const FIndex3i ParentTriangle = ParentMesh->GetTriangle( tid );
+        const Index3i ParentTriangle = m_ParentMesh->GetTriangle( tid );
 
         for ( int VInd = 0; VInd < 3; ++VInd )
         {
@@ -664,44 +669,44 @@ void TDynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, c
             // triangle are either not yet set or already point to the vertices of the corresponding
             // mesh triangle (and so will remain unchanged). Remember that the same element is not
             // allowed to be used for multiple vertices.
-            UE_CHECK_SLOW( ParentVertices[tv[VInd]] == ParentTriangle[VInd] ||
-                           ParentVertices[tv[VInd]] == FDynamicMesh3::InvalidID );
+            assert( m_ParentVertices[tv[VInd]] == ParentTriangle[VInd] ||
+                    m_ParentVertices[tv[VInd]] == DynamicMesh3::InvalidID );
 
-            ParentVertices.InsertAt( ParentTriangle[VInd], tv[VInd], FDynamicMesh3::InvalidID );
+            m_ParentVertices.InsertAt( ParentTriangle[VInd], tv[VInd], DynamicMesh3::InvalidID );
         }
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::InitializeNewTriangle( int tid )
+void DynamicMeshOverlay<RealType, ElementSize>::InitializeNewTriangle( int tid )
 {
     int i = 3 * tid;
-    ElementTriangles.SetMinimumSize( i + 3, FDynamicMesh3::InvalidID );
-    ElementTriangles[i + 2] = FDynamicMesh3::InvalidID;
-    ElementTriangles[i + 1] = FDynamicMesh3::InvalidID;
-    ElementTriangles[i]     = FDynamicMesh3::InvalidID;
+    m_ElementTriangles.SetMinimumSize( i + 3, DynamicMesh3::InvalidID );
+    m_ElementTriangles[i + 2] = DynamicMesh3::InvalidID;
+    m_ElementTriangles[i + 1] = DynamicMesh3::InvalidID;
+    m_ElementTriangles[i]     = DynamicMesh3::InvalidID;
 
     // updateTimeStamp(true);
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsNonIntersecting ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsNonIntersecting ) const
 {
     if ( bIsNonIntersecting != nullptr )
     {
         *bIsNonIntersecting = false;
     }
-    if ( ParentMesh->IsEdge( eid ) == false )
+    if ( m_ParentMesh->IsEdge( eid ) == false )
     {
         return false;
     }
 
-    FIndex2i et = ParentMesh->GetEdgeT( eid );
-    if ( et.B == FDynamicMesh3::InvalidID )
+    Index2i et = m_ParentMesh->GetEdgeT( eid );
+    if ( et.B == DynamicMesh3::InvalidID )
     {
         if ( bIsNonIntersecting != nullptr )
         {
-            FIndex2i ev     = ParentMesh->GetEdgeV( eid );
+            Index2i  ev     = m_ParentMesh->GetEdgeV( eid );
             int      CountA = CountVertexElements( ev.A );
             int      CountB = CountVertexElements( ev.B );
 
@@ -712,7 +717,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsN
         return true;
     }
 
-    FIndex2i ev     = ParentMesh->GetEdgeV( eid );
+    Index2i  ev     = m_ParentMesh->GetEdgeV( eid );
     int      base_a = ev.A, base_b = ev.B;
 
     bool bASet = IsSetTriangle( et.A ), bBSet = IsSetTriangle( et.B );
@@ -721,15 +726,15 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsN
         return ( bASet || bBSet ); // consider it a seam if only one is unset
     }
 
-    FIndex3i Triangle0 = GetTriangle( et.A );
-    FIndex3i BaseTriangle0( ParentVertices[Triangle0.A], ParentVertices[Triangle0.B],
-                            ParentVertices[Triangle0.C] );
+    Index3i Triangle0 = GetTriangle( et.A );
+    Index3i  BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
+                            m_ParentVertices[Triangle0.C] );
     int      idx_base_a0 = BaseTriangle0.IndexOf( base_a );
     int      idx_base_b0 = BaseTriangle0.IndexOf( base_b );
 
-    FIndex3i Triangle1 = GetTriangle( et.B );
-    FIndex3i BaseTriangle1( ParentVertices[Triangle1.A], ParentVertices[Triangle1.B],
-                            ParentVertices[Triangle1.C] );
+    Index3i Triangle1 = GetTriangle( et.B );
+    Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
+                            m_ParentVertices[Triangle1.C] );
     int      idx_base_a1 = BaseTriangle1.IndexOf( base_a );
     int      idx_base_b1 = BaseTriangle1.IndexOf( base_b );
 
@@ -764,14 +769,14 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsN
     // TODO: this doesn't seem to work but it should, and would be more efficient:
     //   - add ParentMesh->FindTriEdgeIndex(tid,eid)
     //   - SamePairUnordered query could directly index into ElementTriangles[]
-    // FIndex3i TriangleA = GetTriangle(et.A);
-    // FIndex3i TriangleB = GetTriangle(et.B);
+    // Index3i TriangleA = GetTriangle(et.A);
+    // Index3i TriangleB = GetTriangle(et.B);
 
-    // FIndex3i BaseTriEdgesA = ParentMesh->GetTriEdges(et.A);
+    // Index3i BaseTriEdgesA = ParentMesh->GetTriEdges(et.A);
     // int WhichA = (BaseTriEdgesA.A == eid) ? 0 :
     //	((BaseTriEdgesA.B == eid) ? 1 : 2);
 
-    // FIndex3i BaseTriEdgesB = ParentMesh->GetTriEdges(et.B);
+    // Index3i BaseTriEdgesB = ParentMesh->GetTriEdges(et.B);
     // int WhichB = (BaseTriEdgesB.A == eid) ? 0 :
     //	((BaseTriEdgesB.B == eid) ? 1 : 2);
 
@@ -781,20 +786,20 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsN
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEndEdge( int eid ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEndEdge( int eid ) const
 {
-    if ( ParentMesh->IsEdge( eid ) == false )
+    if ( m_ParentMesh->IsEdge( eid ) == false )
     {
         return false;
     }
 
-    FIndex2i et = ParentMesh->GetEdgeT( eid );
-    if ( et.B == FDynamicMesh3::InvalidID )
+    Index2i et = m_ParentMesh->GetEdgeT( eid );
+    if ( et.B == DynamicMesh3::InvalidID )
     {
         return false;
     }
 
-    FIndex2i ev     = ParentMesh->GetEdgeV( eid );
+    Index2i  ev     = m_ParentMesh->GetEdgeV( eid );
     int      base_a = ev.A, base_b = ev.B;
 
     bool bASet = IsSetTriangle( et.A ), bBSet = IsSetTriangle( et.B );
@@ -803,15 +808,15 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEndEdge( int eid ) const
         return false;
     }
 
-    FIndex3i Triangle0 = GetTriangle( et.A );
-    FIndex3i BaseTriangle0( ParentVertices[Triangle0.A], ParentVertices[Triangle0.B],
-                            ParentVertices[Triangle0.C] );
+    Index3i Triangle0 = GetTriangle( et.A );
+    Index3i  BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
+                            m_ParentVertices[Triangle0.C] );
     int      idx_base_a0 = BaseTriangle0.IndexOf( base_a );
     int      idx_base_b0 = BaseTriangle0.IndexOf( base_b );
 
-    FIndex3i Triangle1 = GetTriangle( et.B );
-    FIndex3i BaseTriangle1( ParentVertices[Triangle1.A], ParentVertices[Triangle1.B],
-                            ParentVertices[Triangle1.C] );
+    Index3i Triangle1 = GetTriangle( et.B );
+    Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
+                            m_ParentVertices[Triangle1.C] );
     int      idx_base_a1 = BaseTriangle1.IndexOf( base_a );
     int      idx_base_b1 = BaseTriangle1.IndexOf( base_b );
 
@@ -837,12 +842,12 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamEndEdge( int eid ) const
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::HasInteriorSeamEdges() const
+bool DynamicMeshOverlay<RealType, ElementSize>::HasInteriorSeamEdges() const
 {
-    for ( int eid : ParentMesh->EdgeIndicesItr() )
+    for ( int eid : m_ParentMesh->EdgeIndicesItr() )
     {
-        FIndex2i et = ParentMesh->GetEdgeT( eid );
-        if ( et.B != FDynamicMesh3::InvalidID )
+        Index2i et = m_ParentMesh->GetEdgeT( eid );
+        if ( et.B != DynamicMesh3::InvalidID )
         {
             bool bASet = IsSetTriangle( et.A ), bBSet = IsSetTriangle( et.B );
             if ( bASet != bBSet )
@@ -855,18 +860,18 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::HasInteriorSeamEdges() const
                 // neither triangle has set elements
                 continue;
             }
-            FIndex2i ev     = ParentMesh->GetEdgeV( eid );
+            Index2i  ev     = m_ParentMesh->GetEdgeV( eid );
             int      base_a = ev.A, base_b = ev.B;
 
-            FIndex3i Triangle0 = GetTriangle( et.A );
-            FIndex3i BaseTriangle0( ParentVertices[Triangle0.A], ParentVertices[Triangle0.B],
-                                    ParentVertices[Triangle0.C] );
+            Index3i  Triangle0 = GetTriangle( et.A );
+            Index3i  BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
+                                    m_ParentVertices[Triangle0.C] );
             int      idx_base_a1 = BaseTriangle0.IndexOf( base_a );
             int      idx_base_b1 = BaseTriangle0.IndexOf( base_b );
 
-            FIndex3i Triangle1 = GetTriangle( et.B );
-            FIndex3i BaseTriangle1( ParentVertices[Triangle1.A], ParentVertices[Triangle1.B],
-                                    ParentVertices[Triangle1.C] );
+            Index3i  Triangle1 = GetTriangle( et.B );
+            Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
+                                    m_ParentVertices[Triangle1.C] );
             int      idx_base_a2 = BaseTriangle1.IndexOf( base_a );
             int      idx_base_b2 = BaseTriangle1.IndexOf( base_b );
 
@@ -881,12 +886,12 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::HasInteriorSeamEdges() const
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamVertex( int vid, bool bBoundaryIsSeam ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamVertex( int vid, bool bBoundaryIsSeam ) const
 {
     // @todo can we do this more efficiently? At minimum we are looking up each triangle twice...
-    for ( int edgeid : ParentMesh->VtxEdgesItr( vid ) )
+    for ( int edgeid : m_ParentMesh->VtxEdgesItr( vid ) )
     {
-        if ( !bBoundaryIsSeam && ParentMesh->IsBoundaryEdge( edgeid ) )
+        if ( !bBoundaryIsSeam && m_ParentMesh->IsBoundaryEdge( edgeid ) )
         {
             continue;
         }
@@ -899,10 +904,10 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamVertex( int vid, bool bBo
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamIntersectionVertex( int32_t VertexID ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamIntersectionVertex( int32_t VertexID ) const
 {
     int32_t SeamCount = 0;
-    for ( int32_t const EdgeID : ParentMesh->VtxEdgesItr( VertexID ) )
+    for ( int32_t const EdgeID : m_ParentMesh->VtxEdgesItr( VertexID ) )
     {
         SeamCount += int32_t( IsSeamEdge( EdgeID ) );
     }
@@ -910,15 +915,15 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamIntersectionVertex( int32
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t VertexID ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t VertexID ) const
 {
     // arrays for storing contiguous triangle groups from parentmesh
-    FDynamicMesh3::FLocalIntArray  TrianglesOut, ContiguousGroupLengths;
-    FDynamicMesh3::FLocalBoolArray GroupIsLoop;
+    DynamicMesh3::LocalIntArray  TrianglesOut, ContiguousGroupLengths;
+    DynamicMesh3::LocalBoolArray GroupIsLoop;
 
     // per-vertex element group tracking data, reused in loop below
-    FDynamicMesh3::FLocalIntArray ElementIDSeen;
-    FDynamicMesh3::FLocalIntArray
+    DynamicMesh3::LocalIntArray ElementIDSeen;
+    DynamicMesh3::LocalIntArray
          GroupElementIDs, // stores element IDs of this vertex, 1:1 w/ contiguous triangles in the parent mesh
          SubGroupID,      // mapping from GroupElementIDs indices into SubGroupElementIDs indices, giving subgroup
                           // membership per triangle
@@ -926,24 +931,24 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
                              // same element ID, this would be an array of length 1, just containing that element
                              // ID)
 
-    UE_ENSURE( EMeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
-                                                                         ContiguousGroupLengths, GroupIsLoop ) );
-    int32_t const NumTris = TrianglesOut.Num();
+    DESERT_VERIFY_WARN( MeshResult::Ok == m_ParentMesh->GetVtxContiguousTriangles(
+                                               VertexID, TrianglesOut, ContiguousGroupLengths, GroupIsLoop ) );
+    int32_t const NumTris = static_cast<int32_t>( TrianglesOut.size() );
 
     auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
     {
-        FIndex3i TriVIDs = ParentMesh->GetTriangle( TriID );
-        FIndex3i TriEIDs = GetTriangle( TriID );
+        Index3i  TriVIDs = m_ParentMesh->GetTriangle( TriID );
+        Index3i  TriEIDs = GetTriangle( TriID );
         int      SubIdx  = TriVIDs.IndexOf( VertexID );
         return TriEIDs[SubIdx];
     };
 
     // Handle the easy case of 1 element, 1 contiguous group
-    if ( NumTris > 0 && ContiguousGroupLengths.Num() == 1 )
+    if ( NumTris > 0 && static_cast<int32_t>( ContiguousGroupLengths.size() ) == 1 )
     {
         int32_t const FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
         bool  bSingleElement = true;
-        for ( int32_t Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
+        for ( int32_t Idx = 1; Idx < static_cast<int32_t>( TrianglesOut.size() ); ++Idx )
         {
             if ( FirstElSeen != ElementIDFromTriangle( TrianglesOut[Idx] ) )
             {
@@ -957,24 +962,24 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
     }
 
     // More complex case: Iterate through each contiguous group looking for a re-used element across groups
-    ElementIDSeen.Reset();
+    ElementIDSeen.clear();
     // per contiguous group of triangles around vertex in ParentMesh, find contiguous sub-groups in overlay
-    for ( int32_t GroupIdx = 0, NumGroups = ContiguousGroupLengths.Num(), TriSubStart = 0; GroupIdx < NumGroups;
-          GroupIdx++ )
+    for ( int32_t GroupIdx = 0, NumGroups = static_cast<int32_t>( ContiguousGroupLengths.size() ), TriSubStart = 0;
+          GroupIdx < NumGroups; GroupIdx++ )
     {
         bool bIsLoop       = GroupIsLoop[GroupIdx];
         int  TriInGroupNum = ContiguousGroupLengths[GroupIdx];
-        if ( UE_ENSURE( TriInGroupNum > 0 ) == false )
+        if ( Common::EnsureOrWarn( TriInGroupNum > 0, "TriInGroupNum > 0" ) == false )
         {
             continue;
         }
         int TriSubEnd = TriSubStart + TriInGroupNum;
 
-        GroupElementIDs.Reset();
+        GroupElementIDs.clear();
         for ( int TriSubIdx = TriSubStart; TriSubIdx < TriSubEnd; TriSubIdx++ )
         {
             int TriID = TrianglesOut[TriSubIdx];
-            GroupElementIDs.Add( ElementIDFromTriangle( TriID ) );
+            GroupElementIDs.push_back( ElementIDFromTriangle( TriID ) );
         }
 
         auto IsConnected = [this, &GroupElementIDs, &TrianglesOut, &TriSubStart]( int TriOutIdxA, int TriOutIdxB )
@@ -983,23 +988,23 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
             {
                 return false;
             }
-            int EdgeID = ParentMesh->FindEdgeFromTriPair( TrianglesOut[TriOutIdxA], TrianglesOut[TriOutIdxB] );
+            int EdgeID = m_ParentMesh->FindEdgeFromTriPair( TrianglesOut[TriOutIdxA], TrianglesOut[TriOutIdxB] );
             return EdgeID >= 0 && !IsSeamEdge( EdgeID );
         };
 
-        SubGroupID.Reset();
-        SubGroupID.SetNum( TriInGroupNum );
-        SubGroupElementIDs.Reset();
+        SubGroupID.clear();
+        SubGroupID.resize( TriInGroupNum );
+        SubGroupElementIDs.clear();
         int MaxSubID  = 0;
         SubGroupID[0] = 0;
-        SubGroupElementIDs.Add( GroupElementIDs[0] );
+        SubGroupElementIDs.push_back( GroupElementIDs[0] );
 
         // Iterate through tris in current group, except last one
         for ( int TriSubIdx = TriSubStart; TriSubIdx + 1 < TriSubEnd; TriSubIdx++ )
         {
             if ( !IsConnected( TriSubIdx, TriSubIdx + 1 ) )
             {
-                SubGroupElementIDs.Add( GroupElementIDs[TriSubIdx + 1 - TriSubStart] );
+                SubGroupElementIDs.push_back( GroupElementIDs[TriSubIdx + 1 - TriSubStart] );
                 MaxSubID++;
             }
             SubGroupID[TriSubIdx - TriSubStart + 1] = MaxSubID;
@@ -1008,16 +1013,17 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
         // group
         if ( bIsLoop && MaxSubID > 0 && IsConnected( TriSubStart, TriSubStart + TriInGroupNum - 1 ) )
         {
-            int LastGroupID = SubGroupID.Last();
-            for ( int32_t Idx = SubGroupID.Num() - 1; Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
+            int LastGroupID = SubGroupID.back();
+            for ( int32_t Idx = static_cast<int32_t>( SubGroupID.size() ) - 1;
+                  Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
             {
                 SubGroupID[Idx] = 0;
             }
             MaxSubID--;
-            SubGroupElementIDs.Pop( EAllowShrinking::No );
+            SubGroupElementIDs.pop_back();
         }
 
-        for ( int SubID = 0; SubID < SubGroupElementIDs.Num(); SubID++ )
+        for ( int SubID = 0; SubID < static_cast<int32_t>( SubGroupElementIDs.size() ); SubID++ )
         {
             int ElementID = SubGroupElementIDs[SubID];
             if ( ElementID < 0 )
@@ -1025,13 +1031,13 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
                 continue; // skip if this is an invalid ElementID (eg from an invalid triangle)
             }
             // split needed the *second* time we see a sub-group using a given ElementID
-            if ( ElementIDSeen.Contains( ElementID ) )
+            if ( ( std::find( ElementIDSeen.begin(), ElementIDSeen.end(), ElementID ) != ElementIDSeen.end() ) )
             {
                 return true;
             }
             else
             {
-                ElementIDSeen.Add( ElementID );
+                ElementIDSeen.push_back( ElementID );
             }
         }
 
@@ -1042,54 +1048,57 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const
 {
-    FIndex3i NbrTris  = ParentMesh->GetTriNeighbourTris( TriangleID0 );
+    Index3i  NbrTris  = m_ParentMesh->GetTriNeighbourTris( TriangleID0 );
     int      NbrIndex = IndexUtil::FindTriIndex( TriangleID1, NbrTris );
     if ( NbrIndex != IndexConstants::InvalidID )
     {
-        FIndex3i TriEdges = ParentMesh->GetTriEdges( TriangleID0 );
+        Index3i TriEdges = m_ParentMesh->GetTriEdges( TriangleID0 );
         return IsSeamEdge( TriEdges[NbrIndex] ) == false;
     }
     return false;
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::GetVertexElements( int vid, TArray<int>& OutElements ) const
+void DynamicMeshOverlay<RealType, ElementSize>::GetVertexElements( int vid, std::vector<int>& OutElements ) const
 {
-    OutElements.Reset();
-    for ( int tid : ParentMesh->VtxTrianglesItr( vid ) )
+    OutElements.clear();
+    for ( int tid : m_ParentMesh->VtxTrianglesItr( vid ) )
     {
         if ( !IsSetTriangle( tid ) )
         {
             continue;
         }
-        FIndex3i Triangle = GetTriangle( tid );
+        Index3i Triangle = GetTriangle( tid );
         for ( int j = 0; j < 3; ++j )
         {
-            if ( ParentVertices[Triangle[j]] == vid )
+            if ( m_ParentVertices[Triangle[j]] == vid )
             {
-                OutElements.AddUnique( Triangle[j] );
+                if ( std::find( OutElements.begin(), OutElements.end(), Triangle[j] ) == OutElements.end() )
+                {
+                    OutElements.push_back( Triangle[j] );
+                }
             }
         }
     }
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::FindAnyElementIDAtVertex( int32_t  VertexID,
-                                                                           int32_t& OutElementID ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::FindAnyElementIDAtVertex( int32_t  VertexID,
+                                                                          int32_t& OutElementID ) const
 {
     OutElementID = IndexConstants::InvalidID;
-    for ( int TID : ParentMesh->VtxTrianglesItr( VertexID ) )
+    for ( int TID : m_ParentMesh->VtxTrianglesItr( VertexID ) )
     {
         if ( !IsSetTriangle( TID ) )
         {
             continue;
         }
-        FIndex3i Triangle = GetTriangle( TID );
+        Index3i Triangle = GetTriangle( TID );
         for ( int SubIdx = 0; SubIdx < 3; ++SubIdx )
         {
-            if ( ParentVertices[Triangle[SubIdx]] == VertexID )
+            if ( m_ParentVertices[Triangle[SubIdx]] == VertexID )
             {
                 OutElementID = Triangle[SubIdx];
                 return true;
@@ -1100,21 +1109,25 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::FindAnyElementIDAtVertex( int32
 }
 
 template <typename RealType, int ElementSize>
-int TDynamicMeshOverlay<RealType, ElementSize>::CountVertexElements( int vid, bool bBruteForce ) const
+int DynamicMeshOverlay<RealType, ElementSize>::CountVertexElements( int vid, bool bBruteForce ) const
 {
-    FDynamicMesh3::FLocalIntArray VertexElements;
-    FIndex3i                      Triangle;
+    DynamicMesh3::LocalIntArray VertexElements;
+    Index3i                     Triangle;
     if ( bBruteForce )
     {
-        for ( int tid : ParentMesh->TriangleIndicesItr() )
+        for ( int tid : m_ParentMesh->TriangleIndicesItr() )
         {
             if ( GetTriangleIfValid( tid, Triangle ) )
             {
                 for ( int j = 0; j < 3; ++j )
                 {
-                    if ( ParentVertices[Triangle[j]] == vid )
+                    if ( m_ParentVertices[Triangle[j]] == vid )
                     {
-                        VertexElements.AddUnique( Triangle[j] );
+                        if ( std::find( VertexElements.begin(), VertexElements.end(), Triangle[j] ) ==
+                             VertexElements.end() )
+                        {
+                            VertexElements.push_back( Triangle[j] );
+                        }
                     }
                 }
             }
@@ -1122,72 +1135,76 @@ int TDynamicMeshOverlay<RealType, ElementSize>::CountVertexElements( int vid, bo
     }
     else
     {
-        for ( int tid : ParentMesh->VtxTrianglesItr( vid ) )
+        for ( int tid : m_ParentMesh->VtxTrianglesItr( vid ) )
         {
             if ( GetTriangleIfValid( tid, Triangle ) )
             {
                 for ( int j = 0; j < 3; ++j )
                 {
-                    if ( ParentVertices[Triangle[j]] == vid )
+                    if ( m_ParentVertices[Triangle[j]] == vid )
                     {
-                        VertexElements.AddUnique( Triangle[j] );
+                        if ( std::find( VertexElements.begin(), VertexElements.end(), Triangle[j] ) ==
+                             VertexElements.end() )
+                        {
+                            VertexElements.push_back( Triangle[j] );
+                        }
                     }
                 }
             }
         }
     }
 
-    return VertexElements.Num();
+    return static_cast<int32_t>( VertexElements.size() );
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::GetElementTriangles( int          ElementID,
-                                                                      TArray<int>& OutTriangles ) const
+void DynamicMeshOverlay<RealType, ElementSize>::GetElementTriangles( int               ElementID,
+                                                                     std::vector<int>& OutTriangles ) const
 {
-    UE_CHECK_SLOW( ElementsRefCounts.IsValid( ElementID ) );
-    if ( ElementsRefCounts.IsValid( ElementID ) )
+    assert( m_ElementsRefCounts.IsValid( ElementID ) );
+    if ( m_ElementsRefCounts.IsValid( ElementID ) )
     {
-        int VertexID = ParentVertices[ElementID];
+        int VertexID = m_ParentVertices[ElementID];
 
-        for ( int TriangleID : ParentMesh->VtxTrianglesItr( VertexID ) )
+        for ( int TriangleID : m_ParentMesh->VtxTrianglesItr( VertexID ) )
         {
             int i = 3 * TriangleID;
-            if ( ElementTriangles[i] == ElementID || ElementTriangles[i + 1] == ElementID ||
-                 ElementTriangles[i + 2] == ElementID )
+            if ( m_ElementTriangles[i] == ElementID || m_ElementTriangles[i + 1] == ElementID ||
+                 m_ElementTriangles[i + 2] == ElementID )
             {
-                OutTriangles.Add( TriangleID );
+                OutTriangles.push_back( TriangleID );
             }
         }
     }
 }
 
 template <typename RealType, int ElementSize>
-int TDynamicMeshOverlay<RealType, ElementSize>::GetElementIDAtVertex( int TriangleID, int VertexID ) const
+int DynamicMeshOverlay<RealType, ElementSize>::GetElementIDAtVertex( int TriangleID, int VertexID ) const
 {
-    FIndex3i Triangle = GetTriangle( TriangleID );
+    Index3i Triangle = GetTriangle( TriangleID );
     // Check first element ID to see if triangle is unset (Note: triangles must be fully set or fully unset, so
     // checking first element should be enough)
-    if ( Triangle.A == FDynamicMesh3::InvalidID )
+    if ( Triangle.A == DynamicMesh3::InvalidID )
     {
-        return FDynamicMesh3::InvalidID;
+        return DynamicMesh3::InvalidID;
     }
     for ( int IDX = 0; IDX < 3; ++IDX )
     {
         int ElementID = Triangle[IDX];
-        if ( ParentVertices[ElementID] == VertexID )
+        if ( m_ParentVertices[ElementID] == VertexID )
         {
             return ElementID;
         }
     }
 
-    UE_CHECK_SLOW( false );
-    return FDynamicMesh3::InvalidID;
+    assert( false );
+    return DynamicMesh3::InvalidID;
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnRemoveTriangle( int TriangleID )
+void DynamicMeshOverlay<RealType, ElementSize>::OnRemoveTriangle( int TriangleID )
 {
-    FIndex3i Triangle = GetTriangle( TriangleID );
+    Index3i Triangle = GetTriangle( TriangleID );
     if ( Triangle.A < 0 && Triangle.B < 0 && Triangle.C < 0 )
     {
         // if whole triangle has no overlay vertices set, that's OK, just remove nothing
@@ -1200,28 +1217,28 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnRemoveTriangle( int TriangleI
     for ( int j = 0; j < 3; ++j )
     {
         int elemid = Triangle[j];
-        ElementsRefCounts.Decrement( elemid );
-        if ( ElementsRefCounts.GetRefCount( elemid ) == 1 )
+        m_ElementsRefCounts.Decrement( elemid );
+        if ( m_ElementsRefCounts.GetRefCount( elemid ) == 1 )
         {
-            ElementsRefCounts.Decrement( elemid );
-            ParentVertices[elemid] = FDynamicMesh3::InvalidID;
-            UE_ENSURE( ElementsRefCounts.IsValid( elemid ) == false );
+            m_ElementsRefCounts.Decrement( elemid );
+            m_ParentVertices[elemid] = DynamicMesh3::InvalidID;
+            DESERT_VERIFY_WARN( m_ElementsRefCounts.IsValid( elemid ) == false );
         }
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnReverseTriOrientation( int TriangleID )
+void DynamicMeshOverlay<RealType, ElementSize>::OnReverseTriOrientation( int TriangleID )
 {
-    FIndex3i Triangle       = GetTriangle( TriangleID );
+    Index3i  Triangle       = GetTriangle( TriangleID );
     int      i              = 3 * TriangleID;
-    ElementTriangles[i]     = Triangle[1]; // mirrors order in FDynamicMesh3::ReverseTriOrientationInternal
-    ElementTriangles[i + 1] = Triangle[0];
-    ElementTriangles[i + 2] = Triangle[2];
+    m_ElementTriangles[i]     = Triangle[1]; // mirrors order in DynamicMesh3::ReverseTriOrientationInternal
+    m_ElementTriangles[i + 1] = Triangle[0];
+    m_ElementTriangles[i + 2] = Triangle[2];
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const FDynamicMesh3::FEdgeSplitInfo& splitInfo )
+void DynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const DynamicMesh3::EdgeSplitInfo& splitInfo )
 {
     int orig_t0 = splitInfo.OriginalTriangles.A;
     int orig_t1 = splitInfo.OriginalTriangles.B;
@@ -1247,14 +1264,14 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const FDynamicMesh
     }
 
     // look up current triangle 0, and infer base triangle 0
-    FIndex3i Triangle0( -1, -1, -1 );
+    Index3i  Triangle0( -1, -1, -1 );
     int      idx_base_a1 = -1, idx_base_b1 = -1;
     int      NewElemID = -1;
     if ( bT0Set )
     {
         Triangle0 = GetTriangle( orig_t0 );
-        FIndex3i BaseTriangle0( ParentVertices[Triangle0.A], ParentVertices[Triangle0.B],
-                                ParentVertices[Triangle0.C] );
+        Index3i BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
+                               m_ParentVertices[Triangle0.C] );
         idx_base_a1    = BaseTriangle0.IndexOf( base_a );
         idx_base_b1    = BaseTriangle0.IndexOf( base_b );
         int idx_base_c = IndexUtil::GetOtherTriIndex( idx_base_a1, idx_base_b1 );
@@ -1264,19 +1281,19 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const FDynamicMesh
         SetElementFromLerp( NewElemID, Triangle0[idx_base_a1], Triangle0[idx_base_b1], (double)splitInfo.SplitT );
 
         // rewrite triangle 0
-        ElementTriangles[3 * orig_t0 + idx_base_b1] = NewElemID;
+        m_ElementTriangles[3 * orig_t0 + idx_base_b1] = NewElemID;
 
         // create new triangle 2 w/ correct winding order
-        FIndex3i NewTriangle2( NewElemID, Triangle0[idx_base_b1],
-                               Triangle0[idx_base_c] ); // mirrors DMesh3::SplitEdge [f,b,c]
+        Index3i NewTriangle2( NewElemID, Triangle0[idx_base_b1],
+                              Triangle0[idx_base_c] ); // mirrors DMesh3::SplitEdge [f,b,c]
         InternalSetTriangle( splitInfo.NewTriangles.A, NewTriangle2, false );
 
         // update ref counts
-        ElementsRefCounts.Increment( NewElemID, 2 ); // for the two tris on the T0 side
-        ElementsRefCounts.Increment( Triangle0[idx_base_c] );
+        m_ElementsRefCounts.Increment( NewElemID, 2 ); // for the two tris on the T0 side
+        m_ElementsRefCounts.Increment( Triangle0[idx_base_c] );
     }
 
-    if ( orig_t1 == FDynamicMesh3::InvalidID )
+    if ( orig_t1 == DynamicMesh3::InvalidID )
     {
         return; // we are done if this is a boundary triangle
     }
@@ -1284,9 +1301,9 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const FDynamicMesh
     // look up current triangle1 and infer base triangle 1
     if ( bT1Set )
     {
-        FIndex3i Triangle1 = GetTriangle( orig_t1 );
-        FIndex3i BaseTriangle1( ParentVertices[Triangle1.A], ParentVertices[Triangle1.B],
-                                ParentVertices[Triangle1.C] );
+        Index3i  Triangle1 = GetTriangle( orig_t1 );
+        Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
+                                m_ParentVertices[Triangle1.C] );
         int      idx_base_a2 = BaseTriangle1.IndexOf( base_a );
         int      idx_base_b2 = BaseTriangle1.IndexOf( base_b );
         int      idx_base_d  = IndexUtil::GetOtherTriIndex( idx_base_a2, idx_base_b2 );
@@ -1306,21 +1323,21 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const FDynamicMesh
         }
 
         // rewrite triangle 1
-        ElementTriangles[3 * orig_t1 + idx_base_b2] = OtherNewElemID;
+        m_ElementTriangles[3 * orig_t1 + idx_base_b2] = OtherNewElemID;
 
         // create new triangle 3 w/ correct winding order
-        FIndex3i NewTriangle3( OtherNewElemID, Triangle1[idx_base_d],
-                               Triangle1[idx_base_b2] ); // mirrors DMesh3::SplitEdge [f,d,b]
+        Index3i NewTriangle3( OtherNewElemID, Triangle1[idx_base_d],
+                              Triangle1[idx_base_b2] ); // mirrors DMesh3::SplitEdge [f,d,b]
         InternalSetTriangle( splitInfo.NewTriangles.B, NewTriangle3, false );
 
         // update ref counts
-        ElementsRefCounts.Increment( OtherNewElemID, 2 );
-        ElementsRefCounts.Increment( Triangle1[idx_base_d] );
+        m_ElementsRefCounts.Increment( OtherNewElemID, 2 );
+        m_ElementsRefCounts.Increment( Triangle1[idx_base_d] );
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const FDynamicMesh3::FEdgeFlipInfo& FlipInfo )
+void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::EdgeFlipInfo& FlipInfo )
 {
     int   orig_t0 = FlipInfo.Triangles.A;
     int   orig_t1 = FlipInfo.Triangles.B;
@@ -1332,7 +1349,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const FDynamicMesh3
     }
     else if ( NumSet == 1 )
     {
-        UE_ENSURE( false ); // flipping across a set/unset boundary is not allowed?
+        DESERT_VERIFY_WARN( false ); // flipping across a set/unset boundary is not allowed?
         // recover by just unsetting both triangles, since it's too late to prevent the flip
         UnsetTriangle( orig_t0 );
         UnsetTriangle( orig_t1 );
@@ -1345,29 +1362,29 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const FDynamicMesh3
     int base_d = FlipInfo.OpposingVerts.B;
 
     // look up triangle 0
-    FIndex3i Triangle0 = GetTriangle( orig_t0 );
-    FIndex3i BaseTriangle0( ParentVertices[Triangle0.A], ParentVertices[Triangle0.B],
-                            ParentVertices[Triangle0.C] );
+    Index3i Triangle0 = GetTriangle( orig_t0 );
+    Index3i  BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
+                            m_ParentVertices[Triangle0.C] );
     int      idx_base_a1 = BaseTriangle0.IndexOf( base_a );
     int      idx_base_b1 = BaseTriangle0.IndexOf( base_b );
     int      idx_base_c  = IndexUtil::GetOtherTriIndex( idx_base_a1, idx_base_b1 );
 
     // look up triangle 1 (must exist because base mesh would never flip a boundary edge)
-    FIndex3i Triangle1 = GetTriangle( orig_t1 );
-    FIndex3i BaseTriangle1( ParentVertices[Triangle1.A], ParentVertices[Triangle1.B],
-                            ParentVertices[Triangle1.C] );
+    Index3i Triangle1 = GetTriangle( orig_t1 );
+    Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
+                            m_ParentVertices[Triangle1.C] );
     int      idx_base_a2 = BaseTriangle1.IndexOf( base_a );
     int      idx_base_b2 = BaseTriangle1.IndexOf( base_b );
     int      idx_base_d  = IndexUtil::GetOtherTriIndex( idx_base_a2, idx_base_b2 );
 
     // sanity checks
-    UE_CHECK_SLOW( idx_base_c == BaseTriangle0.IndexOf( base_c ) );
-    UE_CHECK_SLOW( idx_base_d == BaseTriangle1.IndexOf( base_d ) );
+    assert( idx_base_c == BaseTriangle0.IndexOf( base_c ) );
+    assert( idx_base_d == BaseTriangle1.IndexOf( base_d ) );
 
     // we should not have been called on a non-shared edge!!
     bool bHasSharedUVEdge = ( Triangle0[idx_base_a1] == Triangle1[idx_base_a2] ) &&
                             ( Triangle0[idx_base_b1] == Triangle1[idx_base_b2] );
-    UE_CHECK_SLOW( bHasSharedUVEdge );
+    assert( bHasSharedUVEdge );
 
     int A = Triangle0[idx_base_a1];
     int B = Triangle0[idx_base_b1];
@@ -1376,21 +1393,21 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const FDynamicMesh3
 
     // set triangles to same index order as in FDynamicMesh::FlipEdge
     int i0                   = 3 * orig_t0;
-    ElementTriangles[i0]     = C;
-    ElementTriangles[i0 + 1] = D;
-    ElementTriangles[i0 + 2] = B;
+    m_ElementTriangles[i0]     = C;
+    m_ElementTriangles[i0 + 1] = D;
+    m_ElementTriangles[i0 + 2] = B;
     int i1                   = 3 * orig_t1;
-    ElementTriangles[i1]     = D;
-    ElementTriangles[i1 + 1] = C;
-    ElementTriangles[i1 + 2] = A;
+    m_ElementTriangles[i1]     = D;
+    m_ElementTriangles[i1 + 1] = C;
+    m_ElementTriangles[i1 + 2] = A;
 
     // update reference counts
-    ElementsRefCounts.Increment( C );
-    ElementsRefCounts.Increment( D );
+    m_ElementsRefCounts.Increment( C );
+    m_ElementsRefCounts.Increment( D );
     if ( bHasSharedUVEdge )
     {
-        ElementsRefCounts.Decrement( A );
-        ElementsRefCounts.Decrement( B );
+        m_ElementsRefCounts.Decrement( A );
+        m_ElementsRefCounts.Decrement( B );
     }
     else // flipped a seam edge case
     {
@@ -1399,26 +1416,26 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const FDynamicMesh3
         int A2 = Triangle1[idx_base_a2];
         int B2 = Triangle1[idx_base_b2];
 
-        ElementsRefCounts.Decrement( A2 );
+        m_ElementsRefCounts.Decrement( A2 );
         // free A2 if it's no longer referenced (can happen in the A != A2 case)
-        if ( ElementsRefCounts.GetRefCount( A2 ) == 1 )
+        if ( m_ElementsRefCounts.GetRefCount( A2 ) == 1 )
         {
-            ElementsRefCounts.Decrement( A2 );
-            ParentVertices[A2] = FDynamicMesh3::InvalidID;
+            m_ElementsRefCounts.Decrement( A2 );
+            m_ParentVertices[A2] = DynamicMesh3::InvalidID;
         }
-        ElementsRefCounts.Decrement( B2 );
+        m_ElementsRefCounts.Decrement( B2 );
         // free B2 if it's no longer referenced (can happen in the B != B2 case)
-        if ( ElementsRefCounts.GetRefCount( B2 ) == 1 )
+        if ( m_ElementsRefCounts.GetRefCount( B2 ) == 1 )
         {
-            ElementsRefCounts.Decrement( B2 );
-            ParentVertices[B2] = FDynamicMesh3::InvalidID;
+            m_ElementsRefCounts.Decrement( B2 );
+            m_ParentVertices[B2] = DynamicMesh3::InvalidID;
         }
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
-     const FDynamicMesh3::FEdgeCollapseInfo& collapseInfo )
+void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
+     const DynamicMesh3::EdgeCollapseInfo& collapseInfo )
 {
 
     int  tid_removed0 = collapseInfo.RemovedTris.A;
@@ -1432,25 +1449,25 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     bool bIsSeamEnd = false;
 
     // look up triangle 0
-    FIndex3i Triangle0( -1, -1, -1 ), BaseTriangle0( -1, -1, -1 );
+    Index3i  Triangle0( -1, -1, -1 ), BaseTriangle0( -1, -1, -1 );
     int      idx_removed_tri0 = -1, idx_kept_tri0 = -1;
     if ( bT0Set )
     {
         Triangle0 = GetTriangle( tid_removed0 );
-        BaseTriangle0 =
-             FIndex3i( ParentVertices[Triangle0.A], ParentVertices[Triangle0.B], ParentVertices[Triangle0.C] );
+        BaseTriangle0    = Index3i( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
+                                    m_ParentVertices[Triangle0.C] );
         idx_kept_tri0    = BaseTriangle0.IndexOf( vid_base_kept );
         idx_removed_tri0 = BaseTriangle0.IndexOf( vid_base_removed );
     }
 
     // look up triangle 1 if this is not a boundary edge
-    FIndex3i Triangle1( -1, -1, -1 ), BaseTriangle1( -1, -1, -1 );
+    Index3i  Triangle1( -1, -1, -1 ), BaseTriangle1( -1, -1, -1 );
     int      idx_removed_tri1 = -1, idx_kept_tri1 = -1;
     if ( collapseInfo.bIsBoundary == false && bT1Set )
     {
         Triangle1 = GetTriangle( tid_removed1 );
-        BaseTriangle1 =
-             FIndex3i( ParentVertices[Triangle1.A], ParentVertices[Triangle1.B], ParentVertices[Triangle1.C] );
+        BaseTriangle1 = Index3i( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
+                                 m_ParentVertices[Triangle1.C] );
 
         idx_kept_tri1    = BaseTriangle1.IndexOf( vid_base_kept );
         idx_removed_tri1 = BaseTriangle1.IndexOf( vid_base_removed );
@@ -1491,8 +1508,8 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     //     some arbitrary split of the removed element and conversely if one element is retained there is no reason
     //     to believe a single element value would be a good approximation to collapsing the edges on both sides of
     //     the seam end.
-    int  kept_elemid[2]          = { FDynamicMesh3::InvalidID, FDynamicMesh3::InvalidID };
-    int  removed_elemid[2]       = { FDynamicMesh3::InvalidID, FDynamicMesh3::InvalidID };
+    int  kept_elemid[2]          = { DynamicMesh3::InvalidID, DynamicMesh3::InvalidID };
+    int  removed_elemid[2]       = { DynamicMesh3::InvalidID, DynamicMesh3::InvalidID };
     bool bFoundRemovedElement[2] = { false, false };
     bool bFoundKeptElement[2]    = { false, false };
     if ( bT0Set )
@@ -1501,8 +1518,8 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
         removed_elemid[0]    = Triangle0[idx_removed_tri0];
         bFoundKeptElement[0] = bFoundRemovedElement[0] = true;
 
-        UE_CHECK_SLOW( kept_elemid[0] != FDynamicMesh3::InvalidID );
-        UE_CHECK_SLOW( removed_elemid[0] != FDynamicMesh3::InvalidID );
+        assert( kept_elemid[0] != DynamicMesh3::InvalidID );
+        assert( removed_elemid[0] != DynamicMesh3::InvalidID );
     }
     if ( ( bIsSeam || !bT0Set ) && bT1Set )
     {
@@ -1510,20 +1527,21 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
         removed_elemid[1]    = Triangle1[idx_removed_tri1];
         bFoundKeptElement[1] = bFoundRemovedElement[1] = true;
 
-        UE_CHECK_SLOW( kept_elemid[1] != FDynamicMesh3::InvalidID );
-        UE_CHECK_SLOW( removed_elemid[1] != FDynamicMesh3::InvalidID );
+        assert( kept_elemid[1] != DynamicMesh3::InvalidID );
+        assert( removed_elemid[1] != DynamicMesh3::InvalidID );
     }
 
     // update value of kept elements
     for ( int i = 0; i < 2; ++i )
     {
-        if ( kept_elemid[i] == FDynamicMesh3::InvalidID || removed_elemid[i] == FDynamicMesh3::InvalidID )
+        if ( kept_elemid[i] == DynamicMesh3::InvalidID || removed_elemid[i] == DynamicMesh3::InvalidID )
         {
             continue;
         }
 
         // Guard against seam-end edge collapse case or otherwise corrupted mesh data
-        if ( !UE_ENSURE( IsElement( kept_elemid[i] ) && IsElement( removed_elemid[i] ) ) )
+        if ( !Common::EnsureOrWarn( IsElement( kept_elemid[i] ) && IsElement( removed_elemid[i] ),
+                                    "IsElement( kept_elemid[i] ) && IsElement( removed_elemid[i] )" ) )
         {
             continue;
         }
@@ -1536,11 +1554,11 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     // overlay edge are ones that are removed), but it is saner to have it.
     auto DecrementAndFreeIfLast = [this]( int32_t elem_id )
     {
-        ElementsRefCounts.Decrement( elem_id );
-        if ( ElementsRefCounts.GetRefCount( elem_id ) == 1 )
+        m_ElementsRefCounts.Decrement( elem_id );
+        if ( m_ElementsRefCounts.GetRefCount( elem_id ) == 1 )
         {
-            ElementsRefCounts.Decrement( elem_id );
-            ParentVertices[elem_id] = FDynamicMesh3::InvalidID;
+            m_ElementsRefCounts.Decrement( elem_id );
+            m_ParentVertices[elem_id] = DynamicMesh3::InvalidID;
         }
     };
 
@@ -1548,40 +1566,40 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     // Note that this has to happen even if both triangles were unset, as the removed vertex may have had
     // other elements associated with it, so we need to look at its triangles (which are now attached to
     // vid_base_kept).
-    for ( int onering_tid : ParentMesh->VtxTrianglesItr( vid_base_kept ) )
+    for ( int onering_tid : m_ParentMesh->VtxTrianglesItr( vid_base_kept ) )
     {
         if ( !IsSetTriangle( onering_tid ) )
         {
             continue;
         }
-        FIndex3i elem_tri = GetTriangle( onering_tid );
+        Index3i elem_tri = GetTriangle( onering_tid );
         for ( int j = 0; j < 3; ++j )
         {
             int elem_id = elem_tri[j];
-            if ( ParentVertices[elem_id] == vid_base_removed )
+            if ( m_ParentVertices[elem_id] == vid_base_removed )
             {
                 if ( elem_id == removed_elemid[0] )
                 {
-                    ElementTriangles[3 * onering_tid + j] = kept_elemid[0];
+                    m_ElementTriangles[3 * onering_tid + j] = kept_elemid[0];
                     if ( bFoundKeptElement[0] )
                     {
-                        ElementsRefCounts.Increment( kept_elemid[0] );
+                        m_ElementsRefCounts.Increment( kept_elemid[0] );
                     }
                     DecrementAndFreeIfLast( elem_id );
                 }
                 else if ( elem_id == removed_elemid[1] )
                 {
-                    ElementTriangles[3 * onering_tid + j] = kept_elemid[1];
+                    m_ElementTriangles[3 * onering_tid + j] = kept_elemid[1];
                     if ( bFoundKeptElement[1] )
                     {
-                        ElementsRefCounts.Increment( kept_elemid[1] );
+                        m_ElementsRefCounts.Increment( kept_elemid[1] );
                     }
                     DecrementAndFreeIfLast( elem_id );
                 }
                 else
                 {
                     // this could happen if a split edge is adjacent to the edge we collapse
-                    ParentVertices[elem_id] = vid_base_kept;
+                    m_ParentVertices[elem_id] = vid_base_kept;
                 }
             }
         }
@@ -1600,7 +1618,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     // if the edge was split, but still shared one element, this should be protected against in the calling code
     if ( removed_elemid[1] == removed_elemid[0] )
     {
-        removed_elemid[1] = FDynamicMesh3::InvalidID;
+        removed_elemid[1] = DynamicMesh3::InvalidID;
     }
 
     // Note: the elements associated with the removed vertex should have been removed in the iteration or triangle
@@ -1608,17 +1626,17 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
 #if UE_BUILD_DEBUG
     for ( int k = 0; k < 2; ++k )
     {
-        if ( removed_elemid[k] != FDynamicMesh3::InvalidID )
+        if ( removed_elemid[k] != DynamicMesh3::InvalidID )
         {
             int rc = ElementsRefCounts.GetRefCount( removed_elemid[k] );
-            UE_CHECK_SLOW( rc == 0 );
+            assert( rc == 0 );
         }
     }
 #endif
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnPokeTriangle( const FDynamicMesh3::FPokeTriangleInfo& PokeInfo )
+void DynamicMeshOverlay<RealType, ElementSize>::OnPokeTriangle( const DynamicMesh3::PokeTriangleInfo& PokeInfo )
 {
     if ( !IsSetTriangle( PokeInfo.OriginalTriangle ) )
     {
@@ -1627,27 +1645,27 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnPokeTriangle( const FDynamicM
         return;
     }
 
-    FIndex3i Triangle = GetTriangle( PokeInfo.OriginalTriangle );
+    Index3i Triangle = GetTriangle( PokeInfo.OriginalTriangle );
 
     // create new element at barycentric position
     int       CenterElemID = AppendElement( (RealType)0 );
-    FVector3d BaryCoords( (double)PokeInfo.BaryCoords.X, (double)PokeInfo.BaryCoords.Y,
-                          (double)PokeInfo.BaryCoords.Z );
+    glm::dvec3 BaryCoords( (double)PokeInfo.BaryCoords.x, (double)PokeInfo.BaryCoords.y,
+                           (double)PokeInfo.BaryCoords.z );
     SetElementFromBary( CenterElemID, Triangle[0], Triangle[1], Triangle[2], BaryCoords );
 
-    // update orig triangle and two new ones. Winding orders here mirror FDynamicMesh3::PokeTriangle
-    InternalSetTriangle( PokeInfo.OriginalTriangle, FIndex3i( Triangle[0], Triangle[1], CenterElemID ), false );
-    InternalSetTriangle( PokeInfo.NewTriangles.A, FIndex3i( Triangle[1], Triangle[2], CenterElemID ), false );
-    InternalSetTriangle( PokeInfo.NewTriangles.B, FIndex3i( Triangle[2], Triangle[0], CenterElemID ), false );
+    // update orig triangle and two new ones. Winding orders here mirror DynamicMesh3::PokeTriangle
+    InternalSetTriangle( PokeInfo.OriginalTriangle, Index3i( Triangle[0], Triangle[1], CenterElemID ), false );
+    InternalSetTriangle( PokeInfo.NewTriangles.A, Index3i( Triangle[1], Triangle[2], CenterElemID ), false );
+    InternalSetTriangle( PokeInfo.NewTriangles.B, Index3i( Triangle[2], Triangle[0], CenterElemID ), false );
 
-    ElementsRefCounts.Increment( Triangle[0] );
-    ElementsRefCounts.Increment( Triangle[1] );
-    ElementsRefCounts.Increment( Triangle[2] );
-    ElementsRefCounts.Increment( CenterElemID, 3 );
+    m_ElementsRefCounts.Increment( Triangle[0] );
+    m_ElementsRefCounts.Increment( Triangle[1] );
+    m_ElementsRefCounts.Increment( Triangle[2] );
+    m_ElementsRefCounts.Increment( CenterElemID, 3 );
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnMergeEdges( const FDynamicMesh3::FMergeEdgesInfo& MergeInfo )
+void DynamicMeshOverlay<RealType, ElementSize>::OnMergeEdges( const DynamicMesh3::MergeEdgesInfo& MergeInfo )
 {
     // MergeEdges just merges vertices. For now we will not also merge UVs. So all we need to
     // do is rewrite the UV parent vertices
@@ -1656,27 +1674,27 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnMergeEdges( const FDynamicMes
     {
         int KeptVID    = MergeInfo.KeptVerts[i];
         int RemovedVID = MergeInfo.RemovedVerts[i];
-        if ( RemovedVID == FDynamicMesh3::InvalidID )
+        if ( RemovedVID == DynamicMesh3::InvalidID )
         {
             continue;
         }
         // this for loop is very similar to GetVertexElements() but accounts for the base mesh already being
         // updated
-        for ( int TID : ParentMesh->VtxTrianglesItr(
+        for ( int TID : m_ParentMesh->VtxTrianglesItr(
                    KeptVID ) ) // only care about triangles connected to the *new* vertex; these are updated
         {
             if ( !IsSetTriangle( TID ) )
             {
                 continue;
             }
-            FIndex3i Triangle = GetTriangle( TID );
+            Index3i Triangle = GetTriangle( TID );
             for ( int j = 0; j < 3; ++j )
             {
                 // though the ParentMesh vertex is NewVertex in the source mesh, it is still OriginalVertex in the
                 // ParentVertices array (since that hasn't been updated yet)
-                if ( Triangle[j] != FDynamicMesh3::InvalidID && ParentVertices[Triangle[j]] == RemovedVID )
+                if ( Triangle[j] != DynamicMesh3::InvalidID && m_ParentVertices[Triangle[j]] == RemovedVID )
                 {
-                    ParentVertices[Triangle[j]] = KeptVID;
+                    m_ParentVertices[Triangle[j]] = KeptVID;
                 }
             }
         }
@@ -1684,53 +1702,56 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnMergeEdges( const FDynamicMes
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnMergeVertices(
-     const FDynamicMesh3::FMergeVerticesInfo& MergeInfo )
+void DynamicMeshOverlay<RealType, ElementSize>::OnMergeVertices( const DynamicMesh3::MergeVerticesInfo& MergeInfo )
 {
     // Attributes don't change, but one of the vertices got removed, so any elements on that vertex
     //  should be reparented to the kept vertex. We have to iterate around the kept vertex since
     //  ParentMesh is already updated.
-    for ( int Tid : ParentMesh->VtxTrianglesItr( MergeInfo.KeptVertex ) )
+    for ( int Tid : m_ParentMesh->VtxTrianglesItr( MergeInfo.KeptVertex ) )
     {
         if ( !IsSetTriangle( Tid ) )
         {
             continue;
         }
-        FIndex3i Triangle = GetTriangle( Tid );
+        Index3i Triangle = GetTriangle( Tid );
         for ( int j = 0; j < 3; ++j )
         {
-            if ( Triangle[j] != FDynamicMesh3::InvalidID &&
-                 ParentVertices[Triangle[j]] == MergeInfo.RemovedVertex )
+            if ( Triangle[j] != DynamicMesh3::InvalidID &&
+                 m_ParentVertices[Triangle[j]] == MergeInfo.RemovedVertex )
             {
-                ParentVertices[Triangle[j]] = MergeInfo.KeptVertex;
+                m_ParentVertices[Triangle[j]] = MergeInfo.KeptVertex;
             }
         }
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                                                                const TArrayView<const int>& TrianglesToUpdate )
+void DynamicMeshOverlay<RealType, ElementSize>::OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
+                                                               const std::span<const int>& TrianglesToUpdate )
 {
-    TArray<int> OutElements;
+    std::vector<int> OutElements;
 
     // this for loop is very similar to GetVertexElements() but accounts for the base mesh already being updated
-    for ( int tid : ParentMesh->VtxTrianglesItr( SplitInfo.NewVertex ) ) // only care about triangles connected to
-                                                                         // the *new* vertex; these are updated
+    for ( int tid :
+          m_ParentMesh->VtxTrianglesItr( SplitInfo.NewVertex ) ) // only care about triangles connected to
+                                                                 // the *new* vertex; these are updated
     {
         if ( !IsSetTriangle( tid ) )
         {
             continue;
         }
-        FIndex3i Triangle = GetTriangle( tid );
+        Index3i Triangle = GetTriangle( tid );
         for ( int j = 0; j < 3; ++j )
         {
             // though the ParentMesh vertex is NewVertex in the source mesh, it is still OriginalVertex in the
             // ParentVertices array (since that hasn't been updated yet)
-            if ( Triangle[j] != FDynamicMesh3::InvalidID &&
-                 ParentVertices[Triangle[j]] == SplitInfo.OriginalVertex )
+            if ( Triangle[j] != DynamicMesh3::InvalidID &&
+                 m_ParentVertices[Triangle[j]] == SplitInfo.OriginalVertex )
             {
-                OutElements.AddUnique( Triangle[j] );
+                if ( std::find( OutElements.begin(), OutElements.end(), Triangle[j] ) == OutElements.end() )
+                {
+                    OutElements.push_back( Triangle[j] );
+                }
             }
         }
     }
@@ -1745,8 +1766,8 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnSplitVertex( const DynamicMes
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromLerp( int SetElement, int ElementA, int ElementB,
-                                                                     double Alpha )
+void DynamicMeshOverlay<RealType, ElementSize>::SetElementFromLerp( int SetElement, int ElementA, int ElementB,
+                                                                    double Alpha )
 {
     int    IndexSet = ElementSize * SetElement;
     int    IndexA   = ElementSize * ElementA;
@@ -1754,14 +1775,14 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromLerp( int SetElem
     double Beta     = ( (double)1 - Alpha );
     for ( int i = 0; i < ElementSize; ++i )
     {
-        double LerpValue       = Beta * (double)Elements[IndexA + i] + Alpha * (double)Elements[IndexB + i];
-        Elements[IndexSet + i] = (RealType)LerpValue;
+        double LerpValue         = Beta * (double)m_Elements[IndexA + i] + Alpha * (double)m_Elements[IndexB + i];
+        m_Elements[IndexSet + i] = (RealType)LerpValue;
     }
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromBary( int SetElement, int ElementA, int ElementB,
-                                                                     int ElementC, const FVector3d& BaryCoords )
+void DynamicMeshOverlay<RealType, ElementSize>::SetElementFromBary( int SetElement, int ElementA, int ElementB,
+                                                                    int ElementC, const glm::dvec3& BaryCoords )
 {
     int IndexSet = ElementSize * SetElement;
     int IndexA   = ElementSize * ElementA;
@@ -1769,39 +1790,48 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromBary( int SetElem
     int IndexC   = ElementSize * ElementC;
     for ( int i = 0; i < ElementSize; ++i )
     {
-        double BaryValue = BaryCoords.X * (double)Elements[IndexA + i] +
-                           BaryCoords.Y * (double)Elements[IndexB + i] +
-                           BaryCoords.Z * (double)Elements[IndexC + i];
-        Elements[IndexSet + i] = (RealType)BaryValue;
+        double BaryValue = BaryCoords.x * (double)m_Elements[IndexA + i] +
+                           BaryCoords.y * (double)m_Elements[IndexB + i] +
+                           BaryCoords.z * (double)m_Elements[IndexC + i];
+        m_Elements[IndexSet + i] = (RealType)BaryValue;
     }
 }
 
 template <typename RealType, int ElementSize, typename VectorType>
-bool TDynamicMeshVectorOverlay<RealType, ElementSize, VectorType>::EnumerateVertexElements(
+bool DynamicMeshVectorOverlay<RealType, ElementSize, VectorType>::EnumerateVertexElements(
      int VertexID, std::function<bool( int TriangleID, int ElementID, const VectorType& Value )> ProcessFunc,
      bool bFindUniqueElements ) const
 {
-    if ( this->ParentMesh->IsVertex( VertexID ) == false )
+    if ( this->m_ParentMesh->IsVertex( VertexID ) == false )
         return false;
 
-    TArray<int32_t> UniqueElements;
+    std::vector<int32_t> UniqueElements;
 
     int32_t Count = 0;
-    for ( int tid : this->ParentMesh->VtxTrianglesItr( VertexID ) )
+    for ( int tid : this->m_ParentMesh->VtxTrianglesItr( VertexID ) )
     {
         int32_t const BaseElemIdx    = 3 * tid;
-        bool  bIsSetTriangle = ( this->ElementTriangles[BaseElemIdx] >= 0 );
+        bool          bIsSetTriangle = ( this->m_ElementTriangles[BaseElemIdx] >= 0 );
         if ( bIsSetTriangle )
         {
             Count++;
 
             for ( int j = 0; j < 3; ++j )
             {
-                int32_t const ElementIdx = this->ElementTriangles[BaseElemIdx + j];
-                if ( this->ParentVertices[ElementIdx] == VertexID )
+                int32_t const ElementIdx = this->m_ElementTriangles[BaseElemIdx + j];
+                if ( this->m_ParentVertices[ElementIdx] == VertexID )
                 {
-                    int32_t const NumUnique = UniqueElements.Num();
-                    if ( bFindUniqueElements == false || ( UniqueElements.AddUnique( ElementIdx ) == NumUnique ) )
+                    bool bIsNew = true;
+                    if ( bFindUniqueElements )
+                    {
+                        bIsNew = std::find( UniqueElements.begin(), UniqueElements.end(), ElementIdx ) ==
+                                 UniqueElements.end();
+                        if ( bIsNew )
+                        {
+                            UniqueElements.push_back( ElementIdx );
+                        }
+                    }
+                    if ( bIsNew )
                     {
                         bool bContinue = ProcessFunc( tid, ElementIdx, this->GetElement( ElementIdx ) );
                         if ( !bContinue )
@@ -1817,24 +1847,24 @@ bool TDynamicMeshVectorOverlay<RealType, ElementSize, VectorType>::EnumerateVert
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool                   bAllowNonManifoldVertices,
-                                                                EValidityCheckFailMode FailMode ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool                  bAllowNonManifoldVertices,
+                                                               ValidityCheckFailMode FailMode ) const
 {
     bool                    is_ok        = true;
     std::function<void( bool )> CheckOrFailF = [&]( bool b ) { is_ok = is_ok && b; };
-    if ( FailMode == EValidityCheckFailMode::Check )
+    if ( FailMode == ValidityCheckFailMode::Check )
     {
         CheckOrFailF = [&]( bool b )
         {
-            UE_CHECKF( b, "TDynamicMeshOverlay::CheckValidity failed!" );
+            assert( ( b ) && "DynamicMeshOverlay::CheckValidity failed!" );
             is_ok = is_ok && b;
         };
     }
-    else if ( FailMode == EValidityCheckFailMode::Ensure )
+    else if ( FailMode == ValidityCheckFailMode::Ensure )
     {
         CheckOrFailF = [&]( bool b )
         {
-            UE_ENSURE_MSGF( b, "TDynamicMeshOverlay::CheckValidity failed!" );
+            DESERT_VERIFY_WARN( b, "DynamicMeshOverlay::CheckValidity failed!" );
             is_ok = is_ok && b;
         };
     }
@@ -1842,17 +1872,17 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
     // @todo: check that all connected element-pairs are also edges in parentmesh
 
     // Check that the number of parent vertices is consistent with number of elements.
-    CheckOrFailF( ParentVertices.Num() * ElementSize == Elements.Num() );
+    CheckOrFailF( m_ParentVertices.Num() * ElementSize == m_Elements.Num() );
 
     // Check that the per-triangle data matches the number of triangles in the parent mesh.
-    CheckOrFailF( !ParentMesh || ElementTriangles.Num() == ParentMesh->MaxTriangleID() * 3 );
+    CheckOrFailF( !m_ParentMesh || m_ElementTriangles.Num() == m_ParentMesh->MaxTriangleID() * 3 );
 
     // check that parent vtx of a non-isolated element is actually a vertex
     for ( int elemid : ElementIndicesItr() )
     {
         int  ParentVID          = GetParentVertex( elemid );
-        bool bParentIsVertex    = ParentMesh->IsVertex( ParentVID );
-        bool bElementIsIsolated = ( ElementsRefCounts.GetRefCount( elemid ) == 1 );
+        bool bParentIsVertex    = m_ParentMesh->IsVertex( ParentVID );
+        bool bElementIsIsolated = ( m_ElementsRefCounts.GetRefCount( elemid ) == 1 );
 
         // bParentIsVertex XOR bElementIsIsolated
         if ( bParentIsVertex )
@@ -1866,13 +1896,13 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
     }
 
     // check that parent vertices of each element triangle are the same as base triangle
-    for ( int tid : ParentMesh->TriangleIndicesItr() )
+    for ( int tid : m_ParentMesh->TriangleIndicesItr() )
     {
-        FIndex3i ElemTri = GetTriangle( tid );
-        FIndex3i BaseTri = ParentMesh->GetTriangle( tid );
+        Index3i ElemTri = GetTriangle( tid );
+        Index3i BaseTri = m_ParentMesh->GetTriangle( tid );
         for ( int j = 0; j < 3; ++j )
         {
-            if ( ElemTri[j] != FDynamicMesh3::InvalidID )
+            if ( ElemTri[j] != DynamicMesh3::InvalidID )
             {
                 CheckOrFailF( GetParentVertex( ElemTri[j] ) == BaseTri[j] );
             }
@@ -1880,15 +1910,15 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
     }
 
     // count references to each element
-    TArray<int> RealRefCounts;
-    RealRefCounts.Init( 0, MaxElementID() );
-    for ( int tid : ParentMesh->TriangleIndicesItr() )
+    std::vector<int> RealRefCounts;
+    RealRefCounts.assign( MaxElementID(), 0 );
+    for ( int tid : m_ParentMesh->TriangleIndicesItr() )
     {
-        FIndex3i Tri        = GetTriangle( tid );
+        Index3i  Tri        = GetTriangle( tid );
         int      ValidCount = 0;
         for ( int j = 0; j < 3; ++j )
         {
-            if ( Tri[j] != FDynamicMesh3::InvalidID )
+            if ( Tri[j] != DynamicMesh3::InvalidID )
             {
                 ++ValidCount;
                 RealRefCounts[Tri[j]] += 1;
@@ -1897,9 +1927,9 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
         CheckOrFailF( ValidCount == 3 || ValidCount == 0 ); // element tri should be fully set or fully unset
     }
     // verify that refcount list counts are same as actual reference counts
-    for ( int32_t ElementID = 0; ElementID < RealRefCounts.Num(); ++ElementID )
+    for ( int32_t ElementID = 0; ElementID < static_cast<int32_t>( RealRefCounts.size() ); ++ElementID )
     {
-        int32_t const CurRefCount = ElementsRefCounts.GetRefCount( ElementID );
+        int32_t const CurRefCount = m_ElementsRefCounts.GetRefCount( ElementID );
         CheckOrFailF( ( RealRefCounts[ElementID] == 0 && CurRefCount == 0 ) ||
                       ( CurRefCount == RealRefCounts[ElementID] + 1 ) );
     }
@@ -1908,70 +1938,72 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsSameAs( const TDynamicMeshOverlay<RealType, ElementSize>& Other,
-                                                           bool bIgnoreDataLayout ) const
+bool DynamicMeshOverlay<RealType, ElementSize>::IsSameAs( const DynamicMeshOverlay<RealType, ElementSize>& Other,
+                                                          bool bIgnoreDataLayout ) const
 {
-    if ( ElementsRefCounts.GetCount() != Other.ElementsRefCounts.GetCount() )
+    if ( m_ElementsRefCounts.GetCount() != Other.m_ElementsRefCounts.GetCount() )
     {
         return false;
     }
 
-    if ( !bIgnoreDataLayout || ( ElementsRefCounts.IsDense() && Other.ElementsRefCounts.IsDense() &&
-                                 ParentMesh->MaxTriangleID() == ParentMesh->TriangleCount() &&
-                                 Other.ParentMesh->MaxTriangleID() == Other.ParentMesh->TriangleCount() ) )
+    if ( !bIgnoreDataLayout || ( m_ElementsRefCounts.IsDense() && Other.m_ElementsRefCounts.IsDense() &&
+                                 m_ParentMesh->MaxTriangleID() == m_ParentMesh->TriangleCount() &&
+                                 Other.m_ParentMesh->MaxTriangleID() == Other.m_ParentMesh->TriangleCount() ) )
     {
-        if ( ElementsRefCounts.GetMaxIndex() != Other.ElementsRefCounts.GetMaxIndex() ||
-             Elements.Num() != Other.Elements.Num() || ParentVertices.Num() != Other.ParentVertices.Num() ||
-             ElementTriangles.Num() != Other.ElementTriangles.Num() )
+        if ( m_ElementsRefCounts.GetMaxIndex() != Other.m_ElementsRefCounts.GetMaxIndex() ||
+             m_Elements.Num() != Other.m_Elements.Num() ||
+             m_ParentVertices.Num() != Other.m_ParentVertices.Num() ||
+             m_ElementTriangles.Num() != Other.m_ElementTriangles.Num() )
         {
             return false;
         }
 
-        if ( Elements != Other.Elements )
+        if ( m_Elements != Other.m_Elements )
         {
             return false;
         }
 
-        for ( int Idx = 0; Idx < ElementsRefCounts.GetMaxIndex(); Idx++ )
+        for ( int Idx = 0; Idx < m_ElementsRefCounts.GetMaxIndex(); Idx++ )
         {
-            if ( ElementsRefCounts.GetRefCount( Idx ) != Other.ElementsRefCounts.GetRefCount( Idx ) )
+            if ( m_ElementsRefCounts.GetRefCount( Idx ) != Other.m_ElementsRefCounts.GetRefCount( Idx ) )
             {
                 return false;
             }
         }
 
-        if ( ParentVertices != Other.ParentVertices )
+        if ( m_ParentVertices != Other.m_ParentVertices )
         {
             return false;
         }
 
-        if ( ElementTriangles != Other.ElementTriangles )
+        if ( m_ElementTriangles != Other.m_ElementTriangles )
         {
             return false;
         }
     }
     else
     {
-        FRefCountVector::IndexIterator       ItEid         = ElementsRefCounts.BeginIndices();
-        const FRefCountVector::IndexIterator ItEidEnd      = ElementsRefCounts.EndIndices();
-        FRefCountVector::IndexIterator       ItEidOther    = Other.ElementsRefCounts.BeginIndices();
-        const FRefCountVector::IndexIterator ItEidEndOther = Other.ElementsRefCounts.EndIndices();
+        RefCountVector::IndexIterator       ItEid         = m_ElementsRefCounts.BeginIndices();
+        const RefCountVector::IndexIterator ItEidEnd      = m_ElementsRefCounts.EndIndices();
+        RefCountVector::IndexIterator       ItEidOther    = Other.m_ElementsRefCounts.BeginIndices();
+        const RefCountVector::IndexIterator ItEidEndOther = Other.m_ElementsRefCounts.EndIndices();
 
-        TDynamicVector<int> EidMapping;
-        EidMapping.Resize( ElementsRefCounts.GetMaxIndex(), FDynamicMesh3::InvalidID );
+        DynamicVector<int> EidMapping;
+        EidMapping.Resize( m_ElementsRefCounts.GetMaxIndex(), DynamicMesh3::InvalidID );
 
         while ( ItEid != ItEidEnd && ItEidOther != ItEidEndOther )
         {
             for ( int32_t i = 0; i < ElementSize; ++i )
             {
-                if ( Elements[*ItEid * ElementSize + i] != Other.Elements[*ItEidOther * ElementSize + i] )
+                if ( m_Elements[*ItEid * ElementSize + i] != Other.m_Elements[*ItEidOther * ElementSize + i] )
                 {
                     // Element values are not the same.
                     return false;
                 }
             }
 
-            if ( ElementsRefCounts.GetRawRefCount( *ItEid ) != Other.ElementsRefCounts.GetRefCount( *ItEidOther ) )
+            if ( m_ElementsRefCounts.GetRawRefCount( *ItEid ) !=
+                 Other.m_ElementsRefCounts.GetRefCount( *ItEidOther ) )
             {
                 // Element ref counts are not the same.
                 return false;
@@ -1989,16 +2021,16 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSameAs( const TDynamicMeshOve
             return false;
         }
 
-        if ( ParentMesh->TriangleCount() != Other.ParentMesh->TriangleCount() )
+        if ( m_ParentMesh->TriangleCount() != Other.m_ParentMesh->TriangleCount() )
         {
             return false;
         }
 
-        FRefCountVector::IndexIterator       ItTid      = ParentMesh->GetTrianglesRefCounts().BeginIndices();
-        const FRefCountVector::IndexIterator ItTidEnd   = ParentMesh->GetTrianglesRefCounts().EndIndices();
-        FRefCountVector::IndexIterator       ItTidOther = Other.ParentMesh->GetTrianglesRefCounts().BeginIndices();
-        const FRefCountVector::IndexIterator ItTidEndOther =
-             Other.ParentMesh->GetTrianglesRefCounts().EndIndices();
+        RefCountVector::IndexIterator       ItTid    = m_ParentMesh->GetTrianglesRefCounts().BeginIndices();
+        const RefCountVector::IndexIterator ItTidEnd = m_ParentMesh->GetTrianglesRefCounts().EndIndices();
+        RefCountVector::IndexIterator ItTidOther     = Other.m_ParentMesh->GetTrianglesRefCounts().BeginIndices();
+        const RefCountVector::IndexIterator ItTidEndOther =
+             Other.m_ParentMesh->GetTrianglesRefCounts().EndIndices();
 
         while ( ItTid != ItTidEnd && ItTidOther != ItTidEndOther )
         {
@@ -2007,9 +2039,9 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSameAs( const TDynamicMeshOve
 
             for ( int i = 0; i < 3; ++i )
             {
-                const int Eid      = ElementTriangles[ElementTrianglesIdx + i];
-                const int EidOther = Other.ElementTriangles[ElementTrianglesIdxOther + i];
-                if ( EidOther != ( Eid != FDynamicMesh3::InvalidID ? EidMapping[Eid] : FDynamicMesh3::InvalidID ) )
+                const int Eid      = m_ElementTriangles[ElementTrianglesIdx + i];
+                const int EidOther = Other.m_ElementTriangles[ElementTrianglesIdxOther + i];
+                if ( EidOther != ( Eid != DynamicMesh3::InvalidID ? EidMapping[Eid] : DynamicMesh3::InvalidID ) )
                 {
                     // Triangle elements do not index the same element value.
                     return false;
@@ -2037,22 +2069,22 @@ namespace Desert::Geometry
     // Only these instantiations of the template can be used.
     // This is necessary because we have placed most of the templated functions in this .cpp file, instead of the
     // header.
-    template class TDynamicMeshOverlay<float, 1>;
-    template class TDynamicMeshOverlay<double, 1>;
-    template class TDynamicMeshOverlay<int, 1>;
-    template class TDynamicMeshOverlay<float, 2>;
-    template class TDynamicMeshOverlay<double, 2>;
-    template class TDynamicMeshOverlay<int, 2>;
-    template class TDynamicMeshOverlay<float, 3>;
-    template class TDynamicMeshOverlay<double, 3>;
-    template class TDynamicMeshOverlay<int, 3>;
-    template class TDynamicMeshOverlay<float, 4>;
-    template class TDynamicMeshOverlay<double, 4>;
+    template class DynamicMeshOverlay<float, 1>;
+    template class DynamicMeshOverlay<double, 1>;
+    template class DynamicMeshOverlay<int, 1>;
+    template class DynamicMeshOverlay<float, 2>;
+    template class DynamicMeshOverlay<double, 2>;
+    template class DynamicMeshOverlay<int, 2>;
+    template class DynamicMeshOverlay<float, 3>;
+    template class DynamicMeshOverlay<double, 3>;
+    template class DynamicMeshOverlay<int, 3>;
+    template class DynamicMeshOverlay<float, 4>;
+    template class DynamicMeshOverlay<double, 4>;
 
-    template class TDynamicMeshVectorOverlay<float, 2, FVector2f>;
-    template class TDynamicMeshVectorOverlay<double, 2, FVector2d>;
-    template class TDynamicMeshVectorOverlay<float, 3, FVector3f>;
-    template class TDynamicMeshVectorOverlay<double, 3, FVector3d>;
-    template class TDynamicMeshVectorOverlay<float, 4, FVector4f>;
+    template class DynamicMeshVectorOverlay<float, 2, glm::vec2>;
+    template class DynamicMeshVectorOverlay<double, 2, glm::dvec2>;
+    template class DynamicMeshVectorOverlay<float, 3, glm::vec3>;
+    template class DynamicMeshVectorOverlay<double, 3, glm::dvec3>;
+    template class DynamicMeshVectorOverlay<float, 4, glm::vec4>;
 
 } // namespace Desert::Geometry

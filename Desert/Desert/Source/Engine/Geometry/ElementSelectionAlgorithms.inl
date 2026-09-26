@@ -2,7 +2,7 @@
 
 // The element-selection algorithms, written once over a MESH VIEW so both cores run the very same code while
 // the bridge lives: EditMesh (EditMeshSelection.cpp, until P8b) and the ported core (DynamicMeshSelection.cpp,
-// through FDynamicMeshElements). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
+// through DynamicMeshElements). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
 // Max*Id, GetPosition, GetTriangle, GetTriangleEdges, GetEdgeVertices, GetVertexNeighbours and
 // Attributes().GetPolyGroup. Included by exactly those two files.
 

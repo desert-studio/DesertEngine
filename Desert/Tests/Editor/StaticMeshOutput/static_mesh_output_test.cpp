@@ -30,12 +30,12 @@ namespace
 {
     // The writer takes the component's core; the fixtures are built on EditMesh and cross through the saved
     // form (what EditMeshBridge does, without linking the bridge's ECS half into a GPU-free suite).
-    std::shared_ptr<const Geometry::FDynamicMesh3> Dyn( const Geometry::EditMesh& mesh )
+    std::shared_ptr<const Geometry::DynamicMesh3> Dyn( const Geometry::EditMesh& mesh )
     {
         auto converted = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( mesh ), "StaticMeshOutput" );
         EXPECT_TRUE( converted.IsSuccess() ) << ( converted.IsSuccess() ? "" : converted.GetError() );
-        return std::make_shared<const Geometry::FDynamicMesh3>(
-             converted.IsSuccess() ? converted.ExtractValue() : Geometry::FDynamicMesh3{} );
+        return std::make_shared<const Geometry::DynamicMesh3>( converted.IsSuccess() ? converted.ExtractValue()
+                                                                                     : Geometry::DynamicMesh3{} );
     }
 
     // A box with one polygroup per face and two materials (odd faces on slot 1), so a round trip that loses

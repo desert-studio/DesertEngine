@@ -16,197 +16,207 @@ namespace Desert::Geometry
     namespace
     {
         // TPointHashGrid3<int32_t, double> with FScaleGridIndexer3 at the origin.
-        class FPointHashGrid3
+        class PointHashGrid3
         {
         public:
-            explicit FPointHashGrid3( double CellSize ) : CellSize( CellSize )
+            explicit PointHashGrid3( double CellSize ) : m_CellSize( CellSize )
             {
             }
-            void InsertPointUnsafe( int32_t Value, const FVector3d& Pos )
+            void InsertPointUnsafe( int32_t Value, const glm::dvec3& Pos )
             {
-                Hash[ToGrid( Pos )].Add( Value );
+                m_Hash[ToGrid( Pos )].push_back( Value );
             }
             template <typename DistanceSqFn>
-            void FindPointsInBall( const FVector3d& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
-                                   TArray<int32_t>& ResultsOut ) const
+            void FindPointsInBall( const glm::dvec3& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
+                                   std::vector<int32_t>& ResultsOut ) const
             {
-                const FVector3d Lo( QueryPoint.X - Radius, QueryPoint.Y - Radius, QueryPoint.Z - Radius );
-                const FVector3d Hi( QueryPoint.X + Radius, QueryPoint.Y + Radius, QueryPoint.Z + Radius );
-                const auto      MinIdx = ToGrid( Lo ), MaxIdx = ToGrid( Hi );
+                const glm::dvec3 Lo( QueryPoint.x - Radius, QueryPoint.y - Radius, QueryPoint.z - Radius );
+                const glm::dvec3 Hi( QueryPoint.x + Radius, QueryPoint.y + Radius, QueryPoint.z + Radius );
+                const auto       MinIdx        = ToGrid( Lo );
+                const auto       MaxIdx        = ToGrid( Hi );
                 const double    RadiusSquared = Radius * Radius;
                 for ( int64_t zi = MinIdx[2]; zi <= MaxIdx[2]; zi++ )
                     for ( int64_t yi = MinIdx[1]; yi <= MaxIdx[1]; yi++ )
                         for ( int64_t xi = MinIdx[0]; xi <= MaxIdx[0]; xi++ )
                         {
-                            const auto It = Hash.find( { xi, yi, zi } );
-                            if ( It == Hash.end() )
+                            const auto It = m_Hash.find( { xi, yi, zi } );
+                            if ( It == m_Hash.end() )
                                 continue;
                             for ( int32_t const Value : It->second )
                                 if ( DistanceSqFunc( Value ) < RadiusSquared )
-                                    ResultsOut.Add( Value );
+                                    ResultsOut.push_back( Value );
                         }
             }
 
         private:
             using Key = std::array<int64_t, 3>;
-            Key ToGrid( const FVector3d& P ) const
+            [[nodiscard]] Key ToGrid( const glm::dvec3& P ) const
             {
-                return { static_cast<int64_t>( std::floor( P.X / CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.Y / CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.Z / CellSize ) ) };
+                return { static_cast<int64_t>( std::floor( P.x / m_CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.y / m_CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.z / m_CellSize ) ) };
             }
-            double                       CellSize;
-            std::map<Key, TArray<int32_t>> Hash;
+            double                              m_CellSize;
+            std::map<Key, std::vector<int32_t>> m_Hash;
         };
 
     } // namespace
 
-    const double FMergeCoincidentMeshEdges::DEFAULT_TOLERANCE = FMathf::ZeroTolerance;
+    const double MergeCoincidentMeshEdges::DEFAULT_TOLERANCE = ZeroTolerance<float>;
 
-    bool FMergeCoincidentMeshEdges::Apply()
+    bool MergeCoincidentMeshEdges::Apply()
     {
-        MergeVtxDistSqr          = MergeVertexTolerance * MergeVertexTolerance;
-        double UseMergeSearchTol = ( MergeSearchTolerance > 0 ) ? MergeSearchTolerance : 2 * MergeVertexTolerance;
+        m_MergeVtxDistSqr = m_MergeVertexTolerance * m_MergeVertexTolerance;
+        double UseMergeSearchTol =
+             ( m_MergeSearchTolerance > 0 ) ? m_MergeSearchTolerance : 2 * m_MergeVertexTolerance;
 
         // hash table of the boundary edge midpoints
-        TArray<FVector3d> BoundaryMidPoints;
-        TArray<int32_t>   ToMidPt;
-        ToMidPt.Init( -1, Mesh->MaxEdgeID() );
-        for ( int32_t const EID : Mesh->BoundaryEdgeIndicesItr() )
-            ToMidPt[EID] = BoundaryMidPoints.Add( Mesh->GetEdgePoint( EID, 0.5 ) );
-        InitialNumBoundaryEdges = BoundaryMidPoints.Num();
+        std::vector<glm::dvec3> BoundaryMidPoints;
+        std::vector<int32_t>    ToMidPt;
+        ToMidPt.assign( m_Mesh->MaxEdgeID(), -1 );
+        for ( int32_t const EID : m_Mesh->BoundaryEdgeIndicesItr() )
+        {
+            BoundaryMidPoints.push_back( m_Mesh->GetEdgePoint( EID, 0.5 ) );
+            ToMidPt[EID] = static_cast<int32_t>( BoundaryMidPoints.size() ) - 1;
+        }
+        m_InitialNumBoundaryEdges = static_cast<int32_t>( BoundaryMidPoints.size() );
 
         // denser grid as the number of boundary edges grows
         int hashN = 64;
-        if ( InitialNumBoundaryEdges > 1000 )
+        if ( m_InitialNumBoundaryEdges > 1000 )
             hashN = 128;
-        if ( InitialNumBoundaryEdges > 10000 )
+        if ( m_InitialNumBoundaryEdges > 10000 )
             hashN = 256;
-        if ( InitialNumBoundaryEdges > 100000 )
+        if ( m_InitialNumBoundaryEdges > 100000 )
             hashN = 512;
 
-        const FAxisAlignedBox3d Bounds   = Mesh->GetBounds();
-        const double            MaxDim   = std::max( Bounds.Max.X - Bounds.Min.X,
-                                                     std::max( Bounds.Max.Y - Bounds.Min.Y, Bounds.Max.Z - Bounds.Min.Z ) );
-        const double CellSize = std::max( FMathd::ZeroTolerance, MaxDim / static_cast<double>( hashN ) );
-        FPointHashGrid3         MidpointsHash( CellSize );
+        const AxisAlignedBox3d  Bounds   = m_Mesh->GetBounds();
+        const double            MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
+                                                     std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
+        const double CellSize = std::max( ZeroTolerance<double>, MaxDim / static_cast<double>( hashN ) );
+        PointHashGrid3          MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
-        FVector3d     A, B, C, D;
-        TArray<int>   equivBuffer;
-        TArray<int32_t> SearchMatches;
+        glm::dvec3           A{};
+        glm::dvec3           B{};
+        glm::dvec3           C{};
+        glm::dvec3           D{};
+        std::vector<int>     equivBuffer;
+        std::vector<int32_t> SearchMatches;
 
         // Edge equivalence sets: every other boundary edge with the same midpoint, narrowed to those with the same
         // endpoints.
-        using EdgesList = TArray<int>;
-        std::vector<std::unique_ptr<EdgesList>> EquivalenceSets( static_cast<size_t>( Mesh->MaxEdgeID() ) );
-        TSet<int>                               RemainingEdges;
-        for ( int eid : Mesh->BoundaryEdgeIndicesItr() )
+        using EdgesList = std::vector<int>;
+        std::vector<std::unique_ptr<EdgesList>> EquivalenceSets( static_cast<size_t>( m_Mesh->MaxEdgeID() ) );
+        std::unordered_set<int>                 RemainingEdges;
+        for ( int const eid : m_Mesh->BoundaryEdgeIndicesItr() )
         {
-            const FVector3d midpt = BoundaryMidPoints[ToMidPt[eid]];
-            SearchMatches.Reset();
+            const glm::dvec3 midpt = BoundaryMidPoints[ToMidPt[eid]];
+            SearchMatches.clear();
             MidpointsHash.FindPointsInBall(
                  midpt, UseMergeSearchTol, [&]( const int32_t& PtIdx )
                  { return DistSq( midpt, BoundaryMidPoints[ToMidPt[PtIdx]] ); }, SearchMatches );
             // inserted after the query, so only edges with earlier IDs are found
             MidpointsHash.InsertPointUnsafe( eid, midpt );
-            const int N = SearchMatches.Num();
+            const int N = static_cast<int32_t>( SearchMatches.size() );
             if ( N == 0 )
                 continue;
 
-            Mesh->GetEdgeV( eid, A, B );
-            equivBuffer.Reset();
+            m_Mesh->GetEdgeV( eid, A, B );
+            equivBuffer.clear();
             for ( int i = 0; i < N; ++i )
             {
                 const int32_t MatchEID = SearchMatches[i];
-                Mesh->GetEdgeV( MatchEID, C, D );
+                m_Mesh->GetEdgeV( MatchEID, C, D );
                 if ( IsSameEdge( A, B, C, D ) )
                 {
-                    equivBuffer.Add( MatchEID );
+                    equivBuffer.push_back( MatchEID );
                     if ( !EquivalenceSets[MatchEID] )
                     {
                         EquivalenceSets[MatchEID] = std::make_unique<EdgesList>();
-                        RemainingEdges.Add( MatchEID );
+                        RemainingEdges.insert( MatchEID );
                     }
-                    EquivalenceSets[MatchEID]->Add( eid );
+                    EquivalenceSets[MatchEID]->push_back( eid );
                 }
             }
-            if ( equivBuffer.Num() > 0 )
+            if ( !equivBuffer.empty() )
             {
                 EquivalenceSets[eid] = std::make_unique<EdgesList>( equivBuffer );
-                RemainingEdges.Add( eid );
+                RemainingEdges.insert( eid );
             }
         }
 
         // potential duplicates, fewest possible matches first
-        FIndexPriorityQueue DuplicatesQueue;
-        DuplicatesQueue.Initialize( Mesh->MaxEdgeID() );
-        for ( int eid : RemainingEdges.Array() )
+        IndexPriorityQueue DuplicatesQueue;
+        DuplicatesQueue.Initialize( m_Mesh->MaxEdgeID() );
+        for ( int const eid : std::vector( RemainingEdges.begin(), RemainingEdges.end() ) )
         {
-            if ( OnlyUniquePairs )
+            if ( m_OnlyUniquePairs )
             {
-                if ( EquivalenceSets[eid]->Num() != 1 )
+                if ( static_cast<int32_t>( EquivalenceSets[eid]->size() ) != 1 )
                     continue;
                 // the reverse match must be the same and unique
                 const int other_eid = ( *EquivalenceSets[eid] )[0];
-                if ( EquivalenceSets[other_eid]->Num() != 1 || ( *EquivalenceSets[other_eid] )[0] != eid )
+                if ( static_cast<int32_t>( EquivalenceSets[other_eid]->size() ) != 1 ||
+                     ( *EquivalenceSets[other_eid] )[0] != eid )
                     continue;
             }
-            DuplicatesQueue.Insert( eid, (float)EquivalenceSets[eid]->Num() );
+            DuplicatesQueue.Insert( eid,
+                                    static_cast<float>( EquivalenceSets[eid]->size() ) );
         }
 
         // greedy merge
         while ( DuplicatesQueue.GetCount() > 0 )
         {
             const int eid = DuplicatesQueue.Dequeue();
-            if ( !Mesh->IsEdge( eid ) || !EquivalenceSets[eid] || !RemainingEdges.Contains( eid ) )
+            if ( !m_Mesh->IsEdge( eid ) || !EquivalenceSets[eid] || !RemainingEdges.contains( eid ) )
                 continue; // dealt with already
-            if ( !Mesh->IsBoundaryEdge( eid ) )
+            if ( !m_Mesh->IsBoundaryEdge( eid ) )
                 continue; // merged already
 
             EdgesList& Matches = *EquivalenceSets[eid];
             bool       bMerged = false;
-            for ( int i = 0; i < Matches.Num() && !bMerged; ++i )
+            for ( int i = 0; i < static_cast<int32_t>( Matches.size() ) && !bMerged; ++i )
             {
                 const int other_eid = Matches[i];
-                if ( !Mesh->IsEdge( other_eid ) || !Mesh->IsBoundaryEdge( other_eid ) )
+                if ( !m_Mesh->IsEdge( other_eid ) || !m_Mesh->IsBoundaryEdge( other_eid ) )
                     continue;
-                const bool bWeldingAcrossEntireMesh = ( EdgesToMerge == nullptr );
-                if ( !bWeldingAcrossEntireMesh && !EdgesToMerge->Contains( eid ) &&
-                     !EdgesToMerge->Contains( other_eid ) )
+                const bool bWeldingAcrossEntireMesh = ( m_EdgesToMerge == nullptr );
+                if ( !bWeldingAcrossEntireMesh && !m_EdgesToMerge->contains( eid ) &&
+                     !m_EdgesToMerge->contains( other_eid ) )
                     continue;
 
-                FDynamicMesh3::FMergeEdgesInfo MergeInfo;
-                const EMeshResult              Result = Mesh->MergeEdges( eid, other_eid, MergeInfo );
-                if ( Result != EMeshResult::Ok )
+                DynamicMesh3::MergeEdgesInfo MergeInfo;
+                const MeshResult             Result = m_Mesh->MergeEdges( eid, other_eid, MergeInfo, true );
+                if ( Result != MeshResult::Ok )
                 {
                     // a failed pair leaves both equivalence sets
-                    Matches.RemoveAt( i );
+                    Matches.erase( Matches.begin() + i );
                     i--;
                     if ( EquivalenceSets[other_eid] )
-                        EquivalenceSets[other_eid]->Remove( eid );
+                        std::erase( ( *EquivalenceSets[other_eid] ), eid );
                 }
                 else
                 {
                     bMerged = true;
                     EquivalenceSets[other_eid].reset();
-                    RemainingEdges.Remove( other_eid );
-                    if ( bWeldAttrsOnMergedEdges )
+                    RemainingEdges.erase( other_eid );
+                    if ( m_bWeldAttrsOnMergedEdges )
                     {
-                        SplitAttributeWelder.WeldSplitElements( *Mesh, MergeInfo.KeptVerts[0] );
-                        SplitAttributeWelder.WeldSplitElements( *Mesh, MergeInfo.KeptVerts[1] );
+                        m_SplitAttributeWelder.WeldSplitElements( *m_Mesh, MergeInfo.KeptVerts[0] );
+                        m_SplitAttributeWelder.WeldSplitElements( *m_Mesh, MergeInfo.KeptVerts[1] );
                     }
                 }
             }
             EquivalenceSets[eid].reset();
-            RemainingEdges.Remove( eid );
+            RemainingEdges.erase( eid );
         }
 
-        FinalNumBoundaryEdges = 0;
-        for ( int eid : Mesh->BoundaryEdgeIndicesItr() )
+        m_FinalNumBoundaryEdges = 0;
+        for ( int const eid : m_Mesh->BoundaryEdgeIndicesItr() )
         {
             (void)eid;
-            FinalNumBoundaryEdges++;
+            m_FinalNumBoundaryEdges++;
         }
         return true;
     }

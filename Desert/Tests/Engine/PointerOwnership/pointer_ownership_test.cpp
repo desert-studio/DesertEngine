@@ -502,10 +502,10 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   Shared): 400 / 345 / 131 / 39 = 915.
     //   P8a (2026-09-24) brought the ported UE GeometryCore in: Raw +12, the register's UECore rows (back-
     //   references to the parent mesh, iterators and enumerables over their container, views over a mesh the
-    //   caller holds); Unique +7, FDynamicMesh3::AttributeSet, the attribute set's UV / normal / colour /
-    //   material / polygroup layers and TDynamicVector::Blocks (UE's TArray<TBlock*> + delete, owned by type
+    //   caller holds); Unique +7, DynamicMesh3::AttributeSet, the attribute set's UV / normal / colour /
+    //   material / polygroup layers and DynamicVector::Blocks (UE's TArray<Block*> + delete, owned by type
     //   here); Shared +3 and Weak +1, EditMeshBridge's view cache (weak key, shared EditMesh view) and the
-    //   EditMesh views the selection tools hold. Members retyped from EditMesh to FDynamicMesh3 do not move.
+    //   EditMesh views the selection tools hold. Members retyped from EditMesh to DynamicMesh3 do not move.
     //   From the merge-base: 412 / 348 / 138 / 40 = 938.
     //   L8 (2026-09-24) +6 Raw: LandscapeTileSlot::Data (the edit cache) and five Landscape-mode editor members
     //   the scan had not been given rows for (four string literals, the stroke command's scene): 406 / 919.
@@ -517,12 +517,12 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   moved the count without anyone updating this file, because the pointer_ownership_test.cpp conflict
     //   in that merge was resolved by keeping ONE side's numbers. AF7 and L8 add nothing to this census.
     //   P12 (porting UE's mesh-operation classes for Weld Edges / Fill Hole) is the bulk of it:
-    //     +14 Raw, each with a register row -- FGroupTopology::Mesh, TMeshTangents::Mesh,
-    //     FInsetMeshRegion::Mesh, FMergeCoincidentMeshEdges::Mesh and ::EdgesToMerge, FOffsetMeshRegion::Mesh,
-    //     FSimpleHoleFiller::Mesh, FDynamicMeshEditor::Mesh, FMeshBoundaryLoops::Mesh,
-    //     FMeshRegionBoundaryLoops::Mesh, FMeshConnectedComponents::Mesh (all UECore/DynamicMesh operation
-    //     classes, non-owning Mesh built at the call site over the caller's FDynamicMesh3 -- same HostOutlivesUs
-    //     shape as P8a's FMeshNormals::Mesh), plus DynamicMeshSelection.cpp's FDynamicMeshElements::m_Topology
+    //     +14 Raw, each with a register row -- GroupTopology::Mesh, MeshTangents::Mesh,
+    //     InsetMeshRegion::Mesh, MergeCoincidentMeshEdges::Mesh and ::EdgesToMerge, OffsetMeshRegion::Mesh,
+    //     SimpleHoleFiller::Mesh, DynamicMeshEditor::Mesh, MeshBoundaryLoops::Mesh,
+    //     MeshRegionBoundaryLoops::Mesh, MeshConnectedComponents::Mesh (all UECore/DynamicMesh operation
+    //     classes, non-owning Mesh built at the call site over the caller's DynamicMesh3 -- same HostOutlivesUs
+    //     shape as P8a's MeshNormals::Mesh), plus DynamicMeshSelection.cpp's DynamicMeshElements::m_Topology
     //     (CallScoped, an argument pack) and the new ActiveToolBar.hpp's ActiveToolLabel::Icon/::Name (two
     //     string literals per active tool, StaticStorage).
     //     -1 Raw: EditMeshOperations.cpp's LayerRecord struct was deleted whole when the CutAndStitch path
@@ -535,7 +535,7 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //     single ad-hoc Target::Mesh (the Select Elements tool's ElementSelectTool.cpp now calls it
     //     Target::Source, the same pre-existing M13 member relocated behind the new abstraction -- that
     //     rename moves no count, same rule as a retype).
-    //     +1 Unique: MeshElementSelection::m_Topology (unique_ptr<const FGroupTopology>), the polygroup
+    //     +1 Unique: MeshElementSelection::m_Topology (unique_ptr<const GroupTopology>), the polygroup
     //     topology the element selection now builds and owns for itself, read via m_Topology.get(). Shared
     //     and Unique need no register row (only a raw pointer answers neither ownership question).
     //   SPL2 (splash progress) adds +1 Raw: AssetPreloader.cpp's RowProgress::Report, a CallScoped argument
@@ -544,11 +544,11 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   UI1 (asset info popup) adds +1 Raw: FileExplorerPanel::m_TooltipEntry, OwnedByThisObject like the
     //   panel's other DirectoryInformation views -- it names a node in m_Directories and is cleared to
     //   nullptr the same frame its tile stops being hovered.
-    //   P12g (EmbedSimplePath port) adds +1 Raw: EmbedSurfacePath.hpp's FMeshSurfacePath::Mesh, HostOutlivesUs
+    //   P12g (EmbedSimplePath port) adds +1 Raw: EmbedSurfacePath.hpp's MeshSurfacePath::Mesh, HostOutlivesUs
     //   like the other P12 operation objects -- the path is built over the caller's mesh and embedded in-place.
-    //   P12h (FGroupEdgeInserter port) adds +8 Raw, all CallScoped argument packs in GroupEdgeInserter.hpp:
-    //   FEdgeLoopInsertionParams::Mesh/Topology/SortedInputLengths, FGroupEdgeInsertionParams::Mesh/Topology,
-    //   FGroupEdgeInserterOptionalOutputParams::NewEidsOut/ChangedTidsOut/ProblemGroupEdgeIDsOut (UE's parameter
+    //   P12h (GroupEdgeInserter port) adds +8 Raw, all CallScoped argument packs in GroupEdgeInserter.hpp:
+    //   EdgeLoopInsertionParams::Mesh/Topology/SortedInputLengths, GroupEdgeInsertionParams::Mesh/Topology,
+    //   GroupEdgeInserterOptionalOutputParams::NewEidsOut/ChangedTidsOut/ProblemGroupEdgeIDsOut (UE's parameter
     //   structs).
     //   L8g (landscape weights on the GPU) adds +1 Raw and +1 Shared, the heightmap's pair again:
     //   TerrainBatch.hpp's LandscapeWeightDraw::Weightmap (raw, frame-scoped, with a row) and its owner,
@@ -567,8 +567,8 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   two set per lifetime: 446 / 351 / 143 / 42 = 982.
     //   WP20b +1 Raw +1 Shared: WorldPartitionPanel::m_Assets (row in the register) and the panel's m_Scene:
     //   447 / 352 / 143 / 42 = 984.
-    //   P13d +5 Raw: the ported ExpMap's FDynamicMeshUVEditor::Mesh/UVOverlay, FDynamicSubmesh3::BaseMesh,
-    //   TMeshDijkstra::PointSet, TMeshLocalParam::PointSet (rows in the register): 452 / 352 / 143 / 42 = 989.
+    //   P13d +5 Raw: the ported ExpMap's DynamicMeshUVEditor::Mesh/UVOverlay, DynamicSubmesh3::BaseMesh,
+    //   MeshDijkstra::PointSet, MeshLocalParam::PointSet (rows in the register): 452 / 352 / 143 / 42 = 989.
     //   RT2e +2 Shared +1 Unique: DescriptorPoolChain::m_Pools and VulkanViewSets::m_Pool (a view's
     //   descriptor pool, co-held by the chain and by every set allocated from it, so the sets' deferred free
     //   is queued before the pool's destruction), and ViewDescriptorSets::HandOver::m_Copy (the made sets,

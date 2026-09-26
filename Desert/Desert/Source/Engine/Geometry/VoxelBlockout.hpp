@@ -112,14 +112,14 @@ namespace Desert::Geometry::VoxelBlockout
     class Volume
     {
     public:
-        CellMap            Cells;          // the active volume, BASE-resolution (world = index * Unit + Origin)
-        float              Unit = -1.0f;   // base cell size; negative = no base chosen yet
-        glm::vec3          Origin{ 0.0f }; // grid frame the active volume is built in
-        std::vector<Layer> Frozen;         // committed pieces, each at its own Unit and Origin
+        CellMap            m_Cells;          // the active volume, BASE-resolution (world = index * Unit + Origin)
+        float              m_Unit = -1.0f;   // base cell size; negative = no base chosen yet
+        glm::vec3          m_Origin{ 0.0f }; // grid frame the active volume is built in
+        std::vector<Layer> m_Frozen;         // committed pieces, each at its own Unit and Origin
 
         bool IsEmpty() const
         {
-            return Cells.empty() && Frozen.empty();
+            return m_Cells.empty() && m_Frozen.empty();
         }
 
         // Occupancy across every layer, for a query cell of edge `unit` in the frame `origin`.

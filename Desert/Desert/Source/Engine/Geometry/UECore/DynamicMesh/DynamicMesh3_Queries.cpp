@@ -1,45 +1,44 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/DynamicMesh3_Queries.cpp:1-1012,
-// adapted: UE Core via UECore.hpp; FLocalIntArray is TArray<int32_t> so its explicit instantiations collapse into
-// the TArray ones; GetVertexFrame/GetTriFrame (FFrame3d) not ported; bounds are computed serially.
+// adapted: UE Core via UECore.hpp; LocalIntArray is TArray<int32_t> so its explicit instantiations collapse into
+// the TArray ones; GetVertexFrame/GetTriFrame (Frame3d) not ported; bounds are computed serially.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
+#include <Common/Core/Core.hpp>
 
 using namespace Desert::Geometry;
 
-FIndex2i FDynamicMesh3::GetEdgeOpposingV( int eID ) const
+Index2i DynamicMesh3::GetEdgeOpposingV( int eID ) const
 {
-    const FEdge& Edge = Edges[eID];
-    int          a    = Edge.Vert[0];
-    int          b    = Edge.Vert[1];
+    const Edge&  Edge = m_Edges[eID];
+    int const    a    = Edge.Vert[0];
+    int const    b    = Edge.Vert[1];
 
     // ** it is important that verts returned maintain [c,d] order!!
-    int c = IndexUtil::FindTriOtherVtxUnsafe( a, b, Triangles[Edge.Tri[0]] );
+    int const c = IndexUtil::FindTriOtherVtxUnsafe( a, b, m_Triangles[Edge.Tri[0]] );
     if ( Edge.Tri[1] != InvalidID )
     {
-        int d = IndexUtil::FindTriOtherVtxUnsafe( a, b, Triangles[Edge.Tri[1]] );
-        return FIndex2i( c, d );
+        int const d = IndexUtil::FindTriOtherVtxUnsafe( a, b, m_Triangles[Edge.Tri[1]] );
+        return { c, d };
     }
-    else
-    {
-        return FIndex2i( c, InvalidID );
-    }
+
+    return { c, InvalidID };
 }
 
-int FDynamicMesh3::GetVtxBoundaryEdges( int vID, int& e0, int& e1 ) const
+int DynamicMesh3::GetVtxBoundaryEdges( int VertexID, int& Edge0Out, int& Edge1Out ) const
 {
-    if ( VertexRefCounts.IsValid( vID ) )
+    if ( m_VertexRefCounts.IsValid( VertexID ) )
     {
         int count = 0;
-        for ( int eid : VertexEdgeLists.Values( vID ) )
+        for ( int const eid : m_VertexEdgeLists.Values( VertexID ) )
         {
-            if ( Edges[eid].Tri[1] == InvalidID )
+            if ( m_Edges[eid].Tri[1] == InvalidID )
             {
                 if ( count == 0 )
                 {
-                    e0 = eid;
+                    Edge0Out = eid;
                 }
                 else if ( count == 1 )
                 {
-                    e1 = eid;
+                    Edge1Out = eid;
                 }
                 count++;
             }
@@ -50,16 +49,16 @@ int FDynamicMesh3::GetVtxBoundaryEdges( int vID, int& e0, int& e1 ) const
 }
 
 template <typename ArrayType>
-int FDynamicMesh3::GetAllVtxBoundaryEdges( int vID, ArrayType& EdgeListOut ) const
+int DynamicMesh3::GetAllVtxBoundaryEdges( int VertexID, ArrayType& EdgeListOut ) const
 {
-    if ( VertexRefCounts.IsValid( vID ) )
+    if ( m_VertexRefCounts.IsValid( VertexID ) )
     {
         int count = 0;
-        for ( int eid : VertexEdgeLists.Values( vID ) )
+        for ( int const eid : m_VertexEdgeLists.Values( VertexID ) )
         {
-            if ( Edges[eid].Tri[1] == InvalidID )
+            if ( m_Edges[eid].Tri[1] == InvalidID )
             {
-                EdgeListOut.Add( eid );
+                EdgeListOut.push_back( eid );
                 count++;
             }
         }
@@ -68,169 +67,179 @@ int FDynamicMesh3::GetAllVtxBoundaryEdges( int vID, ArrayType& EdgeListOut ) con
     return 0;
 }
 
-template int FDynamicMesh3::GetAllVtxBoundaryEdges<TArray<int32_t>>( int vID, TArray<int32_t>& EdgeListOut ) const;
+template int DynamicMesh3::GetAllVtxBoundaryEdges<std::vector<int32_t>>( int                   vID,
+                                                                         std::vector<int32_t>& EdgeListOut ) const;
 
-void FDynamicMesh3::GetVtxNbrhood( int eID, int vID, int& vOther, int& oppV1, int& oppV2, int& t1, int& t2 ) const
+void DynamicMesh3::GetVtxNbrhood( int eID, int VertexID, int& OtherVertOut, int& OppVert1Out, int& OppVert2Out,
+                                  int& Tri1Out, int& Tri2Out ) const
 {
-    const FEdge Edge = Edges[eID];
-    vOther           = ( Edge.Vert[0] == vID ) ? Edge.Vert[1] : Edge.Vert[0];
-    t1               = Edge.Tri[0];
-    oppV1            = IndexUtil::FindTriOtherVtx( vID, vOther, Triangles, t1 );
-    t2               = Edge.Tri[1];
-    if ( t2 != InvalidID )
+    const Edge Edge  = m_Edges[eID];
+    OtherVertOut     = ( Edge.Vert[0] == VertexID ) ? Edge.Vert[1] : Edge.Vert[0];
+    Tri1Out          = Edge.Tri[0];
+    OppVert1Out      = IndexUtil::FindTriOtherVtx( VertexID, OtherVertOut, m_Triangles, Tri1Out );
+    Tri2Out          = Edge.Tri[1];
+    if ( Tri2Out != InvalidID )
     {
-        oppV2 = IndexUtil::FindTriOtherVtx( vID, vOther, Triangles, t2 );
+        OppVert2Out = IndexUtil::FindTriOtherVtx( VertexID, OtherVertOut, m_Triangles, Tri2Out );
     }
     else
     {
-        t2 = InvalidID;
+        Tri2Out = InvalidID;
     }
 }
 
-int FDynamicMesh3::GetVtxTriangleCount( int vID ) const
+int DynamicMesh3::GetVtxTriangleCount( int VertexID ) const
 {
-    if ( !IsVertex( vID ) )
+    if ( !IsVertex( VertexID ) )
     {
         return -1;
     }
     int N = 0;
-    VertexEdgeLists.Enumerate( vID,
-                               [&]( int32_t eid )
-                               {
-                                   const FEdge Edge   = Edges[eid];
-                                   const int   vOther = Edge.Vert.A == vID ? Edge.Vert.B : Edge.Vert.A;
-                                   if ( TriHasSequentialVertices( Edge.Tri[0], vID, vOther ) )
-                                   {
-                                       N++;
-                                   }
-                                   const int et1 = Edge.Tri[1];
-                                   if ( Edge.Tri[1] != InvalidID &&
-                                        TriHasSequentialVertices( Edge.Tri[1], vID, vOther ) )
-                                   {
-                                       N++;
-                                   }
-                               } );
+    m_VertexEdgeLists.Enumerate( VertexID,
+                                 [&]( int32_t eid )
+                                 {
+                                     const Edge Edge   = m_Edges[eid];
+                                     const int  vOther = Edge.Vert.A == VertexID ? Edge.Vert.B : Edge.Vert.A;
+                                     if ( TriHasSequentialVertices( Edge.Tri[0], VertexID, vOther ) )
+                                     {
+                                         N++;
+                                     }
+                                     if ( Edge.Tri[1] != InvalidID &&
+                                          TriHasSequentialVertices( Edge.Tri[1], VertexID, vOther ) )
+                                     {
+                                         N++;
+                                     }
+                                 } );
     return N;
 }
 
-int FDynamicMesh3::GetVtxSingleTriangle( int VertexID ) const
+int DynamicMesh3::GetVtxSingleTriangle( int VertexID ) const
 {
     if ( !IsVertex( VertexID ) )
     {
-        return FDynamicMesh3::InvalidID;
+        return DynamicMesh3::InvalidID;
     }
-    for ( int EID : VertexEdgeLists.Values( VertexID ) )
+    for ( int const EID : m_VertexEdgeLists.Values( VertexID ) )
     {
-        return Edges[EID].Tri[0];
+        return m_Edges[EID].Tri[0];
     }
 
-    return FDynamicMesh3::InvalidID;
+    return DynamicMesh3::InvalidID;
 }
 
 template <typename ArrayType>
-EMeshResult FDynamicMesh3::GetVtxTriangles( int vID, ArrayType& TrianglesOut ) const
+MeshResult DynamicMesh3::GetVtxTriangles( int VertexID, ArrayType& TrianglesOut ) const
 {
-    if ( !IsVertex( vID ) )
+    if ( !IsVertex( VertexID ) )
     {
-        return EMeshResult::Failed_NotAVertex;
+        return MeshResult::Failed_NotAVertex;
     }
 
-    if ( VertexEdgeLists.GetCount( vID ) > 20 )
+    if ( m_VertexEdgeLists.GetCount( VertexID ) > 20 )
     {
-        VertexEdgeLists.Enumerate( vID,
-                                   [&]( int32_t eid )
-                                   {
-                                       const FEdge Edge   = Edges[eid];
-                                       const int   vOther = Edge.Vert.A == vID ? Edge.Vert.B : Edge.Vert.A;
-                                       if ( TriHasSequentialVertices( Edge.Tri[0], vID, vOther ) )
-                                       {
-                                           TrianglesOut.Add( Edge.Tri[0] );
-                                       }
-                                       if ( Edge.Tri[1] != InvalidID &&
-                                            TriHasSequentialVertices( Edge.Tri[1], vID, vOther ) )
-                                       {
-                                           TrianglesOut.Add( Edge.Tri[1] );
-                                       }
-                                   } );
+        m_VertexEdgeLists.Enumerate( VertexID,
+                                     [&]( int32_t eid )
+                                     {
+                                         const Edge Edge   = m_Edges[eid];
+                                         const int  vOther = Edge.Vert.A == VertexID ? Edge.Vert.B : Edge.Vert.A;
+                                         if ( TriHasSequentialVertices( Edge.Tri[0], VertexID, vOther ) )
+                                         {
+                                             TrianglesOut.push_back( Edge.Tri[0] );
+                                         }
+                                         if ( Edge.Tri[1] != InvalidID &&
+                                              TriHasSequentialVertices( Edge.Tri[1], VertexID, vOther ) )
+                                         {
+                                             TrianglesOut.push_back( Edge.Tri[1] );
+                                         }
+                                     } );
     }
     else
     {
-        VertexEdgeLists.Enumerate( vID,
-                                   [&]( int32_t eid )
-                                   {
-                                       const FEdge Edge = Edges[eid];
-                                       TrianglesOut.AddUnique( Edge.Tri[0] );
-                                       if ( Edge.Tri[1] != InvalidID )
-                                       {
-                                           TrianglesOut.AddUnique( Edge.Tri[1] );
-                                       }
-                                   } );
+        m_VertexEdgeLists.Enumerate(
+             VertexID,
+             [&]( int32_t eid )
+             {
+                 const Edge Edge = m_Edges[eid];
+                 if ( std::find( TrianglesOut.begin(), TrianglesOut.end(), Edge.Tri[0] ) == TrianglesOut.end() )
+                 {
+                     TrianglesOut.push_back( Edge.Tri[0] );
+                 }
+                 if ( Edge.Tri[1] != InvalidID )
+                 {
+                     if ( std::find( TrianglesOut.begin(), TrianglesOut.end(), Edge.Tri[1] ) ==
+                          TrianglesOut.end() )
+                     {
+                         TrianglesOut.push_back( Edge.Tri[1] );
+                     }
+                 }
+             } );
     }
-    return EMeshResult::Ok;
+    return MeshResult::Ok;
 }
 
-template EMeshResult FDynamicMesh3::GetVtxTriangles<TArray<int32_t>>( int              vID,
-                                                                      TArray<int32_t>& TrianglesOut ) const;
+template MeshResult
+DynamicMesh3::GetVtxTriangles<std::vector<int32_t>>( int vID, std::vector<int32_t>& TrianglesOut ) const;
 
 template <typename IntArray, typename BoolArray>
-EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& TrianglesOut, IntArray& SpanLengths,
-                                                      BoolArray& IsLoop ) const
+MeshResult DynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& TrianglesOut,
+                                                    IntArray& ContiguousGroupLengths, BoolArray& IsLoop ) const
 {
-    TrianglesOut.Reset();
-    SpanLengths.Reset();
-    IsLoop.Reset();
+    TrianglesOut.clear();
+    ContiguousGroupLengths.clear();
+    IsLoop.clear();
 
-    if ( !UE_ENSURE( IsVertex( VertexID ) ) )
+    if ( !Common::EnsureOrWarn( IsVertex( VertexID ), "IsVertex( VertexID )" ) )
     {
-        return EMeshResult::Failed_NotAVertex;
+        return MeshResult::Failed_NotAVertex;
     }
 
-    int NumEdges = VertexEdgeLists.GetCount( VertexID );
+    int const NumEdges = m_VertexEdgeLists.GetCount( VertexID );
     if ( NumEdges == 0 )
     {
-        return EMeshResult::Ok;
+        return MeshResult::Ok;
     }
 
     // The number of StartEdgeIDs for a vertex is NumBoundaryEdges + NumRingsWithoutBoundary
     // This is only higher than 2 at non-manifold (e.g., "bowtie") vertices, and
     // it should be very rare for it to exceed this inline allocation of 8
-    FLocalIntArray StartEdgeIDs;
+    LocalIntArray StartEdgeIDs;
     // initial starting edge candidates == boundary edges
-    for ( int EID : VertexEdgeLists.Values( VertexID ) )
+    for ( int const EID : m_VertexEdgeLists.Values( VertexID ) )
     {
-        if ( Edges[EID].Tri[1] == InvalidID )
+        if ( m_Edges[EID].Tri[1] == InvalidID )
         {
-            StartEdgeIDs.Push( EID );
+            StartEdgeIDs.push_back( EID );
         }
     }
-    bool bHasBoundaries = StartEdgeIDs.Num() != 0;
+    bool const bHasBoundaries = !StartEdgeIDs.empty();
 
     if ( !bHasBoundaries )
     {
-        for ( int EID : VertexEdgeLists.Values( VertexID ) )
+        for ( int const EID : m_VertexEdgeLists.Values( VertexID ) )
         {
-            StartEdgeIDs.Push( EID );
+            StartEdgeIDs.push_back( EID );
             break;
         }
     }
 
     int  WalkedEdges             = 0;
     bool bHasRemainingBoundaries = bHasBoundaries;
-    while ( StartEdgeIDs.Num() || WalkedEdges < NumEdges )
+    while ( static_cast<int32_t>( StartEdgeIDs.size() ) || WalkedEdges < NumEdges )
     {
-        if ( !StartEdgeIDs.Num() )
+        if ( !static_cast<int32_t>( StartEdgeIDs.size() ) )
         {
             bHasRemainingBoundaries = false;
             // fallback for (hopefully very rare) case of a non-manifold vertex where there are separate one-rings
             // w/ no boundary edges --
             //  brute force search for an edge that hasn't already been walked
-            for ( int EID : VertexEdgeLists.Values( VertexID ) )
+            for ( int const EID : m_VertexEdgeLists.Values( VertexID ) )
             {
-                int  AttachedTriID = Edges[EID].Tri[0];
-                bool UsedEdge      = TrianglesOut.Contains( AttachedTriID );
+                int const  AttachedTriID = m_Edges[EID].Tri[0];
+                bool const UsedEdge = ( std::find( TrianglesOut.begin(), TrianglesOut.end(), AttachedTriID ) !=
+                                        TrianglesOut.end() );
                 if ( !UsedEdge )
                 {
-                    StartEdgeIDs.Push( EID );
+                    StartEdgeIDs.push_back( EID );
                     break;
                 }
             }
@@ -238,20 +247,21 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
 
         // walk starting from this edge, add the found span
 
-        int StartEID = StartEdgeIDs.Pop();
+        int const StartEID = StartEdgeIDs.back();
+        StartEdgeIDs.pop_back();
         int PrevEID  = StartEID;
         WalkedEdges++;
-        int   WalkTri   = Edges[StartEID].Tri[0];
-        int32_t const SpanStart = TrianglesOut.Num();
-        IsLoop.Add( !bHasRemainingBoundaries );
+        int           WalkTri   = m_Edges[StartEID].Tri[0];
+        auto const    SpanStart = static_cast<int32_t>( TrianglesOut.size() );
+        IsLoop.push_back( !bHasRemainingBoundaries );
         while ( true )
         {
-            TrianglesOut.Add( WalkTri );
+            TrianglesOut.push_back( WalkTri );
 
-            int             TriIdx     = WalkTri;
-            const FIndex3i& TriVIDs    = Triangles[TriIdx];
-            const FIndex3i& TriEIDs    = TriangleEdges[TriIdx];
-            int             VertSubIdx = IndexUtil::FindTriIndex( VertexID, TriVIDs );
+            int const       TriIdx     = WalkTri;
+            const Index3i&  TriVIDs    = m_Triangles[TriIdx];
+            const Index3i&  TriEIDs    = m_TriangleEdges[TriIdx];
+            int const       VertSubIdx = IndexUtil::FindTriIndex( VertexID, TriVIDs );
             int             NextEID    = TriEIDs[VertSubIdx];
             if ( NextEID == PrevEID )
             {
@@ -264,42 +274,51 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
 
             WalkedEdges++;
 
-            int NextTriID = Edges[NextEID].Tri[0];
+            int NextTriID = m_Edges[NextEID].Tri[0];
             if ( NextTriID == WalkTri )
             {
-                NextTriID = Edges[NextEID].Tri[1];
+                NextTriID = m_Edges[NextEID].Tri[1];
             }
             if ( NextTriID == InvalidID )
             {
                 // remove the corresponding boundary
-                UE_CHECK_SLOW( StartEdgeIDs.Num() > 0 );
-                if ( StartEdgeIDs.Num() > 0 )
+                assert( !StartEdgeIDs.empty() );
+                if ( !StartEdgeIDs.empty() )
                 {
-                    StartEdgeIDs.RemoveSingleSwap( NextEID );
+                    // UE RemoveSingleSwap: the first equal element takes the last one's place.
+                    const auto Found = std::find( StartEdgeIDs.begin(), StartEdgeIDs.end(), NextEID );
+                    if ( Found != StartEdgeIDs.end() )
+                    {
+                        *Found = StartEdgeIDs.back();
+                        StartEdgeIDs.pop_back();
+                    }
                 }
                 break;
             }
             WalkTri = NextTriID;
             PrevEID = NextEID;
         }
-        SpanLengths.Add( TrianglesOut.Num() - SpanStart );
+        ContiguousGroupLengths.push_back( static_cast<int32_t>( TrianglesOut.size() ) - SpanStart );
     }
 
-    return UE_ENSURE( SpanLengths.Num() == IsLoop.Num() ) ? EMeshResult::Ok
-                                                          : EMeshResult::Failed_InvalidNeighbourhood;
+    return Common::EnsureOrWarn( ContiguousGroupLengths.size() == IsLoop.size(),
+                                 "ContiguousGroupLengths.size() == IsLoop.size()" )
+                ? MeshResult::Ok
+                : MeshResult::Failed_InvalidNeighbourhood;
 }
 
-template EMeshResult FDynamicMesh3::GetVtxContiguousTriangles<TArray<int32_t>, TArray<bool>>(
-     int VertexID, TArray<int32_t>& TrianglesOut, TArray<int32_t>& SpanLengths, TArray<bool>& IsLoop ) const;
+template MeshResult DynamicMesh3::GetVtxContiguousTriangles<std::vector<int32_t>, std::vector<bool>>(
+     int VertexID, std::vector<int32_t>& TrianglesOut, std::vector<int32_t>& SpanLengths,
+     std::vector<bool>& IsLoop ) const;
 
-bool FDynamicMesh3::IsBoundaryVertex( int vID ) const
+bool DynamicMesh3::IsBoundaryVertex( int VertexID ) const
 {
-    UE_CHECK_SLOW( IsVertex( vID ) );
-    if ( IsVertex( vID ) )
+    assert( IsVertex( VertexID ) );
+    if ( IsVertex( VertexID ) )
     {
-        for ( int eid : VertexEdgeLists.Values( vID ) )
+        for ( int const eid : m_VertexEdgeLists.Values( VertexID ) )
         {
-            if ( Edges[eid].Tri[1] == InvalidID )
+            if ( m_Edges[eid].Tri[1] == InvalidID )
             {
                 return true;
             }
@@ -308,67 +327,66 @@ bool FDynamicMesh3::IsBoundaryVertex( int vID ) const
     return false;
 }
 
-bool FDynamicMesh3::IsBoundaryTriangle( int tID ) const
+bool DynamicMesh3::IsBoundaryTriangle( int TriangleID ) const
 {
-    UE_CHECK_SLOW( IsTriangle( tID ) );
-    if ( IsTriangle( tID ) )
+    assert( IsTriangle( TriangleID ) );
+    if ( IsTriangle( TriangleID ) )
     {
-        const FIndex3i& TriEdgeIDs = TriangleEdges[tID];
+        const Index3i& TriEdgeIDs = m_TriangleEdges[TriangleID];
         return IsBoundaryEdge( TriEdgeIDs[0] ) || IsBoundaryEdge( TriEdgeIDs[1] ) ||
                IsBoundaryEdge( TriEdgeIDs[2] );
     }
-    else
-    {
-        return false;
-    }
+
+    return false;
 }
 
-FIndex2i FDynamicMesh3::GetOrientedBoundaryEdgeV( int eID ) const
+Index2i DynamicMesh3::GetOrientedBoundaryEdgeV( int eID ) const
 {
-    if ( EdgeRefCounts.IsValid( eID ) )
+    if ( m_EdgeRefCounts.IsValid( eID ) )
     {
-        const FEdge Edge = Edges[eID];
+        const Edge Edge = m_Edges[eID];
         if ( Edge.Tri[1] == InvalidID )
         {
-            int             a = Edge.Vert[0], b = Edge.Vert[1];
-            int             ti  = Edge.Tri[0];
-            const FIndex3i& tri = Triangles[ti];
-            int             ai  = IndexUtil::FindEdgeIndexInTri( a, b, tri );
-            return FIndex2i( tri[ai], tri[( ai + 1 ) % 3] );
+            int const       a   = Edge.Vert[0];
+            int const       b   = Edge.Vert[1];
+            int const       ti  = Edge.Tri[0];
+            const Index3i&  tri = m_Triangles[ti];
+            int const       ai  = IndexUtil::FindEdgeIndexInTri( a, b, tri );
+            return { tri[ai], tri[( ai + 1 ) % 3] };
         }
     }
-    UE_CHECK_SLOW( false );
+    assert( false );
     return InvalidEdge;
 }
 
-bool FDynamicMesh3::IsGroupBoundaryEdge( int eID ) const
+bool DynamicMesh3::IsGroupBoundaryEdge( int eID ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
-    const FEdge Edge = Edges[eID];
-    int         et1  = Edge.Tri[1];
+    const Edge  Edge = m_Edges[eID];
+    int const   et1  = Edge.Tri[1];
     if ( et1 == InvalidID )
     {
         return false;
     }
-    int g1  = TriangleGroups.GetValue()[et1];
-    int et0 = Edge.Tri[0];
-    int g0  = TriangleGroups.GetValue()[et0];
+    int const g1  = m_TriangleGroups.value()[et1];
+    int const et0 = Edge.Tri[0];
+    int const g0  = m_TriangleGroups.value()[et0];
     return g1 != g0;
 }
 
-bool FDynamicMesh3::IsGroupBoundaryVertex( int vID ) const
+bool DynamicMesh3::IsGroupBoundaryVertex( int VertexID ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
     int group_id = InvalidID;
-    for ( int eID : VertexEdgeLists.Values( vID ) )
+    for ( int const eID : m_VertexEdgeLists.Values( VertexID ) )
     {
-        const FEdge Edge = Edges[eID];
-        int         et0  = Edge.Tri[0];
-        int         g0   = TriangleGroups.GetValue()[et0];
+        const Edge  Edge = m_Edges[eID];
+        int const   et0  = Edge.Tri[0];
+        int const   g0   = m_TriangleGroups.value()[et0];
         if ( group_id != g0 )
         {
             if ( group_id == InvalidID )
@@ -380,10 +398,10 @@ bool FDynamicMesh3::IsGroupBoundaryVertex( int vID ) const
                 return true; // saw multiple group IDs
             }
         }
-        int et1 = Edge.Tri[1];
+        int const et1 = Edge.Tri[1];
         if ( et1 != InvalidID )
         {
-            int g1 = TriangleGroups.GetValue()[et1];
+            int const g1 = m_TriangleGroups.value()[et1];
             if ( group_id != g1 )
             {
                 return true; // saw multiple group IDs
@@ -393,23 +411,23 @@ bool FDynamicMesh3::IsGroupBoundaryVertex( int vID ) const
     return false;
 }
 
-bool FDynamicMesh3::IsGroupJunctionVertex( int vID ) const
+bool DynamicMesh3::IsGroupJunctionVertex( int VertexID ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
-    FIndex2i groups( InvalidID, InvalidID );
-    for ( int eID : VertexEdgeLists.Values( vID ) )
+    Index2i groups( InvalidID, InvalidID );
+    for ( int const eID : m_VertexEdgeLists.Values( VertexID ) )
     {
-        const FEdge Edge = Edges[eID];
-        FIndex2i    et   = Edge.Tri;
+        const Edge Edge = m_Edges[eID];
+        Index2i    et   = Edge.Tri;
         for ( int k = 0; k < 2; ++k )
         {
             if ( et[k] == InvalidID )
             {
                 continue;
             }
-            int g0 = TriangleGroups.GetValue()[et[k]];
+            int const g0 = m_TriangleGroups.value()[et[k]];
             if ( g0 != groups[0] && g0 != groups[1] )
             {
                 if ( groups[0] != InvalidID && groups[1] != InvalidID )
@@ -430,20 +448,20 @@ bool FDynamicMesh3::IsGroupJunctionVertex( int vID ) const
     return false;
 }
 
-bool FDynamicMesh3::GetVertexGroups( int vID, FIndex4i& groups ) const
+bool DynamicMesh3::GetVertexGroups( int VertexID, Index4i& groups ) const
 {
-    groups = FIndex4i( InvalidID, InvalidID, InvalidID, InvalidID );
-    if ( !HasTriangleGroups() )
+    groups = Index4i( InvalidID, InvalidID, InvalidID, InvalidID );
+    if ( !m_TriangleGroups.has_value() )
         return false;
     int ng = 0;
 
-    for ( int eID : VertexEdgeLists.Values( vID ) )
+    for ( int const eID : m_VertexEdgeLists.Values( VertexID ) )
     {
-        const FEdge Edge = Edges[eID];
+        const Edge Edge = m_Edges[eID];
 
-        int et0 = Edge.Tri[0];
-        int g0  = TriangleGroups.GetValue()[et0];
-        if ( groups.Contains( g0 ) == false )
+        int const et0 = Edge.Tri[0];
+        int const g0  = m_TriangleGroups.value()[et0];
+        if ( !groups.Contains( g0 ) )
         {
             groups[ng++] = g0;
         }
@@ -451,11 +469,11 @@ bool FDynamicMesh3::GetVertexGroups( int vID, FIndex4i& groups ) const
         {
             return false;
         }
-        int et1 = Edge.Tri[1];
+        int const et1 = Edge.Tri[1];
         if ( et1 != InvalidID )
         {
-            int g1 = TriangleGroups.GetValue()[et1];
-            if ( groups.Contains( g1 ) == false )
+            int const g1 = m_TriangleGroups.value()[et1];
+            if ( !groups.Contains( g1 ) )
             {
                 groups[ng++] = g1;
             }
@@ -469,41 +487,48 @@ bool FDynamicMesh3::GetVertexGroups( int vID, FIndex4i& groups ) const
 }
 
 template <typename ArrayType>
-bool FDynamicMesh3::GetAllVertexGroups( int vID, ArrayType& GroupsOut ) const
+bool DynamicMesh3::GetAllVertexGroups( int VertexID, ArrayType& GroupsOut ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
-    for ( int eID : VertexEdgeLists.Values( vID ) )
+    for ( int const eID : m_VertexEdgeLists.Values( VertexID ) )
     {
-        const FEdge Edge = Edges[eID];
-        int         et0  = Edge.Tri[0];
-        int         g0   = TriangleGroups.GetValue()[et0];
-        GroupsOut.AddUnique( g0 );
+        const Edge  Edge = m_Edges[eID];
+        int const   et0  = Edge.Tri[0];
+        int const   g0   = m_TriangleGroups.value()[et0];
+        if ( std::find( GroupsOut.begin(), GroupsOut.end(), g0 ) == GroupsOut.end() )
+        {
+            GroupsOut.push_back( g0 );
+        }
 
-        int et1 = Edge.Tri[1];
+        int const et1 = Edge.Tri[1];
         if ( et1 != InvalidID )
         {
-            int g1 = TriangleGroups.GetValue()[et1];
-            GroupsOut.AddUnique( g1 );
+            int const g1 = m_TriangleGroups.value()[et1];
+            if ( std::find( GroupsOut.begin(), GroupsOut.end(), g1 ) == GroupsOut.end() )
+            {
+                GroupsOut.push_back( g1 );
+            }
         }
     }
     return true;
 }
 
-template bool FDynamicMesh3::GetAllVertexGroups<TArray<int32_t>>( int vID, TArray<int32_t>& GroupsOut ) const;
+template bool DynamicMesh3::GetAllVertexGroups<std::vector<int32_t>>( int                   vID,
+                                                                      std::vector<int32_t>& GroupsOut ) const;
 
 /**
  * returns true if vID is a "bowtie" vertex, ie multiple disjoint triangle sets in one-ring
  */
-bool FDynamicMesh3::IsBowtieVertex( int vID ) const
+bool DynamicMesh3::IsBowtieVertex( int VertexID ) const
 {
-    if ( VertexRefCounts.IsValid( vID ) == false )
+    if ( !m_VertexRefCounts.IsValid( VertexID ) )
     {
         return false;
     }
 
-    int nEdges = VertexEdgeLists.GetCount( vID );
+    int const nEdges = m_VertexEdgeLists.GetCount( VertexID );
     if ( nEdges == 0 )
     {
         return false;
@@ -512,9 +537,9 @@ bool FDynamicMesh3::IsBowtieVertex( int vID ) const
     // find a boundary edge to start at
     int  start_eid         = -1;
     bool start_at_boundary = false;
-    for ( int eid : VertexEdgeLists.Values( vID ) )
+    for ( int const eid : m_VertexEdgeLists.Values( VertexID ) )
     {
-        const FEdge Edge = Edges[eid];
+        const Edge Edge = m_Edges[eid];
         if ( Edge.Tri[1] == InvalidID )
         {
             start_at_boundary = true;
@@ -525,10 +550,10 @@ bool FDynamicMesh3::IsBowtieVertex( int vID ) const
     // if no boundary edge, start at arbitrary edge
     if ( start_eid == -1 )
     {
-        start_eid = VertexEdgeLists.First( vID );
+        start_eid = m_VertexEdgeLists.First( VertexID );
     }
     // initial triangle
-    int start_tid = Edges[start_eid].Tri[0];
+    int const start_tid = m_Edges[start_eid].Tri[0];
 
     int prev_tid = start_tid;
     int prev_eid = start_eid;
@@ -538,18 +563,19 @@ bool FDynamicMesh3::IsBowtieVertex( int vID ) const
     int count = 1;
     while ( true )
     {
-        int             i        = prev_tid;
-        const FIndex3i& tv       = Triangles[i];
-        const FIndex3i& te       = TriangleEdges[i];
-        int             vert_idx = IndexUtil::FindTriIndex( vID, tv );
-        int             e1 = te[vert_idx], e2 = te[( vert_idx + 2 ) % 3];
-        int             next_eid = ( e1 == prev_eid ) ? e2 : e1;
+        int const       i        = prev_tid;
+        const Index3i&  tv       = m_Triangles[i];
+        const Index3i&  te       = m_TriangleEdges[i];
+        int const       vert_idx = IndexUtil::FindTriIndex( VertexID, tv );
+        int const       e1       = te[vert_idx];
+        int const       e2       = te[( vert_idx + 2 ) % 3];
+        int const       next_eid = ( e1 == prev_eid ) ? e2 : e1;
         if ( next_eid == start_eid )
         {
             break;
         }
-        FIndex2i next_eid_tris = GetEdgeT( next_eid );
-        int      next_tid      = ( next_eid_tris[0] == prev_tid ) ? next_eid_tris[1] : next_eid_tris[0];
+        Index2i  next_eid_tris = GetEdgeT( next_eid );
+        int const next_tid      = ( next_eid_tris[0] == prev_tid ) ? next_eid_tris[1] : next_eid_tris[0];
         if ( next_tid == InvalidID )
         {
             break;
@@ -560,30 +586,30 @@ bool FDynamicMesh3::IsBowtieVertex( int vID ) const
     }
 
     // if we did not see all edges at vertex, we have a bowtie
-    int  target_count = ( start_at_boundary ) ? nEdges - 1 : nEdges;
-    bool is_bowtie    = ( target_count != count );
+    int const  target_count = ( start_at_boundary ) ? nEdges - 1 : nEdges;
+    bool const is_bowtie    = ( target_count != count );
     return is_bowtie;
 }
 
-int FDynamicMesh3::FindTriangle( int a, int b, int c ) const
+int DynamicMesh3::FindTriangle( int a, int b, int c ) const
 {
-    int eid = FindEdge( a, b );
+    int const eid = FindEdge( a, b );
     if ( eid == InvalidID )
     {
         return InvalidID;
     }
-    const FEdge Edge = Edges[eid];
+    const Edge Edge = m_Edges[eid];
 
     // triangles attached to edge [a,b] must contain verts a and b...
     int ti = Edge.Tri[0];
-    if ( Triangles[ti][0] == c || Triangles[ti][1] == c || Triangles[ti][2] == c )
+    if ( m_Triangles[ti][0] == c || m_Triangles[ti][1] == c || m_Triangles[ti][2] == c )
     {
         return Edge.Tri[0];
     }
     if ( Edge.Tri[1] != InvalidID )
     {
         ti = Edge.Tri[1];
-        if ( Triangles[ti][0] == c || Triangles[ti][1] == c || Triangles[ti][2] == c )
+        if ( m_Triangles[ti][0] == c || m_Triangles[ti][1] == c || m_Triangles[ti][2] == c )
         {
             return Edge.Tri[1];
         }
@@ -595,81 +621,81 @@ int FDynamicMesh3::FindTriangle( int a, int b, int c ) const
 /**
  * Computes bounding box of all vertices.
  */
-FAxisAlignedBox3d FDynamicMesh3::GetBounds() const
+AxisAlignedBox3d DynamicMesh3::GetBounds() const
 {
     if ( VertexCount() == 0 )
     {
-        return FAxisAlignedBox3d::Empty();
+        return AxisAlignedBox3d::Empty();
     }
 
-    FVector3d MinVec = Vertices[*( VertexIndicesItr().begin() )];
-    FVector3d MaxVec = MinVec;
-    for ( int vi : VertexIndicesItr() )
+    glm::dvec3 MinVec = m_Vertices[*( VertexIndicesItr().begin() )];
+    glm::dvec3 MaxVec = MinVec;
+    for ( int const vi : VertexIndicesItr() )
     {
-        MinVec = Min( MinVec, Vertices[vi] );
-        MaxVec = Max( MaxVec, Vertices[vi] );
+        MinVec = Min( MinVec, m_Vertices[vi] );
+        MaxVec = Max( MaxVec, m_Vertices[vi] );
     }
-    return FAxisAlignedBox3d( MinVec, MaxVec );
+    return { MinVec, MaxVec };
 }
 
 /**
  * Computes bounding box of selected vertices.
  */
-FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<int32_t> VertexIDs ) const
+AxisAlignedBox3d DynamicMesh3::GetBoundsForVertexSelection( std::span<const int32_t> VertexIDs ) const
 {
-    int32_t const NumVertices = VertexIDs.Num();
+    auto const NumVertices = static_cast<int32_t>( VertexIDs.size() );
     if ( NumVertices == 0 )
     {
-        return FAxisAlignedBox3d::Empty();
+        return AxisAlignedBox3d::Empty();
     }
 
-    FVector3d MinVec = Vertices[VertexIDs[0]];
-    FVector3d MaxVec = MinVec;
-    for ( int Idx = 1; Idx < VertexIDs.Num(); ++Idx )
+    glm::dvec3 MinVec = m_Vertices[VertexIDs[0]];
+    glm::dvec3 MaxVec = MinVec;
+    for ( int Idx = 1; Idx < static_cast<int32_t>( VertexIDs.size() ); ++Idx )
     {
         int32_t const VID = VertexIDs[Idx];
-        MinVec    = Min( MinVec, Vertices[VID] );
-        MaxVec    = Max( MaxVec, Vertices[VID] );
+        MinVec            = Min( MinVec, m_Vertices[VID] );
+        MaxVec            = Max( MaxVec, m_Vertices[VID] );
     }
-    return FAxisAlignedBox3d( MinVec, MaxVec );
+    return { MinVec, MaxVec };
 }
 
-FAxisAlignedBox3d FDynamicMesh3::GetBoundsForTriangleSelection( TConstArrayView<int32_t> TriangleIDs ) const
+AxisAlignedBox3d DynamicMesh3::GetBoundsForTriangleSelection( std::span<const int32_t> TriangleIDs ) const
 {
-    int32_t const NumTriangles = TriangleIDs.Num();
+    auto const NumTriangles = static_cast<int32_t>( TriangleIDs.size() );
     if ( NumTriangles == 0 )
     {
-        return FAxisAlignedBox3d::Empty();
+        return AxisAlignedBox3d::Empty();
     }
 
-    auto UpdateBoundsWithTriangles = [this]( FAxisAlignedBox3d& Bounds, TConstArrayView<int32_t> IndexArray )
+    auto UpdateBoundsWithTriangles = [this]( AxisAlignedBox3d& Bounds, std::span<const int32_t> IndexArray )
     {
         for ( int32_t const TID : IndexArray )
         {
-            const FIndex3i& Tri = Triangles[TID];
-            Bounds.Contain( Vertices[Tri.A] );
-            Bounds.Contain( Vertices[Tri.B] );
-            Bounds.Contain( Vertices[Tri.C] );
+            const Index3i& Tri = m_Triangles[TID];
+            Bounds.Contain( m_Vertices[Tri.A] );
+            Bounds.Contain( m_Vertices[Tri.B] );
+            Bounds.Contain( m_Vertices[Tri.C] );
         }
     };
 
-    FAxisAlignedBox3d ResultBounds = FAxisAlignedBox3d::Empty();
+    AxisAlignedBox3d ResultBounds = AxisAlignedBox3d::Empty();
 
     UpdateBoundsWithTriangles( ResultBounds, TriangleIDs );
     return ResultBounds;
 }
 
-bool FDynamicMesh3::IsClosed() const
+bool DynamicMesh3::IsClosed() const
 {
     if ( TriangleCount() == 0 )
     {
         return false;
     }
 
-    int N = MaxEdgeID();
+    int const N = MaxEdgeID();
     for ( int i = 0; i < N; ++i )
     {
-        if ( EdgeRefCounts.IsValid( i ) && IsBoundaryEdge( i ) )
+        if ( m_EdgeRefCounts.IsValid( i ) && IsBoundaryEdge( i ) )
         {
             return false;
         }
@@ -678,12 +704,12 @@ bool FDynamicMesh3::IsClosed() const
 }
 
 // average of 1 or 2 face normals
-FVector3d FDynamicMesh3::GetEdgeNormal( int eID ) const
+glm::dvec3 DynamicMesh3::GetEdgeNormal( int eID ) const
 {
-    if ( EdgeRefCounts.IsValid( eID ) )
+    if ( m_EdgeRefCounts.IsValid( eID ) )
     {
-        const FIndex2i Tris = Edges[eID].Tri;
-        FVector3d      n    = GetTriNormal( Tris[0] );
+        const Index2i  Tris = m_Edges[eID].Tri;
+        glm::dvec3     n    = GetTriNormal( Tris[0] );
         if ( Tris[1] != InvalidID )
         {
             n += GetTriNormal( Tris[1] );
@@ -691,35 +717,35 @@ FVector3d FDynamicMesh3::GetEdgeNormal( int eID ) const
         }
         return n;
     }
-    UE_CHECK_SLOW( false );
-    return FVector3d::Zero();
+    assert( false );
+    return glm::dvec3( 0 );
 }
 
-FVector3d FDynamicMesh3::GetEdgePoint( int eID, double t ) const
+glm::dvec3 DynamicMesh3::GetEdgePoint( int eID, double t ) const
 {
     t = VectorUtil::Clamp( t, 0.0, 1.0 );
-    if ( EdgeRefCounts.IsValid( eID ) )
+    if ( m_EdgeRefCounts.IsValid( eID ) )
     {
-        FIndex2i  Verts = Edges[eID].Vert;
+        Index2i   Verts = m_Edges[eID].Vert;
         const int iv0   = Verts[0];
         const int iv1   = Verts[1];
-        double    mt    = 1.0 - t;
-        return mt * Vertices[iv0] + t * Vertices[iv1];
+        double const mt    = 1.0 - t;
+        return mt * m_Vertices[iv0] + t * m_Vertices[iv1];
     }
-    UE_CHECK_SLOW( false );
-    return FVector3d::Zero();
+    assert( false );
+    return glm::dvec3( 0 );
 }
 
-void FDynamicMesh3::GetVtxOneRingCentroid( int vID, FVector3d& centroid ) const
+void DynamicMesh3::GetVtxOneRingCentroid( int VertexID, glm::dvec3& centroid ) const
 {
-    centroid = FVector3d::Zero();
-    if ( VertexRefCounts.IsValid( vID ) )
+    centroid = glm::dvec3( 0 );
+    if ( m_VertexRefCounts.IsValid( VertexID ) )
     {
         int n = 0;
-        for ( int eid : VertexEdgeLists.Values( vID ) )
+        for ( int const eid : m_VertexEdgeLists.Values( VertexID ) )
         {
-            int other_idx = GetOtherEdgeVertex( eid, vID );
-            centroid += Vertices[other_idx];
+            int const other_idx = GetOtherEdgeVertex( eid, VertexID );
+            centroid += m_Vertices[other_idx];
             n++;
         }
         if ( n > 0 )
@@ -729,139 +755,151 @@ void FDynamicMesh3::GetVtxOneRingCentroid( int vID, FVector3d& centroid ) const
     }
 }
 
-FVector3d FDynamicMesh3::GetTriNormal( int tID ) const
+glm::dvec3 DynamicMesh3::GetTriNormal( int TriangleID ) const
 {
-    FVector3d v0, v1, v2;
-    GetTriVertices( tID, v0, v1, v2 );
+    glm::dvec3 v0{};
+    glm::dvec3 v1{};
+    glm::dvec3 v2{};
+    GetTriVertices( TriangleID, v0, v1, v2 );
     return VectorUtil::Normal( v0, v1, v2 );
 }
 
-double FDynamicMesh3::GetTriArea( int tID ) const
+double DynamicMesh3::GetTriArea( int TriangleID ) const
 {
-    FVector3d v0, v1, v2;
-    GetTriVertices( tID, v0, v1, v2 );
+    glm::dvec3 v0{};
+    glm::dvec3 v1{};
+    glm::dvec3 v2{};
+    GetTriVertices( TriangleID, v0, v1, v2 );
     return VectorUtil::Area( v0, v1, v2 );
 }
 
-void FDynamicMesh3::GetTriInfo( int tID, FVector3d& Normal, double& Area, FVector3d& Centroid ) const
+void DynamicMesh3::GetTriInfo( int TriangleID, glm::dvec3& Normal, double& Area, glm::dvec3& Centroid ) const
 {
-    FVector3d v0, v1, v2;
-    GetTriVertices( tID, v0, v1, v2 );
+    glm::dvec3 v0{};
+    glm::dvec3 v1{};
+    glm::dvec3 v2{};
+    GetTriVertices( TriangleID, v0, v1, v2 );
     Centroid = ( v0 + v1 + v2 ) * ( 1.0 / 3.0 );
     Normal   = VectorUtil::NormalArea( v0, v1, v2, Area );
 }
 
-FVector3d FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double bary2 ) const
+glm::dvec3 DynamicMesh3::GetTriBaryPoint( int TriangleID, double bary0, double bary1, double bary2 ) const
 {
-    const FIndex3i& tIDs = Triangles[tID];
-    return bary0 * Vertices[tIDs[0]] + bary1 * Vertices[tIDs[1]] + bary2 * Vertices[tIDs[2]];
+    const Index3i& tIDs = m_Triangles[TriangleID];
+    return bary0 * m_Vertices[tIDs[0]] + bary1 * m_Vertices[tIDs[1]] + bary2 * m_Vertices[tIDs[2]];
 }
 
-FVector3d FDynamicMesh3::GetTriBaryNormal( int tID, double bary0, double bary1, double bary2 ) const
+glm::dvec3 DynamicMesh3::GetTriBaryNormal( int TriangleID, double bary0, double bary1, double bary2 ) const
 {
-    UE_CHECK_SLOW( HasVertexNormals() );
-    if ( HasVertexNormals() )
+    assert( HasVertexNormals() );
+    if ( m_VertexNormals.has_value() )
     {
-        const FIndex3i&                  tIDs     = Triangles[tID];
-        const TDynamicVector<FVector3f>& normalsR = VertexNormals.GetValue();
-        FVector3d                        n =
-             FVector3d( bary0 * normalsR[tIDs[0]] + bary1 * normalsR[tIDs[1]] + bary2 * normalsR[tIDs[2]] );
+        const Index3i&                  tIDs     = m_Triangles[TriangleID];
+        const DynamicVector<glm::vec3>& normalsR = m_VertexNormals.value();
+        glm::dvec3                      n        = glm::dvec3( static_cast<float>( bary0 ) * normalsR[tIDs[0]] +
+                                                               static_cast<float>( bary1 ) * normalsR[tIDs[1]] +
+                                                               static_cast<float>( bary2 ) * normalsR[tIDs[2]] );
         Normalize( n );
         return n;
     }
-    return FVector3d::Zero();
+    return glm::dvec3( 0 );
 }
 
-FVector3d FDynamicMesh3::GetTriCentroid( int tID ) const
+glm::dvec3 DynamicMesh3::GetTriCentroid( int TriangleID ) const
 {
-    const FIndex3i& tIDs = Triangles[tID];
-    double          f    = ( 1.0 / 3.0 );
-    return ( Vertices[tIDs[0]] + Vertices[tIDs[1]] + Vertices[tIDs[2]] ) * f;
+    const Index3i&  tIDs = m_Triangles[TriangleID];
+    double const    f    = ( 1.0 / 3.0 );
+    return ( m_Vertices[tIDs[0]] + m_Vertices[tIDs[1]] + m_Vertices[tIDs[2]] ) * f;
 }
 
-void FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double bary2, FVertexInfo& vinfo ) const
+void DynamicMesh3::GetTriBaryPoint( int TriangleID, double bary0, double bary1, double bary2,
+                                    VertexInfo& VertInfo ) const
 {
-    vinfo                = FVertexInfo();
-    const FIndex3i& tIDs = Triangles[tID];
-    vinfo.Position       = bary0 * Vertices[tIDs[0]] + bary1 * Vertices[tIDs[1]] + bary2 * Vertices[tIDs[2]];
-    vinfo.bHaveN         = HasVertexNormals();
-    if ( vinfo.bHaveN )
+    VertInfo            = VertexInfo();
+    const Index3i& tIDs = m_Triangles[TriangleID];
+    VertInfo.Position   = bary0 * m_Vertices[tIDs[0]] + bary1 * m_Vertices[tIDs[1]] + bary2 * m_Vertices[tIDs[2]];
+    if ( m_VertexNormals.has_value() )
     {
-        const TDynamicVector<FVector3f>& normalsR = this->VertexNormals.GetValue();
-        vinfo.Normal = (float)bary0 * normalsR[tIDs[0]] + (float)bary1 * normalsR[tIDs[1]] +
-                       (float)bary2 * normalsR[tIDs[2]];
-        Normalize( vinfo.Normal );
+        VertInfo.bHaveN                          = true;
+        const DynamicVector<glm::vec3>& normalsR = this->m_VertexNormals.value();
+        VertInfo.Normal                          = static_cast<float>( bary0 ) * normalsR[tIDs[0]] +
+                          static_cast<float>( bary1 ) * normalsR[tIDs[1]] +
+                          static_cast<float>( bary2 ) * normalsR[tIDs[2]];
+        Normalize( VertInfo.Normal );
     }
-    vinfo.bHaveC = HasVertexColors();
-    if ( vinfo.bHaveC )
+    if ( m_VertexColors.has_value() )
     {
-        const TDynamicVector<FVector3f>& colorsR = this->VertexColors.GetValue();
-        vinfo.Color =
-             (float)bary0 * colorsR[tIDs[0]] + (float)bary1 * colorsR[tIDs[1]] + (float)bary2 * colorsR[tIDs[2]];
+        VertInfo.bHaveC                         = true;
+        const DynamicVector<glm::vec3>& colorsR = this->m_VertexColors.value();
+        VertInfo.Color                          = static_cast<float>( bary0 ) * colorsR[tIDs[0]] +
+                         static_cast<float>( bary1 ) * colorsR[tIDs[1]] +
+                         static_cast<float>( bary2 ) * colorsR[tIDs[2]];
     }
-    vinfo.bHaveUV = HasVertexUVs();
-    if ( vinfo.bHaveUV )
+    if ( m_VertexUVs.has_value() )
     {
-        const TDynamicVector<FVector2f>& uvR = this->VertexUVs.GetValue();
-        vinfo.UV = (float)bary0 * uvR[tIDs[0]] + (float)bary1 * uvR[tIDs[1]] + (float)bary2 * uvR[tIDs[2]];
+        VertInfo.bHaveUV                    = true;
+        const DynamicVector<glm::vec2>& uvR = this->m_VertexUVs.value();
+        VertInfo.UV = static_cast<float>( bary0 ) * uvR[tIDs[0]] + static_cast<float>( bary1 ) * uvR[tIDs[1]] +
+                      static_cast<float>( bary2 ) * uvR[tIDs[2]];
     }
 }
 
-FAxisAlignedBox3d FDynamicMesh3::GetTriBounds( int tID ) const
+AxisAlignedBox3d DynamicMesh3::GetTriBounds( int TriangleID ) const
 {
-    const FIndex3i&  tIDs = Triangles[tID];
-    const FVector3d& A    = Vertices[tIDs.A];
-    const FVector3d& B    = Vertices[tIDs.B];
-    const FVector3d& C    = Vertices[tIDs.C];
-    return FAxisAlignedBox3d( A, B, C );
+    const Index3i&    tIDs = m_Triangles[TriangleID];
+    const glm::dvec3& A    = m_Vertices[tIDs.A];
+    const glm::dvec3& B    = m_Vertices[tIDs.B];
+    const glm::dvec3& C    = m_Vertices[tIDs.C];
+    return { A, B, C };
 }
 
-double FDynamicMesh3::GetTriSolidAngle( int tID, const FVector3d& p ) const
+double DynamicMesh3::GetTriSolidAngle( int TriangleID, const glm::dvec3& p ) const
 {
     // inlined version of GetTriVertices & VectorUtil::TriSolidAngle
-    const FIndex3i& Triangle = Triangles[tID];
-    const FVector3d TV[3]    = { Vertices[Triangle[0]] - p, Vertices[Triangle[1]] - p, Vertices[Triangle[2]] - p };
+    const Index3i&   Triangle = m_Triangles[TriangleID];
+    const glm::dvec3 TV[3]    = { m_Vertices[Triangle[0]] - p, m_Vertices[Triangle[1]] - p,
+                                  m_Vertices[Triangle[2]] - p };
 
-    double la = TV[0].Length(), lb = TV[1].Length(), lc = TV[2].Length();
-    double top    = ( la * lb * lc ) + TV[0].Dot( TV[1] ) * lc + TV[1].Dot( TV[2] ) * la + TV[2].Dot( TV[0] ) * lb;
-    double bottom = TV[0].X * ( TV[1].Y * TV[2].Z - TV[2].Y * TV[1].Z ) -
-                    TV[0].Y * ( TV[1].X * TV[2].Z - TV[2].X * TV[1].Z ) +
-                    TV[0].Z * ( TV[1].X * TV[2].Y - TV[2].X * TV[1].Y );
+    double const la  = glm::length( TV[0] );
+    double const lb  = glm::length( TV[1] );
+    double const lc  = glm::length( TV[2] );
+    double const top = ( la * lb * lc ) + glm::dot( TV[0], TV[1] ) * lc + glm::dot( TV[1], TV[2] ) * la +
+                       glm::dot( TV[2], TV[0] ) * lb;
+    double const bottom = TV[0].x * ( TV[1].y * TV[2].z - TV[2].y * TV[1].z ) -
+                          TV[0].y * ( TV[1].x * TV[2].z - TV[2].x * TV[1].z ) +
+                          TV[0].z * ( TV[1].x * TV[2].y - TV[2].x * TV[1].y );
     // -2 instead of 2 to account for UE winding
     return -2.0 * atan2( bottom, top );
 }
 
-double FDynamicMesh3::GetTriInternalAngleR( int tID, int i ) const
+double DynamicMesh3::GetTriInternalAngleR( int TriangleID, int i ) const
 {
-    const FIndex3i& Triangle = Triangles[tID];
-    const FVector3d TV[3]    = { Vertices[Triangle[0]], Vertices[Triangle[1]], Vertices[Triangle[2]] };
+    const Index3i&   Triangle = m_Triangles[TriangleID];
+    const glm::dvec3 TV[3]    = { m_Vertices[Triangle[0]], m_Vertices[Triangle[1]], m_Vertices[Triangle[2]] };
     if ( i == 0 )
     {
         return AngleR( Normalized( TV[1] - TV[0] ), Normalized( TV[2] - TV[0] ) );
     }
-    else if ( i == 1 )
+    if ( i == 1 )
     {
         return AngleR( Normalized( TV[0] - TV[1] ), Normalized( TV[2] - TV[1] ) );
     }
-    else
-    {
-        return AngleR( Normalized( TV[0] - TV[2] ), Normalized( TV[1] - TV[2] ) );
-    }
+    return AngleR( Normalized( TV[0] - TV[2] ), Normalized( TV[1] - TV[2] ) );
 }
 
-FVector3d FDynamicMesh3::GetTriInternalAnglesR( int tID ) const
+glm::dvec3 DynamicMesh3::GetTriInternalAnglesR( int TriangleID ) const
 {
-    const FIndex3i& Triangle = Triangles[tID];
-    return VectorUtil::TriangleInternalAngles( Vertices[Triangle[0]], Vertices[Triangle[1]],
-                                               Vertices[Triangle[2]] );
+    const Index3i& Triangle = m_Triangles[TriangleID];
+    return VectorUtil::TriangleInternalAngles( m_Vertices[Triangle[0]], m_Vertices[Triangle[1]],
+                                               m_Vertices[Triangle[2]] );
 }
 
-double FDynamicMesh3::CalculateWindingNumber( const FVector3d& QueryPoint ) const
+double DynamicMesh3::CalculateWindingNumber( const glm::dvec3& QueryPoint ) const
 {
     double sum = 0;
-    for ( int tid : TriangleIndicesItr() )
+    for ( int const tid : TriangleIndicesItr() )
     {
         sum += GetTriSolidAngle( tid, QueryPoint );
     }
-    return sum / FMathd::FourPi;
+    return sum / ( static_cast<double>( 4 ) * glm::pi<double>() );
 }

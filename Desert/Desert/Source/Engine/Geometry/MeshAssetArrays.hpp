@@ -11,7 +11,7 @@
 namespace Desert::Geometry
 {
     // THE ONE PLACE A .stmesh's ARRAYS MEET THE RENDER ARRAYS. Both modeling cores (EditMesh, EditMeshAsset.hpp,
-    // and FDynamicMesh3, DynamicMeshAsset.hpp) go through their own ToRenderMesh / FromRenderMesh and then
+    // and DynamicMesh3, DynamicMeshAsset.hpp) go through their own ToRenderMesh / FromRenderMesh and then
     // through these two functions, so the file a core writes depends only on the render arrays it produced:
     // two cores that draw the same thing write the same bytes, and neither can drift in naming, slot binding
     // or polygroup order on its own.

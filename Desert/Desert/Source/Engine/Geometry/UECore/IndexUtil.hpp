@@ -22,7 +22,7 @@ namespace Desert::Geometry
         /**
          * @return the vertex that is the same in both EdgeVerts1 and EdgeVerts2, or InvalidID if not found
          */
-        inline int FindSharedEdgeVertex( const FIndex2i& EdgeVerts1, const FIndex2i& EdgeVerts2 )
+        inline int FindSharedEdgeVertex( const Index2i& EdgeVerts1, const Index2i& EdgeVerts2 )
         {
             if ( EdgeVerts1.A == EdgeVerts2.A )
                 return EdgeVerts1.A;
@@ -39,7 +39,7 @@ namespace Desert::Geometry
         /**
          * @return the vertex in the pair ev that is not v, or InvalidID if not found
          */
-        inline int FindEdgeOtherVertex( const FIndex2i& EdgeVerts, int VertexID )
+        inline int FindEdgeOtherVertex( const Index2i& EdgeVerts, int VertexID )
         {
             if ( EdgeVerts.A == VertexID )
                 return EdgeVerts.B;
@@ -144,10 +144,10 @@ namespace Desert::Geometry
          * @param TriangleIndex which triangle in array to search
          * @return vertex id of other vertex, or InvalidID if not found
          */
-        inline int FindTriOtherVtx( int VertexID1, int VertexID2, const TDynamicVector<FIndex3i>& TriIndexArray,
+        inline int FindTriOtherVtx( int VertexID1, int VertexID2, const DynamicVector<Index3i>& TriIndexArray,
                                     int TriangleIndex )
         {
-            const FIndex3i& Triangle = TriIndexArray[TriangleIndex];
+            const Index3i& Triangle = TriIndexArray[TriangleIndex];
             for ( int j = 0; j < 3; ++j )
             {
                 if ( SamePairUnordered( VertexID1, VertexID2, Triangle[j], Triangle[( j + 1 ) % 3] ) )

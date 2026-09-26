@@ -9,70 +9,71 @@
 
 namespace Desert::Geometry
 {
-    class FIndexPriorityQueue
+    class IndexPriorityQueue
     {
     public:
         void Initialize( int MaxNodeID )
         {
-            Nodes.Reset();
-            Nodes.Add( {} ); // [0] unused, as UE
-            IdToIndex.Init( 0, MaxNodeID );
+            m_Nodes.clear();
+            m_Nodes.push_back( {} ); // [0] unused, as UE
+            m_IdToIndex.assign( MaxNodeID, 0 );
         }
         void Clear()
         {
-            for ( int Index = 1; Index < Nodes.Num(); ++Index )
-                IdToIndex[Nodes[Index].Id] = 0;
-            Nodes.Reset();
-            Nodes.Add( {} );
+            for ( int Index = 1; Index < static_cast<int32_t>( m_Nodes.size() ); ++Index )
+                m_IdToIndex[m_Nodes[Index].Id] = 0;
+            m_Nodes.clear();
+            m_Nodes.push_back( {} );
         }
         [[nodiscard]] int GetCount() const
         {
-            return Nodes.Num() - 1;
+            return static_cast<int32_t>( m_Nodes.size() ) - 1;
         }
         [[nodiscard]] bool Contains( int NodeID ) const
         {
-            return NodeID >= 0 && NodeID < IdToIndex.Num() && IdToIndex[NodeID] > 0;
+            return NodeID >= 0 && NodeID < static_cast<int32_t>( m_IdToIndex.size() ) && m_IdToIndex[NodeID] > 0;
         }
         void Insert( int NodeID, float Priority )
         {
-            const int Index   = Nodes.Add( { NodeID, Priority } );
-            IdToIndex[NodeID] = Index;
+            m_Nodes.push_back( { NodeID, Priority } );
+            const int Index     = static_cast<int32_t>( m_Nodes.size() ) - 1;
+            m_IdToIndex[NodeID] = Index;
             MoveUp( Index );
         }
         void Update( int NodeID, float Priority )
         {
-            const int Index       = IdToIndex[NodeID];
-            Nodes[Index].Priority = Priority;
+            const int Index         = m_IdToIndex[NodeID];
+            m_Nodes[Index].Priority = Priority;
             MoveUp( Index );
-            MoveDown( IdToIndex[NodeID] );
+            MoveDown( m_IdToIndex[NodeID] );
         }
         int Dequeue()
         {
-            const int Head = Nodes[1].Id;
+            const int Head = m_Nodes[1].Id;
             const int Last = GetCount();
             Swap( 1, Last );
-            Nodes.RemoveAt( Last );
-            IdToIndex[Head] = 0;
+            m_Nodes.erase( m_Nodes.begin() + Last );
+            m_IdToIndex[Head] = 0;
             if ( GetCount() > 0 )
                 MoveDown( 1 );
             return Head;
         }
 
     private:
-        struct FNode
+        struct Node
         {
             int   Id       = -1;
             float Priority = 0;
         };
         void Swap( int A, int B )
         {
-            std::swap( Nodes[A], Nodes[B] );
-            IdToIndex[Nodes[A].Id] = A;
-            IdToIndex[Nodes[B].Id] = B;
+            std::swap( m_Nodes[A], m_Nodes[B] );
+            m_IdToIndex[m_Nodes[A].Id] = A;
+            m_IdToIndex[m_Nodes[B].Id] = B;
         }
         void MoveUp( int Index )
         {
-            while ( Index > 1 && Nodes[Index / 2].Priority > Nodes[Index].Priority )
+            while ( Index > 1 && m_Nodes[Index / 2].Priority > m_Nodes[Index].Priority )
             {
                 Swap( Index, Index / 2 );
                 Index /= 2;
@@ -86,9 +87,9 @@ namespace Desert::Geometry
                 int       Smallest = Index;
                 const int Left     = 2 * Index;
                 const int Right    = 2 * Index + 1;
-                if ( Left <= Count && Nodes[Left].Priority < Nodes[Smallest].Priority )
+                if ( Left <= Count && m_Nodes[Left].Priority < m_Nodes[Smallest].Priority )
                     Smallest = Left;
-                if ( Right <= Count && Nodes[Right].Priority < Nodes[Smallest].Priority )
+                if ( Right <= Count && m_Nodes[Right].Priority < m_Nodes[Smallest].Priority )
                     Smallest = Right;
                 if ( Smallest == Index )
                     return;
@@ -96,7 +97,7 @@ namespace Desert::Geometry
                 Index = Smallest;
             }
         }
-        TArray<FNode> Nodes;
-        TArray<int>   IdToIndex;
+        std::vector<Node> m_Nodes;
+        std::vector<int>  m_IdToIndex;
     };
 } // namespace Desert::Geometry

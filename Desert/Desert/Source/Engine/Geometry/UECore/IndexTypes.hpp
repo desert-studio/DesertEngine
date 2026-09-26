@@ -18,27 +18,27 @@ namespace Desert::Geometry
      * maintaining compatibility with existing g3Sharp code. Has an API
      * similar to WildMagic, GTEngine, Eigen, etc.
      */
-    struct FIndex2i
+    struct Index2i
     {
         int A = IndexConstants::InvalidID;
         int B = IndexConstants::InvalidID;
 
-        constexpr FIndex2i() = default;
-        constexpr FIndex2i( int ValA, int ValB ) : A( ValA ), B( ValB )
+        constexpr Index2i() = default;
+        constexpr Index2i( int ValA, int ValB ) : A( ValA ), B( ValB )
         {
         }
 
-        constexpr static FIndex2i Zero()
+        constexpr static Index2i Zero()
         {
-            return FIndex2i( 0, 0 );
+            return Index2i( 0, 0 );
         }
-        constexpr static FIndex2i Max()
+        constexpr static Index2i Max()
         {
             return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max() };
         }
-        constexpr static FIndex2i Invalid()
+        constexpr static Index2i Invalid()
         {
-            return FIndex2i( IndexConstants::InvalidID, IndexConstants::InvalidID );
+            return Index2i( IndexConstants::InvalidID, IndexConstants::InvalidID );
         }
 
         int& operator[]( int Idx )
@@ -50,11 +50,11 @@ namespace Desert::Geometry
             return Idx == 0 ? A : B;
         }
 
-        inline bool operator==( const FIndex2i& Other ) const
+        inline bool operator==( const Index2i& Other ) const
         {
             return A == Other.A && B == Other.B;
         }
-        inline bool operator!=( const FIndex2i& Other ) const
+        inline bool operator!=( const Index2i& Other ) const
         {
             return A != Other.A || B != Other.B;
         }
@@ -104,29 +104,29 @@ namespace Desert::Geometry
      * maintaining compatibility with existing g3Sharp code. Has an API
      * similar to WildMagic, GTEngine, Eigen, etc.
      */
-    struct FIndex3i
+    struct Index3i
     {
         int A = IndexConstants::InvalidID;
         int B = IndexConstants::InvalidID;
         int C = IndexConstants::InvalidID;
 
-        constexpr FIndex3i() = default;
-        constexpr FIndex3i( int ValA, int ValB, int ValC ) : A( ValA ), B( ValB ), C( ValC )
+        constexpr Index3i() = default;
+        constexpr Index3i( int ValA, int ValB, int ValC ) : A( ValA ), B( ValB ), C( ValC )
         {
         }
 
-        constexpr static FIndex3i Zero()
+        constexpr static Index3i Zero()
         {
-            return FIndex3i( 0, 0, 0 );
+            return Index3i( 0, 0, 0 );
         }
-        constexpr static FIndex3i Max()
+        constexpr static Index3i Max()
         {
             return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
                      std::numeric_limits<int>::max() };
         }
-        constexpr static FIndex3i Invalid()
+        constexpr static Index3i Invalid()
         {
-            return FIndex3i( IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID );
+            return Index3i( IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID );
         }
 
         int& operator[]( int Idx )
@@ -138,11 +138,11 @@ namespace Desert::Geometry
             return Idx == 0 ? A : ( Idx == 1 ? B : C );
         }
 
-        bool operator==( const FIndex3i& Other ) const
+        bool operator==( const Index3i& Other ) const
         {
             return A == Other.A && B == Other.B && C == Other.C;
         }
-        bool operator!=( const FIndex3i& Other ) const
+        bool operator!=( const Index3i& Other ) const
         {
             return A != Other.A || B != Other.B || C != Other.C;
         }
@@ -174,25 +174,25 @@ namespace Desert::Geometry
         }
 
         /** @return offset triplet, with the OffsetIndicesBy value added to each index */
-        [[nodiscard]] FIndex3i GetOffsetBy( int32_t OffsetIndicesBy ) const
+        [[nodiscard]] Index3i GetOffsetBy( int32_t OffsetIndicesBy ) const
         {
-            return FIndex3i( A + OffsetIndicesBy, B + OffsetIndicesBy, C + OffsetIndicesBy );
+            return Index3i( A + OffsetIndicesBy, B + OffsetIndicesBy, C + OffsetIndicesBy );
         }
 
         /**
          * @return shifted triplet such that A=WantIndex0Value, and B,C values maintain the same relative ordering
          */
-        [[nodiscard]] FIndex3i GetCycled( int32_t WantIndex0Value ) const
+        [[nodiscard]] Index3i GetCycled( int32_t WantIndex0Value ) const
         {
             if ( B == WantIndex0Value )
             {
-                return FIndex3i( B, C, A );
+                return Index3i( B, C, A );
             }
             else if ( C == WantIndex0Value )
             {
-                return FIndex3i( C, A, B );
+                return Index3i( C, A, B );
             }
-            return FIndex3i( A, B, C );
+            return Index3i( A, B, C );
         }
     };
 
@@ -201,32 +201,32 @@ namespace Desert::Geometry
      * maintaining compatibility with existing g3Sharp code. Has an API
      * similar to WildMagic, GTEngine, Eigen, etc.
      */
-    struct FIndex4i
+    struct Index4i
     {
-        // UE leaves FIndex4i uninitialised by default; zero-initialised here so no read is undefined.
+        // UE leaves Index4i uninitialised by default; zero-initialised here so no read is undefined.
         int A = 0;
         int B = 0;
         int C = 0;
         int D = 0;
 
-        FIndex4i() = default;
-        FIndex4i( int ValA, int ValB, int ValC, int ValD ) : A( ValA ), B( ValB ), C( ValC ), D( ValD )
+        Index4i() = default;
+        Index4i( int ValA, int ValB, int ValC, int ValD ) : A( ValA ), B( ValB ), C( ValC ), D( ValD )
         {
         }
 
-        static FIndex4i Zero()
+        static Index4i Zero()
         {
-            return FIndex4i( 0, 0, 0, 0 );
+            return Index4i( 0, 0, 0, 0 );
         }
-        static FIndex4i Max()
+        static Index4i Max()
         {
             return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
                      std::numeric_limits<int>::max(), std::numeric_limits<int>::max() };
         }
-        static FIndex4i Invalid()
+        static Index4i Invalid()
         {
-            return FIndex4i( IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID,
-                             IndexConstants::InvalidID );
+            return Index4i( IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID,
+                            IndexConstants::InvalidID );
         }
 
         int& operator[]( int Idx )
@@ -238,11 +238,11 @@ namespace Desert::Geometry
             return Idx == 0 ? A : ( Idx == 1 ? B : ( Idx == 2 ? C : D ) );
         }
 
-        bool operator==( const FIndex4i& Other ) const
+        bool operator==( const Index4i& Other ) const
         {
             return A == Other.A && B == Other.B && C == Other.C && D == Other.D;
         }
-        bool operator!=( const FIndex4i& Other ) const
+        bool operator!=( const Index4i& Other ) const
         {
             return A != Other.A || B != Other.B || C != Other.C || D != Other.D;
         }
@@ -262,18 +262,18 @@ namespace Desert::Geometry
 
 // UE hashes these with a CRC of the bytes; any well-mixed hash serves TSet/TMap the same.
 template <>
-struct std::hash<Desert::Geometry::FIndex2i>
+struct std::hash<Desert::Geometry::Index2i>
 {
-    size_t operator()( const Desert::Geometry::FIndex2i& I ) const noexcept
+    size_t operator()( const Desert::Geometry::Index2i& I ) const noexcept
     {
         return std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.A ) ) << 32 ) | uint32_t( I.B ) );
     }
 };
 
 template <>
-struct std::hash<Desert::Geometry::FIndex3i>
+struct std::hash<Desert::Geometry::Index3i>
 {
-    size_t operator()( const Desert::Geometry::FIndex3i& I ) const noexcept
+    size_t operator()( const Desert::Geometry::Index3i& I ) const noexcept
     {
         const size_t H = std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.A ) ) << 32 ) | uint32_t( I.B ) );
         return H ^ ( std::hash<int>{}( I.C ) + 0x9e3779b97f4a7c15ull + ( H << 6 ) + ( H >> 2 ) );
@@ -281,9 +281,9 @@ struct std::hash<Desert::Geometry::FIndex3i>
 };
 
 template <>
-struct std::hash<Desert::Geometry::FIndex4i>
+struct std::hash<Desert::Geometry::Index4i>
 {
-    size_t operator()( const Desert::Geometry::FIndex4i& I ) const noexcept
+    size_t operator()( const Desert::Geometry::Index4i& I ) const noexcept
     {
         const size_t H0 = std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.A ) ) << 32 ) | uint32_t( I.B ) );
         const size_t H1 = std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.C ) ) << 32 ) | uint32_t( I.D ) );
