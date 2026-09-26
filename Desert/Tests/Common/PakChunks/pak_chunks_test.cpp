@@ -442,7 +442,7 @@ TEST( PakChunks, AnAbsentSchemeIsARefusalThatNamesThePathAndTheWayOut )
          << loaded.GetError();
 
     // A broken file is refused by its path too, not treated as absent.
-    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( missing, "{ \"Chunks\": 7 }" ) );
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( missing, R"({ "Chunks": 7 })" ) );
     const auto broken = LoadChunkScheme( missing );
     ASSERT_FALSE( broken.IsSuccess() );
     EXPECT_NE( broken.GetError().find( missing.string() ), std::string::npos ) << broken.GetError();
