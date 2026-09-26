@@ -1,6 +1,6 @@
-// What a preview does with the mouse (Editor/Widgets/PreviewInput.hpp). Details rows are Static: the camera
-// never moves and double-click opens the asset. Asset windows are Interactive: drag orbits/pans/moves the
-// sun, the wheel zooms, double-click re-frames.
+// What a preview does with the mouse (Editor/Widgets/PreviewInput.hpp). Static (the Details skybox ball): the
+// camera never moves and double-click opens the asset. Interactive (asset windows and the Details Static Mesh
+// row): drag orbits/pans/moves the sun, the wheel zooms, double-click re-frames.
 #include <Editor/Widgets/PreviewInput.hpp>
 
 #include <gtest/gtest.h>
@@ -145,11 +145,62 @@ TEST( PreviewInput, InteractiveWheelZoomsExceptInTheDome )
     EXPECT_EQ( PreviewInput( PreviewInteraction::Interactive, events ).Wheel, 0.0f );
 }
 
-// ── The Details route is the Static one ─────────────────────────────────────────────────────────────────
+// ── Which Details preview gets which mode ───────────────────────────────────────────────────────────────
+
+// The owner's call (AV1d2): a model in Details orbits and zooms — its asset field already has an Open button,
+// so a double-click that opened it bought nothing and cost the row its point.
+TEST( PreviewInput, DetailsStaticMeshPreviewIsInteractive )
+{
+    EXPECT_EQ( DetailsPreviewInteraction( DetailsPreviewKind::StaticMesh ), PreviewInteraction::Interactive );
+
+    // And therefore, through the mode, the gestures: a drag orbits, the wheel zooms, a double-click re-frames
+    // and opens nothing.
+    const PreviewInteraction mode = DetailsPreviewInteraction( DetailsPreviewKind::StaticMesh );
+    EXPECT_NE( PreviewInput( mode, Drag( 40.0f, -12.0f ) ).OrbitDelta.x, 0.0f );
+    PreviewInputEvents wheel;
+    wheel.Hovered = true;
+    wheel.Wheel   = 1.0f;
+    EXPECT_EQ( PreviewInput( mode, wheel ).Wheel, 1.0f );
+    const PreviewInputResult dbl = PreviewInput( mode, DoubleClick() );
+    EXPECT_TRUE( dbl.Reframe );
+    EXPECT_FALSE( dbl.Open );
+}
+
+// The skybox ball keeps the one angle its Rotation slider is read against.
+TEST( PreviewInput, DetailsSkyboxPreviewStaysStatic )
+{
+    EXPECT_EQ( DetailsPreviewInteraction( DetailsPreviewKind::Skybox ), PreviewInteraction::Static );
+}
+
+// ── Who owns the wheel ──────────────────────────────────────────────────────────────────────────────────
+
+// The preview claims the wheel exactly when the wheel zooms it; otherwise the panel keeps scrolling.
+TEST( PreviewInput, WheelBelongsToThePreviewOnlyWhenItZooms )
+{
+    EXPECT_TRUE( PreviewOwnsWheel( PreviewInteraction::Interactive, /*dome=*/false ) );
+    EXPECT_FALSE( PreviewOwnsWheel( PreviewInteraction::Interactive, /*dome=*/true ) );
+    EXPECT_FALSE( PreviewOwnsWheel( PreviewInteraction::Static, /*dome=*/false ) );
+    EXPECT_FALSE( PreviewOwnsWheel( PreviewInteraction::Static, /*dome=*/true ) );
+
+    // The claim and the zoom are one rule: wherever the preview owns the wheel, a notch zooms it, and
+    // wherever it does not, a notch zooms nothing.
+    for ( const PreviewInteraction mode : { PreviewInteraction::Interactive, PreviewInteraction::Static } )
+        for ( const bool dome : { false, true } )
+        {
+            PreviewInputEvents events;
+            events.Hovered = true;
+            events.Dome    = dome;
+            events.Wheel   = 1.0f;
+            EXPECT_EQ( PreviewOwnsWheel( mode, dome ), PreviewInput( mode, events ).Wheel != 0.0f );
+        }
+}
+
+// ── The Details route ───────────────────────────────────────────────────────────────────────────────────
 //
 // Every Details preview goes through ComponentEditContext::DrawPreview (Skybox and Static Mesh rows), so the
-// mode is decided in exactly one place; pin it there, and pin that its Open reaches the asset-field queue
-// EditorLayer answers with RequestOpenAsset.
+// mode is decided in exactly one place — from the row's kind — and a Static row's Open reaches the asset-field
+// queue EditorLayer answers with RequestOpenAsset. Pin that the route asks the kind rather than hard-coding a
+// mode, that each row names its own kind, and that the widget claims the wheel on the preview item.
 namespace
 {
     std::string ReadRepoFile( const char* relative )
@@ -168,7 +219,7 @@ namespace
     }
 } // namespace
 
-TEST( PreviewInput, DetailsPreviewIsStaticAndOpensThroughTheAssetFieldQueue )
+TEST( PreviewInput, DetailsPreviewModeComesFromTheRowKind )
 {
     const std::string source =
          ReadRepoFile( "Editor/Source/Editor/Panels/PropertyEditor/ComponentWidgetRegistry.cpp" );
@@ -177,10 +228,38 @@ TEST( PreviewInput, DetailsPreviewIsStaticAndOpensThroughTheAssetFieldQueue )
     const auto body = source.find( "ComponentEditContext::DrawPreview" );
     ASSERT_NE( body, std::string::npos );
     const std::string drawPreview = source.substr( body, 1200 );
-    EXPECT_NE( drawPreview.find( "PreviewInteraction::Static" ), std::string::npos );
+    EXPECT_NE( drawPreview.find( "DetailsPreviewInteraction( kind )" ), std::string::npos );
+    EXPECT_EQ( drawPreview.find( "PreviewInteraction::Static" ), std::string::npos );
     EXPECT_EQ( drawPreview.find( "PreviewInteraction::Interactive" ), std::string::npos );
     EXPECT_NE( drawPreview.find( "AssetFieldRequests::Request" ), std::string::npos );
     EXPECT_NE( drawPreview.find( "AssetFieldAction::Open" ), std::string::npos );
+}
+
+TEST( PreviewInput, EachDetailsRowNamesItsOwnKind )
+{
+    const std::string mesh =
+         ReadRepoFile( "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/StaticMeshComponent.cpp" );
+    const std::string sky =
+         ReadRepoFile( "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp" );
+    ASSERT_FALSE( mesh.empty() );
+    ASSERT_FALSE( sky.empty() );
+    EXPECT_NE( mesh.find( "DetailsPreviewKind::StaticMesh" ), std::string::npos );
+    EXPECT_EQ( mesh.find( "DetailsPreviewKind::Skybox" ), std::string::npos );
+    EXPECT_NE( sky.find( "DetailsPreviewKind::Skybox" ), std::string::npos );
+    EXPECT_EQ( sky.find( "DetailsPreviewKind::StaticMesh" ), std::string::npos );
+}
+
+TEST( PreviewInput, PreviewWidgetClaimsTheWheelThroughTheRule )
+{
+    const std::string source = ReadRepoFile( "Editor/Source/Editor/Widgets/PreviewViewport.cpp" );
+    ASSERT_FALSE( source.empty() );
+    const auto claim = source.find( "ImGui::SetItemUsingMouseWheel()" );
+    ASSERT_NE( claim, std::string::npos )
+         << "the preview no longer claims the wheel: Details scrolls while it zooms";
+    // The claim is gated by the rule, not unconditional — a Static row must leave the wheel to the panel.
+    const auto rule = source.rfind( "PreviewOwnsWheel(", claim );
+    ASSERT_NE( rule, std::string::npos );
+    EXPECT_LT( claim - rule, 200u );
 }
 
 int main( int argc, char** argv )

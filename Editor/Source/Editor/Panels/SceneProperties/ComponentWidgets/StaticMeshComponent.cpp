@@ -250,9 +250,11 @@ namespace Desert::Editor
         // row is ever drawn in — so the fallback underneath was unreachable code wearing a fallback's
         // clothes. Asking whether the preview has anything to SHOW is the question the row actually has.
         if ( m_Ctx && m_Ctx->Preview && m_Ctx->Preview->HasContent() &&
-             m_Ctx->DrawPreview( ImVec2( size, size ), static_cast<uint64_t>( staticMesh.MeshHandle ) ) )
+             m_Ctx->DrawPreview( ImVec2( size, size ), DetailsPreviewKind::StaticMesh,
+                                 static_cast<uint64_t>( staticMesh.MeshHandle ) ) )
         {
-            // Static (DrawPreview): one angle, and double-click opens the mesh — its tooltip says so.
+            // Interactive (DetailsPreviewInteraction): drag orbits, the wheel zooms without scrolling
+            // Details, double-click re-frames. Opening the mesh is the field's own Open button.
             ImGui::SameLine();
             return;
         }

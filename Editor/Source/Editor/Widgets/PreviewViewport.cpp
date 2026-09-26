@@ -7,6 +7,8 @@
 
 #include "UIHelper/ImGuiUI.hpp"
 
+#include <ImGui/imgui_internal.h>
+
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -977,6 +979,11 @@ namespace Desert::Editor
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight );
         const bool hovered = ImGui::IsItemHovered();
         const bool active  = ImGui::IsItemActive();
+        // Claimed on the item itself, right after it is submitted (SetItemUsingMouseWheel reads the LAST
+        // item): the window under the cursor then leaves the wheel alone instead of scrolling while the
+        // preview zooms. Only with content — an empty pane does not zoom, so it must not eat the scroll.
+        if ( m_HasContent && PreviewOwnsWheel( mode, m_Fill == Fill::SkyDome ) )
+            ImGui::SetItemUsingMouseWheel();
 
         ImDrawList*  dl = ImGui::GetWindowDrawList();
         const ImVec2 end( origin.x + drawSize.x, origin.y + drawSize.y );
