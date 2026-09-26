@@ -31,6 +31,10 @@ include "Tools/LineJump/"
 include "Tools/ImageDiff/"
 include "Tools/DesertCtl/"
 include "Tools/DomeSheet/"
+-- Above Desert/ deliberately: the crash reporter must NOT see the engine's `deps` table, because it
+-- must not link the engine at all (Tools/CrashReporter/premake5.lua says why). It needs only GLFW,
+-- which is a ThirdParty project already included above.
+include "Tools/CrashReporter/"
 group ""
 
 include "Desert/"
