@@ -926,3 +926,26 @@ TEST( WorldCells, ACookedWorldIsReadThroughAMountedPak )
     Common::Utils::VFS::Unmount();
     fs::remove_all( dir );
 }
+
+// JS1c-S6: the index and the cells are read by the facade's strict struct reader. A value of the wrong type is
+// refused with the member it sits in named, and a key this build does not know is refused rather than dropped.
+TEST( WorldCells, AWrongTypedOrUnknownIndexMemberIsRefusedByItsPath )
+{
+    const std::string text = Common::Json::Write( IndexOf( FilesOf( Cook( World() ) ) ) );
+    const std::size_t at   = text.find( "\"LevelCount\":" );
+    ASSERT_NE( at, std::string::npos ) << text;
+    const std::size_t end       = text.find( ',', at );
+    std::string       wrongType = text;
+    wrongType.replace( at, end - at, "\"LevelCount\":\"three\"" );
+    const auto wrong = Common::Json::Read<Cells::WorldIndex>( wrongType );
+    ASSERT_FALSE( wrong.IsSuccess() );
+    EXPECT_NE( wrong.GetError().find( "LevelCount" ), std::string::npos ) << wrong.GetError();
+
+    std::string unknown = text;
+    unknown.insert( 1, "\"RetiredMember\":1," );
+    const auto extra = Common::Json::Read<Cells::WorldIndex>( unknown );
+    ASSERT_FALSE( extra.IsSuccess() );
+    EXPECT_NE( extra.GetError().find( "RetiredMember" ), std::string::npos ) << extra.GetError();
+
+    EXPECT_TRUE( Common::Json::Read<Cells::WorldIndex>( text ).IsSuccess() );
+}

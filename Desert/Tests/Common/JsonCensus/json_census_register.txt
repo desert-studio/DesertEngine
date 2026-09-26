@@ -8,10 +8,7 @@ Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.hpp | JS1c: scene/compone
 Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/SceneSerializer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Core/WorldStreamer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Tests/Common/AssetEnvelope/text_header_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Common/AssetRedirector/asset_redirector_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Common/CanonicalText/canonical_text_test.cpp | KEEP: proves the canonical printer against yyjson directly
