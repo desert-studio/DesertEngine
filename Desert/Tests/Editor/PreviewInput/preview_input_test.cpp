@@ -2,6 +2,7 @@
 // never moves and double-click opens the asset. Asset windows are Interactive: drag orbits/pans/moves the
 // sun, the wheel zooms, double-click re-frames.
 #include <Editor/Widgets/PreviewInput.hpp>
+#include <Editor/Widgets/PreviewPaneLayout.hpp>
 
 #include <gtest/gtest.h>
 
@@ -187,4 +188,81 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── The asset document's preview pane (Editor/Widgets/PreviewPaneLayout.hpp) ─────────────────────────────
+//
+// The Material Editor's preview is a column that fills its half of the document; these pin the arithmetic
+// that decides the two columns and the size the picture renders at.
+namespace PaneLayout = Desert::Editor::PreviewPane;
+
+TEST( PreviewPaneLayout, DefaultSplitGivesThePreviewSixtyPercent )
+{
+    const auto split = PaneLayout::SplitWidth( 1000.0f, PaneLayout::kDefaultSplit );
+    EXPECT_FLOAT_EQ( split.Preview, 600.0f );
+    EXPECT_FLOAT_EQ( split.Details, 400.0f );
+}
+
+TEST( PreviewPaneLayout, NeitherColumnGoesUnderItsMinimumWhileBothFit )
+{
+    const auto allPreview = PaneLayout::SplitWidth( 1000.0f, 1.0f );
+    EXPECT_FLOAT_EQ( allPreview.Details, PaneLayout::kMinDetailsWidth );
+    EXPECT_FLOAT_EQ( allPreview.Preview, 1000.0f - PaneLayout::kMinDetailsWidth );
+
+    const auto noPreview = PaneLayout::SplitWidth( 1000.0f, 0.0f );
+    EXPECT_FLOAT_EQ( noPreview.Preview, PaneLayout::kMinPreviewWidth );
+    EXPECT_FLOAT_EQ( noPreview.Details, 1000.0f - PaneLayout::kMinPreviewWidth );
+}
+
+TEST( PreviewPaneLayout, ANarrowWindowSharesItsWidthAndCollapsesNeitherColumn )
+{
+    // Narrower than the two minimums together: both shrink, in their minimums' proportion, and both stay
+    // above zero — at any fraction the person left the divider at.
+    const float narrow = 200.0f;
+    for ( const float fraction : { 0.0f, 0.6f, 1.0f } )
+    {
+        const auto split = PaneLayout::SplitWidth( narrow, fraction );
+        EXPECT_GT( split.Preview, 0.0f );
+        EXPECT_GT( split.Details, 0.0f );
+        EXPECT_FLOAT_EQ( split.Preview + split.Details, narrow );
+        EXPECT_FLOAT_EQ( split.Preview / split.Details, PaneLayout::kMinPreviewWidth / PaneLayout::kMinDetailsWidth );
+    }
+    const auto none = PaneLayout::SplitWidth( 0.0f, 0.6f );
+    EXPECT_FLOAT_EQ( none.Preview, 0.0f );
+    EXPECT_FLOAT_EQ( none.Details, 0.0f );
+}
+
+TEST( PreviewPaneLayout, ADragStopsAtTheMinimumInsteadOfStoringTheOvershoot )
+{
+    // Dragged 2000 px right on a 1000 px document: the divider stands where the details minimum stops it,
+    // so a drag back moves it on the first pixel.
+    const float pinned = PaneLayout::DragSplit( 1000.0f, 0.6f, 2000.0f );
+    EXPECT_NEAR( pinned * 1000.0f, 1000.0f - PaneLayout::kMinDetailsWidth, 1e-3f );
+    const float back = PaneLayout::DragSplit( 1000.0f, pinned, -10.0f );
+    EXPECT_NEAR( back * 1000.0f, 1000.0f - PaneLayout::kMinDetailsWidth - 10.0f, 1e-3f );
+
+    EXPECT_NEAR( PaneLayout::DragSplit( 1000.0f, 0.6f, 50.0f ), 0.65f, 1e-5f );
+}
+
+TEST( PreviewPaneLayout, ThePictureRendersAtThePanesOwnPixels )
+{
+    // Not a fixed square: a wide pane renders wide, and the framebuffer scale is applied so one texel lands
+    // on one screen pixel.
+    const auto extent = PaneLayout::RenderExtent( 640.0f, 480.0f, 1.0f );
+    EXPECT_EQ( extent.Width, 640u );
+    EXPECT_EQ( extent.Height, 480u );
+
+    const auto retina = PaneLayout::RenderExtent( 640.0f, 480.0f, 2.0f );
+    EXPECT_EQ( retina.Width, 1280u );
+    EXPECT_EQ( retina.Height, 960u );
+}
+
+TEST( PreviewPaneLayout, AnUnusablePaneSizeIsTheZeroExtentSoTheResizeIsSkipped )
+{
+    for ( const auto& [w, h] : { std::pair{ 0.0f, 480.0f }, std::pair{ 640.0f, 0.5f }, std::pair{ -30.0f, 480.0f },
+                                 std::pair{ 1e9f, 480.0f } } )
+    {
+        const auto extent = PaneLayout::RenderExtent( w, h, 1.0f );
+        EXPECT_FALSE( Desert::Graphic::IsUsableViewExtent( extent ) ) << w << "x" << h;
+    }
 }

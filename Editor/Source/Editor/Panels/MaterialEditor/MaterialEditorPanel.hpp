@@ -4,6 +4,7 @@
 
 #include "MaterialEditStates.hpp"
 
+#include <Editor/Widgets/PreviewPaneLayout.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
@@ -110,6 +111,9 @@ namespace Desert::Editor
         }
 
         void SetPreviewViewpoint( const PreviewViewpoint& viewpoint ) override;
+
+        // The viewport toolbar as palette entries (preview shape, reset view).
+        [[nodiscard]] std::vector<DocumentAction> Actions() override;
 
         // ── The three states (ISubjectDocument) ───────────────────────────────────────────────────────
         //
@@ -320,7 +324,11 @@ namespace Desert::Editor
         // The pane when there is no image: the same rectangle as before, with the reason written inside
         // it. Inside, not underneath — the message has to be where the picture would have been, or it is
         // one more line in a column of labels.
-        void DrawPreviewPlaceholder( float side, const std::string& reason ) const;
+        void DrawPreviewPlaceholder( const ImVec2& size, const std::string& reason ) const;
+
+        // The toolbar ON the viewport (UE's pattern): preview shape, background and light, floor, reset view.
+        // Apply / Discard / Save stay with the details they act on (DrawToolbar).
+        void DrawViewportToolbar();
 
         // The subject's domain, or nullopt while its shader is not loaded. The panel's per-domain
         // decisions — which draw fills the pane (see OnPreUpdate), whether the Shape combo means
@@ -392,6 +400,10 @@ namespace Desert::Editor
         std::unique_ptr<UI::UIHelper>    m_UIHelper;
 
         PreviewViewport::Shape m_Shape = PreviewViewport::Shape::Sphere;
+
+        // The size the preview renders at: the viewport pane's, measured by OnUIRender and rendered by next
+        // frame's OnPreUpdate. Zero until the pane has been laid out at a usable size.
+        Graphic::ViewExtent m_PreviewExtent{};
 
         // An ARBITRARY MESH to show the material on instead of a primitive, and its filename for the row
         // that offers it. Null means "use the shape". PreviewViewport::SetMesh already framed a foreign

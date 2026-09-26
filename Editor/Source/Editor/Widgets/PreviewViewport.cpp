@@ -931,8 +931,13 @@ namespace Desert::Editor
         if ( width != m_Width || height != m_Height )
         {
             m_Scene->Resize( width, height );
-            m_Width  = width;
-            m_Height = height;
+            // WHAT THE VIEW NOW HOLDS, not what was asked for: a growth the view budget refuses leaves the
+            // targets at their old size (SceneRenderer::Resize), and a camera built for the asked-for aspect
+            // over those targets would draw the subject squashed. Asked again next frame, and refused again
+            // quietly, until the pane returns to a size that fits.
+            const Graphic::ViewExtent held = m_Renderer->GetViewExtent();
+            m_Width                        = held.Width;
+            m_Height                       = held.Height;
         }
 
         // The preview world, written onto the entities before the scene records. Unconditionally: see
@@ -949,7 +954,7 @@ namespace Desert::Editor
         quality.CloudQualityTier                  = Common::Settings::CloudQuality::Low;
         m_Renderer->SetQuality( quality );
 
-        ApplyCamera( width, height );
+        ApplyCamera( m_Width, m_Height );
 
         // Recorded into the editor's current frame command buffer, submitted when the frame ends. This is
         // why Update() must run from OnPreUpdate() and never from OnUIRender(). The scene opens and closes
