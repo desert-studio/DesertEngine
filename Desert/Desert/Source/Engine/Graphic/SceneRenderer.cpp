@@ -1281,7 +1281,14 @@ namespace Desert::Graphic
 
     void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
     {
-        if ( width == 0 && height == 0 )
+        // A SIZE THAT NO TARGET CAN BE BUILT AT IS SKIPPED, and `width == 0 && height == 0` was not that
+        // test. It let through exactly the sizes the UI actually produces: a collapsed dock panel is 0 on ONE
+        // side, and a panel dragged shut hands out a negative ImGui float that becomes ~4.29e9 on the cast to
+        // uint32_t. Both reached vmaCreateImage, which refuses a 0-pixel or 4-billion-pixel image with
+        // VK_ERROR_INITIALIZATION_FAILED -- and VK_CHECK_RESULT turns that refusal into a debugger break. The
+        // extent is NOT recorded either: committing an unusable extent would make the next Resize to the real
+        // size compare equal to it and return early, leaving the targets at whatever they were last built at.
+        if ( !IsUsableViewExtent( width, height ) )
             return;
         // Same size: nothing to rebuild. The thumbnail renderer resizes to the extent it was built at so
         // that its camera turns square, and a rebuild would idle the device for identical targets.

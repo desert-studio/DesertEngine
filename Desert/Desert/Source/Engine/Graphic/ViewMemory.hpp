@@ -69,6 +69,64 @@ namespace Desert::Graphic
         bool operator==( const ViewExtent& ) const = default;
     };
 
+    // The largest side a render target may be asked for. This bound is not about LARGE sizes -- it is about
+    // ABSURD ones, and they all arrive from the UI rather than from a programming error. ImGui hands out a
+    // NEGATIVE float size for a panel that is mid-collapse, and `(uint32_t)-1.0f` is 4294967295; that number
+    // reaches vmaCreateImage as an image extent, the allocation is refused with
+    // VK_ERROR_INITIALIZATION_FAILED, and VK_CHECK_RESULT turns the refusal into a debugger break. 16384 is
+    // what every desktop driver reports for maxImageDimension2D, so nothing legitimate is excluded.
+    inline constexpr uint32_t kMaxViewExtentSide = 16384;
+
+    /**
+     * @brief Whether a requested view size is one render targets can actually be built at.
+     *
+     * A ZERO OR ABSURD SIZE MEANS "SKIP THIS RESIZE", NOT "BUILD A TARGET THAT SIZE". Every such size comes
+     * from the window system or the UI, where it is a normal state and not a fault:
+     *
+     *   - a MINIMISED window reports 0x0 (GLFW's framebuffer size and the Vulkan surface extent both do);
+     *   - a COLLAPSED dock panel reports 0 on ONE side only, which is why "width == 0 && height == 0" was
+     *     the wrong test -- it let 0x720 and 1280x0 through;
+     *   - a panel being dragged shut reports a negative float, which becomes a huge uint32_t on the cast.
+     *
+     * All three used to reach the allocator, where a 0-pixel or 4-billion-pixel image is refused and the
+     * refusal breaks into the debugger. The size is the wrong thing to build from, so the caller skips it
+     * and keeps the targets it has until a usable size arrives.
+     */
+    [[nodiscard]] constexpr bool IsUsableViewExtent( const uint32_t width, const uint32_t height ) noexcept
+    {
+        return width != 0 && height != 0 && width <= kMaxViewExtentSide && height <= kMaxViewExtentSide;
+    }
+
+    [[nodiscard]] constexpr bool IsUsableViewExtent( const ViewExtent& extent ) noexcept
+    {
+        return IsUsableViewExtent( extent.Width, extent.Height );
+    }
+
+    // What a surface reports when it has no size of its own and the swapchain's extent is what decides
+    // (VkSurfaceCapabilitiesKHR::currentExtent, 0xFFFFFFFF on both sides).
+    inline constexpr uint32_t kSurfaceExtentUndefined = 0xFFFFFFFFu;
+
+    /**
+     * @brief The extent a swapchain must be built at, or an UNUSABLE extent when the surface has no drawable
+     * area and the rebuild has to be skipped.
+     *
+     * The surface decides, not the caller: this is why a resize to the window's last known size still ends up
+     * 0x0 on a minimised window. VulkanSwapChain::CreateSwapChain overwrites the requested size with
+     * `surfCaps.currentExtent` whenever the surface states one, so the ONLY question worth asking before a
+     * rebuild is what the surface says right now. Answering it here, as a rule over two extents, is what lets
+     * "minimised" be tested without a device.
+     *
+     * Returns the requested size only in the one case where the surface genuinely defers to it
+     * (currentExtent == 0xFFFFFFFF on both sides, which Wayland reports).
+     */
+    [[nodiscard]] constexpr ViewExtent ResolveSurfaceExtent( const ViewExtent& reported,
+                                                             const ViewExtent& requested ) noexcept
+    {
+        if ( reported.Width == kSurfaceExtentUndefined && reported.Height == kSurfaceExtentUndefined )
+            return requested;
+        return reported;
+    }
+
     // A view whose surface has no size yet: an editor viewport panel is sized by ImGui on its first frame,
     // after Scene::Init has built the renderer. Built at this and resized on that first frame, instead of
     // deferring the build: Init also rebinds the scene into the render graph over the systems the build
