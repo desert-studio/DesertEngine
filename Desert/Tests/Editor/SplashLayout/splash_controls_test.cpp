@@ -5,7 +5,10 @@
 
 #include <gtest/gtest.h>
 
+#include <fstream>
 #include <functional>
+#include <iterator>
+#include <string>
 #include <vector>
 
 using namespace Desert::Editor::Splash;
@@ -109,4 +112,33 @@ TEST( SplashControls, CloseAskedBetweenStagesStopsEveryLaterStage )
     EXPECT_EQ( NextStartupStep( false, 6, 6 ), StartupStep::Done );
     EXPECT_EQ( NextStartupStep( true, 6, 6 ), StartupStep::Quit ); // during the settle, too
     EXPECT_EQ( NextStartupStep( false, 0, 6 ), StartupStep::RunStage );
+}
+
+namespace
+{
+    std::string SplashSource( const std::string& relative )
+    {
+        std::string prefix = "./";
+        for ( int up = 0; up < 6; ++up, prefix += "../" )
+        {
+            std::ifstream in( prefix + "Editor/Source/Editor/Splash/" + relative, std::ios::binary );
+            if ( in )
+                return { std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
+        }
+        return {};
+    }
+} // namespace
+
+// SPL4: the splash comes to the front ONCE as it appears and then stacks like any window. A TOPMOST / floating
+// splash stayed above every other window the owner switched to while the editor loaded.
+TEST( SplashControls, TheSplashIsNotAlwaysOnTop )
+{
+    const std::string windows = SplashSource( "Windows/SplashScreenWindows.cpp" );
+    const std::string macos   = SplashSource( "MacOS/SplashScreenMacOS.mm" );
+    ASSERT_FALSE( windows.empty() );
+    ASSERT_FALSE( macos.empty() );
+    EXPECT_EQ( windows.find( "WS_EX_TOPMOST" ), std::string::npos );
+    EXPECT_EQ( windows.find( "HWND_TOPMOST" ), std::string::npos );
+    EXPECT_EQ( macos.find( "NSFloatingWindowLevel" ), std::string::npos );
+    EXPECT_NE( macos.find( "orderFrontRegardless" ), std::string::npos ) << "it must still come to the front once";
 }
