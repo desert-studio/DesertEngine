@@ -401,7 +401,7 @@ namespace Desert::Assets
 
     bool AsyncAssetLoader::DeliverCompleted( const AssetHandle& handle )
     {
-        State& state = *m_State;
+        State&                                      state = *m_State;
         std::vector<std::shared_ptr<State::Record>> completed;
         {
             const std::lock_guard<std::mutex> guard( state.Lock );
