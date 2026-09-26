@@ -565,23 +565,33 @@ namespace Desert::Graphic::API::Vulkan
             std::error_code ec;
             std::filesystem::create_directories( dir, ec );
             if ( ec )
+            {
                 LOG_ERROR( "[PipelineCache] cannot create '{}': {}; nothing is persisted this run", dir.string(),
                            ec.message() );
+            }
             else
+            {
                 m_PipelineCacheFile = dir / PipelineCacheFile::FileName( m_PipelineIdentity );
+            }
         }
         if ( !m_PipelineCacheFile.empty() )
         {
             std::error_code ec;
             if ( !std::filesystem::is_regular_file( m_PipelineCacheFile, ec ) )
+            {
                 LOG_INFO( "[PipelineCache] '{}': no file, created empty", m_PipelineCacheFile.string() );
+            }
             else if ( auto read = Common::Utils::FileSystem::ReadFileContent( m_PipelineCacheFile ); !read )
+            {
                 LOG_ERROR( "[PipelineCache] '{}' unreadable ({}); created empty", m_PipelineCacheFile.string(),
                            read.GetError() );
+            }
             else if ( auto decoded = PipelineCacheFile::Decode( m_PipelineIdentity, read.GetValue() );
                       !decoded.Blob )
+            {
                 LOG_WARN( "[PipelineCache] '{}' refused: {}; created empty", m_PipelineCacheFile.string(),
                           decoded.Refusal );
+            }
             else
             {
                 initial = std::move( *decoded.Blob );
