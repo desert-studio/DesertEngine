@@ -239,7 +239,7 @@ namespace Desert::Editor
         }
 
         // NOW the live one, if there is a live one with something in it. It is the better picture —
-        // orbitable, wearing this entity's own materials, and it follows a material edit while you drag the
+        // live, wearing this entity's own materials, and it follows a material edit while you drag the
         // slider — and it is safe because per-frame GPU state is stored per (frame x renderer slot)
         // (Docs/RENDERER_FRAME_STATE.md).
         //
@@ -250,9 +250,9 @@ namespace Desert::Editor
         // row is ever drawn in — so the fallback underneath was unreachable code wearing a fallback's
         // clothes. Asking whether the preview has anything to SHOW is the question the row actually has.
         if ( m_Ctx && m_Ctx->Preview && m_Ctx->Preview->HasContent() &&
-             m_Ctx->DrawPreview( ImVec2( size, size ) ) )
+             m_Ctx->DrawPreview( ImVec2( size, size ), static_cast<uint64_t>( staticMesh.MeshHandle ) ) )
         {
-            Utils::ImGuiUtilities::Tooltip( "Live preview — drag to orbit, wheel to zoom" );
+            // Static (DrawPreview): one angle, and double-click opens the mesh — its tooltip says so.
             ImGui::SameLine();
             return;
         }
