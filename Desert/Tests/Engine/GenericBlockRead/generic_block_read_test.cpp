@@ -45,11 +45,11 @@ namespace Assets = Desert::Assets;
 
 namespace
 {
-    rfl::Generic FromJsonText( const std::string& text )
+    Common::Json::Value FromJsonText( const std::string& text )
     {
-        auto parsed = rfl::json::read<rfl::Generic>( text );
-        EXPECT_TRUE( parsed.has_value() ) << "the test's own fixture is not valid JSON: " << text;
-        return parsed.has_value() ? parsed.value() : rfl::Generic( rfl::Generic::Object{} );
+        auto parsed = Common::Json::Parse( text );
+        EXPECT_TRUE( parsed.IsSuccess() ) << "the test's own fixture is not valid JSON: " << text;
+        return parsed.IsSuccess() ? parsed.GetValue() : Common::Json::Value( Common::Json::Object{} );
     }
 } // namespace
 

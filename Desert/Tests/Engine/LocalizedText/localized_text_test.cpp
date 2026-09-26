@@ -10,7 +10,7 @@
 // The rest of the suite is about the ways a table can be wrong, and every one of them is a refusal that
 // names the offending value rather than a default that hides it.
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include <Engine/Localization/LocalizationService.hpp>
@@ -26,11 +26,11 @@ using namespace Desert::Localization;
 // this build writes, so the tests below keep testing what they name rather than the header.
 static std::string Headed( const std::string& json )
 {
-    const std::string header = rfl::json::write(
+    const std::string header = Common::Json::Write(
          Desert::Assets::StampTextHeader( std::nullopt, Common::Content::ContentKind::StringTable,
                                           Desert::Localization::StringTableTextSubsystems() ) );
     const std::size_t brace = json.find( '{' );
-    return json.substr( 0, brace + 1 ) + "\"Header\":" + header + "," + json.substr( brace + 1 );
+    return json.substr( 0, brace + 1 ) + R"("Header":)" + header + "," + json.substr( brace + 1 );
 }
 
 namespace

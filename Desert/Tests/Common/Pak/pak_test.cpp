@@ -116,7 +116,7 @@ TEST( Pak, VfsMountResolvesAbsolutePathsAndFileSystemFallsBack )
     {
         Common::Utils::PakWriter writer( dir / "Content.dpak" );
         ASSERT_TRUE( writer.IsOpen() );
-        const std::string scene = "{\"scene\":true}";
+        const std::string scene = R"({"scene":true})";
         ASSERT_TRUE( writer.AddData( "Assets/Scenes/Main.desce", scene.data(), scene.size() ) );
         ASSERT_TRUE( writer.Finalize() > 0 );
     }
@@ -131,7 +131,7 @@ TEST( Pak, VfsMountResolvesAbsolutePathsAndFileSystemFallsBack )
     EXPECT_TRUE( Common::Utils::VFS::Exists( virtualPath ) );
     EXPECT_TRUE( Common::Utils::FileSystem::Exists( virtualPath ) );                 // VFS-aware
     DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( virtualPath ), // read via pak
-                             "{\"scene\":true}" );
+                             R"({"scene":true})" );
     EXPECT_EQ( Common::Utils::FileSystem::GetFileSize( virtualPath ), 14u );
 
     // Paths outside the mount root stay unresolved.
@@ -145,7 +145,7 @@ TEST( Pak, VfsMountResolvesAbsolutePathsAndFileSystemFallsBack )
     ASSERT_EQ( listed.size(), 1u );
     std::error_code cec;
     EXPECT_EQ( fs::weakly_canonical( listed[0], cec ), fs::weakly_canonical( virtualPath, cec ) );
-    DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( listed[0] ), "{\"scene\":true}" );
+    DESERT_EXPECT_RESULT_EQ( Common::Utils::FileSystem::ReadFileContent( listed[0] ), R"({"scene":true})" );
 
     // LOOSE FILE OVERRIDE: a real file with the same path wins over the pak entry.
     fs::create_directories( virtualPath.parent_path() );

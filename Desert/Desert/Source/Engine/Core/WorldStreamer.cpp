@@ -82,7 +82,7 @@ namespace Desert::Core
         if ( !parsed )
             return Common::MakeError<Result>( parsed.GetError() );
 
-        auto   snapshot = std::make_shared<const SceneSerialized>( parsed.ExtractValue() );
+        auto   snapshot = std::make_shared<const SceneSerialized>( std::move( parsed.ExtractValue().Scene ) );
         Result streamer( new WorldStreamer( scene, assets, snapshot->SceneName ) );
         auto   where = streamer->Source();
         if ( !where )

@@ -747,11 +747,11 @@ TEST( CloudMaterialSchema, TheSharedDefaultMaterialStatesNoOverridesAndSoCannotD
 
     // Membership by text, on the same terms TheProtocolScenesMaterialsStateEveryValueParameter uses for
     // the opposite claim (states every value): this file must state NONE.
-    EXPECT_NE( json.find( "\"Path\":\"engine:Shaders/Programs/Clouds/CloudRaymarch.shader\"" ), std::string::npos )
+    EXPECT_NE( json.find( R"("Path":"engine:Shaders/Programs/Clouds/CloudRaymarch.shader")" ), std::string::npos )
          << path << " does not name the Volume-domain cloud shader";
-    EXPECT_NE( json.find( "\"Params\":[]" ), std::string::npos )
+    EXPECT_NE( json.find( R"("Params":[])" ), std::string::npos )
          << path << " states a Param — it must defer to the schema's own default instead of copying it";
-    EXPECT_NE( json.find( "\"Textures\":[]" ), std::string::npos )
+    EXPECT_NE( json.find( R"("Textures":[])" ), std::string::npos )
          << path << " states a Texture — it must defer to the schema's own default instead of copying it";
 }
 

@@ -8374,7 +8374,8 @@ namespace Desert::Editor
                  Editor::ToastLevel::Error );
             return;
         }
-        if ( const auto loadable = Desert::Core::ParseLoadableScene( path.string(), content ); !loadable )
+        auto loadable = Desert::Core::ParseLoadableScene( path.string(), content );
+        if ( !loadable )
         {
             LOG_ERROR( "{0}", loadable.GetError() );
             Editor::ToastManager::Push( "Scene not loaded — see the log (it names the SceneMigrator command)",
@@ -8401,7 +8402,7 @@ namespace Desert::Editor
         // reported and NOT returned from on purpose: the scene is already cleared by this point, so the
         // rebuild below is what leaves the editor in a coherent (empty) state rather than one holding a
         // render registry for entities that no longer exist.
-        if ( const auto loaded = serializer.DeserializeFromJson( content, path.string() ); !loaded )
+        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path.string() ); !loaded )
         {
             LOG_ERROR( "{0}", loaded.GetError() );
             Editor::ToastManager::Push( "Scene failed to load — see the log", Editor::ToastLevel::Error );

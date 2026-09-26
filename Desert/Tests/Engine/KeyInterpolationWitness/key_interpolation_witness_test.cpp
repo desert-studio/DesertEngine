@@ -24,7 +24,6 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -60,9 +59,9 @@ namespace
         EXPECT_TRUE( in.good() ) << stem;
         std::ostringstream text;
         text << in.rdbuf();
-        auto data = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( text.str() );
-        EXPECT_TRUE( data.has_value() ) << stem;
-        return data.has_value() ? data.value() : Ser::AnimationAssetData{};
+        auto data = Common::Json::Read<Ser::AnimationAssetData>( text.str() );
+        EXPECT_TRUE( data.IsSuccess() ) << stem;
+        return data.IsSuccess() ? data.GetValue() : Ser::AnimationAssetData{};
     }
 
     Desert::Animation::AnimationClip Built( const char* stem )
