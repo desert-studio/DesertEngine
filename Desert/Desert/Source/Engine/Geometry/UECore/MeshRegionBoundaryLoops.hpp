@@ -18,60 +18,60 @@
 namespace Desert::Geometry
 {
     /** A closed loop of mesh vertices; Edges[i] joins Vertices[i] and Vertices[(i+1) % Num]. */
-    struct FEdgeLoop
+    struct EdgeLoop
     {
-        TArray<int> Vertices;
-        TArray<int> Edges;
-        TArray<int> BowtieVertices;
+        std::vector<int> Vertices;
+        std::vector<int> Edges;
+        std::vector<int> BowtieVertices;
 
-        void Initialize( const TArray<int>& VerticesIn, const TArray<int>& EdgesIn,
-                         const TArray<int>* BowtieVerticesIn = nullptr );
-        /** UE InitializeFromVertices with bAutoOrient = false (FMeshBoundaryLoops never orients). */
-        bool InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<int>& VerticesIn );
+        void Initialize( const std::vector<int>& VerticesIn, const std::vector<int>& EdgesIn,
+                         const std::vector<int>* BowtieVerticesIn = nullptr );
+        /** UE InitializeFromVertices with bAutoOrient = false (MeshBoundaryLoops never orients). */
+        bool InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
         /** UE EdgeLoop.cpp:21-38: Vertices[i] is the vertex Edges[i-1] and Edges[i] share. */
-        void InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int>& EdgesIn );
-        bool IsBoundaryLoop( const FDynamicMesh3& Mesh ) const;
-        int  GetVertexCount() const
+        void               InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
+        [[nodiscard]] bool IsBoundaryLoop( const DynamicMesh3& Mesh ) const;
+        [[nodiscard]] int  GetVertexCount() const
         {
-            return Vertices.Num();
+            return static_cast<int32_t>( Vertices.size() );
         }
-        int GetEdgeCount() const
+        [[nodiscard]] int GetEdgeCount() const
         {
-            return Edges.Num();
+            return static_cast<int32_t>( Edges.size() );
         }
     };
 
     /** An open span of mesh vertices; Edges[i] joins Vertices[i] and Vertices[i+1]. */
-    struct FEdgeSpan
+    struct EdgeSpan
     {
-        TArray<int> Vertices;
-        TArray<int> Edges;
-        TArray<int> BowtieVertices;
+        std::vector<int> Vertices;
+        std::vector<int> Edges;
+        std::vector<int> BowtieVertices;
 
-        void InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<int>& VerticesIn );
+        void InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
         /** For a closed loop of edges, Vertices ends with its first vertex repeated (as UE). */
-        void InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int>& EdgesIn );
+        void InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
     };
 
     /** Extracts the boundary loops of a triangle region, oriented with the region on the left. */
-    class FMeshRegionBoundaryLoops
+    class MeshRegionBoundaryLoops
     {
     public:
-        const FDynamicMesh3* Mesh = nullptr;
-        TArray<FEdgeLoop>    Loops;
-        bool                 bFailed = false;
+        const DynamicMesh3*   m_Mesh = nullptr;
+        std::vector<EdgeLoop> m_Loops;
+        bool                  m_bFailed = false;
         /** Why Compute failed, with the vertex/edge that stopped it. Empty on success. */
-        std::string FailureReason;
+        std::string m_FailureReason;
 
-        FMeshRegionBoundaryLoops( const FDynamicMesh3* MeshIn, const TArray<int>& RegionTris,
-                                  bool bAutoCompute = true );
+        MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, const std::vector<int>& RegionTris,
+                                 bool bAutoCompute = true );
 
         bool Compute();
 
         template <typename ElementType>
-        using ElementIDAndValue = TPair<int32_t, ElementType>;
+        using ElementIDAndValue = std::pair<int32_t, ElementType>;
         template <typename ElementType>
-        using VidOverlayMap = TMap<int32_t, ElementIDAndValue<ElementType>>;
+        using VidOverlayMap = std::unordered_map<int32_t, ElementIDAndValue<ElementType>>;
 
         /**
          * Maps each loop vertex to the overlay element (ID and value) it has in the region triangle whose edge
@@ -81,8 +81,8 @@ namespace Desert::Geometry
          * @return false if the loop edge is not on this region's boundary or the overlay has no element there.
          */
         template <typename StorageType, int ElementSize, typename ElementType>
-        bool GetLoopOverlayMap( const FEdgeLoop&                                     LoopIn,
-                                const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay,
+        bool GetLoopOverlayMap( const EdgeLoop&                                     LoopIn,
+                                const DynamicMeshOverlay<StorageType, ElementSize>& Overlay,
                                 VidOverlayMap<ElementType>& LoopVidsToOverlayElementsOut ) const;
 
         /**
@@ -91,19 +91,19 @@ namespace Desert::Geometry
          */
         template <typename StorageType, int ElementSize, typename ElementType>
         static void UpdateLoopOverlayMapValidity( VidOverlayMap<ElementType>& LoopVidsToOverlayElements,
-                                                  const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay );
+                                                  const DynamicMeshOverlay<StorageType, ElementSize>& Overlay );
 
     private:
-        TArray<bool> Triangles; // membership over [0, MaxTriangleID)
-        TArray<bool> Edges;     // region-boundary membership over [0, MaxEdgeID)
-        TArray<int>  EdgesRoi;
+        std::vector<bool> m_Triangles; // membership over [0, MaxTriangleID)
+        std::vector<bool> m_Edges;     // region-boundary membership over [0, MaxEdgeID)
+        std::vector<int>  m_EdgesRoi;
 
-        bool IsEdgeOnBoundary( int Eid ) const
+        [[nodiscard]] bool IsEdgeOnBoundary( int Eid ) const
         {
-            return Edges[Eid];
+            return m_Edges[Eid];
         }
         bool     IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const;
-        FIndex2i GetOrientedEdgeVerts( int Eid, int TidIn ) const;
+        [[nodiscard]] Index2i GetOrientedEdgeVerts( int Eid, int TidIn ) const;
         int      GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const;
     };
 } // namespace Desert::Geometry

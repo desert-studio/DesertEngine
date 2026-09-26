@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/VectorUtil.h:42-56,70-109,148-178,476-489,540-552,
-// 612-636, adapted: only the functions the FDynamicMesh3 port and MeshTangents call; namespace
+// 612-636, adapted: only the functions the DynamicMesh3 port and MeshTangents call; namespace
 // Desert::Geometry::VectorUtil.
 #pragma once
 
@@ -8,16 +8,15 @@
 namespace Desert::Geometry::VectorUtil
 {
     template <typename RealType>
-    inline bool IsFinite( const TVector2<RealType>& V )
+    inline bool IsFinite( const glm::vec<2, RealType>& V )
     {
-        return TMathUtil<RealType>::IsFinite( V.X ) && TMathUtil<RealType>::IsFinite( V.Y );
+        return std::isfinite( V.x ) && std::isfinite( V.y );
     }
 
     template <typename RealType>
-    inline bool IsFinite( const TVector<RealType>& V )
+    inline bool IsFinite( const glm::vec<3, RealType>& V )
     {
-        return TMathUtil<RealType>::IsFinite( V.X ) && TMathUtil<RealType>::IsFinite( V.Y ) &&
-               TMathUtil<RealType>::IsFinite( V.Z );
+        return std::isfinite( V.x ) && std::isfinite( V.y ) && std::isfinite( V.z );
     }
 
     template <typename RealType>
@@ -28,31 +27,32 @@ namespace Desert::Geometry::VectorUtil
 
     // UE's (V2-V0)x(V1-V0) order: the normal of a triangle wound clockwise when seen from its front.
     template <typename RealType>
-    inline TVector<RealType> Normal( const TVector<RealType>& V0, const TVector<RealType>& V1,
-                                     const TVector<RealType>& V2 )
+    inline glm::vec<3, RealType> Normal( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1,
+                                         const glm::vec<3, RealType>& V2 )
     {
-        TVector<RealType> edge1( V1 - V0 );
-        TVector<RealType> edge2( V2 - V0 );
-        TVector<RealType> vCross( edge2.Cross( edge1 ) );
+        const glm::vec<3, RealType> edge1( V1 - V0 );
+        const glm::vec<3, RealType> edge2( V2 - V0 );
+        const glm::vec<3, RealType> vCross( glm::cross( edge2, edge1 ) );
         return Normalized( vCross );
     }
 
     template <typename RealType>
-    inline RealType Area( const TVector<RealType>& V0, const TVector<RealType>& V1, const TVector<RealType>& V2 )
+    inline RealType Area( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1,
+                          const glm::vec<3, RealType>& V2 )
     {
-        TVector<RealType> Edge1( V1 - V0 );
-        TVector<RealType> Edge2( V2 - V0 );
-        TVector<RealType> Cross = Edge2.Cross( Edge1 );
-        return (RealType)0.5 * Cross.Length();
+        const glm::vec<3, RealType> Edge1( V1 - V0 );
+        const glm::vec<3, RealType> Edge2( V2 - V0 );
+        const glm::vec<3, RealType> Cross = glm::cross( Edge2, Edge1 );
+        return static_cast<RealType>( 0.5 ) * glm::length( Cross );
     }
 
     template <typename RealType>
-    inline TVector<RealType> NormalArea( const TVector<RealType>& V0, const TVector<RealType>& V1,
-                                         const TVector<RealType>& V2, RealType& AreaOut )
+    inline glm::vec<3, RealType> NormalArea( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1,
+                                             const glm::vec<3, RealType>& V2, RealType& AreaOut )
     {
-        TVector<RealType> edge1( V1 - V0 );
-        TVector<RealType> edge2( V2 - V0 );
-        TVector<RealType> vCross = edge2.Cross( edge1 );
+        const glm::vec<3, RealType> edge1( V1 - V0 );
+        const glm::vec<3, RealType> edge2( V2 - V0 );
+        glm::vec<3, RealType>       vCross = glm::cross( edge2, edge1 );
         AreaOut                  = RealType( 0.5 ) * Normalize( vCross );
         return vCross;
     }
@@ -60,66 +60,67 @@ namespace Desert::Geometry::VectorUtil
     template <typename RealType>
     inline bool EpsilonEqual( RealType A, RealType B, RealType Epsilon )
     {
-        return TMathUtil<RealType>::Abs( A - B ) <= Epsilon;
+        return std::abs( A - B ) <= Epsilon;
     }
 
     template <typename RealType>
-    inline bool EpsilonEqual( const TVector2<RealType>& V0, const TVector2<RealType>& V1, RealType Epsilon )
+    inline bool EpsilonEqual( const glm::vec<2, RealType>& V0, const glm::vec<2, RealType>& V1, RealType Epsilon )
     {
-        return EpsilonEqual( V0.X, V1.X, Epsilon ) && EpsilonEqual( V0.Y, V1.Y, Epsilon );
+        return EpsilonEqual( V0.x, V1.x, Epsilon ) && EpsilonEqual( V0.y, V1.y, Epsilon );
     }
 
     template <typename RealType>
-    inline bool EpsilonEqual( const TVector<RealType>& V0, const TVector<RealType>& V1, RealType Epsilon )
+    inline bool EpsilonEqual( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1, RealType Epsilon )
     {
-        return EpsilonEqual( V0.X, V1.X, Epsilon ) && EpsilonEqual( V0.Y, V1.Y, Epsilon ) &&
-               EpsilonEqual( V0.Z, V1.Z, Epsilon );
+        return EpsilonEqual( V0.x, V1.x, Epsilon ) && EpsilonEqual( V0.y, V1.y, Epsilon ) &&
+               EpsilonEqual( V0.z, V1.z, Epsilon );
     }
 
     template <typename RealType>
-    inline RealType TriSolidAngle( TVector<RealType> A, TVector<RealType> B, TVector<RealType> C,
-                                   const TVector<RealType>& P )
+    inline RealType TriSolidAngle( glm::vec<3, RealType> A, glm::vec<3, RealType> B, glm::vec<3, RealType> C,
+                                   const glm::vec<3, RealType>& P )
     {
         A -= P;
         B -= P;
         C -= P;
-        RealType la  = A.Length();
-        RealType lb  = B.Length();
-        RealType lc  = C.Length();
-        RealType top = ( la * lb * lc ) + A.Dot( B ) * lc + B.Dot( C ) * la + C.Dot( A ) * lb;
+        RealType la  = glm::length( A );
+        RealType lb  = glm::length( B );
+        RealType lc  = glm::length( C );
+        RealType top = ( la * lb * lc ) + glm::dot( A, B ) * lc + glm::dot( B, C ) * la + glm::dot( C, A ) * lb;
         RealType bottom =
-             A.X * ( B.Y * C.Z - C.Y * B.Z ) - A.Y * ( B.X * C.Z - C.X * B.Z ) + A.Z * ( B.X * C.Y - C.X * B.Y );
+             A.x * ( B.y * C.z - C.y * B.z ) - A.y * ( B.x * C.z - C.x * B.z ) + A.z * ( B.x * C.y - C.x * B.y );
         return RealType( -2.0 ) * std::atan2( bottom, top );
     }
 
     template <typename RealType>
-    inline TVector<RealType> TriangleInternalAngles( const TVector<RealType> A, const TVector<RealType> B,
-                                                     const TVector<RealType>& C )
+    inline glm::vec<3, RealType> TriangleInternalAngles( const glm::vec<3, RealType>  A,
+                                                         const glm::vec<3, RealType>  B,
+                                                         const glm::vec<3, RealType>& C )
     {
-        const TVector<RealType> ABhat = Normalized( B - A );
-        const TVector<RealType> BChat = Normalized( C - B );
-        const TVector<RealType> AChat = Normalized( C - A );
-        return TVector<RealType>( AngleR( ABhat, AChat ), AngleR( -ABhat, BChat ), AngleR( AChat, BChat ) );
+        const glm::vec<3, RealType> ABhat = Normalized( B - A );
+        const glm::vec<3, RealType> BChat = Normalized( C - B );
+        const glm::vec<3, RealType> AChat = Normalized( C - A );
+        return glm::vec<3, RealType>( AngleR( ABhat, AChat ), AngleR( -ABhat, BChat ), AngleR( AChat, BChat ) );
     }
     // Sign of Bitangent relative to Normal and Tangent (UE follows RenderUtils.h::GetBasisDeterminantSign()).
     template <typename RealType>
-    inline RealType BitangentSign( const TVector<RealType>& NormalIn, const TVector<RealType>& TangentIn,
-                                   const TVector<RealType>& BitangentIn )
+    inline RealType BitangentSign( const glm::vec<3, RealType>& NormalIn, const glm::vec<3, RealType>& TangentIn,
+                                   const glm::vec<3, RealType>& BitangentIn )
     {
-        RealType Cross00     = BitangentIn.Y * NormalIn.Z - BitangentIn.Z * NormalIn.Y;
-        RealType Cross10     = BitangentIn.Z * NormalIn.X - BitangentIn.X * NormalIn.Z;
-        RealType Cross20     = BitangentIn.X * NormalIn.Y - BitangentIn.Y * NormalIn.X;
-        RealType Determinant = TangentIn.X * Cross00 + TangentIn.Y * Cross10 + TangentIn.Z * Cross20;
+        RealType Cross00     = BitangentIn.y * NormalIn.z - BitangentIn.z * NormalIn.y;
+        RealType Cross10     = BitangentIn.z * NormalIn.x - BitangentIn.x * NormalIn.z;
+        RealType Cross20     = BitangentIn.x * NormalIn.y - BitangentIn.y * NormalIn.x;
+        RealType Determinant = TangentIn.x * Cross00 + TangentIn.y * Cross10 + TangentIn.z * Cross20;
         return ( Determinant < 0 ) ? (RealType)-1 : (RealType)1;
     }
 
     // Bitangent from Normal, Tangent and a +1/-1 sign.
     template <typename RealType>
-    inline TVector<RealType> Bitangent( const TVector<RealType>& NormalIn, const TVector<RealType>& TangentIn,
-                                        RealType BitangentSign )
+    inline glm::vec<3, RealType> Bitangent( const glm::vec<3, RealType>& NormalIn,
+                                            const glm::vec<3, RealType>& TangentIn, RealType BitangentSign )
     {
-        return BitangentSign * TVector<RealType>( NormalIn.Y * TangentIn.Z - NormalIn.Z * TangentIn.Y,
-                                                  NormalIn.Z * TangentIn.X - NormalIn.X * TangentIn.Z,
-                                                  NormalIn.X * TangentIn.Y - NormalIn.Y * TangentIn.X );
+        return BitangentSign * glm::vec<3, RealType>( NormalIn.y * TangentIn.z - NormalIn.z * TangentIn.y,
+                                                      NormalIn.z * TangentIn.x - NormalIn.x * TangentIn.z,
+                                                      NormalIn.x * TangentIn.y - NormalIn.y * TangentIn.x );
     }
 } // namespace Desert::Geometry::VectorUtil

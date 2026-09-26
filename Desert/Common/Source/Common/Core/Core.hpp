@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <source_location>
 #include <type_traits>
 #include <utility>
 #include "Logger.hpp"
@@ -115,6 +116,22 @@ namespace Common::Detail
         Common::Logger::LogWarn( "Verify failed: {} at {}:{}", #cond, __FILE__, __LINE__ );                       \
         Common::Detail::WarnVerifyMessage( __VA_ARGS__ );                                                         \
     }
+
+namespace Common
+{
+    // The expression form of DESERT_VERIFY_WARN, for a check that guards a recovery branch
+    // (`if ( !Common::EnsureOrWarn( ok, "..." ) ) return Failed;`): logs a warning naming the caller
+    // when `ok` is false and returns `ok` unchanged. It never aborts -- the caller's branch is the recovery.
+    [[nodiscard]] inline bool EnsureOrWarn( const bool ok, const char* what,
+                                            const std::source_location where = std::source_location::current() )
+    {
+        if ( !ok )
+        {
+            Common::Logger::LogWarn( "Verify failed: {} at {}:{}", what, where.file_name(), where.line() );
+        }
+        return ok;
+    }
+} // namespace Common
 
 // #define MAKE_SHARED_OBJECT( type, value ) Memory::Shared<type>::Create( value );
 

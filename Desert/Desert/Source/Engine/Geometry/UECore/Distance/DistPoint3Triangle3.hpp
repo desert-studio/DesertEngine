@@ -12,19 +12,19 @@ namespace Desert::Geometry
      * Compute unsigned distance between 3D Point and 3D Triangle
      */
     template <typename Real>
-    class TDistPoint3Triangle3
+    class DistPoint3Triangle3
     {
     public:
         // Input
-        TVector<Real>    Point;
-        TTriangle3<Real> Triangle;
+        glm::vec<3, Real> m_Point{};
+        Triangle3<Real>   m_Triangle;
 
         // Results
-        TVector<Real> TriangleBaryCoords;
-        TVector<Real> ClosestTrianglePoint;
+        glm::vec<3, Real> m_TriangleBaryCoords{};
+        glm::vec<3, Real> m_ClosestTrianglePoint{};
 
-        TDistPoint3Triangle3( const TVector<Real>& PointIn, const TTriangle3<Real>& TriangleIn )
-             : Point( PointIn ), Triangle( TriangleIn )
+        DistPoint3Triangle3( const glm::vec<3, Real>& PointIn, const Triangle3<Real>& TriangleIn )
+             : m_Point( PointIn ), m_Triangle( TriangleIn )
         {
         }
 
@@ -35,22 +35,22 @@ namespace Desert::Geometry
 
         Real ComputeResult()
         {
-            const TVector<Real> diff  = Point - Triangle.V[0];
-            const TVector<Real> edge0 = Triangle.V[1] - Triangle.V[0];
-            const TVector<Real> edge1 = Triangle.V[2] - Triangle.V[0];
-            const Real          a00   = edge0.SquaredLength();
-            const Real          a01   = edge0.Dot( edge1 );
-            const Real          a11   = edge1.SquaredLength();
-            const Real          b0    = -diff.Dot( edge0 );
-            const Real          b1    = -diff.Dot( edge1 );
+            const glm::vec<3, Real> diff  = m_Point - m_Triangle.V[0];
+            const glm::vec<3, Real> edge0 = m_Triangle.V[1] - m_Triangle.V[0];
+            const glm::vec<3, Real> edge1 = m_Triangle.V[2] - m_Triangle.V[0];
+            const Real              a00   = glm::length2( edge0 );
+            const Real              a01   = glm::dot( edge0, edge1 );
+            const Real              a11   = glm::length2( edge1 );
+            const Real              b0    = -glm::dot( diff, edge0 );
+            const Real              b1    = -glm::dot( diff, edge1 );
 
             const Real f00 = b0;
             const Real f10 = b0 + a00;
             const Real f01 = b0 + a01;
 
-            TVector2<Real> p0;
-            TVector2<Real> p1;
-            TVector2<Real> p;
+            glm::vec<2, Real> p0{};
+            glm::vec<2, Real> p1{};
+            glm::vec<2, Real> p{};
             Real           dt1;
             Real           h0;
             Real           h1;
@@ -181,13 +181,13 @@ namespace Desert::Geometry
                 }
             }
 
-            TriangleBaryCoords   = TVector<Real>( static_cast<Real>( 1 ) - p[0] - p[1], p[0], p[1] );
-            ClosestTrianglePoint = Triangle.V[0] + p[0] * edge0 + p[1] * edge1;
-            return DistanceSquared( Point, ClosestTrianglePoint );
+            m_TriangleBaryCoords   = glm::vec<3, Real>( static_cast<Real>( 1 ) - p[0] - p[1], p[0], p[1] );
+            m_ClosestTrianglePoint = m_Triangle.V[0] + p[0] * edge0 + p[1] * edge1;
+            return DistanceSquared( m_Point, m_ClosestTrianglePoint );
         }
 
     private:
-        void GetMinEdge02( Real const& a11, Real const& b1, TVector2<Real>& p ) const
+        void GetMinEdge02( Real const& a11, Real const& b1, glm::vec<2, Real>& p ) const
         {
             p[0] = static_cast<Real>( 0 );
             if ( b1 >= static_cast<Real>( 0 ) )
@@ -205,7 +205,7 @@ namespace Desert::Geometry
         }
 
         void GetMinEdge12( Real const& a01, Real const& a11, Real const& b1, Real const& f10, Real const& f01,
-                           TVector2<Real>& p ) const
+                           glm::vec<2, Real>& p ) const
         {
             const Real h0 = a01 + b1 - f10;
             if ( h0 >= static_cast<Real>( 0 ) )
@@ -227,14 +227,14 @@ namespace Desert::Geometry
             p[0] = static_cast<Real>( 1 ) - p[1];
         }
 
-        void GetMinInterior( TVector2<Real> const& p0, Real const& h0, TVector2<Real> const& p1, Real const& h1,
-                             TVector2<Real>& p ) const
+        void GetMinInterior( glm::vec<2, Real> const& p0, Real const& h0, glm::vec<2, Real> const& p1,
+                             Real const& h1, glm::vec<2, Real>& p ) const
         {
             const Real z = h0 / ( h0 - h1 );
             p            = ( static_cast<Real>( 1 ) - z ) * p0 + z * p1;
         }
     };
 
-    using FDistPoint3Triangle3f = TDistPoint3Triangle3<float>;
-    using FDistPoint3Triangle3d = TDistPoint3Triangle3<double>;
+    using DistPoint3Triangle3f = DistPoint3Triangle3<float>;
+    using DistPoint3Triangle3d = DistPoint3Triangle3<double>;
 } // namespace Desert::Geometry

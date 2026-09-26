@@ -13,10 +13,10 @@ namespace Desert::Geometry
      * Stores index remapping for vertices and triangles.
      * Should only be used for compacting, and should maintain invariant that *Map[Idx] <= Idx for all maps
      */
-    class FCompactMaps
+    class DynamicMeshCompactMaps
     {
-        TArray<int32_t> VertMap;
-        TArray<int32_t> TriMap;
+        std::vector<int32_t> m_VertMap;
+        std::vector<int32_t> m_TriMap;
 
     public:
         constexpr static int32_t InvalidID = IndexConstants::InvalidID;
@@ -40,10 +40,10 @@ namespace Desert::Geometry
          */
         void SetIdentityVertexMap( int32_t NumVertMappings )
         {
-            VertMap.SetNumUninitialized( NumVertMappings );
+            m_VertMap.resize( NumVertMappings );
             for ( int32_t i = 0; i < NumVertMappings; ++i )
             {
-                VertMap[i] = i;
+                m_VertMap[i] = i;
             }
         }
 
@@ -54,10 +54,10 @@ namespace Desert::Geometry
          */
         void SetIdentityTriangleMap( int32_t NumTriMappings )
         {
-            TriMap.SetNumUninitialized( NumTriMappings );
+            m_TriMap.resize( NumTriMappings );
             for ( int32_t i = 0; i < NumTriMappings; ++i )
             {
-                TriMap[i] = i;
+                m_TriMap[i] = i;
             }
         }
 
@@ -80,12 +80,12 @@ namespace Desert::Geometry
          */
         void ResetVertexMap( int32_t NumVertMappings, bool bInitializeWithInvalidID )
         {
-            VertMap.SetNumUninitialized( NumVertMappings );
+            m_VertMap.resize( NumVertMappings );
             if ( bInitializeWithInvalidID )
             {
                 for ( int32_t i = 0; i < NumVertMappings; i++ )
                 {
-                    VertMap[i] = InvalidID;
+                    m_VertMap[i] = InvalidID;
                 }
             }
         }
@@ -97,12 +97,12 @@ namespace Desert::Geometry
          */
         void ResetTriangleMap( int32_t NumTriMappings, bool bInitializeWithInvalidID )
         {
-            TriMap.SetNumUninitialized( NumTriMappings );
+            m_TriMap.resize( NumTriMappings );
             if ( bInitializeWithInvalidID )
             {
                 for ( int32_t i = 0; i < NumTriMappings; ++i )
                 {
-                    TriMap[i] = InvalidID;
+                    m_TriMap[i] = InvalidID;
                 }
             }
         }
@@ -110,79 +110,79 @@ namespace Desert::Geometry
         /** Reset all maps, leaving them empty */
         void Reset()
         {
-            VertMap.Reset();
-            TriMap.Reset();
+            m_VertMap.clear();
+            m_TriMap.clear();
         }
 
         /** Returns true if there are vertex mappings. */
-        bool VertexMapIsSet() const
+        [[nodiscard]] bool VertexMapIsSet() const
         {
-            return !VertMap.IsEmpty();
+            return !m_VertMap.empty();
         }
 
         /** Returns true if there are triangle mappings. */
-        bool TriangleMapIsSet() const
+        [[nodiscard]] bool TriangleMapIsSet() const
         {
-            return !TriMap.IsEmpty();
+            return !m_TriMap.empty();
         }
 
         /** Get number of vertex mappings */
         [[nodiscard]] int32_t NumVertexMappings() const
         {
-            return VertMap.Num();
+            return static_cast<int32_t>( m_VertMap.size() );
         }
 
         /** Get number of triangle mappings */
         [[nodiscard]] int32_t NumTriangleMappings() const
         {
-            return TriMap.Num();
+            return static_cast<int32_t>( m_TriMap.size() );
         }
 
         /** Set mapping for a vertex */
         void SetVertexMapping( int32_t FromID, int32_t ToID )
         {
-            UE_CHECK_SLOW( FromID >= ToID );
-            VertMap[FromID] = ToID;
+            assert( FromID >= ToID );
+            m_VertMap[FromID] = ToID;
         }
 
         /** Set mapping for a triangle */
         void SetTriangleMapping( int32_t FromID, int32_t ToID )
         {
-            UE_CHECK_SLOW( FromID >= ToID );
-            TriMap[FromID] = ToID;
+            assert( FromID >= ToID );
+            m_TriMap[FromID] = ToID;
         }
 
         /** Get mapping for a vertex */
         [[nodiscard]] int32_t GetVertexMapping( int32_t FromID ) const
         {
-            return VertMap[FromID];
+            return m_VertMap[FromID];
         }
 
         /** Get mapping for three vertices, e.g. a triangle */
-        FIndex3i GetVertexMapping( FIndex3i FromIDs ) const
+        [[nodiscard]] Index3i GetVertexMapping( Index3i FromIDs ) const
         {
-            return { VertMap[FromIDs[0]], VertMap[FromIDs[1]], VertMap[FromIDs[2]] };
+            return { m_VertMap[FromIDs[0]], m_VertMap[FromIDs[1]], m_VertMap[FromIDs[2]] };
         }
 
         /** Get mapping for a triangle */
         [[nodiscard]] int32_t GetTriangleMapping( int32_t FromID ) const
         {
-            return TriMap[FromID];
+            return m_TriMap[FromID];
         }
 
         /** Check data for validity; for testing */
-        bool Validate() const
+        [[nodiscard]] bool Validate() const
         {
-            for ( int32_t Idx = 0; Idx < VertMap.Num(); Idx++ )
+            for ( int32_t Idx = 0; Idx < static_cast<int32_t>( m_VertMap.size() ); Idx++ )
             {
-                if ( VertMap[Idx] > Idx )
+                if ( m_VertMap[Idx] > Idx )
                 {
                     return false;
                 }
             }
-            for ( int32_t Idx = 0; Idx < TriMap.Num(); Idx++ )
+            for ( int32_t Idx = 0; Idx < static_cast<int32_t>( m_TriMap.size() ); Idx++ )
             {
-                if ( TriMap[Idx] > Idx )
+                if ( m_TriMap[Idx] > Idx )
                 {
                     return false;
                 }

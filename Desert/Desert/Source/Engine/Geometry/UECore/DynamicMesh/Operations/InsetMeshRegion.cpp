@@ -13,167 +13,174 @@
 
 namespace Desert::Geometry
 {
-    bool FInsetMeshRegion::Apply()
+    bool InsetMeshRegion::Apply()
     {
-        TArray<TArray<int32_t>> Components;
-        FindConnectedTriangleComponents( *Mesh, Triangles, Components );
+        std::vector<std::vector<int32_t>> Components;
+        FindConnectedTriangleComponents( *m_Mesh, m_Triangles, Components );
         bool bAllOK = true;
-        InsetRegions.SetNum( Components.Num() );
-        for ( int32_t k = 0; k < Components.Num(); ++k )
+        m_InsetRegions.resize( static_cast<int32_t>( Components.size() ) );
+        for ( int32_t k = 0; k < static_cast<int32_t>( Components.size() ); ++k )
         {
-            FInsetInfo& Region      = InsetRegions[k];
+            InsetInfo& Region       = m_InsetRegions[k];
             Region.InitialTriangles = Components[k];
             if ( !ApplyInset( Region ) )
             {
-                FailureReason = fmt::format( "region {} of {}: {}", k, Components.Num(), FailureReason );
+                m_FailureReason = fmt::format( "region {} of {}: {}", k, static_cast<int32_t>( Components.size() ),
+                                               m_FailureReason );
                 bAllOK        = false;
                 continue;
             }
-            AllModifiedTriangles.Append( Region.InitialTriangles );
-            for ( const TArray<int32_t>& RegionTris : Region.StitchTriangles )
-                AllModifiedTriangles.Append( RegionTris );
+            m_AllModifiedTriangles.insert( m_AllModifiedTriangles.end(), Region.InitialTriangles.begin(),
+                                           Region.InitialTriangles.end() );
+            for ( const std::vector<int32_t>& RegionTris : Region.StitchTriangles )
+                m_AllModifiedTriangles.insert( m_AllModifiedTriangles.end(), RegionTris.begin(),
+                                               RegionTris.end() );
         }
         return bAllOK;
     }
 
-    bool FInsetMeshRegion::ApplyInset( FInsetInfo& Region )
+    bool InsetMeshRegion::ApplyInset( InsetInfo& Region )
     {
         // UE solves interior vertices with a Laplacian deformer; that solver is not ported, so such a region is
         // refused here, before the mesh is touched.
         {
-            FMeshRegionBoundaryLoops Loops( Mesh, Region.InitialTriangles, false );
+            MeshRegionBoundaryLoops Loops( m_Mesh, Region.InitialTriangles, false );
             if ( !Loops.Compute() )
             {
-                FailureReason = Loops.FailureReason;
+                m_FailureReason = Loops.m_FailureReason;
                 return false;
             }
-            TSet<int32_t> LoopVertices;
-            for ( const FEdgeLoop& Loop : Loops.Loops )
+            std::unordered_set<int32_t> LoopVertices;
+            for ( const EdgeLoop& Loop : Loops.m_Loops )
                 for ( int32_t const v : Loop.Vertices )
-                    LoopVertices.Add( v );
+                    LoopVertices.insert( v );
             for ( int32_t const tid : Region.InitialTriangles )
             {
-                const FIndex3i Tri = Mesh->GetTriangle( tid );
+                const Index3i Tri = m_Mesh->GetTriangle( tid );
                 for ( int j = 0; j < 3; ++j )
-                    if ( !LoopVertices.Contains( Tri[j] ) )
+                    if ( !LoopVertices.contains( Tri[j] ) )
                     {
-                        FailureReason =
+                        m_FailureReason =
                              fmt::format( "vertex {} is inside the region ({} triangles): an inset of a "
                                           "region with interior vertices needs UE's interior solve, "
                                           "which is not ported",
-                                          Tri[j], Region.InitialTriangles.Num() );
+                                          Tri[j], static_cast<int32_t>( Region.InitialTriangles.size() ) );
                         return false;
                     }
             }
         }
 
-        FDynamicMeshEditor                       Editor( Mesh );
-        TArray<FDynamicMeshEditor::FLoopPairSet> LoopPairs;
-        if ( !Editor.DisconnectTriangles( Region.InitialTriangles, LoopPairs, true, FailureReason ) )
+        DynamicMeshEditor                           Editor( m_Mesh );
+        std::vector<DynamicMeshEditor::LoopPairSet> LoopPairs;
+        if ( !Editor.DisconnectTriangles( Region.InitialTriangles, LoopPairs, true, m_FailureReason ) )
             return false;
 
-        TArray<TArray<FTriVidPair>> InsetStitchSides;
-        InsetStitchSides.SetNum( LoopPairs.Num() );
-        for ( int32_t i = 0; i < LoopPairs.Num(); ++i )
-            FDynamicMeshEditor::ConvertLoopToTriVidPairSequence( *Mesh, LoopPairs[i].InnerVertices,
-                                                                 LoopPairs[i].InnerEdges, InsetStitchSides[i] );
+        std::vector<std::vector<TriVidPair>> InsetStitchSides;
+        InsetStitchSides.resize( static_cast<int32_t>( LoopPairs.size() ) );
+        for ( int32_t i = 0; i < static_cast<int32_t>( LoopPairs.size() ); ++i )
+            DynamicMeshEditor::ConvertLoopToTriVidPairSequence( *m_Mesh, LoopPairs[i].InnerVertices,
+                                                                LoopPairs[i].InnerEdges, InsetStitchSides[i] );
 
-        Region.InsetLoops.Reset();
-        for ( const FDynamicMeshEditor::FLoopPairSet& LoopPair : LoopPairs )
+        Region.InsetLoops.clear();
+        for ( const DynamicMeshEditor::LoopPairSet& LoopPair : LoopPairs )
         {
-            const TArray<int32_t>& LoopVids = LoopPair.InnerVertices;
-            TArray<FLine3d>      InsetLines;
-            ComputeInsetLineSegmentsFromEdges( *Mesh, LoopPair.InnerEdges, InsetDistance, InsetLines );
-            TArray<FVector3d> NewPositions;
-            SolveInsetVertexPositionsFromInsetLines( *Mesh, InsetLines, LoopVids, NewPositions, true );
-            const int32_t N = LoopVids.Num();
+            const std::vector<int32_t>& LoopVids = LoopPair.InnerVertices;
+            std::vector<Line3d>         InsetLines;
+            ComputeInsetLineSegmentsFromEdges( *m_Mesh, LoopPair.InnerEdges, m_InsetDistance, InsetLines );
+            std::vector<glm::dvec3> NewPositions;
+            SolveInsetVertexPositionsFromInsetLines( *m_Mesh, InsetLines, LoopVids, NewPositions, true );
+            const auto N = static_cast<int32_t>( LoopVids.size() );
             for ( int32_t k = 0; k < N; ++k )
-                Mesh->SetVertex( LoopVids[k], NewPositions[k] );
-            Region.InsetLoops.Emplace();
-            Region.InsetLoops.Last().Vertices = LoopVids;
-            Region.InsetLoops.Last().Edges    = LoopPair.InnerEdges;
+                m_Mesh->SetVertex( LoopVids[k], NewPositions[k] );
+            Region.InsetLoops.emplace_back();
+            Region.InsetLoops.back().Vertices = LoopVids;
+            Region.InsetLoops.back().Edges    = LoopPair.InnerEdges;
         }
 
-        const int32_t NumInitialLoops = LoopPairs.Num();
-        Region.BaseLoops.SetNum( NumInitialLoops );
-        Region.StitchTriangles.SetNum( NumInitialLoops );
-        Region.StitchPolygonIDs.SetNum( NumInitialLoops );
-        TArray<TArray<FIndex2i>> QuadStrips;
+        const auto NumInitialLoops = static_cast<int32_t>( LoopPairs.size() );
+        Region.BaseLoops.resize( NumInitialLoops );
+        Region.StitchTriangles.resize( NumInitialLoops );
+        Region.StitchPolygonIDs.resize( NumInitialLoops );
+        std::vector<std::vector<Index2i>> QuadStrips;
         for ( int32_t LoopIndex = 0; LoopIndex < NumInitialLoops; ++LoopIndex )
         {
-            const FDynamicMeshEditor::FLoopPairSet& LoopPair  = LoopPairs[LoopIndex];
-            const TArray<int32_t>&                  BaseLoopV = LoopPair.OuterVertices;
-            const int32_t                           NumLoopV  = BaseLoopV.Num();
-            TArray<int32_t>                         NewGroupIDs;
-            TArray<int32_t>                         EdgeGroups;
-            TMap<int64_t, int32_t>                  NewGroupsMap; // (min, max) group pair packed
+            const DynamicMeshEditor::LoopPairSet& LoopPair  = LoopPairs[LoopIndex];
+            const std::vector<int32_t>&           BaseLoopV = LoopPair.OuterVertices;
+            const auto                            NumLoopV  = static_cast<int32_t>( BaseLoopV.size() );
+            std::vector<int32_t>                  NewGroupIDs;
+            std::vector<int32_t>                  EdgeGroups;
+            std::unordered_map<int64_t, int32_t>  NewGroupsMap; // (min, max) group pair packed
             for ( int32_t k = 0; k < NumLoopV; ++k )
             {
-                int32_t const InsetGroupID = Mesh->GetTriangleGroup( InsetStitchSides[LoopIndex][k].first );
-                int32_t const BaseEdgeID   = Mesh->FindEdge( BaseLoopV[k], BaseLoopV[( k + 1 ) % NumLoopV] );
-                int32_t const BaseGroupID =
-                     ( BaseEdgeID >= 0 ) ? Mesh->GetTriangleGroup( Mesh->GetEdgeT( BaseEdgeID ).A ) : InsetGroupID;
-                const int64_t GroupPair = ( int64_t( std::min( BaseGroupID, InsetGroupID ) ) << 32 ) |
-                                          uint32_t( std::max( BaseGroupID, InsetGroupID ) );
-                if ( !NewGroupsMap.Contains( GroupPair ) )
+                int32_t const InsetGroupID = m_Mesh->GetTriangleGroup( InsetStitchSides[LoopIndex][k].first );
+                int32_t const BaseEdgeID   = m_Mesh->FindEdge( BaseLoopV[k], BaseLoopV[( k + 1 ) % NumLoopV] );
+                int32_t const BaseGroupID  = ( BaseEdgeID >= 0 )
+                                                  ? m_Mesh->GetTriangleGroup( m_Mesh->GetEdgeT( BaseEdgeID ).A )
+                                                  : InsetGroupID;
+                const int64_t GroupPair = ( static_cast<int64_t>( std::min( BaseGroupID, InsetGroupID ) ) << 32 ) |
+                                          static_cast<uint32_t>( std::max( BaseGroupID, InsetGroupID ) );
+                if ( !NewGroupsMap.contains( GroupPair ) )
                 {
-                    int32_t const NewGroupID = Mesh->AllocateTriangleGroup();
-                    NewGroupIDs.Add( NewGroupID );
-                    NewGroupsMap.Add( GroupPair, NewGroupID );
+                    int32_t const NewGroupID = m_Mesh->AllocateTriangleGroup();
+                    NewGroupIDs.push_back( NewGroupID );
+                    NewGroupsMap.insert_or_assign( GroupPair, NewGroupID );
                 }
-                EdgeGroups.Add( NewGroupsMap[GroupPair] );
+                EdgeGroups.push_back( NewGroupsMap[GroupPair] );
             }
-            FDynamicMeshEditResult StitchResult;
+            DynamicMeshEditResult StitchResult;
             if ( !Editor.StitchVertexLoopToTriVidPairSequence( InsetStitchSides[LoopIndex], BaseLoopV,
                                                                StitchResult ) )
             {
-                FailureReason = fmt::format( "loop {} ({} vertices) could not be stitched", LoopIndex, NumLoopV );
+                m_FailureReason =
+                     fmt::format( "loop {} ({} vertices) could not be stitched", LoopIndex, NumLoopV );
                 return false;
             }
-            for ( int32_t k = 0; k < StitchResult.NewQuads.Num(); k++ )
+            for ( int32_t k = 0; k < static_cast<int32_t>( StitchResult.NewQuads.size() ); k++ )
             {
-                Mesh->SetTriangleGroup( StitchResult.NewQuads[k].A, EdgeGroups[k] );
-                Mesh->SetTriangleGroup( StitchResult.NewQuads[k].B, EdgeGroups[k] );
+                m_Mesh->SetTriangleGroup( StitchResult.NewQuads[k].A, EdgeGroups[k] );
+                m_Mesh->SetTriangleGroup( StitchResult.NewQuads[k].B, EdgeGroups[k] );
             }
             StitchResult.GetAllTriangles( Region.StitchTriangles[LoopIndex] );
             Region.StitchPolygonIDs[LoopIndex] = NewGroupIDs;
-            QuadStrips.Add( StitchResult.NewQuads );
+            QuadStrips.push_back( StitchResult.NewQuads );
             Region.BaseLoops[LoopIndex].Vertices = BaseLoopV;
-            VertexLoopToEdgeLoop( *Mesh, BaseLoopV, Region.BaseLoops[LoopIndex].Edges );
+            VertexLoopToEdgeLoop( *m_Mesh, BaseLoopV, Region.BaseLoops[LoopIndex].Edges );
         }
 
-        if ( Mesh->HasAttributes() )
-            for ( int32_t StripIndex = 0; StripIndex < QuadStrips.Num(); ++StripIndex )
+        if ( m_Mesh->HasAttributes() )
+            for ( int32_t StripIndex = 0; StripIndex < static_cast<int32_t>( QuadStrips.size() ); ++StripIndex )
             {
-                const TArray<int32_t>& BaseLoopV          = LoopPairs[StripIndex].OuterVertices;
-                float                AccumUVTranslation = 0;
-                FVector3d            FirstAxisX, FrameUp;
-                for ( int32_t k = 0; k < QuadStrips[StripIndex].Num(); k++ )
+                const std::vector<int32_t>& BaseLoopV          = LoopPairs[StripIndex].OuterVertices;
+                float                       AccumUVTranslation = 0;
+                glm::dvec3                  FrameUp{};
+                for ( int32_t k = 0; k < static_cast<int32_t>( QuadStrips[StripIndex].size() ); k++ )
                 {
-                    const FVector3f NF = Editor.ComputeAndSetQuadNormal( QuadStrips[StripIndex][k], true );
-                    const FVector3d Normal( NF.X, NF.Y, NF.Z );
-                    FVector3d       AxisX, AxisY;
+                    const glm::vec3  NF = Editor.ComputeAndSetQuadNormal( QuadStrips[StripIndex][k], true );
+                    const glm::dvec3 Normal( NF.x, NF.y, NF.z );
+                    glm::dvec3       AxisX{};
+                    glm::dvec3       AxisY{};
                     if ( k == 0 )
                     {
-                        // FFrame3d(0, Normal).ConstrainedAlignAxis(0, FirstEdge, Normal): X is the first edge
+                        // Frame3d(0, Normal).ConstrainedAlignAxis(0, FirstEdge, Normal): X is the first edge
                         // in the quad's plane, Y = Z x X.
-                        FVector3d FirstEdge = Mesh->GetVertex( BaseLoopV[1] ) - Mesh->GetVertex( BaseLoopV[0] );
-                        AxisX               = Normalized( FirstEdge - Normal * FirstEdge.Dot( Normal ) );
-                        AxisY               = Normal.Cross( AxisX );
+                        glm::dvec3 const FirstEdge =
+                             m_Mesh->GetVertex( BaseLoopV[1] ) - m_Mesh->GetVertex( BaseLoopV[0] );
+                        AxisX               = Normalized( FirstEdge - Normal * glm::dot( FirstEdge, Normal ) );
+                        AxisY               = glm::cross( Normal, AxisX );
                         FrameUp             = AxisY;
                     }
                     else
                     {
                         // ConstrainedAlignAxis(2, Normal, FrameUp): rotate about FrameUp until Z meets Normal.
-                        FVector3d Z = Normalized( Normal - FrameUp * Normal.Dot( FrameUp ) );
+                        glm::dvec3 const Z = Normalized( Normal - FrameUp * glm::dot( Normal, FrameUp ) );
                         AxisY       = FrameUp;
-                        AxisX       = AxisY.Cross( Z );
+                        AxisX              = glm::cross( AxisY, Z );
                     }
                     if ( k > 0 )
-                        AccumUVTranslation += (float)Distance( Mesh->GetVertex( BaseLoopV[k] ),
-                                                               Mesh->GetVertex( BaseLoopV[k - 1] ) );
-                    Editor.SetQuadUVsFromProjection( QuadStrips[StripIndex][k], AxisX, AxisY, UVScaleFactor,
-                                                     FVector2f( UVScaleFactor * AccumUVTranslation, 0.0f ) );
+                        AccumUVTranslation += static_cast<float>( Distance(
+                             m_Mesh->GetVertex( BaseLoopV[k] ), m_Mesh->GetVertex( BaseLoopV[k - 1] ) ) );
+                    Editor.SetQuadUVsFromProjection( QuadStrips[StripIndex][k], AxisX, AxisY, m_UVScaleFactor,
+                                                     glm::vec2( m_UVScaleFactor * AccumUVTranslation, 0.0f ) );
                 }
             }
         return true;

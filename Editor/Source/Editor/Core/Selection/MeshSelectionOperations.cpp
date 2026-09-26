@@ -31,7 +31,7 @@ namespace Desert::Editor::Core
     {
         // Distinct polygroups in use - the log line reports them because a topology edit (Insert Edge Loop, Weld)
         // is judged by its groups, which the triangle and vertex counts alone do not show.
-        int CountPolygroups( const Geometry::FDynamicMesh3& mesh )
+        int CountPolygroups( const Geometry::DynamicMesh3& mesh )
         {
             std::unordered_set<int> groups;
             for ( const int t : mesh.TriangleIndicesItr() )
@@ -231,12 +231,12 @@ namespace Desert::Editor::Core
         // The component may have moved on since the tool last looked (an undo this frame): the selection is
         // pruned against the mesh the operation will actually run on.
         state.Track( entity, target.GetValue().Mesh );
-        const std::shared_ptr<const Geometry::FDynamicMesh3> before = target.GetValue().Mesh;
+        const std::shared_ptr<const Geometry::DynamicMesh3> before = target.GetValue().Mesh;
         // What undo restores: null for a lifted asset, so one undo removes the lift and the edit together.
-        const std::shared_ptr<const Geometry::FDynamicMesh3> committed = target.GetValue().Committed;
+        const std::shared_ptr<const Geometry::DynamicMesh3>  committed = target.GetValue().Committed;
         const Geometry::ElementSelection                     selection = state.Selection();
-        std::shared_ptr<const Geometry::FDynamicMesh3>       otherHalf; // Plane Cut, Keep Both Halves
-        std::shared_ptr<const Geometry::FDynamicMesh3>       after;
+        std::shared_ptr<const Geometry::DynamicMesh3>        otherHalf; // Plane Cut, Keep Both Halves
+        std::shared_ptr<const Geometry::DynamicMesh3>        after;
         Geometry::MeshEditOutcome                            outcome;
         if ( const auto regionOperation = ToRegionOperation( operation ) )
         {
@@ -291,7 +291,7 @@ namespace Desert::Editor::Core
                 case MeshOperation::FillHole:
                 case MeshOperation::WeldEdges:
                 case MeshOperation::InsertEdgeLoop:
-                    return Common::MakeFormattedError<bool>( "Mesh {}: runs on FDynamicMesh3, not the EditMesh",
+                    return Common::MakeFormattedError<bool>( "Mesh {}: runs on DynamicMesh3, not the EditMesh",
                                                              ToString( operation ) );
                 case MeshOperation::Offset:
                     result = Geometry::OffsetSelection( beforeMesh, editSelection, distance );

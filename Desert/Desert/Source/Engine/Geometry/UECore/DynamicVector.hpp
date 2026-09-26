@@ -5,6 +5,7 @@
 #include "Engine/Geometry/UECore/UECore.hpp"
 #include "Engine/Geometry/UECore/IndexTypes.hpp"
 
+#include <cstddef>
 #include <memory>
 
 namespace Desert::Geometry
@@ -16,11 +17,11 @@ namespace Desert::Geometry
      * Iterator functions suitable for use with range-based for are provided
      */
     template <typename Type, int32_t BlockSize = 512>
-    class TDynamicVector
+    class DynamicVector
     {
-        static_assert( BlockSize > 0, "TDynamicVector: BlockSize must be larger than zero." );
+        static_assert( BlockSize > 0, "DynamicVector: BlockSize must be larger than zero." );
         static_assert( ( ( BlockSize & ( BlockSize - 1 ) ) == 0 ),
-                       "TDynamicVector: BlockSize must be a power of two." );
+                       "DynamicVector: BlockSize must be a power of two." );
 
         static constexpr uint32_t NumBitsNeeded( const uint32_t N )
         {
@@ -49,63 +50,67 @@ namespace Desert::Geometry
     public:
         using ElementType = Type;
 
-        TDynamicVector()
+        DynamicVector()
         {
             AddAllocatedBlock();
         }
 
-        TDynamicVector( const TDynamicVector& Copy ) : CurBlock( Copy.CurBlock ), CurBlockUsed( Copy.CurBlockUsed )
+        DynamicVector( const DynamicVector& Copy )
+             : m_CurBlock( Copy.m_CurBlock ), m_CurBlockUsed( Copy.m_CurBlockUsed )
         {
-            const int32_t N = Copy.Blocks.Num();
-            Blocks.Reserve( N );
+            const auto N = static_cast<int32_t>( Copy.m_Blocks.size() );
+            m_Blocks.reserve( N );
             for ( int32_t k = 0; k < N; ++k )
             {
-                Blocks.Add( std::make_unique<TBlock>( *Copy.Blocks[k] ) );
+                m_Blocks.push_back( std::make_unique<Block>( *Copy.m_Blocks[k] ) );
             }
         }
 
-        TDynamicVector( TDynamicVector&& Moved )
-             : CurBlock( Moved.CurBlock ), CurBlockUsed( Moved.CurBlockUsed ), Blocks( std::move( Moved.Blocks ) )
+        DynamicVector( DynamicVector&& Moved ) noexcept
+             : m_CurBlock( Moved.m_CurBlock ), m_CurBlockUsed( Moved.m_CurBlockUsed ),
+               m_Blocks( std::move( Moved.m_Blocks ) )
         {
-            Moved.CurBlock     = 0;
-            Moved.CurBlockUsed = 0;
-            Moved.AddAllocatedBlock();
+            // A move steals the blocks and allocates nothing: the source is left holding no block at all, a state
+            // every mutator accepts (Add/Resize/Clear allocate the first block on demand).
+            Moved.m_CurBlock     = 0;
+            Moved.m_CurBlockUsed = 0;
         }
 
-        TDynamicVector& operator=( const TDynamicVector& Copy )
+        DynamicVector& operator=( const DynamicVector& Copy )
         {
             if ( this != &Copy )
             {
-                const int32_t N = Copy.Blocks.Num();
+                const auto N = static_cast<int32_t>( Copy.m_Blocks.size() );
                 Empty( N );
-                CurBlock     = Copy.CurBlock;
-                CurBlockUsed = Copy.CurBlockUsed;
+                m_CurBlock     = Copy.m_CurBlock;
+                m_CurBlockUsed = Copy.m_CurBlockUsed;
                 for ( int32_t k = 0; k < N; ++k )
                 {
-                    Blocks.Add( std::make_unique<TBlock>( *Copy.Blocks[k] ) );
+                    m_Blocks.push_back( std::make_unique<Block>( *Copy.m_Blocks[k] ) );
                 }
             }
             return *this;
         }
 
-        TDynamicVector& operator=( TDynamicVector&& Moved )
+        DynamicVector& operator=( DynamicVector&& Moved ) noexcept
         {
             if ( this != &Moved )
             {
                 Empty();
 
-                CurBlock     = Moved.CurBlock;
-                CurBlockUsed = Moved.CurBlockUsed;
-                Blocks       = std::move( Moved.Blocks );
+                m_CurBlock     = Moved.m_CurBlock;
+                m_CurBlockUsed = Moved.m_CurBlockUsed;
+                m_Blocks       = std::move( Moved.m_Blocks );
+                Moved.m_Blocks
+                     .clear(); // move-assignment leaves the source unspecified; make it the blockless state
 
-                Moved.CurBlock     = 0;
-                Moved.CurBlockUsed = 0;
-                Moved.AddAllocatedBlock();
+                Moved.m_CurBlock     = 0;
+                Moved.m_CurBlockUsed = 0;
             }
             return *this;
         }
 
-        TDynamicVector( const TArray<Type>& Array )
+        DynamicVector( const std::vector<Type>& Array )
         {
             const auto N = static_cast<uint32_t>( Array.Num() );
             SetNum( N );
@@ -116,7 +121,7 @@ namespace Desert::Geometry
             }
         }
 
-        TDynamicVector( TArrayView<const Type> Array )
+        DynamicVector( std::span<const Type> Array )
         {
             const auto N = static_cast<uint32_t>( Array.Num() );
             SetNum( N );
@@ -127,7 +132,7 @@ namespace Desert::Geometry
             }
         }
 
-        ~TDynamicVector()
+        ~DynamicVector()
         {
             Empty();
         }
@@ -138,20 +143,20 @@ namespace Desert::Geometry
         inline void Resize( unsigned int Count, const Type& InitValue );
         /// Resize if Num() is less than Count; returns true if resize occurred
         inline bool SetMinimumSize( unsigned int Count, const Type& InitValue );
-        inline void SetNum( unsigned int Count )
+        void        SetNum( unsigned int Count )
         {
             Resize( Count );
         }
 
-        inline bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
-            return CurBlock == 0 && CurBlockUsed == 0;
+            return m_CurBlock == 0 && m_CurBlockUsed == 0;
         }
-        inline size_t GetLength() const
+        [[nodiscard]] size_t GetLength() const
         {
-            return CurBlock * BlockSize + CurBlockUsed;
+            return m_CurBlock * BlockSize + m_CurBlockUsed;
         }
-        inline size_t Num() const
+        [[nodiscard]] size_t Num() const
         {
             return GetLength();
         }
@@ -159,43 +164,44 @@ namespace Desert::Geometry
         {
             return BlockSize;
         }
-        inline size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
-            return Blocks.Num() * BlockSize * sizeof( Type );
+            return static_cast<unsigned long>( static_cast<int32_t>( m_Blocks.size() ) * BlockSize ) *
+                   sizeof( Type );
         }
 
         inline void Add( const Type& Data );
         template <int32_t BlockSizeData>
-        void        Add( const TDynamicVector<Type, BlockSizeData>& Data );
-        void        Add( const TArray<Type>& Data );
-        void        Add( TArrayView<const Type> Data );
+        void        Add( const DynamicVector<Type, BlockSizeData>& Data );
+        void        Add( const std::vector<Type>& Data );
+        void        Add( std::span<const Type> Data );
         inline void PopBack();
 
         inline void  InsertAt( const Type& Data, unsigned int Index );
         inline void  InsertAt( const Type& Data, unsigned int Index, const Type& InitValue );
         inline Type& ElementAt( unsigned int Index, Type InitialValue = Type{} );
 
-        inline const Type& Front() const
+        [[nodiscard]] const Type& Front() const
         {
-            UE_CHECK_SLOW( CurBlockUsed > 0 );
+            assert( m_CurBlockUsed > 0 );
             return GetElement( 0, 0 );
         }
 
-        inline const Type& Back() const
+        [[nodiscard]] const Type& Back() const
         {
-            UE_CHECK_SLOW( CurBlockUsed > 0 );
-            return GetElement( CurBlock, CurBlockUsed - 1 );
+            assert( m_CurBlockUsed > 0 );
+            return GetElement( m_CurBlock, m_CurBlockUsed - 1 );
         }
 
         const Type& operator[]( uint32_t Index ) const
         {
-            UE_CHECK_SLOW( Index < Num() );
+            assert( Index < Num() );
             return GetElement( GetBlockIndex( Index ), GetIndexInBlock( Index ) );
         }
 
         Type& operator[]( uint32_t Index )
         {
-            return const_cast<Type&>( const_cast<const TDynamicVector&>( *this )[Index] );
+            return const_cast<Type&>( const_cast<const DynamicVector&>( *this )[Index] );
         }
 
         // apply ApplyFunc() to each member sequentially
@@ -203,158 +209,160 @@ namespace Desert::Geometry
         void Apply( const Func& ApplyFunc );
 
         /*
-         * FIterator class iterates over values of vector
+         * Iterator class iterates over values of vector
          */
-        class FIterator
+        class Iterator
         {
         public:
-            inline const Type& operator*() const
+            const Type& operator*() const
             {
-                return ( *DVector )[Idx];
+                return ( *m_DVector )[m_Idx];
             }
-            inline Type& operator*()
+            Type& operator*()
             {
-                return ( *DVector )[Idx];
+                return ( *m_DVector )[m_Idx];
             }
-            inline FIterator& operator++() // prefix
+            Iterator& operator++() // prefix
             {
-                Idx++;
+                m_Idx++;
                 return *this;
             }
-            inline FIterator operator++( int ) // postfix
+            Iterator operator++( int ) // postfix
             {
-                FIterator Copy( *this );
-                Idx++;
+                Iterator Copy( *this );
+                m_Idx++;
                 return Copy;
             }
-            inline bool operator==( const FIterator& Itr2 ) const
+            bool operator==( const Iterator& Itr2 ) const
             {
-                return DVector == Itr2.DVector && Idx == Itr2.Idx;
+                return m_DVector == Itr2.m_DVector && m_Idx == Itr2.m_Idx;
             }
-            inline bool operator!=( const FIterator& Itr2 ) const
+            bool operator!=( const Iterator& Itr2 ) const
             {
-                return DVector != Itr2.DVector || Idx != Itr2.Idx;
+                return m_DVector != Itr2.m_DVector || m_Idx != Itr2.m_Idx;
             }
 
         private:
-            friend class TDynamicVector;
-            FIterator( TDynamicVector* DVectorIn, unsigned int IdxIn ) : DVector( DVectorIn ), Idx( IdxIn )
+            friend class DynamicVector;
+            Iterator( DynamicVector* DVectorIn, unsigned int IdxIn ) : m_DVector( DVectorIn ), m_Idx( IdxIn )
             {
             }
-            TDynamicVector* DVector{};
-            unsigned int    Idx{ 0 };
+            DynamicVector* m_DVector{};
+            unsigned int   m_Idx{ 0 };
         };
 
         /** @return iterator at beginning of vector */
-        FIterator begin()
+        Iterator begin()
         {
-            return FIterator{ this, 0 };
+            return Iterator{ this, 0 };
         }
         /** @return iterator at end of vector */
-        FIterator end()
+        Iterator end()
         {
-            return FIterator{ this, (unsigned int)GetLength() };
+            return Iterator{ this, static_cast<unsigned int>( GetLength() ) };
         }
 
         /*
-         * FConstIterator class iterates over values of vector
+         * ConstIterator class iterates over values of vector
          */
-        class FConstIterator
+        class ConstIterator
         {
         public:
-            inline const Type& operator*() const
+            const Type& operator*() const
             {
-                return ( *DVector )[Idx];
+                return ( *m_DVector )[m_Idx];
             }
-            inline FConstIterator& operator++() // prefix
+            ConstIterator& operator++() // prefix
             {
-                Idx++;
+                m_Idx++;
                 return *this;
             }
-            inline FConstIterator operator++( int ) // postfix
+            ConstIterator operator++( int ) // postfix
             {
-                FConstIterator Copy( *this );
-                Idx++;
+                ConstIterator Copy( *this );
+                m_Idx++;
                 return Copy;
             }
-            inline bool operator==( const FConstIterator& Itr2 ) const
+            bool operator==( const ConstIterator& Itr2 ) const
             {
-                return DVector == Itr2.DVector && Idx == Itr2.Idx;
+                return m_DVector == Itr2.m_DVector && m_Idx == Itr2.m_Idx;
             }
-            inline bool operator!=( const FConstIterator& Itr2 ) const
+            bool operator!=( const ConstIterator& Itr2 ) const
             {
-                return DVector != Itr2.DVector || Idx != Itr2.Idx;
+                return m_DVector != Itr2.m_DVector || m_Idx != Itr2.m_Idx;
             }
 
         private:
-            friend class TDynamicVector;
-            FConstIterator( const TDynamicVector* DVectorIn, unsigned int IdxIn )
-                 : DVector( DVectorIn ), Idx( IdxIn )
+            friend class DynamicVector;
+            ConstIterator( const DynamicVector* DVectorIn, unsigned int IdxIn )
+                 : m_DVector( DVectorIn ), m_Idx( IdxIn )
             {
             }
-            const TDynamicVector* DVector{};
-            unsigned int          Idx{ 0 };
+            const DynamicVector* m_DVector{};
+            unsigned int         m_Idx{ 0 };
         };
 
         /** @return iterator at beginning of vector */
-        FConstIterator begin() const
+        [[nodiscard]] ConstIterator begin() const
         {
-            return FConstIterator{ this, 0 };
+            return ConstIterator{ this, 0 };
         }
         /** @return iterator at end of vector */
-        FConstIterator end() const
+        [[nodiscard]] ConstIterator end() const
         {
-            return FConstIterator{ this, (unsigned int)GetLength() };
+            return ConstIterator{ this, static_cast<unsigned int>( GetLength() ) };
         }
 
     private:
-        struct TBlock
+        struct Block
         {
             Type Elements[BlockSize];
         };
 
-        unsigned int CurBlock{ 0 }; //< Current block index; always points to the block with the last item in the
-                                    // vector, or is set to zero if the vector is empty.
-        unsigned int CurBlockUsed{ 0 }; //< Number of used items in the current block.
+        unsigned int m_CurBlock{ 0 }; //< Current block index; always points to the block with the last item in the
+                                      // vector, or is set to zero if the vector is empty.
+        unsigned int m_CurBlockUsed{ 0 }; //< Number of used items in the current block.
 
-        // UE's TArray<TBlock*> with a delete per block; unique_ptr here, so the vector owns its blocks by type.
-        TArray<std::unique_ptr<TBlock>> Blocks;
+        // UE's TArray<Block*> with a delete per block; unique_ptr here, so the vector owns its blocks by type.
+        std::vector<std::unique_ptr<Block>> m_Blocks;
 
         void AddAllocatedBlock()
         {
-            Blocks.Add( std::make_unique<TBlock>() );
+            m_Blocks.push_back( std::make_unique<Block>() );
         }
 
         void Empty( int32_t NewReservedBlockCount = 0 )
         {
-            Blocks.Empty( NewReservedBlockCount );
+            m_Blocks.clear();
+            m_Blocks.reserve( NewReservedBlockCount );
         }
 
         [[nodiscard]] const Type& GetElement( int32_t BlockIndex, int32_t IndexInBlock ) const
         {
-            UE_CHECK_SLOW( 0 <= BlockIndex && BlockIndex < Blocks.Num() && 0 <= IndexInBlock &&
-                           IndexInBlock < BlockSize );
-            return Blocks.GetData()[BlockIndex]->Elements[IndexInBlock];
+            assert( 0 <= BlockIndex && BlockIndex < static_cast<int32_t>( m_Blocks.size() ) && 0 <= IndexInBlock &&
+                    IndexInBlock < BlockSize );
+            return m_Blocks.data()[BlockIndex]->Elements[IndexInBlock];
         }
 
         Type& GetElement( int32_t BlockIndex, int32_t IndexInBlock )
         {
             return const_cast<Type&>(
-                 const_cast<const TDynamicVector&>( *this ).GetElement( BlockIndex, IndexInBlock ) );
+                 const_cast<const DynamicVector&>( *this ).GetElement( BlockIndex, IndexInBlock ) );
         }
 
-        void TruncateBlocks( int32_t NewBlockCount, EAllowShrinking AllowShrinking )
+        // UE's EAllowShrinking argument is dropped: every caller passed No, and std::vector::erase never shrinks.
+        void TruncateBlocks( int32_t NewBlockCount )
         {
-            if ( Blocks.Num() - NewBlockCount <= 0 )
+            if ( static_cast<int32_t>( m_Blocks.size() ) - NewBlockCount <= 0 )
             {
                 return;
             }
 
-            Blocks.RemoveAt( NewBlockCount, Blocks.Num() - NewBlockCount, AllowShrinking );
+            m_Blocks.erase( m_Blocks.begin() + NewBlockCount, m_Blocks.end() );
         }
 
         template <int32_t BlockSizeRhs>
-        friend bool operator==( const TDynamicVector& Lhs, const TDynamicVector<Type, BlockSizeRhs>& Rhs )
+        friend bool operator==( const DynamicVector& Lhs, const DynamicVector<Type, BlockSizeRhs>& Rhs )
         {
             if ( Lhs.Num() != Rhs.Num() )
             {
@@ -368,17 +376,17 @@ namespace Desert::Geometry
 
             if constexpr ( BlockSize == BlockSizeRhs )
             {
-                const uint32_t LhsCurBlock = Lhs.CurBlock;
+                const uint32_t LhsCurBlock = Lhs.m_CurBlock;
                 for ( uint32_t BlockIndex = 0; BlockIndex < LhsCurBlock; ++BlockIndex )
                 {
-                    if ( !CompareItems( &Lhs.Blocks[BlockIndex]->Elements[0], &Rhs.Blocks[BlockIndex]->Elements[0],
-                                        BlockSize ) )
+                    if ( !CompareItems( &Lhs.m_Blocks[BlockIndex]->Elements[0],
+                                        &Rhs.m_Blocks[BlockIndex]->Elements[0], BlockSize ) )
                     {
                         return false;
                     }
                 }
-                return CompareItems( &Lhs.Blocks[LhsCurBlock]->Elements[0], &Rhs.Blocks[LhsCurBlock]->Elements[0],
-                                     Lhs.CurBlockUsed );
+                return CompareItems( &Lhs.m_Blocks[LhsCurBlock]->Elements[0],
+                                     &Rhs.m_Blocks[LhsCurBlock]->Elements[0], Lhs.m_CurBlockUsed );
             }
             else
             {
@@ -395,7 +403,7 @@ namespace Desert::Geometry
         }
 
         template <int32_t BlockSizeRhs>
-        friend bool operator!=( const TDynamicVector& Lhs, const TDynamicVector<Type, BlockSizeRhs>& Rhs )
+        friend bool operator!=( const DynamicVector& Lhs, const DynamicVector<Type, BlockSizeRhs>& Rhs )
         {
             return !( Lhs == Rhs );
         }
@@ -407,52 +415,52 @@ namespace Desert::Geometry
             // account for (1) the vector being empty and (2) that the used item count within the last block needs
             // to be one more than the index of the last item.
             const auto LastItemIndex  = static_cast<int32_t>( Count - 1 );
-            CurBlock                  = Count != 0 ? GetBlockIndex( LastItemIndex ) : 0;
-            CurBlockUsed              = Count != 0 ? GetIndexInBlock( LastItemIndex ) + 1 : 0;
+            m_CurBlock                = Count != 0 ? GetBlockIndex( LastItemIndex ) : 0;
+            m_CurBlockUsed            = Count != 0 ? GetIndexInBlock( LastItemIndex ) + 1 : 0;
         }
     };
 
     template <class Type, int N>
-    class TDynamicVectorN
+    class DynamicVectorN
     {
     public:
-        TDynamicVectorN()                                         = default;
-        TDynamicVectorN( const TDynamicVectorN& Copy )            = default;
-        TDynamicVectorN( TDynamicVectorN&& Moved )                = default;
-        TDynamicVectorN& operator=( const TDynamicVectorN& Copy ) = default;
-        TDynamicVectorN& operator=( TDynamicVectorN&& Moved )     = default;
+        DynamicVectorN()                                        = default;
+        DynamicVectorN( const DynamicVectorN& Copy )            = default;
+        DynamicVectorN( DynamicVectorN&& Moved )                = default;
+        DynamicVectorN& operator=( const DynamicVectorN& Copy ) = default;
+        DynamicVectorN& operator=( DynamicVectorN&& Moved )     = default;
 
-        inline void Clear()
+        void Clear()
         {
-            Data.Clear();
+            m_Data.Clear();
         }
-        inline void Fill( const Type& Value )
+        void Fill( const Type& Value )
         {
-            Data.Fill( Value );
+            m_Data.Fill( Value );
         }
-        inline void Resize( unsigned int Count )
+        void Resize( unsigned int Count )
         {
-            Data.Resize( Count * N );
+            m_Data.Resize( Count * N );
         }
-        inline void Resize( unsigned int Count, const Type& InitValue )
+        void Resize( unsigned int Count, const Type& InitValue )
         {
-            Data.Resize( Count * N, InitValue );
+            m_Data.Resize( Count * N, InitValue );
         }
-        inline bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
-            return Data.IsEmpty();
+            return m_Data.IsEmpty();
         }
-        inline size_t GetLength() const
+        [[nodiscard]] size_t GetLength() const
         {
-            return Data.GetLength() / N;
+            return m_Data.GetLength() / N;
         }
-        inline int GetBlockSize() const
+        [[nodiscard]] int GetBlockSize() const
         {
-            return Data.GetBlockSize();
+            return m_Data.GetBlockSize();
         }
-        inline size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
-            return Data.GetByteCount();
+            return m_Data.GetByteCount();
         }
 
         // simple struct to help pass N-dimensional data without presuming a vector type (e.g. just via initializer
@@ -462,113 +470,115 @@ namespace Desert::Geometry
             Type Data[N];
         };
 
-        inline void Add( const ElementVectorN& AddData )
+        void Add( const ElementVectorN& AddData )
         {
             for ( int i = 0; i < N; i++ )
             {
-                Data.Add( AddData.Data[i] );
+                m_Data.Add( AddData.Data[i] );
             }
         }
 
-        inline void PopBack()
+        void PopBack()
         {
             // UE calls PopBack() here, recursing into itself forever; the element vector is what must shrink.
             for ( int i = 0; i < N; i++ )
             {
-                Data.PopBack();
+                m_Data.PopBack();
             }
         }
 
-        inline void InsertAt( const ElementVectorN& AddData, unsigned int Index )
+        void InsertAt( const ElementVectorN& AddData, unsigned int Index )
         {
             for ( int i = 1; i <= N; i++ )
             {
-                Data.InsertAt( AddData.Data[N - i], N * ( Index + 1 ) - i );
+                m_Data.InsertAt( AddData.Data[N - i], N * ( Index + 1 ) - i );
             }
         }
 
-        inline Type& operator()( unsigned int TopIndex, unsigned int SubIndex )
+        Type& operator()( unsigned int TopIndex, unsigned int SubIndex )
         {
-            return Data[TopIndex * N + SubIndex];
+            return m_Data[TopIndex * N + SubIndex];
         }
-        inline const Type& operator()( unsigned int TopIndex, unsigned int SubIndex ) const
+        const Type& operator()( unsigned int TopIndex, unsigned int SubIndex ) const
         {
-            return Data[TopIndex * N + SubIndex];
+            return m_Data[TopIndex * N + SubIndex];
         }
-        inline void SetVector2( unsigned int TopIndex, const TVector2<Type>& V )
+        void SetVector2( unsigned int TopIndex, const glm::vec<2, Type>& V )
         {
-            UE_CHECK( N >= 2 );
-            unsigned int i = TopIndex * N;
-            Data[i]        = V.X;
-            Data[i + 1]    = V.Y;
+            assert( N >= 2 );
+            const unsigned int i = TopIndex * N;
+            m_Data[i]            = V.x;
+            m_Data[i + 1]        = V.y;
         }
-        inline void SetVector3( unsigned int TopIndex, const TVector<Type>& V )
+        void SetVector3( unsigned int TopIndex, const glm::vec<3, Type>& V )
         {
-            UE_CHECK( N >= 3 );
-            unsigned int i = TopIndex * N;
-            Data[i]        = V.X;
-            Data[i + 1]    = V.Y;
-            Data[i + 2]    = V.Z;
+            assert( N >= 3 );
+            const unsigned int i = TopIndex * N;
+            m_Data[i]            = V.x;
+            m_Data[i + 1]        = V.y;
+            m_Data[i + 2]        = V.z;
         }
-        inline TVector2<Type> AsVector2( unsigned int TopIndex ) const
+        [[nodiscard]] glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 2 );
-            return TVector2<Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1] );
+            assert( N >= 2 );
+            return glm::vec<2, Type>( m_Data[TopIndex * N + 0], m_Data[TopIndex * N + 1] );
         }
-        inline TVector<Type> AsVector3( unsigned int TopIndex ) const
+        [[nodiscard]] glm::vec<3, Type> AsVector3( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 3 );
-            return TVector<Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1], Data[TopIndex * N + 2] );
+            assert( N >= 3 );
+            return glm::vec<3, Type>( m_Data[TopIndex * N + 0], m_Data[TopIndex * N + 1],
+                                      m_Data[TopIndex * N + 2] );
         }
-        inline FIndex2i AsIndex2( unsigned int TopIndex ) const
+        [[nodiscard]] Index2i AsIndex2( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 2 );
-            return FIndex2i( (int)Data[TopIndex * N + 0], (int)Data[TopIndex * N + 1] );
+            assert( N >= 2 );
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ) };
         }
-        inline FIndex3i AsIndex3( unsigned int TopIndex ) const
+        [[nodiscard]] Index3i AsIndex3( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 3 );
-            return FIndex3i( (int)Data[TopIndex * N + 0], (int)Data[TopIndex * N + 1],
-                             (int)Data[TopIndex * N + 2] );
+            assert( N >= 3 );
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ),
+                     static_cast<int>( m_Data[TopIndex * N + 2] ) };
         }
-        inline FIndex4i AsIndex4( unsigned int TopIndex ) const
+        [[nodiscard]] Index4i AsIndex4( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 4 );
-            return FIndex4i( (int)Data[TopIndex * N + 0], (int)Data[TopIndex * N + 1], (int)Data[TopIndex * N + 2],
-                             (int)Data[TopIndex * N + 3] );
+            assert( N >= 4 );
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ),
+                     static_cast<int>( m_Data[TopIndex * N + 2] ), static_cast<int>( m_Data[TopIndex * N + 3] ) };
         }
 
     private:
-        TDynamicVector<Type> Data;
+        DynamicVector<Type> m_Data;
 
-        friend class FIterator;
+        friend class Iterator;
     };
 
-    template class TDynamicVectorN<double, 2>;
+    template class DynamicVectorN<double, 2>;
 
-    using TDynamicVector3f = TDynamicVectorN<float, 3>;
-    using TDynamicVector2f = TDynamicVectorN<float, 2>;
-    using TDynamicVector3d = TDynamicVectorN<double, 3>;
-    using TDynamicVector2d = TDynamicVectorN<double, 2>;
-    using TDynamicVector3i = TDynamicVectorN<int, 3>;
-    using TDynamicVector2i = TDynamicVectorN<int, 2>;
+    using DynamicVector3f = DynamicVectorN<float, 3>;
+    using DynamicVector2f = DynamicVectorN<float, 2>;
+    using DynamicVector3d = DynamicVectorN<double, 3>;
+    using DynamicVector2d = DynamicVectorN<double, 2>;
+    using DynamicVector3i = DynamicVectorN<int, 3>;
+    using DynamicVector2i = DynamicVectorN<int, 2>;
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::Clear()
+    void DynamicVector<Type, BlockSize>::Clear()
     {
-        TruncateBlocks( 1, EAllowShrinking::No );
-        CurBlock     = 0;
-        CurBlockUsed = 0;
-        if ( Blocks.Num() == 0 )
+        TruncateBlocks( 1 );
+        m_CurBlock     = 0;
+        m_CurBlockUsed = 0;
+        if ( m_Blocks.empty() )
         {
             AddAllocatedBlock();
         }
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::Fill( const Type& Value )
+    void DynamicVector<Type, BlockSize>::Fill( const Type& Value )
     {
-        for ( uint32_t BlockIndex = 0, NumBlocks = Blocks.Num(); BlockIndex < NumBlocks; ++BlockIndex )
+        for ( uint32_t BlockIndex = 0, NumBlocks = static_cast<int32_t>( m_Blocks.size() ); BlockIndex < NumBlocks;
+              ++BlockIndex )
         {
             const uint32_t NumElementsInBlock =
                  BlockIndex < NumBlocks - 1 ? BlockSize : GetLength() - BlockSize * ( NumBlocks - 1 );
@@ -580,7 +590,7 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::Resize( unsigned int Count )
+    void DynamicVector<Type, BlockSize>::Resize( unsigned int Count )
     {
         if ( GetLength() == Count )
         {
@@ -593,7 +603,7 @@ namespace Desert::Geometry
              std::max( 1, static_cast<int32_t>( Count ) / BlockSize + ( bCountIsNotMultipleOfBlockSize ? 1 : 0 ) );
 
         // Determine how many blocks are currently allocated.
-        int32_t NumBlocksCurrent = Blocks.Num();
+        auto NumBlocksCurrent = static_cast<int32_t>( m_Blocks.size() );
 
         // Allocate needed additional blocks.
         while ( NumBlocksCurrent < NumBlocksNeeded )
@@ -605,7 +615,7 @@ namespace Desert::Geometry
         // Remove unneeded blocks.
         if ( NumBlocksCurrent > NumBlocksNeeded )
         {
-            TruncateBlocks( NumBlocksNeeded, EAllowShrinking::No );
+            TruncateBlocks( NumBlocksNeeded );
         }
 
         // Set current block.
@@ -613,26 +623,26 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::Resize( unsigned int Count, const Type& InitValue )
+    void DynamicVector<Type, BlockSize>::Resize( unsigned int Count, const Type& InitValue )
     {
-        size_t nCurSize = GetLength();
+        const size_t nCurSize = GetLength();
         Resize( Count );
-        for ( unsigned int Index = (unsigned int)nCurSize; Index < Count; ++Index )
+        for ( auto Index = static_cast<unsigned int>( nCurSize ); Index < Count; ++Index )
         {
             ( *this )[Index] = InitValue;
         }
     }
 
     template <typename Type, int32_t BlockSize>
-    bool TDynamicVector<Type, BlockSize>::SetMinimumSize( unsigned int Count, const Type& InitValue )
+    bool DynamicVector<Type, BlockSize>::SetMinimumSize( unsigned int Count, const Type& InitValue )
     {
-        size_t nCurSize = GetLength();
+        const size_t nCurSize = GetLength();
         if ( Count <= nCurSize )
         {
             return false;
         }
         Resize( Count );
-        for ( unsigned int Index = (unsigned int)nCurSize; Index < Count; ++Index )
+        for ( auto Index = static_cast<unsigned int>( nCurSize ); Index < Count; ++Index )
         {
             ( *this )[Index] = InitValue;
         }
@@ -640,25 +650,30 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::Add( const Type& Data )
+    void DynamicVector<Type, BlockSize>::Add( const Type& Data )
     {
-        UE_CHECK_SLOW( size_t( std::numeric_limits<uint32_t>::max() ) >= GetLength() + 1 );
-        if ( CurBlockUsed == BlockSize )
+        assert( size_t( std::numeric_limits<uint32_t>::max() ) >= GetLength() + 1 );
+        if ( m_Blocks.empty() )
         {
-            if ( CurBlock == static_cast<unsigned int>( Blocks.Num() - 1 ) )
+            // Moved-from vector: it gave its blocks away, so the first element needs a fresh one.
+            AddAllocatedBlock();
+        }
+        else if ( m_CurBlockUsed == BlockSize )
+        {
+            if ( m_CurBlock == static_cast<unsigned int>( static_cast<int32_t>( m_Blocks.size() ) - 1 ) )
             {
                 AddAllocatedBlock();
             }
-            ++CurBlock;
-            CurBlockUsed = 0;
+            ++m_CurBlock;
+            m_CurBlockUsed = 0;
         }
-        GetElement( CurBlock, CurBlockUsed ) = Data;
-        ++CurBlockUsed;
+        GetElement( m_CurBlock, m_CurBlockUsed ) = Data;
+        ++m_CurBlockUsed;
     }
 
     template <typename Type, int32_t BlockSize>
     template <int32_t BlockSizeData>
-    void TDynamicVector<Type, BlockSize>::Add( const TDynamicVector<Type, BlockSizeData>& Data )
+    void DynamicVector<Type, BlockSize>::Add( const DynamicVector<Type, BlockSizeData>& Data )
     {
         const uint32_t Offset  = Num();
         const auto     DataNum = static_cast<uint32_t>( Data.Num() );
@@ -670,7 +685,7 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::Add( const TArray<Type>& Data )
+    void DynamicVector<Type, BlockSize>::Add( const std::vector<Type>& Data )
     {
         const uint32_t Offset  = Num();
         const auto     DataNum = static_cast<uint32_t>( Data.Num() );
@@ -682,7 +697,7 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::Add( TArrayView<const Type> Data )
+    void DynamicVector<Type, BlockSize>::Add( std::span<const Type> Data )
     {
         const uint32_t Offset  = Num();
         const auto     DataNum = static_cast<uint32_t>( Data.Num() );
@@ -694,23 +709,23 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::PopBack()
+    void DynamicVector<Type, BlockSize>::PopBack()
     {
-        if ( CurBlockUsed > 0 )
+        if ( m_CurBlockUsed > 0 )
         {
-            CurBlockUsed--;
+            m_CurBlockUsed--;
         }
-        if ( CurBlockUsed == 0 && CurBlock > 0 )
+        if ( m_CurBlockUsed == 0 && m_CurBlock > 0 )
         {
-            CurBlock--;
-            CurBlockUsed = BlockSize;
+            m_CurBlock--;
+            m_CurBlockUsed = BlockSize;
         }
     }
 
     template <typename Type, int32_t BlockSize>
-    Type& TDynamicVector<Type, BlockSize>::ElementAt( unsigned int Index, Type InitialValue )
+    Type& DynamicVector<Type, BlockSize>::ElementAt( unsigned int Index, Type InitialValue )
     {
-        size_t s = GetLength();
+        const size_t s = GetLength();
         if ( Index == s )
         {
             Add( InitialValue );
@@ -724,9 +739,9 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::InsertAt( const Type& Data, unsigned int Index )
+    void DynamicVector<Type, BlockSize>::InsertAt( const Type& Data, unsigned int Index )
     {
-        size_t s = GetLength();
+        const size_t s = GetLength();
         if ( Index == s )
         {
             Add( Data );
@@ -743,13 +758,12 @@ namespace Desert::Geometry
     }
 
     template <typename Type, int32_t BlockSize>
-    void TDynamicVector<Type, BlockSize>::InsertAt( const Type& AddData, unsigned int Index,
-                                                    const Type& InitValue )
+    void DynamicVector<Type, BlockSize>::InsertAt( const Type& AddData, unsigned int Index, const Type& InitValue )
     {
-        size_t nCurSize = GetLength();
+        const size_t nCurSize = GetLength();
         InsertAt( AddData, Index );
         // initialize all new values up to (but not including) the inserted index
-        for ( unsigned int i = (unsigned int)nCurSize; i < Index; ++i )
+        for ( auto i = static_cast<unsigned int>( nCurSize ); i < Index; ++i )
         {
             ( *this )[i] = InitValue;
         }
@@ -757,12 +771,16 @@ namespace Desert::Geometry
 
     template <typename Type, int32_t BlockSize>
     template <typename Func>
-    void TDynamicVector<Type, BlockSize>::Apply( const Func& ApplyFunc )
+    void DynamicVector<Type, BlockSize>::Apply( const Func& ApplyFunc )
     {
-        for ( uint32_t BlockIndex = 0; BlockIndex <= CurBlock; ++BlockIndex )
+        if ( IsEmpty() )
         {
-            TBlock*      Block       = Blocks[BlockIndex].get();
-            const uint32_t NumElements = BlockIndex < CurBlock ? BlockSize : CurBlockUsed;
+            return; // a moved-from vector holds no block to read
+        }
+        for ( uint32_t BlockIndex = 0; BlockIndex <= m_CurBlock; ++BlockIndex )
+        {
+            Block*         Block       = m_Blocks[BlockIndex].get();
+            const uint32_t NumElements = BlockIndex < m_CurBlock ? BlockSize : m_CurBlockUsed;
             for ( uint32_t ElementIndex = 0; ElementIndex < NumElements; ++ElementIndex )
             {
                 ApplyFunc( Block->Elements[ElementIndex] ); // UE indexes the block pointer itself, which cannot

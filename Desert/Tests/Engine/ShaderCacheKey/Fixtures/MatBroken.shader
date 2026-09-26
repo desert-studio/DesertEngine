@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"a2850960813b98e5c2392c10006b5704","Versions":{"SHDR":1},"Dependencies":[]}
 // A TEST FIXTURE. This shader is MEANT NOT TO COMPILE: its fragment stage assigns the vec2 UV to a vec4
 // albedo, which is what makes the engine's "no compiled stages" refusal a reachable, checked path
 // (ShaderService.cpp, MaterialEditorPanel::PreviewUnavailableReason). ShaderCacheKey's
@@ -15,6 +16,10 @@
 // Assets/ShaderGraphs/MatBroken.dgraph still holds the mistyped graph — but ShaderGraph.cpp's
 // ValidateGraph (Г17) now REFUSES a type-mismatched link before a line is emitted, so today's editor
 // cannot produce this file from that graph at all. Keep it by hand or not at all.
+//
+// IT CARRIES THE SHDR 1 HEADER LINE ABOVE (MIG1). Since T7j ShaderAsset::LoadFromFile refuses a headerless
+// shader BEFORE compiling it, so a generation-0 fixture would reach that refusal instead of the "no compiled
+// stages" state it stands for. It was raised by `scripts/Dev/migrate.sh --write`, like every shipped shader.
 Shader "MatBroken"
 {
     Domain Surface

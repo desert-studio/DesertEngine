@@ -1,9 +1,9 @@
-// P6: FDynamicMesh3 reads and writes the scene's StaticMesh.EditMesh block, the form EditMesh already writes.
+// P6: DynamicMesh3 reads and writes the scene's StaticMesh.EditMesh block, the form EditMesh already writes.
 //
 // WHAT IS ASSERTED IS THE RELATION TO THE CORE BEING REPLACED, not the new core alone:
 //   - on every tracked scene carrying the block, and on synthetic variants of it that exercise what the scene
 //     does not (colours, a second UV layer, partly set layers, flipped handedness, mixed materials, an
-//     enabled-but-empty normal layer), read -> write through EditMesh and read -> write through FDynamicMesh3
+//     enabled-but-empty normal layer), read -> write through EditMesh and read -> write through DynamicMesh3
 //     give the same JSON text, and ToRenderMesh of the two cores gives the same render arrays (bitangents to
 //     1e-6, as in P5);
 //   - the new path's own round trip is byte-stable (the witness file itself is hand-spelled in doubles that are
@@ -122,14 +122,14 @@ namespace
         return mesh.IsSuccess() ? mesh.ExtractValue() : EditMesh{};
     }
 
-    FDynamicMesh3 NewRead( const EditMeshSer& saved, const std::string& name )
+    DynamicMesh3 NewRead( const EditMeshSer& saved, const std::string& name )
     {
         auto mesh = DynamicMeshFromSerialized( saved, name );
         EXPECT_TRUE( mesh.IsSuccess() ) << ( mesh.IsSuccess() ? "" : mesh.GetError() );
-        return mesh.IsSuccess() ? mesh.ExtractValue() : FDynamicMesh3{};
+        return mesh.IsSuccess() ? mesh.ExtractValue() : DynamicMesh3{};
     }
 
-    void ExpectSameRender( const std::string& name, const EditMesh& oldMesh, const FDynamicMesh3& newMesh )
+    void ExpectSameRender( const std::string& name, const EditMesh& oldMesh, const DynamicMesh3& newMesh )
     {
         auto oldRender = ToRenderMesh( oldMesh );
         auto newRender = ToRenderMesh( newMesh );
@@ -303,12 +303,12 @@ TEST( DynamicMeshSerialization, BothCoresDrawTheSameMesh )
 
 TEST( DynamicMeshSerialization, HolesAreCompactedOnWrite )
 {
-    FDynamicMesh3 mesh = NewRead( Witness(), "witness" );
-    ASSERT_EQ( mesh.RemoveTriangle( 3, false ), EMeshResult::Ok );
+    DynamicMesh3 mesh = NewRead( Witness(), "witness" );
+    ASSERT_EQ( mesh.RemoveTriangle( 3, false ), MeshResult::Ok );
     const EditMeshSer saved = ToSerialized( mesh );
     EXPECT_EQ( saved.Triangles.size(), 33u );
     EXPECT_EQ( saved.PolyGroups.size(), 11u );
-    const FDynamicMesh3 back = NewRead( saved, "witness" );
+    const DynamicMesh3 back = NewRead( saved, "witness" );
     EXPECT_EQ( back.TriangleCount(), 11 );
     EXPECT_EQ( Written( ToSerialized( back ) ), Written( saved ) );
 }

@@ -67,14 +67,14 @@ namespace Desert::Editor::Core
         return "Unknown";
     }
 
-    void MeshElementSelection::Track( const Common::UUID&                            entity,
-                                      std::shared_ptr<const Geometry::FDynamicMesh3> mesh )
+    void MeshElementSelection::Track( const Common::UUID&                           entity,
+                                      std::shared_ptr<const Geometry::DynamicMesh3> mesh )
     {
         if ( static_cast<uint64_t>( entity ) != static_cast<uint64_t>( m_Entity ) )
         {
             m_Entity   = entity;
             m_Mesh     = std::move( mesh );
-            m_Topology = m_Mesh ? std::make_unique<const Geometry::FGroupTopology>( m_Mesh.get(), true ) : nullptr;
+            m_Topology = m_Mesh ? std::make_unique<const Geometry::GroupTopology>( m_Mesh.get(), true ) : nullptr;
             m_Selection.Clear();
             m_LastDropped  = {};
             m_TotalDropped = 0;
@@ -89,7 +89,7 @@ namespace Desert::Editor::Core
             m_Selection.Clear();
             return;
         }
-        m_Topology = std::make_unique<const Geometry::FGroupTopology>( m_Mesh.get(), true );
+        m_Topology = std::make_unique<const Geometry::GroupTopology>( m_Mesh.get(), true );
         const Geometry::PruneReport dropped = m_Selection.Prune( *m_Mesh );
         if ( dropped.Total() > 0 )
         {
@@ -132,8 +132,8 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<bool>(
                  "Mesh Selection: {} needs the Select Elements tool on an entity with an editable mesh",
                  ToString( op ) );
-        const Geometry::FDynamicMesh3&  mesh     = *m_Mesh;
-        const Geometry::FGroupTopology& topology = *m_Topology;
+        const Geometry::DynamicMesh3&  mesh     = *m_Mesh;
+        const Geometry::GroupTopology& topology = *m_Topology;
         Geometry::ElementSelection next( m_Selection.Mode() );
         switch ( op )
         {

@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/SegmentTypes.h:446-477,504-517,556-584,617-622,
-// 661-663, adapted: namespace Desert::Geometry; only the TSegment3 members FMeshSurfacePath::EmbedSimplePath calls
+// 661-663, adapted: namespace Desert::Geometry; only the Segment3 members MeshSurfacePath::EmbedSimplePath calls
 // (two-point construction, end points, point distance, unit-range projection). TSegment2 is not ported.
 #pragma once
 
@@ -11,42 +11,42 @@ namespace Desert::Geometry
     /** 3D line segment stored as Center point, normalized Direction vector, and scalar Extent (half the length).
      */
     template <typename T>
-    struct TSegment3
+    struct Segment3
     {
-        TVector<T> Center    = TVector<T>::Zero();
-        TVector<T> Direction = TVector<T>::UnitX();
+        glm::vec<3, T> Center    = glm::vec<3, T>( 0 );
+        glm::vec<3, T> Direction = glm::vec<3, T>( 1, 0, 0 );
         T          Extent    = static_cast<T>( 0 );
 
-        TSegment3() = default;
+        Segment3() = default;
 
         // Extent's initializer normalizes Direction in place; declaration order puts Direction first.
-        TSegment3( const TVector<T>& Point0, const TVector<T>& Point1 )
+        Segment3( const glm::vec<3, T>& Point0, const glm::vec<3, T>& Point1 )
              : Center( T( .5 ) * ( Point0 + Point1 ) ), Direction( Point1 - Point0 ),
                Extent( T( .5 ) * Normalize( Direction ) )
         {
         }
 
-        TVector<T> StartPoint() const
+        glm::vec<3, T> StartPoint() const
         {
             return Center - Extent * Direction;
         }
 
-        TVector<T> EndPoint() const
+        glm::vec<3, T> EndPoint() const
         {
             return Center + Extent * Direction;
         }
 
         /** @return minimum squared distance from Point to the segment */
-        T DistanceSquared( const TVector<T>& Point ) const
+        T DistanceSquared( const glm::vec<3, T>& Point ) const
         {
             T DistParameter;
             return DistanceSquared( Point, DistParameter );
         }
 
         /** @param DistParameterOut calculated distance parameter in range [-Extent,Extent] */
-        T DistanceSquared( const TVector<T>& Point, T& DistParameterOut ) const
+        T DistanceSquared( const glm::vec<3, T>& Point, T& DistParameterOut ) const
         {
-            DistParameterOut = ( Point - Center ).Dot( Direction );
+            DistParameterOut = glm::dot( ( Point - Center ), Direction );
             if ( DistParameterOut >= Extent )
             {
                 DistParameterOut = Extent;
@@ -57,20 +57,20 @@ namespace Desert::Geometry
                 DistParameterOut = -Extent;
                 return Desert::Geometry::DistanceSquared( Point, StartPoint() );
             }
-            const TVector<T> ProjectedPt = Center + DistParameterOut * Direction;
+            const glm::vec<3, T> ProjectedPt = Center + DistParameterOut * Direction;
             return Desert::Geometry::DistanceSquared( ProjectedPt, Point );
         }
 
         /** @return projection of QueryPoint onto the segment, as a parameter in [0,1] from StartPoint to EndPoint
          */
-        T ProjectUnitRange( const TVector<T>& QueryPoint ) const
+        T ProjectUnitRange( const glm::vec<3, T>& QueryPoint ) const
         {
-            const T ProjT = ( QueryPoint - Center ).Dot( Direction );
+            const T ProjT = glm::dot( ( QueryPoint - Center ), Direction );
             const T Alpha = ( ( ProjT / Extent ) + static_cast<T>( 1 ) ) * static_cast<T>( 0.5 );
-            return TMathUtil<T>::Clamp( Alpha, static_cast<T>( 0 ), static_cast<T>( 1 ) );
+            return std::clamp<T>( Alpha, static_cast<T>( 0 ), static_cast<T>( 1 ) );
         }
     };
 
-    using FSegment3f = TSegment3<float>;
-    using FSegment3d = TSegment3<double>;
+    using Segment3f = Segment3<float>;
+    using Segment3d = Segment3<double>;
 } // namespace Desert::Geometry

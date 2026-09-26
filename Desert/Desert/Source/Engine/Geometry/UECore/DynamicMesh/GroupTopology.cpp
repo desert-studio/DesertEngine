@@ -3,24 +3,21 @@
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry, TBitArray is TArray<bool>; the boundary walk's
 // failure is kept as FailureReason; the extra-corner hook is not ported (see the header).
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
+#include <algorithm>
+
 using namespace Desert::Geometry;
 
-bool FGroupTopology::FGroupEdge::IsConnectedToVertices( const TSet<int>& Vertices ) const
+bool GroupTopology::GroupEdge::IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const
 {
-    for ( int VertexID : Span.Vertices )
-    {
-        if ( Vertices.Contains( VertexID ) )
-        {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of( Span.Vertices,
+                                [&Vertices]( const int VertexID ) { return Vertices.contains( VertexID ); } );
 }
 
-FGroupTopology::FGroupTopology( const FDynamicMesh3* MeshIn, bool bAutoBuild ) : Mesh( MeshIn )
+GroupTopology::GroupTopology( const DynamicMesh3* MeshIn, bool bAutoBuild ) : m_Mesh( MeshIn )
 {
     if ( bAutoBuild )
     {
@@ -28,53 +25,58 @@ FGroupTopology::FGroupTopology( const FDynamicMesh3* MeshIn, bool bAutoBuild ) :
     }
 }
 
-bool FGroupTopology::RebuildTopology()
+bool GroupTopology::RebuildTopology()
 {
-    Groups.Reset();
-    Edges.Reset();
-    Corners.Reset();
-    FailureReason.clear();
+    m_Groups.clear();
+    m_Edges.clear();
+    m_Corners.clear();
+    m_FailureReason.clear();
 
     int32_t MaxGroupID = 0;
-    for ( int32_t const Tid : Mesh->TriangleIndicesItr() )
+    for ( int32_t const Tid : m_Mesh->TriangleIndicesItr() )
     {
         MaxGroupID = std::max( GetGroupID( Tid ), MaxGroupID );
     }
     MaxGroupID++;
-    GroupIDToGroupIndexMap.Reset();
-    GroupIDToGroupIndexMap.Init( -1, MaxGroupID );
-    for ( int Tid : Mesh->TriangleIndicesItr() )
+    m_GroupIDToGroupIndexMap.clear();
+    m_GroupIDToGroupIndexMap.assign( MaxGroupID, -1 );
+    for ( const int Tid : m_Mesh->TriangleIndicesItr() )
     {
         const int GroupID = GetGroupID( Tid );
-        if ( GroupIDToGroupIndexMap[GroupID] == -1 )
+        if ( m_GroupIDToGroupIndexMap[GroupID] == -1 )
         {
-            FGroup NewGroup;
+            Group NewGroup;
             NewGroup.GroupID                = GroupID;
-            GroupIDToGroupIndexMap[GroupID] = Groups.Add( NewGroup );
+            m_Groups.push_back( NewGroup );
+            m_GroupIDToGroupIndexMap[GroupID] = static_cast<int32_t>( m_Groups.size() ) - 1;
         }
-        Groups[GroupIDToGroupIndexMap[GroupID]].Triangles.Add( Tid );
+        m_Groups[m_GroupIDToGroupIndexMap[GroupID]].Triangles.push_back( Tid );
     }
 
-    VertexIDToCornerIDMap = TMap<int32_t, int32_t>();
-    TMap<int32_t, int32_t> GroupEdgeMinEidToGroupEdgeID;
-    TArray<bool>       VertCheckedForCorner;
-    VertCheckedForCorner.Init( false, Mesh->MaxVertexID() );
-    for ( FGroup& Group : Groups )
+    m_VertexIDToCornerIDMap = std::unordered_map<int32_t, int32_t>();
+    std::unordered_map<int32_t, int32_t> GroupEdgeMinEidToGroupEdgeID;
+    std::vector<bool>                    VertCheckedForCorner;
+    VertCheckedForCorner.assign( m_Mesh->MaxVertexID(), false );
+    for ( Group& Group : m_Groups )
     {
         if ( !GenerateBoundaryAndGroupEdges( Group, GroupEdgeMinEidToGroupEdgeID, VertCheckedForCorner ) )
         {
             return false;
         }
-        for ( FGroupBoundary& Boundary : Group.Boundaries )
+        for ( GroupBoundary& Boundary : Group.Boundaries )
         {
             Boundary.bIsOnBoundary = false;
-            for ( int EdgeIndex : Boundary.GroupEdges )
+            for ( const int EdgeIndex : Boundary.GroupEdges )
             {
-                const FGroupEdge& Edge = Edges[EdgeIndex];
+                const GroupEdge& Edge         = m_Edges[EdgeIndex];
                 const int OtherGroupID = ( Edge.Groups.A == Group.GroupID ) ? Edge.Groups.B : Edge.Groups.A;
-                if ( OtherGroupID != FDynamicMesh3::InvalidID )
+                if ( OtherGroupID != DynamicMesh3::InvalidID )
                 {
-                    Boundary.NeighbourGroupIDs.AddUnique( OtherGroupID );
+                    if ( std::find( Boundary.NeighbourGroupIDs.begin(), Boundary.NeighbourGroupIDs.end(),
+                                    OtherGroupID ) == Boundary.NeighbourGroupIDs.end() )
+                    {
+                        Boundary.NeighbourGroupIDs.push_back( OtherGroupID );
+                    }
                 }
                 else
                 {
@@ -82,23 +84,27 @@ bool FGroupTopology::RebuildTopology()
                 }
             }
         }
-        for ( const FGroupBoundary& Boundary : Group.Boundaries )
+        for ( const GroupBoundary& Boundary : Group.Boundaries )
         {
-            for ( int NbrGroupID : Boundary.NeighbourGroupIDs )
+            for ( const int NbrGroupID : Boundary.NeighbourGroupIDs )
             {
-                Group.NeighbourGroupIDs.AddUnique( NbrGroupID );
+                if ( std::find( Group.NeighbourGroupIDs.begin(), Group.NeighbourGroupIDs.end(), NbrGroupID ) ==
+                     Group.NeighbourGroupIDs.end() )
+                {
+                    Group.NeighbourGroupIDs.push_back( NbrGroupID );
+                }
             }
         }
     }
     return true;
 }
 
-bool FGroupTopology::ShouldVertBeCorner( int VertexID ) const
+bool GroupTopology::ShouldVertBeCorner( int VertexID ) const
 {
     int NumGroupEdges = 0;
-    for ( int32_t const Eid : Mesh->VtxEdgesItr( VertexID ) )
+    for ( int32_t const Eid : m_Mesh->VtxEdgesItr( VertexID ) )
     {
-        const FIndex2i EdgeTris = Mesh->GetEdgeT( Eid );
+        const Index2i EdgeTris = m_Mesh->GetEdgeT( Eid );
         if ( EdgeTris.B == IndexConstants::InvalidID || GetGroupID( EdgeTris.A ) != GetGroupID( EdgeTris.B ) )
         {
             if ( ++NumGroupEdges > 2 )
@@ -110,14 +116,14 @@ bool FGroupTopology::ShouldVertBeCorner( int VertexID ) const
     return false;
 }
 
-bool FGroupTopology::GenerateBoundaryAndGroupEdges( FGroup&                 Group,
-                                                    TMap<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
-                                                    TArray<bool>&           VertCheckedForCorner )
+bool GroupTopology::GenerateBoundaryAndGroupEdges(
+     Group& Group, std::unordered_map<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
+     std::vector<bool>& VertCheckedForCorner )
 {
-    FMeshRegionBoundaryLoops BdryLoops( Mesh, Group.Triangles, true );
-    if ( BdryLoops.bFailed )
+    MeshRegionBoundaryLoops BdryLoops( m_Mesh, Group.Triangles, true );
+    if ( BdryLoops.m_bFailed )
     {
-        FailureReason = "group " + std::to_string( Group.GroupID ) + ": " + BdryLoops.FailureReason;
+        m_FailureReason = "group " + std::to_string( Group.GroupID ) + ": " + BdryLoops.m_FailureReason;
         return false;
     }
 
@@ -125,58 +131,60 @@ bool FGroupTopology::GenerateBoundaryAndGroupEdges( FGroup&                 Grou
     {
         if ( VertCheckedForCorner[Vid] )
         {
-            return VertexIDToCornerIDMap.Contains( Vid );
+            return m_VertexIDToCornerIDMap.contains( Vid );
         }
         VertCheckedForCorner[Vid] = true;
         if ( !ShouldVertBeCorner( Vid ) )
         {
             return false;
         }
-        const int32_t CornerID     = Corners.Emplace();
-        Corners[CornerID].VertexID = Vid;
-        GetAllVertexGroups( Vid, Corners[CornerID].NeighbourGroupIDs );
-        VertexIDToCornerIDMap.Add( Vid, CornerID );
+        m_Corners.emplace_back();
+        const int32_t CornerID       = static_cast<int32_t>( m_Corners.size() ) - 1;
+        m_Corners[CornerID].VertexID = Vid;
+        GetAllVertexGroups( Vid, m_Corners[CornerID].NeighbourGroupIDs );
+        m_VertexIDToCornerIDMap.insert_or_assign( Vid, CornerID );
         return true;
     };
 
-    const int NumLoops = BdryLoops.Loops.Num();
-    Group.Boundaries.SetNum( NumLoops );
+    const int NumLoops = static_cast<int32_t>( BdryLoops.m_Loops.size() );
+    Group.Boundaries.resize( NumLoops );
     for ( int Li = 0; Li < NumLoops; ++Li )
     {
-        const FEdgeLoop& Loop     = BdryLoops.Loops[Li];
-        FGroupBoundary&  Boundary = Group.Boundaries[Li];
+        const EdgeLoop& Loop     = BdryLoops.m_Loops[Li];
+        GroupBoundary&  Boundary = Group.Boundaries[Li];
 
-        TArray<int> CornerIndices;
-        const int   NumV = Loop.Vertices.Num();
+        std::vector<int> CornerIndices;
+        const int        NumV = static_cast<int32_t>( Loop.Vertices.size() );
         for ( int i = 0; i < NumV; ++i )
         {
             if ( CheckForCornerAndCreateIfNeeded( Loop.Vertices[i] ) )
             {
-                CornerIndices.Add( i );
+                CornerIndices.push_back( i );
             }
         }
 
         // A loop with no corners is one closed group edge, identified by its smallest mesh edge ID.
-        if ( CornerIndices.Num() == 0 )
+        if ( CornerIndices.empty() )
         {
             const int32_t  MinEid    = *std::min_element( Loop.Edges.begin(), Loop.Edges.end() );
-            const int32_t* Existing  = GroupEdgeMinEidToGroupEdgeID.Find( MinEid );
-            int          EdgeIndex = Existing ? *Existing : IndexConstants::InvalidID;
+            const int32_t* Existing  = FindValue( GroupEdgeMinEidToGroupEdgeID, MinEid );
+            int            EdgeIndex = ( Existing != nullptr ) ? *Existing : IndexConstants::InvalidID;
             if ( EdgeIndex == IndexConstants::InvalidID )
             {
-                FGroupEdge Edge;
+                GroupEdge Edge;
                 Edge.Groups = MakeEdgeGroupsPair( Loop.Edges[0] );
-                Edge.Span.InitializeFromEdges( *Mesh, Loop.Edges );
-                Edge.EndpointCorners = FIndex2i( IndexConstants::InvalidID, IndexConstants::InvalidID );
-                EdgeIndex            = Edges.Add( Edge );
-                GroupEdgeMinEidToGroupEdgeID.Add( MinEid, EdgeIndex );
+                Edge.Span.InitializeFromEdges( *m_Mesh, Loop.Edges );
+                Edge.EndpointCorners = Index2i( IndexConstants::InvalidID, IndexConstants::InvalidID );
+                m_Edges.push_back( Edge );
+                EdgeIndex = static_cast<int32_t>( m_Edges.size() ) - 1;
+                GroupEdgeMinEidToGroupEdgeID.insert_or_assign( MinEid, EdgeIndex );
             }
-            Boundary.GroupEdges.Add( EdgeIndex );
+            Boundary.GroupEdges.push_back( EdgeIndex );
             continue;
         }
 
-        const int NumSpans = CornerIndices.Num();
-        CornerIndices.Add( CornerIndices[0] );
+        const int NumSpans = static_cast<int32_t>( CornerIndices.size() );
+        CornerIndices.push_back( CornerIndices[0] );
         for ( int k = 0; k < NumSpans; ++k )
         {
             const int32_t StartIndex   = CornerIndices[k];
@@ -191,86 +199,90 @@ bool FGroupTopology::GenerateBoundaryAndGroupEdges( FGroup&                 Grou
             {
                 MinEid = std::min( MinEid, Loop.Edges[( StartIndex + i ) % NumV] );
             }
-            if ( const int32_t* Existing = GroupEdgeMinEidToGroupEdgeID.Find( MinEid ) )
+            if ( const int32_t* Existing = FindValue( GroupEdgeMinEidToGroupEdgeID, MinEid ) )
             {
-                Boundary.GroupEdges.Add( *Existing );
+                Boundary.GroupEdges.push_back( *Existing );
                 continue;
             }
-            FGroupEdge Edge;
+            GroupEdge Edge;
             Edge.Groups = MakeEdgeGroupsPair( Loop.Edges[StartIndex] );
-            TArray<int> SpanVertices;
+            std::vector<int> SpanVertices;
+            SpanVertices.reserve( NumSpanEdges + 1 );
             for ( int32_t i = 0; i < NumSpanEdges + 1; ++i )
             {
-                SpanVertices.Add( Loop.Vertices[( StartIndex + i ) % NumV] );
+                SpanVertices.push_back( Loop.Vertices[( StartIndex + i ) % NumV] );
             }
-            Edge.Span.InitializeFromVertices( *Mesh, SpanVertices );
-            Edge.EndpointCorners = FIndex2i( GetCornerIDFromVertexID( SpanVertices[0] ),
-                                             GetCornerIDFromVertexID( SpanVertices.Last() ) );
-            UE_CHECK( Edge.EndpointCorners.A != IndexConstants::InvalidID &&
-                      Edge.EndpointCorners.B != IndexConstants::InvalidID );
-            const int EdgeIndex = Edges.Add( Edge );
-            Boundary.GroupEdges.Add( EdgeIndex );
-            GroupEdgeMinEidToGroupEdgeID.Add( MinEid, EdgeIndex );
+            Edge.Span.InitializeFromVertices( *m_Mesh, SpanVertices );
+            Edge.EndpointCorners = Index2i( GetCornerIDFromVertexID( SpanVertices[0] ),
+                                            GetCornerIDFromVertexID( SpanVertices.back() ) );
+            assert( Edge.EndpointCorners.A != IndexConstants::InvalidID &&
+                    Edge.EndpointCorners.B != IndexConstants::InvalidID );
+            m_Edges.push_back( Edge );
+            const int EdgeIndex = static_cast<int32_t>( m_Edges.size() ) - 1;
+            Boundary.GroupEdges.push_back( EdgeIndex );
+            GroupEdgeMinEidToGroupEdgeID.insert_or_assign( MinEid, EdgeIndex );
         }
     }
     return true;
 }
 
-FIndex2i FGroupTopology::MakeEdgeGroupsPair( int MeshEdgeID ) const
+Index2i GroupTopology::MakeEdgeGroupsPair( int MeshEdgeID ) const
 {
-    const FIndex2i EdgeTris = Mesh->GetEdgeT( MeshEdgeID );
+    const Index2i  EdgeTris = m_Mesh->GetEdgeT( MeshEdgeID );
     const int      G0       = GetGroupID( EdgeTris.A );
     if ( EdgeTris.B == IndexConstants::InvalidID )
     {
-        return FIndex2i( G0, IndexConstants::InvalidID );
+        return { G0, IndexConstants::InvalidID };
     }
     const int G1 = GetGroupID( EdgeTris.B );
-    return ( G0 < G1 ) ? FIndex2i( G0, G1 ) : FIndex2i( G1, G0 );
+    return ( G0 < G1 ) ? Index2i( G0, G1 ) : Index2i( G1, G0 );
 }
 
-int FGroupTopology::GetCornerVertexID( int CornerID ) const
+int GroupTopology::GetCornerVertexID( int CornerID ) const
 {
-    UE_CHECK( CornerID >= 0 && CornerID < Corners.Num() );
-    return Corners[CornerID].VertexID;
+    assert( CornerID >= 0 && CornerID < static_cast<int32_t>( m_Corners.size() ) );
+    return m_Corners[CornerID].VertexID;
 }
 
-int32_t FGroupTopology::GetCornerIDFromVertexID( int32_t VertexID ) const
+int32_t GroupTopology::GetCornerIDFromVertexID( int32_t VertexID ) const
 {
-    const int32_t* Found = VertexIDToCornerIDMap.Find( VertexID );
+    const int32_t* Found = FindValue( m_VertexIDToCornerIDMap, VertexID );
     return ( Found == nullptr ) ? IndexConstants::InvalidID : *Found;
 }
 
-const FGroupTopology::FGroup* FGroupTopology::FindGroupByID( int GroupID ) const
+const GroupTopology::Group* GroupTopology::FindGroupByID( int GroupID ) const
 {
-    if ( GroupID < 0 || GroupID >= GroupIDToGroupIndexMap.Num() || GroupIDToGroupIndexMap[GroupID] == -1 )
+    if ( GroupID < 0 || GroupID >= static_cast<int32_t>( m_GroupIDToGroupIndexMap.size() ) ||
+         m_GroupIDToGroupIndexMap[GroupID] == -1 )
     {
         return nullptr;
     }
-    return &Groups[GroupIDToGroupIndexMap[GroupID]];
+    return &m_Groups[m_GroupIDToGroupIndexMap[GroupID]];
 }
 
-const TArray<int>& FGroupTopology::GetGroupTriangles( int GroupID ) const
+const std::vector<int>& GroupTopology::GetGroupTriangles( int GroupID ) const
 {
-    const FGroup* Found = FindGroupByID( GroupID );
-    return ( Found != nullptr ) ? Found->Triangles : EmptyArray;
+    const Group* Found = FindGroupByID( GroupID );
+    return ( Found != nullptr ) ? Found->Triangles : m_EmptyArray;
 }
 
-const TArray<int>& FGroupTopology::GetGroupNbrGroups( int GroupID ) const
+const std::vector<int>& GroupTopology::GetGroupNbrGroups( int GroupID ) const
 {
-    const FGroup* Found = FindGroupByID( GroupID );
-    return ( Found != nullptr ) ? Found->NeighbourGroupIDs : EmptyArray;
+    const Group* Found = FindGroupByID( GroupID );
+    return ( Found != nullptr ) ? Found->NeighbourGroupIDs : m_EmptyArray;
 }
 
-int FGroupTopology::FindGroupEdgeID( int MeshEdgeID ) const
+int GroupTopology::FindGroupEdgeID( int MeshEdgeID ) const
 {
-    const FGroup* Group = FindGroupByID( GetGroupID( Mesh->GetEdgeT( MeshEdgeID ).A ) );
+    const Group* Group = FindGroupByID( GetGroupID( m_Mesh->GetEdgeT( MeshEdgeID ).A ) );
     if ( Group != nullptr )
     {
-        for ( const FGroupBoundary& Boundary : Group->Boundaries )
+        for ( const GroupBoundary& Boundary : Group->Boundaries )
         {
-            for ( int EdgeID : Boundary.GroupEdges )
+            for ( const int EdgeID : Boundary.GroupEdges )
             {
-                if ( Edges[EdgeID].Span.Edges.Contains( MeshEdgeID ) )
+                if ( ( std::find( m_Edges[EdgeID].Span.Edges.begin(), m_Edges[EdgeID].Span.Edges.end(),
+                                  MeshEdgeID ) != m_Edges[EdgeID].Span.Edges.end() ) )
                 {
                     return EdgeID;
                 }
@@ -280,29 +292,29 @@ int FGroupTopology::FindGroupEdgeID( int MeshEdgeID ) const
     return -1;
 }
 
-const TArray<int>& FGroupTopology::GetGroupEdgeVertices( int GroupEdgeID ) const
+const std::vector<int>& GroupTopology::GetGroupEdgeVertices( int GroupEdgeID ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < Edges.Num() );
-    return Edges[GroupEdgeID].Span.Vertices;
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( m_Edges.size() ) );
+    return m_Edges[GroupEdgeID].Span.Vertices;
 }
 
-const TArray<int>& FGroupTopology::GetGroupEdgeEdges( int GroupEdgeID ) const
+const std::vector<int>& GroupTopology::GetGroupEdgeEdges( int GroupEdgeID ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < Edges.Num() );
-    return Edges[GroupEdgeID].Span.Edges;
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( m_Edges.size() ) );
+    return m_Edges[GroupEdgeID].Span.Edges;
 }
 
-void FGroupTopology::FindEdgeNbrGroups( int GroupEdgeID, TArray<int>& GroupsOut ) const
+void GroupTopology::FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const
 {
-    const TArray<int>& Vertices = GetGroupEdgeVertices( GroupEdgeID );
+    const std::vector<int>& Vertices = GetGroupEdgeVertices( GroupEdgeID );
     FindVertexNbrGroups( Vertices[0], GroupsOut );
-    FindVertexNbrGroups( Vertices[Vertices.Num() - 1], GroupsOut );
+    FindVertexNbrGroups( Vertices[static_cast<int32_t>( Vertices.size() ) - 1], GroupsOut );
 }
 
-void FGroupTopology::FindEdgeNbrEdges( int GroupEdgeID, TArray<int>& EdgesOut ) const
+void GroupTopology::FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < Edges.Num() );
-    const FGroupEdge& Edge = Edges[GroupEdgeID];
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( m_Edges.size() ) );
+    const GroupEdge& Edge = m_Edges[GroupEdgeID];
     if ( Edge.EndpointCorners.A != IndexConstants::InvalidID )
     {
         FindCornerNbrEdges( Edge.EndpointCorners.A, EdgesOut );
@@ -314,20 +326,20 @@ void FGroupTopology::FindEdgeNbrEdges( int GroupEdgeID, TArray<int>& EdgesOut ) 
 }
 
 // UE GroupTopology.cpp:357-377.
-double FGroupTopology::GetEdgeArcLength( int32_t GroupEdgeID, TArray<double>* PerVertexLengthsOut ) const
+double GroupTopology::GetEdgeArcLength( int32_t GroupEdgeID, std::vector<double>* PerVertexLengthsOut ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < Edges.Num() );
-    const TArray<int>& Vertices = GetGroupEdgeVertices( GroupEdgeID );
-    const int32_t      NumV     = Vertices.Num();
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( m_Edges.size() ) );
+    const std::vector<int>& Vertices = GetGroupEdgeVertices( GroupEdgeID );
+    const auto              NumV     = static_cast<int32_t>( Vertices.size() );
     if ( PerVertexLengthsOut != nullptr )
     {
-        PerVertexLengthsOut->SetNum( NumV );
+        PerVertexLengthsOut->resize( NumV );
         ( *PerVertexLengthsOut )[0] = 0.0;
     }
     double AccumLength = 0;
     for ( int32_t k = 1; k < NumV; ++k )
     {
-        AccumLength += Distance( Mesh->GetVertex( Vertices[k] ), Mesh->GetVertex( Vertices[k - 1] ) );
+        AccumLength += Distance( m_Mesh->GetVertex( Vertices[k] ), m_Mesh->GetVertex( Vertices[k - 1] ) );
         if ( PerVertexLengthsOut != nullptr )
         {
             ( *PerVertexLengthsOut )[k] = AccumLength;
@@ -336,48 +348,51 @@ double FGroupTopology::GetEdgeArcLength( int32_t GroupEdgeID, TArray<double>* Pe
     return AccumLength;
 }
 
-bool FGroupTopology::IsBoundaryEdge( int32_t GroupEdgeID ) const
+bool GroupTopology::IsBoundaryEdge( int32_t GroupEdgeID ) const
 {
-    return Mesh->IsBoundaryEdge( Edges[GroupEdgeID].Span.Edges[0] );
+    return m_Mesh->IsBoundaryEdge( m_Edges[GroupEdgeID].Span.Edges[0] );
 }
 
-bool FGroupTopology::IsSimpleGroupEdge( int32_t GroupEdgeID ) const
+bool GroupTopology::IsSimpleGroupEdge( int32_t GroupEdgeID ) const
 {
-    return Edges[GroupEdgeID].Span.Edges.Num() == 1;
+    return static_cast<int32_t>( m_Edges[GroupEdgeID].Span.Edges.size() ) == 1;
 }
 
-bool FGroupTopology::IsIsolatedLoop( int32_t GroupEdgeID ) const
+bool GroupTopology::IsIsolatedLoop( int32_t GroupEdgeID ) const
 {
-    return Edges[GroupEdgeID].EndpointCorners.A == IndexConstants::InvalidID;
+    return m_Edges[GroupEdgeID].EndpointCorners.A == IndexConstants::InvalidID;
 }
 
-void FGroupTopology::FindCornerNbrGroups( int CornerID, TArray<int>& GroupsOut ) const
+void GroupTopology::FindCornerNbrGroups( int CornerID, std::vector<int>& GroupsOut ) const
 {
-    UE_CHECK( CornerID >= 0 && CornerID < Corners.Num() );
-    for ( int GroupID : Corners[CornerID].NeighbourGroupIDs )
+    assert( CornerID >= 0 && CornerID < static_cast<int32_t>( m_Corners.size() ) );
+    for ( const int GroupID : m_Corners[CornerID].NeighbourGroupIDs )
     {
-        GroupsOut.AddUnique( GroupID );
+        if ( std::find( GroupsOut.begin(), GroupsOut.end(), GroupID ) == GroupsOut.end() )
+        {
+            GroupsOut.push_back( GroupID );
+        }
     }
 }
 
-void FGroupTopology::ForCornerNbrEdges( int                                          CornerID,
-                                        const std::function<bool( int32_t EdgeID )>& ReturnTrueToContinue ) const
+void GroupTopology::ForCornerNbrEdges( int                                          CornerID,
+                                       const std::function<bool( int32_t EdgeID )>& ReturnTrueToContinue ) const
 {
-    UE_CHECK( CornerID >= 0 && CornerID < Corners.Num() );
-    TSet<int32_t> ProcessedEdges;
-    for ( int GroupID : Corners[CornerID].NeighbourGroupIDs )
+    assert( CornerID >= 0 && CornerID < static_cast<int32_t>( m_Corners.size() ) );
+    std::unordered_set<int32_t> ProcessedEdges;
+    for ( const int GroupID : m_Corners[CornerID].NeighbourGroupIDs )
     {
-        for ( const FGroupBoundary& Boundary : FindGroupByID( GroupID )->Boundaries )
+        for ( const GroupBoundary& Boundary : FindGroupByID( GroupID )->Boundaries )
         {
             for ( int32_t const EdgeID : Boundary.GroupEdges )
             {
-                const FGroupEdge& Edge = Edges[EdgeID];
+                const GroupEdge& Edge = m_Edges[EdgeID];
                 if ( ( Edge.EndpointCorners.A != CornerID && Edge.EndpointCorners.B != CornerID ) ||
-                     ProcessedEdges.Contains( EdgeID ) )
+                     ProcessedEdges.contains( EdgeID ) )
                 {
                     continue;
                 }
-                ProcessedEdges.Add( EdgeID );
+                ProcessedEdges.insert( EdgeID );
                 if ( !ReturnTrueToContinue( EdgeID ) )
                 {
                     return;
@@ -387,86 +402,105 @@ void FGroupTopology::ForCornerNbrEdges( int                                     
     }
 }
 
-void FGroupTopology::FindCornerNbrEdges( int CornerID, TArray<int>& EdgesOut ) const
-{
-    ForCornerNbrEdges( CornerID, [&EdgesOut]( int32_t EdgeID ) { return EdgesOut.Add( EdgeID ) >= 0; } );
-}
-
-void FGroupTopology::FindCornerNbrCorners( int CornerID, TArray<int>& CornersOut ) const
+void GroupTopology::FindCornerNbrEdges( int CornerID, std::vector<int>& EdgesOut ) const
 {
     ForCornerNbrEdges( CornerID,
-                       [&]( int32_t EdgeID )
+                       [&EdgesOut]( int32_t EdgeID )
                        {
-                           CornersOut.AddUnique( Edges[EdgeID].EndpointCorners.OtherElement( CornerID ) );
+                           EdgesOut.push_back( EdgeID );
                            return true;
                        } );
 }
 
-void FGroupTopology::FindVertexNbrGroups( int VertexID, TArray<int>& GroupsOut ) const
+void GroupTopology::FindCornerNbrCorners( int CornerID, std::vector<int>& CornersOut ) const
 {
-    for ( int Tid : Mesh->VtxTrianglesItr( VertexID ) )
+    ForCornerNbrEdges( CornerID,
+                       [&]( int32_t EdgeID )
+                       {
+                           if ( std::find( CornersOut.begin(), CornersOut.end(),
+                                           m_Edges[EdgeID].EndpointCorners.OtherElement( CornerID ) ) ==
+                                CornersOut.end() )
+                           {
+                               CornersOut.push_back( m_Edges[EdgeID].EndpointCorners.OtherElement( CornerID ) );
+                           }
+                           return true;
+                       } );
+}
+
+void GroupTopology::FindVertexNbrGroups( int VertexID, std::vector<int>& GroupsOut ) const
+{
+    for ( const int Tid : m_Mesh->VtxTrianglesItr( VertexID ) )
     {
-        GroupsOut.AddUnique( GetGroupID( Tid ) );
+        if ( std::find( GroupsOut.begin(), GroupsOut.end(), GetGroupID( Tid ) ) == GroupsOut.end() )
+        {
+            GroupsOut.push_back( GetGroupID( Tid ) );
+        }
     }
 }
 
-void FGroupTopology::CollectGroupVertices( int GroupID, TSet<int>& Vertices ) const
+void GroupTopology::CollectGroupVertices( int GroupID, std::unordered_set<int>& Vertices ) const
 {
-    for ( int TriID : GetGroupTriangles( GroupID ) )
+    for ( const int TriID : GetGroupTriangles( GroupID ) )
     {
-        const FIndex3i TriVerts = Mesh->GetTriangle( TriID );
-        Vertices.Add( TriVerts.A );
-        Vertices.Add( TriVerts.B );
-        Vertices.Add( TriVerts.C );
+        const Index3i TriVerts = m_Mesh->GetTriangle( TriID );
+        Vertices.insert( TriVerts.A );
+        Vertices.insert( TriVerts.B );
+        Vertices.insert( TriVerts.C );
     }
 }
 
-void FGroupTopology::CollectGroupBoundaryVertices( int GroupID, TSet<int>& Vertices ) const
+void GroupTopology::CollectGroupBoundaryVertices( int GroupID, std::unordered_set<int>& Vertices ) const
 {
-    const FGroup* Group = FindGroupByID( GroupID );
+    const Group* Group = FindGroupByID( GroupID );
     if ( Group == nullptr )
     {
         return;
     }
-    for ( const FGroupBoundary& Boundary : Group->Boundaries )
+    for ( const GroupBoundary& Boundary : Group->Boundaries )
     {
-        for ( int EdgeIndex : Boundary.GroupEdges )
+        for ( const int EdgeIndex : Boundary.GroupEdges )
         {
-            for ( int Vid : Edges[EdgeIndex].Span.Vertices )
+            for ( const int Vid : m_Edges[EdgeIndex].Span.Vertices )
             {
-                Vertices.Add( Vid );
+                Vertices.insert( Vid );
             }
         }
     }
 }
 
-void FGroupTopology::GetSelectedTriangles( const FGroupTopologySelection& Selection,
-                                           TArray<int32_t>&               Triangles ) const
+void GroupTopology::GetSelectedTriangles( const GroupTopologySelection& Selection,
+                                          std::vector<int32_t>&         Triangles ) const
 {
     for ( int32_t const GroupID : Selection.SelectedGroupIDs )
     {
         for ( int32_t const TriangleID : GetGroupTriangles( GroupID ) )
         {
-            Triangles.Add( TriangleID );
+            Triangles.push_back( TriangleID );
         }
     }
 }
 
-void FGroupTopology::GetAllVertexGroups( int32_t VertexID, TArray<int32_t>& GroupsOut ) const
+void GroupTopology::GetAllVertexGroups( int32_t VertexID, std::vector<int32_t>& GroupsOut ) const
 {
-    for ( int32_t const EdgeID : Mesh->VtxEdgesItr( VertexID ) )
+    for ( int32_t const EdgeID : m_Mesh->VtxEdgesItr( VertexID ) )
     {
-        const FIndex2i EdgeTris = Mesh->GetEdgeT( EdgeID );
-        GroupsOut.AddUnique( GetGroupID( EdgeTris.A ) );
-        if ( EdgeTris.B != FDynamicMesh3::InvalidID )
+        const Index2i EdgeTris = m_Mesh->GetEdgeT( EdgeID );
+        if ( std::find( GroupsOut.begin(), GroupsOut.end(), GetGroupID( EdgeTris.A ) ) == GroupsOut.end() )
         {
-            GroupsOut.AddUnique( GetGroupID( EdgeTris.B ) );
+            GroupsOut.push_back( GetGroupID( EdgeTris.A ) );
+        }
+        if ( EdgeTris.B != DynamicMesh3::InvalidID )
+        {
+            if ( std::find( GroupsOut.begin(), GroupsOut.end(), GetGroupID( EdgeTris.B ) ) == GroupsOut.end() )
+            {
+                GroupsOut.push_back( GetGroupID( EdgeTris.B ) );
+            }
         }
     }
 }
 
-FTriangleGroupTopology::FTriangleGroupTopology( const FDynamicMesh3* MeshIn, bool bAutoBuild )
-     : FGroupTopology( MeshIn, false )
+TriangleGroupTopology::TriangleGroupTopology( const DynamicMesh3* MeshIn, bool bAutoBuild )
+     : GroupTopology( MeshIn, false )
 {
     if ( bAutoBuild )
     {
@@ -474,64 +508,67 @@ FTriangleGroupTopology::FTriangleGroupTopology( const FDynamicMesh3* MeshIn, boo
     }
 }
 
-bool FTriangleGroupTopology::RebuildTopology()
+bool TriangleGroupTopology::RebuildTopology()
 {
-    Groups.Reset();
-    Edges.Reset();
-    Corners.Reset();
-    FailureReason.clear();
-    GroupIDToGroupIndexMap.Reset();
-    GroupIDToGroupIndexMap.Init( -1, Mesh->MaxTriangleID() );
-    for ( int Tid : Mesh->TriangleIndicesItr() )
+    m_Groups.clear();
+    m_Edges.clear();
+    m_Corners.clear();
+    m_FailureReason.clear();
+    m_GroupIDToGroupIndexMap.clear();
+    m_GroupIDToGroupIndexMap.assign( m_Mesh->MaxTriangleID(), -1 );
+    for ( const int Tid : m_Mesh->TriangleIndicesItr() )
     {
-        FGroup NewGroup;
+        Group NewGroup;
         NewGroup.GroupID = Tid;
-        NewGroup.Triangles.Add( Tid );
-        GroupIDToGroupIndexMap[Tid] = Groups.Add( NewGroup );
+        NewGroup.Triangles.push_back( Tid );
+        m_Groups.push_back( NewGroup );
+        m_GroupIDToGroupIndexMap[Tid] = static_cast<int32_t>( m_Groups.size() ) - 1;
     }
-    VertexIDToCornerIDMap = TMap<int32_t, int32_t>();
-    for ( int Vid : Mesh->VertexIndicesItr() )
+    m_VertexIDToCornerIDMap = std::unordered_map<int32_t, int32_t>();
+    for ( const int Vid : m_Mesh->VertexIndicesItr() )
     {
-        FCorner Corner;
+        Corner Corner;
         Corner.VertexID = Vid;
-        VertexIDToCornerIDMap.Add( Vid, Corners.Add( Corner ) );
+        m_Corners.push_back( Corner );
+        m_VertexIDToCornerIDMap.insert_or_assign( Vid, static_cast<int32_t>( m_Corners.size() ) - 1 );
     }
-    for ( FCorner& Corner : Corners )
+    for ( Corner& Corner : m_Corners )
     {
         GetAllVertexGroups( Corner.VertexID, Corner.NeighbourGroupIDs );
     }
-    TArray<int32_t> MeshEdgeToGroupEdge;
-    MeshEdgeToGroupEdge.Init( INDEX_NONE, Mesh->MaxEdgeID() );
-    for ( FGroup& Group : Groups )
+    std::vector<int32_t> MeshEdgeToGroupEdge;
+    MeshEdgeToGroupEdge.assign( m_Mesh->MaxEdgeID(), INDEX_NONE );
+    for ( Group& Group : m_Groups )
     {
-        Group.Boundaries.SetNum( 1 );
-        FGroupBoundary& Boundary0 = Group.Boundaries[0];
-        const FIndex3i  TriEdges  = Mesh->GetTriEdges( Group.GroupID );
+        Group.Boundaries.resize( 1 );
+        GroupBoundary& Boundary0 = Group.Boundaries[0];
+        const Index3i  TriEdges  = m_Mesh->GetTriEdges( Group.GroupID );
         for ( int j = 0; j < 3; ++j )
         {
             int& GroupEdgeIndex = MeshEdgeToGroupEdge[TriEdges[j]];
             if ( GroupEdgeIndex == INDEX_NONE )
             {
-                FGroupEdge NewGroupEdge;
+                GroupEdge NewGroupEdge;
                 NewGroupEdge.Groups      = MakeEdgeGroupsPair( TriEdges[j] );
-                const FIndex2i EdgeVerts = Mesh->GetEdgeV( TriEdges[j] );
-                TArray<int>    SpanVertices;
-                SpanVertices.Add( EdgeVerts.A );
-                SpanVertices.Add( EdgeVerts.B );
-                NewGroupEdge.Span.InitializeFromVertices( *Mesh, SpanVertices );
+                const Index2i    EdgeVerts = m_Mesh->GetEdgeV( TriEdges[j] );
+                std::vector<int> SpanVertices;
+                SpanVertices.push_back( EdgeVerts.A );
+                SpanVertices.push_back( EdgeVerts.B );
+                NewGroupEdge.Span.InitializeFromVertices( *m_Mesh, SpanVertices );
                 NewGroupEdge.EndpointCorners =
-                     FIndex2i( GetCornerIDFromVertexID( EdgeVerts.A ), GetCornerIDFromVertexID( EdgeVerts.B ) );
-                GroupEdgeIndex = Edges.Add( NewGroupEdge );
+                     Index2i( GetCornerIDFromVertexID( EdgeVerts.A ), GetCornerIDFromVertexID( EdgeVerts.B ) );
+                m_Edges.push_back( NewGroupEdge );
+                GroupEdgeIndex = static_cast<int32_t>( m_Edges.size() ) - 1;
             }
-            Boundary0.GroupEdges.Add( GroupEdgeIndex );
+            Boundary0.GroupEdges.push_back( GroupEdgeIndex );
         }
-        const FIndex3i TriNbrTris = Mesh->GetTriNeighbourTris( Group.GroupID );
+        const Index3i TriNbrTris = m_Mesh->GetTriNeighbourTris( Group.GroupID );
         for ( int j = 0; j < 3; ++j )
         {
-            if ( TriNbrTris[j] != FDynamicMesh3::InvalidID )
+            if ( TriNbrTris[j] != DynamicMesh3::InvalidID )
             {
-                Group.NeighbourGroupIDs.Add( TriNbrTris[j] );
-                Boundary0.NeighbourGroupIDs.Add( TriNbrTris[j] );
+                Group.NeighbourGroupIDs.push_back( TriNbrTris[j] );
+                Boundary0.NeighbourGroupIDs.push_back( TriNbrTris[j] );
             }
             else
             {

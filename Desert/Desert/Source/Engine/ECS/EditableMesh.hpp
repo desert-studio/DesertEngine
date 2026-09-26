@@ -6,7 +6,7 @@
 
 namespace Desert::Geometry
 {
-    class FDynamicMesh3;
+    class DynamicMesh3;
 }
 
 namespace Desert::ECS
@@ -26,8 +26,8 @@ namespace Desert::ECS
     // one submesh per MaterialID). REFUSED, with the component untouched, when the conversion refuses (a
     // live triangle unset in a carried layer), when the mesh has no triangle (there is nothing to draw, and
     // an empty render mesh would leave the entity invisible with no word), or when the upload fails.
-    [[nodiscard]] Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                           component,
-                                                         std::shared_ptr<const Geometry::FDynamicMesh3> mesh );
+    [[nodiscard]] Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                          component,
+                                                         std::shared_ptr<const Geometry::DynamicMesh3> mesh );
 
     // Drops both: the entity falls back to its asset handle or primitive. What every "the mesh is now
     // something else" path calls (a primitive picked in Details, a photogrammetry result, a preview reset).

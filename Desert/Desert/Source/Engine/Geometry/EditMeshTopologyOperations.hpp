@@ -10,9 +10,9 @@
 
 namespace Desert::Geometry
 {
-    // OPERATIONS THAT RE-CUT THE SURFACE - the second half of UE's PolyEdit verbs: Bevel (FMeshBevel), Cut (a
+    // OPERATIONS THAT RE-CUT THE SURFACE - the second half of UE's PolyEdit verbs: Bevel (MeshBevel), Cut (a
     // plane cut in the manner of FMeshPlaneCut, applied to polygroups) and Clean (FMeshClean-like weld /
-    // degenerate / isolated repair). Insert Edge Loop is the ported FGroupEdgeInserter (MeshRegionOperation.hpp).
+    // degenerate / isolated repair). Insert Edge Loop is the ported GroupEdgeInserter (MeshRegionOperation.hpp).
     //
     // Same contract as EditMeshOperations.hpp: pure functions, the input is not touched, the result is a NEW
     // EditMesh plus the region the operation produced; a refusal leaves nothing half-done and names what and

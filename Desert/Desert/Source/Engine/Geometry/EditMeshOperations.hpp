@@ -11,7 +11,7 @@
 namespace Desert::Geometry
 {
     // OPERATIONS ON A MESH ELEMENT SELECTION that still run on the EditMesh: Delete and Offset. Extrude,
-    // Push/Pull, Inset and Outset run on FDynamicMesh3 through the ported FOffsetMeshRegion / FInsetMeshRegion
+    // Push/Pull, Inset and Outset run on DynamicMesh3 through the ported OffsetMeshRegion / InsetMeshRegion
     // (Engine/Geometry/UECore/Operations, P11); the editor calls those directly.
     //
     // Pure functions: the input mesh is not touched, the result is a NEW EditMesh plus the operated region

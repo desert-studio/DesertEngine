@@ -9,10 +9,10 @@ namespace Desert::Geometry
 {
 
     /**
-     * EMeshResult is returned by various mesh/graph operations to either indicate success,
+     * MeshResult is returned by various mesh/graph operations to either indicate success,
      * or communicate which type of error ocurred (some errors are recoverable, and some not).
      */
-    enum class EMeshResult
+    enum class MeshResult
     {
         Ok                  = 0,
         Failed_NotAVertex   = 1,
@@ -47,11 +47,11 @@ namespace Desert::Geometry
     };
 
     /**
-     * EOperationValidationResult is meant to be returned by Validate() functions of
+     * OperationValidationResult is meant to be returned by Validate() functions of
      * Operation classes (eg like ExtrudeMesh, etc) to indicate whether the operation
      * can be successfully applied.
      */
-    enum class EOperationValidationResult
+    enum class OperationValidationResult
     {
         Ok                   = 0,
         Failed_UnknownReason = 1,
@@ -60,10 +60,10 @@ namespace Desert::Geometry
     };
 
     /**
-     * EValidityCheckFailMode is passed to CheckValidity() functions of various classes
+     * ValidityCheckFailMode is passed to CheckValidity() functions of various classes
      * to specify how validity checks should fail.
      */
-    enum class EValidityCheckFailMode
+    enum class ValidityCheckFailMode
     {
         /** Function returns false if a failure is encountered */
         ReturnOnly = 0,
@@ -74,7 +74,7 @@ namespace Desert::Geometry
     };
 
     /**
-     * TIndexMap stores mappings between indices, which are assumed to be an integer type.
+     * IndexMap stores mappings between indices, which are assumed to be an integer type.
      * Both forward and backward mapping are stored
      *
      * @todo make either mapping optional
@@ -84,16 +84,16 @@ namespace Desert::Geometry
      * @todo identity and shift modes that don't actually store anything
      */
     template <typename IntType>
-    struct TIndexMap
+    struct IndexMap
     {
     protected:
-        TMap<IntType, IntType> ForwardMap;
-        TMap<IntType, IntType> ReverseMap;
+        std::unordered_map<IntType, IntType> ForwardMap;
+        std::unordered_map<IntType, IntType> ReverseMap;
         bool                   bWantForward;
         bool                   bWantReverse;
 
     public:
-        TIndexMap()
+        IndexMap()
         {
             bWantForward = bWantReverse = true;
         }
@@ -110,85 +110,85 @@ namespace Desert::Geometry
             return (IntType)-1;
         }
 
-        TMap<IntType, IntType>& GetForwardMap()
+        std::unordered_map<IntType, IntType>& GetForwardMap()
         {
             return ForwardMap;
         }
-        const TMap<IntType, IntType>& GetForwardMap() const
+        const std::unordered_map<IntType, IntType>& GetForwardMap() const
         {
             return ForwardMap;
         }
 
-        TMap<IntType, IntType>& GetReverseMap()
+        std::unordered_map<IntType, IntType>& GetReverseMap()
         {
             return ReverseMap;
         }
-        const TMap<IntType, IntType>& GetReverseMap() const
+        const std::unordered_map<IntType, IntType>& GetReverseMap() const
         {
             return ReverseMap;
         }
 
         /** add mapping from one index to another */
-        inline void Add( IntType FromID, IntType ToID )
+        void Add( IntType FromID, IntType ToID )
         {
-            UE_CHECK_SLOW( FromID >= 0 && ToID >= 0 );
+            assert( FromID >= 0 && ToID >= 0 );
             ForwardMap.Add( FromID, ToID );
             ReverseMap.Add( ToID, FromID );
         }
 
         /** @return true if we can map forward from this value */
-        inline bool ContainsFrom( IntType FromID ) const
+        bool ContainsFrom( IntType FromID ) const
         {
-            UE_CHECK_SLOW( FromID >= 0 );
-            UE_CHECK( bWantForward );
+            assert( FromID >= 0 );
+            assert( bWantForward );
             return ForwardMap.Contains( FromID );
         }
 
         /** @return true if we can reverse-map from this value */
-        inline bool ContainsTo( IntType ToID ) const
+        bool ContainsTo( IntType ToID ) const
         {
-            UE_CHECK_SLOW( ToID >= 0 );
-            UE_CHECK( bWantReverse );
+            assert( ToID >= 0 );
+            assert( bWantReverse );
             return ReverseMap.Contains( ToID );
         }
 
         /** @return forward-map of input value */
-        inline IntType GetTo( IntType FromID ) const
+        IntType GetTo( IntType FromID ) const
         {
-            UE_CHECK_SLOW( FromID >= 0 );
-            UE_CHECK( bWantForward );
+            assert( FromID >= 0 );
+            assert( bWantForward );
             const IntType* FoundVal = ForwardMap.Find( FromID );
             return ( FoundVal == nullptr ) ? UnmappedID() : *FoundVal;
         }
 
         /** @return reverse-map of input value */
-        inline IntType GetFrom( IntType ToID ) const
+        IntType GetFrom( IntType ToID ) const
         {
-            UE_CHECK_SLOW( ToID >= 0 );
-            UE_CHECK( bWantReverse );
+            assert( ToID >= 0 );
+            assert( bWantReverse );
             const IntType* FoundVal = ReverseMap.Find( ToID );
             return ( FoundVal == nullptr ) ? UnmappedID() : *FoundVal;
         }
 
         /** @return forward-map of input value or null if not found */
-        inline const IntType* FindTo( IntType FromID ) const
+        const IntType* FindTo( IntType FromID ) const
         {
-            UE_CHECK_SLOW( FromID >= 0 );
-            UE_CHECK( bWantForward );
+            assert( FromID >= 0 );
+            assert( bWantForward );
             return ForwardMap.Find( FromID );
         }
 
         /** @return reverse-map of input value or null if not found */
-        inline const IntType* FindFrom( IntType ToID ) const
+        const IntType* FindFrom( IntType ToID ) const
         {
-            UE_CHECK_SLOW( ToID >= 0 );
-            UE_CHECK( bWantReverse );
+            assert( ToID >= 0 );
+            assert( bWantReverse );
             return ReverseMap.Find( ToID );
         }
 
         void Reserve( int NumElements )
         {
-            UE_CHECK_SLOW( NumElements >= 0 );
+            assert( NumElements >= 0 );
             if ( bWantForward )
             {
                 ForwardMap.Reserve( NumElements );
@@ -205,6 +205,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef TIndexMap<int> FIndexMapi;
+    using IndexMapi = IndexMap<int>;
 
 } // namespace Desert::Geometry

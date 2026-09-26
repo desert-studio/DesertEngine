@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshTangents.h:1-259, adapted: only the
 // per-triangle path (SetMesh, InitializeTriVertexTangents, SetPerTriangleTangent, GetPerTriangleTangent,
 // ComputeSeparatePerTriangleTangents, CopyToOverlays); the averaged / MikkT paths and FComputeTangentsOptions are
-// not ported (ParallelFor is the UECore.hpp serial shim, so bParallel has nothing to switch). UE Core via
+// not ported (ParallelFor is a serial for loop, so bParallel has nothing to switch). UE Core via
 // UECore.hpp, namespace Desert::Geometry, instantiated for double only.
 #pragma once
 
@@ -13,41 +13,41 @@
 namespace Desert::Geometry
 {
     /**
-     * TMeshTangents is a utility class that can calculate and store tangents and bitangents for a FDynamicMesh3,
+     * MeshTangents is a utility class that can calculate and store tangents and bitangents for a DynamicMesh3,
      * one pair per triangle corner (index TriangleID * 3 + corner).
      */
     template <typename RealType>
-    class TMeshTangents
+    class MeshTangents
     {
     protected:
         /** Target Mesh */
-        const FDynamicMesh3* Mesh = nullptr;
+        const DynamicMesh3* m_Mesh = nullptr;
         /** Set of computed tangents */
-        TArray<TVector<RealType>> Tangents;
+        std::vector<glm::vec<3, RealType>> m_Tangents;
         /** Set of computed bitangents */
-        TArray<TVector<RealType>> Bitangents;
+        std::vector<glm::vec<3, RealType>> m_Bitangents;
 
     public:
-        TMeshTangents() = default;
+        MeshTangents() = default;
 
-        explicit TMeshTangents( const FDynamicMesh3* MeshIn )
+        explicit MeshTangents( const DynamicMesh3* MeshIn )
         {
             SetMesh( MeshIn );
         }
 
-        void SetMesh( const FDynamicMesh3* MeshIn )
+        void SetMesh( const DynamicMesh3* MeshIn )
         {
-            this->Mesh = MeshIn;
+            this->m_Mesh = MeshIn;
         }
 
-        const TArray<TVector<RealType>>& GetTangents() const
+        const std::vector<glm::vec<3, RealType>>& GetTangents() const
         {
-            return Tangents;
+            return m_Tangents;
         }
 
-        const TArray<TVector<RealType>>& GetBitangents() const
+        const std::vector<glm::vec<3, RealType>>& GetBitangents() const
         {
-            return Bitangents;
+            return m_Bitangents;
         }
 
         /**
@@ -55,23 +55,23 @@ namespace Desert::Geometry
          */
         void InitializeTriVertexTangents( bool bClearToZero )
         {
-            SetTangentCount( Mesh->MaxTriangleID() * 3, bClearToZero );
+            SetTangentCount( m_Mesh->MaxTriangleID() * 3, bClearToZero );
         }
 
-        void SetPerTriangleTangent( int TriangleID, int TriVertIdx, const TVector<RealType>& Tangent,
-                                    const TVector<RealType>& Bitangent )
+        void SetPerTriangleTangent( int TriangleID, int TriVertIdx, const glm::vec<3, RealType>& Tangent,
+                                    const glm::vec<3, RealType>& Bitangent )
         {
             const int k   = TriangleID * 3 + TriVertIdx;
-            Tangents[k]   = Tangent;
-            Bitangents[k] = Bitangent;
+            m_Tangents[k]   = Tangent;
+            m_Bitangents[k] = Bitangent;
         }
 
-        void GetPerTriangleTangent( int TriangleID, int TriVertIdx, TVector<RealType>& TangentOut,
-                                    TVector<RealType>& BitangentOut ) const
+        void GetPerTriangleTangent( int TriangleID, int TriVertIdx, glm::vec<3, RealType>& TangentOut,
+                                    glm::vec<3, RealType>& BitangentOut ) const
         {
             const int k  = TriangleID * 3 + TriVertIdx;
-            TangentOut   = Tangents[k];
-            BitangentOut = Bitangents[k];
+            TangentOut   = m_Tangents[k];
+            BitangentOut = m_Bitangents[k];
         }
 
         /**
@@ -79,32 +79,32 @@ namespace Desert::Geometry
          * plane of the corner's overlay normal. The same triangle vertex may have different tangents on
          * different triangles. Triangles unset in UVOverlay are left unwritten.
          */
-        void ComputeSeparatePerTriangleTangents( const FDynamicMeshNormalOverlay* NormalOverlay,
-                                                 const FDynamicMeshUVOverlay*     UVOverlay );
+        void ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                 const DynamicMeshUVOverlay*     UVOverlay );
 
         /**
          * Write the computed tangents and bitangents into MeshToSet's PrimaryTangents / PrimaryBiTangents
          * overlays, rebuilding their topology so corners whose values agree share one element.
          * @return false when MeshToSet has no attribute set or not exactly three normal layers
          */
-        bool CopyToOverlays( FDynamicMesh3& MeshToSet ) const;
+        bool CopyToOverlays( DynamicMesh3& MeshToSet ) const;
 
     protected:
         void SetTangentCount( int Count, bool bClearToZero )
         {
-            if ( Tangents.Num() < Count )
-                Tangents.SetNum( Count );
-            if ( Bitangents.Num() < Count )
-                Bitangents.SetNum( Count );
+            if ( static_cast<int32_t>( m_Tangents.size() ) < Count )
+                m_Tangents.resize( Count );
+            if ( static_cast<int32_t>( m_Bitangents.size() ) < Count )
+                m_Bitangents.resize( Count );
             if ( bClearToZero )
             {
-                for ( TVector<RealType>& T : Tangents )
-                    T = TVector<RealType>::Zero();
-                for ( TVector<RealType>& B : Bitangents )
-                    B = TVector<RealType>::Zero();
+                for ( glm::vec<3, RealType>& T : m_Tangents )
+                    T = glm::vec<3, RealType>( 0 );
+                for ( glm::vec<3, RealType>& B : m_Bitangents )
+                    B = glm::vec<3, RealType>( 0 );
             }
         }
     };
 
-    using FMeshTangentsd = TMeshTangents<double>;
+    using MeshTangentsd = MeshTangents<double>;
 } // namespace Desert::Geometry
