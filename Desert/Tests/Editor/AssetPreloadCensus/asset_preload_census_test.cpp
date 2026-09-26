@@ -466,7 +466,8 @@ TEST( AssetPreloadCensus, BothSceneSkyboxResolversBuildTheEnvironment )
     for ( const char* resolver : { "r.FromPath = ", "r.FromGuid = " } )
     {
         const std::string lambda = BodyOf( source, resolver );
-        ASSERT_FALSE( lambda.empty() ) << file << " has no '" << resolver << "' lambda where this suite expects it";
+        ASSERT_FALSE( lambda.empty() ) << file << " has no '" << resolver
+                                       << "' lambda where this suite expects it";
 
         const std::string branch = BodyOf( lambda, "type == \"SkyboxAsset\"" );
         ASSERT_FALSE( branch.empty() ) << "the '" << resolver << "' lambda has no \"SkyboxAsset\" branch";
