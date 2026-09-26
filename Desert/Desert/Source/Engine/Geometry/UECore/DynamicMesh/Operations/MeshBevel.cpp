@@ -411,7 +411,7 @@ namespace Desert::Geometry
                 const glm::dvec3 CenterPos   = Mesh.GetVertex( Vertex.VertexID );
                 glm::dvec3       IncomingDir = CenterPos - Mesh.GetVertex( OtherVID );
                 Normalize( IncomingDir );
-                double BestAlignmentScore = -FMathd::MaxReal;
+                double BestAlignmentScore = -std::numeric_limits<double>::max();
                 Mesh.EnumerateVertexEdges( Vertex.VertexID,
                                            [&]( int32_t EID )
                                            {
@@ -1611,7 +1611,7 @@ namespace Desert::Geometry
         glm::dvec2 Normalized2( const glm::dvec2& V )
         {
             const double Length = Length2( V );
-            return Length > FMathd::ZeroTolerance ? V * ( 1.0 / Length ) : glm::dvec2( 0.0, 0.0 );
+            return Length > ZeroTolerance<double> ? V * ( 1.0 / Length ) : glm::dvec2( 0.0, 0.0 );
         }
         // VectorUtil::VectorTanHalfAngle: tan of half the angle between two unit vectors
         double TanHalfAngle( const glm::dvec2& A, const glm::dvec2& B )
@@ -1640,7 +1640,7 @@ namespace Desert::Geometry
                 const glm::dvec2 DeltaUV = UVPosition - BoundaryUVPosition;
                 const double    Dist    = Length2( DeltaUV );
                 double          Weight  = 1.0;
-                if ( Dist > FMathd::ZeroTolerance )
+                if ( Dist > ZeroTolerance<double> )
                 {
                     const glm::dvec2 DeltaP = Normalized2( BoundaryUVPosition - UVPosition );
                     const double    T1     = TanHalfAngle( Normalized2( Prev - UVPosition ), DeltaP );
@@ -1659,7 +1659,7 @@ namespace Desert::Geometry
 
     bool MeshBevel::HasRoundProfile() const
     {
-        return std::abs( RoundWeight ) > FMathf::ZeroTolerance;
+        return std::abs( RoundWeight ) > ZeroTolerance<float>;
     }
 
     void MeshBevel::AppendJunctionVertexPolygon_Multi( DynamicMesh3& Mesh, BevelVertex& Vertex )

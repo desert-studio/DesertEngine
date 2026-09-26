@@ -889,5 +889,5 @@ double DynamicMesh3::CalculateWindingNumber( const glm::dvec3& QueryPoint ) cons
     {
         sum += GetTriSolidAngle( tid, QueryPoint );
     }
-    return sum / FMathd::FourPi;
+    return sum / ( double( 4 ) * glm::pi<double>() );
 }

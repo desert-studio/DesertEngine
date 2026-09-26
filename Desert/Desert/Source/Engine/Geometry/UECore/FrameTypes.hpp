@@ -76,7 +76,7 @@ namespace Desert::Geometry
         {
             const glm::vec<3, RealType> from     = Normalized( From );
             const glm::vec<3, RealType> to       = Normalized( To );
-            const glm::vec<3, RealType> bisector = Normalized( from + to, TMathUtil<RealType>::ZeroTolerance );
+            const glm::vec<3, RealType> bisector = Normalized( from + to, ZeroTolerance<RealType> );
             W                                    = glm::dot( from, bisector );
             if ( W != 0 )
             {

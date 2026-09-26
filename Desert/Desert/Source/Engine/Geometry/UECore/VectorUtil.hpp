@@ -10,14 +10,13 @@ namespace Desert::Geometry::VectorUtil
     template <typename RealType>
     inline bool IsFinite( const glm::vec<2, RealType>& V )
     {
-        return TMathUtil<RealType>::IsFinite( V.x ) && TMathUtil<RealType>::IsFinite( V.y );
+        return std::isfinite( V.x ) && std::isfinite( V.y );
     }
 
     template <typename RealType>
     inline bool IsFinite( const glm::vec<3, RealType>& V )
     {
-        return TMathUtil<RealType>::IsFinite( V.x ) && TMathUtil<RealType>::IsFinite( V.y ) &&
-               TMathUtil<RealType>::IsFinite( V.z );
+        return std::isfinite( V.x ) && std::isfinite( V.y ) && std::isfinite( V.z );
     }
 
     template <typename RealType>
@@ -61,7 +60,7 @@ namespace Desert::Geometry::VectorUtil
     template <typename RealType>
     inline bool EpsilonEqual( RealType A, RealType B, RealType Epsilon )
     {
-        return TMathUtil<RealType>::Abs( A - B ) <= Epsilon;
+        return std::abs( A - B ) <= Epsilon;
     }
 
     template <typename RealType>

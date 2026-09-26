@@ -56,7 +56,7 @@ namespace
     DynamicMesh3 MakeTorus( int NU, int NV, double R, double r )
     {
         DynamicMesh3  Mesh;
-        const double  TwoPi = FMathd::TwoPi;
+        const double  TwoPi = glm::two_pi<double>();
         for ( int u = 0; u < NU; ++u )
             for ( int v = 0; v < NV; ++v )
             {

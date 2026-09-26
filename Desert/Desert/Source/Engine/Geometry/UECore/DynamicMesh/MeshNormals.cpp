@@ -451,7 +451,7 @@ void MeshNormals::QuickComputeVertexNormals( DynamicMesh3& Mesh, bool bInvert )
 void MeshNormals::SmoothVertexNormals( DynamicMesh3& Mesh, int32_t SmoothingRounds, double SmoothingAlpha )
 {
     SmoothingRounds = std::clamp( SmoothingRounds, 0, 500 );
-    SmoothingAlpha  = FMathd::Clamp( SmoothingAlpha, 0.0, 1.0 );
+    SmoothingAlpha  = std::clamp<double>( SmoothingAlpha, 0.0, 1.0 );
     if ( SmoothingRounds > 0 && SmoothingAlpha > 0 )
     {
         int32_t const     NumV = Mesh.MaxVertexID();
@@ -788,7 +788,7 @@ void MeshNormals::InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*
                                                              FDynamicMeshNormalOverlay* NormalOverlay,
                                                              double                     AngleThresholdDeg )
 {
-    double NormalDotProdThreshold = FMathd::Cos( AngleThresholdDeg * FMathd::DegToRad );
+    double NormalDotProdThreshold = std::cos( AngleThresholdDeg * ( glm::pi<double>() / double( 180 ) ) );
 
     MeshNormals FaceNormals( Mesh );
     FaceNormals.ComputeTriangleNormals();

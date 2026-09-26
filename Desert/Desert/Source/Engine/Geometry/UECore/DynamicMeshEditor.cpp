@@ -515,7 +515,7 @@ namespace Desert::Geometry
         const double BisectorLength = Normalize( Bisector );
         double       QW             = 0;
         glm::dvec3   QV( -1, 0, 0 );
-        if ( BisectorLength > FMathd::ZeroTolerance )
+        if ( BisectorLength > ZeroTolerance<double> )
         {
             QW = glm::dot( From, Bisector );
             QV = glm::cross( From, Bisector );

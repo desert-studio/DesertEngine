@@ -45,7 +45,7 @@ namespace Desert::Geometry
             {
                 const int32_t NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
                 GraphNode&    Node      = AllocatedNodes[NodeIndex];
-                MaxGraphDistance      = TMathUtil<double>::Max( Node.GraphDistance, MaxGraphDistance );
+                MaxGraphDistance        = std::max<double>( Node.GraphDistance, MaxGraphDistance );
                 if ( MaxGraphDistance > ComputeToMaxDistanceIn )
                     return;
                 Node.bFrozen            = true;

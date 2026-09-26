@@ -15,8 +15,10 @@ namespace Desert::Geometry
         glm::vec<3, RealType> Max{};
 
         AxisAlignedBox3()
-             : Min( TMathUtil<RealType>::MaxReal, TMathUtil<RealType>::MaxReal, TMathUtil<RealType>::MaxReal ),
-               Max( -TMathUtil<RealType>::MaxReal, -TMathUtil<RealType>::MaxReal, -TMathUtil<RealType>::MaxReal )
+             : Min( std::numeric_limits<RealType>::max(), std::numeric_limits<RealType>::max(),
+                    std::numeric_limits<RealType>::max() ),
+               Max( -std::numeric_limits<RealType>::max(), -std::numeric_limits<RealType>::max(),
+                    -std::numeric_limits<RealType>::max() )
         {
         }
 
@@ -52,7 +54,7 @@ namespace Desert::Geometry
 
         RealType DiagonalLength() const
         {
-            return TMathUtil<RealType>::Sqrt( glm::length2( ( Max - Min ) ) );
+            return std::sqrt( glm::length2( ( Max - Min ) ) );
         }
 
         bool IsEmpty() const

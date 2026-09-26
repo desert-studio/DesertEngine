@@ -224,7 +224,7 @@ TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
     ASSERT_EQ( openBefore, 36 );
 
     MergeCoincidentMeshEdges merger( &mesh );
-    merger.MergeVertexTolerance                        = FMathf::ZeroTolerance;
+    merger.MergeVertexTolerance                        = ZeroTolerance<float>;
     merger.MergeSearchTolerance                        = 2 * merger.MergeVertexTolerance;
     merger.bWeldAttrsOnMergedEdges                     = true;
     merger.SplitAttributeWelder.UVDistSqrdThreshold    = 0.01f * 0.01f;

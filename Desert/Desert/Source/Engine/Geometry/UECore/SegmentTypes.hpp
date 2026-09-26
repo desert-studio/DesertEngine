@@ -67,7 +67,7 @@ namespace Desert::Geometry
         {
             const T ProjT = glm::dot( ( QueryPoint - Center ), Direction );
             const T Alpha = ( ( ProjT / Extent ) + static_cast<T>( 1 ) ) * static_cast<T>( 0.5 );
-            return TMathUtil<T>::Clamp( Alpha, static_cast<T>( 0 ), static_cast<T>( 1 ) );
+            return std::clamp<T>( Alpha, static_cast<T>( 0 ), static_cast<T>( 1 ) );
         }
     };
 

@@ -27,7 +27,7 @@ namespace
         double     UVArea               = ( UVEdge1.x * UVEdge2.y ) - ( UVEdge1.y * UVEdge2.x );
         const bool bPreserveOrientation = ( UVArea >= 0 );
 
-        UVArea = FMathd::Abs( UVArea );
+        UVArea = std::abs( UVArea );
 
         // if a triangle is zero-UV-area due to one edge being collapsed, we still have a
         // valid direction on the other edge. We are going to keep those
@@ -48,7 +48,7 @@ namespace
             BitangentOut       = -BitangentOut;
         }
 
-        bIsDegenerateOut = ( UVArea < FMathd::ZeroTolerance );
+        bIsDegenerateOut = ( UVArea < ZeroTolerance<double> );
     }
 
     glm::dvec3 PlaneProjectionNormalized( const glm::dvec3& Vector, const glm::dvec3& PlaneNormal )
@@ -86,7 +86,7 @@ namespace Desert::Geometry
                      UE_CHECK_SLOW( SubA > -1 && SubB > -1 );
                      const glm::vec<3, RealType>& A = TV[TriIDA * 3 + SubA];
                      const glm::vec<3, RealType>& B = TV[TriIDB * 3 + SubB];
-                     return DistanceSquared( A, B ) < TMathUtil<RealType>::ZeroTolerance;
+                     return DistanceSquared( A, B ) < ZeroTolerance<RealType>;
                  },
                  0.0f );
 

@@ -62,8 +62,8 @@ namespace
         for ( int u = 0; u < NU; ++u )
             for ( int v = 0; v < NV; ++v )
             {
-                const double a = FMathd::TwoPi * u / NU;
-                const double b = FMathd::TwoPi * v / NV;
+                const double a = glm::two_pi<double>() * u / NU;
+                const double b = glm::two_pi<double>() * v / NV;
                 Mesh.AppendVertex( glm::dvec3( ( 50.0 + 20.0 * std::cos( b ) ) * std::cos( a ),
                                                ( 50.0 + 20.0 * std::cos( b ) ) * std::sin( a ),
                                                20.0 * std::sin( b ) ) );

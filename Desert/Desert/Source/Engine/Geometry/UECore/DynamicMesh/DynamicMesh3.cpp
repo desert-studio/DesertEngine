@@ -868,8 +868,8 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
         CheckOrFailF( IsVertex( vID ) );
 
         glm::dvec3 v = GetVertex( vID );
-        CheckOrFailF( FMathd::IsNaN( glm::length2( v ) ) == false );
-        CheckOrFailF( FMathd::IsFinite( glm::length2( v ) ) );
+        CheckOrFailF( std::isnan( glm::length2( v ) ) == false );
+        CheckOrFailF( std::isfinite( glm::length2( v ) ) );
 
         for ( int edgeid : VertexEdgeLists.Values( vID ) )
         {

@@ -15,10 +15,9 @@ namespace Desert::Geometry
     }
 
     template <typename T>
-    constexpr bool IsNormalized( const glm::vec<3, T>& Vector, const T Tolerance = TMathUtil<T>::ZeroTolerance )
+    constexpr bool IsNormalized( const glm::vec<3, T>& Vector, const T Tolerance = ZeroTolerance<T> )
     {
-        return TMathUtil<T>::Abs( ( Vector.x * Vector.x + Vector.y * Vector.y + Vector.z * Vector.z ) - 1 ) <
-               Tolerance;
+        return std::abs( ( Vector.x * Vector.x + Vector.y * Vector.y + Vector.z * Vector.z ) - 1 ) < Tolerance;
     }
 
     template <typename T>
@@ -55,7 +54,7 @@ namespace Desert::Geometry
         T dx = V2.x - V1.x;
         T dy = V2.y - V1.y;
         T dz = V2.z - V1.z;
-        return TMathUtil<T>::Sqrt( dx * dx + dy * dy + dz * dz );
+        return std::sqrt( dx * dx + dy * dy + dz * dz );
     }
 
     template <typename T>
@@ -72,7 +71,7 @@ namespace Desert::Geometry
     {
         T DotVal     = glm::dot( V1, V2 );
         T ClampedDot = ( DotVal < (T)-1 ) ? (T)-1 : ( ( DotVal > (T)1 ) ? (T)1 : DotVal );
-        return TMathUtil<T>::ACos( ClampedDot );
+        return std::acos( ClampedDot );
     }
 
     template <typename T>

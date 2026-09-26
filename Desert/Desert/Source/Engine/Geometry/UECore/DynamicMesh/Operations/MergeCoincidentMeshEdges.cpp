@@ -61,7 +61,7 @@ namespace Desert::Geometry
 
     } // namespace
 
-    const double MergeCoincidentMeshEdges::DEFAULT_TOLERANCE = FMathf::ZeroTolerance;
+    const double MergeCoincidentMeshEdges::DEFAULT_TOLERANCE = ZeroTolerance<float>;
 
     bool MergeCoincidentMeshEdges::Apply()
     {
@@ -91,7 +91,7 @@ namespace Desert::Geometry
         const AxisAlignedBox3d  Bounds   = Mesh->GetBounds();
         const double            MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
                                                      std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
-        const double CellSize = std::max( FMathd::ZeroTolerance, MaxDim / static_cast<double>( hashN ) );
+        const double CellSize = std::max( ZeroTolerance<double>, MaxDim / static_cast<double>( hashN ) );
         PointHashGrid3          MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 

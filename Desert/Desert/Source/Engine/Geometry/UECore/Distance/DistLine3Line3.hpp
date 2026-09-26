@@ -60,7 +60,7 @@ namespace Desert::Geometry
             Real          s1;
             Real          sqrDist;
 
-            if ( det >= TMathUtil<Real>::ZeroTolerance )
+            if ( det >= ZeroTolerance<Real> )
             {
                 b1 = -glm::dot( kDiff, Line2.Direction );
                 s1 = a01 * b0 - b1;

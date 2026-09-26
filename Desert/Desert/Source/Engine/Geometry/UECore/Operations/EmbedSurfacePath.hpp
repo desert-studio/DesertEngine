@@ -105,6 +105,6 @@ namespace Desert::Geometry
          * @return true if embedding succeeded.
          */
         bool EmbedSimplePath( std::vector<int>& PathVertices, bool bDoNotDuplicateFirstVertexID = true,
-                              double SnapElementThresholdSq = FMathf::ZeroTolerance * 100 );
+                              double SnapElementThresholdSq = ZeroTolerance<float> * 100 );
     };
 } // namespace Desert::Geometry

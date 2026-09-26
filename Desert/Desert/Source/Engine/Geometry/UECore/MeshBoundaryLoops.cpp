@@ -19,7 +19,7 @@ namespace
         Normalize( From );
         Normalize( To );
         const glm::dvec3 C = glm::cross( From, To );
-        if ( glm::length2( C ) < FMathd::ZeroTolerance )
+        if ( glm::length2( C ) < ZeroTolerance<double> )
             return glm::dot( From, To ) < 0 ? 180.0 : 0.0;
         const double Sign = glm::dot( C, PlaneN ) < 0 ? -1.0 : 1.0;
         const double Angle =

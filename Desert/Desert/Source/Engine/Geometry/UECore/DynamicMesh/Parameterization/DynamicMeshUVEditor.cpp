@@ -274,7 +274,7 @@ namespace Desert::Geometry
             Area3D +=
                  VectorUtil::Area( Mesh->GetVertex( Tri.A ), Mesh->GetVertex( Tri.B ), Mesh->GetVertex( Tri.C ) );
         }
-        if ( std::abs( Area3D ) < FMathf::Epsilon || !std::isfinite( Area3D ) )
+        if ( std::abs( Area3D ) < std::numeric_limits<float>::epsilon() || !std::isfinite( Area3D ) )
             return false;
 
         std::unordered_set<int32_t> Elements;
@@ -299,7 +299,8 @@ namespace Desert::Geometry
             const glm::vec2 E2 = UV[2] - UV[0];
             Area2D += 0.5 * std::abs( static_cast<double>( E1.x ) * E2.y - static_cast<double>( E1.y ) * E2.x );
         }
-        if ( Elements.empty() || std::abs( Area2D ) < FMathf::Epsilon || !std::isfinite( Area2D ) )
+        if ( Elements.empty() || std::abs( Area2D ) < std::numeric_limits<float>::epsilon() ||
+             !std::isfinite( Area2D ) )
             return false;
 
         const double UVScale = ScaleFactor * std::sqrt( Area3D ) / std::sqrt( Area2D );

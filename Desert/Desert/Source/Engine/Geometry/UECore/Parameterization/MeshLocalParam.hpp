@@ -95,8 +95,7 @@ namespace Desert::Geometry
             while ( Queue.GetCount() > 0 )
             {
                 const int32_t NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
-                MaxGraphDistance =
-                     TMathUtil<double>::Max( AllocatedNodes[NodeIndex].GraphDistance, MaxGraphDistance );
+                MaxGraphDistance = std::max<double>( AllocatedNodes[NodeIndex].GraphDistance, MaxGraphDistance );
                 if ( MaxGraphDistance > MaxDistance )
                     return;
                 if ( AllocatedNodes[NodeIndex].ParentPointID >= 0 )
@@ -134,7 +133,7 @@ namespace Desert::Geometry
             const glm::dvec3 vAlignedSeedX = SeedToLocal.X();
             const glm::dvec3 vLocalX       = NbrFrame.X();
             const double     CosTheta      = glm::dot( vLocalX, vAlignedSeedX );
-            double          SinTheta      = std::sqrt( TMathUtil<double>::Max( 1.0 - CosTheta * CosTheta, 0.0 ) );
+            double           SinTheta      = std::sqrt( std::max<double>( 1.0 - CosTheta * CosTheta, 0.0 ) );
             if ( glm::dot( glm::cross( vLocalX, vAlignedSeedX ), NbrFrame.Z() ) < 0 )
                 SinTheta = -SinTheta;
             // UE FMatrix2d(Cos, Sin, -Sin, Cos) * LocalUV
@@ -158,8 +157,8 @@ namespace Desert::Geometry
                     continue;
                 const Frame3d    NbrFrame = GetFrame( AllocatedNodes[*Found] );
                 const glm::dvec2 NbrUV    = PropagateUV( NodePos, AllocatedNodes[*Found].UV, NbrFrame, SeedFrame );
-                const double    Weight =
-                     1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + TMathUtil<double>::ZeroTolerance );
+                const double     Weight =
+                     1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + ZeroTolerance<double> );
                 AverageUV = AverageUV + NbrUV * Weight;
                 WeightSum += Weight;
             }

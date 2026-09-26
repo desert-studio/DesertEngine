@@ -39,8 +39,8 @@ namespace Desert::Geometry
                                                 static_cast<double>( V.y - U.y ) * ( W.x - U.x ) );
             }
         }
-        const double UseUVScale = TMathUtil<double>::Max( std::sqrt( NbrUVAreaSum ), 0.0001 ) /
-                                  TMathUtil<double>::Max( std::sqrt( Nbr3DAreaSum ), 0.0001 );
+        const double UseUVScale = std::max<double>( std::sqrt( NbrUVAreaSum ), 0.0001 ) /
+                                  std::max<double>( std::sqrt( Nbr3DAreaSum ), 0.0001 );
 
         DynamicMeshUVEditor  UVEditor( &Mesh, &UVOverlay );
         UVEditResult         UVEditResult;
