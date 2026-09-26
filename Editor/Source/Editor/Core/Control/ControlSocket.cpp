@@ -1,53 +1,52 @@
-#include <Common/Core/ErrnoText.hpp>
 #include "ControlSocket.hpp"
 
+#include <Common/Core/LocalSocket.hpp>
 #include <Common/Core/Logger.hpp>
 
-#if defined( DESERT_PLATFORM_WINDOWS )
-// NO WINDOWS IMPLEMENTATION, AND THAT IS A DECISION RATHER THAN AN OMISSION.
-//
-// AF_UNIX exists on Windows 10 1803 and later, so this could be written. It could not be RUN: the machine
-// this engine is developed on is macOS, Windows reaches us only through CI, and CI does not run the editor
-// at all. This project has already paid three times in one day for Windows code nobody could execute —
-// `far` eaten by windef.h, path::native() being wide there, a float cancellation that only shows in
-// Release — and each was found long after it was written.
-//
-// The control channel is a developer's tool. When somebody needs it on Windows they will have a Windows
-// machine to prove it on, and the honest thing until then is to say so at the point of use. Everything
-// above the transport — the protocol, the addressing, the ordering gate — is portable and is compiled and
-// tested on every platform, so what is missing here is a socket and nothing else.
-#else
-#include <cerrno>
-#include <cstring>
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/un.h>
-#include <unistd.h>
-#endif
+#include <algorithm>
 
 namespace Desert::Editor::Control
 {
+    /// Spelled short because it is on nearly every line below. See Common/Core/LocalSocket.hpp: it holds
+    /// only what differs between the platforms, so the socket code here reads as ordinary socket code.
+    namespace Socket = Common::LocalSocket;
+
     namespace
     {
         /// The most a client may send before a newline arrives. A request is a short JSON object; a
         /// megabyte of it without one is a client that has lost the framing (or is not a client at all),
         /// and buffering without limit would let it consume the editor's memory one poll at a time.
         constexpr std::size_t kMaxRequestBytes = 1u << 20;
+
+        /// The most one send() is asked to take. Winsock's send counts bytes in an `int`, and a reply that
+        /// did not fit in one would otherwise be handed over as a truncated length. The loop around it
+        /// already deals with a partial send, so a chunk costs nothing but the cast it removes.
+        constexpr std::size_t kMaxSendChunk = std::size_t{ 64 } * 1024;
+
+        /// Is something ALIVE on @p path? Asked by connecting to it, which is the only question whose
+        /// answer is not a guess: a socket file outlives the process that made it, so "the file is there"
+        /// says nothing at all. A live peer means another editor owns this path and we must not touch it;
+        /// a refused connection means the file is a leftover and clearing it is safe.
+        [[nodiscard]] bool SomethingIsListeningOn( const std::string& path )
+        {
+            const Socket::Handle probe = Socket::Open();
+            if ( probe < 0 )
+                return true; // cannot tell — assume the careful answer and refuse to clear the file
+
+            sockaddr_un address{};
+            if ( !Socket::FillAddress( address, path ) )
+                return true; // likewise: a path we cannot even form is not a path we may delete
+
+            const bool connected =
+                 ::connect( Socket::Raw( probe ), Socket::AsSockaddr( address ), sizeof( address ) ) == 0;
+            Socket::Close( probe );
+            return connected;
+        }
     } // namespace
 
     ControlSocket::~ControlSocket()
     {
         Close();
-    }
-
-    bool ControlSocket::SupportedOnThisPlatform() noexcept
-    {
-#if defined( DESERT_PLATFORM_WINDOWS )
-        return false;
-#else
-        return true;
-#endif
     }
 
     bool ControlSocket::IsListening() const noexcept
@@ -70,98 +69,31 @@ namespace Desert::Editor::Control
         return !m_Outgoing.empty();
     }
 
-#if defined( DESERT_PLATFORM_WINDOWS )
-
-    Common::BoolResultStr ControlSocket::Listen( const std::string& path )
-    {
-        return Common::MakeFormattedError<bool>(
-             "--control-socket '{}': the control channel has no transport on Windows. Its protocol, command "
-             "addressing and frame ordering are built and tested here, but the socket itself is written and "
-             "verified only where the editor runs, which today is macOS. This refuses rather than shipping "
-             "an implementation nobody could execute.",
-             path );
-    }
-
-    void ControlSocket::Close()
-    {
-    }
-
-    void ControlSocket::DropClient()
-    {
-    }
-
-    void ControlSocket::FlushOutput()
-    {
-    }
-
-    void ControlSocket::DrainIncoming()
-    {
-    }
-
-    std::optional<std::string> ControlSocket::PollRequestLine()
-    {
-        return std::nullopt;
-    }
-
-    void ControlSocket::ServiceConnection()
-    {
-    }
-
-    void ControlSocket::SendResponseLine( const std::string& /*line*/ )
-    {
-    }
-
-#else
-
-    namespace
-    {
-        [[nodiscard]] bool MakeNonBlocking( int fd )
-        {
-            const int flags = ::fcntl( fd, F_GETFL, 0 );
-            if ( flags < 0 )
-                return false;
-            return ::fcntl( fd, F_SETFL, flags | O_NONBLOCK ) == 0;
-        }
-
-        /// Is something ALIVE on @p path? Asked by connecting to it, which is the only question whose
-        /// answer is not a guess: a socket file outlives the process that made it, so "the file is there"
-        /// says nothing at all. A live peer means another editor owns this path and we must not touch it;
-        /// a refused connection means the file is a leftover and clearing it is safe.
-        [[nodiscard]] bool SomethingIsListeningOn( const std::string& path )
-        {
-            const int probe = ::socket( AF_UNIX, SOCK_STREAM, 0 );
-            if ( probe < 0 )
-                return true; // cannot tell — assume the careful answer and refuse to clear the file
-
-            sockaddr_un address{};
-            address.sun_family = AF_UNIX;
-            std::strncpy( address.sun_path, path.c_str(), sizeof( address.sun_path ) - 1 );
-
-            const bool connected =
-                 ::connect( probe, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ) == 0;
-            ::close( probe );
-            return connected;
-        }
-    } // namespace
-
     Common::BoolResultStr ControlSocket::Listen( const std::string& path )
     {
         if ( IsListening() )
             return Common::MakeError<bool>( "the control channel is already listening." );
 
+        if ( const std::string unavailable = Socket::EnsureLibraryReady(); !unavailable.empty() )
+        {
+            return Common::MakeFormattedError<bool>( "--control-socket '{}': the platform's socket library "
+                                                     "could not be started: {}.",
+                                                     path, unavailable );
+        }
+
         sockaddr_un address{};
-        // The kernel's limit, not ours, and it is short (104 bytes on macOS). A path one byte too long
-        // would be TRUNCATED by strncpy and bound as a DIFFERENT socket — the editor would report success
-        // while listening somewhere the client never looks.
-        if ( path.size() >= sizeof( address.sun_path ) )
+        // The kernel's limit, not ours, and it is short (104 bytes on macOS, 108 on Windows and Linux). A
+        // path one byte too long would be TRUNCATED and bound as a DIFFERENT socket — the editor would
+        // report success while listening somewhere the client never looks.
+        if ( !Socket::FillAddress( address, path ) )
         {
             return Common::MakeFormattedError<bool>(
                  "--control-socket '{}' is {} characters; a unix socket path may be at most {}. A longer one "
                  "would be silently truncated and bound somewhere else.",
-                 path, path.size(), sizeof( address.sun_path ) - 1 );
+                 path, path.size(), Socket::MaxPathLength() );
         }
 
-        if ( ::access( path.c_str(), F_OK ) == 0 )
+        if ( Socket::FileExists( path ) )
         {
             if ( SomethingIsListeningOn( path ) )
             {
@@ -171,59 +103,57 @@ namespace Desert::Editor::Control
                      path );
             }
 
-            if ( ::unlink( path.c_str() ) != 0 )
+            if ( const std::string failure = Socket::RemoveFile( path ); !failure.empty() )
             {
                 return Common::MakeFormattedError<bool>(
                      "--control-socket '{}' is a leftover from a dead editor and could not be removed: {}.", path,
-                     Common::ErrnoText() );
+                     failure );
             }
             LOG_INFO( "[Control] cleared a stale socket at '{}' (nothing was listening on it).", path );
         }
 
-        const int fd = ::socket( AF_UNIX, SOCK_STREAM, 0 );
+        const Socket::Handle fd = Socket::Open();
         if ( fd < 0 )
             return Common::MakeFormattedError<bool>( "--control-socket: socket() failed: {}",
-                                                     Common::ErrnoText() );
+                                                     Socket::LastErrorText() );
 
-        address.sun_family = AF_UNIX;
-        std::strncpy( address.sun_path, path.c_str(), sizeof( address.sun_path ) - 1 );
-
-        if ( ::bind( fd, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ) != 0 )
+        if ( ::bind( Socket::Raw( fd ), Socket::AsSockaddr( address ), sizeof( address ) ) != 0 )
         {
-            const std::string reason = Common::ErrnoText();
-            ::close( fd );
+            const std::string reason = Socket::LastErrorText();
+            Socket::Close( fd );
             return Common::MakeFormattedError<bool>( "--control-socket '{}': bind failed: {}", path, reason );
         }
 
-        // OWNER ONLY. The default would be whatever the umask allows, and this socket runs commands in
-        // somebody's editor — every command the palette offers, which includes saving over their scene.
-        if ( ::chmod( path.c_str(), S_IRUSR | S_IWUSR ) != 0 )
+        // OWNER ONLY. The default would be whatever the umask allows (whatever the directory hands down, on
+        // Windows), and this socket runs commands in somebody's editor — every command the palette offers,
+        // which includes saving over their scene.
+        if ( const std::string unprotected = Socket::RestrictToOwner( path ); !unprotected.empty() )
         {
-            const std::string reason = Common::ErrnoText();
-            ::close( fd );
-            ::unlink( path.c_str() );
+            Socket::Close( fd );
+            (void)Socket::RemoveFile( path );
             return Common::MakeFormattedError<bool>(
                  "--control-socket '{}': could not restrict the socket to its owner ({}); refusing to listen "
                  "on one anybody could drive.",
-                 path, reason );
+                 path, unprotected );
         }
 
-        if ( ::listen( fd, 1 ) != 0 )
+        if ( ::listen( Socket::Raw( fd ), 1 ) != 0 )
         {
-            const std::string reason = Common::ErrnoText();
-            ::close( fd );
-            ::unlink( path.c_str() );
+            const std::string reason = Socket::LastErrorText();
+            Socket::Close( fd );
+            (void)Socket::RemoveFile( path );
             return Common::MakeFormattedError<bool>( "--control-socket '{}': listen failed: {}", path, reason );
         }
 
-        if ( !MakeNonBlocking( fd ) )
+        if ( !Socket::SetNonBlocking( fd ) )
         {
-            ::close( fd );
-            ::unlink( path.c_str() );
+            const std::string reason = Socket::LastErrorText();
+            Socket::Close( fd );
+            (void)Socket::RemoveFile( path );
             return Common::MakeFormattedError<bool>(
-                 "--control-socket '{}': the listening socket could not be made non-blocking, and a blocking "
-                 "accept in the frame loop would freeze the editor between clients.",
-                 path );
+                 "--control-socket '{}': the listening socket could not be made non-blocking ({}), and a "
+                 "blocking accept in the frame loop would freeze the editor between clients.",
+                 path, reason );
         }
 
         m_ListenFd = fd;
@@ -232,28 +162,30 @@ namespace Desert::Editor::Control
         return Common::MakeSuccess( true );
     }
 
-    void ControlSocket::DropClient()
+    void ControlSocket::DropClient() noexcept
     {
         if ( m_ClientFd >= 0 )
         {
-            ::close( m_ClientFd );
-            m_ClientFd = -1;
+            Socket::Close( m_ClientFd );
+            m_ClientFd = Socket::kInvalid;
         }
         m_Incoming.clear();
         m_Outgoing.clear();
     }
 
-    void ControlSocket::Close()
+    void ControlSocket::Close() noexcept
     {
         DropClient();
         if ( m_ListenFd >= 0 )
         {
-            ::close( m_ListenFd );
-            m_ListenFd = -1;
+            Socket::Close( m_ListenFd );
+            m_ListenFd = Socket::kInvalid;
         }
         if ( !m_Path.empty() )
         {
-            ::unlink( m_Path.c_str() );
+            // NEITHER platform removes the socket file when the socket closes, so the next run would meet
+            // its own leftover and have to probe it.
+            (void)Socket::TryRemoveFile( m_Path );
             m_Path.clear();
         }
     }
@@ -262,13 +194,18 @@ namespace Desert::Editor::Control
     {
         while ( m_ClientFd >= 0 && !m_Outgoing.empty() )
         {
-            // MSG_NOSIGNAL where it exists; on macOS the same is arranged with SO_NOSIGPIPE at accept.
-            // Either way the point is that a client that walked away must not kill the editor with
-            // SIGPIPE — losing an artist's session to a disconnected tool would be unforgivable.
+            const auto chunk = static_cast<int>( std::min( m_Outgoing.size(), kMaxSendChunk ) );
+
+            // MSG_NOSIGNAL where it exists; on macOS the same is arranged with SO_NOSIGPIPE at accept, and
+            // on Windows there is no such signal to arrange for. Either way the point is that a client that
+            // walked away must not kill the editor with SIGPIPE — losing an artist's session to a
+            // disconnected tool would be unforgivable.
 #if defined( MSG_NOSIGNAL )
-            const ssize_t sent = ::send( m_ClientFd, m_Outgoing.data(), m_Outgoing.size(), MSG_NOSIGNAL );
+            const auto sent = static_cast<std::ptrdiff_t>(
+                 ::send( Socket::Raw( m_ClientFd ), m_Outgoing.data(), chunk, MSG_NOSIGNAL ) );
 #else
-            const ssize_t sent = ::send( m_ClientFd, m_Outgoing.data(), m_Outgoing.size(), 0 );
+            const auto sent =
+                 static_cast<std::ptrdiff_t>( ::send( Socket::Raw( m_ClientFd ), m_Outgoing.data(), chunk, 0 ) );
 #endif
             if ( sent > 0 )
             {
@@ -276,7 +213,7 @@ namespace Desert::Editor::Control
                 continue;
             }
 
-            if ( sent < 0 && ( errno == EAGAIN || errno == EWOULDBLOCK ) )
+            if ( sent < 0 && Socket::LastErrorIsWouldBlock() )
                 return; // the socket is full; try again next frame rather than stalling the editor
 
             LOG_WARN( "[Control] the client went away with {} bytes unsent; dropping it.", m_Outgoing.size() );
@@ -303,7 +240,8 @@ namespace Desert::Editor::Control
         char buffer[4096];
         for ( ;; )
         {
-            const ssize_t received = ::recv( m_ClientFd, buffer, sizeof( buffer ), 0 );
+            const auto received = static_cast<std::ptrdiff_t>(
+                 ::recv( Socket::Raw( m_ClientFd ), buffer, static_cast<int>( sizeof( buffer ) ), 0 ) );
             if ( received > 0 )
             {
                 m_Incoming.append( buffer, static_cast<std::size_t>( received ) );
@@ -324,12 +262,12 @@ namespace Desert::Editor::Control
                 return;
             }
 
-            if ( errno == EAGAIN || errno == EWOULDBLOCK )
+            if ( Socket::LastErrorIsWouldBlock() )
                 return;
-            if ( errno == EINTR )
+            if ( Socket::LastErrorIsInterrupted() )
                 continue;
 
-            LOG_WARN( "[Control] read failed ({}); dropping the client.", Common::ErrnoText() );
+            LOG_WARN( "[Control] read failed ({}); dropping the client.", Socket::LastErrorText() );
             DropClient();
             return;
         }
@@ -362,7 +300,8 @@ namespace Desert::Editor::Control
         // A waiting connection, if there is one and we have room for it.
         for ( ;; )
         {
-            const int incoming = ::accept( m_ListenFd, nullptr, nullptr );
+            const auto incoming =
+                 static_cast<Socket::Handle>( ::accept( Socket::Raw( m_ListenFd ), nullptr, nullptr ) );
             if ( incoming < 0 )
                 break;
 
@@ -374,21 +313,22 @@ namespace Desert::Editor::Control
                      R"({"id":0,"ok":false,"error":"another client already holds this editor's control )"
                      R"(channel; commands run one at a time on the editor thread."})"
                      "\n";
-                (void)::send( incoming, refusal.data(), refusal.size(), 0 );
-                ::close( incoming );
+                (void)::send( Socket::Raw( incoming ), refusal.data(), static_cast<int>( refusal.size() ), 0 );
+                Socket::Close( incoming );
                 continue;
             }
 
-            if ( !MakeNonBlocking( incoming ) )
+            if ( !Socket::SetNonBlocking( incoming ) )
             {
-                LOG_WARN( "[Control] a client could not be made non-blocking; refusing it." );
-                ::close( incoming );
+                LOG_WARN( "[Control] a client could not be made non-blocking ({}); refusing it.",
+                          Socket::LastErrorText() );
+                Socket::Close( incoming );
                 continue;
             }
 
 #if defined( SO_NOSIGPIPE )
             const int on = 1;
-            (void)::setsockopt( incoming, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof( on ) );
+            (void)::setsockopt( Socket::Raw( incoming ), SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof( on ) );
 #endif
             m_ClientFd = incoming;
             // A NEW CONNECTION IS A NEW GENERATION, and this is the line that lets a caller tell a
@@ -425,6 +365,4 @@ namespace Desert::Editor::Control
             line.pop_back();
         return line;
     }
-
-#endif // DESERT_PLATFORM_WINDOWS
 } // namespace Desert::Editor::Control

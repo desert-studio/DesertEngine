@@ -17,6 +17,7 @@
 //      and the only assertion of the four that catches it coming back through some other door.
 
 #include <SceneMigration.hpp>
+#include <assets_sandbox.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -412,6 +413,7 @@ TEST( SceneMaterialPathMigration, TheAnswerDoesNotDependOnHowTheRootIsSpelled )
 
 TEST( SceneMaterialPathMigration, MigrateSceneRunsTheStepForAV7FileAndStampsItAtTheHead )
 {
+    const Desert::TestSupport::AssetsSandbox sandbox( "SceneMaterialPathMigration", { "Materials/M.demat" } );
     SceneSerialized scene;
     scene.SceneName    = "V7";
     scene.UnitVersion  = Desert::Migration::kUnitVersion;

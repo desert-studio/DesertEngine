@@ -5,6 +5,7 @@
 #include <Common/Core/Events/KeyEvents.hpp>
 
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -345,6 +346,21 @@ namespace Desert::Platform::MacOS
     bool MacOSWindow::IsWindowMaximized() const
     {
         return glfwGetWindowAttrib( m_GLFWWindow, GLFW_MAXIMIZED ) == GLFW_TRUE;
+    }
+
+    bool MacOSWindow::HasDrawableArea() const
+    {
+        // Mirrors WindowsWindow: the FRAMEBUFFER size, asked of GLFW, because the cached specification
+        // deliberately keeps the last non-degenerate size across a minimise. On a Retina display the
+        // framebuffer is also the size that matters — it is the one the surface is built at.
+        int width  = 0;
+        int height = 0;
+        glfwGetFramebufferSize( m_GLFWWindow, &width, &height );
+
+        if ( width < 0 || height < 0 )
+            return false;
+
+        return Graphic::IsUsableViewExtent( static_cast<uint32_t>( width ), static_cast<uint32_t>( height ) );
     }
 
     uint32_t MacOSWindow::GetWidth() const

@@ -83,14 +83,14 @@ namespace
 
     TEST( PreviewWheel, InteractiveHoveredClaimsTheWheelToZoom )
     {
-        EXPECT_EQ( WheelOwner( PreviewInteraction::Interactive, true, 1.0f ), PreviewWheelOwner::Zoom );
-        EXPECT_EQ( WheelOwner( PreviewInteraction::Interactive, true, 0.0f ), PreviewWheelOwner::Zoom );
-        EXPECT_EQ( WheelOwner( PreviewInteraction::Interactive, false, 1.0f ), PreviewWheelOwner::PassThrough );
+        // Claimed on every hovered frame: the wheel's value is not an input (ImGui reads the claim next frame).
+        EXPECT_EQ( WheelOwner( PreviewInteraction::Interactive, true, true ), PreviewWheelOwner::Zoom );
+        EXPECT_EQ( WheelOwner( PreviewInteraction::Interactive, true, false ), PreviewWheelOwner::PassThrough );
     }
 
     TEST( PreviewWheel, StaticPreviewLetsTheDetailsPanelScroll )
     {
-        EXPECT_EQ( WheelOwner( PreviewInteraction::Static, true, 1.0f ), PreviewWheelOwner::PassThrough );
-        EXPECT_EQ( WheelOwner( PreviewInteraction::Static, false, 1.0f ), PreviewWheelOwner::PassThrough );
+        EXPECT_EQ( WheelOwner( PreviewInteraction::Static, true, true ), PreviewWheelOwner::PassThrough );
+        EXPECT_EQ( WheelOwner( PreviewInteraction::Static, true, false ), PreviewWheelOwner::PassThrough );
     }
 } // namespace

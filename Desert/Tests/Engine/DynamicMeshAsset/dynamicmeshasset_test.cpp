@@ -229,7 +229,7 @@ namespace
         return data.IsSuccess() ? data.ExtractValue() : Ser::MeshAssetData{};
     }
 
-    std::string RefusalOf( const Common::ResultStr<DynamicMesh3>& r )
+    std::string RefusalOf( const Common::ResultStr<ImportedDynamicMesh>& r )
     {
         EXPECT_FALSE( r.IsSuccess() );
         return r.IsSuccess() ? std::string{} : r.GetError();
@@ -270,9 +270,9 @@ TEST( DynamicMeshAsset, FileToMeshToFileIsByteStable )
         auto              read  = DynamicMeshFromMeshAssetData( Decoded( first ) );
         ASSERT_TRUE( read.IsSuccess() ) << c.Name << ": " << read.GetError();
         EXPECT_TRUE(
-             read.GetValue().CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) )
+             read.GetValue().Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) )
              << c.Name;
-        const std::string second = Bytes( DynamicMeshToMeshAssetData( read.GetValue(), kSlots ), c.Name );
+        const std::string second = Bytes( DynamicMeshToMeshAssetData( read.GetValue().Mesh, kSlots ), c.Name );
         // THE ONE BOUNDED DIFFERENCE, shared with the EditMesh reader: a mesh whose MaterialIDs have gaps is read
         // back compacted (MaterialID = submesh index), so its submesh NAMES ("MaterialID <id>") change once and
         // nothing else does; the second trip is then byte-stable. Every other mesh is stable at once.
@@ -291,13 +291,13 @@ TEST( DynamicMeshAsset, FileToMeshToFileIsByteStable )
         EXPECT_EQ( first == second, !gaps ) << c.Name << ": only a mesh with MaterialID gaps may rename submeshes";
         auto third = DynamicMeshFromMeshAssetData( again );
         ASSERT_TRUE( third.IsSuccess() ) << c.Name;
-        EXPECT_TRUE( Bytes( DynamicMeshToMeshAssetData( third.GetValue(), kSlots ), c.Name ) == second )
+        EXPECT_TRUE( Bytes( DynamicMeshToMeshAssetData( third.GetValue().Mesh, kSlots ), c.Name ) == second )
              << c.Name << ": the compacted file is not a fixed point";
 
         // and the old core reads the new core's file to the same bytes the new core does
         auto old = FromMeshAssetData( Decoded( first ) );
         ASSERT_TRUE( old.IsSuccess() ) << c.Name << ": " << old.GetError();
-        const std::string oldBytes = Bytes( ToMeshAssetData( old.GetValue(), kSlots ), c.Name );
+        const std::string oldBytes = Bytes( ToMeshAssetData( old.GetValue().Mesh, kSlots ), c.Name );
         EXPECT_TRUE( oldBytes == second ) << c.Name << ": the old core read the file to other bytes, first at "
                                           << FirstDifference( second, oldBytes );
     }
@@ -317,7 +317,7 @@ TEST( DynamicMeshAsset, PolygroupsAndMaterialsSurviveTheFile )
 
         auto read = DynamicMeshFromMeshAssetData( file );
         ASSERT_TRUE( read.IsSuccess() ) << c.Name << ": " << read.GetError();
-        const DynamicMesh3& back = read.GetValue();
+        const DynamicMesh3& back = read.GetValue().Mesh;
         ASSERT_EQ( back.TriangleCount(), mesh.TriangleCount() ) << c.Name;
         ASSERT_EQ( back.VertexCount(), mesh.VertexCount() ) << c.Name << ": the weld did not close the shell";
 
@@ -359,9 +359,10 @@ TEST( DynamicMeshAsset, AFileWithoutGroupsReadsWithEveryFaceInGroupZero )
     file.PolyGroups.clear();
     auto read = DynamicMeshFromMeshAssetData( file );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    ASSERT_TRUE( read.GetValue().HasTriangleGroups() );
-    for ( const int t : read.GetValue().TriangleIndicesItr() )
-        EXPECT_EQ( read.GetValue().GetTriangleGroup( t ), 0 ) << "triangle " << t;
+    const DynamicMesh3& mesh = read.GetValue().Mesh;
+    ASSERT_TRUE( mesh.HasTriangleGroups() );
+    for ( const int t : mesh.TriangleIndicesItr() )
+        EXPECT_EQ( mesh.GetTriangleGroup( t ), 0 ) << "triangle " << t;
 }
 
 TEST( DynamicMeshAsset, WhatTheFileCannotHoldIsRefusedByName )
@@ -394,14 +395,53 @@ TEST( DynamicMeshAsset, WhatTheFileCannotHoldIsRefusedByName )
     EXPECT_NE( RefusalOf( DynamicMeshFromMeshAssetData( short_ ) ).find( "polygroup entries" ),
                std::string::npos );
 
-    // a face repeated: it would weld onto an existing triangle and shift every group after it
-    Ser::MeshAssetData duplicate = OneBoxFile();
-    duplicate.Indices.push_back( duplicate.Indices.back() );
-    duplicate.PolyGroups.push_back( 0 );
-    duplicate.Submeshes.back().IndexCount += 3;
-    const std::string refusal = RefusalOf( DynamicMeshFromMeshAssetData( duplicate ) );
-    EXPECT_NE( refusal.find( "1 duplicate" ), std::string::npos ) << refusal;
-    EXPECT_FALSE( FromMeshAssetData( duplicate ).IsSuccess() ) << "the two cores disagree on what they open";
+    // a file with no face that survives the weld is refused by both cores, by the face count
+    Ser::MeshAssetData flat = OneBoxFile();
+    for ( Ser::IndexData& face : flat.Indices )
+        face.V2 = face.V1;
+    EXPECT_NE( RefusalOf( DynamicMeshFromMeshAssetData( flat ) ).find( "none of the asset's" ),
+               std::string::npos );
+    EXPECT_FALSE( FromMeshAssetData( flat ).IsSuccess() ) << "the two cores disagree on what they open";
+}
+
+TEST( DynamicMeshAsset, BothCoresSkipDegenerateAndDuplicateFacesAlike )
+{
+    // The rule is UE's MeshDescription -> DynamicMesh one, and both cores follow it: a repeated face and a face
+    // with two corners on one vertex are skipped and counted, and every other face keeps its own polygroup and
+    // bitangent sign. The two bad faces go in right after face 0, so a reader that addressed groups by triangle
+    // id instead of by face would shift every group after them.
+    const Ser::MeshAssetData clean = OneBoxFile();
+    Ser::MeshAssetData       dirty = clean;
+    ASSERT_FALSE( dirty.Submeshes.empty() );
+    ASSERT_EQ( dirty.Submeshes.front().IndexOffset, 0u );
+    const Ser::IndexData first = dirty.Indices.front();
+    dirty.Indices.insert( dirty.Indices.begin() + 1, { first, Ser::IndexData{ first.V1, first.V1, first.V2 } } );
+    dirty.PolyGroups.insert( dirty.PolyGroups.begin() + 1, { 7, 8 } );
+    dirty.Submeshes.front().IndexCount += 6;
+    for ( size_t k = 1; k < dirty.Submeshes.size(); ++k )
+        dirty.Submeshes[k].IndexOffset += 6;
+
+    auto dynamic = DynamicMeshFromMeshAssetData( dirty );
+    auto edit    = FromMeshAssetData( dirty );
+    ASSERT_TRUE( dynamic.IsSuccess() ) << dynamic.GetError();
+    ASSERT_TRUE( edit.IsSuccess() ) << edit.GetError();
+    const ImportedDynamicMesh& d = dynamic.GetValue();
+    const ImportedEditMesh&    e = edit.GetValue();
+    EXPECT_EQ( d.DroppedDuplicate, 1 );
+    EXPECT_EQ( d.DroppedDegenerate, 1 );
+    EXPECT_EQ( d.DetachedTriangles, 0 );
+    EXPECT_EQ( e.DroppedDuplicate, d.DroppedDuplicate ) << "the two cores report different counts";
+    EXPECT_EQ( e.DroppedDegenerate, d.DroppedDegenerate ) << "the two cores report different counts";
+    EXPECT_EQ( e.DetachedTriangles, d.DetachedTriangles ) << "the two cores report different counts";
+    EXPECT_EQ( e.Mesh.TriangleCount(), d.Mesh.TriangleCount() ) << "the two cores disagree on what they open";
+    EXPECT_EQ( static_cast<size_t>( d.Mesh.TriangleCount() ), clean.Indices.size() );
+    EXPECT_TRUE( d.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
+
+    // what survives writes back exactly the clean file: groups and bitangent signs followed their faces
+    EXPECT_TRUE( Bytes( DynamicMeshToMeshAssetData( d.Mesh, kSlots ), "dirty" ) == Ser::EncodeMeshBinary( clean ) )
+         << "the skipped faces moved another face's data";
+    EXPECT_TRUE( Bytes( ToMeshAssetData( e.Mesh, kSlots ), "dirty" ) == Ser::EncodeMeshBinary( clean ) )
+         << "the EditMesh reader moved another face's data";
 }
 
 int main( int argc, char** argv )

@@ -104,7 +104,7 @@ TEST( StaticMeshOutput, TheRoundTripThroughTheFileKeepsGroupsCornersAndMaterials
 
     auto lifted = Geometry::FromMeshAssetData( file );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    const Geometry::EditMesh& back = lifted.GetValue();
+    const Geometry::EditMesh& back = lifted.GetValue().Mesh;
     ASSERT_EQ( back.TriangleCount(), original.TriangleCount() );
     ASSERT_EQ( back.VertexCount(), original.VertexCount() ) << "the weld did not close the shell again";
 
@@ -154,8 +154,8 @@ TEST( StaticMeshOutput, AFileWithoutGroupsLiftsWithEveryFaceInGroupZero )
     v1Shape.PolyGroups = {};
     auto lifted        = Geometry::FromMeshAssetData( v1Shape );
     ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
-    for ( const int t : lifted.GetValue().TriangleIds() )
-        EXPECT_EQ( lifted.GetValue().Attributes().GetPolyGroup( t ), 0 );
+    for ( const int t : lifted.GetValue().Mesh.TriangleIds() )
+        EXPECT_EQ( lifted.GetValue().Mesh.Attributes().GetPolyGroup( t ), 0 );
 }
 
 TEST( StaticMeshOutput, ALayerTheFileCannotHoldIsRefusedByName )
