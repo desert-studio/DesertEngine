@@ -425,6 +425,101 @@ namespace
                           Desert::Assets::kAnimationSchemaVersion, "Version", false },
     };
 
+    // A member every element of a top-level array lost in the same step that raised the file to its header.
+    struct ElementMemberDrop
+    {
+        const char* Extension;
+        const char* Array;
+        const char* Member;
+    };
+
+    constexpr std::array kElementMemberDrops{
+         // .skeleton 0 -> 1 (T7e, JS1d): generation 0 wrote each bone's position in the array as `BoneIndex`.
+         // SKEL 1 has no such field and its reader is strict, so a raise that kept it produced a file the
+         // engine refuses by name ("Bones.BoneIndex"). The index is the element's place; nothing is lost.
+         ElementMemberDrop{ ".skeleton", "Bones", "BoneIndex" },
+    };
+
+    // One past the JSON object or array opening at `open`, strings skipped; npos when it never closes.
+    std::size_t ContainerEnd( const std::string& text, std::size_t open )
+    {
+        int depth = 0;
+        for ( std::size_t at = open; at < text.size(); ++at )
+        {
+            const char c = text[at];
+            if ( c == '"' )
+            {
+                ++at;
+                while ( at < text.size() && text[at] != '"' )
+                    at += text[at] == '\\' ? 2 : 1;
+            }
+            else if ( c == '{' || c == '[' )
+                ++depth;
+            else if ( ( c == '}' || c == ']' ) && --depth == 0 )
+                return at + 1;
+        }
+        return std::string::npos;
+    }
+
+    // `object` with `member` cut out of every element object of its TOP-LEVEL array `array`, every other byte
+    // kept (text for the reason EraseTopLevelMember gives). An element that does not state the member, an
+    // array that is absent, and a shape that is not an array of objects are left as written: the strict reader
+    // then names whatever is wrong with them.
+    std::string EraseMemberOfEachElement( const std::string& object, std::string_view array, std::string_view member )
+    {
+        int depth = 0;
+        for ( std::size_t at = 0; at < object.size(); ++at )
+        {
+            const char c = object[at];
+            if ( c == '{' || c == '[' )
+            {
+                ++depth;
+                continue;
+            }
+            if ( c == '}' || c == ']' )
+            {
+                --depth;
+                continue;
+            }
+            if ( c != '"' )
+                continue;
+            std::size_t close = at + 1;
+            while ( close < object.size() && object[close] != '"' )
+                close += object[close] == '\\' ? 2 : 1;
+            const std::size_t colon = object.find_first_not_of( " \t\r\n", close + 1 );
+            const bool        isKey = depth == 1 && colon != std::string::npos && object[colon] == ':' &&
+                               std::string_view( object ).substr( at + 1, close - at - 1 ) == array;
+            if ( !isKey )
+            {
+                at = close;
+                continue;
+            }
+            const std::size_t open = object.find_first_not_of( " \t\r\n", colon + 1 );
+            if ( open == std::string::npos || object[open] != '[' )
+                return object;
+            const std::size_t arrayEnd = ContainerEnd( object, open );
+            if ( arrayEnd == std::string::npos )
+                return object;
+            std::string out    = object.substr( 0, open + 1 );
+            std::size_t cursor = open + 1;
+            for ( ;; )
+            {
+                const std::size_t element = object.find_first_not_of( " \t\r\n,", cursor );
+                if ( element == std::string::npos || element >= arrayEnd - 1 )
+                    break;
+                if ( object[element] != '{' )
+                    return object;
+                const std::size_t elementEnd = ContainerEnd( object, element );
+                const std::string text       = object.substr( element, elementEnd - element );
+                const auto        cut        = EraseTopLevelMember( text, member );
+                out += object.substr( cursor, element - cursor ) + ( cut ? *cut : text );
+                cursor = elementEnd;
+            }
+            return out + object.substr( cursor );
+        }
+        return object;
+    }
+
     const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
     {
         const std::string ext = path.extension().string();
@@ -479,6 +574,9 @@ namespace
                                                                       "' more than once" );
             body = std::move( *cut );
         }
+        for ( const ElementMemberDrop& drop : kElementMemberDrops )
+            if ( std::string_view( drop.Extension ) == row.Extension )
+                body = EraseMemberOfEachElement( body, drop.Array, drop.Member );
         return Common::MakeSuccess( std::optional<std::string>( PrependHeaderMember( body, headerText ) ) );
     }
 

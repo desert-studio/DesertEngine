@@ -22,6 +22,7 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
@@ -857,6 +858,39 @@ TEST( SceneMigratorWritePath, AMatl3ShaderNameNoShaderFileCarriesIsRefusedByName
     EXPECT_NE( errors.find( "'NoSuchShader'" ), std::string::npos ) << errors;
     EXPECT_EQ( ReadRaw( file ), before ) << "a refused material was rewritten";
     fs::remove_all( root.Dir.parent_path() );
+}
+
+// THE SKELETON PASS (T7e, 0 -> 1) DROPS Bones[].BoneIndex (JS1d). Generation 0 wrote each bone's position as a
+// member; SKEL 1 has none and its reader is strict, so a raise that kept it produced a file the engine refused
+// by name. The raised file must read through ReadSkeletonJson itself, with the uint64 Signature intact.
+TEST( SceneMigratorWritePath, AGenerationZeroSkeletonLosesBoneIndexAndReadsStrictly )
+{
+    const fs::path dir  = MakeTempDir( "JS1dSkeletonRaise" );
+    const fs::path file = dir / "Arm.skeleton";
+    constexpr const char* kIdentity = "[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Signature":18446744073709551557,"Bones":[)"
+            << R"({"BoneIndex":0,"Name":"Root","OffsetMatrix":)" << kIdentity << R"(,"LocalBindTransform":)"
+            << kIdentity << R"(},{"Name":"Hand","BoneIndex":1,"OffsetMatrix":)" << kIdentity
+            << R"(,"LocalBindTransform":)" << kIdentity << R"(}]})";
+    }
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
+    const std::string raised = ReadRaw( file );
+    EXPECT_EQ( raised.find( "\"BoneIndex\"" ), std::string::npos ) << raised;
+
+    const auto read = Desert::Assets::Serialization::ReadSkeletonJson( raised );
+    ASSERT_TRUE( read ) << read.GetError() << "\n" << raised;
+    EXPECT_EQ( read.GetValue().Signature, 18446744073709551557ULL ) << "the uint64 went through a signed tree";
+    ASSERT_EQ( read.GetValue().Bones.size(), 2u );
+    EXPECT_EQ( read.GetValue().Bones[1].Name, "Hand" );
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a raised skeleton";
+    fs::remove_all( dir );
 }
 
 // THE CONTROL RIG AND RETARGET PASSES (T7c, 1 -> 2): two more rows of the same step.
