@@ -58,8 +58,8 @@
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -125,9 +125,9 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
-        auto data = rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        Skeleton rig( data.has_value() ? std::move( data.value().Bones ) : std::vector<BoneInfo>{} );
+        auto data = Common::Json::Read<File::SkeletonAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
+        Skeleton rig( data.IsSuccess() ? data.ExtractValue().Bones : std::vector<BoneInfo>{} );
         rig.RecomputeOffsetMatrices();
         return rig;
     }
@@ -193,9 +193,9 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kTargetRig );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kTargetRig;
-        auto data = rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        return data.has_value() ? std::move( data.value().Bones ) : std::vector<BoneInfo>{};
+        auto data = Common::Json::Read<File::SkeletonAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
+        return data.IsSuccess() ? data.ExtractValue().Bones : std::vector<BoneInfo>{};
     }
 
     /// The source rig as FILE DATA, so that what the suite measures and what the project ships are the
@@ -289,26 +289,25 @@ namespace
     }
 
     /// THE FIXTURE GOES THROUGH JSON AND BACK, on purpose. Handing the tests a `Skeleton` built in memory
-    /// would drop `rfl::json::read` and `BuildClipFromAssetData` out of the suite entirely, and those are
+    /// would drop `Common::Json::Read` and `BuildClipFromAssetData` out of the suite entirely, and those are
     /// the two links the shipped corpus travels through. What is removed here is the DISK, not the format.
     Skeleton SourceRig()
     {
-        auto data = rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>(
-             rfl::json::write( ForeignArmRigData() ) );
-        EXPECT_TRUE( data.has_value() );
-        Skeleton rig( data.has_value() ? std::move( data.value().Bones ) : std::vector<BoneInfo>{} );
+        auto data = Common::Json::Read<File::SkeletonAssetData>( Common::Json::Write( ForeignArmRigData() ) );
+        EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
+        Skeleton rig( data.IsSuccess() ? data.ExtractValue().Bones : std::vector<BoneInfo>{} );
         rig.RecomputeOffsetMatrices();
         return rig;
     }
 
     AnimationClip SourceClip()
     {
-        const auto data = rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>(
-             rfl::json::write( ForeignArmClipData() ) );
-        EXPECT_TRUE( data.has_value() );
-        if ( !data.has_value() )
+        const auto data =
+             Common::Json::Read<File::AnimationAssetData>( Common::Json::Write( ForeignArmClipData() ) );
+        EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
+        if ( !data.IsSuccess() )
             return {};
-        auto built = File::BuildClipFromAssetData( data.value() );
+        auto built = File::BuildClipFromAssetData( data.GetValue() );
         EXPECT_TRUE( built.IsSuccess() ) << ( built.IsSuccess() ? "" : built.GetError() );
         return built.IsSuccess() ? built.ExtractValue() : AnimationClip{};
     }
@@ -318,6 +317,38 @@ namespace
         auto parsed = File::ParseRetarget( ReadFile( RepoRoot() + kRetargetFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() );
         return parsed.IsSuccess() ? parsed.ExtractValue() : File::RetargetAssetData{};
+    }
+
+    // The shipped retarget as WriteRetarget states it: header present, versions stamped by this build.
+    File::RetargetAssetData StampedRetarget()
+    {
+        auto parsed = File::ParseRetarget( File::WriteRetarget( ShippedRetarget() ) );
+        EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() );
+        return parsed.IsSuccess() ? parsed.ExtractValue() : File::RetargetAssetData{};
+    }
+
+    // `json` with one top-level member set to `value` - replaced in place, or added (first when `first`). A
+    // document of another generation is provoked through the tree, never by splicing text.
+    template <typename T>
+    std::string WithMember( const std::string& json, std::string_view name, const T& value, bool first = false )
+    {
+        auto parsed = Common::Json::Parse( json );
+        EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() );
+        if ( !parsed.IsSuccess() )
+            return {};
+        const Common::Json::Value   tree = parsed.ExtractValue();
+        Common::Json::ObjectBuilder rebuilt;
+        if ( first )
+            rebuilt.Set( name, value );
+        Common::Json::Root( tree ).ForEachMember(
+             [&]( std::string_view member, const Common::Json::Node& node )
+             {
+                 if ( member == name )
+                     rebuilt.Set( member, value );
+                 else
+                     rebuilt.Set( member, node.Raw() );
+             } );
+        return Common::Json::Write( Common::Json::Value( rebuilt.Build() ) );
     }
 
     std::unique_ptr<RetargetSource> BuildSource( const File::RetargetAssetData& data, const Skeleton& source,
@@ -487,7 +518,7 @@ TEST( RetargetAssetTest, AHeaderThatDoesNotStateTheRigAsItsDependencyIsRefused )
         EXPECT_TRUE( parsed.IsSuccess() );
         auto stamped                 = parsed.IsSuccess() ? parsed.ExtractValue() : d;
         stamped.Header->Dependencies = std::move( deps );
-        return rfl::json::write( stamped );
+        return Common::Json::Write( stamped );
     };
     const std::string other = "0123456789abcdef0123456789abcdef";
     for ( const auto& deps : { std::vector<std::string>{}, std::vector<std::string>{ other },
@@ -516,13 +547,13 @@ TEST( RetargetAssetTest, TheFileSurvivesTheDiskAndTheRefusalNamesTheFile )
 
 TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirections )
 {
-    // WriteRetarget stamps the CURRENT version, so a future one is provoked through the text.
-    std::string       text   = File::WriteRetarget( ShippedRetarget() );
-    const std::string stated = "\"RTGT\":" + std::to_string( File::kRetargetVersion );
-    const auto        at     = text.find( stated );
-    ASSERT_NE( at, std::string::npos ) << text;
-    text.replace( at, stated.size(), "\"RTGT\": 42" );
-    const auto forward = File::ParseRetarget( text );
+    // WriteRetarget stamps the CURRENT version, so a future one is provoked by restamping what it wrote.
+    const File::RetargetAssetData stamped = StampedRetarget();
+    ASSERT_TRUE( stamped.Header.has_value() );
+    ASSERT_EQ( stamped.Header->Versions.at( "RTGT" ), File::kRetargetVersion );
+    File::RetargetAssetData future  = stamped;
+    future.Header->Versions["RTGT"] = 42;
+    const auto forward              = File::ParseRetarget( Common::Json::Write( future ) );
     ASSERT_FALSE( forward.IsSuccess() );
     EXPECT_NE( forward.GetError().find( "42" ), std::string::npos ) << forward.GetError();
 
@@ -531,7 +562,7 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     File::RetargetAssetData past = ShippedRetarget();
     past.Header.reset();
     for ( const std::string& v1 :
-          { rfl::json::write( past ), "{\"FormatVersion\":1," + rfl::json::write( past ).substr( 1 ) } )
+          { Common::Json::Write( past ), WithMember( Common::Json::Write( past ), "FormatVersion", 1, true ) } )
     {
         const auto backward = File::ParseRetarget( v1 );
         ASSERT_FALSE( backward.IsSuccess() ) << v1;
@@ -543,15 +574,10 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     // `"RTGT": 2` is the one thing a reader can trust before the payload's shape is known.
     // The payload is written in the v2 shape, the rig a bare string, so the refusal must come from the
     // stated version and not from the typed read failing on the object it now expects.
-    std::string v2     = File::WriteRetarget( ShippedRetarget() );
-    const auto  rigAt  = v2.find( "\"SourceSkeleton\"" );
-    const auto  rigEnd = v2.find( '}', rigAt );
-    ASSERT_NE( rigAt, std::string::npos ) << v2;
-    ASSERT_NE( rigEnd, std::string::npos ) << v2;
-    v2.replace( rigAt, rigEnd + 1 - rigAt, R"("SourceSkeleton": "ForeignArm.skeleton")" );
-    const auto statedAt = v2.find( stated );
-    ASSERT_NE( statedAt, std::string::npos ) << v2;
-    v2.replace( statedAt, stated.size(), "\"RTGT\": 2" );
+    File::RetargetAssetData second  = stamped;
+    second.Header->Versions["RTGT"] = 2;
+    const std::string v2 =
+         WithMember( Common::Json::Write( second ), "SourceSkeleton", std::string( "ForeignArm.skeleton" ) );
     const auto older = File::ParseRetarget( v2 );
     ASSERT_FALSE( older.IsSuccess() );
     EXPECT_NE( older.GetError().find( "format version 2" ), std::string::npos ) << older.GetError();
@@ -1132,47 +1158,47 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     const std::filesystem::path rigOut  = std::filesystem::temp_directory_path() / "ForeignArm.skeleton";
     const std::filesystem::path clipOut = std::filesystem::temp_directory_path() / "ForeignArm_Swing.anim";
     {
-        std::ofstream( rigOut, std::ios::binary ) << rfl::json::write( ForeignArmRigData() );
-        std::ofstream( clipOut, std::ios::binary ) << rfl::json::write( ForeignArmClipData() );
+        std::ofstream( rigOut, std::ios::binary ) << Common::Json::Write( ForeignArmRigData() );
+        std::ofstream( clipOut, std::ios::binary ) << Common::Json::Write( ForeignArmClipData() );
     }
 
-    const auto shippedRig =
-         rfl::json::read<File::SkeletonAssetData, rfl::DefaultIfMissing>( ReadFile( root + kSourceRig ) );
-    ASSERT_TRUE( shippedRig.has_value() )
+    const auto shippedRig = Common::Json::Read<File::SkeletonAssetData>( ReadFile( root + kSourceRig ) );
+    ASSERT_TRUE( shippedRig.IsSuccess() )
+         << shippedRig.GetError() << "\n"
          << kSourceRig << " is missing or is not a skeleton; copy " << rigOut.string() << " over it";
 
     const File::SkeletonAssetData builtRig = ForeignArmRigData();
-    ASSERT_EQ( shippedRig.value().Bones.size(), builtRig.Bones.size() );
-    EXPECT_EQ( shippedRig.value().Signature, builtRig.Signature );
+    ASSERT_EQ( shippedRig.GetValue().Bones.size(), builtRig.Bones.size() );
+    EXPECT_EQ( shippedRig.GetValue().Signature, builtRig.Signature );
     for ( size_t i = 0; i < builtRig.Bones.size(); ++i )
     {
-        EXPECT_EQ( shippedRig.value().Bones[i].Name, builtRig.Bones[i].Name ) << "bone " << i;
-        EXPECT_EQ( shippedRig.value().Bones[i].ParentBoneID, builtRig.Bones[i].ParentBoneID ) << "bone " << i;
-        EXPECT_LT(
-             MaxAbsDelta( shippedRig.value().Bones[i].LocalBindTransform, builtRig.Bones[i].LocalBindTransform ),
-             1.0e-3F )
+        EXPECT_EQ( shippedRig.GetValue().Bones[i].Name, builtRig.Bones[i].Name ) << "bone " << i;
+        EXPECT_EQ( shippedRig.GetValue().Bones[i].ParentBoneID, builtRig.Bones[i].ParentBoneID ) << "bone " << i;
+        EXPECT_LT( MaxAbsDelta( shippedRig.GetValue().Bones[i].LocalBindTransform,
+                                builtRig.Bones[i].LocalBindTransform ),
+                   1.0e-3F )
              << builtRig.Bones[i].Name << "'s bind transform is not the one this suite builds";
-        EXPECT_LT( MaxAbsDelta( shippedRig.value().Bones[i].OffsetMatrix, builtRig.Bones[i].OffsetMatrix ),
+        EXPECT_LT( MaxAbsDelta( shippedRig.GetValue().Bones[i].OffsetMatrix, builtRig.Bones[i].OffsetMatrix ),
                    1.0e-3F )
              << builtRig.Bones[i].Name << "'s inverse bind pose is not the one this suite builds";
     }
 
-    const auto shippedClip =
-         rfl::json::read<File::AnimationAssetData, rfl::DefaultIfMissing>( ReadFile( root + kSourceClip ) );
-    ASSERT_TRUE( shippedClip.has_value() )
+    const auto shippedClip = Common::Json::Read<File::AnimationAssetData>( ReadFile( root + kSourceClip ) );
+    ASSERT_TRUE( shippedClip.IsSuccess() )
+         << shippedClip.GetError() << "\n"
          << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
 
     const File::AnimationAssetData builtClip = ForeignArmClipData();
-    EXPECT_TRUE( shippedClip.value().Header.has_value() ) << kSourceClip << " states no header";
-    EXPECT_EQ( shippedClip.value().Name, builtClip.Name );
-    EXPECT_EQ( shippedClip.value().DurationTicks, builtClip.DurationTicks );
-    EXPECT_EQ( shippedClip.value().SkeletonSignature, builtClip.SkeletonSignature );
-    EXPECT_EQ( shippedClip.value().TickRate.Numerator, builtClip.TickRate.Numerator );
-    EXPECT_EQ( shippedClip.value().TickRate.Denominator, builtClip.TickRate.Denominator );
-    ASSERT_EQ( shippedClip.value().Channels.size(), builtClip.Channels.size() );
+    EXPECT_TRUE( shippedClip.GetValue().Header.has_value() ) << kSourceClip << " states no header";
+    EXPECT_EQ( shippedClip.GetValue().Name, builtClip.Name );
+    EXPECT_EQ( shippedClip.GetValue().DurationTicks, builtClip.DurationTicks );
+    EXPECT_EQ( shippedClip.GetValue().SkeletonSignature, builtClip.SkeletonSignature );
+    EXPECT_EQ( shippedClip.GetValue().TickRate.Numerator, builtClip.TickRate.Numerator );
+    EXPECT_EQ( shippedClip.GetValue().TickRate.Denominator, builtClip.TickRate.Denominator );
+    ASSERT_EQ( shippedClip.GetValue().Channels.size(), builtClip.Channels.size() );
     for ( size_t c = 0; c < builtClip.Channels.size(); ++c )
     {
-        const File::ChannelData& shipped = shippedClip.value().Channels[c];
+        const File::ChannelData& shipped = shippedClip.GetValue().Channels[c];
         const File::ChannelData& built   = builtClip.Channels[c];
         EXPECT_EQ( shipped.BoneName, built.BoneName ) << "channel " << c;
         ASSERT_EQ( shipped.Positions.size(), built.Positions.size() ) << built.BoneName;
