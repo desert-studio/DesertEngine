@@ -5,6 +5,7 @@ local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 project "Editor"
     kind "ConsoleApp"
+    DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
     -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
     -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.

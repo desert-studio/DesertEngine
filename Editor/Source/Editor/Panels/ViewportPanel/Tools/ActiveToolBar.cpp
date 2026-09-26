@@ -65,12 +65,7 @@ namespace Desert::Editor::Tools
                 cancel = ::ImGui::Button( ICON_MDI_CLOSE "  Cancel" );
                 ::ImGui::PopStyleColor( 2 );
             }
-            if ( finish && label.HasCancel )
-                ms.ReqAccept = true;
-            if ( cancel )
-                ms.ReqCancel = true;
-            if ( finish || cancel )
-                ms.ActiveTool = Core::ModelingState::Tool::None;
+            PressToolBar( ms, label.HasCancel, finish, cancel );
         }
         ::ImGui::End();
         ::ImGui::PopStyleVar( 3 );

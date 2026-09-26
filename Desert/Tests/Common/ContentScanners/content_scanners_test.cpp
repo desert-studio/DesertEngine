@@ -146,6 +146,11 @@ namespace
            "reads the source tree it is about to PACK. Reading it through a mount would be circular: the "
            "packager would pack the archive into itself.",
            "" },
+         { "Desert/Common/Source/Common/Utilities/PeImports.cpp", Verdict::NotContent,
+           "lists the DLLs of a Visual C++ redistributable directory (VC\\Redist\\MSVC\\<ver>\\x64\\"
+           "Microsoft.VC143.CRT) on the packaging machine, to decide which runtime DLLs travel next to "
+           "Runtime.exe. A Visual Studio install, never a project's content and never mounted.",
+           "" },
          { "Editor/Source/Editor/Packaging/PackageCook.cpp", Verdict::NotContent,
            "walks the local DerivedDataCache buckets it stages into Saved/Cooked for the package - a "
            "machine-local cache, never mounted content.",
