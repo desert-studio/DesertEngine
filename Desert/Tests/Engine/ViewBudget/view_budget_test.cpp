@@ -19,7 +19,7 @@ namespace
 
     VB::Reading Known( const uint64_t ceiling, const uint64_t usage )
     {
-        return VB::ReadCeiling( true, ceiling, usage, /*heap=*/ceiling * 4, /*override=*/0, /*held=*/0 );
+        return VB::ReadCeiling( true, ceiling, usage, /*deviceLocalHeapSize=*/ceiling * 4, /*overrideBytes=*/0, /*heldByViews=*/0 );
     }
 } // namespace
 
@@ -71,7 +71,7 @@ TEST( ViewBudget, ARefusalNamesRequestCeilingUsageAndEveryOpenView )
 TEST( ViewBudget, AnUnknownBudgetUsesTheHeapSizeAndSaysSo )
 {
     // No VK_EXT_memory_budget: the driver's budget/usage fields are 0 and mean nothing.
-    const VB::Reading reading = VB::ReadCeiling( false, 0, 0, /*heap=*/2048 * kMiB, 0, /*held=*/300 * kMiB );
+    const VB::Reading reading = VB::ReadCeiling( false, 0, 0, /*deviceLocalHeapSize=*/2048 * kMiB, 0, /*heldByViews=*/300 * kMiB );
     EXPECT_EQ( reading.Source, VB::CeilingSource::HeapSize );
     EXPECT_EQ( reading.CeilingBytes, 2048 * kMiB ) << "the ceiling must be the device-local heap size";
     EXPECT_FALSE( reading.UsageKnown );

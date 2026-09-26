@@ -293,11 +293,13 @@ TEST( StaticMeshViewerStats, TheProbeReportsFortyEightVerticesTwentyFourTriangle
     ASSERT_GE( stats.LODs(), 1u );
     EXPECT_EQ( stats.TrianglesPerLOD[0], stats.Triangles )
          << "LOD 0 summed over the sections disagrees with the triangle array: IndexCount is in index units";
-    ASSERT_TRUE( stats.Bounds.has_value() );
     const auto expected = Desert::Assets::Serialization::MeshDataBounds( data.GetValue() );
-    EXPECT_EQ( stats.Bounds->Min, expected->Min );
-    EXPECT_EQ( stats.Bounds->Max, expected->Max );
-    EXPECT_GT( stats.Bounds->Max.y - stats.Bounds->Min.y, 0.0f );
+    ASSERT_TRUE( stats.Bounds.has_value() && expected.has_value() );
+    const auto& bounds = stats.Bounds.value(); // NOLINT(bugprone-unchecked-optional-access): asserted above
+    const auto& want   = expected.value();     // NOLINT(bugprone-unchecked-optional-access): asserted above
+    EXPECT_EQ( bounds.Min, want.Min );
+    EXPECT_EQ( bounds.Max, want.Max );
+    EXPECT_GT( bounds.Max.y - bounds.Min.y, 0.0f );
 }
 
 TEST( StaticMeshViewerStats, AShorterChainCountsItsCoarsestLevelAtDeeperLODs )
