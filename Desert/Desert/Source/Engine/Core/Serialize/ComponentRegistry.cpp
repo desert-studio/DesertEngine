@@ -601,8 +601,8 @@ namespace Desert::Core::Serialize
             // bound in Assets::CloudTypeAsset::ResolveDependencies, from the path inside the type's
             // file, which is where a reference to a `.dcnv` now lives.
             // THE READ-SIDE "CloudTypeAsset" AND "CloudLayoutAsset" BRANCHES ARE GONE WITH THE WRITE
-            // SIDE ABOVE (O1). What replaced their register-on-load duty: AssetPreloader::PreloadCloudTypes
-            // / PreloadCloudLayouts registers the library directories at startup, and the Material Editor's
+            // SIDE ABOVE (O1). What replaced their register-on-load duty: CloudTypeService and CloudLayoutService
+            // create the named file from its registry row on first use (AL1-2, AL1-7), and the Material Editor's
             // drop target registers an out-of-library file the moment it is bound. A file outside the
             // library that only a `.demat` names is NOT re-registered on the next launch — the renderer
             // and the services say so loudly, once, with the handle — which is the named cost of the

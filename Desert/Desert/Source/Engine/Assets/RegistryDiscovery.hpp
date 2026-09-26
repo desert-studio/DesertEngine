@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -67,5 +68,45 @@ namespace Desert::Assets
                  static_cast<uint64_t>( created->GetMetadata().Handle ), guid );
 
         return Common::MakeSuccess( std::move( created ) );
+    }
+
+    // A SCENE DEPENDENCY SMALL ENOUGH TO WAIT FOR (AL1-7): a cloud type or a UI theme is a few kilobytes of
+    // JSON whose numbers the first frame that names it needs, so the service resolving it reads it NOW. The
+    // read still goes through AsyncAssetLoader and is finished on this thread by FlushOne: a read a worker
+    // already started is not done twice, and SyncLoadLedger counts it as the synchronous load it is.
+    template <typename AssetType>
+    Common::ResultStr<Asset<AssetType>> DiscoverAndReadNow( const std::weak_ptr<AssetManager>& assets,
+                                                            const AssetHandle&                 handle,
+                                                            const Common::Content::ContentKind kind )
+    {
+        auto created = CreateFromRegistryRow<AssetType>( assets, handle, kind );
+        if ( !created || created.GetValue()->IsReadyForUse() )
+            return created;
+
+        const Asset<AssetType> asset = created.GetValue();
+        std::string            failure;
+        // Released at the end of this scope, after FlushOne has fired it: nothing can call it later.
+        LoadRequest request = AsyncAssetLoader::Get().Request(
+             asset,
+             [&failure, &assets]( const Asset<AssetBase>& loaded, const LoadOutcome outcome, const std::string& error )
+             {
+                 if ( outcome != LoadOutcome::Loaded )
+                 {
+                     failure = error;
+                     return;
+                 }
+                 // The shell was created unread, so CreateAsset resolved nothing; the loaded data binds here.
+                 if ( const auto manager = assets.lock() )
+                     loaded->ResolveDependencies( *manager );
+             },
+             [] {} );
+        AsyncAssetLoader::Get().FlushOne( handle );
+
+        if ( !asset->IsReadyForUse() )
+            return Common::MakeFormattedError<Asset<AssetType>>(
+                 "{} '{}' (handle {}) could not be read: {}", Common::Content::KindName( kind ),
+                 asset->GetMetadata().Filepath.string(), static_cast<uint64_t>( handle ),
+                 failure.empty() ? std::string( "the loader delivered no result" ) : failure );
+        return created;
     }
 } // namespace Desert::Assets

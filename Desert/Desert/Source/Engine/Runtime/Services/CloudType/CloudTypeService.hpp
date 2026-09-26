@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 
 #include <memory>
@@ -29,6 +30,9 @@ namespace Desert::Runtime
     class CloudTypeService
     {
     public:
+        // The manager a handle nothing registered is created in, from its content-registry row (AL1-7).
+        void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+
         /// Caches @p asset under its handle. Called again for the same asset after a hot reload; a changed
         /// revision replaces the entry, an unchanged one is a no-op.
         Common::BoolResultStr Register( const std::shared_ptr<Assets::CloudTypeAsset>& asset );
@@ -39,7 +43,7 @@ namespace Desert::Runtime
 
         /// The noise volume the type in @p handle names, or a null handle for "the built-in default
         /// volume" — which is what an empty slot resolves to as well.
-        Assets::AssetHandle GetNoiseVolume( const Assets::AssetHandle& handle ) const;
+        Assets::AssetHandle GetNoiseVolume( const Assets::AssetHandle& handle );
 
         /**
          * @brief Bumped whenever any registered type changes.
@@ -63,6 +67,11 @@ namespace Desert::Runtime
             uint32_t                Revision = 0;
         };
 
+        // The entry of @p handle, discovered and read now when no one registered it yet; null when the
+        // handle is empty or cannot be resolved (said once, with the reason).
+        const Entry* FindOrDiscover( const Assets::AssetHandle& handle );
+
+        std::weak_ptr<Assets::AssetManager>            m_Assets;
         std::unordered_map<Assets::AssetHandle, Entry> m_Types;
         // Handles already complained about. A missing type is a permanent state of the scene, so without
         // this the error would be logged every frame of every viewport and bury everything else.

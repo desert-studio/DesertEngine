@@ -506,15 +506,6 @@ namespace Desert::Editor
                                      kSecondsPerAssetRow, nullptr, [] { return PreloadCosts(); } } );
         m_StartupStages.push_back(
              { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
-        m_StartupStages.push_back(
-             { "Preloading cloud types...", [this] { m_AssetPreloader->PreloadCloudTypes(); } } );
-        // THE SAME LINE THE PAINTED LAYOUT SPENT ITS WHOLE LIFE WITHOUT — added WITH the feature this
-        // time, and for exactly the failure the comment above records: a scene naming a theme the scan
-        // never ran would log "referenced but not registered" and draw every element's own colours, which
-        // looks precisely like a theme system that does not work. Order-free: a theme names only font
-        // paths, which FontService registers on demand, and nothing else names a theme.
-        m_StartupStages.push_back(
-             { "Preloading UI themes...", [this] { m_AssetPreloader->PreloadUIThemes(); } } );
         // CALLED, and that is the point of the line existing (A12). The stage above carries the note about
         // PreloadCloudLayouts having been a scan nobody ran; a rig library nobody scans is the same defect
         // with a different extension — the entity's rig slot would be empty in every project that has

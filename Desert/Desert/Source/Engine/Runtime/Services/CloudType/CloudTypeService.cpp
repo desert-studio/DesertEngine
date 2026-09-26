@@ -1,5 +1,7 @@
 #include "CloudTypeService.hpp"
 
+#include <Engine/Assets/RegistryDiscovery.hpp>
+
 #include <Common/Core/Logger.hpp>
 
 namespace Desert::Runtime
@@ -26,33 +28,53 @@ namespace Desert::Runtime
         return BOOLSUCCESS;
     }
 
+    void CloudTypeService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
+    }
+
+    const CloudTypeService::Entry* CloudTypeService::FindOrDiscover( const Assets::AssetHandle& handle )
+    {
+        if ( handle == 0 )
+            return nullptr;
+        if ( auto it = m_Types.find( handle ); it != m_Types.end() )
+            return &it->second;
+        // Said once per handle rather than once per frame: a missing type is a permanent state of the
+        // scene, and a message repeated sixty times a second is a log nobody reads.
+        if ( m_Reported.contains( handle ) )
+            return nullptr;
+
+        // AL1-7: no boot stage reads every `.decloudtype` any more; the first layer that names one reads it
+        // from its registry row, through the loader, in the call that needs its numbers.
+        auto read = Assets::DiscoverAndReadNow<Assets::CloudTypeAsset>( m_Assets, handle,
+                                                                        Common::Content::ContentKind::CloudType );
+        if ( read )
+        {
+            if ( const auto registered = Register( read.GetValue() ); !registered )
+                read = Common::MakeError<Assets::Asset<Assets::CloudTypeAsset>>( registered.GetError() );
+        }
+        if ( !read )
+        {
+            m_Reported.insert( handle );
+            LOG_ERROR( "[Clouds] Cloud type {} is referenced but cannot be used; the layer falls back to the "
+                       "built-in default: {}",
+                       static_cast<uint64_t>( handle ), read.GetError() );
+            return nullptr;
+        }
+        return &m_Types.at( handle );
+    }
+
     const Graphic::CloudTypeShape& CloudTypeService::GetShape( const Assets::AssetHandle& handle )
     {
-        if ( handle != 0 )
-        {
-            if ( auto it = m_Types.find( handle ); it != m_Types.end() )
-                return it->second.Shape;
-
-            // Said once per handle rather than once per frame: a missing type is a permanent state of the
-            // scene, and a message repeated sixty times a second is a log nobody reads. The set is what
-            // makes the FIRST occurrence findable.
-            if ( m_Reported.insert( handle ).second )
-                LOG_ERROR( "[Clouds] Cloud type {} is referenced but not registered — the layer falls back "
-                           "to the built-in default. The scene names a .decloudtype the asset scan did not "
-                           "find.",
-                           static_cast<uint64_t>( handle ) );
-        }
-
+        if ( const Entry* entry = FindOrDiscover( handle ) )
+            return entry->Shape;
         return Assets::CloudTypeDefaultShape();
     }
 
-    Assets::AssetHandle CloudTypeService::GetNoiseVolume( const Assets::AssetHandle& handle ) const
+    Assets::AssetHandle CloudTypeService::GetNoiseVolume( const Assets::AssetHandle& handle )
     {
-        if ( handle != 0 )
-        {
-            if ( auto it = m_Types.find( handle ); it != m_Types.end() )
-                return it->second.NoiseVolume;
-        }
+        if ( const Entry* entry = FindOrDiscover( handle ) )
+            return entry->NoiseVolume;
 
         // The built-in type has no volume of its own, and a null handle is exactly what
         // CloudNoiseService reads as "the default volume". The two empty slots therefore mean the same

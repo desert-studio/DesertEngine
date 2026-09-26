@@ -188,13 +188,6 @@ namespace Desert::Player
         m_Boot.Run( "Preloading meshes, textures and materials",
                     [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
         m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
-        m_Boot.Run( "Preloading cloud types", [this] { m_AssetPreloader->PreloadCloudTypes(); } );
-        // The UI themes (Ю13). HERE AND NOT ONLY IN THE EDITOR, because this is the process that ships:
-        // a canvas whose theme the player's build never scanned draws every element's own colour, which
-        // is a game that looks right in the editor and wrong on the player's machine — the worst shape a
-        // missing preload can take. Order-free: a theme names only font paths, which FontService
-        // registers on demand, and nothing else names a theme.
-        m_Boot.Run( "Preloading UI themes", [this] { m_AssetPreloader->PreloadUIThemes(); } );
         // AND HERE TOO, which the editor's copy alone would not have given us: AssetPreloadCensus caught
         // exactly this omission on A12's first sweep. A rig that loads in the editor and silently does not
         // in the packaged game is worse than no rig — the scene names it, one line goes to the log, and the

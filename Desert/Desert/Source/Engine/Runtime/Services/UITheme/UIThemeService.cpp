@@ -1,6 +1,7 @@
 #include "UIThemeService.hpp"
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -100,12 +101,30 @@ namespace Desert::Runtime
         // Said once per handle rather than once per frame: a missing theme is a permanent state of the
         // scene, and a message repeated sixty times a second is a log nobody reads. The set is what makes
         // the FIRST occurrence findable.
-        if ( m_Reported.insert( handle ).second )
-            LOG_ERROR( "[UI] Theme {} is referenced by a canvas but not registered — every element of that "
-                       "canvas draws its own authored colours. The scene names a .detheme the asset scan "
-                       "did not find.",
-                       static_cast<uint64_t>( handle ) );
+        if ( m_Reported.contains( handle ) )
+            return nullptr;
+
+        // AL1-7: no boot stage reads every `.detheme` any more; the first canvas that names one reads it from
+        // its registry row, through the loader, in the call that needs its styles.
+        auto read = Assets::DiscoverAndReadNow<Assets::UIThemeAsset>( m_Assets, handle,
+                                                                      Common::Content::ContentKind::UITheme );
+        if ( read )
+        {
+            if ( const auto registered = Register( read.GetValue() ); !registered )
+                read = Common::MakeError<Assets::Asset<Assets::UIThemeAsset>>( registered.GetError() );
+            else
+                return &m_Themes.at( handle ).Runtime;
+        }
+        m_Reported.insert( handle );
+        LOG_ERROR( "[UI] Theme {} is referenced by a canvas but cannot be used; every element of that canvas "
+                   "draws its own authored colours: {}",
+                   static_cast<uint64_t>( handle ), read.GetError() );
         return nullptr;
+    }
+
+    void UIThemeService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
     }
 
     void UIThemeService::Clear()
