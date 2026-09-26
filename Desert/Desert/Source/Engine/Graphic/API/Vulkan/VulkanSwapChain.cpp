@@ -425,7 +425,7 @@ namespace Desert::Graphic::API::Vulkan
         // VK_ERROR_DEVICE_LOST, and everything below it is a vkDestroy*, which the specification keeps
         // legal precisely so that a lost device can still be torn down.
         if ( Graphic::DeviceLost::AllowWork() )
-            vkDeviceWaitIdle( device );
+            vkLogicalDevice->WaitIdle(); // under the queue lock (VK1)
 
         if ( m_SwapChain != VK_NULL_HANDLE )
         {

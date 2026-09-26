@@ -129,13 +129,10 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanImGui::OnDetach()
     {
-        auto* device =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
-
         // Nothing is outstanding on a lost device, so the wait can only answer VK_ERROR_DEVICE_LOST; the
         // ImGui teardown below is destruction, which stays legal.
         if ( Graphic::DeviceLost::AllowWork() )
-            vkDeviceWaitIdle( device );
+            EngineContext::GetInstance().GetDevice()->WaitIdle(); // under the queue lock (VK1)
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ::ImGui::DestroyContext();

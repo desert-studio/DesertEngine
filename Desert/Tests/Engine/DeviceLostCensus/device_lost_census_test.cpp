@@ -243,10 +243,8 @@ namespace
          // are not issued at all; on a live one the only failure they can report is a loss that the next
          // call would report anyway, and there is nothing an exiting process would do differently.
          { "VulkanDevice.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
-         { "VulkanSwapChain.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
          // In Editor/Source/Editor/ImGuiIntegration/ since the toolkit left the engine; the scan reaches
          // that tree for exactly this reason (see ScanStatementPositionCalls).
-         { "VulkanImGuiLayer.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
     };
 
     struct Found
