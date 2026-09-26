@@ -231,7 +231,8 @@ namespace
             if ( !ec )
                 std::filesystem::current_path( m_Dir, ec );
             if ( ec )
-                ADD_FAILURE() << "could not enter the scratch directory '" << m_Dir.string() << "': " << ec.message();
+                ADD_FAILURE() << "could not enter the scratch directory '" << m_Dir.string()
+                              << "': " << ec.message();
         }
 
         ~ScratchWorkingDirectory()
