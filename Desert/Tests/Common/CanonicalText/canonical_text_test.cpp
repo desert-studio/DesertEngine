@@ -277,7 +277,6 @@ namespace
          NotATextAsset{ "Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.hpp",
                         "nothing: doc comment only" },
          NotATextAsset{ "Desert/Desert/Source/Engine/Assets/ContentRegistry.hpp", "the cooked content registry" },
-         NotATextAsset{ "Desert/Common/Source/Common/Settings/MachineSettings.cpp", "per-machine settings" },
          NotATextAsset{ "Editor/Source/Editor/Packaging/GamePackager.cpp",
                         "package manifest, ICD json, launcher" },
          NotATextAsset{ "Editor/Source/Editor/Core/EditorPreferences.cpp", "editor preferences" },

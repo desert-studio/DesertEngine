@@ -1636,27 +1636,24 @@ namespace Desert::Editor
         // Cache PNG path: <versioned thumbnail dir>/<sanitized source path>.png (persists across restarts).
         const std::string pngPath = ThumbnailKey::DiskPath( entry->AssetPath );
 
-        // Stale if the material was edited after the cached thumbnail was written (regenerate then).
-        // Through Editor/Widgets/ThumbnailFreshness.hpp, which is the same rule ThumbnailService::ShouldQueue
-        // applies — this used to be a hand-written copy of it, and the two answers disagreed for exactly the
-        // assets that needed re-rendering: this panel would not draw them and the service would not queue
-        // them, so they showed a colour swatch permanently.
-        const bool haveFresh =
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, entry->AssetPath ) ) ==
-             ThumbnailFreshness::Verdict::Show;
-        if ( !haveFresh )
-            m_Thumbnails->Invalidate( pngPath ); // drop the stale decoded image so the new PNG is reloaded
-
-        // Rendered material-on-sphere preview ready + fresh -> show it. (Only Get() once the file exists so
-        // the cache never stores a null for this path.)
-        if ( haveFresh )
+        // Through Editor/Widgets/ThumbnailFreshness.hpp, the same rule ThumbnailService::ShouldQueue applies:
+        // Judge says whether a capture is owed, Choose says what to draw meanwhile. The PNG is drawn FIRST,
+        // before the material is resolved or loaded — a card whose picture is on disk never waits for the
+        // asset, and an outdated picture stays on screen until its replacement lands (ThumbnailCache::Get
+        // re-decodes the rewritten file), instead of a flat albedo swatch for the whole queue.
+        const ThumbnailFreshness::Observation seen = ThumbnailFreshness::Observe( pngPath, entry->AssetPath );
+        const bool owed = ThumbnailFreshness::Judge( seen ) == ThumbnailFreshness::Verdict::Capture;
+        bool       drew = false;
+        if ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::CachedPng )
         {
             if ( auto img = m_Thumbnails->Get( pngPath ) )
             {
                 m_UIHelper->ImageButton( "##thumb", img, size );
-                return true;
+                drew = true;
             }
         }
+        if ( drew && !owed )
+            return true;
 
         // Resolve material -> handle (load + register so the offscreen render can use it). Through
         // Editor/Widgets/ThumbnailSubject.hpp, which is the SAME resolution the background sweep uses —
@@ -1664,18 +1661,20 @@ namespace Desert::Editor
         // subsystem has already answered twice and differently once.
         const auto subject = ThumbnailSubject::ResolveMaterial( *m_AssetManager, entry->AssetPath );
         if ( !subject )
-            return false;
+            return drew;
 
         auto a = m_AssetManager->FindByPath<Assets::SurfaceMaterialAsset>( entry->AssetPath );
         if ( !a )
-            return false;
+            return drew;
 
         // Queue through the editor-wide service: it owns the one renderer, deduplicates against what other
         // panels already asked for, skips anything already on disk and never retries an asset that failed.
         ThumbnailService::Get().RequestMaterial( subject.GetValue().Handle, entry->AssetPath,
                                                  subject.GetValue().How );
+        if ( drew )
+            return true;
 
-        // Until the PNG exists, show the albedo colour as a placeholder swatch.
+        // No picture of this material exists yet: the albedo colour is the placeholder.
         const glm::vec3 albedo =
              glm::vec3( a->Data().GetParam( "AlbedoColor", glm::vec4( 0.8f, 0.8f, 0.8f, 1.0f ) ) );
         ImGui::ColorButton( "##matswatch", ImVec4( albedo.r, albedo.g, albedo.b, 1.0f ),

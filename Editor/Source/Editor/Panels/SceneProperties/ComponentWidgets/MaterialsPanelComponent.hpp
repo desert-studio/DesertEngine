@@ -140,12 +140,6 @@ namespace Desert::Editor
         const Assets::AssetManager*           m_AssetManager;
         // Decoded rendered-thumbnail PNGs (the shared on-disk cache the asset browser fills).
         ThumbnailCache m_Thumbnails;
-        // The write time each of those PNGs had when it was decoded. ThumbnailCache is keyed by path only,
-        // so a PNG regenerated on disk keeps serving the copy decoded from the old one — invisible while
-        // Details was also the thing that edited materials (it dropped its own entry on Save), and a stale
-        // swatch the moment the editing moved to a window that cannot reach this cache. Compared per frame
-        // rather than invalidated by whoever wrote the file: any regeneration counts, not just ours.
-        std::unordered_map<std::string, std::filesystem::file_time_type> m_ThumbnailStamps;
     };
 
 } // namespace Desert::Editor
