@@ -634,8 +634,8 @@ namespace Desert::Graphic::API::Vulkan
         public:
             VulkanImageReadback( VkBuffer staging, VmaAllocation allocation, uint64_t bytes, std::size_t pixels,
                                  Graphic::PackedPixelSource source, CommandBufferAllocator::Submitted submitted )
-                : m_Staging( staging ), m_Allocation( allocation ), m_Bytes( bytes ), m_Pixels( pixels ),
-                  m_Source( source ), m_Submitted( submitted )
+                 : m_Staging( staging ), m_Allocation( allocation ), m_Bytes( bytes ), m_Pixels( pixels ),
+                   m_Source( source ), m_Submitted( submitted )
             {
             }
 
@@ -705,12 +705,13 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackRGBA8()
     {
-        using Result   = std::shared_ptr<ImageReadback>;
+        using Result     = std::shared_ptr<ImageReadback>;
         const uint32_t w = m_Specification.Width;
         const uint32_t h = m_Specification.Height;
         if ( w == 0 || h == 0 || m_Resource.Image == VK_NULL_HANDLE )
-            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: the image is {}x{} and its VkImage is {}",
-                                                       w, h, m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
+            return Common::MakeFormattedError<Result>(
+                 "BeginReadbackRGBA8: the image is {}x{} and its VkImage is {}", w, h,
+                 m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
 
         const auto                 fmt = m_Specification.Format;
         Graphic::PackedPixelSource source{};
@@ -726,8 +727,9 @@ namespace Desert::Graphic::API::Vulkan
                 source = Graphic::PackedPixelSource::RGBA32F;
                 break;
             default:
-                return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
-                                                           static_cast<int>( fmt ) ); // only colour formats the pack knows
+                return Common::MakeFormattedError<Result>(
+                     "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
+                     static_cast<int>( fmt ) ); // only colour formats the pack knows
         }
 
         auto allocator =
@@ -758,7 +760,8 @@ namespace Desert::Graphic::API::Vulkan
         // WaitDeviceIdle used to buy; the release barrier orders the next frame's render into this image
         // after the copy's read.
         TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT );
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+                          VK_ACCESS_TRANSFER_READ_BIT );
         VkBufferImageCopy copy = { .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
                                    .imageExtent      = { w, h, 1 } };
         vkCmdCopyImageToBuffer( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &copy );
@@ -774,10 +777,10 @@ namespace Desert::Graphic::API::Vulkan
                                                .size                = VK_WHOLE_SIZE };
         vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
                               &toHost, 0, nullptr );
-        TransitionLayout( cmd,
-                          original == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : original,
-                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
-                          VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT );
+        TransitionLayout(
+             cmd, original == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : original,
+             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+             VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT );
         auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitCommandBufferGraphic( cmd );
         if ( !submitted.IsSuccess() )
         {

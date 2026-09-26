@@ -307,16 +307,17 @@ namespace Desert::Editor
         // is a cold cache doing its job, and "0, 0, 8" is the cache doing its job.
         if ( !HasWork() && ( m_Captured || m_Painted || m_Skipped ) )
         {
-            const double runMs = m_RunBegan ? std::chrono::duration<double, std::milli>(
-                                                    std::chrono::steady_clock::now() - *m_RunBegan )
-                                                    .count()
-                                              : 0.0;
+            const double runMs =
+                 m_RunBegan
+                      ? std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - *m_RunBegan )
+                             .count()
+                      : 0.0;
             LOG_INFO( "[Thumbnails] queue drained: {} captured, {} painted, {} already fresh on disk; captures "
                       "took {:.0f} ms from the first dispatch, longest wait on the budget {} frame(s).",
                       m_Captured, m_Painted, m_Skipped, runMs, m_LongestBudgetWait );
-            m_Captured          = 0;
-            m_Painted           = 0;
-            m_Skipped           = 0;
+            m_Captured = 0;
+            m_Painted  = 0;
+            m_Skipped  = 0;
             m_RunBegan.reset();
             m_BudgetWaitFrames  = 0;
             m_LongestBudgetWait = 0;

@@ -608,13 +608,12 @@ namespace Desert::Editor
             auto readback = finalImage->BeginReadbackRGBA8();
             if ( readback.IsSuccess() )
             {
-                m_Readback         = readback.GetValue();
-                m_ReadbackPng      = m_PendingPng;
-                m_ReadbackBegan    = began;
-                m_ReadbackFrames   = 0;
-                m_ReadbackSubmitMs = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
-                                                                                began )
-                                          .count();
+                m_Readback       = readback.GetValue();
+                m_ReadbackPng    = m_PendingPng;
+                m_ReadbackBegan  = began;
+                m_ReadbackFrames = 0;
+                m_ReadbackSubmitMs =
+                     std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
             }
             else
                 LOG_ERROR( "[AssetThumbnailRenderer] readback for '{}' was refused: {} — no thumbnail written.",
@@ -643,8 +642,8 @@ namespace Desert::Editor
             m_Encode = Common::JobSystem::Get().Async(
                  [readback = m_Readback, png = m_ReadbackPng]() -> Encoded
                  {
-                     using Clock      = std::chrono::steady_clock;
-                     const auto ms    = []( Clock::time_point from, Clock::time_point to )
+                     using Clock   = std::chrono::steady_clock;
+                     const auto ms = []( Clock::time_point from, Clock::time_point to )
                      { return std::chrono::duration<double, std::milli>( to - from ).count(); };
                      Encoded    out;
                      const auto t0     = Clock::now();

@@ -66,7 +66,7 @@ namespace
                 out.LongestIdle = std::max( out.LongestIdle, ++idle );
                 continue;
             }
-            idle     = 0;
+            idle = 0;
             --queued;
             inFlight = kRenderTicks + kInFlightTicks;
             tick     = 0;
@@ -114,9 +114,9 @@ TEST( ThumbnailEncode, WritePngLeavesTheFinishedPictureAndNoPart )
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     EXPECT_FALSE( std::filesystem::exists( png + ".part" ) );
 
-    int      w = 0;
-    int      h = 0;
-    int      n = 0;
+    int      w    = 0;
+    int      h    = 0;
+    int      n    = 0;
     uint8_t* back = stbi_load( png.c_str(), &w, &h, &n, 4 );
     ASSERT_NE( back, nullptr );
     EXPECT_EQ( w, 8 );

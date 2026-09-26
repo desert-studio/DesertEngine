@@ -77,7 +77,10 @@ namespace Desert::Editor
 
         // Is a capture in flight? Gates requests to one at a time.
         // Pending until the picture is ON DISK: the GPU copy and the worker's encode are part of the capture.
-        [[nodiscard]] bool HasPending() const { return m_Phase != 0 || m_Readback != nullptr; }
+        [[nodiscard]] bool HasPending() const
+        {
+            return m_Phase != 0 || m_Readback != nullptr;
+        }
 
         // Advance the capture state machine. Call ONCE per frame. Renders the pending material; on the
         // second frame it reads back the first frame's render and writes the PNG.
@@ -149,13 +152,13 @@ namespace Desert::Editor
             double                BoxMs   = 0.0;
             double                PngMs   = 0.0;
         };
-        void                                   AdvanceReadback();
+        void                                    AdvanceReadback();
         std::shared_ptr<Graphic::ImageReadback> m_Readback;
-        std::future<Encoded>                   m_Encode;
-        std::string                            m_ReadbackPng;
-        std::chrono::steady_clock::time_point  m_ReadbackBegan;
-        double                                 m_ReadbackSubmitMs = 0.0;
-        int                                    m_ReadbackFrames   = 0;
+        std::future<Encoded>                    m_Encode;
+        std::string                             m_ReadbackPng;
+        std::chrono::steady_clock::time_point   m_ReadbackBegan;
+        double                                  m_ReadbackSubmitMs = 0.0;
+        int                                     m_ReadbackFrames   = 0;
         // Main-thread time of EVERY Tick of the current capture (warm-up renders, submit, polls), summed so
         // the log line states the capture's whole cost to the frame, not just the submit.
         double m_CaptureMainMs = 0.0;

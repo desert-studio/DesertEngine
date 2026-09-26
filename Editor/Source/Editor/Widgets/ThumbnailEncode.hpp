@@ -17,7 +17,8 @@ namespace Desert::Editor::ThumbnailEncode
 {
     /// Box-filters a square RGBA8 image of side @p from down to side @p to. Refused unless @p from is a
     /// whole multiple of @p to and the buffer holds exactly from*from*4 bytes.
-    Common::ResultStr<std::vector<uint8_t>> Downscale( const std::vector<uint8_t>& rgba, uint32_t from, uint32_t to );
+    Common::ResultStr<std::vector<uint8_t>> Downscale( const std::vector<uint8_t>& rgba, uint32_t from,
+                                                       uint32_t to );
 
     /// Writes a square RGBA8 image to @p png: aside to "<png>.part" first, then renamed, so a reader never
     /// sees a half-written file. Creates the parent directory.
@@ -44,10 +45,22 @@ namespace Desert::Editor::ThumbnailEncode
         static constexpr int    kMaxWaitFrames        = 8;
         static constexpr double kMaxOwedMs            = kMaxWaitFrames * kMainThreadMsPerFrame;
 
-        void Spend( double ms ) { m_OwedMs = std::min( m_OwedMs + std::max( ms, 0.0 ), kMaxOwedMs ); }
-        void EndFrame() { m_OwedMs = std::max( m_OwedMs - kMainThreadMsPerFrame, 0.0 ); }
-        [[nodiscard]] bool   MayDispatch() const { return m_OwedMs < kMainThreadMsPerFrame; }
-        [[nodiscard]] double OwedMs() const { return m_OwedMs; }
+        void Spend( double ms )
+        {
+            m_OwedMs = std::min( m_OwedMs + std::max( ms, 0.0 ), kMaxOwedMs );
+        }
+        void EndFrame()
+        {
+            m_OwedMs = std::max( m_OwedMs - kMainThreadMsPerFrame, 0.0 );
+        }
+        [[nodiscard]] bool MayDispatch() const
+        {
+            return m_OwedMs < kMainThreadMsPerFrame;
+        }
+        [[nodiscard]] double OwedMs() const
+        {
+            return m_OwedMs;
+        }
 
     private:
         double m_OwedMs = 0.0;

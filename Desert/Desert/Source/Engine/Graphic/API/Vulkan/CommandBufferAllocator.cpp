@@ -256,9 +256,8 @@ namespace Desert::Graphic::API::Vulkan
             submitted.Fence = VK_NULL_HANDLE;
             return refuse( std::format( "vkCreateFence failed: {}", VkResultToString( created ) ) );
         }
-        const VkSubmitInfo submitInfo = { .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                          .commandBufferCount = 1,
-                                          .pCommandBuffers    = &commandBuffer };
+        const VkSubmitInfo submitInfo = {
+             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &commandBuffer };
         if ( const VkResult result = vkQueueSubmit( m_GraphicsQueue, 1, &submitInfo, submitted.Fence );
              result != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( result ) ) );

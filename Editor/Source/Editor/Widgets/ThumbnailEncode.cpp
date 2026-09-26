@@ -8,16 +8,16 @@
 
 namespace Desert::Editor::ThumbnailEncode
 {
-    Common::ResultStr<std::vector<uint8_t>> Downscale( const std::vector<uint8_t>& rgba, uint32_t from, uint32_t to )
+    Common::ResultStr<std::vector<uint8_t>> Downscale( const std::vector<uint8_t>& rgba, uint32_t from,
+                                                       uint32_t to )
     {
         if ( to == 0 || from % to != 0 )
             return Common::MakeFormattedError<std::vector<uint8_t>>(
                  "Downscale: {} px is not a whole multiple of {} px", from, to );
         if ( rgba.size() != static_cast<std::size_t>( from ) * from * 4 )
-            return Common::MakeFormattedError<std::vector<uint8_t>>( "Downscale: {} bytes, expected {} ({}x{} RGBA8)",
-                                                                     rgba.size(),
-                                                                     static_cast<std::size_t>( from ) * from * 4,
-                                                                     from, from );
+            return Common::MakeFormattedError<std::vector<uint8_t>>(
+                 "Downscale: {} bytes, expected {} ({}x{} RGBA8)", rgba.size(),
+                 static_cast<std::size_t>( from ) * from * 4, from, from );
 
         const uint32_t       f = from / to;
         std::vector<uint8_t> out( static_cast<std::size_t>( to ) * to * 4 );
@@ -38,8 +38,8 @@ namespace Desert::Editor::ThumbnailEncode
     {
         if ( rgba.size() != static_cast<std::size_t>( side ) * side * 4 )
             return Common::MakeFormattedError<bool>( "WritePng '{}': {} bytes, expected {} ({}x{} RGBA8)", png,
-                                                     rgba.size(), static_cast<std::size_t>( side ) * side * 4, side,
-                                                     side );
+                                                     rgba.size(), static_cast<std::size_t>( side ) * side * 4,
+                                                     side, side );
         std::error_code ec;
         std::filesystem::create_directories( std::filesystem::path( png ).parent_path(), ec );
 
@@ -57,8 +57,8 @@ namespace Desert::Editor::ThumbnailEncode
         {
             std::error_code cleanup;
             std::filesystem::remove( temp, cleanup );
-            return Common::MakeFormattedError<bool>( "'{}' was written but could not be moved into place from '{}': {}",
-                                                     png, temp, ec.message() );
+            return Common::MakeFormattedError<bool>(
+                 "'{}' was written but could not be moved into place from '{}': {}", png, temp, ec.message() );
         }
         return Common::MakeSuccess( true );
     }
