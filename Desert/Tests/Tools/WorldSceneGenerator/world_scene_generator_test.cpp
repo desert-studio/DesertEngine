@@ -487,8 +487,8 @@ TEST( WorldSceneGenerator, TheSettingsBlockIsTheREFLECTIONTABLEAndNothingElse )
 
     const auto settings = Document( bytes ).get( "Settings" );
     ASSERT_TRUE( settings.has_value() ) << "the generated scene states no Settings block at all";
-    const auto block = settings->to_object();
-    ASSERT_TRUE( block.has_value() );
+    const Common::Json::Node block = Common::Json::Root( *settings, Common::Json::Path().Key( "Settings" ) );
+    ASSERT_EQ( block.GetKind(), Common::Json::Kind::Object ) << "the Settings block is not an object";
 
     const auto* type = Desert::Reflection::ReflectionRegistry::Get().Find( "SceneSettings" );
     ASSERT_NE( type, nullptr ) << "the reflection table this suite reads is empty";
@@ -498,11 +498,7 @@ TEST( WorldSceneGenerator, TheSettingsBlockIsTheREFLECTIONTABLEAndNothingElse )
         declared.insert( field.Name );
 
     std::set<std::string> stated;
-    for ( const auto& [key, value] : block.value() )
-    {
-        (void)value;
-        stated.insert( key );
-    }
+    block.ForEachMember( [&]( std::string_view key, const Common::Json::Node& ) { stated.emplace( key ); } );
     EXPECT_EQ( stated, declared );
 }
 

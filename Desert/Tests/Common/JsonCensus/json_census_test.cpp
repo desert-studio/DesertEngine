@@ -77,7 +77,8 @@ namespace
     // reads a document without a path, so its errors cannot say which entity and component a bad value is in.
     bool WalksValueTreeDirectly( const std::string& source )
     {
-        static const std::regex kAccessor( R"(\.(to_object|to_array|to_int64|to_double|variant)\s*\(\s*\))" );
+        static const std::regex kAccessor(
+             R"((\.|->)\s*(to_object|to_array|to_int64|to_double|variant)\s*\(\s*\))" );
         return std::regex_search( StripLineComments( source ), kAccessor );
     }
 
@@ -159,6 +160,12 @@ TEST( JsonCensus, TheDetectorSeesEveryForm )
     EXPECT_TRUE( WalksValueTreeDirectly( "if ( auto i = g.to_int64(); i ) {}" ) );
     EXPECT_TRUE( WalksValueTreeDirectly( "double d = g.to_double().value();" ) );
     EXPECT_TRUE( WalksValueTreeDirectly( "std::get_if<Object>( &g.variant() );" ) );
+    // Through a pointer or an optional (`settings->to_object()`) is the same walk; continuation 4 found one the
+    // dot-only pattern let through.
+    EXPECT_TRUE( WalksValueTreeDirectly( "const auto object = settings->to_object();" ) );
+    EXPECT_TRUE( WalksValueTreeDirectly( "auto a = member -> to_array();" ) );
+    EXPECT_TRUE( WalksValueTreeDirectly( "std::get_if<Object>( &it->second.variant() );" ) );
+    EXPECT_TRUE( WalksValueTreeDirectly( "std::get_if<Object>( &value->variant() );" ) );
     EXPECT_FALSE( WalksValueTreeDirectly( "    // g.to_object() is what Node replaces\nint x = 0;" ) );
     EXPECT_FALSE( WalksValueTreeDirectly( "node.Find( \"Settings\" )->AsNumber();" ) );
 }
@@ -186,7 +193,8 @@ TEST( JsonCensus, ValueTreesAreReadThroughNodes )
         users.insert( rel );
         EXPECT_TRUE( registered.contains( rel ) )
              << rel << " walks a Json::Value with the library's accessors (.to_object() / .to_array() / "
-             << ".to_int64() / .to_double() / .variant()). Read it through Json::Node (Common/Json/Document.hpp).";
+             << ".to_int64() / .to_double() / .variant(), through . or ->). Read it through Json::Node "
+                "(Common/Json/Document.hpp).";
     }
     EXPECT_FALSE( users.empty() ) << "the tree-access detector found nothing at all: it has gone blind";
 
