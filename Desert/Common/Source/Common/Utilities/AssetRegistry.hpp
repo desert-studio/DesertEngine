@@ -58,8 +58,9 @@ namespace Common::Utils
     //
     // ── THE FORM, AND WHY IT IS NOT JSON ──────────────────────────────────────────────────────────
     //
-    //   DesertAssetRegistry 3
-    //   <size> <kind> <header | -> <identity:16 hex | -> <deps: 16 hex, comma separated | -> <bounds | -> <key>
+    //   DesertAssetRegistry 4
+    //   <size> <kind> <header | -> <identity:16 hex | -> <deps: 16 hex, comma separated | -> <bounds | -> <tags |
+    //   -> <key>
     //
     // <header> is what the file's OWN HEADER states, read without the body (UE builds FAssetData from
     // the package summary the same way): `<guid:32 hex>;<TAG>=<version>,...` with the tags sorted, or
@@ -67,19 +68,21 @@ namespace Common::Utils
     // It is the one identity column a Common-only tool CAN compute, so `check` asserts it: a row whose
     // GUID is not the file's GUID is a registry that would resolve a reference to the wrong asset.
     //
-    // VERSION 2 had no header column; `Parse` reads it as rows with none, and the next cook fills it.
-    //
     // <bounds> is min x,y,z then max x,y,z, each the 8-hex-digit BIT PATTERN of an IEEE float, comma
     // separated. Bits and not decimal because the value must survive a round trip exactly and identically
     // on every platform: a decimal spelling depends on the formatter's precision and locale, and the
     // registry's whole contract is that two cooks of one tree are one byte string.
     //
-    // VERSION 1 had no bounds column. `Parse` still reads it, as rows with no bounds — the migration is
-    // that pure function, the same arrangement `ReadMeshAssetData` has — and `Serialize` writes only 2,
-    // so the next cook rewrites a version-1 file and the committed one was converted when the column
-    // arrived.
+    // <tags> are what the file states about itself beyond its identity, read with the header and never by
+    // loading the asset (UE's FAssetData TagsAndValues): `Name=<text>` — the display name five kinds write at
+    // the top of their own document — and `Skinned` — a cooked mesh whose header flags a skeleton. Comma
+    // separated, the name's bytes that would split a column or an entry written %XX.
     //
-    // Six columns, the key LAST so a key containing a space round-trips — every rule here is taken
+    // ONLY THE CURRENT VERSION IS READ. Versions 1-3 lacked columns (bounds, header, tags); a reader that
+    // accepted them would serve their rows with those columns empty, and a list would show file stems where
+    // the files state names. `Parse` refuses them naming the cook that rewrites the file.
+    //
+    // Eight columns, the key LAST so a key containing a space round-trips — every rule here is taken
     // from `ContentManifest`, which is the same kind of artifact for the same kind of reason (a
     // per-line text file that a human reads in a diff, that sorts and compares by line, and that
     // needs nothing from reflect-cpp, which `Common` does not link).
@@ -107,6 +110,9 @@ namespace Common::Utils
         std::vector<uint64_t> Dependencies; // handles this asset names, read once at cook
         // The asset's box around its own origin, in world units; absent for content with no extent.
         std::optional<Common::Math::AABB> Bounds;
+        // The <tags> column. DisplayName empty = the file states none, and a list shows the file's stem.
+        std::string DisplayName;
+        bool        Skinned = false;
 
         // The handle this file's PATH derives — `AssetHandle::FromKey( Key )`. A method rather than a
         // column, for the reason the header note gives.

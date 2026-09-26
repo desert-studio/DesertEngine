@@ -39,6 +39,7 @@
 #include <chrono>
 #include <filesystem>
 #include <system_error>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -832,11 +833,11 @@ namespace Desert::Editor
 
                     if ( m_AssetManager )
                     {
-                        for ( const auto& [candidate, matAsset] :
-                              m_AssetManager->FindAllByType<Assets::SurfaceMaterialAsset>() )
+                        for ( const auto& row :
+                              Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
                         {
-                            const std::string matName =
-                                 std::filesystem::path( matAsset->GetMetadata().Filepath ).stem().string();
+                            const Common::AssetHandle candidate = row.Handle;
+                            const std::string         matName   = ::Desert::Editor::PickerDisplayName( row );
                             if ( !materialFilter.PassFilter( matName.c_str() ) )
                                 continue;
                             if ( ImGui::Selectable( matName.c_str(), candidate == handle ) )
