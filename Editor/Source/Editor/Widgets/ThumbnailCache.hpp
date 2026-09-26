@@ -92,18 +92,6 @@ namespace Desert::Editor
         // the same Get() decodes those for the browser's texture previews. See its use for the argument.
         static bool IsOurGeneratedThumbnail( const std::string& path );
 
-        // The largest texture a thumbnail is ever uploaded at, and — since v9 — also the size the PNG is
-        // written at (AssetThumbnailRenderer::kSize). The two are deliberately equal: this class is the
-        // only reader of those files, so any pixel above this cap is decoded and box-averaged away on
-        // every load and has never reached the screen.
-        //
-        // 512 rather than the 256 it was, and the arithmetic is worth writing down because it is the whole
-        // argument. The asset grid draws a thumbnail at m_GridSize * 0.66, and m_MaxGridSize is 400, so the
-        // largest card is 264 ImGui units; the browser's preview pane asks for 140. The window this was
-        // measured on is 2056x1261 units against a 4112x2522 framebuffer — a scale of 2 — so those are 528
-        // and 280 PHYSICAL pixels. At 256 the cap sat below both: the same "looks like 240p" complaint v3
-        // was raised for, arriving again one level down where nobody was looking for it.
-        static constexpr int         kThumbMaxDim = 512;
         static constexpr std::size_t kMaxEntries = 512; // bound VRAM/handles
 
         std::unordered_map<std::string, std::shared_ptr<Graphic::Image2D>> m_Cache;

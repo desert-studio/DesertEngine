@@ -59,7 +59,7 @@ namespace Desert::Editor::CloudThumbnail
      */
 
     /// The output PNG's side, in pixels. THE SAME NUMBER AssetThumbnailRenderer::kSize uses, and
-    /// deliberately not an independent choice: `ThumbnailCache::kThumbMaxDim` is the size every thumbnail
+    /// deliberately not an independent choice: `ThumbnailPixels::kMaxDim` is the size every thumbnail
     /// is uploaded at, so a picture written at any other size is either upscaled on screen or box-filtered
     /// away on every load. One size for every producer, so the grid cannot show two of them at two
     /// sharpnesses.

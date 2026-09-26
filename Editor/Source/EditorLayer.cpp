@@ -1662,12 +1662,14 @@ namespace Desert::Editor
         // is open, hidden or closed no longer changes whether previews progress, and a request made by one
         // panel is finished for all of them.
         //
-        // NOT WHILE THE SPLASH IS UP. A preview is background work nobody can see until the window is
-        // shown, and pumped during the settle it shares the settle's frames and asset loader — the one
-        // thing the splash is waiting on. Requests made before the hand-over stay queued and are served
-        // after it, at the service's own per-frame pace.
-        if ( Splash::BackgroundWorkAllowed( CurrentRevealState() ) )
-            ThumbnailService::Get().Tick();
+        // Two halves, two gates (Editor/Splash/RevealGate.hpp). A PNG already in the disk cache is decoded
+        // on a worker even while the splash is up, so the first frame after the hand-over only uploads it.
+        // A CAPTURE is not: it shares the settle's frames and asset loader — the one thing the splash is
+        // waiting on — so requests made before the hand-over stay queued and are served after it.
+        if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
+            ThumbnailService::Get().TickDiskAndDecode();
+        if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
+            ThumbnailService::Get().TickCapture();
 
         UpdateContextualPanels();
 

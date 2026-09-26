@@ -1,9 +1,7 @@
--- "A thumbnail nobody asked for still arrives — and it never takes the machine with it."
+-- "A cached thumbnail is decoded on a worker before it is drawn; nothing sweeps the project for captures."
 --
--- ONE editor translation unit is compiled: ThumbnailScan.cpp, which is the half of the sweep that was
--- deliberately split away from ThumbnailService so that no Vulkan device stands between a test and the
--- decision. The other half (ThumbnailSweep.cpp, which calls the service) is not linkable here and is not
--- meant to be — what it does is drive the two things this suite proves.
+-- ONE editor translation unit is compiled: ThumbnailPrefetch.cpp, which is free of ThumbnailService and of
+-- the device on purpose, so this suite can drive the decode store without a Vulkan instance.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
@@ -18,7 +16,8 @@ project(test_name)
 
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Widgets/ThumbnailScan.cpp",
+        "%{wks.location}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
+        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
@@ -27,6 +26,7 @@ project(test_name)
         -- (header-only: Common + std), so the engine's source root is on the path too.
         "%{wks.location}/Desert/Desert/Source",
         "%{wks.location}/Editor/Source",
+        deps.DesertSpecific.IncludeDir.stb,
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

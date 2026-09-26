@@ -28,7 +28,6 @@ namespace Desert::Editor
     }
     class ThumbnailCache;
     class AssetThumbnailRenderer;
-    class ThumbnailSweeper;
 }
 
 namespace Desert::Core
@@ -198,6 +197,9 @@ namespace Desert::Editor
                                       bool processChildren );
 
         void ChangeDirectory( DirectoryInformation* directory );
+        // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before
+        // they are drawn — at startup that is during the splash. Mirrors the per-type branches of the grid.
+        void PrefetchCurrentFolderThumbnails();
         void RemoveDirectory( DirectoryInformation* directory, bool removeFromParent = true );
         // void OnNewProject() override;
         void Refresh();
@@ -325,19 +327,6 @@ namespace Desert::Editor
         std::unique_ptr<UI::UIHelper>   m_UIHelper;
         std::unique_ptr<ThumbnailCache>          m_Thumbnails;
 
-        // ── THE PICTURES MAKE THEMSELVES ──────────────────────────────────────────────────────────────
-        //
-        // Walks this panel's root on a worker and queues a thumbnail for everything the browser can show
-        // and has no usable picture of — see Editor/Widgets/ThumbnailSweep.hpp for the three triggers it
-        // answers and for its relation to AssetPreloader's walk.
-        //
-        // OWNED BY THIS PANEL, and the reason is that the sweep's authority on "what this project
-        // contains" is THIS PANEL'S ROOT: it pictures what the Content Browser can show, so the browser
-        // is the thing that knows what to sweep. It is driven from OnPreUpdate rather than from the
-        // render, so a collapsed, hidden or closed Assets window does not stop the previews arriving —
-        // which is the whole point of a background sweep and the same reasoning PollCloudAssetBake gives
-        // next door.
-        std::unique_ptr<ThumbnailSweeper>        m_Sweeper;
         std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
         std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam
 

@@ -1,6 +1,7 @@
 #include "ThumbnailCache.hpp"
 
 #include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
@@ -73,61 +74,32 @@ namespace Desert::Editor
 
         std::shared_ptr<Graphic::Image2D> result;
 
-        // THE CACHE-HIT PATH IS NOT FREE, and it was the only part of the thumbnail system that had never
-        // been timed. This runs on the main thread inside the ImGui pass, once per PNG per session, and it
-        // is what a user sees as "it is computing it again" even when nothing is being rendered at all.
-        const auto began = std::chrono::steady_clock::now();
-
-        int      w = 0, h = 0, ch = 0;
-        stbi_uc* pixels = stbi_load( sourcePath.c_str(), &w, &h, &ch, 4 );
-        const auto decoded = std::chrono::steady_clock::now();
-        if ( pixels && w > 0 && h > 0 )
+        // THE CACHE-HIT PATH IS NOT FREE. The decode half of it (file read, stb, box filter) is taken off the
+        // main thread whenever the browser named this picture ahead of drawing it: ThumbnailPrefetch decodes
+        // it on a worker — during the splash, for the folder the browser opens on — and what is left here is
+        // the upload. A picture nobody prefetched (or whose file changed since) is decoded here, by the same
+        // function, so there is one decoder and one set of numbers in the log line below.
+        const auto                     began = std::chrono::steady_clock::now();
+        std::optional<ThumbnailPixels> decoded;
+        if ( !stampEc )
+            decoded = ThumbnailPrefetch::Get().Take( sourcePath, stamp );
+        const bool prefetched = decoded.has_value();
+        if ( !decoded )
+            decoded = ThumbnailPixels::Decode( sourcePath );
+        if ( decoded )
         {
-            // Box-average downscale to <= kThumbMaxDim. Rendered thumbnails are written AT that size since
-            // v9, so this is a straight copy for them; it still earns its place for the other images this
-            // cache decodes — textures and video posters the browser previews at their authored size,
-            // where nearest-neighbour would alias and shimmer.
-            const int maxSide = std::max( w, h );
-            const int tw      = maxSide > kThumbMaxDim ? std::max( 1, w * kThumbMaxDim / maxSide ) : w;
-            const int th      = maxSide > kThumbMaxDim ? std::max( 1, h * kThumbMaxDim / maxSide ) : h;
-
-            std::vector<unsigned char> dst( static_cast<size_t>( tw ) * th * 4 );
-            for ( int y = 0; y < th; ++y )
-            {
-                const int sy0 = y * h / th;
-                const int sy1 = std::max( sy0 + 1, ( y + 1 ) * h / th );
-                for ( int x = 0; x < tw; ++x )
-                {
-                    const int sx0 = x * w / tw;
-                    const int sx1 = std::max( sx0 + 1, ( x + 1 ) * w / tw );
-
-                    uint32_t acc[4] = { 0, 0, 0, 0 };
-                    uint32_t n      = 0;
-                    for ( int yy = sy0; yy < sy1; ++yy )
-                        for ( int xx = sx0; xx < sx1; ++xx )
-                        {
-                            const unsigned char* s = pixels + ( static_cast<size_t>( yy ) * w + xx ) * 4;
-                            acc[0] += s[0]; acc[1] += s[1]; acc[2] += s[2]; acc[3] += s[3];
-                            ++n;
-                        }
-                    const uint32_t   div = std::max( 1u, n );
-                    unsigned char*   d   = dst.data() + ( static_cast<size_t>( y ) * tw + x ) * 4;
-                    d[0] = static_cast<unsigned char>( acc[0] / div );
-                    d[1] = static_cast<unsigned char>( acc[1] / div );
-                    d[2] = static_cast<unsigned char>( acc[2] / div );
-                    d[3] = static_cast<unsigned char>( acc[3] / div );
-                }
-            }
-
-            Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
-                 .Width      = static_cast<uint32_t>( tw ),
-                 .Height     = static_cast<uint32_t>( th ),
-                 .Format     = Core::Formats::ImageFormat::RGBA8F,
-                 .Mips       = 1u,
-                 .Data       = std::move( dst ),
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Sample,
+            const int                           w = decoded->SourceWidth, h = decoded->SourceHeight;
+            const int                           tw = decoded->Width, th = decoded->Height;
+            const double                        decodeMs = decoded->DecodeMs;
+            Core::Formats::Image2DSpecification spec     = {
+                     .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
+                     .Width      = static_cast<uint32_t>( tw ),
+                     .Height     = static_cast<uint32_t>( th ),
+                     .Format     = Core::Formats::ImageFormat::RGBA8F,
+                     .Mips       = 1u,
+                     .Data       = std::move( decoded->Rgba ),
+                     .Usage      = Core::Formats::Image2DUsage::Image2D,
+                     .Properties = Core::Formats::Sample,
             };
             // THIS IMAGE HAS AN OWNER, AND IT SAYS SO. Every thumbnail in the editor is created on this
             // one line — the browser grid, the Collections cards, both Details slots, the drag ghost —
@@ -144,13 +116,22 @@ namespace Desert::Editor
             const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::EditorTool );
             result = Graphic::Image2D::Create( spec );
 
-            const auto ms = []( auto from, auto to )
-            { return std::chrono::duration<double, std::milli>( to - from ).count(); };
-            LOG_DEBUG( "[Thumbnails] decoded '{}' {}x{} -> {}x{} in {:.0f} ms (png decode {:.0f}, "
-                       "box filter + upload {:.0f})",
-                       std::filesystem::path( sourcePath ).filename().string(), w, h, tw, th,
-                       ms( began, std::chrono::steady_clock::now() ), ms( began, decoded ),
-                       ms( decoded, std::chrono::steady_clock::now() ) );
+            const double mainMs =
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
+            const std::string name = std::filesystem::path( sourcePath ).filename().string();
+            LOG_DEBUG( "[Thumbnails] '{}' {}x{} -> {}x{}: {:.0f} ms on the main thread ({}, decode {:.0f} ms)",
+                       name, w, h, tw, th, mainMs, prefetched ? "decoded ahead on a worker" : "decoded here",
+                       decodeMs );
+
+            // The one line "window shown -> first picture" is read from (TH2's measurement): its timestamp
+            // against [Startup] reveal.
+            static bool s_FirstUploaded = false;
+            if ( !s_FirstUploaded )
+            {
+                s_FirstUploaded = true;
+                LOG_INFO( "[Thumbnails] first picture uploaded: '{}' ({}, {:.0f} ms on the main thread)", name,
+                          prefetched ? "decoded ahead on a worker" : "decoded here", mainMs );
+            }
         }
         else if ( IsOurGeneratedThumbnail( sourcePath ) )
         {
@@ -185,9 +166,6 @@ namespace Desert::Editor
                        "instead of a preview.",
                        sourcePath, stbi_failure_reason() ? stbi_failure_reason() : "no reason given" );
         }
-        if ( pixels )
-            stbi_image_free( pixels );
-
         m_Cache[sourcePath] = result; // cache success or failure (null)
         if ( !stampEc )
             m_Stamps[sourcePath] = stamp;

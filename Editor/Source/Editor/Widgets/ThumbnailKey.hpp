@@ -104,15 +104,15 @@ namespace Desert::Editor::ThumbnailKey
         //
         // v9 IS a picture change, and the smallest kind: the same render at a different SIZE. The PNG is
         // written at 512 px instead of 1024 and rendered at 1024 instead of 2048, because 512 is
-        // kThumbMaxDim — the size this class uploads at and therefore the only size anything has ever
+        // ThumbnailPixels::kMaxDim — the size this class uploads at and therefore the only size anything has ever
         // seen. A v8 file holds four times the pixels its own and only reader keeps, so they are not
         // "good enough to leave": each one costs 31 ms of PNG decode plus a box-average filter, on the
         // main thread inside the ImGui pass, once per session, to arrive at a picture a 512 px file hands
         // over directly. The capture that produced it cost 2823 ms against 410.
         //
-        // The visible result is SHARPER, not softer, because kThumbMaxDim went 256 -> 512 in the same
+        // The visible result is SHARPER, not softer, because ThumbnailPixels::kMaxDim went 256 -> 512 in the same
         // change: what a v8 grid drew was a 256 px texture stretched across a card up to 528 physical
-        // pixels wide. See AssetThumbnailRenderer::kSize and ThumbnailCache::kThumbMaxDim for the
+        // pixels wide. See AssetThumbnailRenderer::kSize and ThumbnailPixels::kMaxDim for the
         // measurements and the arithmetic this rests on.
         return 9; // v9: the PNG is written at the size it is displayed at (512 px)
     }

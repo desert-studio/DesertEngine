@@ -175,14 +175,6 @@ namespace
          // because ThumbnailCache.cpp cannot be linked without a renderer and the sweep's decision had to
          // become testable. The exemption went with the definition rather than being left to match
          // nothing — a skip list that matches nothing is a place to hide a real slot later.
-
-         { "Editor/Source/Editor/Widgets/ThumbnailScan.cpp",
-           "the background sweep's deciding half: which files under the browser's root have no usable "
-           "picture. It computes cache paths and asks the freshness rule; it decodes nothing and draws "
-           "nothing, and it is deliberately free of the service so a suite can drive it" },
-         { "Editor/Source/Editor/Widgets/ThumbnailSweep.cpp",
-           "the other half of the sweep: it hands what the scan found to the service, at most eight per "
-           "frame. A producer of requests, never a consumer of pictures — nothing here decodes one" },
     };
 
     std::string RepoRoot()
