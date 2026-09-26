@@ -383,6 +383,7 @@ namespace Desert::Core
             if ( const auto* st = Reflection::ReflectionRegistry::Get().Find( "SceneSettings" ) )
             {
                 std::vector<std::string> fields;
+                fields.reserve( st->Fields.size() );
                 for ( const auto& field : st->Fields )
                     fields.push_back( field.Name );
                 Serialize::CountForeignKeysAtLevel( document.KeysAt( "Settings" ), NamesIn( fields ), foreign );

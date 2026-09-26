@@ -4,9 +4,11 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <memory>
 #include <new>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Common::Json
 {
@@ -76,44 +78,74 @@ namespace Common::Json
             return false;
         }
 
-        // One object level of the merge (the rule is on MergeCarried). `replacedKey`, when `replacement` is
-        // set, is the member whose merged value was computed by the caller (the record array).
+        // One object and every object nested under it, merged (the rule is on MergeCarried). `ours` and
+        // `replacedKey` answer for the top level only; every nested level answers "not ours". `replacedKey`,
+        // when `replacement` is set, is the member whose merged value was computed by the caller (the record
+        // array).
+        //
+        // An explicit stack rather than recursion, as the reflected reader does: a nested object is added to
+        // its parent at once - empty, so its key keeps its place in member order - and filled when its own
+        // frame is taken, so the nesting depth of the file costs heap, not the call stack.
         yyjson_mut_val* MergeLevel( yyjson_mut_doc* doc, yyjson_val* fresh, yyjson_val* source,
                                     const KeyIsOurs& ours, std::string_view replacedKey,
                                     yyjson_mut_val* replacement )
         {
-            yyjson_mut_val* merged = Allocated( yyjson_mut_obj( doc ) );
-
-            yyjson_val*     key = nullptr;
-            yyjson_obj_iter iter;
-            yyjson_obj_iter_init( source, &iter );
-            while ( ( key = yyjson_obj_iter_next( &iter ) ) != nullptr )
+            struct Frame
             {
-                yyjson_val* sourceValue = yyjson_obj_iter_get_val( key );
-                yyjson_val* inFresh     = yyjson_obj_getn( fresh, yyjson_get_str( key ), yyjson_get_len( key ) );
-                if ( inFresh == nullptr )
+                yyjson_val*     Fresh;
+                yyjson_val*     Source;
+                yyjson_mut_val* Merged;
+                bool            Top;
+            };
+            yyjson_mut_val*    root = Allocated( yyjson_mut_obj( doc ) );
+            std::vector<Frame> stack{ Frame{ fresh, source, root, true } };
+            while ( !stack.empty() )
+            {
+                const Frame frame = stack.back();
+                stack.pop_back();
+                const bool replacing = frame.Top && replacement != nullptr;
+
+                yyjson_val*     key = nullptr;
+                yyjson_obj_iter iter;
+                yyjson_obj_iter_init( frame.Source, &iter );
+                while ( ( key = yyjson_obj_iter_next( &iter ) ) != nullptr )
                 {
-                    if ( !ours( KeyOf( key ) ) )
-                        Add( doc, merged, key, Copy( doc, sourceValue ) );
-                    continue;
+                    yyjson_val* sourceValue = yyjson_obj_iter_get_val( key );
+                    yyjson_val* inFresh =
+                         yyjson_obj_getn( frame.Fresh, yyjson_get_str( key ), yyjson_get_len( key ) );
+                    if ( inFresh == nullptr )
+                    {
+                        if ( !frame.Top || !ours( KeyOf( key ) ) )
+                            Add( doc, frame.Merged, key, Copy( doc, sourceValue ) );
+                        continue;
+                    }
+                    if ( replacing && KeyOf( key ) == replacedKey )
+                    {
+                        Add( doc, frame.Merged, key, replacement );
+                    }
+                    else if ( yyjson_is_obj( inFresh ) && yyjson_is_obj( sourceValue ) )
+                    {
+                        yyjson_mut_val* nested = Allocated( yyjson_mut_obj( doc ) );
+                        Add( doc, frame.Merged, key, nested );
+                        stack.push_back( Frame{ inFresh, sourceValue, nested, false } );
+                    }
+                    else
+                    {
+                        Add( doc, frame.Merged, key, Copy( doc, inFresh ) );
+                    }
                 }
-                if ( replacement != nullptr && KeyOf( key ) == replacedKey )
-                    Add( doc, merged, key, replacement );
-                else if ( yyjson_is_obj( inFresh ) && yyjson_is_obj( sourceValue ) )
-                    Add( doc, merged, key, MergeLevel( doc, inFresh, sourceValue, NotOurs, {}, nullptr ) );
-                else
-                    Add( doc, merged, key, Copy( doc, inFresh ) );
-            }
 
-            yyjson_obj_iter_init( fresh, &iter );
-            while ( ( key = yyjson_obj_iter_next( &iter ) ) != nullptr )
-            {
-                if ( yyjson_obj_getn( source, yyjson_get_str( key ), yyjson_get_len( key ) ) != nullptr )
-                    continue;
-                const bool replaced = replacement != nullptr && KeyOf( key ) == replacedKey;
-                Add( doc, merged, key, replaced ? replacement : Copy( doc, yyjson_obj_iter_get_val( key ) ) );
+                yyjson_obj_iter_init( frame.Fresh, &iter );
+                while ( ( key = yyjson_obj_iter_next( &iter ) ) != nullptr )
+                {
+                    if ( yyjson_obj_getn( frame.Source, yyjson_get_str( key ), yyjson_get_len( key ) ) != nullptr )
+                        continue;
+                    const bool replaced = replacing && KeyOf( key ) == replacedKey;
+                    Add( doc, frame.Merged, key,
+                         replaced ? replacement : Copy( doc, yyjson_obj_iter_get_val( key ) ) );
+                }
             }
-            return merged;
+            return root;
         }
 
         // The record array merged record by record: each fresh record matched to the source record with
@@ -217,8 +249,9 @@ namespace Common::Json
     {
         std::size_t length = 0;
         char*       text   = Allocated( yyjson_write( m_Doc.get(), YYJSON_WRITE_NOFLAG, &length ) );
-        std::string out( text, length );
-        std::free( text );
+        // yyjson_write hands back a malloc'd buffer; it is owned here so a throwing std::string copy frees it too.
+        const std::unique_ptr<char, decltype( &std::free )> owned( text, &std::free );
+        std::string                                         out( owned.get(), length );
         return out;
     }
 

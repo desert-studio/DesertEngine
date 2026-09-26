@@ -13,7 +13,9 @@ namespace Desert::Core::Serialize
     Common::Json::TextDocument MergeObjects( const Common::Json::TextDocument& fresh,
                                              const Common::Json::TextDocument& source, const KeyIsOurs& ours )
     {
-        return Common::Json::MergeCarried( fresh, source, Common::Json::CarryRule{ .RootKeyIsOurs = ours } );
+        Common::Json::CarryRule rule;
+        rule.RootKeyIsOurs = ours;
+        return Common::Json::MergeCarried( fresh, source, rule );
     }
 
     Common::Json::TextDocument MergeSceneDocument( const Common::Json::TextDocument& fresh,

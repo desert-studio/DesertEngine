@@ -132,8 +132,10 @@ namespace
     // The first line two texts disagree on, both sides - a whole-file EXPECT_EQ on a 3 MB scene says nothing.
     std::string FirstDifference( const std::string& a, const std::string& b )
     {
-        std::istringstream ia( a ), ib( b );
-        std::string        la, lb;
+        std::istringstream ia( a );
+        std::istringstream ib( b );
+        std::string        la;
+        std::string        lb;
         for ( int line = 1;; ++line )
         {
             const bool ha = static_cast<bool>( std::getline( ia, la ) );
@@ -558,6 +560,67 @@ TEST( ForeignKeysCorpus, AKeyAnotherBuildAddedAtTheTopIsReadPastAndWrittenBackIn
 // ONE PARSE PER LOAD, as a census: the loader's only parse is the gate's, and every caller that asks the gate
 // before tearing its scene down hands the gate's result on (Deserialize) instead of the text again
 // (DeserializeFromJson), which was a second full parse on every editor open.
+// JS1c R5 - EVERY COMMITTED SCENE LOADS WITH ZERO ISSUES, at the levels this suite can reach. The loader never
+// stops on a wrong-typed value: it keeps the default and names the path (an Issue). So a committed scene that
+// produces one opens "fine" and silently runs on a default - only a test over the corpus can say none does.
+//
+// COVERED: the gate's parse (the typed tree read off the document), the undeclared-key count at the root and in
+// Settings (the loader's warning), and the Settings block read through the reflected reader exactly as
+// SceneSerializer::Deserialize reads it, with a resolver standing in for the AssetManager (it resolves every
+// reference to a non-zero handle, so what is checked is the TYPE of every stated value, not that the asset
+// exists). NOT COVERED: component payloads - they are read by ComponentRegistry's serializers, and
+// ComponentRegistry.cpp links the AssetManager and through it the whole engine, which no suite links.
+TEST( ForeignKeysCorpus, EveryCommittedSceneLoadsWithZeroIssues )
+{
+    const auto scenes = Corpus();
+    ASSERT_GE( scenes.size(), 40u ) << "the scene corpus was not found";
+    const auto* settingsType = Desert::Reflection::ReflectionRegistry::Get().Find( "SceneSettings" );
+    ASSERT_NE( settingsType, nullptr ) << "the reflection table this suite audits is empty";
+
+    std::vector<std::string> settingsFields;
+    settingsFields.reserve( settingsType->Fields.size() );
+    for ( const auto& field : settingsType->Fields )
+        settingsFields.push_back( field.Name );
+    const std::vector<std::string>& rootFields = Common::Json::MemberNames<Desert::Core::SceneSerialized>();
+
+    Desert::Reflection::AssetResolver resolver;
+    resolver.ToPath   = []( uint64_t, const std::string& ) { return std::string(); };
+    resolver.ToGuid   = []( uint64_t, const std::string& ) { return std::string(); };
+    resolver.FromPath = []( const std::string&, const std::string& ) { return uint64_t{ 1 }; };
+    resolver.FromGuid = []( uint64_t guid, const std::string& ) { return guid; };
+
+    int withSettings = 0;
+    for ( const auto& path : scenes )
+    {
+        SCOPED_TRACE( path.string() );
+        const auto loadable = Desert::Core::ParseLoadableScene( path.string(), ReadAll( path ) );
+        ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
+
+        std::map<std::string, int>        foreign;
+        const Common::Json::TextDocument& document = loadable.GetValue().Document;
+        Desert::Core::Serialize::CountForeignKeysAtLevel( document.KeysAt(), Owns( rootFields ), foreign );
+        Desert::Core::Serialize::CountForeignKeysAtLevel( document.KeysAt( "Settings" ), Owns( settingsFields ),
+                                                          foreign );
+        EXPECT_TRUE( foreign.empty() ) << Desert::Core::Serialize::DescribeForeignKeys( foreign );
+
+        const auto& settings = loadable.GetValue().Scene.Settings;
+        if ( !settings.has_value() )
+            continue;
+        ++withSettings;
+        Desert::Core::SceneSettings values;
+        Common::Json::Issues        issues;
+        Desert::Reflection::DeserializeReflected(
+             *settingsType, &values, Common::Json::Root( *settings, Common::Json::Path().Key( "Settings" ) ),
+             issues, &resolver );
+        std::string named;
+        for ( const auto& issue : issues )
+            named += Common::Json::Describe( issue ) + "\n";
+        EXPECT_TRUE( issues.empty() ) << named;
+    }
+    EXPECT_GT( withSettings, 0 )
+         << "no committed scene states a Settings block, so the reflected read was never run";
+}
+
 TEST( SceneDocumentCensus, EveryLoadParsesTheSceneTextOnce )
 {
     const std::string root = RepoRoot();

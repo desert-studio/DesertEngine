@@ -62,6 +62,9 @@ namespace Desert::Core
 
         // The header is the file's identity as well as its versions: a malformed one, or one naming another
         // kind, is refused here rather than half-believed (the AF1 gate: header kind == kind of the extension).
+        if ( !scene.Header.has_value() )
+            return Common::MakeError<LoadableScene>(
+                 fmt::format( "[SceneSerializer] '{0}' states no header. Nothing was loaded.", source ) );
         const Common::Content::AssetHeaderReadContext context{ SceneTextSubsystems() };
         const auto header = Common::Content::TextHeaderToAssetHeader( *scene.Header, context );
         if ( !header )
