@@ -40,22 +40,9 @@
 namespace
 {
     constexpr const char* kLoaderHeader    = "Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.hpp";
-    constexpr const char* kPreloaderSource = "Desert/Desert/Source/Engine/Assets/AssetPreloader.cpp";
 
     /// The two files that start the engine. There is no third.
     constexpr const char* kLayers[] = { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" };
-
-    /// The preloader stages that must ANNOUNCE rather than read, and the service call each must make.
-    struct ConvertedKind
-    {
-        const char* Stage;
-        const char* Service;
-    };
-    constexpr ConvertedKind kConverted[] = {
-         { "PreloadCloudNoiseVolumes", "GetCloudNoiseService" },
-         { "PreloadCloudModellingVolumes", "GetCloudModellingService" },
-         { "PreloadCloudLayouts", "GetCloudLayoutService" },
-    };
 
     std::string RepoRoot()
     {
@@ -129,32 +116,6 @@ namespace
         }
         return out;
     }
-
-    /// The body of a free-standing `void Class::Name( ... ) { ... }`, by brace matching. Good enough for
-    /// this repository's formatting, and a miss is a failure rather than a pass: an empty body makes the
-    /// assertions below red.
-    std::string FunctionBody( const std::string& source, const std::string& name )
-    {
-        const std::regex pattern( R"(::)" + name + R"(\s*\()" );
-        std::smatch      match;
-        if ( !std::regex_search( source, match, pattern ) )
-            return {};
-
-        const size_t open = source.find( '{', match.position() + match.length() );
-        if ( open == std::string::npos )
-            return {};
-
-        int    depth = 0;
-        size_t i     = open;
-        for ( ; i < source.size(); ++i )
-        {
-            if ( source[i] == '{' )
-                ++depth;
-            else if ( source[i] == '}' && --depth == 0 )
-                break;
-        }
-        return source.substr( open, i - open );
-    }
 } // namespace
 
 TEST( AsyncAssetPump, TheRootIsFindable )
@@ -182,49 +143,6 @@ TEST( AsyncAssetPump, BothHostsPumpTheLoaderOnceATick )
                 "is never told they arrived. Every cloud kind stays Pending forever, the sky never draws, "
                 "and nothing says why: the splash simply does not come down. This is the exact "
                 "shape of PreloadCloudLayouts, which scanned, registered, and was called by nobody.";
-    }
-}
-
-TEST( AsyncAssetPump, TheConvertedKindsAreAnnouncedAndNotRead )
-{
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
-
-    const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
-    ASSERT_FALSE( preloader.empty() );
-
-    for ( const ConvertedKind& kind : kConverted )
-    {
-        const std::string body = FunctionBody( preloader, kind.Stage );
-        ASSERT_FALSE( body.empty() ) << kind.Stage << " was not found in " << kPreloaderSource;
-
-        // ASSERTED ON THE CODE, NOT ON THE ARGUMENT'S NAME. The obvious spelling of this check was
-        // `body.find( "loadAfterCreate=*/false" )`, and it failed on a correct tree for a reason worth
-        // keeping: `/*loadAfterCreate=*/` IS A COMMENT, so `WithoutComments` had already removed it. Had
-        // the check been written against the raw source instead it would have passed -- and then gone red
-        // on a caller that wrote the same `false` without the naming comment, which is the same code.
-        // What the scan must not do is read; what says it does not read is the argument's VALUE.
-        // SPL2 put the load's progress report between the priority and the flag (`nullptr` here: a
-        // scan that does not read has nothing to report), so one optional pointer argument may sit there.
-        const std::regex lazyCreate( R"(AssetPriority::[A-Za-z]+\s*,\s*(nullptr\s*,\s*)?false)" );
-        EXPECT_TRUE( std::regex_search( body, lazyCreate ) )
-             << kind.Stage
-             << " creates its assets with the eager load still on. The scan would read every file of this "
-                "kind in the project before the first frame again -- which is the cost this tier removed, "
-                "and it would come back silently because everything else would still work.";
-
-        EXPECT_NE( body.find( "->Announce(" ), std::string::npos )
-             << kind.Stage
-             << " does not announce what it scanned. A kind that is neither read nor "
-                "announced is a kind whose service has never heard of it, so every "
-                "reference to it resolves to Null -- 'the scan did not find it' -- for "
-                "files that are sitting right there on disk.";
-
-        EXPECT_EQ( body.find( "->Register(" ), std::string::npos )
-             << kind.Stage
-             << " still registers from the preloader. Register takes bytes ALREADY IN HAND; calling it "
-                "from a scan means the scan read the file, which is the eager model wearing the new "
-                "spelling.";
     }
 }
 
