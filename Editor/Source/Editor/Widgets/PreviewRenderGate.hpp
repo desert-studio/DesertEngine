@@ -84,4 +84,33 @@ namespace Desert::Editor::PreviewRenderGate
         }
         return seed;
     }
+
+    // How many materials a chain may hold, the subject included: MaterialService's own cap on the walk that
+    // builds the drawn instance (CreateRuntimeInstance, ResolveOverrides), so the key covers exactly the
+    // levels the picture is made from and a cyclic chain cannot loop.
+    inline constexpr int kMaxMaterialChain = 8;
+
+    /**
+     * @brief The Parameters fingerprint of a subject drawn THROUGH ITS PARENT CHAIN: its own values, then each
+     * ancestor's, nearest first. A material instance's picture is its parent's values under its overrides, so
+     * a key over the instance's own values alone kept an edit applied to the parent off the instance's pane.
+     * The ancestors' asset values are hashed rather than the runtime PropertyVersion stamps because only a
+     * BASE material has a runtime Material whose properties are stamped; an instance parent has none (its
+     * overrides are baked into cached instances, MaterialEditorPanel's Apply), so its edits carry no version.
+     * @param valuesOf (const Node&, uint64_t seed) -> uint64_t: folds one material's own values into seed.
+     * @param parentOf (const Node&) -> pointer-like to the resolved parent, null at the base.
+     */
+    template <typename Node, typename ValuesOf, typename ParentOf>
+    [[nodiscard]] uint64_t ChainFingerprint( const Node& subject, const uint64_t seed, const ValuesOf& valuesOf,
+                                             const ParentOf& parentOf )
+    {
+        uint64_t digest = valuesOf( subject, seed );
+        auto     parent = parentOf( subject );
+        for ( int depth = 1; parent && depth < kMaxMaterialChain; ++depth )
+        {
+            digest = valuesOf( *parent, digest );
+            parent = parentOf( *parent );
+        }
+        return digest;
+    }
 } // namespace Desert::Editor::PreviewRenderGate

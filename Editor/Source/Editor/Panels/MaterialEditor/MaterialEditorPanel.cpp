@@ -711,25 +711,31 @@ namespace Desert::Editor
         // WHAT THE PICTURE IS MADE OF THAT THE WIDGET CANNOT SEE: the drawn material's values, and its shader's
         // rebuild count. The preview re-renders when this moves and otherwise shows its last image
         // (Editor/Widgets/PreviewRenderGate.hpp); a value left out here is an edit the pane would not show.
+        // An instance is drawn through its parents, so their applied values are part of it (ChainFingerprint).
         {
-            namespace Gate                   = PreviewRenderGate;
-            const Assets::MaterialData& data = drawn->Data();
-            uint64_t digest = Gate::Fingerprint( &m_SeenRebuildCount, sizeof( m_SeenRebuildCount ) );
-            for ( const Assets::MaterialShaderParam& param : data.Params )
+            namespace Gate      = PreviewRenderGate;
+            const auto valuesOf = []( const Assets::SurfaceMaterialAsset& asset, uint64_t digest )
             {
-                digest = Gate::Fingerprint( param.Name.data(), param.Name.size(), digest );
-                digest = Gate::Fingerprint( &param.Value, sizeof( param.Value ), digest );
-            }
-            for ( const auto* refs : { &data.Textures, &data.CloudAssets } )
-                for ( const Assets::MaterialAssetRef& ref : *refs )
+                const Assets::MaterialData& data = asset.Data();
+                for ( const Assets::MaterialShaderParam& param : data.Params )
                 {
-                    digest = Gate::Fingerprint( ref.Name.data(), ref.Name.size(), digest );
-                    digest = Gate::Fingerprint( ref.Guid.data(), ref.Guid.size(), digest );
-                    digest = Gate::Fingerprint( ref.Path.data(), ref.Path.size(), digest );
+                    digest = Gate::Fingerprint( param.Name.data(), param.Name.size(), digest );
+                    digest = Gate::Fingerprint( &param.Value, sizeof( param.Value ), digest );
                 }
-            if ( const std::string* parent = data.ParentText() )
-                digest = Gate::Fingerprint( parent->data(), parent->size(), digest );
-            m_Preview->SetContentFingerprint( digest );
+                for ( const auto* refs : { &data.Textures, &data.CloudAssets } )
+                    for ( const Assets::MaterialAssetRef& ref : *refs )
+                    {
+                        digest = Gate::Fingerprint( ref.Name.data(), ref.Name.size(), digest );
+                        digest = Gate::Fingerprint( ref.Guid.data(), ref.Guid.size(), digest );
+                        digest = Gate::Fingerprint( ref.Path.data(), ref.Path.size(), digest );
+                    }
+                if ( const std::string* parent = data.ParentText() )
+                    digest = Gate::Fingerprint( parent->data(), parent->size(), digest );
+                return digest;
+            };
+            const auto parentOf = [this]( const Assets::SurfaceMaterialAsset& asset ) { return ResolveParent( asset ); };
+            m_Preview->SetContentFingerprint( Gate::ChainFingerprint(
+                 *drawn, Gate::Fingerprint( &m_SeenRebuildCount, sizeof( m_SeenRebuildCount ) ), valuesOf, parentOf ) );
         }
 
         if ( Graphic::IsUsableViewExtent( m_PreviewExtent ) )

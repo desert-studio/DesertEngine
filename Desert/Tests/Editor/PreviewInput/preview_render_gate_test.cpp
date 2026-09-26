@@ -81,6 +81,53 @@ namespace
         EXPECT_EQ( Fingerprint( a, sizeof( a ) ), Fingerprint( a, sizeof( a ) ) );
     }
 
+    // A material instance previewed while its PARENT is edited: the parent's values are part of what the
+    // instance's pane draws, so they must move the instance's key (ME1f). The old key hashed the subject alone.
+    struct ChainNode
+    {
+        float            Value  = 0.0f;
+        const ChainNode* Parent = nullptr;
+    };
+    uint64_t KeyOf( const ChainNode& subject )
+    {
+        return ChainFingerprint(
+             subject, 7u, []( const ChainNode& n, uint64_t seed ) { return Fingerprint( &n.Value, sizeof( n.Value ), seed ); },
+             []( const ChainNode& n ) { return n.Parent; } );
+    }
+
+    TEST( PreviewRenderGate, ChildKeyMovesWhenAnyAncestorChanges )
+    {
+        ChainNode       base{ 0.5f };
+        ChainNode       parent{ 1.0f, &base };
+        const ChainNode child{ 2.0f, &parent };
+        const uint64_t  before = KeyOf( child );
+        EXPECT_EQ( KeyOf( child ), before );
+
+        parent.Value = 1.5f;
+        const uint64_t afterParent = KeyOf( child );
+        EXPECT_NE( afterParent, before );
+
+        base.Value = 0.75f;
+        EXPECT_NE( KeyOf( child ), afterParent );
+    }
+
+    TEST( PreviewRenderGate, CyclicChainStopsAtTheServiceDepth )
+    {
+        ChainNode a{ 1.0f };
+        ChainNode b{ 2.0f, &a };
+        a.Parent = &b;
+        int visits = 0;
+        (void)ChainFingerprint(
+             a, 0u,
+             [&visits]( const ChainNode&, uint64_t seed )
+             {
+                 ++visits;
+                 return seed;
+             },
+             []( const ChainNode& n ) { return n.Parent; } );
+        EXPECT_EQ( visits, kMaxMaterialChain );
+    }
+
     TEST( PreviewWheel, InteractiveHoveredClaimsTheWheelToZoom )
     {
         EXPECT_EQ( WheelOwner( PreviewInteraction::Interactive, true, 1.0f ), PreviewWheelOwner::Zoom );
