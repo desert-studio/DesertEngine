@@ -61,7 +61,6 @@ namespace Desert::Editor
         // The preview renders offscreen at a fixed size. Set ONCE rather than per frame: SceneRenderer's
         // Resize recreates every frame buffer and idles the GPU, so following the ImGui window's size would
         // stall the editor on every drag of the window edge.
-        constexpr uint32_t kPreviewRenderSize = 512;
 
         const char* ShapeName( PreviewViewport::Shape s )
         {
@@ -554,7 +553,7 @@ namespace Desert::Editor
         return { static_cast<const Graphic::ImageCube*>( imageService->Resolve( radiance ) ), {} };
     }
 
-    void MaterialEditorPanel::DrawPreviewPlaceholder( float side, const std::string& reason ) const
+    void MaterialEditorPanel::DrawPreviewPlaceholder( const ImVec2& size, const std::string& reason )
     {
         // Local (window) coordinates as well as screen ones: the draw list wants screen, and both the text
         // wrap position and the cursor restore below are window-space. Mixing the two puts the wrap column
@@ -563,21 +562,22 @@ namespace Desert::Editor
         const ImVec2 screen = ImGui::GetCursorScreenPos();
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled( screen, ImVec2( screen.x + side, screen.y + side ), IM_COL32( 28, 28, 32, 255 ), 4.0f );
-        dl->AddRect( screen, ImVec2( screen.x + side, screen.y + side ), IM_COL32( 68, 68, 76, 255 ), 4.0f );
+        dl->AddRectFilled( screen, ImVec2( screen.x + size.x, screen.y + size.y ), IM_COL32( 28, 28, 32, 255 ),
+                           4.0f );
+        dl->AddRect( screen, ImVec2( screen.x + size.x, screen.y + size.y ), IM_COL32( 68, 68, 76, 255 ), 4.0f );
 
         constexpr float kPad = 14.0f;
         ImGui::SetCursorPos( ImVec2( local.x + kPad, local.y + kPad ) );
-        ImGui::PushTextWrapPos( local.x + side - kPad );
+        ImGui::PushTextWrapPos( local.x + size.x - kPad );
         ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.74f, 0.74f, 0.78f, 1.0f ) );
         ImGui::TextUnformatted( reason.c_str() );
         ImGui::PopStyleColor();
         ImGui::PopTextWrapPos();
 
-        // Back to the top-left corner and claim exactly the square an image would have claimed. Without
+        // Back to the top-left corner and claim exactly the rectangle the image would have claimed. Without
         // this the parameter column beside the pane moves with the length of the message.
         ImGui::SetCursorPos( local );
-        ImGui::Dummy( ImVec2( side, side ) );
+        ImGui::Dummy( size );
     }
 
     void MaterialEditorPanel::EnsurePreview()
@@ -704,7 +704,36 @@ namespace Desert::Editor
             }
         }
 
-        m_Preview->Update( kPreviewRenderSize, kPreviewRenderSize );
+        // THE PANE'S SIZE, measured by OnUIRender last frame (PreviewPane::RenderExtent). An unusable one - the
+        // pane collapsed, or not yet laid out at a real size - skips the frame and the preview keeps what it
+        // last rendered; a growth the view budget refuses is SceneRenderer::Resize's call, and the preview
+        // goes on drawing at the size it holds.
+        // WHAT THE PICTURE IS MADE OF THAT THE WIDGET CANNOT SEE: the drawn material's values, and its shader's
+        // rebuild count. The preview re-renders when this moves and otherwise shows its last image
+        // (Editor/Widgets/PreviewRenderGate.hpp); a value left out here is an edit the pane would not show.
+        {
+            namespace Gate                   = PreviewRenderGate;
+            const Assets::MaterialData& data = drawn->Data();
+            uint64_t digest = Gate::Fingerprint( &m_SeenRebuildCount, sizeof( m_SeenRebuildCount ) );
+            for ( const Assets::MaterialShaderParam& param : data.Params )
+            {
+                digest = Gate::Fingerprint( param.Name.data(), param.Name.size(), digest );
+                digest = Gate::Fingerprint( &param.Value, sizeof( param.Value ), digest );
+            }
+            for ( const auto* refs : { &data.Textures, &data.CloudAssets } )
+                for ( const Assets::MaterialAssetRef& ref : *refs )
+                {
+                    digest = Gate::Fingerprint( ref.Name.data(), ref.Name.size(), digest );
+                    digest = Gate::Fingerprint( ref.Guid.data(), ref.Guid.size(), digest );
+                    digest = Gate::Fingerprint( ref.Path.data(), ref.Path.size(), digest );
+                }
+            if ( const std::string* parent = data.ParentText() )
+                digest = Gate::Fingerprint( parent->data(), parent->size(), digest );
+            m_Preview->SetContentFingerprint( digest );
+        }
+
+        if ( Graphic::IsUsableViewExtent( m_PreviewExtent ) )
+            m_Preview->Update( m_PreviewExtent.Width, m_PreviewExtent.Height );
     }
 
     void MaterialEditorPanel::SetPreviewViewpoint( const PreviewViewpoint& viewpoint )
@@ -721,7 +750,7 @@ namespace Desert::Editor
         m_Preview->SetOrbit( glm::radians( viewpoint.YawDegrees ), glm::radians( viewpoint.PitchDegrees ) );
     }
 
-    void MaterialEditorPanel::DrawToolbar( Assets::SurfaceMaterialAsset* working, bool isInstance )
+    void MaterialEditorPanel::DrawViewportToolbar()
     {
         // No material combo: this window IS one material. Picking a different one is opening a different
         // document, which is the whole point of the change that deleted the combo.
@@ -731,10 +760,34 @@ namespace Desert::Editor
         // cubemap material's content IS a ball — offering Cube/Plane there would be two entries that
         // rebuild the preview into the same picture — and the refused domains draw nothing at all. So
         // the combo exists exactly where it means something, instead of being disabled everywhere else.
+        //
+        // THE ROW WRAPS, IT NEVER CLIPS: the pane is as narrow as the divider leaves it, and a control cut off
+        // at the edge is a control the person cannot reach. Each item asks PreviewPane::WrapsToNextLine
+        // (tested in PreviewInput) whether it still fits after the ones before it; if not, it starts a line.
+        const ImGuiStyle& style      = ImGui::GetStyle();
+        const float       available  = std::max( ImGui::GetContentRegionAvail().x, 1.0f );
+        float             usedOnLine = 0.0f;
+        const auto        place      = [&]( const float itemWidth )
+        {
+            if ( usedOnLine > 0.0f &&
+                 !PreviewPane::WrapsToNextLine( usedOnLine, itemWidth, style.ItemSpacing.x, available ) )
+            {
+                ImGui::SameLine();
+                usedOnLine += style.ItemSpacing.x + itemWidth;
+            }
+            else
+                usedOnLine = itemWidth;
+        };
+        // A combo narrower than its preferred width rather than wider than the whole pane.
+        const auto comboWidth  = [&]( const float preferred ) { return std::min( preferred, available ); };
+        const auto buttonWidth = [&]( const char* label )
+        { return ImGui::CalcTextSize( label, nullptr, true ).x + style.FramePadding.x * 2.0f; };
+
         if ( EffectiveDomain() == ::Desert::Core::Formats::ShaderDomain::Surface )
         {
-            ImGui::SetNextItemWidth( 110.0f );
-            if ( ImGui::BeginCombo( "Shape", ShapeName( m_Shape ) ) )
+            place( comboWidth( 110.0f ) );
+            ImGui::SetNextItemWidth( comboWidth( 110.0f ) );
+            if ( ImGui::BeginCombo( "##preview_shape", ShapeName( m_Shape ) ) )
             {
                 for ( auto s : { PreviewViewport::Shape::Sphere, PreviewViewport::Shape::Cube,
                                  PreviewViewport::Shape::Cylinder, PreviewViewport::Shape::Plane } )
@@ -750,11 +803,82 @@ namespace Desert::Editor
                 }
                 ImGui::EndCombo();
             }
-            ImGui::SameLine();
         }
 
+        // BACKGROUND AND LIGHT ON THE PICTURE, as UE's viewport toolbar has them: the sky preset is the
+        // background and the light together (one palette, Graphic::kSkyPresets), and the floor is what the
+        // subject's shadow lands on. Both are the SAME fields the Preview Scene tab edits -
+        // PreviewViewport::Setup() - so there is one copy of each and the tab and this row cannot disagree.
+        if ( m_Preview )
+        {
+            PreviewViewport::SceneSetup& setup = m_Preview->Setup();
+            place( comboWidth( 150.0f ) );
+            ImGui::SetNextItemWidth( comboWidth( 150.0f ) );
+            if ( ImGui::BeginCombo( "##preview_background", Graphic::SkyPresetName( setup.Sky ) ) )
+            {
+                for ( const auto& entry : Graphic::kSkyPresets )
+                {
+                    const bool selected = ( entry.Id == setup.Sky );
+                    if ( ImGui::Selectable( entry.Name, selected ) )
+                        setup.Sky = entry.Id;
+                }
+                ImGui::EndCombo();
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Background and lighting of the preview (not saved with the material)." );
+            // The dome's ground is not optional (DrawPreviewSceneTab says why), so there is no toggle there.
+            if ( m_Preview->GetFill() != PreviewViewport::Fill::SkyDome )
+            {
+                place( ImGui::GetFrameHeight() + style.ItemInnerSpacing.x +
+                       ImGui::CalcTextSize( "Floor", nullptr, true ).x );
+                ImGui::Checkbox( "Floor", &setup.ShowFloor );
+            }
+        }
+
+        place( buttonWidth( "Reset View" ) );
         if ( ImGui::Button( "Reset View" ) && m_Preview )
             m_Preview->ResetView();
+        // Unreal's Realtime: off, the preview renders only when what it shows changes; on, every frame.
+        if ( m_Preview )
+        {
+            place( ImGui::GetFrameHeight() + style.ItemInnerSpacing.x +
+                   ImGui::CalcTextSize( "Realtime", nullptr, true ).x );
+            bool realtime = m_Preview->IsRealtime();
+            if ( ImGui::Checkbox( "Realtime", &realtime ) )
+                m_Preview->SetRealtime( realtime );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Render the preview every frame. Off: only when the material, the view or "
+                                   "the preview scene changes." );
+        }
+    }
+
+    std::vector<ISubjectDocument::DocumentAction> MaterialEditorPanel::Actions()
+    {
+        // The viewport toolbar's buttons as palette entries - the route an unattended run (DesertCtl) takes
+        // to the state a click reaches. Each writes the field the toolbar writes and nothing else.
+        std::vector<DocumentAction> actions;
+        if ( EffectiveDomain() == ::Desert::Core::Formats::ShaderDomain::Surface )
+        {
+            for ( auto s : { PreviewViewport::Shape::Sphere, PreviewViewport::Shape::Cube,
+                             PreviewViewport::Shape::Cylinder, PreviewViewport::Shape::Plane } )
+                actions.push_back(
+                     { std::string( "Preview shape: " ) + ShapeName( s ), [this, s]() { m_Shape = s; } } );
+        }
+        actions.push_back( { "Preview: toggle realtime", [this]()
+                             {
+                                 if ( m_Preview )
+                                     m_Preview->SetRealtime( !m_Preview->IsRealtime() );
+                             } } );
+        actions.push_back( { "Preview: reset view", [this]()
+                             {
+                                 if ( m_Preview )
+                                     m_Preview->ResetView();
+                             } } );
+        return actions;
+    }
+
+    void MaterialEditorPanel::DrawToolbar( Assets::SurfaceMaterialAsset* working, bool isInstance )
+    {
 
         if ( !working )
             return;
@@ -770,7 +894,6 @@ namespace Desert::Editor
         // reversible and then is not.
         const MaterialEdit::DirtyState dirty = Dirty();
 
-        ImGui::SameLine();
         ImGui::BeginDisabled( !dirty.Unapplied );
         if ( ImGui::Button( "Apply" ) )
             ApplyEdits();
@@ -2406,80 +2529,87 @@ namespace Desert::Editor
         m_PreviewUnavailable = drawn ? PreviewUnavailableReason( DrawnShaderName() )
                                      : std::string( "No preview: this material is no longer loaded." );
 
-        DrawToolbar( working, isInstance );
-        ImGui::Separator();
+        // UE'S LAYOUT: THE VIEWPORT IS A COLUMN, NOT A THUMBNAIL. The document is split in two — the preview
+        // fills the left column (its toolbar on top, the picture everything under it) and the details fill
+        // the right — with a divider the person drags. The split, the minimum widths and the size the picture
+        // renders at are PreviewPane's rules (tested in PreviewInput); this function only feeds them ImGui's
+        // numbers. The fraction is kept for the session, so the next material opens where the last was left.
+        static float    s_SplitFraction = PreviewPane::kDefaultSplit;
+        constexpr float kDividerWidth   = 6.0f;
 
-        const float  kParamColumnW = 300.0f;
-        const ImVec2 avail         = ImGui::GetContentRegionAvail();
+        const ImVec2             avail        = ImGui::GetContentRegionAvail();
+        const float              splittable   = std::max( avail.x - kDividerWidth, 0.0f );
+        const PreviewPane::Split split        = PreviewPane::SplitWidth( splittable, s_SplitFraction );
+        const float              columnHeight = std::max( avail.y, 1.0f );
 
-        // THE NOTE IS RESERVED FOR, NOT HOPED FOR. The pane is fitted to the SHORTER of the two axes, so
-        // a window that is taller than it is wide sizes it from the width and there is room underneath —
-        // but a wide, short window sizes it from the height, and the sentence was then laid out past the
-        // bottom edge and simply never appeared. A caveat that is only visible at some window shapes is
-        // the same as no caveat.
-        // AND MEASURED, NOT COUNTED. The reservation used to be a literal three lines, which is the same
-        // defect one step further in: a note of four lines is laid out past the reserved area and its last
-        // line simply never appears. That is not hypothetical — it happened the moment this note grew to
-        // say what a cloud edit costs, and the sentence that went missing was the one the note was
-        // lengthened for. ImGui can measure the wrapped text, so nothing here has to agree with the string.
-        //
-        // TWO PASSES, because the two quantities define each other: the pane's side is what the note wraps
-        // at, and the note's height is what the pane's side is left over from. The first pass measures at
-        // the WIDEST the pane could be (the width-limited side), which is the SMALLEST the note can be;
-        // the second measures at the side that follows, which can only be narrower and so can only need
-        // more height. Two steps therefore land on a reservation that is never short — the direction that
-        // matters, since being short is what hides the text.
-        const std::string note         = PreviewSceneNote();
-        const float       widthLimited = avail.x - kParamColumnW;
+        ImGui::BeginChild( "##material_viewport", ImVec2( std::max( split.Preview, 1.0f ), columnHeight ), false,
+                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
+        DrawViewportToolbar();
 
-        const auto measureNote = [&note]( float wrapWidth ) -> float
-        {
-            if ( note.empty() )
-                return 0.0f;
-            const ImVec2 size = ImGui::CalcTextSize( note.c_str(), nullptr, false, std::max( wrapWidth, 1.0f ) );
-            return size.y + ImGui::GetStyle().ItemSpacing.y;
-        };
+        // THE NOTE IS RESERVED FOR, NOT HOPED FOR, AND MEASURED, NOT COUNTED: a caveat that only fits at some
+        // window shapes is no caveat. The pane is as wide as its column, so the note wraps at that width and
+        // the picture takes whatever height is left under the toolbar once the note has been set aside.
+        const std::string note      = PreviewSceneNote();
+        const ImVec2      paneAvail = ImGui::GetContentRegionAvail();
+        const float       noteHeight =
+             note.empty() ? 0.0f
+                                : ImGui::CalcTextSize( note.c_str(), nullptr, false, std::max( paneAvail.x, 1.0f ) ).y +
+                                 ImGui::GetStyle().ItemSpacing.y;
+        const ImVec2 pane( std::max( paneAvail.x, 1.0f ), std::max( paneAvail.y - noteHeight, 1.0f ) );
 
-        const float firstPassSide =
-             std::max( 64.0f, std::min( widthLimited, avail.y - measureNote( widthLimited ) ) );
-        const float noteHeight = measureNote( firstPassSide );
-        const float imageSide  = std::max( 64.0f, std::min( widthLimited, avail.y - noteHeight ) );
-
-        // The pane and the sentence under it are ONE column, so the note cannot end up beside the picture
-        // it is about when the window is narrow.
-        ImGui::BeginGroup();
+        // RENDERED AT THE PANE'S OWN PIXELS. It used to be a fixed 512 square stretched over whatever the pane
+        // was; now next frame's OnPreUpdate renders exactly this, and an unusable size is skipped there.
+        m_PreviewExtent = PreviewPane::RenderExtent( pane.x, pane.y, ImGui::GetIO().DisplayFramebufferScale.x );
 
         // The image is last frame's render; recording this frame's happens in OnPreUpdate. Rendering from
         // inside the ImGui pass destroys descriptor pools whose sets are bound to the command buffer being
         // recorded — the editor has been bitten by exactly that.
         if ( m_PreviewUnavailable.empty() && m_Preview && m_UIHelper && m_Preview->HasContent() )
         {
-            m_Preview->Draw( *m_UIHelper, ImVec2( imageSide, imageSide ), PreviewInteraction::Interactive );
+            m_Preview->Draw( *m_UIHelper, pane, PreviewInteraction::Interactive );
         }
         else
         {
             // The empty reason is the one frame between the window first drawing and OnPreUpdate building
             // its viewport. Said out loud rather than left as a blank rectangle: "starting" and "there is
             // nothing to show you" look identical, and only one of them is worth waiting for.
-            DrawPreviewPlaceholder( imageSide, m_PreviewUnavailable.empty()
-                                                    ? std::string( "Starting the preview..." )
-                                                    : m_PreviewUnavailable );
+            DrawPreviewPlaceholder( pane, m_PreviewUnavailable.empty() ? std::string( "Starting the preview..." )
+                                                                       : m_PreviewUnavailable );
         }
 
         // WHATEVER FILLS THE PANE, THIS LINE STAYS UNDER IT. Empty for every domain that has nothing to
         // qualify; the Volume domain's dome is the first thing in this window that shows a convincing
-        // picture of something that is NOT what the level will do, and the difference has to be readable
-        // without opening a scene to find out.
+        // picture of something that is NOT what the level will do.
         if ( !note.empty() )
         {
-            ImGui::PushTextWrapPos( ImGui::GetCursorPosX() + imageSide );
+            ImGui::PushTextWrapPos( ImGui::GetCursorPosX() + pane.x );
             ImGui::TextDisabled( "%s", note.c_str() );
             ImGui::PopTextWrapPos();
         }
-        ImGui::EndGroup();
+        ImGui::EndChild();
 
-        ImGui::SameLine();
-        ImGui::BeginGroup();
+        // THE DIVIDER. An ImGui item of its own, so it is hovered and dragged like any other; the drag is
+        // turned into a fraction by PreviewPane::DragSplit, which stops it at either column's minimum.
+        ImGui::SameLine( 0.0f, 0.0f );
+        ImGui::InvisibleButton( "##material_split", ImVec2( kDividerWidth, columnHeight ) );
+        if ( ImGui::IsItemActive() )
+            s_SplitFraction = PreviewPane::DragSplit( splittable, s_SplitFraction, ImGui::GetIO().MouseDelta.x );
+        if ( ImGui::IsItemHovered() || ImGui::IsItemActive() )
+            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
+        {
+            const ImVec2 lo = ImGui::GetItemRectMin();
+            const ImVec2 hi = ImGui::GetItemRectMax();
+            const float  x  = ( lo.x + hi.x ) * 0.5f;
+            ImGui::GetWindowDrawList()->AddLine(
+                 ImVec2( x, lo.y ), ImVec2( x, hi.y ),
+                 ImGui::GetColorU32( ImGui::IsItemActive() ? ImGuiCol_SeparatorActive : ImGuiCol_Separator ),
+                 1.0f );
+        }
+        ImGui::SameLine( 0.0f, 0.0f );
+
+        ImGui::BeginChild( "##material_details", ImVec2( std::max( split.Details, 1.0f ), columnHeight ) );
+        DrawToolbar( working, isInstance );
+        ImGui::Separator();
         if ( !drawn )
         {
             ImGui::TextDisabled( "This material is no longer loaded" );
@@ -2560,7 +2690,7 @@ namespace Desert::Editor
 
             ImGui::EndDisabled();
         }
-        ImGui::EndGroup();
+        ImGui::EndChild();
 
         // Claim the render for next frame's OnPreUpdate. Re-affirmed every frame on purpose: stop drawing
         // and the GPU work stops with it.

@@ -4,7 +4,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <span>
 

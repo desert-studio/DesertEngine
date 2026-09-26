@@ -10,14 +10,14 @@ project(test_name)
 
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/SmallListSet.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMesh3_Queries.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMesh3_Edits.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMeshOverlay.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/GroupTopology.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/MeshRegionBoundaryLoops.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/SmallListSet.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3_Queries.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3_Edits.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshOverlay.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.cpp",
         -- the ported-core element selection (P10) and, until P8b, the EditMesh path it shares its algorithms with
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/DynamicMeshSelection.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp",
@@ -30,7 +30,7 @@ project(test_name)
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",        -- <Engine/Geometry/UECore/*.hpp>
+        "%{wks.location}/Desert/Desert/Source",        -- <Engine/Geometry/MeshCore/*.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

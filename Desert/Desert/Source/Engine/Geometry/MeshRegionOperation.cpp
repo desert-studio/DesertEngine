@@ -1,18 +1,19 @@
 #include "MeshRegionOperation.hpp"
 
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/SimpleHoleFiller.hpp"
-#include "Engine/Geometry/UECore/DynamicMeshEditor.hpp"
-#include "Engine/Geometry/UECore/MeshBoundaryLoops.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/InsetMeshRegion.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/SimpleHoleFiller.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMeshEditor.hpp"
+#include "Engine/Geometry/MeshCore/MeshBoundaryLoops.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 
 namespace Desert::Geometry
 {

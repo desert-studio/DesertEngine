@@ -24,7 +24,7 @@
 #include "Engine/Geometry/EditMeshSerialization.hpp"
 #include "Engine/Geometry/EditMeshTopologyOperations.hpp"
 #include "Engine/Geometry/EditMeshXformOperations.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 

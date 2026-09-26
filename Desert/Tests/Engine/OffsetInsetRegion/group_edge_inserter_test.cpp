@@ -2,9 +2,9 @@
 // polygroup per face. An edge loop at the middle of the group edge between +X and +Z must cross the four faces
 // around the Y axis (+X, +Z, -X, -Z), split each in two at y = 0, keep the mesh closed and render back.
 #include "Engine/Geometry/DynamicMeshRenderConversion.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
 
 #include <gtest/gtest.h>
 
@@ -12,6 +12,7 @@
 
 #include <cmath>
 #include <set>
+#include <unordered_set>
 
 using namespace Desert;
 using namespace Desert::Geometry;

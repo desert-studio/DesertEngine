@@ -8,8 +8,8 @@
 
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/EditMesh.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
