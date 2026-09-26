@@ -21,7 +21,7 @@
 
 #include <ToolMain.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <cerrno>
 #include <cstdio>
@@ -425,21 +425,16 @@ static int RunTool( int argc, char** argv )
     // THE STATUS COMES FROM THE PARSED REPLY, not from a substring of it. A payload containing the text
     // "ok":true would fool a grep, and a script that trusted the grep would carry on past a refusal —
     // which is exactly the failure this whole channel is built to make impossible.
-    const auto parsed = rfl::json::read<rfl::Generic>( reply );
+    const auto parsed = Common::Json::Read<Common::Json::Object>( reply );
     if ( !parsed )
     {
-        std::fprintf( stderr, "desertctl: the editor's reply is not readable JSON.\n" );
+        std::fprintf( stderr, "desertctl: the editor's reply is not a JSON object: %s\n",
+                      parsed.GetError().c_str() );
         return kNoEditor;
     }
+    const Common::Json::Object& object = parsed.GetValue();
 
-    const auto object = parsed.value().to_object();
-    if ( !object )
-    {
-        std::fprintf( stderr, "desertctl: the editor's reply is JSON but not an object.\n" );
-        return kNoEditor;
-    }
-
-    const auto ok = object.value().get( "ok" );
+    const auto ok = object.get( "ok" );
     if ( !ok )
     {
         // A reply with no outcome is a defect in the editor's channel, not a refusal — and it must not be
@@ -448,15 +443,27 @@ static int RunTool( int argc, char** argv )
         return kNoEditor;
     }
 
+    // An "ok" that is not a bool is the same channel defect as a missing one: reading it as false would call
+    // a malformed reply a refusal, and a script would take it for the editor's decision.
     const auto succeeded = ok.value().to_bool();
-    if ( succeeded && succeeded.value() )
+    if ( !succeeded )
+    {
+        std::fprintf( stderr, "desertctl: the reply's \"ok\" is not a bool; that is a defect in the channel.\n" );
+        return kNoEditor;
+    }
+    if ( succeeded.value() )
         return kOk;
 
-    if ( const auto error = object.value().get( "error" ) )
+    if ( const auto error = object.get( "error" ) )
     {
         if ( const auto reason = error.value().to_string() )
             std::fprintf( stderr, "desertctl: refused: %s\n", reason.value().c_str() );
+        else
+            std::fprintf( stderr, "desertctl: refused, and the reply's \"error\" is not a string: %s\n",
+                          Common::Json::Write( error.value() ).c_str() );
     }
+    else
+        std::fprintf( stderr, "desertctl: refused without a reason in the reply.\n" );
     return kRefused;
 }
 

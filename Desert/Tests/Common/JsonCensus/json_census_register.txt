@@ -26,4 +26,3 @@ Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/reader
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Tools/WorldSceneGenerator/world_scene_generator_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
-Tools/DesertCtl/Source/Main.cpp | JS1d: editor/tools protocols move to the facade
