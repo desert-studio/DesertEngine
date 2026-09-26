@@ -9,21 +9,21 @@ namespace Desert::Geometry
 {
     bool FQuadGridPatch::InitializeFromQuadPatch( const FDynamicMesh3&            Mesh,
                                                   const TArray<TArray<FIndex2i>>& QuadRowsIn,
-                                                  const TArray<TArray<int32>>&    VertexSpansIn )
+                                                  const TArray<TArray<int32_t>>&  VertexSpansIn )
     {
         if ( VertexSpansIn.Num() < 2 || QuadRowsIn.Num() != VertexSpansIn.Num() - 1 )
             return false;
-        const int32 NumV = VertexSpansIn[0].Num();
-        const int32 NumQ = QuadRowsIn[0].Num();
+        const int32_t NumV = VertexSpansIn[0].Num();
+        const int32_t NumQ = QuadRowsIn[0].Num();
         if ( NumQ != NumV - 1 )
             return false;
-        for ( int32 j = 1; j < VertexSpansIn.Num(); ++j )
+        for ( int32_t j = 1; j < VertexSpansIn.Num(); ++j )
         {
             if ( VertexSpansIn[j].Num() != NumV )
                 return false;
         }
-        const int32 NumQuadRows = QuadRowsIn.Num();
-        for ( int32 j = 1; j < NumQuadRows; ++j )
+        const int32_t NumQuadRows = QuadRowsIn.Num();
+        for ( int32_t j = 1; j < NumQuadRows; ++j )
         {
             if ( QuadRowsIn[j].Num() != NumQ )
                 return false;
@@ -34,15 +34,15 @@ namespace Desert::Geometry
         QuadTriangles  = QuadRowsIn;
 
         bool bAllOK = true;
-        for ( int32 j = 0; j < NumQuadRows && bAllOK; ++j )
+        for ( int32_t j = 0; j < NumQuadRows && bAllOK; ++j )
         {
-            for ( int32 k = 0; k < NumQ && bAllOK; ++k )
+            for ( int32_t k = 0; k < NumQ && bAllOK; ++k )
             {
                 // these should be the four vertices of the quad
-                const int32 VertexA  = VertexSpans[j][k];
-                const int32 VertexB  = VertexSpans[j][k + 1];
-                const int32 VertexC  = VertexSpans[j + 1][k + 1];
-                const int32 VertexD  = VertexSpans[j + 1][k];
+                const int32_t VertexA  = VertexSpans[j][k];
+                const int32_t VertexB  = VertexSpans[j][k + 1];
+                const int32_t VertexC  = VertexSpans[j + 1][k + 1];
+                const int32_t VertexD  = VertexSpans[j + 1][k];
                 FIndex2i&   QuadTris = QuadTriangles[j][k];
                 if ( !Mesh.IsTriangle( QuadTris.A ) || !Mesh.IsTriangle( QuadTris.B ) )
                 {
@@ -51,7 +51,7 @@ namespace Desert::Geometry
                 }
                 const FIndex3i TriA = Mesh.GetTriangle( QuadTris.A );
                 const FIndex3i TriB = Mesh.GetTriangle( QuadTris.B );
-                TArray<int32>  TriVerts;
+                TArray<int32_t> TriVerts;
                 TriVerts.Add( TriA.A );
                 TriVerts.Add( TriA.B );
                 TriVerts.Add( TriA.C );
@@ -80,21 +80,21 @@ namespace Desert::Geometry
         return true;
     }
 
-    bool FQuadGridPatch::GetVertexColumn( int32 ColumnIndex, TArray<int32>& VerticesOut ) const
+    bool FQuadGridPatch::GetVertexColumn( int32_t ColumnIndex, TArray<int32_t>& VerticesOut ) const
     {
         if ( VertexSpans.IsEmpty() || ColumnIndex < 0 || ColumnIndex >= VertexSpans[0].Num() )
             return false;
         VerticesOut.Reset();
-        for ( int32 k = 0; k < VertexSpans.Num(); ++k )
+        for ( int32_t k = 0; k < VertexSpans.Num(); ++k )
             VerticesOut.Add( VertexSpans[k][ColumnIndex] );
         return true;
     }
 
-    int32 FQuadGridPatch::FindColumnIndex( int32 VertexID ) const
+    int32_t FQuadGridPatch::FindColumnIndex( int32_t VertexID ) const
     {
-        for ( const TArray<int32>& Span : VertexSpans )
+        for ( const TArray<int32_t>& Span : VertexSpans )
         {
-            for ( int32 Index = 0; Index < Span.Num(); ++Index )
+            for ( int32_t Index = 0; Index < Span.Num(); ++Index )
             {
                 if ( Span[Index] == VertexID )
                     return Index;

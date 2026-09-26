@@ -176,14 +176,14 @@ namespace Desert::Geometry
                                             double SnapElementThresholdSq )
     {
         // used to track where the new vertices for *this* path start; used for bDoNotDuplicateFirstVertexID
-        const int32 InitialPathIdx = PathVertices.Num();
+        const int32_t InitialPathIdx = PathVertices.Num();
 
         if ( Path.Num() == 0 )
         {
             return true;
         }
 
-        const int32              PathNum   = Path.Num();
+        const int32_t            PathNum   = Path.Num();
         const FMeshSurfacePoint& OrigEndPt = Path[PathNum - 1].Key;
         // If FinalTri is split or poked, we will need to re-locate the last point in the path
         int  StartProcessIdx         = 0;
@@ -218,7 +218,7 @@ namespace Desert::Geometry
             StartProcessIdx = 1;
         }
 
-        for ( int32 PathIdx = StartProcessIdx; PathIdx <= EndSimpleProcessIdx; PathIdx++ )
+        for ( int32_t PathIdx = StartProcessIdx; PathIdx <= EndSimpleProcessIdx; PathIdx++ )
         {
             if ( !UE_ENSURE( Path[PathIdx].Key.PointType != ESurfacePointType::Triangle ) )
             {

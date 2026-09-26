@@ -70,6 +70,12 @@ project(test_name)
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
 
+    -- CloudProceduralVolume.cpp keys its bake in the DDC, whose file store is Common's FileSystem, which
+    -- carries Objective-C (MacOSFileSystem's dialogs): the ObjC runtime + AppKit link too.
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
     filter "system:not windows"
         links { "ReflectCpp" }
     filter {}

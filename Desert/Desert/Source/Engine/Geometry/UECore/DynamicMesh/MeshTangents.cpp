@@ -109,13 +109,13 @@ namespace Desert::Geometry
     TMeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const FDynamicMeshNormalOverlay* NormalOverlay,
                                                                  const FDynamicMeshUVOverlay*     UVOverlay )
     {
-        const int32 MaxTriangleID = Mesh->MaxTriangleID();
+        const int32_t MaxTriangleID = Mesh->MaxTriangleID();
         InitializeTriVertexTangents( false );
 
         // compute per-triangle tangent and bitangent
         ParallelFor(
              MaxTriangleID,
-             [&]( int32 TriangleID )
+             [&]( int32_t TriangleID )
              {
                  if ( Mesh->IsTriangle( TriangleID ) == false || UVOverlay->IsSetTriangle( TriangleID ) == false )
                  {
@@ -136,7 +136,7 @@ namespace Desert::Geometry
                  ComputeFaceTangent( TriVertices, TriUVs, Tangent, Bitangent, Magnitudes, OrientationSign,
                                      bIsDegenerate );
 
-                 for ( int32 j = 0; j < 3; ++j )
+                 for ( int32_t j = 0; j < 3; ++j )
                  {
                      const FVector3d VtxNormal        = (FVector3d)TriNormals[j];
                      const FVector3d ProjectedTangent = PlaneProjectionNormalized( Tangent, VtxNormal );

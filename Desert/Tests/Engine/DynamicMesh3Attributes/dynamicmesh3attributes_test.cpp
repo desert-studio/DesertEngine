@@ -248,7 +248,7 @@ TEST( DynamicMesh3Attributes, CopyCompactCopyAndAppendCarryAttributes )
     ASSERT_TRUE( Valid( Copy ) );
     EXPECT_EQ( Copy.Attributes()->PrimaryUV()->ElementCount(), Source.Attributes()->PrimaryUV()->ElementCount() );
 
-    FDynamicMesh3 Moved( MoveTemp( Copy ) );
+    FDynamicMesh3 Moved( std::move( Copy ) );
     ASSERT_TRUE( Valid( Moved ) );
     EXPECT_EQ( Moved.Attributes()->GetParentMesh(), &Moved );
 

@@ -11,17 +11,17 @@ namespace Desert::Geometry
     class FDynamicSubmesh3
     {
     public:
-        FDynamicSubmesh3( const FDynamicMesh3* BaseMeshIn, const TArray<int32>& Triangles )
+        FDynamicSubmesh3( const FDynamicMesh3* BaseMeshIn, const TArray<int32_t>& Triangles )
              : BaseMesh( BaseMeshIn )
         {
-            TMap<int32, int32> BaseToSubV;
-            for ( const int32 BaseTID : Triangles )
+            TMap<int32_t, int32_t> BaseToSubV;
+            for ( const int32_t BaseTID : Triangles )
             {
                 const FIndex3i BaseTri = BaseMesh->GetTriangle( BaseTID );
                 FIndex3i       SubTri;
-                for ( int32 j = 0; j < 3; ++j )
+                for ( int32_t j = 0; j < 3; ++j )
                 {
-                    if ( const int32* Found = BaseToSubV.Find( BaseTri[j] ) )
+                    if ( const int32_t* Found = BaseToSubV.Find( BaseTri[j] ) )
                     {
                         SubTri[j] = *Found;
                         continue;
@@ -30,7 +30,7 @@ namespace Desert::Geometry
                     BaseToSubV.Add( BaseTri[j], SubTri[j] );
                     SubToBaseV.Add( BaseTri[j] );
                 }
-                const int32 SubTID = Submesh.AppendTriangle( SubTri );
+                const int32_t SubTID = Submesh.AppendTriangle( SubTri );
                 if ( SubTID < 0 )
                 {
                     FailedTriangles.Add( BaseTID );
@@ -43,16 +43,16 @@ namespace Desert::Geometry
         {
             return Submesh;
         }
-        int32 MapVertexToBaseMesh( int32 SubVID ) const
+        int32_t MapVertexToBaseMesh( int32_t SubVID ) const
         {
             return SubToBaseV[SubVID];
         }
-        int32 MapTriangleToBaseMesh( int32 SubTID ) const
+        int32_t MapTriangleToBaseMesh( int32_t SubTID ) const
         {
             return SubToBaseT[SubTID];
         }
         /** Base triangles AppendTriangle refused (non-manifold within the set); UE check()s this away. */
-        const TArray<int32>& GetFailedTriangles() const
+        const TArray<int32_t>& GetFailedTriangles() const
         {
             return FailedTriangles;
         }
@@ -60,8 +60,8 @@ namespace Desert::Geometry
     private:
         const FDynamicMesh3* BaseMesh;
         FDynamicMesh3        Submesh;
-        TArray<int32>        SubToBaseV;
-        TArray<int32>        SubToBaseT;
-        TArray<int32>        FailedTriangles;
+        TArray<int32_t>      SubToBaseV;
+        TArray<int32_t>      SubToBaseT;
+        TArray<int32_t>      FailedTriangles;
     };
 } // namespace Desert::Geometry

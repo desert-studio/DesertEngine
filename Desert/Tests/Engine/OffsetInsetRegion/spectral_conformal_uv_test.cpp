@@ -102,9 +102,9 @@ namespace
         return s;
     }
 
-    TArray<int32> AllTriangles( const FDynamicMesh3& mesh )
+    TArray<int32_t> AllTriangles( const FDynamicMesh3& mesh )
     {
-        TArray<int32> triangles;
+        TArray<int32_t> triangles;
         for ( const int t : mesh.TriangleIndicesItr() )
             triangles.Add( t );
         return triangles;

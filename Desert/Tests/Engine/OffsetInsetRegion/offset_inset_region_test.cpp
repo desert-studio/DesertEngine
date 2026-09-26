@@ -52,9 +52,9 @@ namespace
     }
 
     // The top face (+Z, z = 100): triangles 2 and 3.
-    TArray<int32> TopFace()
+    TArray<int32_t> TopFace()
     {
-        TArray<int32> T;
+        TArray<int32_t> T;
         T.Add( 2 );
         T.Add( 3 );
         return T;
@@ -78,7 +78,7 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
     EXPECT_EQ( CountBoundaryEdges( M ), 0 ) << "the extruded cube must stay closed";
     ASSERT_EQ( Op.OffsetRegions.Num(), 1 );
     EXPECT_FALSE( Op.OffsetRegions[0].bIsSolid );
-    for ( int32 t : Op.OffsetRegions[0].OffsetTids )
+    for ( int32_t const t : Op.OffsetRegions[0].OffsetTids )
     {
         FIndex3i Tri = M.GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
@@ -89,7 +89,7 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
     ASSERT_EQ( Op.OffsetRegions[0].StitchTriangles.Num(), 1 );
     EXPECT_EQ( Op.OffsetRegions[0].StitchTriangles[0].Num(), 8 );
     EXPECT_EQ( Op.OffsetRegions[0].StitchPolygonIDs[0].Num(), 4 );
-    for ( int32 t : Op.OffsetRegions[0].StitchTriangles[0] )
+    for ( int32_t const t : Op.OffsetRegions[0].StitchTriangles[0] )
     {
         const FVector3d N = M.GetTriNormal( t );
         const FVector3d C = M.GetTriCentroid( t ) - FVector3d( 50, 50, 125 );
@@ -128,7 +128,7 @@ TEST( InsetMeshRegion, CubeFaceInsetShrinksByTheDistance )
     EXPECT_EQ( M.TriangleCount(), 20 );
     EXPECT_EQ( CountGroups( M ), 10 ); // the face keeps its group, the ring gets four
     EXPECT_EQ( CountBoundaryEdges( M ), 0 );
-    for ( int32 t : Op.InsetRegions[0].InitialTriangles )
+    for ( int32_t const t : Op.InsetRegions[0].InitialTriangles )
     {
         EXPECT_EQ( M.GetTriangleGroup( t ), TopGroup );
         FIndex3i Tri = M.GetTriangle( t );
@@ -140,7 +140,7 @@ TEST( InsetMeshRegion, CubeFaceInsetShrinksByTheDistance )
             EXPECT_NEAR( std::min( P.Y, 100 - P.Y ), 10.0, 1e-9 );
         }
     }
-    for ( int32 t : Op.InsetRegions[0].StitchTriangles[0] )
+    for ( int32_t const t : Op.InsetRegions[0].StitchTriangles[0] )
         EXPECT_NEAR( M.GetTriNormal( t ).Z, 1.0, 1e-9 ) << "ring triangle " << t << " is not in the face's plane";
 }
 

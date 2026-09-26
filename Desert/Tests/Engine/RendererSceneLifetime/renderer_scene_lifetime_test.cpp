@@ -67,7 +67,10 @@ namespace
         std::ifstream      in( path, std::ios::binary );
         std::ostringstream buffer;
         buffer << in.rdbuf();
-        return buffer.str();
+        // A Windows checkout translates line endings; the searches below look for "\n    }\n".
+        std::string text = buffer.str();
+        std::erase( text, '\r' );
+        return text;
     }
 
     // Comments become spaces; newlines survive. Without it every assertion below would be satisfied by the

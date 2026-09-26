@@ -18,7 +18,7 @@ namespace Desert::Geometry
     template <typename FromType, typename ToType, typename IteratorT>
     class MappedIterator
     {
-        using MapFunctionT = TFunction<ToType( FromType )>;
+        using MapFunctionT = std::function<ToType( FromType )>;
 
     public:
         inline MappedIterator()
@@ -62,7 +62,7 @@ namespace Desert::Geometry
     template <typename ValueType, typename IteratorT>
     class FilteredIterator
     {
-        using FilterFunctionT = TFunction<bool( ValueType )>;
+        using FilterFunctionT = std::function<bool( ValueType )>;
 
     public:
         inline FilteredIterator()
@@ -137,7 +137,7 @@ namespace Desert::Geometry
     template <typename OutputType, typename InputType, typename InputIteratorT>
     class ExpandIterator
     {
-        using ExpandFunctionT = TFunction<OutputType( InputType, int& )>;
+        using ExpandFunctionT = std::function<OutputType( InputType, int& )>;
 
     public:
         inline ExpandIterator()
@@ -205,7 +205,7 @@ namespace Desert::Geometry
     template <typename OutputType, typename InputType, typename InputIteratorT>
     class ExpandEnumerable
     {
-        using ExpandFunctionT = TFunction<OutputType( InputType, int& )>;
+        using ExpandFunctionT = std::function<OutputType( InputType, int& )>;
         using ExpandIteratorT = ExpandIterator<OutputType, InputType, InputIteratorT>;
 
     public:
@@ -246,14 +246,14 @@ namespace Desert::Geometry
      * This is specifically used by FDynamicMesh3::VtxTrianglesItr, where for each edge
      * around a vertex, between 0 and 2 triangles need to be returned.
      *
-     * This is done via the PairExpandFunctionT TFunction, which returns a FIndex2i for
+     * This is done via the PairExpandFunctionT std::function, which returns a FIndex2i for
      * a given integer. This pair must be either (a,invalid), (a, b), or (invalid, invalid),
      * where invalid is integer < 0
      */
     template <typename InputIteratorT>
     class TPairExpandIterator
     {
-        using PairExpandFunctionT = TFunction<FIndex2i( int )>;
+        using PairExpandFunctionT = std::function<FIndex2i( int )>;
 
     public:
         inline TPairExpandIterator()
@@ -347,7 +347,7 @@ namespace Desert::Geometry
     template <typename InputIteratorT>
     class TPairExpandEnumerable
     {
-        using ExpandFunctionT = TFunction<FIndex2i( int )>;
+        using ExpandFunctionT = std::function<FIndex2i( int )>;
         using ExpandIteratorT = TPairExpandIterator<InputIteratorT>;
 
     public:
@@ -400,40 +400,41 @@ namespace Desert::Geometry
      * Usage:
      *
             FModuloIteration Iter(N);
-            uint32 Index;
+            uint32_t Index;
             while (Iter.GetNextIndex(Index)) { ... }
      */
     struct FModuloIteration
     {
-        uint64 MaxIndex    = 0;
-        uint64 ModuloPrime = 4294967311ull; // prime > max_unsigned_int
-        uint64 CurIndex    = 0;
-        uint64 StartIndex  = 0;
-        uint64 Count       = 0;
-        uint64 ModuloNum   = 1;
+        uint64_t MaxIndex    = 0;
+        uint64_t ModuloPrime = 4294967311ull; // prime > max_unsigned_int
+        uint64_t CurIndex    = 0;
+        uint64_t StartIndex  = 0;
+        uint64_t Count       = 0;
+        uint64_t ModuloNum   = 1;
 
-        FModuloIteration( uint32 MaxIndexIn, uint32 StartIndexIn = 0, uint64 ModuloPrimeIn = 3208642561 )
+        FModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 )
         {
-            MaxIndex   = (uint64)FMath::Max( (uint32)0, MaxIndexIn );
-            StartIndex = (uint64)FMath::Max( (uint32)0, StartIndexIn );
+            MaxIndex   = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), MaxIndexIn ) );
+            StartIndex = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), StartIndexIn ) );
             CurIndex   = StartIndex;
             Count      = 0;
-            ModuloNum  = FMath::Max( (uint64)1, MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
-                                                            // is 0 we will terminate on first iteration anyway
+            ModuloNum  = std::max( static_cast<uint64_t>( 1 ),
+                                   MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
+                                               // is 0 we will terminate on first iteration anyway
             ModuloPrime = ModuloPrimeIn;
             UE_CHECK( ModuloPrime > MaxIndex );
         }
 
-        bool GetNextIndex( uint32& NextIndexOut )
+        bool GetNextIndex( uint32_t& NextIndexOut )
         {
-            NextIndexOut = (uint32)CurIndex;
+            NextIndexOut = static_cast<uint32_t>( CurIndex );
             CurIndex     = ( CurIndex + ModuloPrime ) % ModuloNum;
             return ( Count++ != MaxIndex );
         }
 
-        bool GetNextIndex( int32& NextIndexOut )
+        bool GetNextIndex( int32_t& NextIndexOut )
         {
-            NextIndexOut = (int32)CurIndex;
+            NextIndexOut = static_cast<int32_t>( CurIndex );
             CurIndex     = ( CurIndex + ModuloPrime ) % ModuloNum;
             return ( Count++ != MaxIndex );
         }
