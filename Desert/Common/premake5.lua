@@ -71,6 +71,24 @@ endif
     end
     
     links { "Optick" }
+
+    -- reflect-cpp, FROM THE TABLE THAT HAS NAMED IT SINCE JS1a AND THAT NOTHING READ UNTIL NOW.
+    -- `CommonSpecific.Libraries` sat beside the `IncludeDir` and `Defines` this project already loops
+    -- over (Desert/Dependencies.lua:190) with no consumer anywhere in the tree -- a dead setting, and
+    -- the reason the edge it describes was carried by every consumer instead. Common's OWN sources
+    -- parse and write JSON through rfl::json (the asset-envelope header, MachineSettings), so the
+    -- dependency is Common's; a tool that links Common must not have to know that.
+    --
+    -- Four Windows targets never did know: PakTool and DShaderTool name only Common, and GamePackager
+    -- and TextureCook name ReflectCpp under a `system:not windows` filter left from the days of the
+    -- prebuilt reflectcpp.lib (BuildScripts/ThirdParty/ReflectCpp.lua -- one project, all platforms,
+    -- since that lib went). It held only because the linker could satisfy them from archive members
+    -- carrying no rfl reference. The Windows unity build merges those members with ones that do, and
+    -- the margin went with it: run 36260237438, 63 LNK2019/LNK2001 on rfl::Generic and yyjson_* out of
+    -- PakTool. Declared here, where the reference actually is.
+    for name, lib in pairs(deps.CommonSpecific.Libraries) do
+        links { lib }
+    end
     
     for _, define in ipairs(deps.Common.Defines) do
         defines { define }
