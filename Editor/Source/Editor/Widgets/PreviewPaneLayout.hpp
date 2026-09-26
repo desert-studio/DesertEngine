@@ -163,9 +163,9 @@ namespace Desert::Editor::PreviewPane
         float needed = 0.0f;
         for ( int corner = 0; corner < 8; ++corner )
         {
-            const glm::vec3 c( ( corner & 1 ) ? subject.HalfExtent.x : -subject.HalfExtent.x,
-                               ( corner & 2 ) ? subject.HalfExtent.y : -subject.HalfExtent.y,
-                               ( corner & 4 ) ? subject.HalfExtent.z : -subject.HalfExtent.z );
+            const glm::vec3 c( ( corner & 1 ) != 0 ? subject.HalfExtent.x : -subject.HalfExtent.x,
+                               ( corner & 2 ) != 0 ? subject.HalfExtent.y : -subject.HalfExtent.y,
+                               ( corner & 4 ) != 0 ? subject.HalfExtent.z : -subject.HalfExtent.z );
             const float lateral =
                  std::max( std::abs( glm::dot( c, right ) ) / tanH, std::abs( glm::dot( c, up ) ) / tanV );
             needed = std::max( needed, lateral - glm::dot( c, forward ) );

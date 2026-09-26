@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <numbers>
 #include <sstream>
 #include <string>
 
@@ -302,8 +303,8 @@ namespace
         Extent2D        e;
         for ( int corner = 0; corner < 8; ++corner )
         {
-            const glm::vec4 c( ( corner & 1 ) ? half.x : -half.x, ( corner & 2 ) ? half.y : -half.y,
-                               ( corner & 4 ) ? half.z : -half.z, 1.0f );
+            const glm::vec4 c( ( corner & 1 ) != 0 ? half.x : -half.x, ( corner & 2 ) != 0 ? half.y : -half.y,
+                               ( corner & 4 ) != 0 ? half.z : -half.z, 1.0f );
             const glm::vec4 clip = proj * view * c;
             e.X                  = std::max( e.X, std::abs( clip.x / clip.w ) );
             e.Y                  = std::max( e.Y, std::abs( clip.y / clip.w ) );
@@ -343,7 +344,7 @@ TEST( PreviewPaneLayout, TheBallFitsTheNarrowerSideWithAMarginAtEveryPaneShape )
 
 TEST( PreviewPaneLayout, TheCubeFitsTheNarrowerSideWithAMarginAtEveryPaneShape )
 {
-    const PaneLayout::FramedSubject cube{ false, 50.0f * std::sqrt( 3.0f ), glm::vec3( 50.0f ) };
+    const PaneLayout::FramedSubject cube{ false, 50.0f * std::numbers::sqrt3_v<float>, glm::vec3( 50.0f ) };
     for ( const float aspect : { 0.45f, 1.0f, 2.4f } )
     {
         const float    d = PaneLayout::FitDistance( cube, PaneLayout::kFramingYaw, PaneLayout::kFramingPitch,

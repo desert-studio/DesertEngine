@@ -324,7 +324,7 @@ namespace Desert::Editor
         // The pane when there is no image: the same rectangle as before, with the reason written inside
         // it. Inside, not underneath — the message has to be where the picture would have been, or it is
         // one more line in a column of labels.
-        void DrawPreviewPlaceholder( const ImVec2& size, const std::string& reason ) const;
+        static void DrawPreviewPlaceholder( const ImVec2& size, const std::string& reason );
 
         // The toolbar ON the viewport (UE's pattern): preview shape, background and light, floor, reset view.
         // Apply / Discard / Save stay with the details they act on (DrawToolbar).

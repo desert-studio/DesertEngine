@@ -117,7 +117,7 @@ namespace Desert::Editor::DocumentPlacement
                                              const glm::vec2 workSize )
     {
         const Placement beside = Place( sceneDockId, sceneLive, workPos, workSize );
-        if ( !remembered || remembered->At == Remembered::Where::NextToScene )
+        if ( remembered == nullptr || remembered->At == Remembered::Where::NextToScene )
             return { beside, {} };
         if ( remembered->At == Remembered::Where::DockNode )
         {
@@ -159,7 +159,10 @@ namespace Desert::Editor::DocumentPlacement
     [[nodiscard]] inline std::optional<Remembered> Parse( const std::string& text )
     {
         unsigned id = 0;
-        float    x = 0, y = 0, w = 0, h = 0;
+        float    x  = 0;
+        float    y  = 0;
+        float    w  = 0;
+        float    h  = 0;
         if ( text == "next" )
             return Remembered{};
         if ( std::sscanf( text.c_str(), "dock %u", &id ) == 1 && id != 0 )

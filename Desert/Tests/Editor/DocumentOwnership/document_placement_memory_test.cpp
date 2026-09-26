@@ -68,7 +68,7 @@ namespace
         {
             const auto back = Parse( Format( c ) );
             ASSERT_TRUE( back.has_value() ) << Format( c );
-            EXPECT_EQ( *back, c ) << Format( c );
+            EXPECT_EQ( back.value_or( Remembered{} ), c ) << Format( c );
         }
         EXPECT_FALSE( Parse( "dock 0" ).has_value() );
         EXPECT_FALSE( Parse( "somewhere" ).has_value() );

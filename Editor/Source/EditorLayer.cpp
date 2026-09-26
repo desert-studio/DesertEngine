@@ -6040,7 +6040,7 @@ namespace Desert::Editor
         if ( const ::ImGuiWindow* scene = ImGui::FindWindowByName( PanelDisplayTitle( "Scene###scene" ).c_str() ) )
             mainDockId = scene->DockId;
         const ImGuiViewport* work      = ImGui::GetMainViewport();
-        const bool           sceneLive = mainDockId != 0 && ImGui::DockBuilderGetNode( mainDockId );
+        const bool           sceneLive = mainDockId != 0 && ImGui::DockBuilderGetNode( mainDockId ) != nullptr;
 
         // A document that closed gives its "placed" mark back, so its next opening is placed again.
         std::erase_if( m_PlacedDocuments,
@@ -6062,10 +6062,10 @@ namespace Desert::Editor
             const bool placing = !m_PlacedDocuments.contains( subject );
             if ( placing )
             {
-                const auto  it         = m_RememberedPlacement.find( kind );
-                const auto* remembered = it != m_RememberedPlacement.end() ? &it->second : nullptr;
-                const bool  rememberedLive =
-                     remembered && remembered->DockId != 0 && ImGui::DockBuilderGetNode( remembered->DockId );
+                const auto  it             = m_RememberedPlacement.find( kind );
+                const auto* remembered     = it != m_RememberedPlacement.end() ? &it->second : nullptr;
+                const bool  rememberedLive = remembered != nullptr && remembered->DockId != 0 &&
+                                            ImGui::DockBuilderGetNode( remembered->DockId ) != nullptr;
                 const DocumentPlacement::Resolution resolved = DocumentPlacement::Resolve(
                      m_SubjectEditors.TypeName( subject ), remembered, mainDockId, sceneLive, rememberedLive,
                      glm::vec2( work->WorkPos.x, work->WorkPos.y ),

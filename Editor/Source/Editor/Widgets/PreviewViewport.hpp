@@ -371,7 +371,7 @@ namespace Desert::Editor
         void EnsureInit( const Graphic::ViewExtent& extent = Graphic::kUnsizedViewExtent );
         void ApplyCamera( uint32_t width, uint32_t height );
         // The orbit distance at which the current content fits a pane of @p aspect (width / height) whole.
-        float FittedDistance( float aspect ) const;
+        [[nodiscard]] float FittedDistance( float aspect ) const;
         // Write m_Setup onto the scene's entities. Called from Update(), every frame: the writes are a
         // handful of component fields, and doing them unconditionally is what removes the "the panel
         // edited the struct but forgot to push it" failure entirely.

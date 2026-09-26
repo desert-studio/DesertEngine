@@ -553,7 +553,7 @@ namespace Desert::Editor
         return { static_cast<const Graphic::ImageCube*>( imageService->Resolve( radiance ) ), {} };
     }
 
-    void MaterialEditorPanel::DrawPreviewPlaceholder( const ImVec2& size, const std::string& reason ) const
+    void MaterialEditorPanel::DrawPreviewPlaceholder( const ImVec2& size, const std::string& reason )
     {
         // Local (window) coordinates as well as screen ones: the draw list wants screen, and both the text
         // wrap position and the cursor restore below are window-space. Mixing the two puts the wrap column
@@ -2542,7 +2542,7 @@ namespace Desert::Editor
         const PreviewPane::Split split        = PreviewPane::SplitWidth( splittable, s_SplitFraction );
         const float              columnHeight = std::max( avail.y, 1.0f );
 
-        ImGui::BeginChild( "##material_viewport", ImVec2( std::max( split.Preview, 1.0f ), columnHeight ), 0,
+        ImGui::BeginChild( "##material_viewport", ImVec2( std::max( split.Preview, 1.0f ), columnHeight ), false,
                            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
         DrawViewportToolbar();
 
