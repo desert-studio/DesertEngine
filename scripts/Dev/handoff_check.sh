@@ -26,6 +26,17 @@ BIN=build/Bin/Tests/Debug
 run_one() { dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"; }
 export -f run_one dev_capped
 dev_regen_makefiles "$LOG" || exit 2
+# A suite deleted on this branch keeps its old .make (premake never removes one), and the build below stops on
+# "No rule to make target" — LODFold did this in five trees on 09-26. A test makefile that the regeneration did not
+# rewrite names a suite the workspace Makefile no longer lists: park it (never delete) so the list below is what
+# premake made.
+projects=" $(grep -m1 '^PROJECTS' Makefile 2>/dev/null | sed 's/^PROJECTS *:= *//') "
+if [ "$projects" != "  " ]; then
+    for mk in $(grep -l "TARGETDIR = build/Bin/Tests/Debug" ./*.make 2>/dev/null); do
+        name=$(basename "$mk" .make)
+        [[ "$projects" == *" $name "* ]] || { mkdir -p build/stale-make; mv "$mk" build/stale-make/; echo "handoff_check: parked stale $mk"; }
+    done
+fi
 # (0) Build every suite first, in one make: after a merge 200+ binaries predate libCommon.a and a new suite has no
 # binary at all, and an agent that fixed that by hand spent a whole second pass (~45 min) per branch, five times on
 # 09-25. make rebuilds only what is out of date, so on a fresh tree this is seconds. HANDOFF_NO_BUILD=1 skips it.
@@ -33,6 +44,14 @@ if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
     suites=$(grep -l "TARGETDIR = build/Bin/Tests/Debug" ./*.make 2>/dev/null | xargs -n1 basename | sed 's/\.make$//')
     if ! printf '%s\n' $suites | xargs "$DEV_ROOT/scripts/Dev/suite.sh" --build-only >"$LOG/build.log" 2>&1; then
         echo "handoff_check: building the suites FAILED; log $LOG/build.log"; tail -5 "$LOG/build.log"; exit 1
+    fi
+    # (0b) the Editor too: suites compile a fraction of the Editor's sources, and on 09-26 two batches each passed
+    # every suite while together they broke the Editor build (AV1d changed PreviewViewport::Draw, AV1e called the
+    # old one). HANDOFF_NO_EDITOR=1 skips it.
+    if [ -z "${HANDOFF_NO_EDITOR:-}" ] && [ -f Editor.make ]; then
+        if ! "$HOME/.claude/tools/build_quiet.sh" "$PWD" "$LOG/editor.log" Editor >/dev/null 2>&1; then
+            echo "handoff_check: building the Editor FAILED; log $LOG/editor.log"; grep -m5 "error:" "$LOG/editor.log"; exit 1
+        fi
     fi
 fi
 bins=()

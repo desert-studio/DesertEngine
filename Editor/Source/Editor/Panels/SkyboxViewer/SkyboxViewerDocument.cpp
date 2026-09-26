@@ -2,6 +2,7 @@
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
+#include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
@@ -189,7 +190,7 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Starting the preview..." );
             return;
         }
-        m_Preview->Draw( *m_UIHelper, avail );
+        (void)m_Preview->Draw( *m_UIHelper, avail, PreviewInteraction::Interactive );
     }
 
     SubjectEditorRegistry::PathOpenOutcome RequestSkyboxDocument( Assets::AssetManager*        assets,
