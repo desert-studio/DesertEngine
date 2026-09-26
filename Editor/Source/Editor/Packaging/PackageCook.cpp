@@ -286,12 +286,13 @@ namespace Desert::Editor
 
         // Copies the DDC buckets a game reads into Saved/Cooked/<Platform>/ under the same relative layout.
         // WHOLE BUCKETS, not a list of what this pass touched: a fixture or an earlier cook's entry under a
-        // key the runtime will ask for is exactly as valid (the key is its inputs), and the pipeline blob
-        // is keyed by the driver, which no cook can enumerate. Thumbnails are the editor's alone and stay.
+        // key the runtime will ask for is exactly as valid (the key is its inputs). Thumbnails are the
+        // editor's alone and stay; the driver pipeline blob is per user and per device and lives in the
+        // player's own directory (PipelineCacheFile.hpp), so no cook ships one.
         void StageCookedEntries( CookStats& stats )
         {
-            constexpr std::string_view kShippedBuckets[] = { "ShaderCache",      "FontCache",     "IconCache",
-                                                             "EnvironmentCache", "PipelineCache", "Texture" };
+            constexpr std::string_view kShippedBuckets[] = { "ShaderCache", "FontCache", "IconCache",
+                                                             "EnvironmentCache", "Texture" };
             const fs::path             cooked            = Common::DDC::PlatformCookedDir();
             const fs::path             ddcRoot           = Common::DDC::Root();
             std::error_code            ec;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/PipelineCacheFile.hpp>
+
 #include <Engine/Core/Device.hpp>
 
 #include <vulkan/vulkan.h>
@@ -159,10 +161,11 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<VulkanPhysicalDevice> m_PhysicalDevice;
         VkDevice                              m_LogicalDevice;
         VkPipelineCache                       m_PipelineCache = VK_NULL_HANDLE;
-        uint64_t                              m_PipelineCacheKey       = 0;
+        PipelineCacheFile::DeviceIdentity     m_PipelineIdentity;
+        std::filesystem::path                 m_PipelineCacheFile; // empty = not persisted (reason logged)
         uint64_t                              m_PersistedPipelineHash  = 0; // of the entry on disk, 0 = none
-        uint64_t                              m_PersistedPipelineCount = 0; // pipelines built at the last write
-        std::optional<std::chrono::steady_clock::time_point> m_PersistedAt;
+        // Rewritten during the run, not only at a clean exit, which a crash or a kill never reaches.
+        PipelineCacheFile::PersistSchedule   m_PersistSchedule{ std::chrono::seconds( 2 ) };
         std::string                           m_DeviceName;
 
         // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining

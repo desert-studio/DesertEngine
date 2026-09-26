@@ -1,4 +1,6 @@
-#include <Common/Content/DerivedDataCache.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Graphic/PipelineCacheFile.hpp>
+#include <Engine/Project/ProjectContext.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
@@ -24,41 +26,23 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        constexpr Common::DDC::Deriver kPipelineDeriver{
-             "PipelineCache", ".bin", { 0xc83f1a6d29e7054bULL, 0x76b2e9f04a1d3c85ULL } };
-
         // The blob is only valid for the GPU and driver that wrote it (the driver discards anything else),
-        // so they ARE the key: two GPUs in one machine, or a driver update, get entries of their own
-        // instead of overwriting one shared file with a blob the other will throw away.
-        uint64_t PipelineCacheKey( const VkPhysicalDevice gpu )
+        // so they name the file: two GPUs in one machine, or a driver update, get files of their own.
+        PipelineCacheFile::DeviceIdentity PipelineIdentity( const VkPhysicalDevice gpu )
         {
             VkPhysicalDeviceProperties props{};
             vkGetPhysicalDeviceProperties( gpu, &props );
-            struct Identity
-            {
-                uint32_t                          Vendor;
-                uint32_t                          Device;
-                uint32_t                          Driver;
-                std::array<uint8_t, VK_UUID_SIZE> Uuid;
-            } identity{ props.vendorID, props.deviceID, props.driverVersion, {} };
-            static_assert( sizeof( Identity ) == 3 * sizeof( uint32_t ) + VK_UUID_SIZE, "hashed as bytes" );
+            PipelineCacheFile::DeviceIdentity identity{ props.vendorID, props.deviceID, props.driverVersion, {} };
+            static_assert( VK_UUID_SIZE == std::tuple_size_v<decltype( identity.CacheUuid )> );
             std::copy( std::begin( props.pipelineCacheUUID ), std::end( props.pipelineCacheUUID ),
-                       identity.Uuid.begin() );
-            return Common::DDC::MakeKey( kPipelineDeriver, 0, &identity, sizeof identity );
+                       identity.CacheUuid.begin() );
+            return identity;
         }
 
-        uint64_t HashBytes( const std::string_view bytes )
-        {
-            uint64_t hash = 0xcbf29ce484222325ULL;
-            for ( const char c : bytes )
-                hash = ( hash ^ static_cast<unsigned char>( c ) ) * 0x100000001b3ULL;
-            return hash;
-        }
 
         // A kill -9, a crash or a lost device never reaches Destroy, and the pipelines built in that run
         // were then rebuilt from scratch on the next start. So the cache is written while the app runs,
         // as soon as the driver has built new pipelines, and at most this often while it keeps building.
-        constexpr std::chrono::seconds kPipelinePersistInterval{ 2 };
     } // namespace
 
     VulkanPhysicalDevice::VulkanPhysicalDevice()
@@ -562,29 +546,54 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanLogicalDevice::CreatePipelineCache()
     {
-        // Seed the cache from the previous run's blob if present. The driver checks the header
-        // (vendorID/deviceID/pipelineCacheUUID) and ignores it if it doesn't match this GPU/driver, so a
-        // stale or cross-machine file is harmless — it just starts the cache empty again.
-        // Get reads the loose DDC entry and, in a packaged game, the packaging machine's copy inside the
-        // pak (same GPU installs seed from it; the driver's header check discards it anywhere else).
-        m_PipelineCacheKey        = PipelineCacheKey( m_PhysicalDevice->GetVulkanPhysicalDevice() );
-        const auto        blob    = Common::DDC::Get( kPipelineDeriver, m_PipelineCacheKey );
-        const std::string initial = blob.value_or( std::string{} );
-        m_PersistedPipelineHash   = blob ? HashBytes( initial ) : 0;
+        // Seed the cache from this user's blob for this device. It lives in the USER's directory, never in
+        // the install (a protected install cannot be written, and before PSO1 a package wrote its blob into
+        // its own folder). Our header refuses another device's or a torn file with a reason; the driver's
+        // own header check stays behind it.
+        m_PipelineIdentity = PipelineIdentity( m_PhysicalDevice->GetVulkanPhysicalDevice() );
+        std::string initial;
+        if ( !Project::ProjectContext::HasProject() )
+        {
+            LOG_ERROR( "[PipelineCache] no project is open, so there is no per-user cache path; pipelines "
+                       "build uncached and nothing is persisted this run" );
+        }
+        else
+        {
+            const std::filesystem::path dir = PipelineCacheFile::Directory(
+                 Project::ProjectContext::ConfigDirectory(),
+                 std::filesystem::path( Project::ProjectContext::Directory() ).filename().string() );
+            std::error_code ec;
+            std::filesystem::create_directories( dir, ec );
+            if ( ec )
+                LOG_ERROR( "[PipelineCache] cannot create '{}': {}; nothing is persisted this run", dir.string(),
+                           ec.message() );
+            else
+                m_PipelineCacheFile = dir / PipelineCacheFile::FileName( m_PipelineIdentity );
+        }
+        if ( !m_PipelineCacheFile.empty() )
+        {
+            std::error_code ec;
+            if ( !std::filesystem::is_regular_file( m_PipelineCacheFile, ec ) )
+                LOG_INFO( "[PipelineCache] '{}': no file, created empty", m_PipelineCacheFile.string() );
+            else if ( auto read = Common::Utils::FileSystem::ReadFileContent( m_PipelineCacheFile ); !read )
+                LOG_ERROR( "[PipelineCache] '{}' unreadable ({}); created empty", m_PipelineCacheFile.string(),
+                           read.GetError() );
+            else if ( auto decoded = PipelineCacheFile::Decode( m_PipelineIdentity, read.GetValue() );
+                      !decoded.Blob )
+                LOG_WARN( "[PipelineCache] '{}' refused: {}; created empty", m_PipelineCacheFile.string(),
+                          decoded.Refusal );
+            else
+            {
+                initial = std::move( *decoded.Blob );
+                LOG_INFO( "[PipelineCache] '{}': seeded from {} bytes", m_PipelineCacheFile.string(),
+                          initial.size() );
+            }
+        }
+        m_PersistedPipelineHash = initial.empty() ? 0 : PipelineCacheFile::HashBytes( initial );
 
         VkPipelineCacheCreateInfo info{ .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
                                         .initialDataSize = initial.size(),
                                         .pInitialData    = initial.empty() ? nullptr : initial.data() };
-        // One line per start that says which entry was asked for and whether it existed: the only
-        // evidence a warm start is reading the entry the previous run wrote, rather than a key nobody writes.
-        if ( blob )
-        {
-            LOG_INFO( "[PipelineCache] key {:016x}: seeded from {} bytes", m_PipelineCacheKey, initial.size() );
-        }
-        else
-        {
-            LOG_INFO( "[PipelineCache] key {:016x}: no entry, created empty", m_PipelineCacheKey );
-        }
         if ( const VkResult r = vkCreatePipelineCache( m_LogicalDevice, &info, nullptr, &m_PipelineCache );
              r != VK_SUCCESS )
         {
@@ -599,19 +608,14 @@ namespace Desert::Graphic::API::Vulkan
     {
         const uint64_t built =
              Core::ReadShaderPhaseTimes().Calls[static_cast<size_t>( Core::ShaderPhase::PipelineCreate )];
-        if ( built == m_PersistedPipelineCount )
+        if ( !m_PersistSchedule.Due( built, std::chrono::steady_clock::now() ) )
             return Common::MakeSuccess( true );
-        const auto now = std::chrono::steady_clock::now();
-        if ( m_PersistedAt && now - *m_PersistedAt < kPipelinePersistInterval )
-            return Common::MakeSuccess( true );
-        m_PersistedPipelineCount = built;
-        m_PersistedAt            = now;
         return WritePipelineCache();
     }
 
     Common::BoolResultStr VulkanLogicalDevice::WritePipelineCache()
     {
-        if ( m_PipelineCache == VK_NULL_HANDLE )
+        if ( m_PipelineCache == VK_NULL_HANDLE || m_PipelineCacheFile.empty() )
             return Common::MakeSuccess( true );
 
         // A lost device has nothing to hand back, and asking it is one more call after the point where the
@@ -636,14 +640,17 @@ namespace Desert::Graphic::API::Vulkan
         data.resize( size );
 
         // The same bytes as the entry already on disk: nothing was learned, and nothing is rewritten.
-        const uint64_t hash = HashBytes( data );
+        const uint64_t hash = PipelineCacheFile::HashBytes( data );
         if ( hash == m_PersistedPipelineHash )
             return Common::MakeSuccess( true );
-        // Put writes a temporary and renames it over the entry: a kill in the middle leaves the previous
-        // blob or the new one, never a torn file the driver would have to reject.
-        auto stored = Common::DDC::Put( kPipelineDeriver, m_PipelineCacheKey, data );
-        if ( stored )
-            m_PersistedPipelineHash = hash;
+        // Written to a temporary and renamed over the file: a kill in the middle leaves the previous blob or
+        // the new one, never a torn file (and a torn one would be refused by the header anyway).
+        auto stored = Common::Utils::FileSystem::WriteContentToFileAtomic(
+             m_PipelineCacheFile, PipelineCacheFile::Encode( m_PipelineIdentity, data ) );
+        if ( !stored )
+            return Common::MakeError<bool>(
+                 std::format( "pipeline cache: '{}': {}", m_PipelineCacheFile.string(), stored.GetError() ) );
+        m_PersistedPipelineHash = hash;
         return stored;
     }
 
