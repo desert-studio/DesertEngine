@@ -37,7 +37,7 @@ TEST( ContentManifest, ATreeAndThePakBuiltFromItAgree )
     const fs::path src = dir / "src";
 
     WriteFile( src / "Assets" / "a.txt", "alpha" );
-    WriteFile( src / "Assets" / "Scenes" / "main.desce", "{\"scene\":true}" );
+    WriteFile( src / "Assets" / "Scenes" / "main.desce", R"({"scene":true})" );
     WriteFile( src / "Shaders" / "s.shader", std::string( 5000, 'z' ) );
     WriteFile( src / "empty.bin", "" ); // a zero-byte file is content, not an absence
 

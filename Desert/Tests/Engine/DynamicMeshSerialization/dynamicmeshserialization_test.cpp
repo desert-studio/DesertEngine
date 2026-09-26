@@ -34,8 +34,6 @@ namespace
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-
 #include <glm/geometric.hpp>
 
 #include <cstring>
@@ -50,19 +48,6 @@ using Desert::Assets::StaticMeshComponentSer;
 
 namespace
 {
-    struct EntityProbe
-    {
-        std::optional<std::string>  Tag;
-        std::optional<rfl::Generic> StaticMesh;
-    };
-    struct SceneProbe
-    {
-        std::vector<EntityProbe> Entities;
-    };
-    struct StaticMeshProbe
-    {
-        std::optional<rfl::Generic> EditMesh;
-    };
 
     struct CorpusMesh
     {
@@ -84,25 +69,29 @@ namespace
             text << file.rdbuf();
             if ( text.str().find( "\"EditMesh\"" ) == std::string::npos )
                 continue;
-            const auto scene = rfl::json::read<SceneProbe, rfl::DefaultIfMissing>( text.str() );
-            EXPECT_TRUE( scene.has_value() ) << entry.path();
+            const auto scene = Common::Json::Parse( text.str() );
+            EXPECT_TRUE( scene.IsSuccess() ) << entry.path();
             if ( !scene )
                 continue;
-            for ( const EntityProbe& entity : scene.value().Entities )
-            {
-                if ( !entity.StaticMesh )
-                    continue;
-                const auto probe = rfl::json::read<StaticMeshProbe, rfl::DefaultIfMissing>(
-                     rfl::json::write( *entity.StaticMesh ) );
-                if ( !probe || !probe.value().EditMesh )
-                    continue;
-                const auto block = ReadBlockOf<StaticMeshComponentSer>( *entity.StaticMesh );
-                EXPECT_TRUE( block && block->EditMesh ) << entry.path();
-                if ( !block || !block->EditMesh )
-                    continue;
-                out.push_back(
-                     { entry.path().filename().string() + ":" + entity.Tag.value_or( "?" ), *block->EditMesh } );
-            }
+            const auto entities = Common::Json::Root( scene.GetValue() ).Find( "Entities" );
+            if ( !entities )
+                continue;
+            entities->ForEachElement(
+                 [&]( std::size_t, const Common::Json::Node& entity )
+                 {
+                     const auto staticMesh = entity.Find( "StaticMesh" );
+                     if ( !staticMesh || !staticMesh->Find( "EditMesh" ) )
+                         return;
+                     std::string tag = "?";
+                     if ( const auto tagNode = entity.Find( "Tag" ) )
+                         if ( const auto tagText = tagNode->AsString() )
+                             tag = tagText.GetValue();
+                     const auto block = ReadBlockOf<StaticMeshComponentSer>( staticMesh->Raw() );
+                     EXPECT_TRUE( block && block->EditMesh ) << entry.path();
+                     if ( !block || !block->EditMesh )
+                         return;
+                     out.push_back( { entry.path().filename().string() + ":" + tag, *block->EditMesh } );
+                 } );
         }
         return out;
     }
@@ -112,7 +101,7 @@ namespace
     {
         StaticMeshComponentSer block;
         block.EditMesh = saved;
-        return rfl::json::write( Common::Json::FromStruct( block ) );
+        return Common::Json::Write( Common::Json::FromStruct( block ) );
     }
 
     EditMesh OldRead( const EditMeshSer& saved )
@@ -276,7 +265,9 @@ TEST( DynamicMeshSerialization, RoundTripIsByteStable )
     for ( const CorpusMesh& mesh : CorpusWithVariants() )
     {
         const std::string first = Written( ToSerialized( NewRead( mesh.Saved, mesh.Name ) ) );
-        const auto again = ReadBlockOf<StaticMeshComponentSer>( rfl::json::read<rfl::Generic>( first ).value() );
+        const auto        reparsed = Common::Json::Parse( first );
+        ASSERT_TRUE( reparsed.IsSuccess() ) << reparsed.GetError();
+        const auto again = ReadBlockOf<StaticMeshComponentSer>( reparsed.GetValue() );
         ASSERT_TRUE( again && again->EditMesh ) << mesh.Name;
         EXPECT_EQ( Written( ToSerialized( NewRead( *again->EditMesh, mesh.Name ) ) ), first ) << mesh.Name;
     }

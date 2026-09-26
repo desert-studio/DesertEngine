@@ -1653,7 +1653,7 @@ TEST( VolumetricCloudReflection, AnAuthoredValueSurvivesTheSaveAndTheLoad )
     authored.LayerAltitudeOffset = 3.4f; // the owner's own edit: a lenticular deck from 2.6 km to 6.0 km
     authored.MaxViewDistance     = 7'000'000.0f;
 
-    const rfl::Generic::Object saved = Desert::Reflection::SerializeReflected( cloud, &authored );
+    const Common::Json::Object saved = Desert::Reflection::SerializeReflected( cloud, &authored );
 
     ASSERT_TRUE( saved.get( "LayerAltitudeOffset" ).has_value() )
          << "the layer's lift is not WRITTEN, so an artist's edit is lost the moment the scene is closed — "
@@ -1679,7 +1679,7 @@ TEST( VolumetricCloudReflection, AKeyThatIsNotInTheSceneLeavesTheFieldAlone )
 
     // Every key EXCEPT this one, which is exactly what every scene in this repository looks like. Built
     // by copying rather than erasing because rfl::Object is an ordered vector of pairs with no erase.
-    rfl::Generic::Object olderScene;
+    Common::Json::Object olderScene;
     for ( const auto& pair : Desert::Reflection::SerializeReflected( cloud, &authored ) )
     {
         if ( pair.first != "LayerAltitudeOffset" )

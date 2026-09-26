@@ -110,9 +110,9 @@ TEST( FileSystemWrite, ASuccessfulWriteLandsWholeAndLeavesNoTemporaryBehind )
     const fs::path dir  = MakeTempDir( "desert_fs_write_success" );
     const fs::path file = dir / "out.json";
 
-    EXPECT_TRUE( FileSystem::WriteContentToFileAtomic( file, "{\"a\":1}" ).IsSuccess() );
+    EXPECT_TRUE( FileSystem::WriteContentToFileAtomic( file, R"({"a":1})" ).IsSuccess() );
 
-    EXPECT_EQ( ReadRaw( file ), "{\"a\":1}" );
+    EXPECT_EQ( ReadRaw( file ), R"({"a":1})" );
     fs::path temp = file;
     temp += ".tmp";
     EXPECT_FALSE( fs::exists( temp ) ) << "the working file survived the rename";
@@ -143,18 +143,18 @@ TEST( FileSystemWrite, ABlockedTemporaryCostsTheWriteAndNotTheOriginal )
 {
     const fs::path dir  = MakeTempDir( "desert_fs_write_blocked" );
     const fs::path file = dir / "out.json";
-    WriteRaw( file, "{\"precious\":true}" );
+    WriteRaw( file, R"({"precious":true})" );
 
     fs::path temp = file;
     temp += ".tmp";
     fs::create_directories( temp ); // a directory where the primitive needs its working file
 
-    const auto written = FileSystem::WriteContentToFileAtomic( file, "{\"replacement\":true}" );
+    const auto written = FileSystem::WriteContentToFileAtomic( file, R"({"replacement":true})" );
     EXPECT_FALSE( written.IsSuccess() );
     // The reason travels with the refusal, not only into the log: the editor puts it in front of the
     // user, who does not have a log open.
     EXPECT_NE( written.GetError().find( temp.string() ), std::string::npos ) << written.GetError();
-    EXPECT_EQ( ReadRaw( file ), "{\"precious\":true}" ) << "a failed write cost the original its contents";
+    EXPECT_EQ( ReadRaw( file ), R"({"precious":true})" ) << "a failed write cost the original its contents";
 
     fs::remove_all( dir );
 }
@@ -169,12 +169,12 @@ TEST( FileSystemWrite, AReadOnlyDirectoryCostsTheWriteAndNotTheOriginal )
 {
     const fs::path dir  = MakeTempDir( "desert_fs_write_readonly" );
     const fs::path file = dir / "out.json";
-    WriteRaw( file, "{\"precious\":true}" );
+    WriteRaw( file, R"({"precious":true})" );
 
     fs::permissions( dir, fs::perms::owner_read | fs::perms::owner_exec );
 
-    EXPECT_FALSE( FileSystem::WriteContentToFileAtomic( file, "{\"replacement\":true}" ).IsSuccess() );
-    EXPECT_EQ( ReadRaw( file ), "{\"precious\":true}" ) << "a failed write cost the original its contents";
+    EXPECT_FALSE( FileSystem::WriteContentToFileAtomic( file, R"({"replacement":true})" ).IsSuccess() );
+    EXPECT_EQ( ReadRaw( file ), R"({"precious":true})" ) << "a failed write cost the original its contents";
 
     // Restore before cleanup, or remove_all leaves the read-only directory behind for the next run.
     fs::permissions( dir, fs::perms::owner_all );
@@ -230,7 +230,7 @@ TEST( FileSystemWrite, ABlockedTemporaryCostsTheBYTEWriteAndNotTheOriginal )
     // proven here to mean what those suites read it as.
     const fs::path dir  = MakeTempDir( "desert_fs_write_bytes_blocked" );
     const fs::path file = dir / "out.bin";
-    WriteRaw( file, "{\"precious\":true}" );
+    WriteRaw( file, R"({"precious":true})" );
 
     fs::path temp = file;
     temp += ".tmp";
@@ -240,7 +240,7 @@ TEST( FileSystemWrite, ABlockedTemporaryCostsTheBYTEWriteAndNotTheOriginal )
     const auto        written = FileSystem::WriteBytesToFileAtomic( file, Bytes( payload ) );
     EXPECT_FALSE( written.IsSuccess() );
     EXPECT_NE( written.GetError().find( temp.string() ), std::string::npos ) << written.GetError();
-    EXPECT_EQ( ReadRaw( file ), "{\"precious\":true}" ) << "a failed write cost the original its contents";
+    EXPECT_EQ( ReadRaw( file ), R"({"precious":true})" ) << "a failed write cost the original its contents";
 
     fs::remove_all( dir );
 }

@@ -77,11 +77,10 @@
 // future reader does not re-derive it, and asserts only that the POINT light is the symmetric one, which
 // is what makes the claim above well-formed.
 
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include "CornellSymmetryReference.hpp"
-
-#include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -129,18 +128,18 @@ namespace
         return buffer.str();
     }
 
-    rfl::Generic::Object ParseObject( const std::string& json, const std::string& what )
+    Common::Json::Object ParseObject( const std::string& json, const std::string& what )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( json );
-        EXPECT_TRUE( parsed.has_value() ) << what;
-        if ( !parsed.has_value() )
+        const auto parsed = Common::Json::Read<Common::Json::Value>( json );
+        EXPECT_TRUE( parsed.IsSuccess() ) << what;
+        if ( !parsed.IsSuccess() )
             return {};
-        const auto object = parsed.value().to_object();
+        const auto object = parsed.GetValue().to_object();
         EXPECT_TRUE( object.has_value() ) << what;
-        return object.has_value() ? object.value() : rfl::Generic::Object{};
+        return object.has_value() ? object.value() : Common::Json::Object{};
     }
 
-    float Scalar( const rfl::Generic& value )
+    float Scalar( const Common::Json::Value& value )
     {
         if ( const auto d = value.to_double(); d.has_value() )
             return static_cast<float>( d.value() );
@@ -149,7 +148,7 @@ namespace
         return std::numeric_limits<float>::quiet_NaN();
     }
 
-    glm::vec3 Vec3( const rfl::Generic::Object& owner, const std::string& key )
+    glm::vec3 Vec3( const Common::Json::Object& owner, const std::string& key )
     {
         const auto field = owner.get( key );
         EXPECT_TRUE( field.has_value() ) << key;
@@ -165,12 +164,12 @@ namespace
     // One entity of CornellDemo, reduced to what a lighting question needs.
     struct Entity
     {
-        rfl::Generic::Object Record;
+        Common::Json::Object Record;
         glm::vec3            Translation{ 0.0f };
         glm::vec3            Scale{ 1.0f };
     };
 
-    Entity EntityByTag( const rfl::Generic::Object& scene, const std::string& tag )
+    Entity EntityByTag( const Common::Json::Object& scene, const std::string& tag )
     {
         const auto entities = scene.get( "Entities" ).value().to_array();
         EXPECT_TRUE( entities.has_value() );
@@ -273,7 +272,7 @@ namespace
         int       Falloff   = 1;
     };
 
-    PointLightPayload LoadPointLight( const rfl::Generic::Object& scene, const std::string& tag )
+    PointLightPayload LoadPointLight( const Common::Json::Object& scene, const std::string& tag )
     {
         const Entity entity = EntityByTag( scene, tag );
         const auto   block  = entity.Record.get( "PointLight" );
@@ -324,7 +323,7 @@ namespace
 
     struct Fixture
     {
-        rfl::Generic::Object Scene;
+        Common::Json::Object Scene;
         Entity               Left;
         Entity               Right;
         PointLightPayload    Light;

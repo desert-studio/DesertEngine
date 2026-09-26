@@ -12,47 +12,7 @@ Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c: scene/componen
 Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/WorldStreamer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Tests/Common/AssetEnvelope/text_header_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Common/AssetRedirector/asset_redirector_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Common/CanonicalText/canonical_text_test.cpp | KEEP: proves the canonical printer against yyjson directly
-Desert/Tests/Common/ContentManifest/content_manifest_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Common/FileSystemWrite/filesystem_write_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Common/Pak/pak_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/AssetReferences/assetreferences_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/ControlProtocol/control_protocol_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/ControlTransport/control_transport_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/CookedWriteRefusal/cooked_write_refusal_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/PackagedContent/packaged_content_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/PreferenceOwnership/preference_ownership_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/SceneSaveOutcome/scene_save_outcome_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/TextureImport/texture_import_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/ThumbnailFreshness/thumbnail_freshness_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Editor/ThumbnailSweep/thumbnail_sweep_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/AnimationClipCorpus/animation_clip_corpus_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/AnimationClipFormat/animation_clip_format_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/AssetHandleInverse/asset_handle_inverse_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/AssetReferenceCensus/asset_reference_census_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/AuthoredComponentRoundTrip/authored_component_round_trip_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/CloudMaterialSchema/cloud_material_schema_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/CloudProtocolScene/cloud_protocol_scene_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/CloudType/cloud_type_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/ComponentReflection/component_reflection_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/ConfigOwnership/config_ownership_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/ControlRigAsset/control_rig_asset_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/CornellSymmetry/cornell_symmetry_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/DynamicMeshAsset/dynamicmeshasset_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/DynamicMeshSerialization/dynamicmeshserialization_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/GenericBlockRead/generic_block_read_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/IKProbeRig/ik_probe_rig_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/KeyInterpolationWitness/key_interpolation_witness_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/LandscapeScene/landscape_scene_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/LocalizedContentCensus/localized_content_census_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/LocalizedText/localized_text_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/MaterialAsset/material_data_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/MaterialIdentity/material_identity_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/MaterialRequestAgreement/material_request_agreement_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/MeshBinaryFormat/mesh_binary_format_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/PrefabOverrides/prefab_overrides_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/PrefabPlacement/prefab_placement_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/PrefabVersionGate/prefab_version_gate_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/ReflectionSerializer/reflection_serializer_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
