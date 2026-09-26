@@ -827,6 +827,15 @@ namespace Desert::Editor
                     materialFilter.Draw( "##search", 200.0f );
                     ImGui::Separator();
 
+                    // A list of fixed height that scrolls, not a popup as tall as the project's material count:
+                    // with ~120 materials the popup outgrew the editor window, and with multi-viewports an
+                    // overflowing popup becomes its own OS window (measured: 480x876 at y=49 over an 882-tall
+                    // editor), clamped to the monitor and away from the slot that opened it.
+                    constexpr float kPickerRows = 14.0f;
+                    ImGui::BeginChild( "##materials",
+                                       ImVec2( ImGui::GetFontSize() * 20.0f,
+                                               ImGui::GetTextLineHeightWithSpacing() * kPickerRows ) );
+
                     if ( hasOwnSlot && ImGui::Selectable( "None (use the engine default)" ) )
                     {
                         ( *host.Slots )[i] = Common::UUID::Null();
@@ -850,6 +859,7 @@ namespace Desert::Editor
                             }
                         }
                     }
+                    ImGui::EndChild();
                     ImGui::EndPopup();
                 }
 

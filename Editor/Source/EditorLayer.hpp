@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Core/PanelMaximize.hpp>
 #include <Engine/Assets/ContentGate.hpp>
 
 #include <Engine/Core/BootTimeline.hpp>
@@ -648,6 +649,9 @@ namespace Desert::Editor
         //
         // The panel to bring to the front of its dock this frame IS read, and stays.
         std::string m_FocusPanel;
+
+        // "Maximize panel" / "Restore panel": the one panel lifted out of its dock, and the node it came from.
+        PanelMaximize m_PanelMaximize;
 
         CommandPalette m_CommandPalette;
 

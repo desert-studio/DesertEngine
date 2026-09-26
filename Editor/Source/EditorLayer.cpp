@@ -367,6 +367,15 @@ namespace Desert::Editor
         return std::string( PanelIcon( name ) ) + "  " + label + "###" + name;
     }
 
+    // The name a person reads for a panel: the ImGui "##id" suffix dropped (the palette's Panel labels).
+    static std::string PanelShownName( const std::string& name )
+    {
+        std::string shown = name;
+        if ( const auto hash = shown.find( "##" ); hash != std::string::npos )
+            shown.erase( hash );
+        return shown;
+    }
+
     // THE DOCUMENT WELL'S OWN WINDOW: the index of open documents. It is not where they open — a document opens
     // as a tab beside the level viewport (Editor/Core/DocumentPlacement.hpp).
     static constexpr const char* kDocumentWellWindow =
@@ -3984,6 +3993,33 @@ namespace Desert::Editor
                 m_FocusPanel.clear();
             }
 
+            // Maximize / restore (palette "Panel" group): the dock node is read from the window as it stands,
+            // so a panel the user re-docked by hand is simply not maximized any more.
+            {
+                const ImGuiWindow*  window    = ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                const std::uint32_t dockId    = window != nullptr ? window->DockId : 0;
+                const auto          directive = m_PanelMaximize.Before( PanelShownName( panel->GetName() ), dockId );
+                switch ( directive.Kind )
+                {
+                    case PanelMaximize::Step::Undock:
+                    {
+                        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                        ImGui::SetNextWindowDockID( 0, ImGuiCond_Always );
+                        ImGui::SetNextWindowViewport( viewport->ID );
+                        ImGui::SetNextWindowPos( viewport->WorkPos, ImGuiCond_Always );
+                        ImGui::SetNextWindowSize( viewport->WorkSize, ImGuiCond_Always );
+                        ImGui::SetNextWindowFocus();
+                        break;
+                    }
+                    case PanelMaximize::Step::Redock:
+                        ImGui::SetNextWindowDockID( directive.DockId, ImGuiCond_Always );
+                        ImGui::SetNextWindowFocus();
+                        break;
+                    case PanelMaximize::Step::None:
+                        break;
+                }
+            }
+
             ImGui::Begin( PanelDisplayTitle( panel->GetName() ).c_str(), &panel->GetVisibility() );
             ImGui::PopStyleVar(); // right after Begin: the window kept it, child windows must not inherit
             {
@@ -4128,6 +4164,21 @@ namespace Desert::Editor
                                       std::bind_front( &FileExplorerPanel::SelectEntry,
                                                        std::to_address( m_FileExplorerPanel ), path ) } );
             }
+        }
+
+        // Maximize any panel that sits in a dock now; restore the maximized one.
+        {
+            std::vector<std::string> docked;
+            for ( const auto& panel : m_Panels )
+            {
+                if ( !panel->GetVisibility() )
+                    continue;
+                const ImGuiWindow* window = ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                if ( window != nullptr && window->DockId != 0 )
+                    docked.push_back( PanelShownName( panel->GetName() ) );
+            }
+            for ( PaletteCommand& command : PanelMaximizePaletteCommands( m_PanelMaximize, docked ) )
+                commands.push_back( std::move( command ) );
         }
 
         // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
