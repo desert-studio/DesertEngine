@@ -306,13 +306,16 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
         std::this_thread::yield();
     }
     ASSERT_FALSE( service.IsPending( handle ) ) << "the type's read never landed";
+    // Before any further lookup: a later GetShape would meet the ready asset and register it itself,
+    // which would hide a completion that forgot to.
+    EXPECT_GT( service.GetGeneration(), generationBefore )
+         << "the completion did not register the type; the renderer would never rebuild its table";
 
     const auto asset = manager->FindByHandle<Desert::Assets::CloudTypeAsset>( handle );
     ASSERT_TRUE( asset && asset->IsReadyForUse() );
     EXPECT_NE( &service.GetShape( handle ), &Desert::Assets::CloudTypeDefaultShape() )
          << "the type landed but the service still answers the built-in shape";
     EXPECT_EQ( service.GetShape( handle ).PlacementScale, asset->GetShape().PlacementScale );
-    EXPECT_GT( service.GetGeneration(), generationBefore ) << "the renderer would never rebuild its table";
     EXPECT_EQ( SyncLoadLedger::InFrameLoads(), inFrameBefore )
          << "the type was read by stopping a frame; it must arrive through a worker";
 
