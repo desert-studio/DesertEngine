@@ -6,6 +6,7 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshUploader.hpp>
 
 #include <span>
 
@@ -14,6 +15,13 @@ namespace Desert::Runtime
     class MeshService
     {
     public:
+        /// @p uploader is the device half (MeshUploader.hpp): the engine passes MakeGpuMeshUploader(), a
+        /// suite passes a fake and runs everything else in this class without a GPU.
+        explicit MeshService( std::unique_ptr<IMeshUploader> uploader );
+        ~MeshService();
+        MeshService( const MeshService& )            = delete;
+        MeshService& operator=( const MeshService& ) = delete;
+
         // EAGER: PARSE (IF NEEDED) AND BUILD THE GPU MESH NOW — and the parenthesis is the fix, not a
         // clarification. This line has said "parse + build" since it was written and the body only ever
         // built: it called MeshFactory::Create on whatever the asset held at that instant. Every call site
@@ -150,5 +158,6 @@ namespace Desert::Runtime
         // function-local static that outlives every project the editor opens, and a project switch must
         // leave a dead reference rather than a dangling one.
         std::weak_ptr<Assets::AssetManager> m_AssetManager;
+        std::unique_ptr<IMeshUploader>      m_Uploader;
     };
 } // namespace Desert::Runtime

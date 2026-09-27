@@ -4,7 +4,7 @@ namespace Desert::Runtime
 {
     MeshService* ResourceRegistry::GetMeshService()
     {
-        static MeshService meshService;
+        static MeshService meshService( MakeGpuMeshUploader() );
         return &meshService;
     }
 

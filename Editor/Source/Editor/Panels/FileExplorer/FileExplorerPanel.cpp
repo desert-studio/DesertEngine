@@ -1697,8 +1697,18 @@ namespace Desert::Editor
         // Editor/Widgets/ThumbnailSubject.hpp, which is the SAME resolution the background sweep uses —
         // the two used to be one copy each, and "which file is photographed" is exactly the question this
         // subsystem has already answered twice and differently once.
-        const auto subject = ThumbnailSubject::ResolveMaterial( *m_AssetManager, entry->AssetPath );
-        if ( !subject )
+        //
+        // PENDING IS A FRAME OR TWO OF THE PLACEHOLDER: the material is being read on a worker, and when
+        // it lands the arrival delegate queues the capture exactly as the line below would have.
+        const auto subject = ThumbnailSubject::ResolveMaterial(
+             *m_AssetManager, entry->AssetPath,
+             []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
+             {
+                 if ( resolved )
+                     ThumbnailService::Get().RequestMaterial( resolved.GetValue().Handle, assetPath,
+                                                              resolved.GetValue().How );
+             } );
+        if ( !subject || !subject.GetValue() )
             return drew;
 
         auto a = m_AssetManager->FindByPath<Assets::SurfaceMaterialAsset>( entry->AssetPath );
@@ -1707,8 +1717,8 @@ namespace Desert::Editor
 
         // Queue through the editor-wide service: it owns the one renderer, deduplicates against what other
         // panels already asked for, skips anything already on disk and never retries an asset that failed.
-        ThumbnailService::Get().RequestMaterial( subject.GetValue().Handle, entry->AssetPath,
-                                                 subject.GetValue().How );
+        ThumbnailService::Get().RequestMaterial( subject.GetValue()->Handle, entry->AssetPath,
+                                                 subject.GetValue()->How );
         if ( drew )
             return true;
 

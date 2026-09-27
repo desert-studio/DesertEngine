@@ -242,6 +242,36 @@ namespace Desert::Editor
                 panel->m_Modes.UI2D = !panel->m_Modes.UI2D;
     }
 
+    Common::BoolResultStr ViewportPanel::DropMeshIntoActiveViewport( const std::string&       path,
+                                                                     std::optional<glm::vec3> at )
+    {
+        ViewportPanel* viewport = ActiveViewport();
+        if ( viewport == nullptr )
+            return Common::MakeFormattedError<bool>( "'{}': no viewport is live to drop it into", path );
+        return viewport->DropMeshAsset( path, at );
+    }
+
+    Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, std::optional<glm::vec3> at )
+    {
+        if ( !m_Scene || !m_AssetManager || !m_AsyncLoader )
+            return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
+                                                     path );
+
+        // ASYNC spawn: create the (empty) entity NOW and cook the mesh on a worker thread so a heavy FBX
+        // doesn't hitch the editor. UpdateAsyncLoads() assigns the mesh once the cook finishes.
+        const std::string name = std::filesystem::path( path ).stem().string();
+        auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
+        e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
+        if ( at )
+            e.GetComponent<ECS::TransformComponent>().Translation = *at;
+        const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
+        Core::SelectionManager::SetSelected( uuid );
+        Commands::NotifyCreated( { uuid } ); // undo removes the pending entity; the async cook no-ops when
+                                             // its target entity is gone
+        m_AsyncLoader->Request( path, static_cast<uint64_t>( uuid ) );
+        return BOOLSUCCESS;
+    }
+
     void ViewportPanel::UpdateAsyncLoads()
     {
         if ( !m_AsyncLoader || !m_AssetManager )
@@ -1476,19 +1506,11 @@ namespace Desert::Editor
             {
                 const std::string path( static_cast<const char*>( payload->Data ),
                                         payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-
-                // ASYNC spawn: create the (empty) entity NOW and cook the mesh on a worker thread so a heavy
-                // FBX doesn't hitch the editor. UpdateAsyncLoads() assigns the mesh once the cook finishes.
-                const std::string name = std::filesystem::path( path ).stem().string();
-                auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
-                e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
+                std::optional<glm::vec3> at;
                 if ( const auto surface = SurfaceAtCursor() )
-                    e.GetComponent<ECS::TransformComponent>().Translation = surface->Point;
-                const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
-                Core::SelectionManager::SetSelected( uuid );
-                Commands::NotifyCreated( { uuid } ); // undo removes the pending entity; the async cook
-                                                     // no-ops when its target entity is gone
-                m_AsyncLoader->Request( path, static_cast<uint64_t>( uuid ) );
+                    at = surface->Point;
+                if ( const auto dropped = DropMeshAsset( path, at ); !dropped )
+                    LOG_ERROR( "[Viewport] mesh drop of '{}' refused: {}", path, dropped.GetError() );
             }
 
             // Drag a material (.demat) onto the viewport: mouse-pick the mesh under the cursor and

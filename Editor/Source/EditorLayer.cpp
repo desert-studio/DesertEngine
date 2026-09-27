@@ -5341,6 +5341,36 @@ namespace Desert::Editor
         // motivated it.
         const std::vector<std::filesystem::path> assetFiles =
              Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH );
+        // THE MESH DROP WITHOUT A MOUSE: one entry per model source, running the viewport's own drop body at
+        // the surface the active view's centre looks at. The control channel had "Place a cube" and nothing
+        // that exercised MeshDnD — AL1-5b could not check a dropped mesh for in-frame reads.
+        for ( const std::filesystem::path& file : assetFiles )
+        {
+            std::string ext = file.extension().string();
+            std::transform( ext.begin(), ext.end(), ext.begin(),
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            if ( ext != ".fbx" && ext != ".obj" && ext != ".gltf" && ext != ".glb" && ext != ".blend" )
+                continue;
+            const std::string path = file.generic_string();
+            const std::string label =
+                 "Drop into the viewport: " +
+                 file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+            commands.push_back(
+                 { "Assets", label, [this, path]
+                   {
+                       ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
+                       if ( camera == nullptr || !m_MainScene )
+                           return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                       const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
+                       ::Desert::Core::RaycastHit hit;
+                       if ( !m_MainScene->Raycast( ray, hit ) )
+                           return PaletteCommandOutcome( false, "the viewport centre looks at no surface" );
+                       const auto dropped = ViewportPanel::DropMeshIntoActiveViewport( path, hit.Point );
+                       if ( !dropped )
+                           return Common::MakeError<bool>( dropped.GetError() );
+                       return PaletteCommandDone();
+                   } } );
+        }
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {

@@ -1,5 +1,7 @@
 #include "MeshMaterial.hpp"
 
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -39,13 +41,15 @@ namespace Desert::Editor::MeshMaterial
         const std::string matStr = matPath.generic_string();
         auto              asset  = mgr.FindByPath<Assets::SurfaceMaterialAsset>( matStr );
         if ( !asset )
-            asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, matStr );
+            asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, matStr, false );
         if ( !asset )
             return Common::UUID::Null();
 
         const auto h = asset->GetMetadata().Handle;
-        if ( !Runtime::ResourceRegistry::GetMaterialService()->Get( h ) )
-            Runtime::ResourceRegistry::GetMaterialService()->Register( asset );
+        // A MAP WRITE, NOT A READ (AL1-5c). `Get` built the material on a miss and `Register` parsed it —
+        // both inside the frame of a mesh drop or a mesh thumbnail (`base_basic_shaded/model.demat` on
+        // Starter). The service reads a registered shell through AsyncAssetLoader when it is first drawn.
+        Runtime::EnsureMaterialRegistered( asset );
         return h;
     }
 } // namespace Desert::Editor::MeshMaterial
