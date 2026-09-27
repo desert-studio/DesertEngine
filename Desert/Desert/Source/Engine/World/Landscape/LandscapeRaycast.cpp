@@ -193,9 +193,19 @@ namespace Desert::World::Landscape
                                                      const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance )
     {
+        return RaycastLandscape( tiles, origin, direction, maxDistance, {} );
+    }
+
+    std::optional<LandscapeRayHit> RaycastLandscape( std::span<const LandscapeRayTile> tiles,
+                                                     const glm::vec3& origin, const glm::vec3& direction,
+                                                     float                                maxDistance,
+                                                     const std::function<bool( size_t )>& accept )
+    {
         std::optional<LandscapeRayHit> best;
         for ( size_t index = 0; index < tiles.size(); ++index )
         {
+            if ( accept && !accept( index ) )
+                continue;
             const LandscapeRayTile& entry = tiles[index];
             if ( entry.Heights == nullptr )
             {

@@ -23,6 +23,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/World/Landscape/LandscapeRaycast.hpp>
 #include <entt/entt.hpp>
 #include <functional>
 #include <memory>
@@ -241,6 +242,21 @@ namespace Desert::Core
         // surface it may not paint on to the one beneath).
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                                     const std::function<bool( const Common::UUID& )>& accept ) const;
+
+        // The drawn landscape tiles a raycast tests. Gathering them walks every entity and checks each tile
+        // against its root: 96 of a 115 us ray on Terrain_Grass (FO-3b). A caller tracing many rays at one
+        // moment (a foliage dab traces hundreds) gathers once and passes the set; it borrows the tiles'
+        // heights, so it lives no longer than that moment (no tile added, removed or reloaded meanwhile).
+        struct RaycastLandscapeSet
+        {
+            std::vector<Common::UUID>                       Entities;
+            std::vector<World::Landscape::LandscapeRayTile> Tiles;
+        };
+        [[nodiscard]] RaycastLandscapeSet GatherRaycastLandscape() const;
+        // The accept-filtered trace against a landscape set gathered earlier.
+        [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                    const std::function<bool( const Common::UUID& )>& accept,
+                                    const RaycastLandscapeSet&                        landscape ) const;
 
         // Play-mode state. Edit = authoring (gameplay systems frozen); Play = running (gameplay ticks);
         // Paused = running but time frozen (ts forced to 0). The editor snapshots the scene on Play and
