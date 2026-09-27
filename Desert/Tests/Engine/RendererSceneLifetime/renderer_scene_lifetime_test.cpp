@@ -101,6 +101,26 @@ namespace
         return out;
     }
 
+    // The brace-balanced body of the first definition after @p signature ("" when absent).
+    std::string BodyAfter( const std::string& source, const std::string& signature )
+    {
+        const std::size_t at = source.find( signature );
+        if ( at == std::string::npos )
+            return {};
+        const std::size_t open = source.find( '{', at );
+        if ( open == std::string::npos )
+            return {};
+        int depth = 0;
+        for ( std::size_t i = open; i < source.size(); ++i )
+        {
+            if ( source[i] == '{' )
+                ++depth;
+            else if ( source[i] == '}' && --depth == 0 )
+                return source.substr( open, i - open + 1 );
+        }
+        return {};
+    }
+
     std::string EngineSource( const std::string& relative )
     {
         const std::string text = ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/" + relative );
@@ -222,62 +242,63 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
         const char* Name;      // as SceneRenderer::EnsureRendererResources registers it
         const char* Header;    // relative to Engine/
         bool        Overrides; // does it override OnSceneReplaced?
+        bool        Resets;    // does it override OnTemporalHistoryReset (camera cut)?
         const char* Why;       // what it holds, or why it holds nothing
     };
 
     // clang-format off
     // Kept one row per line: the columns are the argument, and reflowing them destroys it.
     const System systems[] = {
-         { "SkyboxSystem", "Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp", false,
+         { "SkyboxSystem", "Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp", false, false,
            "the IBL is keyed on SkyBakeFingerprint + the sun + the clouds, and the HDR cubemap is "
            "restated (or explicitly withdrawn) by SkyboxECSSystem every frame" },
-         { "MeshSystem", "Graphic/Systems/Scene/Mesh/MeshRenderer.hpp", false,
+         { "MeshSystem", "Graphic/Systems/Scene/Mesh/MeshRenderer.hpp", false, false,
            "draw queues are cleared every frame and the cascades are re-fitted every frame; the cascade "
            "framebuffers are sized from the renderer's own ShadowQuality, not from the scene" },
-         { "JumpFloodSystem", "Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp", false,
+         { "JumpFloodSystem", "Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp", false, false,
            "outline appearance is pushed in every frame by the editor" },
-         { "TerrainSystem", "Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp", false,
+         { "TerrainSystem", "Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp", false, false,
            "material entries are keyed by texture set and only read for terrains in this frame's queue; "
            "the draw queue is cleared every frame" },
-         { "TonemapSystem", "Graphic/Systems/Scene/PostProcessing/TonemapRenderer.hpp", false,
+         { "TonemapSystem", "Graphic/Systems/Scene/PostProcessing/TonemapRenderer.hpp", false, false,
            "every parameter is pushed from SceneSettings in BeginScene" },
-         { "BackdropBlurSystem", "Graphic/Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp", false,
+         { "BackdropBlurSystem", "Graphic/Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp", false, false,
            "a blur of THIS frame's scene colour; nothing carries" },
-         { "BloomSystem", "Graphic/Systems/Scene/PostProcessing/BloomRenderer.hpp", false,
+         { "BloomSystem", "Graphic/Systems/Scene/PostProcessing/BloomRenderer.hpp", false, false,
            "threshold pushed per frame, mip chain sized from the viewport" },
-         { "LightShaftSystem", "Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.hpp", false,
+         { "LightShaftSystem", "Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.hpp", false, false,
            "the SunLightFx slice is pushed per frame with the sky command" },
-         { "LensFlareSystem", "Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.hpp", false,
+         { "LensFlareSystem", "Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.hpp", false, false,
            "params pushed per frame in BeginScene" },
-         { "SSAOSystem", "Graphic/Systems/Scene/Deferred/SSAORenderer.hpp", false,
+         { "SSAOSystem", "Graphic/Systems/Scene/Deferred/SSAORenderer.hpp", false, false,
            "a function of this frame's G-buffer" },
-         { "SceneColorCopySystem", "Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", false,
+         { "SceneColorCopySystem", "Graphic/Systems/Scene/Deferred/CopyRenderer.hpp", false, false,
            "a copy of this frame's target" },
-         { "HeightFogSystem", "Graphic/Systems/Scene/Fog/HeightFogRenderer.hpp", false,
+         { "HeightFogSystem", "Graphic/Systems/Scene/Fog/HeightFogRenderer.hpp", false, false,
            "SetFogSettings takes `present` and HeightFogECSSystem states the absent case explicitly" },
-         { "VolumetricCloudSystem", "Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp", true,
+         { "VolumetricCloudSystem", "Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp", true, true,
            "the temporal reconstruction's history — everything else here is already content-keyed" },
-         { "ParticleSystem", "Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", true,
+         { "ParticleSystem", "Graphic/Systems/Scene/Particles/ParticleRenderer.hpp", true, true,
            "per-emitter persistent SSBOs cached by the raw entt entity value, which a fresh registry "
            "re-issues from zero" },
-         { "DeferredLightingSystem", "Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp", false,
+         { "DeferredLightingSystem", "Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp", false, false,
            "a shade of this frame's G-buffer" },
          // The two LAZY ones. They are registered by EnsureGIResources / EnsureSSRResources on first use
          // rather than up front (a preview never enables either, and eager allocation multiplied six
          // full-screen RGBA32F targets by the preview count), which is why they are here and not in the
          // order the rest appear in. See the test below for what that laziness cost before Г11.
-         { "GISystem", "Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp", true,
+         { "GISystem", "Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp", true, true,
            "the temporally accumulated indirect light, blended at 0.92 against a reprojection of the "
            "previous frame" },
-         { "SSRSystem", "Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", true,
+         { "SSRSystem", "Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", true, true,
            "the temporally accumulated reflection, blended at 0.88 against a reprojection of the "
            "previous frame" },
-         { "AutoExposureSystem", "Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.hpp", true,
+         { "AutoExposureSystem", "Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.hpp", true, true,
            "the adapted luminance is a temporal history and would ramp out of the previous level's "
            "brightness" },
-         { "FXAASystem", "Graphic/Systems/Scene/PostProcessing/FXAARenderer.hpp", false,
+         { "FXAASystem", "Graphic/Systems/Scene/PostProcessing/FXAARenderer.hpp", false, false,
            "a filter of this frame's tonemapped image" },
-         { "SMAASystem", "Graphic/Systems/Scene/PostProcessing/SMAARenderer.hpp", false,
+         { "SMAASystem", "Graphic/Systems/Scene/PostProcessing/SMAARenderer.hpp", false, false,
            "a filter of this frame's tonemapped image" },
     };
     // clang-format on
@@ -333,7 +354,143 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
                                      << " overrides OnSceneReplaced but this census says it holds nothing ("
                                      << s.Why
                                      << "). One of the two is wrong, and a stale census is worse than none.";
+
+        // 3. The camera cut. A system resets on a cut exactly when what it holds is TEMPORAL (a history,
+        //    a frame index, an adaptation, a simulation) - a per-entity cache alone is not reset by it.
+        const bool resets = header.find( "OnTemporalHistoryReset()" ) != std::string::npos;
+        if ( s.Resets )
+            EXPECT_TRUE( resets ) << s.Name << " is censused as integrating over frames but " << s.Header
+                                  << " does not override OnTemporalHistoryReset.";
+        else
+            EXPECT_FALSE( resets ) << s.Name
+                                   << " overrides OnTemporalHistoryReset but this census says it "
+                                      "integrates nothing over frames.";
+
+        // 4. And the reset really restarts the sequence: a system that counts frames zeroes the count and
+        //    drops its history in the override, not somewhere a later frame might reach.
+        if ( s.Resets && header.find( "m_FrameIndex" ) != std::string::npos )
+        {
+            // Runs of spaces squeezed: clang-format aligns the `=` of consecutive assignments.
+            std::string body;
+            for ( const char c : BodyAfter( header, "OnTemporalHistoryReset()" ) )
+                if ( c != ' ' || body.empty() || body.back() != ' ' )
+                    body += c;
+            EXPECT_NE( body.find( "m_FrameIndex = 0" ), std::string::npos )
+                 << s.Name
+                 << ": OnTemporalHistoryReset leaves m_FrameIndex counting on — the jitter, the "
+                    "noise seed and the history parity then depend on the frames before the cut.";
+            EXPECT_NE( body.find( "m_HistoryValid = false" ), std::string::npos )
+                 << s.Name << ": OnTemporalHistoryReset keeps the reprojected history valid across the cut.";
+        }
     }
+}
+
+// ===================================================================================================
+// The camera cut: SceneRenderer::ResetTemporalHistory
+// ===================================================================================================
+
+// RELATION: the cut reaches EVERY system the renderer holds, and it is nothing but state.
+//
+// Walked over m_RenderSystemOrder (the map can hold null entries - RebindScene says why), calling the hook
+// on each; no device wait, no pass registered, no graph rebuild: histories are the graph's external
+// resources and a reset zeroes their state, it does not change the frame's structure.
+TEST( RendererSceneLifetime, TheTemporalResetReachesEverySystemAndTouchesNoPass )
+{
+    const std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
+    const std::string body   = BodyAfter( source, "SceneRenderer::ResetTemporalHistory()" );
+    ASSERT_FALSE( body.empty() ) << "SceneRenderer::ResetTemporalHistory is gone.";
+
+    EXPECT_NE( body.find( "m_RenderSystemOrder" ), std::string::npos )
+         << "the reset does not walk the render systems.";
+    EXPECT_NE( body.find( "->OnTemporalHistoryReset()" ), std::string::npos )
+         << "the reset walks the systems but does not tell them.";
+    for ( const char* forbidden : { "WaitDeviceIdle", "RebuildRenderGraph", "AddPass", "RegisterSystem",
+                                    "ForgetRenderSystem", "OnSceneReplaced" } )
+        EXPECT_EQ( body.find( forbidden ), std::string::npos )
+             << "ResetTemporalHistory calls " << forbidden
+             << ": a camera cut resets state, it does not release, rebuild or add passes.";
+
+    // The declaration is on the interface, with a do-nothing default: every system receives the call.
+    const std::string iface = StripComments( EngineSource( "Graphic/IRenderSystem.hpp" ) );
+    EXPECT_NE( iface.find( "virtual void OnTemporalHistoryReset()" ), std::string::npos );
+}
+
+// RELATION: the capture's count starts on a cut, for every view.
+//
+// ArmShotCount is the first caller of the camera cut; it calls it for every view of the scene and only then
+// lets the count run. A capture whose count started without the cut is again a function of how many
+// start-up frames this run happened to take.
+TEST( RendererSceneLifetime, TheCaptureCountStartsOnATemporalReset )
+{
+    const std::string editor = StripComments( ReadAll( RepoRoot() + "Editor/Source/EditorLayer.cpp" ) );
+    ASSERT_FALSE( editor.empty() );
+    const std::string arm = BodyAfter( editor, "EditorLayer::ArmShotCount()" );
+    ASSERT_FALSE( arm.empty() ) << "EditorLayer::ArmShotCount is gone.";
+
+    EXPECT_NE( arm.find( "GetViewCount()" ), std::string::npos ) << "the arm frame does not visit every view.";
+    EXPECT_NE( arm.find( "->ResetTemporalHistory()" ), std::string::npos )
+         << "the arm frame does not cut the views' temporal history.";
+    EXPECT_NE( arm.find( "m_Revealed" ), std::string::npos )
+         << "the count can start before the window is revealed, while the viewport is still being laid out.";
+    EXPECT_NE( arm.find( "m_ShotExtentW" ), std::string::npos )
+         << "the count can start on a frame whose image size just changed (the black frames after a resize).";
+
+    const std::size_t counted = editor.find( "++m_ShotFrame" );
+    ASSERT_NE( counted, std::string::npos );
+    const std::size_t gate = editor.rfind( "ArmShotCount()", counted );
+    ASSERT_NE( gate, std::string::npos ) << "the shot counter is not gated on ArmShotCount.";
+    EXPECT_LT( counted - gate, 200u ) << "ArmShotCount is not the condition of the block that counts frames.";
+}
+
+// ===================================================================================================
+// Nothing in a captured frame integrates a clock of its own
+// ===================================================================================================
+
+// RELATION: particles and the cloud wind move by the FRAME'S timestep and by nothing else.
+//
+// ParticleRenderer used to take its dt and its shader seed from its own steady_clock, bypassing the fixed
+// step `--play` puts on the frame - two captures of one command then showed the particles in different
+// places. The frame's step reaches it through SceneRenderer::UpdateInfo::Timestep; the cloud wind takes the
+// same step as gameplay time (Scene::OnUpdate hands the ECS systems the frame's ts while playing).
+TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
+{
+    const char* sources[] = { "Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+                              "Graphic/Systems/Scene/Particles/ParticleRenderer.hpp",
+                              "ECS/System/VolumetricCloudECSSystem.hpp" };
+    for ( const char* relative : sources )
+    {
+        const std::string text = StripComments( EngineSource( relative ) );
+        for ( const char* clock : { "steady_clock", "system_clock", "high_resolution_clock", "glfwGetTime",
+                                    "QueryPerformanceCounter", "<chrono>" } )
+            EXPECT_EQ( text.find( clock ), std::string::npos )
+                 << relative << " reads " << clock
+                 << ": whatever it integrates then differs between two runs of one capture.";
+    }
+
+    // The particle step IS the frame's step.
+    const std::string renderer = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
+    EXPECT_NE( renderer.find( "->SimulateInFrame( sceneRenderInfo.Timestep.GetSeconds() )" ), std::string::npos )
+         << "SceneRenderer no longer hands the particles the frame's timestep.";
+
+    const std::string particles =
+         StripComments( EngineSource( "Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" ) );
+    const std::string simulate = BodyAfter( particles, "ParticleRenderer::SimulateInFrame(" );
+    ASSERT_FALSE( simulate.empty() );
+    EXPECT_NE( simulate.find( "frameSeconds" ), std::string::npos ) << "SimulateInFrame ignores its timestep.";
+    EXPECT_NE( simulate.find( "m_SimSeconds += dt" ), std::string::npos )
+         << "the shader seed is not the accumulated simulated time.";
+    EXPECT_NE( simulate.find( "SpawnAccum += fe.SpawnRate * dt" ), std::string::npos )
+         << "the spawn budget is not integrated over the frame's timestep.";
+
+    // The reset restarts the simulation: the seed and every emitter's state.
+    const std::string reset = BodyAfter( particles, "ParticleRenderer::OnTemporalHistoryReset()" );
+    EXPECT_NE( reset.find( "m_SimSeconds = 0" ), std::string::npos );
+    EXPECT_NE( reset.find( "ClearEmitterState(" ), std::string::npos );
+
+    // The wind: the ts the system is handed, nothing else.
+    const std::string wind = StripComments( EngineSource( "ECS/System/VolumetricCloudECSSystem.hpp" ) );
+    EXPECT_NE( wind.find( "AdvanceWind( data, ts.GetSeconds() )" ), std::string::npos )
+         << "the cloud wind no longer advances by the frame's gameplay timestep.";
 }
 
 // RELATION: a "have I built this?" latch and the container it says something about must be cleared

@@ -531,6 +531,18 @@ namespace Desert::Graphic
         RebuildRenderGraph();
     }
 
+    void SceneRenderer::ResetTemporalHistory()
+    {
+        // Over m_RenderSystemOrder for the reason RebindScene gives: the map can hold null entries.
+        for ( const auto& name : m_RenderSystemOrder )
+        {
+            if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
+                it->second->OnTemporalHistoryReset();
+        }
+        LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
+                  m_ViewResources.GetName(), m_RenderSystemOrder.size() );
+    }
+
     namespace
     {
         // A view's name: what kind of surface it is and a serial that is never reused, so two log lines
@@ -860,11 +872,13 @@ namespace Desert::Graphic
 
         // Particle simulation compute (outside any render pass) BEFORE the graph records the billboard draw,
         // so the freshly-integrated particle buffer is ready + visible to the vertex stage.
-        AddLegacy(
-             graph, "Particles: SimulateInFrame", {}, {},
-             [this]() {
-                 UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->SimulateInFrame();
-             } );
+        const float simulateSeconds = sceneRenderInfo.Timestep.GetSeconds();
+        AddLegacy( graph, "Particles: SimulateInFrame", {}, {},
+                   [this, simulateSeconds]()
+                   {
+                       UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )
+                            ->SimulateInFrame( simulateSeconds );
+                   } );
 
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of
         // the frame, because its consumer is the DEFERRED LIGHTING pass. It reads no scene depth, no

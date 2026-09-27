@@ -813,6 +813,15 @@ namespace Desert::Editor
         // Screenshot mode counters (see Editor/Core/ShotOptions.hpp).
         int  m_ShotFrame        = 0;
         bool m_ShotCameraPlaced = false;
+        // The count starts only after an ARM frame (ArmShotCount): revealed, content settled, and the final
+        // image the size it was on the previous frame (m_ShotExtentW/H). Arming resets every view's
+        // temporal history; under `--play` it is also what lets gameplay time run (ShotOptions::FrameSeconds).
+        bool     m_ShotArmed   = false;
+        uint32_t m_ShotExtentW = 0;
+        uint32_t m_ShotExtentH = 0;
+        /// True once the capture's frame count has started; on the frame that arms it, resets every view's
+        /// temporal history and returns false (the arm frame is not counted).
+        bool ArmShotCount();
         // Set when any PNG of this capture could not be written; becomes the process exit status.
         bool m_ShotFailed = false;
         // --flight: one row per frame of Play, written as the CSV when the capture ends.

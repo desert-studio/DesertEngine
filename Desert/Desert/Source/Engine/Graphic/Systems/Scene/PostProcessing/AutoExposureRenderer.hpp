@@ -43,6 +43,13 @@ namespace Desert::Graphic::System
             m_SnapNextAdaptation = true;
         }
 
+        // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The same one-dispatch snap: the first
+        // frame after the cut is exposed for what it shows, not ramped from what the frames before it did.
+        void OnTemporalHistoryReset() override
+        {
+            m_SnapNextAdaptation = true;
+        }
+
         void SetParams( float adaptSpeed, float minLuma, float maxLuma )
         {
             m_AdaptSpeed = adaptSpeed;

@@ -237,7 +237,7 @@ TEST( ShotPath, GameplayTimeIsOffUnlessAskedFor )
     // And the timestep is the measured one, on the exact float — not "close to", because a capture from
     // before this flag existed has to be the same capture.
     for ( float wall : { 0.0f, 1.0f / 60.0f, 0.013913f, 0.5f } )
-        EXPECT_EQ( shot.FrameSeconds( wall ), wall );
+        EXPECT_EQ( shot.FrameSeconds( wall, true ), wall );
 }
 
 // 2. `--play` OUTSIDE A CAPTURE IS NOT A MODE. The editor's Play button is that. Honouring the flag in a
@@ -248,7 +248,7 @@ TEST( ShotPath, PlayNeedsACaptureToMeanAnything )
     headful.Play = true;
     EXPECT_FALSE( headful.Active() );
     EXPECT_FALSE( headful.PlayActive() );
-    EXPECT_EQ( headful.FrameSeconds( 0.031f ), 0.031f );
+    EXPECT_EQ( headful.FrameSeconds( 0.031f, true ), 0.031f );
     EXPECT_FLOAT_EQ( headful.SimulatedSeconds( 1800 ), 0.0f );
 
     ShotOptions capture;
@@ -276,11 +276,29 @@ TEST( ShotPath, UnderPlayTheStepIsFixedAndIgnoresTheWallClock )
     // Every wall-clock value a loaded machine could hand us — a fast frame, a slow one, a stall, a
     // zero-length one — produces the SAME step.
     for ( float wall : { 0.0f, 0.001f, 1.0f / 60.0f, 0.25f, 3.0f } )
-        EXPECT_EQ( shot.FrameSeconds( wall ), ShotOptions::PlayStepSeconds );
+        EXPECT_EQ( shot.FrameSeconds( wall, true ), ShotOptions::PlayStepSeconds );
 
     // And the step is 60 Hz specifically. Not a taste: every "N seconds" quoted in a report is
     // `--shot-frames` divided by this number, so moving it silently rewrites the recorded measurements.
     EXPECT_EQ( ShotOptions::PlayStepSeconds, 1.0f / 60.0f );
+}
+
+// 3b. BEFORE THE COUNT STARTS, PLAY TIME STANDS STILL. The number of start-up frames (window layout, the
+//     reveal, asynchronous loads) differs from run to run; a world that advanced one fixed step per such
+//     frame puts the wind and every particle somewhere else on each run. Outside `--play` the flag is inert:
+//     the editor's own clock is never held.
+TEST( ShotPath, BeforeTheCountStartsPlayTimeStandsStill )
+{
+    ShotOptions shot;
+    shot.Play   = true;
+    shot.Output = "/tmp/out.png";
+    for ( float wall : { 0.0f, 1.0f / 60.0f, 0.25f } )
+        EXPECT_EQ( shot.FrameSeconds( wall, false ), 0.0f );
+
+    ShotOptions still;
+    still.Output = "/tmp/out.png";
+    for ( float wall : { 0.0f, 0.013913f, 0.5f } )
+        EXPECT_EQ( still.FrameSeconds( wall, false ), wall );
 }
 
 // The relation a report quotes: frames and seconds are the same statement. "Take the shot after 30
