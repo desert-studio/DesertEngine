@@ -57,8 +57,16 @@ namespace Desert::Geometry
             return range;
         }
 
-        // FMeshPlaneCut::Cut on a copy of @p before, keeping the side @p keep points to; @p fillHole caps the cut.
-        Common::ResultStr<RegionOutcome> KeepSide( const DynamicMesh3& before, const glm::dvec3& origin,
+        struct KeptHalf
+        {
+            RegionOutcome Half;
+            // Open spans the cut left (the mesh's own border crosses the plane): never filled.
+            int UnfilledSpans = 0;
+        };
+
+        // FMeshPlaneCut::Cut on a copy of @p before, keeping the side @p keep points to; @p fillHole caps the cut's
+        // closed loops.
+        Common::ResultStr<KeptHalf> KeepSide( const DynamicMesh3& before, const glm::dvec3& origin,
                                                    const glm::dvec3& keep, bool fillHole, double tolerance,
                                                    float uvScale, const char* name )
         {
@@ -67,34 +75,29 @@ namespace Desert::Geometry
             cut.m_PlaneTolerance = tolerance;
             cut.m_UVScaleFactor  = uvScale;
             if ( !cut.Cut() )
-                return Common::MakeFormattedError<RegionOutcome>(
+                return Common::MakeFormattedError<KeptHalf>(
                      "Mesh {}: the cut's outline could not be walked into loops (the plane meets the mesh along a "
                      "non-manifold border)",
                      name );
             if ( mesh->TriangleCount() == 0 )
-                return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: nothing is left on the kept side",
-                                                                  name );
+                return Common::MakeFormattedError<KeptHalf>( "Mesh {}: nothing is left on the kept side", name );
+            const int unfilledSpans = static_cast<int>( cut.m_OpenBoundaries.front().CutSpans.size() );
             ElementSelection cap( ElementMode::PolyGroup );
-            if ( fillHole )
+            if ( fillHole && !cut.m_OpenBoundaries.front().CutLoops.empty() )
             {
-                const MeshPlaneCut::OpenBoundary& boundary = cut.m_OpenBoundaries.front();
-                if ( boundary.FoundOpenSpans )
-                    return Common::MakeFormattedError<RegionOutcome>(
-                         "Mesh {}: the cut leaves {} open outline(s) - the mesh's own open border crosses the "
-                         "plane, so there is no closed loop to cap; cut without Fill",
-                         name, boundary.CutSpans.size() );
+                // Closed loops only (UE's bFillSpans off); the open spans are counted and reported by the caller.
                 if ( !cut.HoleFill( false ) )
-                    return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: the cap could not be filled - {}",
-                                                                      name, cut.m_FailureReason );
+                    return Common::MakeFormattedError<KeptHalf>( "Mesh {}: the cap could not be filled - {}", name,
+                                                                 cut.m_FailureReason );
                 const std::vector<int>& capTriangles = cut.m_HoleFillTriangles.front();
                 if ( !capTriangles.empty() )
                     if ( auto added = cap.Add( *mesh, mesh->GetTriangleGroup( capTriangles.front() ) );
                          !added.IsSuccess() )
-                        return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, added.GetError() );
+                        return Common::MakeFormattedError<KeptHalf>( "Mesh {}: {}", name, added.GetError() );
             }
             if ( auto tangents = RecomputeTangentSpace( *mesh, name ); !tangents.IsSuccess() )
-                return Common::MakeError<RegionOutcome>( tangents.GetError() );
-            return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( cap ) } );
+                return Common::MakeError<KeptHalf>( tangents.GetError() );
+            return Common::MakeSuccess( KeptHalf{ RegionOutcome{ std::move( mesh ), std::move( cap ) }, unfilledSpans } );
         }
 
         Common::ResultStr<glm::dvec3> UnitNormal( const MeshPlane& plane, const char* name )
@@ -132,7 +135,7 @@ namespace Desert::Geometry
             auto kept = KeepSide( before, plane.Origin, unit.GetValue(), false, tolerance, 1.0f, "Mirror" );
             if ( !kept.IsSuccess() )
                 return Common::MakeError<RegionOutcome>( kept.GetError() );
-            mesh = std::make_shared<DynamicMesh3>( *kept.GetValue().Mesh );
+            mesh = std::make_shared<DynamicMesh3>( *kept.GetValue().Half.Mesh );
         }
         else
             mesh = std::make_shared<DynamicMesh3>( before );
@@ -173,15 +176,21 @@ namespace Desert::Geometry
                                   "Plane Cut" );
         if ( !positive.IsSuccess() )
             return Common::MakeError<PlaneCutOutcome>( positive.GetError() );
-        PlaneCutOutcome outcome{ positive.ExtractValue(), nullptr };
+        KeptHalf        kept = positive.ExtractValue();
+        PlaneCutOutcome outcome{ std::move( kept.Half ), nullptr, kept.UnfilledSpans, 0, {} };
         if ( mode == PlaneCutMode::KeepBothHalves )
         {
             auto negative = KeepSide( before, plane.Origin, -unit.GetValue(), fillHole, kDefaultPlaneTolerance,
                                       uvScale, "Plane Cut, other half" );
             if ( !negative.IsSuccess() )
                 return Common::MakeError<PlaneCutOutcome>( negative.GetError() );
-            outcome.OtherHalf = negative.GetValue().Mesh;
+            outcome.OtherHalf              = negative.GetValue().Half.Mesh;
+            outcome.OtherHalfUnfilledSpans = negative.GetValue().UnfilledSpans;
         }
+        if ( fillHole && ( outcome.UnfilledSpans > 0 || outcome.OtherHalfUnfilledSpans > 0 ) )
+            outcome.Report = fmt::format( "{} loop(s) not filled on the kept half, {} on the other: open through "
+                                          "the mesh's own border (only closed loops are capped)",
+                                          outcome.UnfilledSpans, outcome.OtherHalfUnfilledSpans );
         return Common::MakeSuccess( std::move( outcome ) );
     }
 } // namespace Desert::Geometry

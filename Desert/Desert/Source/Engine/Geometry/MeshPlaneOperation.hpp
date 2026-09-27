@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 
 namespace Desert::Geometry
 {
@@ -70,6 +71,11 @@ namespace Desert::Geometry
         RegionOutcome Kept;
         // The negative half, capped the same way in a polygroup of its own; only for KeepBothHalves.
         std::shared_ptr<const DynamicMesh3> OtherHalf;
+        // Open spans the cut left on each half (the mesh's own border crosses the plane): never capped.
+        int UnfilledSpans          = 0;
+        int OtherHalfUnfilledSpans = 0;
+        // With fill on and a span left open: "N loop(s) not filled ...", for the operation's log. Empty otherwise.
+        std::string Report;
     };
 
     // PLANE CUT the whole mesh (FMeshPlaneCut::Cut): every edge crossing @p plane is split (the attributes
@@ -78,9 +84,10 @@ namespace Desert::Geometry
     // UVs projected at 1 / the bounds' largest dimension on every UV layer, colours from the rim). A closed mesh
     // stays closed.
     // Refused: a zero normal; a plane that does not cross the mesh (named with the signed distance range); the
-    // cut loops not extractable; while filling: an open span (the mesh's own border crosses the plane - UE leaves
-    // it unfilled, this port refuses rather than hand back a half-capped mesh), and a section with a hole (a
-    // tube cut across) - a limitation of this port (v1), lifted by P14b.
+    // cut loops not extractable; while filling, a section with a hole (a tube cut across) - a limitation of this
+    // port (v1), lifted by P14b. An open mesh (a sheet, a mesh whose own border crosses the plane) is cut: only its
+    // closed loops are capped, as UE does with bFillSpans off, and the open spans are counted in the outcome and
+    // named in its Report - not left silently.
     [[nodiscard]] Common::ResultStr<PlaneCutOutcome>
     PlaneCutMesh( const DynamicMesh3& before, const MeshPlane& plane, PlaneCutMode mode, bool fillHole );
 } // namespace Desert::Geometry
