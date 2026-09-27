@@ -80,6 +80,25 @@ TEST( LandscapePaint, PaintingAOverBKeepsTheSumAt255 )
     EXPECT_EQ( Sum( w ), 255 );
 }
 
+TEST( LandscapePaint, PaintingOverAFadedLayerDoesNotPumpItUp )
+{
+    // The LS-13 frame's staircase: at the soft edge of an earlier stroke a sample holds A = 100 and the rest
+    // (155) is unpainted rule ground. Painting B to 30 there fits in the unclaimed share — A must stay 100.
+    // Scaling A up to 225 to "keep the sum at 255" turned every faint sample the new brush touched into a
+    // full one, a hard edge on the sample grid wherever the two strokes met.
+    const std::vector<LandscapeLayerRule> rules = { { "A", 0.5f, false }, { "B", 0.5f, false } };
+    std::vector<uint8_t>                  w     = { 100u, 0u };
+    LandscapeNormalizeWeights( w, rules, 1, 30u );
+    EXPECT_EQ( w, ( std::vector<uint8_t>{ 100u, 30u } ) );
+    // Past the unclaimed share, A gives exactly the overflow.
+    LandscapeNormalizeWeights( w, rules, 1, 200u );
+    EXPECT_EQ( w, ( std::vector<uint8_t>{ 55u, 200u } ) );
+    // Erasing B from a sample that was not full gives A back only what B held, not up to 255.
+    std::vector<uint8_t> partial = { 60u, 40u };
+    LandscapeNormalizeWeights( partial, rules, 1, 10u );
+    EXPECT_EQ( partial, ( std::vector<uint8_t>{ 90u, 10u } ) );
+}
+
 TEST( LandscapePaint, NoWeightBlendLayerIsNeitherNormalisedNorCounted )
 {
     const std::vector<LandscapeLayerRule> rules = {
