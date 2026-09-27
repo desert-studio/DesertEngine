@@ -585,8 +585,13 @@ namespace Common::Content
         text += '\n';
         for ( const Utils::AssetRegistryEntry& row : registry.Entries() )
         {
-            text +=
-                 std::to_string( SettledModifiedTime( AssetHandle::PathForStableKey( row.Key ), serializedAt ) );
+            // The stamp of the file the gather DESCRIBES the row from: for an imported static mesh that is
+            // its import record (FIX8), not the `.stmesh` its key names and that does not exist. Stamping
+            // the key's path wrote 0 for every imported mesh, so each gather re-read them all.
+            std::filesystem::path described = AssetHandle::PathForStableKey( row.Key );
+            if ( const auto record = ImportRecordStandingFor( described ) )
+                described = *record;
+            text += std::to_string( SettledModifiedTime( described, serializedAt ) );
             text += ' ';
             text += row.Key;
             text += '\n';
