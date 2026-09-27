@@ -83,13 +83,20 @@ namespace Common::Crash
     void SetGpuDescription( std::string_view inGpuDescription );
 
     // A DELIBERATE CRASH, FOR PROVING THE HANDLER RATHER THAN HOPING. Reached from the editor's
-    // "Debug > Crash (test)" command and from `--crash-test <segv|abort|purecall>` in every host.
+    // "Debug > Crash (test)" command and from `--crash-test <kind>` in every host (kinds: kKnownTestKinds).
     enum class TestKind : std::uint8_t
     {
-        Segv,     // null dereference -> EXCEPTION_ACCESS_VIOLATION / SIGSEGV
-        Abort,    // std::abort()     -> SIGABRT
-        PureCall, // a pure virtual called from a base destructor -> purecall handler / SIGABRT
+        Segv,          // null dereference -> EXCEPTION_ACCESS_VIOLATION / SIGSEGV
+        Abort,         // std::abort()     -> SIGABRT
+        PureCall,      // a pure virtual called from a base constructor -> purecall handler / SIGABRT
+        StackOverflow, // unbounded recursion -> EXCEPTION_STACK_OVERFLOW / SIGSEGV on the alternate stack
+        // The same recursion on a freshly started worker thread: no stack guarantee and (POSIX) no
+        // alternate stack, so it proves the report does not depend on the faulting thread's stack.
+        StackOverflowWorker,
     };
+
+    // Every spelling ParseTestKind accepts, for the hosts' "it knows: ..." error messages.
+    inline constexpr const char* kKnownTestKinds = "segv, abort, purecall, stackoverflow, stackoverflow-worker";
 
     // Parses the `--crash-test` argument. `nullopt` for an unknown word, so the caller can report the
     // word it did not understand instead of silently picking a default.
