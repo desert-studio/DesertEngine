@@ -92,6 +92,11 @@ namespace Desert::Assets
         // Engine/Assets/Serialization/Retarget.hpp.
         Retarget,
 
+        // A LANDSCAPE LAYER INFO (`.delayerinfo`): UE's ULandscapeLayerInfoObject — the name a landscape's
+        // weight plane is keyed by and the numbers a paint stroke normalises with. A first-class asset so one
+        // "Grass" is ONE file every landscape painting it shares — see Engine/Assets/LandscapeLayerInfoAsset.hpp.
+        LandscapeLayerInfo,
+
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
         // That red is the only reason this enumerator exists: an asset type whose handle stability nobody
@@ -168,6 +173,9 @@ namespace Desert::Assets
             // dependency is held the way `.skmesh` holds one, so the rig follows the retarget rather than
             // needing a root of its own.
             case AssetTypeID::Retarget:
+            // A LAYER INFO IS SCENE-SCOPED for the retarget's reason: `LandscapeComponent::Layers` holds
+            // `AssetHandle`s the reachability walk sees (SceneAssetRoots).
+            case AssetTypeID::LandscapeLayerInfo:
             case AssetTypeID::Count:
                 return false;
         }
@@ -228,6 +236,8 @@ namespace Desert::Assets
                 return "AnimGraph";
             case AssetTypeID::Retarget:
                 return "Retarget";
+            case AssetTypeID::LandscapeLayerInfo:
+                return "LandscapeLayerInfo";
             case AssetTypeID::Count:
                 return "Count";
         }
