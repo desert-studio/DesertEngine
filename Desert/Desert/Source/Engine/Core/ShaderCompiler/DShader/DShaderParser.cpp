@@ -5,6 +5,7 @@
 #include <charconv>
 #include <functional>
 #include <regex>
+#include <span>
 #include <set>
 #include <sstream>
 #include <string_view>
@@ -1049,7 +1050,7 @@ namespace Desert::Core::Preprocess
 
         using KeywordSet = std::array<bool, KwCount>;
 
-        KeywordSet PresentSugarKeywords( const std::vector<SourceRun>& runs )
+        KeywordSet PresentSugarKeywords( const std::span<const SourceRun> runs )
         {
             static constexpr std::string_view kNames[KwCount] = {
                  "In", "Out", "Uniform", "ReadBuffer", "WriteBuffer", "Buffer", "LocalSize", "PushConstant" };
@@ -1108,11 +1109,15 @@ namespace Desert::Core::Preprocess
                  { KwPushConstant, std::regex( R"(\bPushConstant\b)" ), "layout(push_constant) uniform" },
             };
 
-            const KeywordSet explicitForms = PresentSugarKeywords( runs );
+            // Gated PER RUN, not per text: a stage body is split into dozens of code runs by its comments, and
+            // a keyword present somewhere in the text is absent from most of them. Asking the regex of a run
+            // that lacks the keyword was the bulk of the cold preprocess (AL1-12a, measured in Debug: 2.1 s
+            // over 78 programs); the gate is exact for the same whole-word reason as above.
             for ( auto& run : runs )
             {
                 if ( !run.IsCode )
                     continue;
+                const KeywordSet explicitForms = PresentSugarKeywords( std::span<const SourceRun>( &run, 1 ) );
                 for ( const auto& rule : kRules )
                     if ( explicitForms[rule.Keyword] )
                         run.Text = std::regex_replace( run.Text, rule.Pattern, rule.Replacement );
