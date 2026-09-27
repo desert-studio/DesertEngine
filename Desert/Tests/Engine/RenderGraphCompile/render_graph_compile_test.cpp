@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -1151,4 +1152,121 @@ TEST( RenderGraphCompile, LegacyPassSeesShaderReadOnlyAndLeavesItThere )
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Sneaky" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "raster" ), std::string::npos ) << refused.GetError();
+}
+
+// ── SceneRenderer's frame as legacy passes (RDG3) ───────────────────────────────────────────────────────
+
+// SceneRenderer records its frame as AddLegacyPass wrappers whose real hazards the graph does not see
+// (most declare nothing, some declare only the SceneColor they read). The frame is correct only if the graph
+// then runs them exactly in the order they were added and drops none. Here the declarations point the wrong
+// way on purpose: a later pass writes what an earlier one reads, and two passes declare nothing and feed
+// nobody, which is what culling removes and a dependency sort would move.
+TEST( RenderGraphCompile, LegacyPassesRunInTheOrderAddedAndNoneIsCulled )
+{
+    ExternalTexture          color( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    RecordingBackend         backend;
+    Builder                  graph( "legacyFrame" );
+    const TextureRef         scene = graph.RegisterExternal( color, "SceneColor" );
+    std::vector<std::string> executed;
+    const auto               body = [&executed]( const char* name )
+    {
+        return [&executed, name]( PassContext& ) -> Common::BoolResultStr
+        {
+            executed.emplace_back( name );
+            return Common::MakeSuccess( true );
+        };
+    };
+    graph.AddLegacyPass( "Clear", {}, {}, body( "Clear" ) );
+    graph.AddLegacyPass( "Tonemap", { scene }, {}, body( "Tonemap" ) );
+    graph.AddLegacyPass( "Composite", {}, { scene }, body( "Composite" ) );
+    graph.AddLegacyPass( "Particles", {}, {}, body( "Particles" ) );
+    graph.AddLegacyPass( "Bloom", { scene }, { scene }, body( "Bloom" ) );
+
+    const std::vector<std::string> added  = { "Clear", "Tonemap", "Composite", "Particles", "Bloom" };
+    const CompileResult            result = CompileOrFail( graph );
+    std::vector<std::string>       compiled;
+    for ( const CompiledPass& pass : result.Passes )
+        compiled.push_back( pass.Name );
+    EXPECT_EQ( compiled, added );
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    EXPECT_EQ( executed, added );
+}
+
+// WHICH ORDER SceneRenderer ADDS. The pass sequence of SceneRenderer::OnUpdate, read from the source: the
+// name of every AddLegacy wrapper and, for AddGraphPhasePasses, its phase selector (it adds one wrapper per
+// RenderGraphBuilder::GetSortedPasses entry the selector admits, in that order). The table is the frame
+// order before RDG3 (c303909f9, SceneRenderer::OnUpdate): its DESERT_PROFILE_PASS scopes and direct calls in
+// sequence, ExecuteRenderGraph = every phase but the deferred overlays, then ExecuteTransparency,
+// ExecuteDebugOverlay and ExecuteUI one phase each. With the test above, the frame the graph runs is this
+// table: moving a pass changes the picture and has to change the table on purpose.
+TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
+    ASSERT_TRUE( file ) << "SceneRenderer.cpp is gone";
+    std::string source;
+    std::string line;
+    while ( std::getline( file, line ) )
+    {
+        const size_t comment = line.find( "//" );
+        source += ( comment == std::string::npos ? line : line.substr( 0, comment ) ) + "\n";
+    }
+    const size_t begin = source.find( "void SceneRenderer::OnUpdate(" );
+    ASSERT_NE( begin, std::string::npos );
+    const size_t end = source.find( "void SceneRenderer::", begin + 1 );
+    ASSERT_NE( end, std::string::npos );
+    const std::string body = source.substr( begin, end - begin );
+
+    const auto squeeze = []( std::string text )
+    {
+        text.erase(
+             std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+             text.end() );
+        return text;
+    };
+    std::vector<std::string> added;
+    for ( size_t at = 0;; )
+    {
+        const size_t legacy = body.find( "AddLegacy(", at );
+        const size_t phases = body.find( "AddGraphPhasePasses(", at );
+        if ( legacy == std::string::npos && phases == std::string::npos )
+            break;
+        if ( legacy < phases )
+        {
+            const size_t open  = body.find( '"', legacy );
+            const size_t close = body.find( '"', open + 1 );
+            ASSERT_NE( close, std::string::npos );
+            added.push_back( body.substr( open + 1, close - open - 1 ) );
+            at = close + 1;
+        }
+        else
+        {
+            const size_t ret  = body.find( "return ", phases );
+            const size_t semi = body.find( ';', ret );
+            ASSERT_NE( semi, std::string::npos );
+            added.push_back( "phases[" + squeeze( body.substr( ret + 7, semi - ret - 7 ) ) + "]" );
+            at = semi + 1;
+        }
+    }
+
+    const std::vector<std::string> legacyOrder = {
+         "ClearMainFramebuffer",   "Particles: SimulateInFrame",
+         "CloudShadowMap",         "phases[!RenderPhase::IsDeferredOverlay(phase)]",
+         "Deferred: GBuffer",      "TerrainGBuffer",
+         "Deferred: DepthResolve", "Deferred: SSAO",
+         "Deferred: RSM",          "Deferred: GIResolve",
+         "Deferred: Composite",    "Deferred: Generic",
+         "Deferred: Skinned",      "Deferred: SceneCopy",
+         "Deferred: SSR",          "Deferred: Glass",
+         "SkyAtmosphereLuts",      "AtmosphericFog",
+         "VolumetricClouds",       "phases[phase==RenderPhase::Transparency]",
+         "Debug: Overdraw",        "phases[phase==RenderPhase::Debug]",
+         "UI: BackdropBlur",       "phases[phase==RenderPhase::UI]",
+         "PostFX: JumpFlood",      "PostFX: AutoExposure",
+         "PostFX: Bloom",          "PostFX: LightShafts",
+         "PostFX: LensFlare",      "PostFX: Tonemap",
+         "PostFX: FXAA",           "PostFX: SMAA",
+    };
+    EXPECT_EQ( added, legacyOrder );
 }
