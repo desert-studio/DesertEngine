@@ -477,22 +477,16 @@ namespace Desert::Core::WorldCells
                 std::set<std::string>   keys;
                 for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
                 {
-                    // An id that is a function of the world, the file and the batch, as a file's GUID is, so a
-                    // re-cook reproduces it; one that meets a record's id or another HLOD's is refused.
-                    const std::string identity =
-                         scene.SceneName + "\nHLOD\n" + name + "\n" + std::to_string( batch );
-                    const std::uint64_t id = Common::Utils::PakContentHash( identity.data(), identity.size() );
-                    if ( id == 0 || byId.contains( Common::UUID( id ) ) || !hlodIds.insert( id ).second )
-                        return Common::MakeError<Result>( "the HLOD id " + std::to_string( id ) + " of batch " +
-                                                          std::to_string( batch ) + " in '" + name +
+                    const Common::UUID id = Rules::HLODRecordId( scene.SceneName, name, batch );
+                    if ( id.IsNull() || byId.contains( id ) ||
+                         !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
+                        return Common::MakeError<Result>( "the HLOD id " +
+                                                          std::to_string( static_cast<std::uint64_t>( id ) ) +
+                                                          " of batch " + std::to_string( batch ) + " in '" + name +
                                                           "' is null or already taken; rename the world" );
-                    Assets::EntityData hlodRecord;
-                    hlodRecord.id  = Common::UUID( id );
-                    hlodRecord.Tag = "HLOD " + std::to_string( batch );
-                    hlodRecord.Components[std::string( Rules::kInstancePointsComponent )] =
-                         Common::Json::FromStruct( built.Batches[batch].Block );
+                    Assets::EntityData hlodRecord = Rules::HLODRecord( built.Batches[batch], id, batch );
                     closure.Record( hlodRecord, keys );
-                    row.Ids.push_back( id );
+                    row.Ids.push_back( static_cast<std::uint64_t>( id ) );
                     payload.Records.push_back( std::move( hlodRecord ) );
                     for ( const std::size_t source : built.Batches[batch].Sources )
                         sources.insert( static_cast<std::uint64_t>( *records[source].id ) );
