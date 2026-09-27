@@ -4,6 +4,10 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
+
+#include <span>
 
 namespace Desert::Runtime
 {
@@ -46,8 +50,33 @@ namespace Desert::Runtime
 
         Assets::AssetHandle RegisterProcedural( const std::shared_ptr<Mesh>& mesh );
 
-        Mesh*              Get( const Assets::AssetHandle& handle ) const; // builds-on-miss from a shell
-        Assets::MeshAsset* GetAsset( const Assets::AssetHandle& handle ) const;
+        /// The manager a mesh named only by its handle is discovered in (its content-registry row).
+        /// Bound by ResourceRegistry::BindOnDemandAssets.
+        void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+
+        // NEVER READS A FILE (AL1-5, plan §2.3). A mesh whose file (or, for a skinned one, whose rig) is not
+        // resident is PENDING: the first ask requests it from AsyncAssetLoader and answers nullptr, which
+        // the draw path already treats as "do not draw"; the frame after it lands, `Get` builds the GPU mesh
+        // (an upload, not a read). A handle the service has no shell for is discovered from its registry row.
+        Mesh*              Get( const Assets::AssetHandle& handle ) const;
+        Assets::MeshAsset* GetAsset( const Assets::AssetHandle& handle ) const; // parsed, or nullptr (pending)
+
+        /// THE SCENE-OPEN DOOR (plan §2.4(b)): request every mesh in @p handles and its rig, block until the
+        /// WORKERS have read them (AsyncAssetLoader::AwaitOne, so no in-frame load is counted), and build
+        /// them, so the scene's first frame is complete. Returns how many are drawable.
+        std::size_t AwaitResident( std::span<const Assets::AssetHandle> handles );
+
+        /// Is @p handle a mesh this service has, or can discover from the content registry? Creates the
+        /// shell on discovery; reads nothing.
+        bool Discover( const Assets::AssetHandle& handle ) const
+        {
+            return FindOrDiscover( handle ) != nullptr;
+        }
+
+        /// THE EDITOR-TOOL DOOR (plan §2.4(c)): the user is waiting on this one mesh (a thumbnail, a
+        /// command), so it is read on the calling thread through AsyncAssetLoader::FlushOne, where
+        /// SyncLoadLedger counts it. nullptr with the reason logged when it cannot be built.
+        Mesh* LoadNow( const Assets::AssetHandle& handle );
 
         // IS A SHELL ON RECORD FOR @p handle? A map lookup and NOTHING ELSE, which is the whole point of
         // it existing beside `GetAsset`.
@@ -60,7 +89,7 @@ namespace Desert::Runtime
         // same reason, one axis over — see its comment.)
         [[nodiscard]] bool HasAsset( const Assets::AssetHandle& handle ) const
         {
-            return m_MeshAssets.find( handle ) != m_MeshAssets.end();
+            return m_Entries.find( handle ) != m_Entries.end();
         }
 
         void                Clear();
@@ -68,7 +97,7 @@ namespace Desert::Runtime
 
         // DROP THE BUILT GPU MESH, KEEP THE SHELL. Returns true when something was actually dropped.
         //
-        // The shell is what makes this safe to do at all: `Get()` builds on a miss from `m_MeshAssets`, so
+        // The shell is what makes this safe to do at all: `Get()` builds on a miss from `m_Entries`, so
         // the next draw rebuilds the vertex and index buffers through exactly the path a first use takes.
         // Forgetting the shell as well would turn the next `Get()` into a null — which is the silent empty
         // answer §1.4 forbids, and the reason this is not called `Release`.
@@ -97,7 +126,25 @@ namespace Desert::Runtime
         Common::BoolResultStr BuildAndCache( const std::shared_ptr<Assets::MeshAsset>& meshAsset ) const;
 
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Mesh>>      m_Meshes;
-        std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MeshAsset>> m_MeshAssets;
+        // One mesh the service knows: its shell, its rig (skinned only; found by the registry's Rig tag), the
+        // loader requests that read them, and whether it failed — a failure is logged once and not retried.
+        struct Entry
+        {
+            std::shared_ptr<Assets::MeshAsset>     Asset;
+            Assets::Asset<Assets::SkeletonAsset>   Rig;
+            Assets::LoadRequest                    MeshRead;
+            Assets::LoadRequest                    RigRead;
+            bool                                   Failed = false;
+        };
+
+        Entry* FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        // Requests what is missing and answers whether the mesh (and its rig, resolved) is ready to build.
+        bool Arrived( const Assets::AssetHandle& handle, Entry& entry ) const;
+        void RequestRead( const Assets::AssetHandle& owner, const std::shared_ptr<Assets::AssetBase>& asset,
+                          Assets::LoadRequest& slot ) const;
+        void Fail( const Assets::AssetHandle& owner, const std::string& reason ) const;
+
+        mutable std::unordered_map<Assets::AssetHandle, Entry> m_Entries;
 
         // The manager the deferred loads above resolve against. Weak, because the service is a
         // function-local static that outlives every project the editor opens, and a project switch must

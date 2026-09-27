@@ -489,6 +489,33 @@ TEST_F( AsyncAssetLoad, FlushOneReadsOnTheCallingThreadAndTheLedgerCountsItAsSyn
     EXPECT_EQ( completed, 1 ) << "Pump delivered a completion FlushOne had already delivered";
 }
 
+// AwaitOne is the scene-open door (AL1-5, plan §2.4(b)): the caller blocks, the WORKER reads, and the
+// ledger must see an asynchronous load, not an in-frame one.
+TEST_F( AsyncAssetLoad, AwaitOneBlocksUntilTheWorkerReadAndTheLedgerCountsNoInFrameLoad )
+{
+    SyncLoadLedger::NoteBootFinished();
+
+    auto victim    = std::make_shared<ProbeAsset>( "awaited.probe" );
+    int  completed = 0;
+    auto request   = AsyncAssetLoader::Get().Request(
+         victim, [&completed]( const auto&, LoadOutcome outcome, const std::string& )
+         { completed += outcome == LoadOutcome::Loaded ? 1 : 100; }, [] {} );
+
+    const uint64_t inFrameBefore = SyncLoadLedger::InFrameLoads();
+    const uint64_t asyncBefore   = SyncLoadLedger::AsyncLoads();
+    EXPECT_TRUE( AsyncAssetLoader::Get().AwaitOne( victim->GetMetadata().Handle ) );
+
+    EXPECT_TRUE( victim->IsReadyForUse() ) << "AwaitOne returned before the worker had read the asset";
+    EXPECT_EQ( completed, 1 ) << "AwaitOne must fire the completion itself, once, before it returns";
+    EXPECT_EQ( SyncLoadLedger::InFrameLoads(), inFrameBefore )
+         << "AwaitOne read on the calling thread: a scene open through it would count as an in-frame hitch";
+    EXPECT_EQ( SyncLoadLedger::AsyncLoads(), asyncBefore + 1 );
+
+    ASSERT_TRUE( PumpUntilQuiet() );
+    EXPECT_EQ( victim->Reads.load(), 1 );
+    EXPECT_EQ( completed, 1 ) << "Pump delivered a completion AwaitOne had already delivered";
+}
+
 TEST_F( AsyncAssetLoad, FlushOneDeliversOnlyItsOwnHandleAndLeavesTheRestForPump )
 {
     auto mine       = std::make_shared<ProbeAsset>( "mine.probe" );

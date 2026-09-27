@@ -1,6 +1,7 @@
 #include "RuntimeLayer.hpp"
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include "RuntimeShot.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -405,6 +406,8 @@ namespace Desert::Player
             LOG_ERROR( "[Runtime] Scene switch failed after teardown: {}", loaded.GetError() );
             return;
         }
+        // The level's meshes are read by the loader's workers while the switch waits (AL1-5).
+        (void)Runtime::AwaitSceneMeshes( *m_Scene );
         if ( const auto init = m_Scene->Init(); !init )
         {
             LOG_ERROR( "[Runtime] Scene switch init failed: {}", init.GetError() );

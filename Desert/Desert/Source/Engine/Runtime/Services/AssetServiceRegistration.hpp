@@ -4,6 +4,11 @@
 
 #include <Common/Core/Core.hpp>
 
+namespace Desert::Core
+{
+    class Scene;
+}
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -75,6 +80,16 @@ namespace Desert::Runtime
     /// registry again later. Ф6 measured what its absence costs — a mesh registered without one draws
     /// nothing and prints "needs a deferred load but no AssetManager is bound" once per frame.
     void EnsureMeshRegistered( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry );
+
+    /// THE SCENE OPEN WAITS FOR ITS MESHES (AL1-5, plan §2.4(b)). Every mesh a static, skinned or
+    /// instanced mesh component of @p scene names (and each skinned mesh's rig) is requested and awaited
+    /// while the WORKERS read them, then built, so the first frame of the scene is complete and
+    /// SyncLoadLedger counts no in-frame load. Returns how many distinct meshes are drawable.
+    std::size_t AwaitSceneMeshes( const Core::Scene& scene );
+
+    /// A mesh named only by its handle (a scene's MeshGuid): known to MeshService, or discoverable from its
+    /// content-registry row. Creates the shell; reads nothing.
+    NO_DISCARD bool DiscoverMesh( const Assets::AssetHandle& handle );
 
     /// Register the texture behind @p handle with the TextureService as a lazy shell. Idempotent; a
     /// zero handle, or one the registry does not hold, is a no-op. The GPU upload stays deferred to the

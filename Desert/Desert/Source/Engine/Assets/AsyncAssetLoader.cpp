@@ -380,6 +380,28 @@ namespace Desert::Assets
         }
 
         // Deliver only THIS handle's settled requests; every other completion keeps its place for Pump.
+        return DeliverCompleted( handle );
+    }
+
+    bool AsyncAssetLoader::AwaitOne( const AssetHandle& handle )
+    {
+        State& state = *m_State;
+        for ( ;; )
+        {
+            {
+                const std::lock_guard<std::mutex> guard( state.Lock );
+                if ( state.Waiting.find( handle ) == state.Waiting.end() )
+                    break;
+            }
+            // The queued job is a worker's to run; this thread only waits for it to settle.
+            std::this_thread::yield();
+        }
+        return DeliverCompleted( handle );
+    }
+
+    bool AsyncAssetLoader::DeliverCompleted( const AssetHandle& handle )
+    {
+        State&                                      state = *m_State;
         std::vector<std::shared_ptr<State::Record>> completed;
         {
             const std::lock_guard<std::mutex> guard( state.Lock );

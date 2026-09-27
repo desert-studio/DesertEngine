@@ -229,6 +229,22 @@ namespace Common::Content
         // The string a JSON document states under its top-level `member`, or empty. The document is parsed as a
         // generic tree and nothing is built from it — the asset stays unloaded; the files carrying a name are
         // small documents (themes, rigs, retargets, graphs, cloud types).
+        // A skeleton's `Signature` member, which its cook writes from the bones (SkeletonAsset checks the
+        // loaded bones against it). Only that member is read; 0 when the document states none or is unreadable.
+        struct StatedRig
+        {
+            uint64_t Signature = 0;
+        };
+        uint64_t StatedRigSignature( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return 0;
+            const auto document = rfl::json::read<StatedRig>( text.GetValue() );
+            return document ? document.value().Signature : 0;
+        }
+
         std::string StatedDisplayName( const std::filesystem::path& file, std::string_view member )
         {
             const auto text =
@@ -265,11 +281,15 @@ namespace Common::Content
                     MeshBinaryFileHeader header{};
                     std::memcpy( &header, head.GetValue().data(), sizeof( header ) );
                     described.Skinned = ( header.Flags & kMeshFlagIsSkinned ) != 0;
+                    if ( ( header.Flags & kMeshFlagHasSkeletonSignature ) != 0 )
+                        described.RigSignature = header.SkeletonSignature;
                 }
             }
         }
         if ( const std::string_view member = KindSpec( kind ).DisplayNameMember; !member.empty() )
             described.DisplayName = StatedDisplayName( file, member );
+        if ( kind == ContentKind::Skeleton )
+            described.RigSignature = StatedRigSignature( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -420,6 +440,7 @@ namespace Common::Content
             entry.Bounds = file.MeshBounds->Bounds;
         entry.DisplayName = file.DisplayName;
         entry.Skinned     = file.Skinned;
+        entry.RigSignature = file.RigSignature;
         return MakeSuccess( std::move( entry ) );
     }
 

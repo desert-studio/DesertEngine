@@ -60,6 +60,8 @@ namespace Common::Content
         // package and fails at load, never hides it).
         std::string DisplayName;
         bool        Skinned = false;
+        // AssetRegistryEntry::RigSignature: a skeleton's stated signature, a skinned mesh header's rig.
+        uint64_t RigSignature = 0;
     };
 
     // The file at `file`, of `kind`: its size and its header, read the way the registry cook reads it.

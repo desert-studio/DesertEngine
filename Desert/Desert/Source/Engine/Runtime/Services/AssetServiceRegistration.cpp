@@ -6,6 +6,12 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/ECS/Components.hpp>
+
+#include <Engine/Core/Scene.hpp>
+
+#include <algorithm>
+#include <vector>
 
 namespace Desert::Runtime
 {
@@ -51,6 +57,32 @@ namespace Desert::Runtime
         }
     }
 
+    bool DiscoverMesh( const Assets::AssetHandle& handle )
+    {
+        const auto* service = Meshes();
+        return service && service->Discover( handle );
+    }
+
+    std::size_t AwaitSceneMeshes( const Core::Scene& owner )
+    {
+        auto* service = Meshes();
+        if ( !service )
+            return 0;
+        const auto&                      scene = owner.GetRegistry();
+        std::vector<Assets::AssetHandle> handles;
+        const auto                       note = [&handles]( const Assets::AssetHandle& handle )
+        {
+            if ( handle )
+                handles.push_back( handle );
+        };
+        scene.view<const ECS::StaticMeshComponent>().each( [&note]( const ECS::StaticMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
+        scene.view<const ECS::SkinnedMeshComponent>().each( [&note]( const ECS::SkinnedMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
+        scene.view<const ECS::InstancedStaticMeshComponent>().each( [&note]( const ECS::InstancedStaticMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
+        std::sort( handles.begin(), handles.end() );
+        handles.erase( std::unique( handles.begin(), handles.end() ), handles.end() );
+        return service->AwaitResident( handles );
+    }
+
     void EnsureTextureRegistered( const Assets::AssetManager& registry, uint64_t handle )
     {
         auto* service = ResourceRegistry::GetTextureService();
@@ -84,9 +116,9 @@ namespace Desert::Runtime
             return MeshReadiness::NotRegistered;
 
         // A BUILD, not a probe. Every caller of this function has already decided it needs the geometry
-        // now; `Get` parses the cooked file and uploads the buffers, and logs its own reason (with the
-        // file in it) when it cannot.
-        const Mesh* built = service->Get( handle );
+        // now (a thumbnail, an editor command), so it goes through the editor-tool door: read on this
+        // thread by AsyncAssetLoader::FlushOne, counted by SyncLoadLedger (plan §2.4(c)).
+        const Mesh* built = service->LoadNow( handle );
         return ClassifyMeshReadiness( /*registered=*/true, built != nullptr,
                                       built ? built->GetSubmeshes().size() : 0u );
     }

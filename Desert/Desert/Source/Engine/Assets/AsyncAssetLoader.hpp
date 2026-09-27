@@ -164,6 +164,17 @@ namespace Desert::Assets
          */
         bool FlushOne( const AssetHandle& handle );
 
+        /**
+         * @brief Block until a WORKER has finished the read for @p handle, then fire its delegates.
+         *
+         * The scene-open door (plan §2.4(b)): the caller must not see the first frame before the scene's
+         * closure is resident, but the read itself stays on the worker, under its AsyncLoadMarker, so
+         * `SyncLoadLedger::InFrameLoads` does not move. That is the whole difference from `FlushOne`,
+         * which reads on the calling thread and is counted as a synchronous load. Returns whether any
+         * delegate ran; false means nothing was requested for @p handle.
+         */
+        bool AwaitOne( const AssetHandle& handle );
+
         /// How many requests are still live — in flight, or finished but not yet pumped. A host waits on
         /// this to know its content has settled; a test waits on it to know the loader is quiet.
         [[nodiscard]] size_t Outstanding() const;
@@ -217,6 +228,7 @@ namespace Desert::Assets
         void               CancelById( uint64_t id );
         void               ReleaseById( uint64_t id );
         [[nodiscard]] bool IsLive( uint64_t id ) const;
+        bool               DeliverCompleted( const AssetHandle& handle );
 
         /// THE LOADER'S STATE IS THE LOADER'S, and it did not start out that way. It began as a
         /// file-local `static LoaderState&`, which compiles and works and is wrong in a way the analyser

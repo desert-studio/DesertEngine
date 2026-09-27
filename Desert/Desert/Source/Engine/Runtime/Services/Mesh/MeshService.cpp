@@ -2,6 +2,11 @@
 
 #include <Engine/Geometry/MeshFactory.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
+#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
+
 namespace Desert::Runtime
 {
     namespace
@@ -42,7 +47,7 @@ namespace Desert::Runtime
         // THE SHELL BEFORE THE BUILD. Recorded first so that a build which fails (a skinned mesh whose rig
         // is not in the manager yet, a cooked file that will not parse) still leaves something `Get` can
         // retry from — and so BuildAndCache's own EnsureLoaded has the asset on record while it runs.
-        m_MeshAssets[meshAsset->GetMetadata().Handle] = meshAsset;
+        m_Entries[meshAsset->GetMetadata().Handle].Asset = meshAsset;
 
         return BuildAndCache( meshAsset );
     }
@@ -59,8 +64,8 @@ namespace Desert::Runtime
 
         // Handle is path-derived in the ctor, so a not-yet-loaded shell is keyed correctly. The .stmesh parse
         // + GPU build are deferred to the first Get/GetAsset.
-        m_MeshAssets[meshAsset->GetMetadata().Handle] = meshAsset;
-        m_AssetManager                                = resolveAgainst;
+        m_Entries[meshAsset->GetMetadata().Handle].Asset = meshAsset;
+        m_AssetManager                                   = resolveAgainst;
         return BOOLSUCCESS;
     }
 
@@ -144,39 +149,191 @@ namespace Desert::Runtime
         return handle;
     }
 
+    void MeshService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_AssetManager = assets;
+    }
+
+    void MeshService::Fail( const Assets::AssetHandle& owner, const std::string& reason ) const
+    {
+        auto& entry = m_Entries[owner];
+        if ( entry.Failed )
+            return;
+        entry.Failed = true;
+        LOG_ERROR( "[MeshService] mesh {} will not be drawn: {}", static_cast<uint64_t>( owner ), reason );
+    }
+
+    MeshService::Entry* MeshService::FindOrDiscover( const Assets::AssetHandle& handle ) const
+    {
+        if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
+            return &it->second;
+
+        using Common::Content::ContentKind;
+        const uint64_t id      = static_cast<uint64_t>( handle );
+        const bool     skinned = Assets::ContentRegistry::RowOf( ContentKind::SkinnedMesh, id ).has_value();
+        if ( !skinned && !Assets::ContentRegistry::RowOf( ContentKind::StaticMesh, id ) )
+            return nullptr; // a procedural handle, or no mesh at all: nothing to discover
+
+        std::shared_ptr<Assets::MeshAsset> shell;
+        std::string                        error;
+        if ( skinned )
+        {
+            auto created = Assets::CreateFromRegistryRow<Assets::SkinnedMeshAsset>( m_AssetManager, handle,
+                                                                                    ContentKind::SkinnedMesh );
+            created ? void( shell = created.GetValue() ) : void( error = created.GetError() );
+        }
+        else
+        {
+            auto created = Assets::CreateFromRegistryRow<Assets::StaticMeshAsset>( m_AssetManager, handle,
+                                                                                   ContentKind::StaticMesh );
+            created ? void( shell = created.GetValue() ) : void( error = created.GetError() );
+        }
+        Entry& entry = m_Entries[handle];
+        entry.Asset  = std::move( shell );
+        if ( !entry.Asset )
+            Fail( handle, error );
+        return &entry;
+    }
+
+    void MeshService::RequestRead( const Assets::AssetHandle& owner, const std::shared_ptr<Assets::AssetBase>& asset,
+                                   Assets::LoadRequest& slot ) const
+    {
+        // One read per file: another consumer's request for the same rig (or this mesh's own, not pumped
+        // yet) is already the read, and `Arrived` looks at readiness rather than at who asked.
+        if ( Assets::AsyncAssetLoader::Get().IsRequested( asset->GetMetadata().Handle ) )
+            return;
+        slot = Assets::AsyncAssetLoader::Get().Request(
+             asset,
+             [this, owner]( const Assets::Asset<Assets::AssetBase>& read, const Assets::LoadOutcome outcome,
+                            const std::string& error )
+             {
+                 if ( outcome == Assets::LoadOutcome::Failed )
+                     Fail( owner, "'" + read->GetMetadata().Filepath.string() + "' could not be read: " + error );
+             },
+             [] {} );
+    }
+
+    bool MeshService::Arrived( const Assets::AssetHandle& handle, Entry& entry ) const
+    {
+        if ( entry.Failed || !entry.Asset )
+            return false;
+
+        bool ready = true;
+        if ( !entry.Asset->IsReadyForUse() )
+        {
+            RequestRead( handle, entry.Asset, entry.MeshRead );
+            ready = false;
+        }
+        if ( !entry.Asset->IsSkinned() )
+            return ready;
+
+        // THE RIG IS NAMED BY THE REGISTRY, NOT FOUND BY A SEARCH. The mesh row's Rig tag is the signature
+        // its header states and the skeleton row states the same one, so the rig is requested beside the
+        // mesh, before either file is read, and no other skeleton is touched.
+        if ( !entry.Rig )
+        {
+            const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::SkinnedMesh,
+                                                             static_cast<uint64_t>( handle ) );
+            const uint64_t signature = row ? row->RigSignature : 0;
+            const auto     rig       = Assets::ContentRegistry::RigRow( signature );
+            if ( !rig )
+            {
+                Fail( handle, fmt::format( "the skinned mesh '{}' names rig signature {} and no Skeleton row of the "
+                                           "content registry states it (re-cook the mesh or its skeleton)",
+                                           entry.Asset->GetMetadata().Filepath.string(), signature ) );
+                return false;
+            }
+            auto created = Assets::CreateFromRegistryRow<Assets::SkeletonAsset>(
+                 m_AssetManager, rig->Handle, Common::Content::ContentKind::Skeleton );
+            if ( !created )
+            {
+                Fail( handle, created.GetError() );
+                return false;
+            }
+            entry.Rig = created.GetValue();
+        }
+        if ( !entry.Rig->IsReadyForUse() )
+        {
+            RequestRead( handle, entry.Rig, entry.RigRead );
+            ready = false;
+        }
+        if ( !ready )
+            return false;
+
+        auto& skinned = static_cast<Assets::SkinnedMeshAsset&>( *entry.Asset );
+        if ( !skinned.GetSkeletonDependency().IsValid() )
+        {
+            if ( const auto manager = m_AssetManager.lock() )
+                skinned.ResolveDependencies( *manager );
+            if ( !skinned.GetSkeletonDependency().IsValid() )
+            {
+                Fail( handle, fmt::format( "'{}' is resident with its registry rig '{}' (signature {}) and the two "
+                                           "do not match; the registry's Rig tag is stale — re-scan",
+                                           entry.Asset->GetMetadata().Filepath.string(),
+                                           entry.Rig->GetMetadata().Filepath.string(), entry.Rig->GetSignature() ) );
+                return false;
+            }
+        }
+        return true;
+    }
+
     Desert::Mesh* MeshService::Get( const Assets::AssetHandle& handle ) const
     {
         if ( auto it = m_Meshes.find( handle ); it != m_Meshes.end() )
             return it->second.get();
 
-        // Lazy build: a shell was registered — parse the .stmesh (if needed) + build the GPU mesh now.
-        // Through the same BuildAndCache the eager path uses, so both routes obey the same relation and a
-        // FAILED build caches nothing: a sticky null (or a sticky empty) can never recover once the
-        // dependency it was missing is in place.
-        if ( auto ait = m_MeshAssets.find( handle ); ait != m_MeshAssets.end() )
+        Entry* entry = FindOrDiscover( handle );
+        if ( !entry || !Arrived( handle, *entry ) )
+            return nullptr;
+
+        if ( const auto built = BuildAndCache( entry->Asset ); !built )
         {
-            if ( const auto built = BuildAndCache( ait->second ); !built )
-            {
-                LOG_ERROR( "MeshService::Get: {}", built.GetError() );
-                return nullptr;
-            }
-            return m_Meshes[handle].get();
+            Fail( handle, built.GetError() );
+            return nullptr;
         }
-        return nullptr;
+        return m_Meshes[handle].get();
     }
 
     Assets::MeshAsset* MeshService::GetAsset( const Assets::AssetHandle& handle ) const
     {
-        auto it = m_MeshAssets.find( handle );
-        if ( it == m_MeshAssets.end() )
+        Entry* entry = FindOrDiscover( handle );
+        if ( !entry || !Arrived( handle, *entry ) )
             return nullptr;
-        // Ensure the payload is parsed before callers read submeshes / material handles (lazy shells).
-        if ( const auto loaded = EnsureLoaded( it->second ); !loaded )
+        return entry->Asset.get();
+    }
+
+    std::size_t MeshService::AwaitResident( std::span<const Assets::AssetHandle> handles )
+    {
+        for ( const auto& handle : handles )
+            if ( Entry* entry = FindOrDiscover( handle ) )
+                (void)Arrived( handle, *entry );
+
+        std::size_t drawable = 0;
+        for ( const auto& handle : handles )
         {
-            LOG_ERROR( "MeshService::GetAsset: {}", loaded.GetError() );
-            return nullptr;
+            if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
+            {
+                if ( it->second.Asset )
+                    Assets::AsyncAssetLoader::Get().AwaitOne( it->second.Asset->GetMetadata().Handle );
+                if ( it->second.Rig )
+                    Assets::AsyncAssetLoader::Get().AwaitOne( it->second.Rig->GetMetadata().Handle );
+            }
+            drawable += Get( handle ) != nullptr ? 1 : 0;
         }
-        return it->second.get();
+        return drawable;
+    }
+
+    Desert::Mesh* MeshService::LoadNow( const Assets::AssetHandle& handle )
+    {
+        Entry* entry = FindOrDiscover( handle );
+        if ( !entry )
+            return nullptr;
+        (void)Arrived( handle, *entry );
+        if ( entry->Asset )
+            Assets::AsyncAssetLoader::Get().FlushOne( entry->Asset->GetMetadata().Handle );
+        if ( entry->Rig )
+            Assets::AsyncAssetLoader::Get().FlushOne( entry->Rig->GetMetadata().Handle );
+        return Get( handle );
     }
 
     bool MeshService::EvictBuilt( const Assets::AssetHandle& handle )
@@ -188,7 +345,7 @@ namespace Desert::Runtime
         // No shell means no recipe: this is a procedural mesh registered by RegisterProcedural, and the
         // only copy of its geometry is the buffers about to be dropped. Refuse, and say so — a silent
         // "nothing to do" here would read to the caller as "already released".
-        if ( m_MeshAssets.find( handle ) == m_MeshAssets.end() )
+        if ( m_Entries.find( handle ) == m_Entries.end() )
         {
             LOG_WARN( "[MeshService] eviction asked for mesh {} and it is procedural — no asset shell, so "
                       "nothing could rebuild it. Kept.",
@@ -203,7 +360,7 @@ namespace Desert::Runtime
     void MeshService::Clear()
     {
         m_Meshes.clear();
-        m_MeshAssets.clear();
+        m_Entries.clear();
         m_AssetManager.reset();
     }
 
@@ -214,8 +371,8 @@ namespace Desert::Runtime
         // This must stay cheap: UI (e.g. the mesh selector popup) calls it for EVERY mesh asset every frame.
         // Building here would force a synchronous load+GPU-build of every mesh in the project → multi-second
         // freeze that looks like a hang.
-        if ( auto ait = m_MeshAssets.find( handle ); ait != m_MeshAssets.end() )
-            return std::make_optional( ait->second->IsSkinned() );
+        if ( auto ait = m_Entries.find( handle ); ait != m_Entries.end() && ait->second.Asset )
+            return std::make_optional( ait->second.Asset->IsSkinned() );
 
         // Procedural meshes have no asset shell — fall back to the already-built runtime mesh if present.
         if ( auto it = m_Meshes.find( handle ); it != m_Meshes.end() )
