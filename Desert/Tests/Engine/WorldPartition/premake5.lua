@@ -28,6 +28,8 @@ project(test_name)
         -- the same functions the loader uses. Both files are pure and link only Common.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        -- FO-6: foliage filed by cell. Pure: CellOf from the rules header and glm.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Foliage/FoliageCells.cpp",
     }
 
     includedirs {
