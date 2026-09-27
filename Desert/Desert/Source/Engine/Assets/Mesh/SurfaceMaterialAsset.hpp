@@ -3,6 +3,7 @@
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/Mesh/SurfaceShaderNames.hpp>
 
 namespace Desert::Assets
 {
@@ -90,7 +91,7 @@ namespace Desert::Assets
         // through the generic data-driven path. Asked of the RESOLVED name, never of the raw data.
         [[nodiscard]] bool UsesCustomShader() const
         {
-            return m_ShaderName != kDefaultShaderName && m_ShaderName != "SkinnedMeshPBR";
+            return !IsPBRSurfaceShader( m_ShaderName );
         }
 
         // Resolves Data().Shader's GUID to the ShaderAsset registered under HandleForGuid of it. The loads
@@ -100,7 +101,7 @@ namespace Desert::Assets
         void ResolveDependencies( AssetManager& manager ) override;
 
         // What an absent Shader resolves to.
-        static constexpr std::string_view kDefaultShaderName = "StaticMeshPBR";
+        static constexpr std::string_view kDefaultShaderName = kStaticMeshPBRShader;
 
         // States in @p data the shader an editor action names BY NAME (a picker row, a graph, a component's
         // default): the loaded ShaderAsset whose file stem is @p name, by its header GUID and stable path.

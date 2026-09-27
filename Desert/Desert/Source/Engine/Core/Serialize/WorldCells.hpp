@@ -199,6 +199,14 @@ namespace Desert::Core::WorldCells
     // The bounds source a cook plans with: the first registry that knows the mesh answers.
     [[nodiscard]] Rules::AssetBoundsSource BoundsFrom( std::span<const Common::Utils::AssetRegistry> registries );
 
+    // WHETHER A MATERIAL DRAWS WITH ITS OWN SHADER, from the registries' rows alone: the material's row (by GUID,
+    // then path) names its shader among its dependencies, and a material instance names its parent — followed
+    // until a Shader row answers. A shader row whose stem is not a PBR surface name (Assets::IsPBRSurfaceShader)
+    // is a custom shader; a material that states none draws with the PBR surface. First registry that answers
+    // wins, as in BoundsFrom. Empty registries give an empty source (see Rules::CustomShaderSource).
+    [[nodiscard]] Rules::CustomShaderSource
+    CustomShaderFrom( std::span<const Common::Utils::AssetRegistry> registries );
+
     // ── Reading ──────────────────────────────────────────────────────────────────────────────────
 
     // Checks the envelope and parses the index; every error names @p fileName.

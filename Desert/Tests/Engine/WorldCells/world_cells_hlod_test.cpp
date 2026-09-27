@@ -408,3 +408,113 @@ TEST( WorldCellsHLOD, AnHLODStandingInForAnAlwaysLoadedUnitIsRefused )
     EXPECT_NE( read.GetError().find( Cells::kIndexFileName ), std::string::npos ) << read.GetError();
     EXPECT_NE( read.GetError().find( "not a cell" ), std::string::npos ) << read.GetError();
 }
+
+namespace
+{
+    constexpr const char*   kCustomMaterial   = "0000000000000000000000000000c057";
+    constexpr const char*   kCustomInstance   = "0000000000000000000000000000c0c1";
+    constexpr const char*   kPbrMaterial      = "00000000000000000000000000000fb1";
+    constexpr std::uint64_t kCustomCube       = 301;
+    constexpr std::uint64_t kInstanceCube     = 302;
+    constexpr std::uint64_t kMixedCube        = 303;
+    constexpr std::uint64_t kPbrCube          = 304;
+    constexpr std::uint64_t kCustomPointsCube = 305;
+
+    Common::Utils::AssetRegistryEntry Row( std::string key, std::string kind, const char* guid,
+                                           std::vector<std::uint64_t> dependencies )
+    {
+        Common::Utils::AssetRegistryEntry row;
+        row.Key  = std::move( key );
+        row.Kind = std::move( kind );
+        row.Size = 1;
+        if ( guid != nullptr )
+        {
+            auto parsed = CC::AssetGuidFromText( guid );
+            EXPECT_TRUE( parsed.IsSuccess() );
+            if ( parsed )
+                row.Guid = parsed.GetValue();
+        }
+        row.Dependencies = std::move( dependencies );
+        return row;
+    }
+
+    // A custom-shader material, an instance of it, and a material on the PBR surface — as the cook's registry
+    // states them: each material names its shader (or its parent) among its dependencies.
+    Common::Utils::AssetRegistry MaterialRegistry()
+    {
+        const auto water    = Row( "assets:Shaders/Water.shader", "Shader", nullptr, {} );
+        const auto pbr      = Row( "assets:Shaders/StaticMeshPBR.shader", "Shader", nullptr, {} );
+        const auto custom   = Row( "assets:Materials/M_Water.demat", "Material", kCustomMaterial,
+                                   { water.PathHandle() } );
+        const auto instance = Row( "assets:Materials/MI_Water.demat", "Material", kCustomInstance,
+                                   { custom.PathHandle() } );
+        const auto surface  = Row( "assets:Materials/M_Rock.demat", "Material", kPbrMaterial, { pbr.PathHandle() } );
+        Common::Utils::AssetRegistry registry;
+        for ( const auto& row : { water, pbr, custom, instance, surface } )
+            EXPECT_TRUE( registry.Insert( row ).IsSuccess() );
+        return registry;
+    }
+
+    EntityData CubeWith( std::uint64_t id, std::vector<std::string> materials, float x )
+    {
+        EntityData data = Record( id, "Cube", CellCentre( 1, 1 ) + glm::vec3( x, 0.0f, 0.0f ) );
+        Desert::Assets::StaticMeshComponentSer mesh;
+        mesh.Primitive     = Desert::Geometry::PrimitiveType::Cube;
+        mesh.MaterialGuids = std::move( materials );
+        WithMesh( data, mesh );
+        return data;
+    }
+} // namespace
+
+// THE ISM PATH SKIPS A COMPONENT WHOSE EVERY MATERIAL DRAWS WITH ITS OWN SHADER, so the cook must not write an
+// instance for it and call the cell covered: the record is a named hole, CustomShaderMaterial. One PBR slot is
+// enough to draw (the ISM binds the first PBR slot), and a material instance takes its parent's shader.
+TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
+{
+    SceneSerialized scene;
+    scene.SceneName      = "HlodShaders";
+    scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ kCell, 1500.0f } } };
+    scene.Entities.push_back( CubeWith( kCustomCube, { kCustomMaterial }, 0.0f ) );
+    scene.Entities.push_back( CubeWith( kInstanceCube, { kCustomInstance }, 50.0f ) );
+    scene.Entities.push_back( CubeWith( kMixedCube, { kCustomMaterial, kPbrMaterial }, 100.0f ) );
+    scene.Entities.push_back( CubeWith( kPbrCube, { kPbrMaterial }, 150.0f ) );
+    EntityData points = Record( kCustomPointsCube, "Points", CellCentre( 1, 1 ) );
+    {
+        Desert::Assets::InstancedStaticMeshComponentSer ism;
+        ism.Primitive                            = Desert::Geometry::PrimitiveType::Cube;
+        ism.MaterialGuids                        = std::vector<std::string>{ kCustomMaterial };
+        ism.InstanceTransforms                   = std::vector<std::array<float, 16>>{ Flat( glm::mat4( 1.0f ) ) };
+        points.Components["InstancedStaticMesh"] = Common::Json::FromStruct( ism );
+    }
+    scene.Entities.push_back( points );
+
+    const std::array<Common::Utils::AssetRegistry, 1> registries{ MaterialRegistry() };
+    auto                                              cooked = Cells::CookWorld( scene, registries );
+    ASSERT_TRUE( cooked.IsSuccess() ) << cooked.GetError();
+    const Cells::WorldIndex& index = cooked.GetValue().Index;
+    // The authored ISM's instance sits at the origin, so its footprint is another cell: read every HLOD.
+    std::map<std::uint64_t, Rules::HLODExclusion> missing;
+    std::vector<std::uint64_t>                    sources;
+    for ( const Cells::IndexHLOD& hlod : index.HLODs )
+    {
+        for ( const auto& row : hlod.NotInstanced )
+            missing[row.Id] = row.Reason;
+        sources.insert( sources.end(), hlod.Sources.begin(), hlod.Sources.end() );
+    }
+    EXPECT_EQ( missing, ( std::map<std::uint64_t, Rules::HLODExclusion>{
+                             { kCustomCube, Rules::HLODExclusion::CustomShaderMaterial },
+                             { kInstanceCube, Rules::HLODExclusion::CustomShaderMaterial },
+                             { kCustomPointsCube, Rules::HLODExclusion::CustomShaderMaterial } } ) );
+    std::sort( sources.begin(), sources.end() );
+    EXPECT_EQ( sources, ( std::vector<std::uint64_t>{ kMixedCube, kPbrCube } ) );
+
+    // The index spells the new reason by name, in the same closed list.
+    const std::string text = Common::Json::Write( index );
+    EXPECT_NE( text.find( R"("Reason":"CustomShaderMaterial")" ), std::string::npos ) << text;
+
+    // Without a registry nothing is known to be custom, and every cube is instanced — the stated condition.
+    auto blind = Cells::CookWorld( scene, {} );
+    ASSERT_TRUE( blind.IsSuccess() ) << blind.GetError();
+    for ( const Cells::IndexHLOD& hlod : blind.GetValue().Index.HLODs )
+        EXPECT_TRUE( hlod.NotInstanced.empty() );
+}

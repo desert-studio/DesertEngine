@@ -180,7 +180,7 @@ namespace
               ++unit )
         {
             const auto built = Desert::Core::Rules::BuildInstancingHLOD(
-                 s.Records, world, ResidencyUnitMembers( plan, unit ), issues );
+                 s.Records, world, ResidencyUnitMembers( plan, unit ), {}, issues );
             if ( !built.Batches.empty() )
                 s.Units.push_back( unit );
         }

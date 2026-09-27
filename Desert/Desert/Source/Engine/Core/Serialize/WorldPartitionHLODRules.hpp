@@ -38,6 +38,11 @@
 //   SkinnedMesh     — a skinned mesh; UE batches only INSTANCED skinned meshes, and there are none here.
 //   PrefabInstance  — the instance's body is in the .deprefab, not in this file (see UnplacedPrefabInstances).
 //   Unreadable      — a mesh block of the wrong shape; the Issue says where, as it does for the loader.
+//   CustomShaderMaterial — every material the batch would bind draws with its own (DSL) shader. The ISM draw
+//                     path is the batched PBR one and skips such a component whole (MeshECSSystem, "Instanced
+//                     Static Mesh doesn't support custom-shader materials"), so an instance written for it
+//                     would be a hole nobody named. Asked of a CustomShaderSource, because which shader a
+//                     material names is in the material's file, not in this one.
 // A record that draws nothing — no mesh block, a StaticMesh naming neither asset nor primitive, an ISM
 // without instances, `Visibility.Visible == false` — needs no stand-in and is neither batched nor listed.
 //
@@ -53,10 +58,12 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <optional>
 #include <span>
@@ -79,7 +86,15 @@ namespace Desert::Core::Rules
         SkinnedMesh,
         PrefabInstance,
         Unreadable,
+        CustomShaderMaterial,
     };
+
+    // WHAT THE BUILDER MAY KNOW ABOUT A MATERIAL FROM OUTSIDE THE FILE: whether the material a slot names (by the
+    // GUID its block states — null when none — and the path beside it) draws with its own shader rather than the
+    // PBR surface. AN EMPTY SOURCE IS A STATED CONDITION, as for AssetBoundsSource: no material is then known to
+    // be custom, which is all a caller with no registry (a suite over one file) can say.
+    using CustomShaderSource =
+         std::function<bool( const Common::Content::AssetGuid& guid, std::string_view path )>;
 
     struct HLODNotInstanced
     {
@@ -111,6 +126,33 @@ namespace Desert::Core::Rules
             return flat;
         }
 
+        // True when the ISM path would skip @p key whole: it names at least one material slot and every slot's
+        // material draws with its own shader. One PBR slot is enough for the ISM path to draw (it binds the
+        // first PBR slot), and a component naming no material draws with the default PBR one.
+        [[nodiscard]] inline bool DrawsOnlyWithCustomShaders( const Assets::InstancedStaticMeshComponentSer& key,
+                                                              const CustomShaderSource& customShader )
+        {
+            if ( !customShader )
+                return false;
+            const std::size_t guids = key.MaterialGuids.has_value() ? key.MaterialGuids->size() : 0;
+            const std::size_t paths = key.MaterialPaths.has_value() ? key.MaterialPaths->size() : 0;
+            const std::size_t slots = std::max( guids, paths );
+            for ( std::size_t slot = 0; slot < slots; ++slot )
+            {
+                Common::Content::AssetGuid guid;
+                if ( slot < guids && !( *key.MaterialGuids )[slot].empty() )
+                    if ( const auto parsed = Common::Content::AssetGuidFromText( ( *key.MaterialGuids )[slot] ) )
+                        guid = parsed.GetValue();
+                const std::string_view path = slot < paths ? std::string_view( ( *key.MaterialPaths )[slot] )
+                                                           : std::string_view();
+                if ( guid.IsNull() && path.empty() )
+                    return false; // an empty slot draws with the default PBR material
+                if ( !customShader( guid, path ) )
+                    return false;
+            }
+            return slots > 0;
+        }
+
         // False when the record is authored invisible: then it draws nothing and needs no stand-in.
         [[nodiscard]] inline bool AuthoredVisible( const Assets::EntityData& record, Common::Json::Issues& issues )
         {
@@ -128,6 +170,7 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline InstancingHLOD BuildInstancingHLOD( std::span<const Assets::EntityData> records,
                                                              std::span<const glm::mat4>          world,
                                                              std::span<const std::size_t>        members,
+                                                             const CustomShaderSource&           customShader,
                                                              Common::Json::Issues&               issues )
     {
         InstancingHLOD                     hlod;
@@ -192,7 +235,10 @@ namespace Desert::Core::Rules
                     // Absent = true on both sides; written only when false, as the registry writes it.
                     if ( !mesh.CastShadows.value_or( true ) )
                         key.CastShadows = false;
-                    add( std::move( key ), index, { Detail::Flatten( world[index] ) } );
+                    if ( Detail::DrawsOnlyWithCustomShaders( key, customShader ) )
+                        hlod.NotInstanced.push_back( { index, HLODExclusion::CustomShaderMaterial } );
+                    else
+                        add( std::move( key ), index, { Detail::Flatten( world[index] ) } );
                 }
             }
 
@@ -212,6 +258,11 @@ namespace Desert::Core::Rules
                      ism.InstanceTransforms.value_or( std::vector<std::array<float, 16>>{} );
                 if ( ism.CastShadows.value_or( true ) )
                     ism.CastShadows.reset();
+                if ( Detail::DrawsOnlyWithCustomShaders( ism, customShader ) )
+                {
+                    hlod.NotInstanced.push_back( { index, HLODExclusion::CustomShaderMaterial } );
+                    continue;
+                }
                 add( std::move( ism ), index, std::move( instances ) );
             }
         }

@@ -1,5 +1,6 @@
 #include <Engine/Core/WorldStreamer.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 
@@ -123,10 +124,13 @@ namespace Desert::Core
             Common::Json::Issues              issues;
             std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
+            // The editor's registry is the one the cook reads, so Play excludes what the cook excludes.
+            const Rules::CustomShaderSource customShader =
+                 WorldCells::CustomShaderFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
             for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
                 const Rules::InstancingHLOD built = Rules::BuildInstancingHLOD(
-                     snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ), issues );
+                     snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ), customShader, issues );
                 for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
                     holes.push_back( missing.Reason );
                 if ( built.Batches.empty() )

@@ -1,5 +1,6 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
+#include <Engine/Assets/Mesh/SurfaceShaderNames.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -14,6 +15,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <iterator>
 #include <map>
 #include <tuple>
@@ -320,6 +322,51 @@ namespace Desert::Core::WorldCells
         };
     }
 
+    Rules::CustomShaderSource CustomShaderFrom( std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        if ( registries.empty() )
+            return {};
+        return [registries]( const CC::AssetGuid& guid, std::string_view path ) -> bool
+        {
+            const auto byHandle = [registries]( std::uint64_t handle ) -> const Common::Utils::AssetRegistryEntry*
+            {
+                for ( const auto& registry : registries )
+                    if ( const auto* row = registry.FindByHandle( handle ) )
+                        return row;
+                return nullptr;
+            };
+            const Common::Utils::AssetRegistryEntry* material = nullptr;
+            for ( const auto& registry : registries )
+                if ( ( material = registry.FindByGuidReference( guid, path ) ) != nullptr )
+                    break;
+            // An instance chain is short; the bound only stops a cycle a damaged registry could state.
+            constexpr int kMaxParents = 16;
+            for ( int depth = 0; material != nullptr && depth < kMaxParents; ++depth )
+            {
+                const Common::Utils::AssetRegistryEntry* parent = nullptr;
+                for ( const std::uint64_t dependency : material->Dependencies )
+                {
+                    const auto* row = byHandle( dependency );
+                    if ( row == nullptr )
+                        continue;
+                    if ( row->Kind == "Shader" )
+                    {
+                        const std::string_view key   = row->Key;
+                        const std::size_t      colon = key.find( ':' );
+                        const std::string stem = std::filesystem::path( std::string( key.substr( colon + 1 ) ) )
+                                                      .stem()
+                                                      .string();
+                        return !Assets::IsPBRSurfaceShader( stem );
+                    }
+                    if ( row->Kind == "Material" && parent == nullptr )
+                        parent = row;
+                }
+                material = parent;
+            }
+            return false;
+        };
+    }
+
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Common::Utils::AssetRegistry> registries )
     {
@@ -453,12 +500,13 @@ namespace Desert::Core::WorldCells
         }
         // THE INSTANCING HLOD OF EVERY CELL (WP10), after the cells so a cell's file is written before the one
         // that stands in for it and the index lists them in that order.
-        const std::vector<glm::mat4> world = Rules::Detail::ComposeWorld( records, byId );
-        std::set<std::uint64_t>      hlodIds;
+        const std::vector<glm::mat4>    world        = Rules::Detail::ComposeWorld( records, byId );
+        const Rules::CustomShaderSource customShader = CustomShaderFrom( registries );
+        std::set<std::uint64_t>         hlodIds;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < unitCount; ++unit )
         {
             const Rules::InstancingHLOD built =
-                 Rules::BuildInstancingHLOD( records, world, members[unit], issues );
+                 Rules::BuildInstancingHLOD( records, world, members[unit], customShader, issues );
             if ( built.Batches.empty() && built.NotInstanced.empty() )
                 continue;
             IndexHLOD row;
