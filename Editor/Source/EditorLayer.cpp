@@ -5101,6 +5101,24 @@ namespace Desert::Editor
                    Core::MeshElementSelection::Get().ReqPickCentre = true;
                    return PaletteCommandDone();
                } } );
+        // UE's Accept on a static mesh (P9b): the selected entity's edit goes INTO its asset - an imported .fbx
+        // mesh included - under the same GUID, so every scene and foliage type naming the mesh draws the edit.
+        commands.push_back( { "Modeling", "Accept: write the edit into the static mesh asset", [this]
+                              {
+                                  const auto selected = Core::SelectionManager::GetSelected();
+                                  if ( !m_MainScene || !selected.has_value() )
+                                      return PaletteCommandOutcome( false, "no entity is selected" );
+                                  auto ref = m_MainScene->FindEntityByID( *selected );
+                                  if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                                      return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
+                                  auto written = Editor::CommitEditableMeshToAsset(
+                                       ref->get().GetComponent<ECS::StaticMeshComponent>() );
+                                  if ( !written.IsSuccess() )
+                                      return PaletteCommandOutcome( false, written.GetError() );
+                                  LOG_INFO( "[Modeling] the edit was written into '{}'",
+                                            written.GetValue().generic_string() );
+                                  return PaletteCommandDone();
+                              } } );
         // The operations on that selection, at the panel's values (ModelingState). Cut is not here: it needs
         // a line drawn in the viewport (the knife, Alt+K).
         for ( const Core::MeshOperation op :

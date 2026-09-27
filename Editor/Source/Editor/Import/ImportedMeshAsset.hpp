@@ -5,6 +5,7 @@
 #include <Engine/Assets/Serialization/Mesh.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -57,6 +58,12 @@ namespace Desert::Editor
     // the generic type icon (or, for MeshDnD::ResolveOrImport, failing the drop outright) with nothing in
     // the log to say why.
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source );
+
+    // What a re-import does to the file at CookPaths::MeshAsset( @p source ): removes it. Either a legacy file
+    // from a build before AF4h (never read, removed silently) or an EDITED import (Assets::IsEditedImportedMesh,
+    // P9b) - UE's re-import replaces the asset's source model, and so does this one: the edit is lost, with a
+    // warning naming both files. Returns the edited file it removed; nullopt for none or a legacy file.
+    std::optional<std::filesystem::path> RemoveBesideSourceFile( const std::filesystem::path& source );
 
     enum class MeshAssetWrite
     {
