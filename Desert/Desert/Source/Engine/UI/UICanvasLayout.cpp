@@ -329,6 +329,12 @@ namespace Desert::UI
             // copied further down: a grandchild of a windowed-out row is AncestorSkipped, which is what
             // every other self-cause already does one level up.
             bool OutsideWindow = false;
+
+            // Inside a bound list's row (UIL1): the record answering this subtree's bindings and its
+            // index. Inherited all the way down, unlike OutsideWindow — every element of the entry
+            // template belongs to the row.
+            const UIDataStore* Row      = nullptr;
+            int                RowIndex = -1;
         };
 
         // A CANVAS IS A TREE AND THIS WALK IS ITS TRAVERSAL; the depth is the authored nesting, and the
@@ -343,6 +349,7 @@ namespace Desert::UI
 
             UIElementNode node;
             node.Entity    = e;
+            node.ListRow   = scope.RowIndex;
             node.Parent    = scope.ParentEntity;
             node.Depth     = scope.Depth;
             node.TakesSlot = TakesLayoutSpace( reg, e );
@@ -391,7 +398,8 @@ namespace Desert::UI
                 if ( !isCurrent && !isLeaving )
                     self = UISkipCause::ScreenNotCurrent;
             }
-            if ( self == UISkipCause::None && ctx != nullptr && BindingHidesElement( reg, e, ctx ) )
+            if ( self == UISkipCause::None && ( ctx != nullptr || scope.Row != nullptr ) &&
+                 BindingHidesElement( reg, e, ctx, scope.Row ) )
                 self = UISkipCause::BindingHidden;
 
             if ( scope.SkippedBy != entt::null )
@@ -481,15 +489,19 @@ namespace Desert::UI
             // the window solved below rather than from childParent, so nothing is shifted here.
             ListWindow listWindow;
             const bool isList = reg.has<ECS::UIListViewComponent>( e );
+            const UICollection* boundRows = nullptr;
             if ( isList )
             {
                 // READ-ONLY where the renderer writes, for the reason the scroll view states above: a
                 // query must not edit the scene. SolveListWindow clamps the offset it was given, so the
                 // number used here is the same one for any ScrollY the renderer could have left behind.
-                const auto&       lv = reg.get<ECS::UIListViewComponent>( e ).Data;
-                const std::size_t n  = reg.has<ECS::RelationshipComponent>( e )
-                                            ? reg.get<ECS::RelationshipComponent>( e ).Children.size()
-                                            : 0u;
+                const auto& lv = reg.get<ECS::UIListViewComponent>( e ).Data;
+                boundRows = lv.Collection.empty() ? nullptr : UIDataStore::Get().FindCollection( lv.Collection );
+                std::size_t n = reg.has<ECS::RelationshipComponent>( e )
+                                     ? reg.get<ECS::RelationshipComponent>( e ).Children.size()
+                                     : 0u;
+                if ( !lv.Collection.empty() )
+                    n = static_cast<std::size_t>( boundRows != nullptr ? boundRows->Size() : 0 );
                 listWindow = SolveListWindow( static_cast<int>( n ), lv.ItemHeight, lv.Spacing, lv.Overscan,
                                               lv.ScrollY, rect.H, scale );
                 clip       = true;
@@ -520,9 +532,31 @@ namespace Desert::UI
             child.Elect =
                  scope.Elect && ( hitTest == ECS::UIHitTest::All || hitTest == ECS::UIHitTest::ChildrenOnly );
             child.SkippedBy = scope.SkippedBy != entt::null ? scope.SkippedBy : node.Drawn ? entt::null : e;
+            child.Row       = scope.Row;
+            child.RowIndex  = scope.RowIndex;
 
             const auto& children = reg.get<ECS::RelationshipComponent>( e ).Children;
-            if ( isList )
+            if ( isList && !reg.get<ECS::UIListViewComponent>( e ).Data.Collection.empty() )
+            {
+                // BOUND (UIL1): only the WINDOW's records are enumerated, each as one walk of the entry
+                // template. Unlike the child rows below, an off-screen record has no element to report —
+                // it is data, not a node — and enumerating the template once per record would be the
+                // whole-collection walk, per query, that binding exists to avoid. The renderer walks the
+                // same [First, Last] with the same record per row, so the two describe one frame.
+                const entt::entity entry = children.size() == 1 ? children.front() : entt::entity( entt::null );
+                if ( boundRows != nullptr && reg.valid( entry ) )
+                {
+                    for ( int i = listWindow.First; i <= listWindow.Last; ++i )
+                    {
+                        const Rect rowRect = ListRowRect( rect, listWindow, i );
+                        EnumScope  row     = child;
+                        row.Row            = &boundRows->Record( i );
+                        row.RowIndex       = i;
+                        EnumRecurse( reg, entry, row, scale, viewportPx, ctx, out, order, &rowRect );
+                    }
+                }
+            }
+            else if ( isList )
             {
                 // EVERY row is enumerated, and only the window's rows are DRAWN. A query that reported the
                 // window alone would lose the other nineteen thousand rows from the outliner and from the
@@ -603,14 +637,15 @@ namespace Desert::UI
         return "?";
     }
 
-    bool BindingHidesElement( entt::registry& reg, entt::entity e, const UICanvasContext* ctx )
+    bool BindingHidesElement( entt::registry& reg, entt::entity e, const UICanvasContext* ctx,
+                              const UIDataStore* row )
     {
         if ( !reg.valid( e ) || !reg.has<ECS::UIBindingComponent>( e ) )
             return false;
         const auto& b = reg.get<ECS::UIBindingComponent>( e ).Data;
         if ( b.Target != ECS::UIBindTarget::Visible || b.Key.empty() )
             return false;
-        const auto v = BindingStore( ctx, b.Key ).Bool( b.Key );
+        const auto v = BindingStore( ctx, b.Key, row ).Bool( b.Key );
         return v.has_value() && !*v;
     }
 

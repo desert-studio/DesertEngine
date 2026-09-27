@@ -33,6 +33,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -687,6 +688,328 @@ TEST( ListViewCost, WalkTimeAgainstRowCount )
                      lvCanvasUs.Median );
     }
     std::printf( "\n" );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// UIL1 — the collection and the list bound to it.
+// ---------------------------------------------------------------------------------------------------
+
+TEST( UICollection, MutationsAreLoggedAsRangesAndIdsSurviveTheIndicesMoving )
+{
+    UI::UICollection c;
+    for ( int i = 0; i < 3; ++i )
+    {
+        UI::UIDataStore r;
+        r.Set( "n", static_cast<double>( i ) );
+        EXPECT_EQ( c.Add( r ), i );
+    }
+    const std::uint64_t idOfTwo = c.RecordId( 2 );
+
+    ASSERT_TRUE( c.Insert( 1, UI::UIDataStore{} ).IsSuccess() );
+    ASSERT_TRUE( c.Remove( 0 ).IsSuccess() );
+    const std::uint64_t revBefore = c.RecordRevision( 1 );
+    ASSERT_TRUE( c.SetField( 1, "n", 7.0 ).IsSuccess() );
+
+    EXPECT_EQ( c.Size(), 3 );
+    EXPECT_EQ( c.RecordId( 2 ), idOfTwo ) << "record 2 was inserted before and removed before -- same place";
+    EXPECT_GT( c.RecordRevision( 1 ), revBefore );
+    EXPECT_EQ( c.Record( 1 ).Number( "n" ).value_or( -1.0 ), 7.0 );
+
+    std::vector<UI::UICollection::Change> changes;
+    ASSERT_TRUE( c.ChangesSince( 3, changes ) );
+    ASSERT_EQ( changes.size(), 3u );
+    EXPECT_EQ( changes[0].What, UI::UICollection::Change::Kind::Insert );
+    EXPECT_EQ( changes[0].First, 1 );
+    EXPECT_EQ( changes[1].What, UI::UICollection::Change::Kind::Remove );
+    EXPECT_EQ( changes[1].First, 0 );
+    EXPECT_EQ( changes[2].What, UI::UICollection::Change::Kind::Set );
+    EXPECT_EQ( changes[2].First, 1 );
+    EXPECT_EQ( changes[2].Generation, c.Generation() );
+}
+
+TEST( UICollection, AnIndexOutsideIsRefusedWithTheNumbers )
+{
+    UI::UICollection c;
+    c.Add( UI::UIDataStore{} );
+    const auto ins = c.Insert( 5, UI::UIDataStore{} );
+    ASSERT_FALSE( ins.IsSuccess() );
+    EXPECT_NE( ins.GetError().find( "5 is outside [0, 1]" ), std::string::npos ) << ins.GetError();
+    EXPECT_FALSE( c.Remove( 1 ).IsSuccess() );
+    EXPECT_FALSE( c.SetField( -1, "x", 1.0 ).IsSuccess() );
+    EXPECT_EQ( c.Size(), 1 );
+    EXPECT_EQ( c.Generation(), 1u ) << "a refused write must not look like a change to a list";
+}
+
+TEST( UICollection, AReaderTheLogNoLongerReachesIsToldSo )
+{
+    UI::UICollection c;
+    for ( std::size_t i = 0; i < UI::UICollection::kChangeLogDepth + 10; ++i )
+        c.Add( UI::UIDataStore{} );
+    std::vector<UI::UICollection::Change> changes;
+    EXPECT_FALSE( c.ChangesSince( 0, changes ) );
+    changes.clear();
+    EXPECT_TRUE( c.ChangesSince( c.Generation() - 1, changes ) );
+    EXPECT_EQ( changes.size(), 1u );
+}
+
+TEST( UICollection, ACopiedStoreOwnsItsOwnCollections )
+{
+    UI::UIDataStore a;
+    a.Collection( "inv" ).Add( UI::UIDataStore{} );
+    UI::UIDataStore b = a;
+    a.Collection( "inv" ).Add( UI::UIDataStore{} );
+    ASSERT_NE( b.FindCollection( "inv" ), nullptr );
+    EXPECT_EQ( b.FindCollection( "inv" )->Size(), 1 );
+    EXPECT_EQ( a.FindCollection( "inv" )->Size(), 2 );
+}
+
+namespace
+{
+    // A list bound to collection "uil1.list": its one child is the entry template, a panel whose colour is
+    // bound to the record's "tint" field and whose one child is bound Visible to "shown". The panel is what
+    // makes a record's value reach VERTICES in a headless walk (text would emit nothing, see ListScene).
+    constexpr const char* kBoundKey = "uil1.list";
+
+    glm::vec3 TintOf( int i )
+    {
+        return glm::vec3( static_cast<float>( i % 7 ) / 7.0f, 0.5f, static_cast<float>( i % 3 ) / 3.0f );
+    }
+
+    ListScene MakeBoundList( int records )
+    {
+        UI::UIDataStore::Get().Clear();
+        auto& coll = UI::UIDataStore::Get().Collection( kBoundKey );
+        for ( int i = 0; i < records; ++i )
+        {
+            UI::UIDataStore r;
+            r.Set( "tint", TintOf( i ) );
+            r.Set( "shown", true );
+            coll.Add( std::move( r ) );
+        }
+
+        ListScene s;
+        s.MakeCanvas();
+        s.MakeContainer();
+        auto& lv      = s.Registry.emplace<ECS::UIListViewComponent>( s.Container ).Data;
+        lv.ItemHeight = kRowHeight;
+        lv.Collection = kBoundKey;
+
+        const entt::entity entry = s.AddChild( s.Container, 0.0f, 0.0f, kListW, kRowHeight - 2.0f );
+        auto&              tint  = s.Registry.emplace<ECS::UIBindingComponent>( entry ).Data;
+        tint.Key                 = "tint";
+        tint.Target              = ECS::UIBindTarget::Color;
+        const entt::entity badge = s.AddChild( entry, 4.0f, 4.0f, 32.0f, 32.0f );
+        auto&              shown = s.Registry.emplace<ECS::UIBindingComponent>( badge ).Data;
+        shown.Key                = "shown";
+        shown.Target             = ECS::UIBindTarget::Visible;
+        s.Rows.push_back( entry );
+        return s;
+    }
+
+    UI::UICollection& Bound()
+    {
+        return UI::UIDataStore::Get().Collection( kBoundKey );
+    }
+
+    float ScrollOf( ListScene& s )
+    {
+        return s.Registry.get<ECS::UIListViewComponent>( s.Container ).Data.ScrollY;
+    }
+} // namespace
+
+TEST( ListViewBound, TheFrameFollowsTheWindowAndNotTheRecordCount )
+{
+    std::size_t verts[2]{};
+    std::size_t drawn[2]{};
+    int         k = 0;
+    for ( const int records : { 20, 20000 } )
+    {
+        ListScene       scene = MakeBoundList( records );
+        R2D::DrawList2D dl;
+        UIViewContext   ctx;
+        ASSERT_TRUE( Walk( scene, dl, ctx ) );
+        verts[k] = dl.GetVertices().size();
+        drawn[k] = DrawnCount( scene, ctx );
+        ++k;
+    }
+    // Window of 15 rows + 1 overscan = 16 rows, two elements each, plus the container.
+    EXPECT_EQ( drawn[0], drawn[1] );
+    EXPECT_EQ( drawn[1], 1u + 2u * static_cast<std::size_t>( kRowsOnView + 1 ) );
+    EXPECT_EQ( verts[0], verts[1] );
+}
+
+TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
+{
+    ListScene       scene = MakeBoundList( 2000 );
+    R2D::DrawList2D dl;
+    UIViewContext   ctx;
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    const std::vector<R2D::Vertex2D> before( dl.GetVertices().begin(), dl.GetVertices().end() );
+
+    constexpr int kRow = 3;
+    ASSERT_TRUE( Bound().SetField( kRow, "tint", glm::vec3( 1.0f, 0.0f, 1.0f ) ).IsSuccess() );
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    const auto& after = dl.GetVertices();
+    ASSERT_EQ( after.size(), before.size() );
+
+    int changed = 0;
+    for ( std::size_t i = 0; i < after.size(); ++i )
+    {
+        if ( after[i] == before[i] )
+            continue;
+        ++changed;
+        const float y = after[i].Position.y;
+        EXPECT_GE( y, kRow * kRowHeight ) << "vertex " << i << " changed outside row " << kRow;
+        EXPECT_LE( y, ( kRow + 1 ) * kRowHeight ) << "vertex " << i << " changed outside row " << kRow;
+    }
+    EXPECT_GT( changed, 0 ) << "the record's new tint never reached its row";
+
+    // A record outside the window changes nothing at all.
+    const std::uint64_t still = Fingerprint( dl );
+    ASSERT_TRUE( Bound().SetField( 1500, "tint", glm::vec3( 0.0f ) ).IsSuccess() );
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_EQ( Fingerprint( dl ), still );
+}
+
+TEST( ListViewBound, RemovingARecordInTheWindowMovesTheRecordsBelowItUpOneRow )
+{
+    // The colour of the first vertex drawn inside row @p row: the entry panel, tinted by its record.
+    const auto rowColour = []( const R2D::DrawList2D& list, int row ) -> std::optional<glm::vec4>
+    {
+        for ( const R2D::Vertex2D& v : list.GetVertices() )
+            if ( v.Position.y > row * kRowHeight && v.Position.y < ( row + 1 ) * kRowHeight )
+                return v.Color;
+        return std::nullopt;
+    };
+
+    ListScene       scene = MakeBoundList( 100 );
+    R2D::DrawList2D dl;
+    UIViewContext   ctx;
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    const auto recordThree = rowColour( dl, 3 );
+    ASSERT_TRUE( recordThree.has_value() );
+    ASSERT_NE( rowColour( dl, 2 ), recordThree ) << "the fixture must tell records 2 and 3 apart";
+
+    ASSERT_TRUE( Bound().Remove( 2 ).IsSuccess() );
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    const std::uint64_t removed = Fingerprint( dl );
+
+    ListScene reference = MakeBoundList( 100 );
+    ASSERT_TRUE( Bound().Remove( 2 ).IsSuccess() );
+    UIViewContext refCtx;
+    ASSERT_TRUE( Walk( reference, dl, refCtx ) );
+    EXPECT_EQ( Fingerprint( dl ), removed ) << "a list that saw the removal draws what a fresh one does";
+
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_EQ( rowColour( dl, 2 ), recordThree ) << "row 2 now shows record 3";
+    EXPECT_EQ( ScrollOf( scene ), 0.0f ) << "a removal inside the window does not scroll";
+}
+
+TEST( ListViewBound, TheScrollFollowsTheRecordsWhenRecordsAreInsertedOrRemovedAboveTheWindow )
+{
+    ListScene scene = MakeBoundList( 1000 );
+    auto&     lv    = scene.Registry.get<ECS::UIListViewComponent>( scene.Container ).Data;
+    lv.ScrollY      = 100 * kRowHeight;
+    R2D::DrawList2D dl;
+    UIViewContext   ctx;
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    ASSERT_EQ( ScrollOf( scene ), 100 * kRowHeight );
+
+    for ( int i = 0; i < 5; ++i )
+        ASSERT_TRUE( Bound().Insert( 0, UI::UIDataStore{} ).IsSuccess() );
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_EQ( ScrollOf( scene ), 105 * kRowHeight ) << "five records above the window move it five rows";
+
+    ASSERT_TRUE( Bound().Remove( 10 ).IsSuccess() );
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_EQ( ScrollOf( scene ), 104 * kRowHeight );
+
+    ASSERT_TRUE( Bound().Insert( 500, UI::UIDataStore{} ).IsSuccess() );
+    Bound().Add( UI::UIDataStore{} );
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_EQ( ScrollOf( scene ), 104 * kRowHeight ) << "records below the window move nothing on screen";
+
+    Bound().Clear();
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+    EXPECT_EQ( ScrollOf( scene ), 0.0f );
+}
+
+TEST( ListViewBound, FollowEndKeepsAChatAtItsNewestLineOnlyWhileItIsThere )
+{
+    for ( const bool follow : { true, false } )
+    {
+        ListScene scene = MakeBoundList( 100 );
+        auto&     lv    = scene.Registry.get<ECS::UIListViewComponent>( scene.Container ).Data;
+        lv.FollowEnd    = follow;
+        lv.ScrollY      = 1.0e9f;
+        R2D::DrawList2D dl;
+        UIViewContext   ctx;
+        ASSERT_TRUE( Walk( scene, dl, ctx ) );
+        const float end100 = 100 * kRowHeight - kListH;
+        ASSERT_EQ( ScrollOf( scene ), end100 );
+
+        for ( int i = 0; i < 3; ++i )
+            Bound().Add( UI::UIDataStore{} );
+        ASSERT_TRUE( Walk( scene, dl, ctx ) );
+        EXPECT_EQ( ScrollOf( scene ), follow ? end100 + 3 * kRowHeight : end100 ) << "follow=" << follow;
+
+        // Scrolled up, the reader's place is kept even with FollowEnd on.
+        lv.ScrollY = 10 * kRowHeight;
+        ASSERT_TRUE( Walk( scene, dl, ctx ) );
+        Bound().Add( UI::UIDataStore{} );
+        ASSERT_TRUE( Walk( scene, dl, ctx ) );
+        EXPECT_EQ( ScrollOf( scene ), 10 * kRowHeight ) << "follow=" << follow;
+    }
+}
+
+TEST( ListViewBound, TheEnumerationNamesEachRowsRecordAndAgreesWithTheDrawAboutItsBindings )
+{
+    ListScene scene = MakeBoundList( 50 );
+    ASSERT_TRUE( Bound().SetField( 4, "shown", false ).IsSuccess() );
+    R2D::DrawList2D dl;
+    UIViewContext   ctx;
+    ASSERT_TRUE( Walk( scene, dl, ctx ) );
+
+    const auto nodes = Enumerate( scene, ctx );
+    int        rows  = 0;
+    for ( const UIElementNode& n : nodes )
+    {
+        if ( n.Entity != scene.Rows.front() )
+            continue;
+        EXPECT_EQ( n.ListRow, rows ) << "rows are enumerated in record order";
+        ++rows;
+    }
+    EXPECT_EQ( rows, kRowsOnView + 1 );
+
+    const auto hidden = std::find_if( nodes.begin(), nodes.end(),
+                                      []( const UIElementNode& n ) { return n.ListRow == 4 && !n.Drawn; } );
+    ASSERT_NE( hidden, nodes.end() );
+    EXPECT_EQ( hidden->Cause, UISkipCause::BindingHidden );
+    EXPECT_EQ( std::count_if( nodes.begin(), nodes.end(), []( const UIElementNode& n ) { return !n.Drawn; } ), 1 );
+}
+
+TEST( ListViewBoundCost, WalkTimeAgainstRecordCount )
+{
+    std::printf( "\n  records | bound list walk (us) [fastest..slowest] | drawn\n" );
+    for ( const int records : { 20, 1000, 20000 } )
+    {
+        ListScene           scene = MakeBoundList( records );
+        R2D::DrawList2D     dl;
+        UIViewContext       ctx;
+        std::vector<double> samples;
+        for ( int r = 0; r < 21; ++r )
+        {
+            const auto t0 = std::chrono::steady_clock::now();
+            Walk( scene, dl, ctx );
+            const auto t1 = std::chrono::steady_clock::now();
+            samples.push_back( std::chrono::duration<double, std::micro>( t1 - t0 ).count() );
+        }
+        const Timing t = Summarise( samples );
+        std::printf( "  %7d | %8.1f [%7.1f..%8.1f]                | %zu\n", records, t.Median, t.Lo, t.Hi,
+                     DrawnCount( scene, ctx ) );
+    }
+    std::printf( "\n" );
+    UI::UIDataStore::Get().Clear();
 }
 
 int main( int argc, char** argv )
