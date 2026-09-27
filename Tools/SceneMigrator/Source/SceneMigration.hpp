@@ -103,7 +103,13 @@ namespace Desert::Migration
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionPathOnlyMeshGuids == kSceneVersion,
+    //  35 - A PARTITIONED WORLD KEEPS ONE FILE PER ENTITY (WP16, Engine/Core/Serialize/ExternalEntities.hpp).
+    //       The tree does not change; a scene that states a WorldPartition block is WRITTEN as its header plus
+    //       one `.deent` per record, which is the caller's write (MigratorMain), counted here. Every other
+    //       scene and every prefab only gains the stamp. (33 and 34 are other branches' steps.)
+    inline constexpr int kSceneVersionExternalEntities = 35;
+
+    static_assert( kSceneVersionExternalEntities == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -144,9 +150,12 @@ namespace Desert::Migration
         bool                     PathOnlyMeshGuidsRaised = false; // below kSceneVersionPathOnlyMeshGuids
         MeshGuidsMigrationReport PathOnlyMeshGuids;
 
+        bool        ExternalEntitiesRaised = false; // below kSceneVersionExternalEntities
+        std::size_t EntitiesMovedOut       = 0;     // records a partitioned world now keeps in their own files
+
         bool Changed() const
         {
-            return PathOnlyMeshGuidsRaised;
+            return PathOnlyMeshGuidsRaised || ExternalEntitiesRaised;
         }
     };
 

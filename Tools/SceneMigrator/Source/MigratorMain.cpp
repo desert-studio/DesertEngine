@@ -52,6 +52,7 @@
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
 
 #include <Common/Content/ShaderAssetHeader.hpp>
@@ -259,6 +260,22 @@ namespace
         return static_cast<bool>( written );
     }
 
+    // A partitioned world is written as its header plus one file per entity, by the engine's own writer, so a
+    // migrated world and a world the editor saved are laid out alike, file for file.
+    bool WriteExternal( const std::filesystem::path& path, const std::string& json, std::ostream& err )
+    {
+        const auto document = Common::Json::TextDocument::Parse( json );
+        if ( !document )
+        {
+            err << "FAIL   " << path.string() << " — " << document.GetError() << "\n";
+            return false;
+        }
+        const auto written = Desert::Core::ExternalEntities::WriteSceneFile( path, document.GetValue() );
+        if ( !written )
+            err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+        return static_cast<bool>( written );
+    }
+
     // A file whose DOCUMENT is current but whose TEXT is not canonical is re-laid-out, not raised: its version
     // stays, because the content is unchanged (the CanonicalText suite proves old and new parse to one document).
     enum class Layout
@@ -396,6 +413,13 @@ namespace
 
     void PrintSteps( std::ostream& out, const Desert::Migration::FileMigrationReport& report )
     {
+        if ( report.ExternalEntitiesRaised )
+        {
+            out << " scene ->v" << Desert::Migration::kSceneVersionExternalEntities;
+            if ( report.EntitiesMovedOut > 0 )
+                out << " (" << report.EntitiesMovedOut << " entit" << ( report.EntitiesMovedOut == 1 ? "y" : "ies" )
+                    << " moved to one file each)";
+        }
         if ( report.PathOnlyMeshGuidsRaised )
             out << " scene v" << Desert::Migration::kSceneVersionShaderGuids << "->v"
                 << Desert::Migration::kSceneVersionPathOnlyMeshGuids << " (" << report.PathOnlyMeshGuids.Rewritten
@@ -677,12 +701,27 @@ namespace Desert::Migration
 
         for ( const auto& path : scenes )
         {
-            const std::string source = ReadAll( path );
+            std::string source = ReadAll( path );
             if ( source.empty() )
             {
                 err << "FAIL   " << path.string() << " — unreadable or empty\n";
                 ++failed;
                 continue;
+            }
+            // A partitioned world's header (v35) is joined with its entity files first, by the engine's own
+            // reader, so every step below sees the one scene document it always has.
+            const auto document = Common::Json::TextDocument::Parse( source );
+            const bool isHeader = document && Desert::Core::ExternalEntities::IsHeader( document.GetValue() );
+            if ( isHeader )
+            {
+                auto joined = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+                if ( !joined )
+                {
+                    err << "FAIL   " << path.string() << " — " << joined.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                source = joined.ExtractValue();
             }
 
             auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( source );
@@ -697,7 +736,7 @@ namespace Desert::Migration
             // the migration as well as used for the write below, so the root the step resolves asset paths
             // against and the root the scene is written under are the same root by construction.
             const std::filesystem::path                  assetsRoot = SceneOutputRoot( path );
-            const Desert::Migration::FileMigrationReport report =
+            Desert::Migration::FileMigrationReport report =
                  Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
 
             // A scene from a LATER build: nothing ran and nothing was stamped, so this is a FAILED file
@@ -710,8 +749,25 @@ namespace Desert::Migration
                 continue;
             }
 
+            // A partitioned world at the head whose records are still INLINE (written by a tool that
+            // predates v35's layout, or by hand) is moved out now: that is the whole of the v35 step.
+            const bool partitioned = parsed.value().WorldPartition.has_value();
+            if ( !report.Changed() && partitioned && !isHeader )
+            {
+                report.ExternalEntitiesRaised = true;
+                report.EntitiesMovedOut       = parsed.value().Entities.size();
+            }
+
             if ( !report.Changed() )
             {
+                // A header is the engine writer's canonical output piece by piece; `source` is the joined
+                // text, which is not the file, so there is no layout to compare it with.
+                if ( isHeader )
+                {
+                    out << "ok     " << path.string() << " — already at scene v" << Desert::Migration::kSceneVersion
+                        << " (one file per entity)\n";
+                    continue;
+                }
                 if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                      layout != Layout::Canonical )
                 {
@@ -741,7 +797,8 @@ namespace Desert::Migration
             // byte-identical, and is a failed FILE here: counted, named, fatal to the exit code like
             // every FAIL above. The "raised" line above then describes work that was NOT kept, which is
             // why this line says so explicitly.
-            if ( !WriteText( path, rfl::json::write( parsed.value() ), err ) )
+            if ( !( partitioned ? WriteExternal( path, rfl::json::write( parsed.value() ), err )
+                                : WriteText( path, rfl::json::write( parsed.value() ), err ) ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched\n";
