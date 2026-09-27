@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <thread>
@@ -46,6 +47,12 @@ namespace Desert::Graphic
         const uint32_t               faceSize        = entry.FaceSize;
         const uint32_t               mips            = entry.Mips;
 
+        using Clock        = std::chrono::steady_clock;
+        const auto msSince = []( Clock::time_point from )
+        { return std::chrono::duration<double, std::milli>( Clock::now() - from ).count(); };
+        auto   stageStart = Clock::now();
+        double tableMs = 0.0, censusMs = 0.0, blocksMs = 0.0, blockTableMs = 0.0, containerMs = 0.0;
+
         Ser::TextureAssetData data;
         data.SourcePath        = sourceKey;
         data.SourceContentHash = sourceSignature;
@@ -74,6 +81,8 @@ namespace Desert::Graphic
         if ( !table.IsSuccess() )
             return Common::MakeError<bool>( table.GetError() );
         data.Levels = table.ExtractValue();
+        tableMs     = msSince( stageStart );
+        stageStart  = Clock::now();
 
         // ── WHAT THE BLOCK FORMAT IS ABOUT TO LOSE, COUNTED BEFORE IT LOSES IT ───────────────────
         //
@@ -90,6 +99,26 @@ namespace Desert::Graphic
         // either way. That is also where UE draws the line: an HDRI is captured into a half-float sky
         // cube, and a sun that must light the scene at full strength is a DirectionalLight, not texels.
         {
+            // EVERY FACE IS COUNTED IN PLACE, ON THE WORKERS, AND SUMMED IN THE OLD ORDER. Copying each
+            // face out first and counting them one after another was 0.6 s of the radiance write (AL1-3b,
+            // timed). The rows are 16-byte aligned RGBA32F inside `data.Pixels` (`kTextureLevelAlignment`),
+            // so they are read where they lie; each face lands in its own slot and the fold below walks
+            // the slots in (level, face) order, so the numbers the warning quotes do not depend on which
+            // worker finished first.
+            std::vector<Core::Formats::BC6HCeilingCensus> faces( data.Levels.size() );
+            Common::JobSystem::Get().ParallelRanges(
+                 faces.size(), 1u,
+                 [&]( const std::size_t first, const std::size_t end )
+                 {
+                     for ( std::size_t row = first; row < end; ++row )
+                     {
+                         const Ser::TextureLevel& image = data.Levels[row];
+                         faces[row]                     = Core::Formats::CensusBC6HCeiling(
+                              reinterpret_cast<const float*>( data.Pixels.data() + image.ByteOffset ),
+                              static_cast<std::size_t>( image.ByteSize / ( 4u * sizeof( float ) ) ) );
+                     }
+                 } );
+
             Core::Formats::BC6HCeilingCensus whole;
             double                           worstLoss  = 0.0;
             uint32_t                         worstLevel = 0;
@@ -98,11 +127,8 @@ namespace Desert::Graphic
                 Core::Formats::BC6HCeilingCensus level;
                 for ( uint32_t face = 0; face < Ser::kTextureCubeLayerCount; ++face )
                 {
-                    const Ser::TextureLevel& image =
-                         data.Levels[Ser::TextureLevelIndex( mip, face, Ser::kTextureCubeLayerCount )];
-                    std::vector<float> texels( static_cast<size_t>( image.ByteSize / sizeof( float ) ) );
-                    std::memcpy( texels.data(), data.Pixels.data() + image.ByteOffset, image.ByteSize );
-                    const auto faceCensus = Core::Formats::CensusBC6HCeiling( texels.data(), texels.size() / 4u );
+                    const auto& faceCensus =
+                         faces[Ser::TextureLevelIndex( mip, face, Ser::kTextureCubeLayerCount )];
                     level.NonFiniteChannels += faceCensus.NonFiniteChannels;
                     level.ClampedTexels += faceCensus.ClampedTexels;
                     level.Peak = std::max( level.Peak, faceCensus.Peak );
@@ -135,6 +161,8 @@ namespace Desert::Graphic
                           100.0 * worstLoss, worstLevel );
             }
         }
+        censusMs   = msSince( stageStart );
+        stageStart = Clock::now();
 
         // ── AND THEN THE SIXTEEN BYTES A TEXEL BECOME ONE ────────────────────────────────────────
         //
@@ -150,6 +178,8 @@ namespace Desert::Graphic
         auto blocks = Ser::BlockCompressChain( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount,
                                                Assets::kEnvironmentComputeFormat, Assets::kEnvironmentStoredFormat,
                                                data.Levels, data.Pixels );
+        blocksMs    = msSince( stageStart );
+        stageStart  = Clock::now();
         if ( !blocks.IsSuccess() )
         {
             LOG_WARN( "[EnvironmentBake] '{}' is cached uncompressed: {}", path.string(), blocks.GetError() );
@@ -160,6 +190,7 @@ namespace Desert::Graphic
             auto                       blockTable =
                  Ser::BuildLevelTable( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount,
                                        Assets::kEnvironmentStoredFormat, blocks.GetValue(), blockPixels );
+            blockTableMs = msSince( stageStart );
             if ( !blockTable.IsSuccess() )
             {
                 LOG_WARN( "[EnvironmentBake] '{}' is cached uncompressed: {}", path.string(),
@@ -179,11 +210,18 @@ namespace Desert::Graphic
         std::error_code ec;
         std::filesystem::create_directories( path.parent_path(), ec );
 
+        stageStart              = Clock::now();
         const std::string bytes = Ser::EncodeTextureBinary( data );
+        containerMs             = msSince( stageStart );
         if ( bytes.empty() )
             return Common::MakeError<bool>( "the cooked container refused the shape this bake produced" );
 
-        return Common::Utils::FileSystem::WriteContentToFileAtomic( path, bytes );
+        stageStart         = Clock::now();
+        const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, bytes );
+        LOG_INFO( "[EnvironmentBake] '{}' encode stages: level table {:.1f} ms, BC6H census {:.1f} ms, block "
+                  "encode {:.1f} ms, block table {:.1f} ms, container {:.1f} ms, write {:.1f} ms.",
+                  path.string(), tableMs, censusMs, blocksMs, blockTableMs, containerMs, msSince( stageStart ) );
+        return written;
     }
     EnvironmentCacheWriter& EnvironmentCacheWriter::Get()
     {
