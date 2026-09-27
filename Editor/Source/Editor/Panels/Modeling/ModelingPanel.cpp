@@ -346,14 +346,36 @@ namespace Desert::Editor
             const float half   = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
             using MO           = Core::MeshOperation;
             const auto operate = [this]( MO op ) { Operate( op ); };
+            // UE's Subdivide tool settings (SubdividePolyTool.h:44-62); the Boundary is greyed out for Bilinear,
+            // as UE's EditCondition does.
+            Geometry::SubdivideSettings& subdivide = ms.ElementSubdivide;
             ImGui::SetNextItemWidth( half );
-            ImGui::SliderInt( "##ElementSubdivideLevels", &ms.ElementSubdivideLevels, 1,
-                              Geometry::kMaxSubdivideLevels, "Levels %d" );
+            ImGui::SliderInt( "##ElementSubdivideLevels", &subdivide.Level, 1, Geometry::kMaxSubdivisionLevel,
+                              "Levels %d" );
             ImGui::SameLine();
-            bool loop = ms.ElementSubdivideScheme == Geometry::SubdivideScheme::Loop;
-            if ( ImGui::Checkbox( "Smooth (Loop)", &loop ) )
-                ms.ElementSubdivideScheme =
-                     loop ? Geometry::SubdivideScheme::Loop : Geometry::SubdivideScheme::Uniform;
+            ImGui::SetNextItemWidth( half );
+            int                                         scheme   = static_cast<int>( subdivide.Scheme );
+            static constexpr std::array<const char*, 3> kSchemes = { "Bilinear", "Catmull-Clark", "Loop" };
+            if ( ImGui::Combo( "##ElementSubdivideScheme", &scheme, kSchemes.data(),
+                               static_cast<int>( kSchemes.size() ) ) )
+                subdivide.Scheme = static_cast<Geometry::SubdivisionScheme>( scheme );
+            ImGui::SetNextItemWidth( half );
+            ImGui::BeginDisabled( subdivide.Scheme == Geometry::SubdivisionScheme::Bilinear );
+            int                                         boundary    = static_cast<int>( subdivide.Boundary );
+            static constexpr std::array<const char*, 2> kBoundaries = { "Smooth Corners", "Sharp Corners" };
+            if ( ImGui::Combo( "##ElementSubdivideBoundary", &boundary, kBoundaries.data(),
+                               static_cast<int>( kBoundaries.size() ) ) )
+                subdivide.Boundary = static_cast<Geometry::SubdivisionBoundaryScheme>( boundary );
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( half );
+            int                                         normals  = static_cast<int>( subdivide.Normals );
+            static constexpr std::array<const char*, 2> kNormals = { "Normals: Interpolated",
+                                                                     "Normals: Generated" };
+            if ( ImGui::Combo( "##ElementSubdivideNormals", &normals, kNormals.data(),
+                               static_cast<int>( kNormals.size() ) ) )
+                subdivide.Normals = static_cast<Geometry::SubdivisionOutputNormals>( normals );
+            ImGui::Checkbox( "New PolyGroups", &subdivide.NewPolyGroups );
             if ( ImGui::Button( Core::ToString( MO::Subdivide ), ImVec2( -1.0f, 0.0f ) ) )
                 operate( MO::Subdivide );
         }

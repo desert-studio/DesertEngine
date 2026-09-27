@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <unordered_set>
 
 namespace Desert::Geometry
@@ -327,5 +328,55 @@ namespace Desert::Geometry
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+    }
+    int MaxSubdivisionLevel( int faces )
+    {
+        return static_cast<int>(
+             std::floor( std::log2( static_cast<double>( kMaxSubdividedFaces / ( faces + 1 ) ) ) / 2.0 ) );
+    }
+
+    Common::ResultStr<RegionOutcome> SubdivideMesh( const DynamicMesh3& before, const SubdivideSettings& settings,
+                                                    ElementMode mode )
+    {
+        if ( before.TriangleCount() == 0 )
+            return Common::MakeError<RegionOutcome>( "Mesh Subdivide: the mesh has no triangles" );
+        if ( settings.Level < 1 )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Subdivide: the level must be at least 1, not {}", settings.Level );
+        const bool    bLoop = settings.Scheme == SubdivisionScheme::Loop;
+        GroupTopology topology( &before, false );
+        if ( !bLoop )
+        {
+            if ( !topology.RebuildTopology() )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh Subdivide: the polygroup topology: {}",
+                                                                  topology.Failure() );
+            const SubdividePoly                      probe( topology, before, 1 );
+            const SubdividePoly::TopologyCheckResult check = probe.ValidateTopology();
+            if ( check != SubdividePoly::TopologyCheckResult::Ok )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Subdivide: {} runs on the polygroups as polygons and {}; Loop runs on the triangles",
+                     ToString( settings.Scheme ), ToString( check ) );
+        }
+        const int faces    = bLoop ? before.TriangleCount() : static_cast<int>( topology.m_Groups.size() );
+        const int maxLevel = MaxSubdivisionLevel( faces );
+        if ( settings.Level > maxLevel )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Subdivide: level {} exceeds the maximum {} for {} {} faces (at most {} after subdividing)",
+                 settings.Level, maxLevel, faces, ToString( settings.Scheme ), kMaxSubdividedFaces );
+
+        SubdividePoly subd( topology, before, settings.Level );
+        subd.m_SubdivisionScheme       = settings.Scheme;
+        subd.m_BoundaryScheme          = settings.Boundary;
+        subd.m_NormalComputationMethod = settings.Normals;
+        subd.m_bNewPolyGroups          = settings.NewPolyGroups;
+        auto mesh                      = std::make_shared<DynamicMesh3>();
+        if ( !subd.ComputeTopologySubdivision() || !subd.ComputeSubdividedMesh( *mesh ) )
+            return Common::MakeFormattedError<RegionOutcome>( "Mesh Subdivide: {}", subd.Failure() );
+        // The result is built fresh; a tangent space the source carried is derived again (see RecomputeTangents).
+        if ( before.Attributes() != nullptr && before.Attributes()->HasTangentSpace() )
+            mesh->Attributes()->EnableTangents();
+        if ( auto tangents = RecomputeTangents( *mesh, "Subdivide" ); !tangents.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( tangents.GetError() );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
     }
 } // namespace Desert::Geometry

@@ -189,8 +189,7 @@ namespace Desert::Editor::Core
         args.Distance      = ms.ElementOpDistance;
         args.LoopPosition  = ms.ElementLoopPosition;
         args.WeldTolerance = ms.ElementWeldTolerance;
-        args.SubdivideLevels    = ms.ElementSubdivideLevels;
-        args.SubdivideScheme    = ms.ElementSubdivideScheme;
+        args.Subdivide            = ms.ElementSubdivide;
         args.MirrorAxis         = ms.ElementMirrorAxis;
         args.MirrorWorld        = ms.ElementMirrorWorld;
         args.MirrorKeepNegative = ms.ElementMirrorKeepNegative;
@@ -249,10 +248,12 @@ namespace Desert::Editor::Core
             outcome.Selection            = std::move( done.Selection );
         }
         else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges ||
-                  operation == MeshOperation::InsertEdgeLoop )
+                  operation == MeshOperation::InsertEdgeLoop || operation == MeshOperation::Subdivide )
         {
             const auto repair = [&]
             {
+                if ( operation == MeshOperation::Subdivide )
+                    return Geometry::SubdivideMesh( *before, args.Subdivide, selection.Mode() );
                 if ( operation == MeshOperation::FillHole )
                     return Geometry::FillHoles( *before, selection );
                 if ( operation == MeshOperation::WeldEdges )
@@ -324,6 +325,7 @@ namespace Desert::Editor::Core
                 case MeshOperation::InsertEdgeLoop:
                 case MeshOperation::Mirror:
                 case MeshOperation::PlaneCut:
+                case MeshOperation::Subdivide:
                     return Common::MakeFormattedError<bool>( "Mesh {}: runs on DynamicMesh3, not the EditMesh",
                                                              ToString( operation ) );
                 case MeshOperation::Offset:
@@ -352,11 +354,6 @@ namespace Desert::Editor::Core
                         result = Common::MakeError<Geometry::MeshEditOutcome>( cleaned.GetError() );
                     break;
                 }
-                case MeshOperation::Subdivide:
-                    result = WholeMesh(
-                         Geometry::SubdivideMesh( beforeMesh, args.SubdivideLevels, args.SubdivideScheme ),
-                         editSelection.Mode() );
-                    break;
                 case MeshOperation::Trim:
                 {
                     if ( args.TrimCutter.IsNull() )
@@ -417,7 +414,7 @@ namespace Desert::Editor::Core
             label = fmt::format( "Mesh {} {} cm", ToString( operation ), args.WeldTolerance );
         else if ( operation == MeshOperation::Subdivide )
             label = fmt::format( "Mesh {} {} x{}", ToString( operation ),
-                                 Geometry::ToString( args.SubdivideScheme ), args.SubdivideLevels );
+                                 Geometry::ToString( args.Subdivide.Scheme ), args.Subdivide.Level );
         else if ( operation == MeshOperation::Mirror )
             label = fmt::format( "Mesh {} {} {}{}", ToString( operation ), Geometry::ToString( args.MirrorMode ),
                                  args.MirrorWorld ? "world " : "", "XYZ"[args.MirrorAxis] );
