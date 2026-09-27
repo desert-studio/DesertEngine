@@ -9,7 +9,7 @@
 // Which card removes which crossing: element selection and picking -> P10; Offset (ours, no UE counterpart) -> P11
 // left it here; Edge Loop / Weld / Hole Fill / Clean -> P12; Bevel -> P13a/b; Plane Cut / Mirror -> P14 (done:
 // MeshPlaneOperation); Subdivide -> P15 (done: MeshRegionOperation.hpp SubdivideMesh); Create Shape and the shape
-// generators -> P16; Boolean / Trim -> P17; the CubeGrid bake -> P18; the XForm tab (our own, no UE counterpart) ->
+// generators -> P16; Boolean / Trim -> P17 (done: MeshBoolean, P17c); the CubeGrid bake -> P18; the XForm tab (our own, no UE counterpart) ->
 // P19 or a card of its own. The bridge as a whole -> P8b.
 //
 // The editor sees the EditMesh types (selection, operation arguments, the operations themselves) only through
@@ -18,7 +18,6 @@
 #include "Engine/Geometry/EditMesh.hpp"
 #include "Engine/Geometry/EditMeshAsset.hpp"
 #include "Engine/Geometry/EditMeshConversion.hpp"
-#include "Engine/Geometry/EditMeshModelOperations.hpp"
 #include "Engine/Geometry/EditMeshNormals.hpp"
 #include "Engine/Geometry/EditMeshOperations.hpp"
 #include "Engine/Geometry/EditMeshSelection.hpp"
@@ -55,8 +54,8 @@ namespace Desert::Geometry::Bridge
     // are then carried onto the DynamicMesh3's edge IDs by vertex pair, so its IDs name the returned mesh's
     // elements. Refused when the converted mesh is refused by the DynamicMesh3
     // reader. removed by the last of the cards whose operations call it: Offset (ours; P11 ported Extrude /
-    // Inset), P12 Edge Loop / Weld / Hole Fill / Clean, P13a/b Bevel, P17
-    // Boolean / Trim, P19 (or its own card) the XForm tab; the function itself by P8b.
+    // Inset), P12 Edge Loop / Weld / Hole Fill / Clean, P13a/b Bevel, P19 (or its own card) the XForm tab;
+    // the function itself by P8b.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const DynamicMesh3>>
     FromEditMesh( EditMesh mesh, ElementSelection* selection = nullptr );
 

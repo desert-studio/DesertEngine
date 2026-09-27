@@ -1,8 +1,8 @@
 // EVERY WIDGET THE MODELING PANEL DRAWS IS REACHABLE WITHOUT A MOUSE.
 //
 // Three tasks in a row (M8, M16b, M17) shipped a Modeling tool that could not be photographed: CubeGrid, Create
-// Shape's activation, "Keep both halves" and Trim's cutter existed only as widgets, and the agent that has to
-// verify a change has the command palette and the control channel but no cursor. So each widget of
+// Shape's activation, "Keep both halves" and the old Trim's cutter existed only as widgets, and the agent that has
+// to verify a change has the command palette and the control channel but no cursor. So each widget of
 // Editor/Source/Editor/Panels/Modeling/ModelingPanel.cpp is a row of the register below, saying how it is
 // reached instead:
 //   - Palette: an entry in EditorLayer::BuildPaletteCommands; every token must appear in EditorLayer.cpp;
@@ -145,10 +145,14 @@ namespace
         { "Checkbox", "\"Fill##PlaneCut\"", Reach::Palette, { "\"Plane Cut: Fill\"" } },
         { "Checkbox", "\"Keep both halves (new entity)\"", Reach::Palette, { "\"Plane Cut: Keep both halves\"" } },
         { "Button", "Core::ToString( MO::PlaneCut )", Reach::Palette, { "Core::MeshOperation::PlaneCut" } },
-        { "Button", "\"Pick Cutter\"", Reach::Palette,
-          { "\"Trim: Pick Cutter from the selection\"", "\"Trim: cutter \"" } },
-        { "Checkbox", "\"Keep only the inside\"", Reach::Palette, { "\"Trim: Keep only the inside\"" } },
-        { "Button", "Core::ToString( MO::Trim )", Reach::Palette, { "Core::MeshOperation::Trim" } },
+        // Boolean and Trim (MeshBooleanTool.hpp)
+        { "Combo", "\"##TrimWhich\"", Reach::Palette, { "\"Trim: \"", "Core::TrimTarget::TrimB" } },
+        { "Combo", "\"##TrimSide\"", Reach::Palette, { "Core::TrimSide::RemoveOutside" } },
+        { "Button", "Core::ToString( Core::BooleanTool::Trim )", Reach::Palette, { "\"Boolean tool: \"", "Core::BooleanTool::Trim" } },
+        { "Combo", "\"##BooleanOperation\"", Reach::Palette, { "\"Boolean operation: \"", "Core::CsgOperation::Union" } },
+        { "Button", "Core::ToString( Core::BooleanTool::Boolean )", Reach::Palette, { "Core::BooleanTool::Boolean" } },
+        { "Combo", "\"##BooleanWriteTo\"", Reach::Palette, { "\"Boolean write to: \"", "Core::BooleanWriteTo::Input" } },
+        { "Combo", "\"##BooleanInputs\"", Reach::Palette, { "\"Boolean inputs: \"", "Core::BooleanInputs::Hide" } },
         // XForm
         { "Combo", "\"##XformPivot\"", Reach::Palette, { "\"XForm pivot: Bounds Center\"", "\"XForm pivot: World Point\"" } },
         { "DragFloat3", "\"##XformPivotPoint\"", Reach::Set, { "XForm.PivotWorldPoint" } },

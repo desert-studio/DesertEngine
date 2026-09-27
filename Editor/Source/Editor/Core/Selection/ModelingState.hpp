@@ -3,6 +3,7 @@
 #include <string>
 
 #include <Common/Core/UUID.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
@@ -249,10 +250,8 @@ namespace Desert::Editor::Core
         bool                   ElementPlaneCutKeepNegative = false;
         bool                   ElementPlaneCutFill         = true;
         Geometry::PlaneCutMode ElementPlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
-        // Trim: the entity whose mesh (closed and convex) trims the edited one, picked in the panel from the
-        // scene selection; Null until picked.
-        Common::UUID       ElementTrimCutter;
-        Geometry::TrimSide ElementTrimSide = Geometry::TrimSide::RemoveInside;
+        // Boolean and Trim (MeshBooleanTool.hpp), on the scene selection's two entities.
+        BooleanToolArgs Boolean;
 
         // XForm tab (MeshXformOperations.hpp), acting on the scene selection's entities. Edit Pivot moves the
         // origin to XformPivot (XformPivotWorldPoint for World Point); Bake Transform bakes the XformBake

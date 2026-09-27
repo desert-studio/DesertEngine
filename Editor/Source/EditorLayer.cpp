@@ -184,6 +184,7 @@
 #include <Editor/Core/DocumentPlacement.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/FoliagePaint.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
@@ -4344,6 +4345,12 @@ namespace Desert::Editor
                                           Core::SelectionManager::SetSelected( uuid );
                                           return PaletteCommandDone();
                                       } } );
+                // Ctrl+click: a two-input tool (Boolean, Trim) reads A and B in selection order.
+                commands.push_back( { "Entity", "Add to selection " + name, [uuid]
+                                      {
+                                          Core::SelectionManager::AddToSelection( uuid );
+                                          return PaletteCommandDone();
+                                      } } );
 
                 // AND ITS EDITORS, because until now there was NO WAY TO OPEN ONE without a mouse. A
                 // subject document — the Sequencer, the AnimGraph — is opened by a button in the Details
@@ -5093,7 +5100,7 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::Trim, Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {
@@ -5115,6 +5122,18 @@ namespace Desert::Editor
                                       return Core::ApplyXformOperation( *m_MainScene, op,
                                                                         Core::XformArgsFromModelingState() );
                                   } } );
+        }
+        // Boolean and Trim (UE's Boolean / Trim tools) on the scene selection's two entities, at the panel's
+        // values.
+        for ( const Core::BooleanTool tool : { Core::BooleanTool::Boolean, Core::BooleanTool::Trim } )
+        {
+            commands.push_back(
+                 { "Modeling", std::string( "Boolean tool: " ) + Core::ToString( tool ), [this, tool]
+                   {
+                       if ( !m_MainScene )
+                           return PaletteCommandOutcome( false, "no scene is open" );
+                       return Core::ApplyBooleanTool( *m_MainScene, tool, Core::BooleanArgsFromModelingState() );
+                   } } );
         }
         // THE REST OF THE MODELING PANEL (M30): every button, checkbox and closed choice ModelingPanel draws,
         // so a tool is usable - and photographable - with no mouse. Each entry writes what the widget writes
@@ -5292,7 +5311,7 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
 
-        // Select Elements' options for Subdivide, Mirror, Plane Cut and Trim.
+        // Select Elements' options for Subdivide, Mirror and Plane Cut.
         for ( const auto scheme :
               { Geometry::SubdivisionScheme::Bilinear, Geometry::SubdivisionScheme::CatmullClark,
                 Geometry::SubdivisionScheme::Loop } )
@@ -5362,23 +5381,32 @@ namespace Desert::Editor
                            ms.ElementPlaneCutMode = on ? Geometry::PlaneCutMode::KeepBothHalves
                                                        : Geometry::PlaneCutMode::DiscardNegativeSide;
                        } );
-        modelingOnOff(
-             "Modeling", "Trim: Keep only the inside", []( MS& ms, bool on )
-             { ms.ElementTrimSide = on ? Geometry::TrimSide::RemoveOutside : Geometry::TrimSide::RemoveInside; } );
-        commands.push_back( { "Modeling", "Trim: Pick Cutter from the selection",
-                              [] { return Editor::ModelingPanel::PickTrimCutterFromSelection(); } } );
-        // The cutter named: one entry per entity with a Tag, as the "Entity" group's selection entries.
-        if ( m_MainScene )
+        // Boolean's and Trim's closed choices.
+        auto choice = [&commands]( const std::string& label, auto write )
         {
-            for ( const auto& entity : m_MainScene->GetAllEntities() )
-            {
-                if ( !entity.HasComponent<ECS::TagComponent>() || !entity.HasComponent<ECS::UUIDComponent>() )
-                    continue;
-                const Common::UUID uuid = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                commands.push_back( { "Modeling", "Trim: cutter " + entity.GetComponent<ECS::TagComponent>().Tag,
-                                      [uuid] { return Editor::ModelingPanel::PickTrimCutter( uuid ); } } );
-            }
-        }
+            commands.push_back( { "Modeling", label, [write]
+                                  {
+                                      write( MS::Get().Boolean );
+                                      return PaletteCommandDone();
+                                  } } );
+        };
+        for ( const Core::CsgOperation op : { Core::CsgOperation::DifferenceAB, Core::CsgOperation::DifferenceBA,
+                                              Core::CsgOperation::Intersect, Core::CsgOperation::Union } )
+            choice( std::string( "Boolean operation: " ) + Core::ToString( op ),
+                    [op]( Core::BooleanToolArgs& b ) { b.Operation = op; } );
+        for ( const Core::TrimTarget which : { Core::TrimTarget::TrimA, Core::TrimTarget::TrimB } )
+            choice( std::string( "Trim: " ) + Core::ToString( which ),
+                    [which]( Core::BooleanToolArgs& b ) { b.Trimmed = which; } );
+        for ( const Core::TrimSide side : { Core::TrimSide::RemoveInside, Core::TrimSide::RemoveOutside } )
+            choice( std::string( "Trim: " ) + Core::ToString( side ),
+                    [side]( Core::BooleanToolArgs& b ) { b.Side = side; } );
+        for ( const Core::BooleanWriteTo to : { Core::BooleanWriteTo::NewObject, Core::BooleanWriteTo::Input } )
+            choice( std::string( "Boolean write to: " ) + Core::ToString( to ),
+                    [to]( Core::BooleanToolArgs& b ) { b.WriteTo = to; } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            choice( std::string( "Boolean inputs: " ) + Core::ToString( in ),
+                    [in]( Core::BooleanToolArgs& b ) { b.Inputs = in; } );
 
         // XForm's closed choices.
         for ( const auto& [label, pivot] : std::initializer_list<std::pair<const char*, Geometry::PivotLocation>>{

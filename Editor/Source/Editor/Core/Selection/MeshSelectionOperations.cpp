@@ -71,8 +71,6 @@ namespace Desert::Editor::Core
                 return "Mirror";
             case MeshOperation::PlaneCut:
                 return "Plane Cut";
-            case MeshOperation::Trim:
-                return "Trim";
             case MeshOperation::FillHole:
                 return "Fill Hole";
             case MeshOperation::WeldEdges:
@@ -125,18 +123,6 @@ namespace Desert::Editor::Core
             return Common::MakeSuccess( Geometry::MeshPlane{ glm::dvec3( point ), glm::dvec3( normal ) } );
         }
 
-        // A mesh-wide operation takes no selection and leaves none (every ID may change), in the mode the
-        // user is selecting in.
-        Common::ResultStr<Geometry::MeshEditOutcome>
-        WholeMesh( Common::ResultStr<Geometry::MeshEditOutcome> result, Geometry::ElementMode mode )
-        {
-            if ( !result.IsSuccess() )
-                return result;
-            Geometry::MeshEditOutcome outcome = result.ExtractValue();
-            outcome.Selection                 = Geometry::ElementSelection( mode );
-            return Common::MakeSuccess( std::move( outcome ) );
-        }
-
         // The four operations the Engine runs on a region (MeshRegionOperation.hpp); none for the rest.
         std::optional<Geometry::RegionOperation> ToRegionOperation( MeshOperation operation )
         {
@@ -167,7 +153,6 @@ namespace Desert::Editor::Core
             case MeshOperation::Subdivide:
             case MeshOperation::Mirror:
             case MeshOperation::PlaneCut:
-            case MeshOperation::Trim:
             case MeshOperation::FillHole:
             case MeshOperation::WeldEdges:
                 return false;
@@ -200,8 +185,6 @@ namespace Desert::Editor::Core
         args.PlaneCutKeepNegative = ms.ElementPlaneCutKeepNegative;
         args.PlaneCutFill         = ms.ElementPlaneCutFill;
         args.PlaneCutMode         = ms.ElementPlaneCutMode;
-        args.TrimCutter           = ms.ElementTrimCutter;
-        args.TrimSide             = ms.ElementTrimSide;
         return args;
     }
 
@@ -354,39 +337,6 @@ namespace Desert::Editor::Core
                         result = Common::MakeError<Geometry::MeshEditOutcome>( cleaned.GetError() );
                     break;
                 }
-                case MeshOperation::Trim:
-                {
-                    if ( args.TrimCutter.IsNull() )
-                        return Common::MakeError<bool>(
-                             "Mesh Trim: no cutter - select the cutter entity (a closed "
-                             "convex mesh) and press Pick Cutter in the Modeling panel" );
-                    if ( args.TrimCutter == entity )
-                        return Common::MakeError<bool>( "Mesh Trim: the cutter is the mesh being edited - a mesh "
-                                                        "cannot trim itself" );
-                    auto cutterRef = scene.FindEntityByID( args.TrimCutter );
-                    if ( !cutterRef )
-                        return Common::MakeFormattedError<bool>(
-                             "Mesh Trim: the cutter entity {} is not in the scene",
-                             static_cast<uint64_t>( args.TrimCutter ) );
-                    const ECS::Entity cutter = cutterRef->get();
-                    if ( !cutter.HasComponent<ECS::StaticMeshComponent>() )
-                        return Common::MakeFormattedError<bool>(
-                             "Mesh Trim: the cutter entity {} has no static mesh",
-                             static_cast<uint64_t>( args.TrimCutter ) );
-                    auto cutterTarget = GetToolTargetMesh( cutter.GetComponent<ECS::StaticMeshComponent>() );
-                    if ( !cutterTarget.IsSuccess() )
-                        return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterTarget.GetError() );
-                    // WORLD transforms, parent chains included: either entity may be a child.
-                    auto cutterView = Geometry::Bridge::EditMeshView( cutterTarget.GetValue().Mesh );
-                    if ( !cutterView.IsSuccess() )
-                        return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterView.GetError() );
-                    const glm::mat4 cutterToMesh =
-                         glm::inverse( e.GetWorldTransform() ) * cutter.GetWorldTransform();
-                    result = WholeMesh(
-                         Geometry::TrimMesh( beforeMesh, *cutterView.GetValue(), cutterToMesh, args.TrimSide ),
-                         editSelection.Mode() );
-                    break;
-                }
             }
             if ( !result.IsSuccess() )
                 return Common::MakeError<bool>( result.GetError() );
@@ -423,8 +373,6 @@ namespace Desert::Editor::Core
                                  Geometry::ToString( args.PlaneCutMode ), args.PlaneCutWorld ? "world " : "",
                                  args.PlaneCutKeepNegative ? "-" : "+", "XYZ"[args.PlaneCutAxis],
                                  args.PlaneCutOffset );
-        else if ( operation == MeshOperation::Trim )
-            label = fmt::format( "Mesh {} {}", ToString( operation ), Geometry::ToString( args.TrimSide ) );
         // Selection first, then the mesh: Track prunes the NEW selection against the new mesh (nothing to
         // drop), instead of the old one against it (every re-created triangle reported as lost).
         state.Restore( entity, outcome.Selection );
