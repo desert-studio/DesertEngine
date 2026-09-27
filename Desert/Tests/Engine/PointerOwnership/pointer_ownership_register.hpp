@@ -757,7 +757,11 @@ namespace Desert::Tests::PointerCensus
           "reopened document at the same address cannot inherit the closed one's numbers" },
         { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
           "Render2D", "m_WhiteImage", Guard::FrameScoped,
-          "resolved from ImageService, whose only release path is Renderer::Shutdown -- terminal, and after the last Flush" },
+          "resolved from ImageService for the white texture this Render2D registered; ~Render2D nulls it before "
+          "unregistering that image, and the only other release path is Renderer::Shutdown -- terminal, after the last Flush" },
+        { "Desert/Desert/Source/Engine/Graphic/Environment/OwnedEnvironment.hpp",
+          "OwnedEnvironment", "m_Service", Guard::StaticStorage,
+          "ResourceRegistry::GetImageService's function-local static, which outlives every view that owns an environment" },
         { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
           "Render2D", "m_Backdrop", Guard::ReboundBeforeEveryUse,
           "BackdropBlurRenderer::Resize does destroy the image this equals, but the UI pass calls "
