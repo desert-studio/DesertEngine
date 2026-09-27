@@ -5198,14 +5198,14 @@ namespace Desert::Editor
                                   } } );
         for ( const Geometry::RectangleType type :
               { Geometry::RectangleType::Rectangle, Geometry::RectangleType::RoundedRectangle } )
-            commands.push_back( { "Modeling", std::string( "Create shape rectangle: " ) + Geometry::ToString( type ),
-                                  [type]
+            commands.push_back( { "Modeling",
+                                  std::string( "Create shape rectangle: " ) + Geometry::ToString( type ), [type]
                                   {
                                       MS::Get().CreateShape.Rectangle.Type = type;
                                       return PaletteCommandDone();
                                   } } );
-        modelingOnOff( "Modeling", "Create shape: Maintain Dimension", []( MS& ms, bool on )
-                       { ms.CreateShape.Rectangle.MaintainDimension = on; } );
+        modelingOnOff( "Modeling", "Create shape: Maintain Dimension",
+                       []( MS& ms, bool on ) { ms.CreateShape.Rectangle.MaintainDimension = on; } );
         for ( const Geometry::ShapePivot pivot :
               { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre, Geometry::ShapePivot::Top } )
             commands.push_back( { "Modeling", std::string( "Create shape pivot: " ) + Geometry::ToString( pivot ),

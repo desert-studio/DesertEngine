@@ -237,7 +237,8 @@ namespace Desert::Geometry
                 }
         }
 
-        // Moves the shape so ShapeOptions::Pivot is at Y = 0 (UAddPrimitiveTool::UpdatePreviewMesh, on the bounds).
+        // Moves the shape so ShapeOptions::Pivot is at Y = 0 (UAddPrimitiveTool::UpdatePreviewMesh, on the
+        // bounds).
         inline void ApplyPivot( ShapeMesh& m, ShapePivot pivot )
         {
             const Common::Math::AABB box = m.Bounds();
@@ -330,14 +331,14 @@ namespace Desert::Geometry
 
     struct RectangleShape // UProceduralRectangleToolProperties
     {
-        RectangleType Type               = RectangleType::Rectangle;
-        float         Width              = 100.0f; // X
-        float         Depth              = 100.0f; // Z
-        int           WidthSubdivisions  = 1;
-        int           DepthSubdivisions  = 1;
-        bool          MaintainDimension  = true; // rounded: Width / Depth stay the outer size
-        float         CornerRadius       = 25.0f;
-        int           CornerSlices       = 16; // 3..500
+        RectangleType Type              = RectangleType::Rectangle;
+        float         Width             = 100.0f; // X
+        float         Depth             = 100.0f; // Z
+        int           WidthSubdivisions = 1;
+        int           DepthSubdivisions = 1;
+        bool          MaintainDimension = true; // rounded: Width / Depth stay the outer size
+        float         CornerRadius      = 25.0f;
+        int           CornerSlices      = 16; // 3..500
 
         bool operator==( const RectangleShape& ) const = default;
     };
@@ -453,7 +454,7 @@ namespace Desert::Geometry
             }
             void SetUV( int i, const glm::vec2& uv, int parent )
             {
-                UVs[static_cast<size_t>( i )]           = uv;
+                UVs[static_cast<size_t>( i )]            = uv;
                 UVParentVertex[static_cast<size_t>( i )] = parent;
             }
             void SetNormal( int i, const glm::vec3& n, int parent )
@@ -504,20 +505,22 @@ namespace Desert::Geometry
         // UAddPrimitiveTool::UpdatePreviewMesh does). Tangents follow +U, as the renderer's normal maps expect.
         inline ShapeMesh ToShapeMesh( const UEShapeBuffers& g, ShapePolygroupMode mode )
         {
-            ShapeMesh                               m;
+            ShapeMesh m;
             // (vertex, UV, normal) packed 21 bits each: the largest buffer (a 500^3 box) holds 1.5M < 2^21.
             std::unordered_map<uint64_t, uint32_t> corners;
             corners.reserve( g.Triangles.size() * 3 );
-            std::map<int, int>                      groups;
-            std::vector<glm::vec3>                  tangents;
+            std::map<int, int>     groups;
+            std::vector<glm::vec3> tangents;
             for ( size_t t = 0; t < g.Triangles.size(); ++t )
             {
                 std::array<uint32_t, 3> out{};
                 for ( int k = 0; k < 3; ++k )
                 {
-                    const std::array<int, 3> key = { g.Triangles[t][k], g.TriangleUVs[t][k], g.TriangleNormals[t][k] };
-                    const uint64_t packed        = ( static_cast<uint64_t>( key[0] ) << 42 ) |
-                                            ( static_cast<uint64_t>( key[1] ) << 21 ) | static_cast<uint64_t>( key[2] );
+                    const std::array<int, 3> key    = { g.Triangles[t][k], g.TriangleUVs[t][k],
+                                                        g.TriangleNormals[t][k] };
+                    const uint64_t           packed = ( static_cast<uint64_t>( key[0] ) << 42 ) |
+                                            ( static_cast<uint64_t>( key[1] ) << 21 ) |
+                                            static_cast<uint64_t>( key[2] );
                     const auto [it, fresh] = corners.emplace( packed, static_cast<uint32_t>( m.Vertices.size() ) );
                     if ( fresh )
                     {
@@ -591,24 +594,24 @@ namespace Desert::Geometry
             int           quadIdx         = 0;
             for ( int dim = 0; dim < 3; ++dim )
             {
-                const int    faceIdxBase    = faceDimOrder[dim] * 2;
-                const int    d0             = dims[0][dim];
-                const int    d1             = dims[1][dim];
+                const int faceIdxBase = faceDimOrder[dim] * 2;
+                const int d0          = dims[0][dim];
+                const int d1          = dims[1][dim];
                 // UV-specific flips, set by UE to match its default cube texture arrangement.
-                const int    minor1Flip[3]  = { -1, 1, 1 };
-                const int    minor2Flip[3]  = { -1, -1, 1 };
-                const double widthUVScale   = std::abs( extents[d0] ) * 2.0 * uvScale;
-                const double heightUVScale  = std::abs( extents[d1] ) * 2.0 * uvScale;
+                const int    minor1Flip[3] = { -1, 1, 1 };
+                const int    minor2Flip[3] = { -1, -1, 1 };
+                const double widthUVScale  = std::abs( extents[d0] ) * 2.0 * uvScale;
+                const double heightUVScale = std::abs( extents[d1] ) * 2.0 * uvScale;
                 for ( int side = 0; side < 2; ++side )
                 {
                     const int sideOpp  = 1 - side;
                     const int sideSign = side * 2 - 1;
                     glm::vec3 normal( 0.0f );
-                    normal[dim]                = static_cast<float>( 2 * side - 1 );
-                    const int majorFaceInd     = faceIdxBase + side;
-                    const int faceUVStartInd   = uvIdx;
-                    const int uvXDim           = dim == 1 ? 1 : 0;
-                    const int uvYDim           = 1 - uvXDim;
+                    normal[dim]              = static_cast<float>( 2 * side - 1 );
+                    const int majorFaceInd   = faceIdxBase + side;
+                    const int faceUVStartInd = uvIdx;
+                    const int uvXDim         = dim == 1 ? 1 : 0;
+                    const int uvYDim         = 1 - uvXDim;
                     for ( int i0 = 0; i0 < N[d0]; ++i0 )
                         for ( int i1 = 0; i1 < N[d1]; ++i1 )
                         {
@@ -670,7 +673,7 @@ namespace Desert::Geometry
             const glm::dvec3 v01( width / 2.0, -height / 2.0, 0.0 );
             const glm::dvec3 v11( width / 2.0, height / 2.0, 0.0 );
             const glm::dvec3 v10( -width / 2.0, height / 2.0, 0.0 );
-            float uvRight = 1.0f, uvTop = 1.0f; // bScaleUVByAspectRatio
+            float            uvRight = 1.0f, uvTop = 1.0f; // bScaleUVByAspectRatio
             if ( width != height )
             {
                 if ( width > height )
@@ -679,7 +682,7 @@ namespace Desert::Geometry
                     uvRight = static_cast<float>( width / height );
             }
             const glm::vec2 uv00( 0.0f, 0.0f ), uv01( uvRight, 0.0f ), uv11( uvRight, uvTop ), uv10( 0.0f, uvTop );
-            int vi = 0;
+            int             vi = 0;
             for ( int yi = 0; yi < heightNV; ++yi )
             {
                 const double ty = static_cast<double>( yi ) / static_cast<double>( heightNV - 1 );
@@ -687,8 +690,10 @@ namespace Desert::Geometry
                 {
                     const double tx = static_cast<double>( xi ) / static_cast<double>( widthNV - 1 );
                     g.SetNormal( vi, glm::vec3( 0.0f, 0.0f, 1.0f ), vi );
-                    g.SetUV( vi, Bilinear( uv00, uv01, uv11, uv10, static_cast<float>( tx ), static_cast<float>( ty ) ),
-                             vi );
+                    g.SetUV(
+                         vi,
+                         Bilinear( uv00, uv01, uv11, uv10, static_cast<float>( tx ), static_cast<float>( ty ) ),
+                         vi );
                     g.Vertices[static_cast<size_t>( vi++ )] = Bilinear( v00, v01, v11, v10, tx, ty );
                 }
             }
@@ -727,14 +732,14 @@ namespace Desert::Geometry
                 g.SetNormal( i, glm::vec3( 0.0f, 0.0f, 1.0f ), i );
                 g.UVParentVertex[static_cast<size_t>( i )] = i;
             }
-            constexpr float kZeroTolerance = 1e-06f; // FMathf::ZeroTolerance
-            const float     totWidth  = std::max( kZeroTolerance, static_cast<float>( radius * 2 + width ) );
-            const float     totHeight = std::max( kZeroTolerance, static_cast<float>( radius * 2 + height ) );
+            constexpr float  kZeroTolerance = 1e-06f; // FMathf::ZeroTolerance
+            const float      totWidth       = std::max( kZeroTolerance, static_cast<float>( radius * 2 + width ) );
+            const float      totHeight = std::max( kZeroTolerance, static_cast<float>( radius * 2 + height ) );
             const glm::dvec3 v00( -totWidth / 2.0f, -totHeight / 2.0f, 0.0 );
             const glm::dvec3 v01( totWidth / 2.0f, -totHeight / 2.0f, 0.0 );
             const glm::dvec3 v11( totWidth / 2.0f, totHeight / 2.0f, 0.0 );
             const glm::dvec3 v10( -totWidth / 2.0f, totHeight / 2.0f, 0.0 );
-            float uvRight = 1.0f, uvTop = 1.0f;
+            float            uvRight = 1.0f, uvTop = 1.0f;
             if ( totWidth != totHeight )
             {
                 if ( totWidth > totHeight )
@@ -785,25 +790,25 @@ namespace Desert::Geometry
             for ( int sideX = 0; sideX < 2; ++sideX )
                 for ( int sideY = 0; sideY < 2; ++sideY )
                 {
-                    const int  cornerY      = sideY * ( heightNV - 1 );
-                    const int  cornerX      = sideX * ( widthNV - 1 );
-                    const int  inCornerY    = sideY ? heightNV - 2 : 1;
-                    const int  inCornerX    = sideX ? widthNV - 2 : 1;
-                    int        useVIdx      = cornerY * widthNV + cornerX; // the corner vertex is re-purposed
-                    const int  vCenterIdx   = inCornerY * widthNV + inCornerX;
-                    const int  offXIdx      = inCornerY * widthNV + cornerX;
-                    const int  offYIdx      = cornerY * widthNV + inCornerX;
-                    const int  actingCosIdx = sideY == sideX ? offYIdx : offXIdx;
-                    const int  actingSinIdx = sideY == sideX ? offXIdx : offYIdx;
-                    const auto V            = [&]( int i ) { return g.Vertices[static_cast<size_t>( i )]; };
-                    const auto UV           = [&]( int i ) { return g.UVs[static_cast<size_t>( i )]; };
-                    const glm::dvec3 centerV  = V( vCenterIdx );
-                    const glm::dvec3 cosV     = V( actingCosIdx ) - centerV;
-                    const glm::dvec3 sinV     = V( actingSinIdx ) - centerV;
-                    const glm::vec2  centerUV = UV( vCenterIdx );
-                    const glm::vec2  cosUV    = UV( actingCosIdx ) - centerUV;
-                    const glm::vec2  sinUV    = UV( actingSinIdx ) - centerUV;
-                    int              lastUsed = actingCosIdx;
+                    const int        cornerY    = sideY * ( heightNV - 1 );
+                    const int        cornerX    = sideX * ( widthNV - 1 );
+                    const int        inCornerY  = sideY ? heightNV - 2 : 1;
+                    const int        inCornerX  = sideX ? widthNV - 2 : 1;
+                    int              useVIdx    = cornerY * widthNV + cornerX; // the corner vertex is re-purposed
+                    const int        vCenterIdx = inCornerY * widthNV + inCornerX;
+                    const int        offXIdx    = inCornerY * widthNV + cornerX;
+                    const int        offYIdx    = cornerY * widthNV + inCornerX;
+                    const int        actingCosIdx = sideY == sideX ? offYIdx : offXIdx;
+                    const int        actingSinIdx = sideY == sideX ? offXIdx : offYIdx;
+                    const auto       V            = [&]( int i ) { return g.Vertices[static_cast<size_t>( i )]; };
+                    const auto       UV           = [&]( int i ) { return g.UVs[static_cast<size_t>( i )]; };
+                    const glm::dvec3 centerV      = V( vCenterIdx );
+                    const glm::dvec3 cosV         = V( actingCosIdx ) - centerV;
+                    const glm::dvec3 sinV         = V( actingSinIdx ) - centerV;
+                    const glm::vec2  centerUV     = UV( vCenterIdx );
+                    const glm::vec2  cosUV        = UV( actingCosIdx ) - centerUV;
+                    const glm::vec2  sinUV        = UV( actingSinIdx ) - centerUV;
+                    int              lastUsed     = actingCosIdx;
                     for ( int k = 1; k < roundNV + 1; ++k )
                     {
                         const double angle = glm::half_pi<double>() * k / static_cast<float>( roundNV + 1 );
@@ -835,8 +840,8 @@ namespace Desert::Geometry
             const int radialNV = radialSamples > 1 ? radialSamples : 1;
             const int numV     = angleNV * radialNV + 1;
             g.SetBufferSizes( numV, angleNV * ( 2 * radialNV - 1 ), numV, numV );
-            g.Vertices[0] = glm::dvec3( 0.0 );
-            g.UVs[0]      = glm::vec2( 0.5f, 0.5f );
+            g.Vertices[0]          = glm::dvec3( 0.0 );
+            g.UVs[0]               = glm::vec2( 0.5f, 0.5f );
             const double toRadians = glm::two_pi<double>() / static_cast<double>( angleNV );
             for ( int a = 0; a < angleNV; ++a )
             {
@@ -845,8 +850,8 @@ namespace Desert::Geometry
                 const double sinA  = std::sin( angle );
                 for ( int r = 1; r <= radialNV; ++r )
                 {
-                    const int    vi = a + 1 + ( r - 1 ) * angleNV;
-                    const double R  = r * radius / static_cast<double>( radialNV );
+                    const int    vi                       = a + 1 + ( r - 1 ) * angleNV;
+                    const double R                        = r * radius / static_cast<double>( radialNV );
                     g.Vertices[static_cast<size_t>( vi )] = glm::dvec3( R * cosA, R * sinA, 0.0 );
                     g.UVs[static_cast<size_t>( vi )] =
                          glm::vec2( static_cast<float>( 0.5 + cosA * r * 0.5 / radialNV ),
@@ -858,8 +863,9 @@ namespace Desert::Geometry
                 g.UVParentVertex[static_cast<size_t>( i )] = i;
                 g.SetNormal( i, glm::vec3( 0.0f, 0.0f, 1.0f ), i );
             }
-            int tri = 0, poly = 0;
-            const auto next = [&]() {
+            int        tri = 0, poly = 0;
+            const auto next = [&]()
+            {
                 if ( !singlePolygroup )
                     ++poly;
             };
@@ -910,10 +916,10 @@ namespace Desert::Geometry
                 const double sinA = std::sin( toRadians * a );
                 for ( int r = 0; r < radialNV; ++r )
                 {
-                    const int    vi = a + r * angleNV;
-                    const double R  = r * radiusScale + holeRadius;
+                    const int    vi                       = a + r * angleNV;
+                    const double R                        = r * radiusScale + holeRadius;
                     g.Vertices[static_cast<size_t>( vi )] = glm::dvec3( R * cosA, R * sinA, 0.0 );
-                    g.UVs[static_cast<size_t>( vi )]      = glm::vec2( static_cast<float>( 0.5 + cosA * R * uvScale ),
+                    g.UVs[static_cast<size_t>( vi )] = glm::vec2( static_cast<float>( 0.5 + cosA * R * uvScale ),
                                                                   static_cast<float>( 0.5 + sinA * R * uvScale ) );
                 }
             }
@@ -973,8 +979,10 @@ namespace Desert::Geometry
             {
                 for ( int t = 0; t < numTheta - 1; ++t )
                 {
-                    out( tri++, poly, { corners[0], corners[1], corners[2] }, { uvCorners[0], uvCorners[1], uvCorners[2] } );
-                    out( tri++, poly, { corners[2], corners[3], corners[0] }, { uvCorners[2], uvCorners[3], uvCorners[0] } );
+                    out( tri++, poly, { corners[0], corners[1], corners[2] },
+                         { uvCorners[0], uvCorners[1], uvCorners[2] } );
+                    out( tri++, poly, { corners[2], corners[3], corners[0] },
+                         { uvCorners[2], uvCorners[3], uvCorners[0] } );
                     for ( int& i : corners )
                         ++i;
                     for ( int& i : uvCorners )
@@ -1030,20 +1038,21 @@ namespace Desert::Geometry
 
         // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Generators/SphereGenerator.h:20-218
         // (FSphereGenerator), adapted: the triangulation is OutputRingTriangles.
-        inline void GenerateLatLongSphere( UEShapeBuffers& g, double radius, int numPhi, int numTheta, bool perQuad )
+        inline void GenerateLatLongSphere( UEShapeBuffers& g, double radius, int numPhi, int numTheta,
+                                           bool perQuad )
         {
-            numPhi   = std::max( numPhi, 3 );
-            numTheta = std::max( numTheta, 3 );
+            numPhi         = std::max( numPhi, 3 );
+            numTheta       = std::max( numTheta, 3 );
             const int numV = ( numPhi - 2 ) * numTheta + 2;
-            g.SetBufferSizes( numV, ( numPhi - 2 ) * numTheta * 2, ( numPhi - 2 ) * ( numTheta + 1 ) + 2 * numTheta,
-                              numV );
+            g.SetBufferSizes( numV, ( numPhi - 2 ) * numTheta * 2,
+                              ( numPhi - 2 ) * ( numTheta + 1 ) + 2 * numTheta, numV );
             const double dPhi   = glm::pi<double>() / static_cast<double>( numPhi - 1 );
             const double dTheta = glm::two_pi<double>() / static_cast<double>( numTheta );
             int          vi     = 0;
             for ( int p = 1; p < numPhi - 1; ++p )
                 for ( int t = 0; t < numTheta; ++t, ++vi )
                 {
-                    const glm::dvec3 n = SphericalToCartesian( 1.0, t * dTheta, p * dPhi );
+                    const glm::dvec3 n                    = SphericalToCartesian( 1.0, t * dTheta, p * dPhi );
                     g.Vertices[static_cast<size_t>( vi )] = n * radius;
                     g.SetNormal( vi, glm::vec3( n ), vi );
                 }
@@ -1077,14 +1086,14 @@ namespace Desert::Geometry
             GenerateGridBox( g, glm::dvec3( e ), glm::ivec3( subdivisions + 1 ), perQuad );
             for ( size_t i = 0; i < g.Vertices.size(); ++i )
             {
-                const glm::dvec3 q = g.Vertices[i] / e;
+                const glm::dvec3 q  = g.Vertices[i] / e;
                 const glm::dvec3 q2 = q * q;
                 glm::dvec3       s( q.x * std::sqrt( 1.0 - q2.y * 0.5 - q2.z * 0.5 + q2.y * q2.z / 3.0 ),
                                     q.y * std::sqrt( 1.0 - q2.x * 0.5 - q2.z * 0.5 + q2.x * q2.z / 3.0 ),
                                     q.z * std::sqrt( 1.0 - q2.x * 0.5 - q2.y * 0.5 + q2.x * q2.y / 3.0 ) );
-                s                = glm::normalize( s );
-                g.Normals[i]     = glm::vec3( s );
-                g.Vertices[i]    = radius * s;
+                s             = glm::normalize( s );
+                g.Normals[i]  = glm::vec3( s );
+                g.Vertices[i] = radius * s;
             }
         }
 
@@ -1093,15 +1102,15 @@ namespace Desert::Geometry
         inline void GenerateCapsule( UEShapeBuffers& g, double radius, double segmentLength, int arcSteps,
                                      int circleSteps, int segmentSteps, bool perQuad )
         {
-            arcSteps          = std::max( arcSteps, 2 );
-            circleSteps       = std::max( circleSteps, 3 );
-            const int rings   = 2 * arcSteps - 2 + segmentSteps;
-            const int numV    = rings * circleSteps + 2;
+            arcSteps        = std::max( arcSteps, 2 );
+            circleSteps     = std::max( circleSteps, 3 );
+            const int rings = 2 * arcSteps - 2 + segmentSteps;
+            const int numV  = rings * circleSteps + 2;
             g.SetBufferSizes( numV, rings * circleSteps * 2, rings * ( circleSteps + 1 ) + 2 * circleSteps, numV );
             const double     dPhi   = glm::half_pi<double>() / static_cast<double>( arcSteps - 1 );
             const double     dTheta = glm::two_pi<double>() / static_cast<double>( circleSteps );
             const glm::dvec3 offset( 0.0, 0.0, segmentLength );
-            int              vi = 0;
+            int              vi  = 0;
             const auto       set = [&]( const glm::dvec3& p, const glm::dvec3& n )
             {
                 g.Vertices[static_cast<size_t>( vi )] = p;
@@ -1125,7 +1134,8 @@ namespace Desert::Geometry
             for ( int p = 1; p < arcSteps; ++p )
                 for ( int t = 0; t < circleSteps; ++t )
                 {
-                    const glm::dvec3 n = SphericalToCartesian( 1.0, t * dTheta, glm::half_pi<double>() + ( p - 1 ) * dPhi );
+                    const glm::dvec3 n =
+                         SphericalToCartesian( 1.0, t * dTheta, glm::half_pi<double>() + ( p - 1 ) * dPhi );
                     set( n * radius, n );
                 }
             set( glm::dvec3( 0.0, 0.0, radius ) + offset, glm::dvec3( 0.0, 0.0, 1.0 ) );
@@ -1148,10 +1158,11 @@ namespace Desert::Geometry
             };
             // UE's AddUVSpan parents to PIdx * NumCircleSteps with PIdx starting at 1; the vertex rows start
             // at 0, so the parent is the row (PIdx - 1) - the vertex the triangles actually pair it with.
-            const float phiSpan      = static_cast<float>( 2 * radius + segmentLength );
-            const float hemiStep     = static_cast<float>( radius ) / ( phiSpan * static_cast<float>( arcSteps - 1 ) );
-            int         p            = span( 1, arcSteps - 1, hemiStep, hemiStep );
-            const float segmentStep  = static_cast<float>( segmentLength ) / ( phiSpan * static_cast<float>( segmentSteps + 1 ) );
+            const float phiSpan  = static_cast<float>( 2 * radius + segmentLength );
+            const float hemiStep = static_cast<float>( radius ) / ( phiSpan * static_cast<float>( arcSteps - 1 ) );
+            int         p        = span( 1, arcSteps - 1, hemiStep, hemiStep );
+            const float segmentStep =
+                 static_cast<float>( segmentLength ) / ( phiSpan * static_cast<float>( segmentSteps + 1 ) );
             p = span( p, segmentSteps, static_cast<float>( radius ) / phiSpan + segmentStep, segmentStep );
             span( p, arcSteps - 1, static_cast<float>( radius + segmentLength ) / phiSpan, hemiStep );
             AddPoleUVs( g, uvIdx, circleSteps, rings * circleSteps );
@@ -1174,11 +1185,11 @@ namespace Desert::Geometry
                                                     const glm::vec2& sectionsUVScale, const glm::vec2& capUVScale,
                                                     const glm::vec2& capUVOffset, bool polygroupPerQuad )
         {
-            SweepTopology top;
-            const int     xVerts    = static_cast<int>( crossSection.size() );
-            const int     xSegments = xVerts;
-            const int     xNormals  = xVerts;
-            const int     xUVs      = xSegments + 1;
+            SweepTopology      top;
+            const int          xVerts    = static_cast<int>( crossSection.size() );
+            const int          xSegments = xVerts;
+            const int          xNormals  = xVerts;
+            const int          xUVs      = xSegments + 1;
             std::vector<float> crossTex, pathTex;
             if ( evenlySpaceUVs )
             {
@@ -1199,8 +1210,8 @@ namespace Desert::Geometry
                 const int pathSegs = loop ? static_cast<int>( path.size() ) : static_cast<int>( path.size() ) - 1;
                 for ( int i = 0; i < pathSegs; ++i )
                 {
-                    length += static_cast<float>( glm::distance( path[static_cast<size_t>( i )],
-                                                                 path[( static_cast<size_t>( i ) + 1 ) % path.size()] ) );
+                    length += static_cast<float>( glm::distance(
+                         path[static_cast<size_t>( i )], path[( static_cast<size_t>( i ) + 1 ) % path.size()] ) );
                     pathTex.push_back( length );
                 }
                 length = std::max( length, 1e-06f );
@@ -1213,16 +1224,17 @@ namespace Desert::Geometry
                     crossTex.push_back( 1.0f - static_cast<float>( i ) / static_cast<float>( xSegments ) );
                 crossTex.push_back( 0.0f );
                 for ( int i = 0; i < numCrossSections; ++i )
-                    pathTex.push_back( 1.0f - static_cast<float>( i ) / static_cast<float>( numCrossSections - 1 ) );
+                    pathTex.push_back( 1.0f -
+                                       static_cast<float>( i ) / static_cast<float>( numCrossSections - 1 ) );
             }
 
-            const int sharpCount  = static_cast<int>( sharpNormalsAlongLength.size() );
-            int       numVerts    = xVerts * numCrossSections - ( loop ? xVerts : 0 );
-            int       numNormals  = numCrossSections > 1 ? xNormals * numCrossSections - ( loop ? xNormals : 0 ) : 0;
-            numNormals           += xNormals * sharpCount;
-            int       numUVs      = numCrossSections > 1 ? xUVs * numCrossSections : 0;
-            int       numPolygons = ( numCrossSections - 1 ) * xSegments;
-            int       numTris     = numPolygons * 2;
+            const int sharpCount = static_cast<int>( sharpNormalsAlongLength.size() );
+            int       numVerts   = xVerts * numCrossSections - ( loop ? xVerts : 0 );
+            int numNormals = numCrossSections > 1 ? xNormals * numCrossSections - ( loop ? xNormals : 0 ) : 0;
+            numNormals += xNormals * sharpCount;
+            int                numUVs      = numCrossSections > 1 ? xUVs * numCrossSections : 0;
+            int                numPolygons = ( numCrossSections - 1 ) * xSegments;
+            int                numTris     = numPolygons * 2;
             std::array<int, 2> capTriStart{}, capPolyStart{};
             if ( capped )
                 for ( int cap = 0; cap < 2; ++cap ) // FlatMidpointFan
@@ -1269,7 +1281,7 @@ namespace Desert::Geometry
             const int curFaceGroupIndex = numPolygons;
             if ( numCrossSections < ( loop ? 3 : 2 ) )
                 return top;
-            const int sectionsMod       = numCrossSections - ( loop ? 1 : 0 ); // a loop's last section is its first
+            const int sectionsMod = numCrossSections - ( loop ? 1 : 0 ); // a loop's last section is its first
             const int normalSectionsMod = sectionsMod + sharpCount;
             for ( int s = 0; s < xSegments; ++s )
             {
@@ -1280,10 +1292,10 @@ namespace Desert::Geometry
                              ( x % sectionsMod ) * xVerts + s );
                 for ( int x = 0; x + 1 < numCrossSections; ++x )
                 {
-                    g.SetTriangleUVs( xSegments * 2 * x + 2 * s, x * xUVs + s, x * xUVs + s + 1, ( x + 1 ) * xUVs + s,
-                                      true );
-                    g.SetTriangleUVs( xSegments * 2 * x + 2 * s + 1, ( x + 1 ) * xUVs + s + 1, ( x + 1 ) * xUVs + s,
-                                      x * xUVs + s + 1, true );
+                    g.SetTriangleUVs( xSegments * 2 * x + 2 * s, x * xUVs + s, x * xUVs + s + 1,
+                                      ( x + 1 ) * xUVs + s, true );
+                    g.SetTriangleUVs( xSegments * 2 * x + 2 * s + 1, ( x + 1 ) * xUVs + s + 1,
+                                      ( x + 1 ) * xUVs + s, x * xUVs + s + 1, true );
                 }
             }
             for ( int x = 0; x < numCrossSections; ++x ) // the final UV column closes the profile
@@ -1295,7 +1307,8 @@ namespace Desert::Geometry
                 int sharp = 0;
                 for ( int x = 0, nx = 0; x < numCrossSections; ++x, ++nx )
                 {
-                    g.SetNormal( ( nx % normalSectionsMod ) * xNormals + s, glm::vec3( 0.0f ), ( x % sectionsMod ) * xVerts + s );
+                    g.SetNormal( ( nx % normalSectionsMod ) * xNormals + s, glm::vec3( 0.0f ),
+                                 ( x % sectionsMod ) * xVerts + s );
                     // a sharp cross section carries two normals, one per side
                     if ( sharp < sharpCount && x == sharpNormalsAlongLength[static_cast<size_t>( sharp )] )
                     {
@@ -1310,18 +1323,19 @@ namespace Desert::Geometry
                 sharp           = 0;
                 for ( int x = 0, nx = 0; x + 1 < numCrossSections; ++x, ++nx )
                 {
-                    const int t0    = xSegments * 2 * x + 2 * s;
-                    const int t1    = t0 + 1;
-                    const int group = polygroupPerQuad ? xSegments * x + s : curFaceGroupIndex + x;
-                    const int nextX = ( x + 1 ) % sectionsMod;
+                    const int t0     = xSegments * 2 * x + 2 * s;
+                    const int t1     = t0 + 1;
+                    const int group  = polygroupPerQuad ? xSegments * x + s : curFaceGroupIndex + x;
+                    const int nextX  = ( x + 1 ) % sectionsMod;
                     const int nextNX = ( nx + 1 ) % normalSectionsMod;
                     g.SetTrianglePolygon( t0, group );
                     g.SetTrianglePolygon( t1, group );
                     g.SetTriangle( t0, x * xVerts + s, x * xVerts + nextV, nextX * xVerts + s, true );
                     g.SetTriangle( t1, nextX * xVerts + nextV, nextX * xVerts + s, x * xVerts + nextV, true );
-                    g.SetTriangleNormals( t0, nx * xNormals + s, nx * xNormals + nextN, nextNX * xNormals + s, true );
-                    g.SetTriangleNormals( t1, nextNX * xNormals + nextN, nextNX * xNormals + s, nx * xNormals + nextN,
+                    g.SetTriangleNormals( t0, nx * xNormals + s, nx * xNormals + nextN, nextNX * xNormals + s,
                                           true );
+                    g.SetTriangleNormals( t1, nextNX * xNormals + nextN, nextNX * xNormals + s,
+                                          nx * xNormals + nextN, true );
                     if ( sharp < sharpCount && x + 1 == sharpNormalsAlongLength[static_cast<size_t>( sharp )] )
                     {
                         ++nx;
@@ -1338,7 +1352,7 @@ namespace Desert::Geometry
             std::vector<glm::dvec2> circle( static_cast<size_t>( steps ) );
             for ( int i = 0; i < steps; ++i )
             {
-                const double a = glm::two_pi<double>() * i / static_cast<double>( steps );
+                const double a                   = glm::two_pi<double>() * i / static_cast<double>( steps );
                 circle[static_cast<size_t>( i )] = glm::dvec2( std::cos( a ), std::sin( a ) ) * radius;
             }
             return circle;
@@ -1353,17 +1367,19 @@ namespace Desert::Geometry
                                                  const std::vector<int>& sharpNormalsAlongLength, int angleSamples,
                                                  bool polygroupPerQuad )
         {
-            const std::vector<glm::dvec2> x    = MakeCircle( 1.0, angleSamples );
-            const int                     numX = static_cast<int>( radii.size() );
+            const std::vector<glm::dvec2> x        = MakeCircle( 1.0, angleSamples );
+            const int                     numX     = static_cast<int>( radii.size() );
             float                         lenAlong = 0.0f;
             for ( int i = 0; i + 1 < numX; ++i )
-                lenAlong += static_cast<float>( glm::distance( glm::dvec2( radii[static_cast<size_t>( i )], heights[static_cast<size_t>( i )] ),
-                                                               glm::dvec2( radii[static_cast<size_t>( i ) + 1], heights[static_cast<size_t>( i ) + 1] ) ) );
-            const SweepTopology top =
-                 ConstructMeshTopology( g, x, sharpNormalsAlongLength, false, {}, numX, false, true, glm::vec2( 1.0f ),
-                                        glm::vec2( 0.5f ), glm::vec2( 0.5f ), polygroupPerQuad );
+                lenAlong += static_cast<float>( glm::distance(
+                     glm::dvec2( radii[static_cast<size_t>( i )], heights[static_cast<size_t>( i )] ),
+                     glm::dvec2( radii[static_cast<size_t>( i ) + 1], heights[static_cast<size_t>( i ) + 1] ) ) );
+            const SweepTopology top = ConstructMeshTopology( g, x, sharpNormalsAlongLength, false, {}, numX, false,
+                                                             true, glm::vec2( 1.0f ), glm::vec2( 0.5f ),
+                                                             glm::vec2( 0.5f ), polygroupPerQuad );
             // PerpCW of each profile segment: the outward normal in (radial, up).
-            std::vector<glm::dvec2> sides( static_cast<size_t>( numX - 1 ) ), smoothed( static_cast<size_t>( numX ) );
+            std::vector<glm::dvec2> sides( static_cast<size_t>( numX - 1 ) ),
+                 smoothed( static_cast<size_t>( numX ) );
             for ( int i = 0; i + 1 < numX; ++i )
             {
                 const glm::dvec2 v( radii[static_cast<size_t>( i ) + 1] - radii[static_cast<size_t>( i )],
@@ -1376,7 +1392,10 @@ namespace Desert::Geometry
                 smoothed[static_cast<size_t>( i )] =
                      glm::normalize( sides[static_cast<size_t>( i )] + sides[static_cast<size_t>( i ) - 1] );
             const auto radial = []( const glm::dvec2& dir, const glm::dvec2& n )
-            { return glm::vec3( static_cast<float>( dir.x * n.x ), static_cast<float>( dir.y * n.x ), static_cast<float>( n.y ) ); };
+            {
+                return glm::vec3( static_cast<float>( dir.x * n.x ), static_cast<float>( dir.y * n.x ),
+                                  static_cast<float>( n.y ) );
+            };
             for ( int sub = 0; sub < angleSamples; ++sub )
             {
                 const glm::dvec2 dir   = x[static_cast<size_t>( sub )];
@@ -1389,13 +1408,16 @@ namespace Desert::Geometry
                     if ( sharp < static_cast<int>( sharpNormalsAlongLength.size() ) &&
                          i == sharpNormalsAlongLength[static_cast<size_t>( sharp )] )
                     {
-                        g.Normals[static_cast<size_t>( sub + ni * angleSamples )] = radial( dir, sides[static_cast<size_t>( i ) - 1] );
+                        g.Normals[static_cast<size_t>( sub + ni * angleSamples )] =
+                             radial( dir, sides[static_cast<size_t>( i ) - 1] );
                         ++ni;
-                        g.Normals[static_cast<size_t>( sub + ni * angleSamples )] = radial( dir, sides[static_cast<size_t>( i )] );
+                        g.Normals[static_cast<size_t>( sub + ni * angleSamples )] =
+                             radial( dir, sides[static_cast<size_t>( i )] );
                         ++sharp;
                     }
                     else
-                        g.Normals[static_cast<size_t>( sub + ni * angleSamples )] = radial( dir, smoothed[static_cast<size_t>( i )] );
+                        g.Normals[static_cast<size_t>( sub + ni * angleSamples )] =
+                             radial( dir, smoothed[static_cast<size_t>( i )] );
                 }
             }
             for ( int cap = 0; cap < 2; ++cap )
@@ -1410,10 +1432,10 @@ namespace Desert::Geometry
             float maxAbsRad = 0.0f;
             for ( const float r : radii )
                 maxAbsRad = std::max( maxAbsRad, std::abs( r ) );
-            float thetaScale  = maxAbsRad * glm::two_pi<float>();
-            float heightScale = lenAlong;
-            float capScale    = maxAbsRad * 2.0f;
-            const float maxScale = std::max( { thetaScale, heightScale, capScale } );
+            float       thetaScale  = maxAbsRad * glm::two_pi<float>();
+            float       heightScale = lenAlong;
+            float       capScale    = maxAbsRad * 2.0f;
+            const float maxScale    = std::max( { thetaScale, heightScale, capScale } );
             thetaScale /= maxScale;
             heightScale /= maxScale;
             capScale /= maxScale;
@@ -1486,12 +1508,12 @@ namespace Desert::Geometry
     inline ShapeMesh MakeRectangle( const RectangleShape& rect, const ShapeOptions& options = {} )
     {
         Detail::UEShapeBuffers g;
-        const bool   single = options.Groups != ShapePolygroupMode::PerQuad;
+        const bool             single = options.Groups != ShapePolygroupMode::PerQuad;
         // UE: RectGen.Width = Depth (along X_UE), RectGen.Height = Width (along Y_UE).
-        double       width  = Detail::Extent( rect.Depth );
-        double       height = Detail::Extent( rect.Width );
-        const int    wVerts = Detail::Count( rect.DepthSubdivisions, 1 ) + 1;
-        const int    hVerts = Detail::Count( rect.WidthSubdivisions, 1 ) + 1;
+        double    width  = Detail::Extent( rect.Depth );
+        double    height = Detail::Extent( rect.Width );
+        const int wVerts = Detail::Count( rect.DepthSubdivisions, 1 ) + 1;
+        const int hVerts = Detail::Count( rect.WidthSubdivisions, 1 ) + 1;
         if ( rect.Type == RectangleType::Rectangle )
             Detail::GenerateRectangle( g, width, height, wVerts, hVerts, single );
         else
@@ -1540,16 +1562,16 @@ namespace Desert::Geometry
     inline ShapeMesh MakeDisc( const DiscShape& disc, const ShapeOptions& options = {} )
     {
         Detail::UEShapeBuffers g;
-        const bool   single = options.Groups != ShapePolygroupMode::PerQuad;
-        const double radius = Detail::Extent( disc.Radius );
-        const int    slices = Detail::Count( disc.RadialSlices, 3 );
-        const int    rings  = Detail::Count( disc.RadialSubdivisions, 1 );
+        const bool             single = options.Groups != ShapePolygroupMode::PerQuad;
+        const double           radius = Detail::Extent( disc.Radius );
+        const int              slices = Detail::Count( disc.RadialSlices, 3 );
+        const int              rings  = Detail::Count( disc.RadialSubdivisions, 1 );
         if ( disc.Type == DiscType::Disc )
             Detail::GenerateDisc( g, radius, slices, rings, single );
         else
-            Detail::GeneratePuncturedDisc( g, radius,
-                                           std::clamp( static_cast<double>( disc.HoleRadius ), 0.0, radius * 0.999 ),
-                                           slices, rings, single );
+            Detail::GeneratePuncturedDisc(
+                 g, radius, std::clamp( static_cast<double>( disc.HoleRadius ), 0.0, radius * 0.999 ), slices,
+                 rings, single );
         return Detail::Finish( g, options );
     }
 
@@ -1593,9 +1615,9 @@ namespace Desert::Geometry
     inline ShapeMesh MakeCone( const ConeShape& cone, const ShapeOptions& options = {} )
     {
         Detail::UEShapeBuffers g;
-        const float            r = Detail::Extent( cone.Radius );
-        const float            h = Detail::Extent( cone.Height );
-        const int              n = Detail::Count( cone.HeightSubdivisions, 1 );
+        const float            r    = Detail::Extent( cone.Radius );
+        const float            h    = Detail::Extent( cone.Height );
+        const int              n    = Detail::Count( cone.HeightSubdivisions, 1 );
         constexpr float        kTip = 0.01f;
         std::vector<float>     radii, heights;
         for ( int i = 0; i <= n; ++i )
@@ -1615,12 +1637,12 @@ namespace Desert::Geometry
     inline ShapeMesh MakeArrow( const ArrowShape& arrow, const ShapeOptions& options = {} )
     {
         Detail::UEShapeBuffers g;
-        const float            sr         = Detail::Extent( arrow.ShaftRadius );
-        const float            sl         = Detail::Extent( arrow.ShaftHeight );
-        const float            hr         = Detail::Extent( arrow.HeadRadius );
-        const float            hl         = Detail::Extent( arrow.HeadHeight );
-        const int              additional = Detail::Count( arrow.HeightSubdivisions, 1 ) - 1;
-        const float            srcRadii[] = { sr, sr, hr, 0.01f };
+        const float            sr           = Detail::Extent( arrow.ShaftRadius );
+        const float            sl           = Detail::Extent( arrow.ShaftHeight );
+        const float            hr           = Detail::Extent( arrow.HeadRadius );
+        const float            hl           = Detail::Extent( arrow.HeadHeight );
+        const int              additional   = Detail::Count( arrow.HeightSubdivisions, 1 ) - 1;
+        const float            srcRadii[]   = { sr, sr, hr, 0.01f };
         const float            srcHeights[] = { 0.0f, sl, sl, sl + hl };
         std::vector<float>     radii, heights;
         for ( int seg = 0;; ++seg )
@@ -1647,10 +1669,10 @@ namespace Desert::Geometry
     inline ShapeMesh MakeCapsule( const CapsuleShape& capsule, const ShapeOptions& options = {} )
     {
         Detail::UEShapeBuffers g;
-        Detail::GenerateCapsule( g, Detail::Extent( capsule.Radius ), Detail::Extent( capsule.CylinderLength ),
-                                 Detail::Count( capsule.HemisphereSlices, 2 ), Detail::Count( capsule.CylinderSlices, 3 ),
-                                 Detail::Count( capsule.CylinderSubdivisions, 0 ),
-                                 options.Groups == ShapePolygroupMode::PerQuad );
+        Detail::GenerateCapsule(
+             g, Detail::Extent( capsule.Radius ), Detail::Extent( capsule.CylinderLength ),
+             Detail::Count( capsule.HemisphereSlices, 2 ), Detail::Count( capsule.CylinderSlices, 3 ),
+             Detail::Count( capsule.CylinderSubdivisions, 0 ), options.Groups == ShapePolygroupMode::PerQuad );
         return Detail::Finish( g, options );
     }
 
@@ -1664,7 +1686,6 @@ namespace Desert::Geometry
                                options.Groups == ShapePolygroupMode::PerQuad );
         return Detail::Finish( g, options );
     }
-
 
     // Square pyramid: a base and four triangles meeting at the apex. Logical faces: 5.
     inline ShapeMesh MakePyramid( const glm::vec3& size, const ShapeOptions& options = {} )
@@ -1917,8 +1938,6 @@ namespace Desert::Geometry
         Detail::ApplyPivot( m, options.Pivot );
         return m;
     }
-
-
 
     // ── THE SCENE'S PRIMITIVES ───────────────────────────────────────────────────────────────────
     //

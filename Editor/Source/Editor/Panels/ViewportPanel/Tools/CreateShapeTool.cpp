@@ -49,9 +49,9 @@ namespace Desert::Editor::Tools
         switch ( s.Kind )
         {
             case MS::Shape::Box:
-                return Geometry::MakeBox( { s.Box.Width, s.Box.Height, s.Box.Depth },
-                                          { s.Box.WidthSubdivisions, s.Box.HeightSubdivisions, s.Box.DepthSubdivisions },
-                                          options );
+                return Geometry::MakeBox(
+                     { s.Box.Width, s.Box.Height, s.Box.Depth },
+                     { s.Box.WidthSubdivisions, s.Box.HeightSubdivisions, s.Box.DepthSubdivisions }, options );
             case MS::Shape::Sphere:
                 return Geometry::MakeSphere( s.Sphere, options );
             case MS::Shape::Cylinder:

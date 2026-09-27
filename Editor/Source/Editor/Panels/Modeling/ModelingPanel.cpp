@@ -631,8 +631,8 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "%s\nDrag 1..1000 cm; Ctrl+click to type up to 1000000.", tip );
         };
-        const auto count = []( const char* label, int* value, int uiLowest, int uiHighest, int clampLowest,
-                               int clampHighest )
+        const auto count =
+             []( const char* label, int* value, int uiLowest, int uiHighest, int clampLowest, int clampHighest )
         {
             ImGui::SetNextItemWidth( 110.0f );
             if ( ImGui::SliderInt( label, value, uiLowest, uiHighest ) )
@@ -710,7 +710,7 @@ namespace Desert::Editor
                     break;
                 case Shape::Stairs:
                 {
-                    auto&      st     = s.Stairs;
+                    auto&      st = s.Stairs;
                     const bool curved =
                          st.Type == Geometry::StairsType::Curved || st.Type == Geometry::StairsType::Spiral;
                     combo( "Stairs Type", st.Type,
@@ -751,7 +751,8 @@ namespace Desert::Editor
                     count( "Height Subdivisions", &s.Arrow.HeightSubdivisions, 1, 100, 1, 500 );
                     break;
                 case Shape::Disc:
-                    combo( "Disc Type", s.Disc.Type, { Geometry::DiscType::Disc, Geometry::DiscType::PuncturedDisc } );
+                    combo( "Disc Type", s.Disc.Type,
+                           { Geometry::DiscType::Disc, Geometry::DiscType::PuncturedDisc } );
                     cm( "Radius", &s.Disc.Radius, "Radius of the disc." );
                     count( "Radial Slices", &s.Disc.RadialSlices, 3, 128, 3, 500 );
                     count( "Radial Subdivisions", &s.Disc.RadialSubdivisions, 1, 100, 1, 500 );
@@ -769,7 +770,8 @@ namespace Desert::Editor
                     {
                         ImGui::Checkbox( "Maintain Dimension", &s.Rectangle.MaintainDimension );
                         if ( ImGui::IsItemHovered() )
-                            ImGui::SetTooltip( "Width and Depth stay the outer size; the corners come out of them." );
+                            ImGui::SetTooltip(
+                                 "Width and Depth stay the outer size; the corners come out of them." );
                         cm( "Corner Radius", &s.Rectangle.CornerRadius, "Radius of the rounded corners." );
                         count( "Corner Slices", &s.Rectangle.CornerSlices, 3, 128, 3, 500 );
                     }

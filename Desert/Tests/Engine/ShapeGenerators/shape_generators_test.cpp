@@ -79,12 +79,14 @@ namespace
              { "Sphere Lat Long",
                []( const ShapeOptions& o ) { return MakeSphere( { 60.0f, SphereType::LatLong, 1, 12, 16 }, o ); },
                16 * 12, 16 * 12, true, 4.0f / 3.0f * pi * 60.0f * 60.0f * 60.0f, 0.1f },
-             { "Sphere Box", []( const ShapeOptions& o ) { return MakeSphere( { 60.0f, SphereType::Box, 4 }, o ); },
-               6, 6 * 16, true, 4.0f / 3.0f * pi * 60.0f * 60.0f * 60.0f, 0.1f },
+             { "Sphere Box",
+               []( const ShapeOptions& o ) { return MakeSphere( { 60.0f, SphereType::Box, 4 }, o ); }, 6, 6 * 16,
+               true, 4.0f / 3.0f * pi * 60.0f * 60.0f * 60.0f, 0.1f },
              { "Cylinder", []( const ShapeOptions& o ) { return MakeCylinder( { 40.0f, 150.0f, 12, 1 }, o ); }, 3,
                12 + 2, true, pi * 40.0f * 40.0f * 150.0f, 0.06f },
-             { "Cylinder 3 high", []( const ShapeOptions& o ) { return MakeCylinder( { 40.0f, 150.0f, 12, 3 }, o ); },
-               2 + 3, 3 * 12 + 2, true, pi * 40.0f * 40.0f * 150.0f, 0.06f },
+             { "Cylinder 3 high",
+               []( const ShapeOptions& o ) { return MakeCylinder( { 40.0f, 150.0f, 12, 3 }, o ); }, 2 + 3,
+               3 * 12 + 2, true, pi * 40.0f * 40.0f * 150.0f, 0.06f },
              { "Cone", []( const ShapeOptions& o ) { return MakeCone( { 40.0f, 150.0f, 12, 1 }, o ); }, 3, 12 + 2,
                true, pi * 40.0f * 40.0f * 150.0f / 3.0f, 0.06f },
              { "Capsule", []( const ShapeOptions& o ) { return MakeCapsule( { 30.0f, 140.0f, 4, 16, 1 }, o ); }, 1,
@@ -108,28 +110,32 @@ namespace
                { return MakeStairs( Stairs( StairsType::Spiral, 400.0f ), o ); }, 4 + 2 * 6, 2 * 11 + 4 * 6, true,
                CurvedStepArea( 150.0f, 200.0f, 400.0f, 6 ) * 20.0f * 11.0f, 1e-4f },
              // The faceted torus: a 12-gon of area 6 sin(2 pi / 12) r^2 swept along a 16-gon of radius R.
-             { "Torus", []( const ShapeOptions& o ) { return MakeTorus( { 45.0f, 15.0f, 16, 12 }, o ); }, 16, 16 * 12,
-               true,
+             { "Torus", []( const ShapeOptions& o ) { return MakeTorus( { 45.0f, 15.0f, 16, 12 }, o ); }, 16,
+               16 * 12, true,
                16.0f * std::sin( 2.0f * pi / 16.0f ) * 6.0f * std::sin( 2.0f * pi / 12.0f ) * 15.0f * 15.0f *
                     45.0f,
                1e-3f, 0 },
-             { "Arrow", []( const ShapeOptions& o ) { return MakeArrow( { 20.0f, 200.0f, 60.0f, 120.0f, 12, 1 }, o ); },
+             { "Arrow",
+               []( const ShapeOptions& o ) { return MakeArrow( { 20.0f, 200.0f, 60.0f, 120.0f, 12, 1 }, o ); },
                2 + 3, 3 * 12 + 2, true, pi * 20.0f * 20.0f * 200.0f + pi * 60.0f * 60.0f * 120.0f / 3.0f, 0.06f },
              { "Arrow 2 high",
-               []( const ShapeOptions& o ) { return MakeArrow( { 20.0f, 200.0f, 60.0f, 120.0f, 12, 2 }, o ); }, 2 + 6,
-               6 * 12 + 2, true, pi * 20.0f * 20.0f * 200.0f + pi * 60.0f * 60.0f * 120.0f / 3.0f, 0.06f },
+               []( const ShapeOptions& o ) { return MakeArrow( { 20.0f, 200.0f, 60.0f, 120.0f, 12, 2 }, o ); },
+               2 + 6, 6 * 12 + 2, true, pi * 20.0f * 20.0f * 200.0f + pi * 60.0f * 60.0f * 120.0f / 3.0f, 0.06f },
              { "Disc", []( const ShapeOptions& o ) { return MakeDisc( { DiscType::Disc, 50.0f, 16, 3 }, o ); }, 1,
                16 * 3, false, 0.0f, 0.0f, 1, 16 },
              { "Punctured Disc", []( const ShapeOptions& o )
                { return MakeDisc( { DiscType::PuncturedDisc, 50.0f, 16, 3, 20.0f }, o ); }, 1, 16 * 2, false, 0.0f,
                0.0f, 0, 2 * 16 },
              { "Rectangle", []( const ShapeOptions& o )
-               { return MakeRectangle( { RectangleType::Rectangle, 100.0f, 60.0f, 3, 2 }, o ); }, 1, 6, false, 0.0f,
-               0.0f, 1, 2 * ( 3 + 2 ) },
+               { return MakeRectangle( { RectangleType::Rectangle, 100.0f, 60.0f, 3, 2 }, o ); }, 1, 6, false,
+               0.0f, 0.0f, 1, 2 * ( 3 + 2 ) },
              // Rounded: a (2 + 3) x (2 + 4)-vertex lattice, 20 cells of which the 4 corners are fans of
              // CornerSlices - 1 + 1 = 4 triangles; the rim is 2 * (2 + 3) straight edges + 4 arcs of 4.
-             { "Rounded Rectangle", []( const ShapeOptions& o )
-               { return MakeRectangle( { RectangleType::RoundedRectangle, 100.0f, 60.0f, 3, 2, true, 10.0f, 4 }, o ); },
+             { "Rounded Rectangle",
+               []( const ShapeOptions& o ) {
+                   return MakeRectangle( { RectangleType::RoundedRectangle, 100.0f, 60.0f, 3, 2, true, 10.0f, 4 },
+                                         o );
+               },
                1, 20, false, 0.0f, 0.0f, 1, 2 * ( 2 + 3 ) + 4 * 4 },
         };
     }
@@ -398,7 +404,7 @@ TEST( ShapeGenerators, UVsAreUEs )
 
     // SweepGenerator.cpp:505-531 (bUVScaleMatchSidesAndCaps): the side's U = 1 - i / slices times
     // 2 pi R / max, V = 1 at the bottom ring times height / max, the caps 2R / max; max = 2 pi R here.
-    const float     theta = 40.0f * glm::two_pi<float>();
+    const float     theta    = 40.0f * glm::two_pi<float>();
     const ShapeMesh cylinder = MakeCylinder( { 40.0f, 150.0f, 12, 1 } );
     for ( const Vertex& v : cylinder.Vertices )
     {
@@ -415,11 +421,11 @@ TEST( ShapeGenerators, UVsAreUEs )
 
     // SphereGenerator.h:62-95: V = ring / (NumPhi - 1) from the north pole, U = 1 - t / NumTheta with t
     // counted from +X_UE (= -Z) towards +Y_UE (= +X). A quarter turn is U = 0.75.
-    const ShapeMesh sphere = MakeSphere( { 60.0f, SphereType::LatLong, 1, 12, 16 } );
+    const ShapeMesh sphere  = MakeSphere( { 60.0f, SphereType::LatLong, 1, 12, 16 } );
     int             quarter = 0;
     for ( const Vertex& v : sphere.Vertices )
     {
-        const glm::vec3 p = v.Position - glm::vec3( 0.0f, 60.0f, 0.0f );
+        const glm::vec3 p   = v.Position - glm::vec3( 0.0f, 60.0f, 0.0f );
         const float     phi = std::acos( std::clamp( p.y / 60.0f, -1.0f, 1.0f ) );
         EXPECT_NEAR( v.TexCoord.y, phi / glm::pi<float>(), 1e-4f );
         if ( std::abs( p.z ) < 1e-3f && p.x > 1.0f )
@@ -442,10 +448,10 @@ TEST( ShapeGenerators, UVsAreUEs )
     float lowU = 1.0f, highU = 0.0f, lowV = 1.0f, highV = 0.0f;
     for ( const Vertex& v : MakeTorus( { 45.0f, 15.0f, 16, 12 } ).Vertices )
     {
-        lowU  = std::min( lowU, v.TexCoord.x );
-        highU = std::max( highU, v.TexCoord.x );
-        lowV  = std::min( lowV, v.TexCoord.y );
-        highV = std::max( highV, v.TexCoord.y );
+        lowU              = std::min( lowU, v.TexCoord.x );
+        highU             = std::max( highU, v.TexCoord.x );
+        lowV              = std::min( lowV, v.TexCoord.y );
+        highV             = std::max( highV, v.TexCoord.y );
         const float steps = v.TexCoord.x * 12.0f;
         EXPECT_NEAR( steps, std::round( steps ), 1e-4f );
     }
@@ -460,7 +466,7 @@ TEST( ShapeGenerators, NormalsAreUEs )
 {
     // FArrowGenerator marks the shaft top and the head base sharp (SweepGenerator.cpp:596): the shaft ring
     // at y = 200 carries the shaft's radial normal and the underside's straight-down one, never a blend.
-    const ShapeMesh arrow = MakeArrow( { 20.0f, 200.0f, 60.0f, 120.0f, 12, 1 } );
+    const ShapeMesh arrow  = MakeArrow( { 20.0f, 200.0f, 60.0f, 120.0f, 12, 1 } );
     int             radial = 0, down = 0;
     for ( const Vertex& v : arrow.Vertices )
         if ( std::abs( v.Position.y - 200.0f ) < 1e-3f &&
@@ -513,7 +519,8 @@ TEST( ShapeGenerators, PolygroupsAreUEs )
     EXPECT_EQ( sizes( MakeTorus( { 45.0f, 15.0f, 16, 12 }, { ShapePolygroupMode::PerFace } ) ),
                std::multiset<int>( { 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24 } ) );
     // Lat Long's PerFace is PerQuad: each pole triangle is a group of its own.
-    const auto sphere = sizes( MakeSphere( { 60.0f, SphereType::LatLong, 1, 12, 16 }, { ShapePolygroupMode::PerFace } ) );
+    const auto sphere =
+         sizes( MakeSphere( { 60.0f, SphereType::LatLong, 1, 12, 16 }, { ShapePolygroupMode::PerFace } ) );
     EXPECT_EQ( sphere.count( 1 ), 2u * 16u );
     EXPECT_EQ( sphere.count( 2 ), 10u * 16u );
     // The disc in PerQuad: the centre fan's triangles alone, the rings' quads in pairs.
