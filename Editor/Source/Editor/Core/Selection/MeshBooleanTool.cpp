@@ -242,7 +242,8 @@ namespace Desert::Editor::Core
             {
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 // The entity's own mesh, not the tool target: a lifted asset keeps drawing its asset.
-                changes.push_back( { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
+                changes.push_back(
+                     { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
             }
         }
 
