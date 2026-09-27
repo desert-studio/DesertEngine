@@ -6,6 +6,7 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshUploader.hpp>
 
 #include <span>
@@ -120,6 +121,18 @@ namespace Desert::Runtime
         // claiming those buffers to `ResourceOwner::Procedural`; this is the enforcement.
         bool EvictBuilt( const Assets::AssetHandle& handle );
 
+        // RELEASE THE DROPPED MESHES NO FRAME IN FLIGHT CAN STILL DRAW. EvictBuilt does not free the buffers: it
+        // parks them (Assets::FrameRetireQueue states the margin), because a sweep asked for by world streaming
+        // runs with frames of the cell that just left still on the GPU. Called once per frame by the frame loop;
+        // returns how many meshes were released.
+        std::size_t RetireEvicted();
+
+        // Dropped meshes still waiting for their frames to finish — what the suite and the log read.
+        [[nodiscard]] std::size_t RetiringCount() const noexcept
+        {
+            return m_Retiring.Size();
+        }
+
     private:
         // Load a shell that has not been parsed yet AND re-resolve what the parse just revealed. Both, or
         // neither: see AssetBase::EnsureLoaded.
@@ -138,6 +151,7 @@ namespace Desert::Runtime
         Common::BoolResultStr BuildAndCache( const std::shared_ptr<Assets::MeshAsset>& meshAsset ) const;
 
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Mesh>>      m_Meshes;
+        Assets::FrameRetireQueue<std::shared_ptr<Mesh>>                              m_Retiring;
         // One mesh the service knows: its shell, its rig (skinned only; found by the registry's Rig tag), the
         // loader requests that read them, and whether it failed — a failure is logged once and not retried.
         struct Entry

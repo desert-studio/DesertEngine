@@ -112,7 +112,19 @@ namespace Desert::Core::Rules
         std::size_t UnboundReferences = 0;
         std::size_t WaitingForBudget  = 0;
         std::size_t StaleOutcomes     = 0;
+        // Units whose loaded records were let go this tick (after a Deactivate, or a Loaded unit leaving range).
+        std::size_t UnitsUnloaded = 0;
     };
+
+    // WHETHER THIS TICK LET GO OF WHAT A CELL HELD (WP13). A resident cell is what keeps its assets: its entities
+    // are roots of the eviction trace, and so is a Loaded cell's record list. When a cell is deactivated or
+    // unloaded those holds are gone, and an asset nothing else names can be released — UE's level streaming out
+    // forces a collection for the same reason (GLevelStreamingForceGCAfterLevelStreamedOut). The streamer asks
+    // for a sweep on this; the schedule's debounce makes a flight that drops five cells one sweep.
+    [[nodiscard]] inline bool ReleasesCellAssets( const ResidencyTick& tick )
+    {
+        return tick.UnitsDeactivated > 0 || tick.UnitsUnloaded > 0;
+    }
 
     class ResidencyExecutor
     {
@@ -266,6 +278,7 @@ namespace Desert::Core::Rules
                         break;
                     case ResidencyActionKind::Unload:
                         world.Unload( action.Unit );
+                        ++tick.UnitsUnloaded;
                         break;
                 }
             }

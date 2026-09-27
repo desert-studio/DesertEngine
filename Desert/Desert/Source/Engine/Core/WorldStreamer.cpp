@@ -1,5 +1,6 @@
 #include <Engine/Core/WorldStreamer.hpp>
 
+#include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
@@ -259,6 +260,12 @@ namespace Desert::Core
         else if ( wasWaiting && m_FramesWaiting == 0 )
         {
             LOG_INFO( "[WorldPartition] '{0}': the cell under the camera is resident; play resumes", m_SceneName );
+        }
+        if ( Rules::ReleasesCellAssets( done ) )
+        {
+            Assets::AssetEvictionSchedule::Request( "world '" + m_SceneName + "': " +
+                                                    std::to_string( done.UnitsDeactivated ) + " cell(s) deactivated, " +
+                                                    std::to_string( done.UnitsUnloaded ) + " unloaded" );
         }
         m_Scene->GetRegistry().set<WorldStreamingWait>(
              WorldStreamingWait{ m_LastTick.Streaming, m_FramesWaiting } );
