@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <deque>
 #include <iterator>
@@ -158,6 +159,25 @@ namespace Desert::UI
         // editor's preview would overwrite the viewport's. That is the exact defect this whole file was
         // written to undo, and reintroducing it for a string is not a saving.
         UIDataStore Locals;
+
+        // --- Collection-bound lists (UIL1) ------------------------------------------------------------
+        // The record the walk is drawing an entry template for, or null outside a bound row. Set by the
+        // list around each row's DrawElement and restored after it, so a bound list inside a row of another
+        // one sees its own record and the outer row gets its record back. BindingStore asks it FIRST.
+        const UIDataStore* RowRecord = nullptr;
+
+        // What each bound list last saw of its collection — the one thing that has to persist between
+        // frames for its scroll position to follow the records rather than the indices.
+        struct ListBindingSeen
+        {
+            std::uint64_t Serial     = 0; // UICollection::Serial; 0 = never seen one
+            std::uint64_t Generation = 0;
+            bool          AtEnd      = false; // was scrolled to its end when last drawn
+        };
+        std::unordered_map<entt::entity, ListBindingSeen> ListBindings;
+        // Bound lists already reported for not having exactly one child (their entry template). Per entity,
+        // said once, like WarnedStyles.
+        std::unordered_set<entt::entity> WarnedListTemplates;
         // Style names this cell has already refused (Ю13): a UIStyleComponent naming a style the canvas's
         // theme does not declare. Per NAME rather than per ENTITY, because a mistyped style is normally on
         // the twenty elements that were duplicated from one another and the interesting fact is the name,
@@ -178,9 +198,60 @@ namespace Desert::UI
     //
     // The locals WIN when they hold the key, and fall through otherwise, so a scene-wide gameplay value and
     // a per-view overlay value can coexist under different names without either shadowing the other.
-    [[nodiscard]] inline const UIDataStore& BindingStore( const UICanvasContext* ctx, const std::string& key )
+    //
+    // Inside a collection-bound list row (UIL1) the ROW'S RECORD is asked before either: the entry template
+    // is one authored element drawn once per record, and "which record" is the only thing that tells its
+    // rows apart. Passed explicitly rather than read off @p ctx because the layout queries run without a
+    // cell and still have to agree with the draw about a row's Visible binding.
+    [[nodiscard]] inline const UIDataStore& BindingStore( const UICanvasContext* ctx, const std::string& key,
+                                                          const UIDataStore* row )
     {
+        if ( row != nullptr && row->Has( key ) )
+            return *row;
         return ( ctx != nullptr && ctx->Locals.Has( key ) ) ? ctx->Locals : UIDataStore::Get();
+    }
+
+    // WHERE A BOUND LIST'S SCROLL GOES WHEN ITS COLLECTION CHANGED, in design px (SolveListWindow clamps).
+    //
+    // The offset is anchored to the RECORD at the top of the window, not to the pixel: an insert or remove
+    // above it moves every row below by whole pitches, and moving the offset by the same amount keeps the
+    // reader looking at the same records — UE's list views keep the same promise. A change at or below the
+    // top row moves nothing on screen above it, so it moves nothing here.
+    //
+    // @p logComplete false (the change log no longer reaches back to what the list last saw, or the
+    // collection was replaced) keeps the offset: nothing better is knowable, and the clamp will still hold.
+    // @p followEnd with @p wasAtEnd pins the list to its end, which is a chat log's whole behaviour.
+    [[nodiscard]] inline float AnchorListScroll( float scrollY, float pitchDesign, bool followEnd, bool wasAtEnd,
+                                                 bool                                     logComplete,
+                                                 const std::vector<UICollection::Change>& changes )
+    {
+        constexpr float kEnd = 1.0e30f; // any offset past the content; the solver clamps it to the end
+        if ( followEnd && wasAtEnd )
+            return kEnd;
+        if ( !logComplete || pitchDesign <= 0.0f )
+            return scrollY;
+        for ( const UICollection::Change& c : changes )
+        {
+            const int top = static_cast<int>( std::floor( std::max( 0.0f, scrollY ) / pitchDesign ) );
+            switch ( c.What )
+            {
+                case UICollection::Change::Kind::Insert:
+                    // At the very top an insert at 0 is SHOWN rather than hidden above the window.
+                    if ( c.First <= top && scrollY > 0.0f )
+                        scrollY += static_cast<float>( c.Count ) * pitchDesign;
+                    break;
+                case UICollection::Change::Kind::Remove:
+                    if ( c.First < top )
+                        scrollY -= static_cast<float>( c.Count ) * pitchDesign;
+                    break;
+                case UICollection::Change::Kind::Clear:
+                    scrollY = 0.0f;
+                    break;
+                case UICollection::Change::Kind::Set:
+                    break;
+            }
+        }
+        return scrollY;
     }
 
     // ONE VIEW — the other coordinate of the key, and the owner of every cell it has drawn.

@@ -28,6 +28,8 @@
 // to the renderer's rect resolution belongs here too.
 namespace Desert::UI
 {
+    class UIDataStore;
+
     // --- WHICH CANVAS. The question every one of these used to answer by itself, and always the same way --
     //
     // `*reg.view<UICanvasComponent>().begin()` — the first canvas entt happens to hand out — stood in three
@@ -139,6 +141,11 @@ namespace Desert::UI
         UISkipCause  Cause   = UISkipCause::None;
         entt::entity CauseBy = entt::null; // who stopped it: itself, or the ancestor that did
 
+        // Inside a collection-bound UIListView (UIL1): the RECORD index this node was walked for, -1
+        // elsewhere. The entry template is one entity walked once per visible record, so the entity alone
+        // does not say which row a node is — a pick on an inventory slot needs this to name the item.
+        int ListRow = -1;
+
         // The element's own rect, BEFORE its render transform — the space its UILayout offsets are written
         // in, the same rect GetElementRect reports. False when the element has no rect at all: a Collapsed
         // child of an auto-layout group is given no slot, so there is no position to report for it.
@@ -200,8 +207,11 @@ namespace Desert::UI
     // @p ctx is the (canvas x view) cell, because a binding reads that cell's locals before the process-wide
     // store (UI::BindingStore). Passing nullptr asks the global store alone, which is the honest answer for a
     // caller that has no view — and the same nullptr that already means "no view" everywhere else here.
+    //
+    // @p row is the record of the collection-bound list row @p e is walked for (UIL1), asked before both.
     [[nodiscard]] bool BindingHidesElement( entt::registry& reg, entt::entity e,
-                                            const struct UICanvasContext* ctx = nullptr );
+                                            const struct UICanvasContext* ctx = nullptr,
+                                            const UIDataStore*            row = nullptr );
 
     // In-scene UI editing (viewport WYSIWYG). Returns the topmost element of @p canvas whose resolved rect
     // contains `pointPx`, or entt::null. `viewportPx` must be the SAME rect the canvas was drawn into so

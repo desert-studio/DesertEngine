@@ -1202,6 +1202,24 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Scrollbar Color" ), Category( "UI List View" ), Color )
         glm::vec3 ScrollbarColor = glm::vec3( 0.35f, 0.37f, 0.44f );
+
+        // BOUND TO DATA (UIL1) — the UMG ListView + entry-widget pattern. Empty: rows are this element's
+        // children, as above. Set: rows are the records of this UIDataStore collection, and the element's
+        // ONE child is the entry template, drawn once per visible record with that record's fields
+        // answering its UIBinding keys first (a field named like a global key shadows it inside the row).
+        // Nothing is instantiated per record, so ten thousand records cost the window and not the list.
+        PROPERTY(
+             DisplayName( "Collection" ), Category( "UI List View" ),
+             Tooltip( "Data-store collection key (Lua ui.list_add). Rows are its records; the one child is the "
+                      "entry template" ) )
+        std::string Collection;
+
+        // A chat log's behaviour: while the list is scrolled to its end, records appended to the collection
+        // keep it at the end. Scrolled up, the reader's place is kept instead — which is also what every
+        // bound list does for records inserted or removed ABOVE its window.
+        PROPERTY( DisplayName( "Follow End" ), Category( "UI List View" ),
+                  Tooltip( "Stay scrolled to the end while at the end when records are added (chat)" ) )
+        bool FollowEnd = false;
     };
     struct UIListViewComponent
     {

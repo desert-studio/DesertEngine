@@ -721,6 +721,15 @@ namespace Desert::Tests::PointerCensus
           "and the object dies with the walk, which is what makes a theme switch reach the very next "
           "frame without any invalidation to remember" },
         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+          "UICanvasContext", "RowRecord", Guard::CallScoped,
+          "UIL1: the record of a collection-bound list row, set by the list around the DrawElement of that "
+          "row and restored to the outer value right after it. The record lives in UIDataStore's collection, "
+          "which only gameplay mutates and never during a canvas walk, so it outlives the call that reads it" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
+          "EnumScope", "Row", Guard::CallScoped,
+          "UIL1: the record answering a bound list row's bindings during one EnumerateCanvas recursion; the "
+          "scope is a stack value of that recursion and the collection is not mutated while a query runs" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
           "UIViewContext", "Materials", Guard::ObservedContainsUs,
           "where this view's UI materials come from, as an IUIMaterialSource. The one implementation is "
           "the UIMaterialCache that is a MEMBER of the Render2D backend the view's host owns alongside "
