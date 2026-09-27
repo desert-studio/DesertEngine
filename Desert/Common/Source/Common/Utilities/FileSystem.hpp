@@ -26,7 +26,8 @@ namespace Common::Utils
     // within this window of the moment the read began — is never trusted by stat and is re-read (and its
     // CONTENT compared) on the next lookup. Once a re-read lands after the window, the stamp settles.
     // ReservedIdentifiers.EveryWriteTimeReaderStatesItsRule holds each reader of a write time to this rule
-    // or to a register row that says why it does not need it.
+    // or to a register row that says why it does not need it. A poller ("has this file changed since I last
+    // looked?") asks Common::Utils::WriteWatch, which applies the rule for it.
     inline constexpr std::chrono::seconds kRacyWriteWindow{ 2 };
 
     // `readBegan` is sampled BEFORE the stat and the read: a write that lands after it carries a write time at

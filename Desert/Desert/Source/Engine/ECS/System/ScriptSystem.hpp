@@ -9,6 +9,7 @@
 
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/WriteWatch.hpp>
 
 #include <glm/glm.hpp>
 
@@ -204,23 +205,14 @@ namespace Desert::ECS
                     if ( script.ScriptKey.empty() )
                         continue;
 
-                    // The mtime is a property of the FILE, so it is probed on the resolved path; the map
+                    // The stamp is a property of the FILE, so it is probed on the resolved path; the watch
                     // is keyed on the KEY, which is the one spelling that does not change under a project
-                    // remap - two slots naming one script share a row whichever root is mounted.
-                    std::error_code ec;
-                    const auto      mtime = std::filesystem::last_write_time( script.ResolvedPath(), ec );
-                    if ( ec )
+                    // remap - two slots naming one script share a row whichever root is mounted. A first
+                    // sighting is a baseline; a same-size save inside one tick of the file system's clock is
+                    // still a change (WriteWatch hashes a racy stamp's content).
+                    if ( m_ScriptWatch.Observe( script.ScriptKey, script.ResolvedPath() ) !=
+                         Common::Utils::WriteWatch::Seen::Changed )
                         continue;
-
-                    auto it = m_ScriptTimes.find( script.ScriptKey );
-                    if ( it == m_ScriptTimes.end() )
-                    {
-                        m_ScriptTimes[script.ScriptKey] = mtime; // baseline
-                        continue;
-                    }
-                    if ( it->second == mtime )
-                        continue;
-                    it->second = mtime;
 
                     script.Started = false; // re-load + OnStart on the next frame
                     LOG_INFO( "[HotReload] Script '{}' reloading", script.ScriptKey );
@@ -255,8 +247,8 @@ namespace Desert::ECS
         bool      m_LookSuspended = false;
         bool      m_AltPrev       = false;
 
-        // Script hot-reload state (mtime polling, throttled).
-        std::unordered_map<std::string, std::filesystem::file_time_type> m_ScriptTimes;
-        float                                                            m_ScriptPollAccum = 0.0f;
+        // Script hot-reload state (write-watch polling, throttled).
+        Common::Utils::WriteWatch m_ScriptWatch;
+        float                     m_ScriptPollAccum = 0.0f;
     };
 } // namespace Desert::ECS
