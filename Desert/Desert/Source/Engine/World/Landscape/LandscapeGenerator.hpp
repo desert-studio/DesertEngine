@@ -148,6 +148,14 @@ namespace Desert::World::Landscape
     Common::ResultStr<LandscapeGeneratedMap> GenerateLandscapeMap( const LandscapeGenerateSettings& settings,
                                                                    LandscapeGenerateProgress* progress = nullptr );
 
+    /// Cuts a whole-landscape map into @p settings' TilesX x TilesZ tiles of QuadsPerTile quads (the frame from
+    /// LocationCm / SpacingCm / ZScale, centred as UE centres a new landscape). The generator's last step, and the
+    /// heightmap import's only one. Refuses a map that is not TilesX · QuadsPerTile + 1 by TilesZ · QuadsPerTile
+    /// + 1 samples, naming both sizes; with @p progress, honours its Cancel before every tile.
+    Common::ResultStr<LandscapeGenerated> CutLandscapeMap( const LandscapeGenerateSettings& settings,
+                                                           const LandscapeGeneratedMap&     map,
+                                                           LandscapeGenerateProgress*       progress = nullptr );
+
     /// The frame and the tiles of GenerateLandscapeMap's map. Refuses what ValidateLandscapeGenerate refuses.
     Common::ResultStr<LandscapeGenerated> GenerateLandscape( const LandscapeGenerateSettings& settings,
                                                              LandscapeGenerateProgress*       progress = nullptr );

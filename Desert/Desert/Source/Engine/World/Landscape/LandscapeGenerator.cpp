@@ -229,11 +229,27 @@ namespace Desert::World::Landscape
     Common::ResultStr<LandscapeGenerated> GenerateLandscape( const LandscapeGenerateSettings& s,
                                                              LandscapeGenerateProgress*       progress )
     {
-        const Steps steps{ progress };
-        auto        made = GenerateLandscapeMap( s, progress );
+        auto made = GenerateLandscapeMap( s, progress );
         if ( !made.IsSuccess() )
             return Common::MakeError<LandscapeGenerated>( made.GetError() );
         const LandscapeGeneratedMap map = made.ExtractValue();
+        return CutLandscapeMap( s, map, progress );
+    }
+
+    Common::ResultStr<LandscapeGenerated> CutLandscapeMap( const LandscapeGenerateSettings& s,
+                                                           const LandscapeGeneratedMap&     map,
+                                                           LandscapeGenerateProgress*       progress )
+    {
+        const Steps steps{ progress };
+        const size_t wantX = static_cast<size_t>( s.TilesX ) * s.QuadsPerTile + 1u;
+        const size_t wantZ = static_cast<size_t>( s.TilesZ ) * s.QuadsPerTile + 1u;
+        if ( s.TilesX < 1 || s.TilesZ < 1 || map.SamplesX != wantX || map.SamplesZ != wantZ ||
+             map.Samples.size() != wantX * wantZ )
+            return Common::MakeFormattedError<LandscapeGenerated>(
+                 "new landscape: a {} x {} sample map with {} values cannot be cut into {} x {} tiles of {} "
+                 "quads (that needs {} x {} samples)",
+                 map.SamplesX, map.SamplesZ, map.Samples.size(), s.TilesX, s.TilesZ, s.QuadsPerTile, wantX,
+                 wantZ );
 
         LandscapeGenerated out;
         out.ErosionIterations      = map.ErosionIterations;
