@@ -84,6 +84,14 @@ namespace Desert::Core
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
         options.SetWarningsAsErrors();
 
+        // NO SetOptimizationLevel, measured (PSO2, 2026-09-27, 126 shaders of the SPIR-V cache). shaderc's
+        // performance/size levels without debug info add StripDebugInfo: every OpName/OpMemberName goes, so
+        // spirv-cross reflects blocks as `_20` and members as `_m0`, and VulkanShaderReflection binds by
+        // name. Dead-variable elimination also drops declared-but-unread bindings (3 in 2 shaders), which
+        // changes the reflected set layout. The gain did not pay for either: code 1.00 -> 0.64 MB (names
+        // stripped both ways), Metal front-end compile of the whole set 8.4 -> 8.1 s (within run-to-run
+        // noise). Worth revisiting when reflection stops depending on names, or when a target's driver
+        // shows a measured pipeline-creation win on optimized SPIR-V.
         if ( spirvDebugInfo )
             options.SetGenerateDebugInfo();
 
