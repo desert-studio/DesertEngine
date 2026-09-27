@@ -70,7 +70,8 @@ namespace Desert::Assets
 
     // The importer's own determinism version (AssimpImporter -> MeshSourceFromImport): bump it whenever that
     // conversion produces different bytes for the same source file.
-    inline constexpr uint32_t kMeshSourceBuilderVersion = 1;
+    // 2 (FIX8): the envelope's GUID is the source's import record's, no longer minted per import.
+    inline constexpr uint32_t kMeshSourceBuilderVersion = 2;
 
     // Reads and hashes @p file whole (Utils::PakContentHash over its bytes) - the one place both the
     // importer (keying its Put) and the loader (keying its Get) compute this, so they can never drift into
