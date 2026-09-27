@@ -74,6 +74,70 @@ namespace Desert::Editor::Commands
             std::string                          m_Label;
         };
 
+        /// Creates (redo) or destroys (undo) a generated landscape: the root and its tiles, by fixed UUIDs.
+        class CreateLandscapeCommand final : public ICommand
+        {
+        public:
+            CreateLandscapeCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                    World::Landscape::LandscapeGenerated generated, uint32_t quads,
+                                    Common::UUID root, std::vector<Common::UUID> tiles )
+                 : m_Scene( scene ), m_Generated( std::move( generated ) ), m_Quads( quads ), m_Root( root ),
+                   m_Tiles( std::move( tiles ) )
+            {
+            }
+
+            bool Undo() override
+            {
+                const auto scene = m_Scene.lock();
+                if ( !scene )
+                    return false;
+                for ( const auto& id : m_Tiles )
+                    if ( auto e = scene->FindEntityByID( id ) )
+                        scene->DestroyEntity( e->get() );
+                if ( auto e = scene->FindEntityByID( m_Root ) )
+                    scene->DestroyEntity( e->get() );
+                return true;
+            }
+            bool Redo() override
+            {
+                const auto scene = m_Scene.lock();
+                if ( !scene )
+                    return false;
+                auto& root = scene->CreateEntityWithUUID( m_Root, "Landscape" );
+                if ( !root.HasComponent<ECS::TransformComponent>() )
+                    root.AddComponent<ECS::TransformComponent>();
+                root.GetComponent<ECS::TransformComponent>().Translation = m_Generated.Root.Origin;
+                auto& landscape        = root.AddComponent<ECS::LandscapeComponent>();
+                landscape.QuadsPerTile = m_Quads;
+                landscape.SpacingCm    = m_Generated.Root.SpacingCm;
+                landscape.ZScale       = m_Generated.Root.ZScale;
+                for ( size_t i = 0; i < m_Tiles.size(); ++i )
+                {
+                    const auto& generated = m_Generated.Tiles[i];
+                    auto&       entity    = scene->CreateEntityWithUUID(
+                         m_Tiles[i], "Landscape Tile " + std::to_string( generated.TileX ) + "_" +
+                                          std::to_string( generated.TileZ ) );
+                    auto& tile     = entity.AddComponent<ECS::LandscapeTileComponent>();
+                    tile.Landscape = m_Root;
+                    tile.TileX     = generated.TileX;
+                    tile.TileZ     = generated.TileZ;
+                    tile.Heights   = generated.Heights;
+                }
+                return true;
+            }
+            std::string GetLabel() const override
+            {
+                return "New Landscape";
+            }
+
+        private:
+            std::weak_ptr<::Desert::Core::Scene> m_Scene;
+            World::Landscape::LandscapeGenerated m_Generated;
+            uint32_t                             m_Quads = 0u;
+            Common::UUID                         m_Root;
+            std::vector<Common::UUID>            m_Tiles;
+        };
+
         /// Distinct swatches for new layers (UE picks LayerUsageDebugColor per layer; any distinct set serves).
         constexpr std::array<glm::vec3, 6> kLayerSwatches = { {
              { 0.85f, 0.35f, 0.30f },
@@ -178,5 +242,73 @@ namespace Desert::Editor::Commands
         layers.erase( layers.begin() + static_cast<std::ptrdiff_t>( slot ) );
         RecordLandscapeLayersEdit( scene, root.GetValue().Landscape, before, layers, "Remove landscape layer" );
         return BOOLSUCCESS;
+    }
+
+    namespace
+    {
+        /// The one New Landscape run and the scene it was started for. One run at a time, as UE's Create is
+        /// modal; the scene is held weakly, so closing it mid-run is a refusal at the hand-over, not a crash.
+        struct CreateLandscapeRun
+        {
+            World::Landscape::LandscapeGenerateJob Job;
+            std::weak_ptr<::Desert::Core::Scene>   Scene;
+        };
+
+        CreateLandscapeRun& Run()
+        {
+            static CreateLandscapeRun run;
+            return run;
+        }
+    } // namespace
+
+    Common::BoolResultStr StartCreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&      scene,
+                                                const World::Landscape::LandscapeGenerateSettings& settings )
+    {
+        if ( !scene )
+            return Common::MakeError( "new landscape: no scene" );
+        auto started = Run().Job.Start( settings );
+        if ( started.IsSuccess() )
+            Run().Scene = scene;
+        return started;
+    }
+
+    bool IsCreatingLandscape()
+    {
+        return Run().Job.Running();
+    }
+
+    float CreateLandscapeFraction()
+    {
+        return Run().Job.Fraction();
+    }
+
+    void CancelCreateLandscape()
+    {
+        Run().Job.Cancel();
+    }
+
+    std::optional<Common::ResultStr<Common::UUID>> FinishCreateLandscape()
+    {
+        auto finished = Run().Job.TakeFinished();
+        if ( !finished )
+            return std::nullopt;
+        const auto scene = Run().Scene.lock();
+        Run().Scene.reset();
+        if ( !finished->IsSuccess() )
+            return Common::MakeError<Common::UUID>( finished->GetError() );
+        if ( !scene )
+            return Common::MakeError<Common::UUID>(
+                 "new landscape: the scene it was generated for was closed before it finished" );
+        auto                      generated = finished->ExtractValue();
+        const uint32_t            quads     = generated.Root.QuadsPerTile;
+        const Common::UUID        root      = Common::UUID::Generate();
+        std::vector<Common::UUID> tiles( generated.Tiles.size() );
+        for ( auto& id : tiles )
+            id = Common::UUID::Generate();
+        auto command = std::make_unique<CreateLandscapeCommand>( scene, std::move( generated ), quads, root,
+                                                                 std::move( tiles ) );
+        command->Redo();
+        CommandHistory::Get().PushCommand( std::move( command ) );
+        return Common::MakeSuccess( root );
     }
 } // namespace Desert::Editor::Commands

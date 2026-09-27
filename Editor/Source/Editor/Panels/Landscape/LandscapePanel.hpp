@@ -38,6 +38,7 @@ namespace Desert::Editor
         }
 
     private:
+        void DrawNewLandscape();
         void DrawToolStrip();
         void DrawToolSettings();
         void DrawBrushSettings();

@@ -4,6 +4,8 @@
 
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -173,31 +175,58 @@ namespace Desert::World::Landscape
 
         using Complex = std::complex<double>;
 
-        /// In-place DFT of @p count values spaced @p stride apart; @p sign -1 forward, +1 inverse (unnormalised,
-        /// as kiss_fft). Separable rows-then-columns passes compute exactly the 2-D DFT kiss_fftnd computes.
-        void Dft( std::vector<Complex>& data, size_t first, size_t stride, size_t count, double sign,
-                  std::vector<Complex>& scratch )
+        /// e^(sign·2πi·m/count) for m in [0, count): the factor the DFT multiplies sample n of output k by is
+        /// entry (k·n) mod count. Computed by the same expression the loop used to evaluate per product, so the
+        /// table changes no bit of any result — it removes count² cos/sin calls per row.
+        std::vector<Complex> Twiddles( size_t count, double sign )
         {
-            const double kTwoPi = 6.283185307179586476925;
+            const double         kTwoPi = 6.283185307179586476925;
+            std::vector<Complex> table( count );
+            for ( size_t m = 0; m < count; ++m )
+            {
+                const double angle = sign * kTwoPi * static_cast<double>( m ) / static_cast<double>( count );
+                table[m]           = Complex( std::cos( angle ), std::sin( angle ) );
+            }
+            return table;
+        }
+
+        /// In-place DFT of @p count values spaced @p stride apart, with @p twiddles from Twiddles(count, sign);
+        /// sign -1 forward, +1 inverse (unnormalised, as kiss_fft). Separable rows-then-columns passes compute
+        /// exactly the 2-D DFT kiss_fftnd computes.
+        void Dft( std::vector<Complex>& data, size_t first, size_t stride, size_t count,
+                  const std::vector<Complex>& twiddles, std::vector<Complex>& scratch )
+        {
             scratch.assign( count, Complex( 0.0, 0.0 ) );
             for ( size_t k = 0; k < count; ++k )
                 for ( size_t n = 0; n < count; ++n )
-                {
-                    const double angle =
-                         sign * kTwoPi * static_cast<double>( ( k * n ) % count ) / static_cast<double>( count );
-                    scratch[k] += data[first + n * stride] * Complex( std::cos( angle ), std::sin( angle ) );
-                }
+                    scratch[k] += data[first + n * stride] * twiddles[( k * n ) % count];
             for ( size_t k = 0; k < count; ++k )
                 data[first + k * stride] = scratch[k];
         }
 
+        /// Rows, then columns. Each row (column) is its own transform writing only its own samples, in a fixed
+        /// order, so running them on the JobSystem gives the same bits as running them in turn — which is what
+        /// keeps a whole-map Hydro Erosion (LandscapeGenerator) deterministic and not seconds long.
         void Dft2D( std::vector<Complex>& data, size_t width, size_t height, double sign )
         {
-            std::vector<Complex> scratch;
-            for ( size_t y = 0; y < height; ++y )
-                Dft( data, y * width, 1u, width, sign, scratch );
-            for ( size_t x = 0; x < width; ++x )
-                Dft( data, x, width, height, sign, scratch );
+            const std::vector<Complex> rowTwiddles    = Twiddles( width, sign );
+            const std::vector<Complex> columnTwiddles = Twiddles( height, sign );
+            auto&                      jobs           = Common::JobSystem::Get();
+            constexpr size_t           kGrain         = 8u;
+            jobs.ParallelRanges( height, kGrain,
+                                 [&]( size_t begin, size_t end )
+                                 {
+                                     std::vector<Complex> scratch;
+                                     for ( size_t y = begin; y < end; ++y )
+                                         Dft( data, y * width, 1u, width, rowTwiddles, scratch );
+                                 } );
+            jobs.ParallelRanges( width, kGrain,
+                                 [&]( size_t begin, size_t end )
+                                 {
+                                     std::vector<Complex> scratch;
+                                     for ( size_t x = begin; x < end; ++x )
+                                         Dft( data, x, width, height, columnTwiddles, scratch );
+                                 } );
         }
 
         /// UE's BrushValue at every sample of @p inner, row-major, X fastest.
@@ -1059,7 +1088,7 @@ namespace Desert::World::Landscape
     } // namespace
 
     int32_t LandscapeThermalErosion( LandscapeErosionField& field, const LandscapeErosionSettings& s,
-                                     float strength )
+                                     float strength, const LandscapeErosionIterationHook& beforeIteration )
     {
         // UE's slider stops at 1 (ToolStrength UIMax). Above it every shed hands a neighbour more than the slope
         // it came from, the pair swaps with a larger step each iteration and the stroke grows spikes up to the
@@ -1071,6 +1100,8 @@ namespace Desert::World::Landscape
         int32_t                ran    = 0;
         for ( int32_t i = 0; i < s.Iterations; ++i )
         {
+            if ( beforeIteration && !beforeIteration() )
+                return ran;
             ++ran;
             bool changed = false;
             for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
@@ -1147,7 +1178,7 @@ namespace Desert::World::Landscape
     }
 
     int32_t LandscapeHydraulicErosion( LandscapeErosionField& field, const LandscapeHydroErosionSettings& s,
-                                       float strength )
+                                       float strength, const LandscapeErosionIterationHook& beforeIteration )
     {
         const FieldIndex       ix{ field };
         std::vector<uint16_t>& height = field.Heights;
@@ -1174,6 +1205,8 @@ namespace Desert::World::Landscape
         int32_t ran = 0;
         for ( int32_t i = 0; i < s.Iterations; ++i )
         {
+            if ( beforeIteration && !beforeIteration() )
+                return ran;
             ++ran;
             bool waterExists = false;
             for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
@@ -1343,5 +1376,95 @@ namespace Desert::World::Landscape
         if ( !cached.IsSuccess() )
             return cached;
         return cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, values );
+    }
+    // FLandscapeToolRamp's point handling (LandscapeEdModeRampTool.cpp:139-247).
+    void LandscapeRampReset( LandscapeRampPoints& ramp )
+    {
+        ramp = LandscapeRampPoints{};
+    }
+
+    bool LandscapeRampPress( LandscapeRampPoints& ramp, int32_t picked, const std::optional<glm::vec3>& hit )
+    {
+        if ( picked >= 0 && picked < ramp.NumPoints )
+        {
+            ramp.SelectedPoint = picked;
+            ramp.Moving        = true;
+            return true;
+        }
+        if ( !hit )
+            return false;
+        if ( ramp.NumPoints < 2 )
+        {
+            ramp.Points[static_cast<size_t>( ramp.NumPoints )] = *hit;
+            ramp.SelectedPoint                                 = ramp.NumPoints;
+            ++ramp.NumPoints;
+            ramp.Moving = true;
+            return true;
+        }
+        if ( ramp.SelectedPoint < 0 )
+            return false;
+        ramp.Points[static_cast<size_t>( ramp.SelectedPoint )] = *hit;
+        ramp.Moving                                            = true;
+        return true;
+    }
+
+    bool LandscapeRampMove( LandscapeRampPoints& ramp, const std::optional<glm::vec3>& hit )
+    {
+        if ( !ramp.Moving || !hit )
+            return false;
+        // UE: a drag that starts by laying the first point lays the second under the cursor.
+        if ( ramp.NumPoints == 1 )
+        {
+            ramp.SelectedPoint = 1;
+            ramp.NumPoints     = 2;
+        }
+        ramp.Points[static_cast<size_t>( ramp.SelectedPoint )] = *hit;
+        return true;
+    }
+
+    void LandscapeRampRelease( LandscapeRampPoints& ramp )
+    {
+        ramp.Moving = false;
+    }
+
+    int32_t PickLandscapeRampPoint( const LandscapeRampPoints& ramp, glm::vec3 rayOrigin, glm::vec3 rayDirection,
+                                    float toleranceRadians )
+    {
+        int32_t best      = -1;
+        float   bestAngle = toleranceRadians;
+        for ( int32_t i = 0; i < ramp.NumPoints; ++i )
+        {
+            const glm::vec3 to       = ramp.Points[static_cast<size_t>( i )] - rayOrigin;
+            const float     distance = glm::length( to );
+            if ( !( distance > 0.0f ) )
+                continue;
+            const float angle = std::acos( std::clamp( glm::dot( to / distance, rayDirection ), -1.0f, 1.0f ) );
+            if ( angle <= bestAngle )
+            {
+                best      = i;
+                bestAngle = angle;
+            }
+        }
+        return best;
+    }
+
+    std::optional<LandscapeRampOutline> LandscapeRampOutlineOf( const LandscapeRampPoints&   ramp,
+                                                                const LandscapeRampSettings& settings )
+    {
+        if ( ramp.NumPoints < 2 )
+            return std::nullopt;
+        // UE: CrossProduct(Points[1] - Points[0], Up).GetSafeNormal2D() — the side in plan; Y is our up.
+        const glm::vec3 along = ramp.Points[1] - ramp.Points[0];
+        glm::vec3       side  = glm::cross( along, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        side.y                = 0.0f;
+        const float length    = glm::length( side );
+        if ( !( length > 0.0f ) )
+            return std::nullopt;
+        side /= length;
+        const glm::vec3 inner = side * ( settings.WidthCm * 0.5f * ( 1.0f - settings.SideFalloff ) );
+        const glm::vec3 outer = side * ( settings.WidthCm * 0.5f );
+        const auto      quad  = [&]( const glm::vec3& half ) -> std::array<glm::vec3, 4>
+        { return { ramp.Points[0] - half, ramp.Points[0] + half, ramp.Points[1] + half, ramp.Points[1] - half }; };
+        return LandscapeRampOutline{ quad( inner ), quad( outer ) };
     }
 } // namespace Desert::World::Landscape

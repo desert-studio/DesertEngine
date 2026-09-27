@@ -145,6 +145,10 @@ namespace Desert::Editor
 
         // UE's mode row (Manage / Sculpt / Paint): the modes with tools behind them are offered.
         auto& state = Core::LandscapeSculptState::Get();
+        if ( AccentButton( ICON_MDI_PLUS_BOX_OUTLINE "  Manage", state.Mode == Core::LandscapeEdMode::Manage,
+                           ImVec2( 0.0f, 0.0f ) ) )
+            state.Mode = Core::LandscapeEdMode::Manage;
+        ImGui::SameLine();
         if ( AccentButton( ICON_MDI_TERRAIN "  Sculpt", state.Mode == Core::LandscapeEdMode::Sculpt,
                            ImVec2( 0.0f, 0.0f ) ) )
             state.Mode = Core::LandscapeEdMode::Sculpt;
@@ -154,7 +158,9 @@ namespace Desert::Editor
             state.Mode = Core::LandscapeEdMode::Paint;
         ImGui::Separator();
 
-        if ( state.Mode == Core::LandscapeEdMode::Paint )
+        if ( state.Mode == Core::LandscapeEdMode::Manage )
+            DrawNewLandscape();
+        else if ( state.Mode == Core::LandscapeEdMode::Paint )
         {
             DrawPaintSettings();
             DrawTargetLayers();
@@ -169,6 +175,90 @@ namespace Desert::Editor
         }
 
         ImGui::PopStyleVar( 2 );
+    }
+
+    // UE's New Landscape (Manage mode): the frame, UE's size readouts, the fill and the whole-map erosion passes.
+    void LandscapePanel::DrawNewLandscape()
+    {
+        namespace L = World::Landscape;
+        if ( !ImGuiUtilities::SectionHeader( ICON_MDI_PLUS_BOX_OUTLINE "  New Landscape", true, "" ) )
+            return;
+        auto& s = Core::LandscapeSculptState::Get().NewLandscape;
+        ImGui::DragFloat3( "Location (cm)", &s.LocationCm.x, 100.0f );
+        if ( ImGui::BeginCombo( "Section Size", ( std::to_string( s.QuadsPerTile ) + "x" +
+                                                  std::to_string( s.QuadsPerTile ) + " Quads" )
+                                                     .c_str() ) )
+        {
+            for ( const uint32_t q : L::kLandscapeTileQuadsValues )
+                if ( ImGui::Selectable( ( std::to_string( q ) + "x" + std::to_string( q ) + " Quads" ).c_str(),
+                                        q == s.QuadsPerTile ) )
+                    s.QuadsPerTile = q;
+            ImGui::EndCombo();
+        }
+        int tiles[2] = { s.TilesX, s.TilesZ };
+        if ( ImGui::DragInt2( "Number of Components", tiles, 0.25f, 1, L::kLandscapeMaxTilesPerSide ) )
+        {
+            s.TilesX = tiles[0];
+            s.TilesZ = tiles[1];
+        }
+        s.TilesX = L::ClampLandscapeTileCount( s.TilesX, s.QuadsPerTile );
+        s.TilesZ = L::ClampLandscapeTileCount( s.TilesZ, s.QuadsPerTile );
+        ImGui::DragFloat( "Scale XY (cm)", &s.SpacingCm, 1.0f, 1.0f, 10000.0f );
+        ImGui::DragFloat( "Scale Z", &s.ZScale, 1.0f, 1.0f, 10000.0f );
+        ImGui::TextDisabled( "Overall Resolution %u x %u, %d components",
+                             static_cast<unsigned>( s.TilesX ) * s.QuadsPerTile + 1u,
+                             static_cast<unsigned>( s.TilesZ ) * s.QuadsPerTile + 1u, s.TilesX * s.TilesZ );
+
+        int fill = static_cast<int>( s.Fill );
+        ImGui::Combo( "Fill", &fill, "Flat\0Noise\0" );
+        s.Fill = static_cast<L::LandscapeGenerateFill>( fill );
+        if ( s.Fill == L::LandscapeGenerateFill::Noise )
+        {
+            int seed = static_cast<int>( s.Seed );
+            if ( ImGui::InputInt( "Seed", &seed ) )
+                s.Seed = static_cast<uint32_t>( std::max( seed, 0 ) );
+            ImGui::DragFloat( "Noise Height (cm)", &s.NoiseHeightCm, 10.0f, 0.0f, 100000.0f );
+            ImGui::SliderFloat( "Noise Scale", &s.NoiseScale, L::kLandscapeMinNoiseScale,
+                                L::kLandscapeMaxNoiseScale );
+        }
+        ImGui::Checkbox( "Erosion", &s.Erosion );
+        if ( s.Erosion )
+        {
+            ImGui::SliderInt( "Threshold", &s.ErosionSettings.Threshold, 0, L::kLandscapeMaxErosionThreshold );
+            ImGui::SliderInt( "Iterations", &s.ErosionSettings.Iterations, 1, L::kLandscapeMaxErosionIterations );
+        }
+        ImGui::Checkbox( "Hydro Erosion", &s.HydroErosion );
+        if ( s.HydroErosion )
+        {
+            ImGui::SliderInt( "Rain Amount", &s.HydroSettings.RainAmount, 1, L::kLandscapeMaxRainAmount );
+            ImGui::SliderInt( "Hydro Iterations", &s.HydroSettings.Iterations, 1,
+                              L::kLandscapeMaxErosionIterations );
+        }
+        if ( s.Erosion || s.HydroErosion )
+            ImGui::SliderFloat( "Erosion Strength", &s.ErosionStrength, 0.0f, 1.0f );
+
+        // The run is on the JobSystem; the editor applies it when it finishes (EditorLayer). While it runs, Create
+        // is closed and says why, and the run can be cancelled.
+        if ( Commands::IsCreatingLandscape() )
+        {
+            const float fraction = Commands::CreateLandscapeFraction();
+            ImGui::ProgressBar(
+                 fraction, ImVec2( -FLT_MIN, 0.0f ),
+                 ( "Generating " + std::to_string( static_cast<int>( fraction * 100.0f ) ) + " %" ).c_str() );
+            ImGui::BeginDisabled();
+            ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) );
+            ImGui::EndDisabled();
+            ImGui::TextDisabled(
+                 "A landscape is being generated; Create opens when it finishes or is cancelled." );
+            if ( ImGui::Button( ICON_MDI_CLOSE "  Cancel", ImVec2( -FLT_MIN, 0.0f ) ) )
+                Commands::CancelCreateLandscape();
+        }
+        else if ( ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) ) )
+        {
+            auto started = Commands::StartCreateLandscape( m_Scene.lock(), s );
+            if ( !started.IsSuccess() )
+                ToastManager::Push( started.GetError(), ToastLevel::Error, 6.0f );
+        }
     }
 
     void LandscapePanel::DrawToolStrip()
@@ -219,9 +309,14 @@ namespace Desert::Editor
         switch ( settings.Tool )
         {
             case Core::LandscapeTool::Ramp:
-                PointRow( "Start", state.RampStart, "click the landscape" );
-                PointRow( "End", state.RampEnd, "click the landscape" );
+            {
+                const auto& ramp = state.RampPoints;
+                PointRow( "Start", ramp.NumPoints > 0 ? std::optional( ramp.Points[0] ) : std::nullopt,
+                          "click the landscape" );
+                PointRow( "End", ramp.NumPoints > 1 ? std::optional( ramp.Points[1] ) : std::nullopt,
+                          "click or drag from the start" );
                 break;
+            }
             case Core::LandscapeTool::Mirror:
                 PointRow( "Mirror Point", state.MirrorPoint, "landscape centre" );
                 break;
