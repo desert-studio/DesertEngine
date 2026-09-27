@@ -23,6 +23,10 @@
 
 namespace Desert::Graphic::Render2D
 {
+    // Out of line because MaterialExecutor is incomplete in the header. The white texture needs nothing
+    // said here: a Texture2D unregisters its own image (Texture.hpp).
+    Render2D::~Render2D() = default;
+
     Common::BoolResultStr Render2D::Init( const std::shared_ptr<Framebuffer>& target )
     {
         // The three pipelines, the two buffers and the 1x1 white texture below belong to the UI backend

@@ -4,6 +4,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Settings/EngineUserDirectory.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -30,7 +31,8 @@ namespace Desert::Project
         if ( !home )
             home = std::getenv( "USERPROFILE" );
 #endif
-        std::filesystem::path dir = std::filesystem::path( home ? home : "." ) / ".desertengine";
+        const std::filesystem::path dir =
+             Common::Settings::EngineUserDirectoryUnder( home != nullptr ? home : "." );
         std::error_code       ec;
         std::filesystem::create_directories( dir, ec );
         return dir.string();

@@ -7,7 +7,8 @@
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,7 @@
 #include <set>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace Desert::Core::WorldCells
 {
@@ -144,11 +146,11 @@ namespace Desert::Core::WorldCells
                 if ( record.PrefabPath.has_value() )
                     Add( KeyOfPath( *record.PrefabPath ), keys );
                 for ( const auto& [key, payload] : record.Components )
-                    Value( payload, keys );
+                    Value( Common::Json::Root( payload ), keys );
                 if ( record.PrefabOverrides.has_value() )
                     for ( const auto& over : *record.PrefabOverrides )
                         for ( const auto& [key, payload] : over.Components )
-                            Value( payload, keys );
+                            Value( Common::Json::Root( payload ), keys );
             }
 
             // Adds, to @p keys, every row the rows in it depend on, transitively.
@@ -221,42 +223,59 @@ namespace Desert::Core::WorldCells
                     keys.insert( key );
             }
 
-            void Value( const rfl::Generic& value, std::set<std::string>& keys )
+            // Every value of a payload, by its SHAPE: the closure does not know the component's fields, so a value
+            // of any kind is a legitimate answer and none is an issue — what is not a reference names nothing.
+            // An explicit stack walks the nesting: the payload's depth comes from the file, not from the code.
+            void Value( const Common::Json::Node& root, std::set<std::string>& keys )
             {
-                if ( const auto whole = value.to_int64(); whole )
+                std::vector<Common::Json::Node> pending{ root };
+                while ( !pending.empty() )
                 {
-                    Add( KeyOfHandle( static_cast<std::uint64_t>( whole.value() ) ), keys );
-                    return;
-                }
-                if ( const auto text = value.to_string(); text )
-                {
-                    // A material slot names its material by header GUID text (SCNE 27). The row is found by its
-                    // own Guid: a registry read by LoadFrom has Identity only for assets that were parsed, so the
-                    // handle the GUID folds to finds nothing for a material the cook never opened.
-                    if ( const auto guid = CC::AssetGuidFromText( text.value() );
-                         guid && !guid.GetValue().IsNull() )
+                    const Common::Json::Node value = std::move( pending.back() );
+                    pending.pop_back();
+                    switch ( value.GetKind() )
                     {
-                        Add( KeyOfGuid( guid.GetValue() ), keys );
-                        return;
+                        case Common::Json::Kind::Integer:
+                            if ( const auto whole = value.AsInteger() )
+                                Add( KeyOfHandle( static_cast<std::uint64_t>( whole.GetValue() ) ), keys );
+                            break;
+                        case Common::Json::Kind::String:
+                            AddString( value, keys );
+                            break;
+                        case Common::Json::Kind::Object:
+                            value.ForEachMember( [&]( std::string_view, const Common::Json::Node& inner )
+                                                 { pending.push_back( inner ); } );
+                            break;
+                        case Common::Json::Kind::Array:
+                            value.ForEachElement( [&]( std::size_t, const Common::Json::Node& inner )
+                                                  { pending.push_back( inner ); } );
+                            break;
+                        case Common::Json::Kind::Null:
+                        case Common::Json::Kind::Bool:
+                        case Common::Json::Kind::Real:
+                            break;
                     }
-                    Common::UUID asHandle;
-                    if ( Rules::Detail::ParseIdString( text.value(), asHandle ) )
-                    {
-                        Add( KeyOfHandle( static_cast<std::uint64_t>( asHandle ) ), keys );
-                        return;
-                    }
-                    Add( KeyOfPath( text.value() ), keys );
-                    return;
                 }
-                if ( const auto object = value.to_object(); object )
+            }
+
+            void AddString( const Common::Json::Node& value, std::set<std::string>& keys )
+            {
+                const auto         read = value.AsString();
+                const std::string& text = read.GetValue();
+                // A material slot names its material by header GUID text (SCNE 27). The row is found by its own
+                // Guid: a registry read by LoadFrom has Identity only for assets that were parsed, so the handle
+                // the GUID folds to finds nothing for a material the cook never opened.
+                if ( const auto guid = CC::AssetGuidFromText( text ); guid && !guid.GetValue().IsNull() )
                 {
-                    for ( const auto& [field, inner] : object.value() )
-                        Value( inner, keys );
+                    Add( KeyOfGuid( guid.GetValue() ), keys );
                     return;
                 }
-                if ( const auto array = value.to_array(); array )
-                    for ( const auto& inner : array.value() )
-                        Value( inner, keys );
+                if ( const auto asHandle = value.AsUuid() )
+                {
+                    Add( KeyOfHandle( static_cast<std::uint64_t>( asHandle.GetValue() ) ), keys );
+                    return;
+                }
+                Add( KeyOfPath( text ), keys );
             }
 
             const std::vector<std::string>& DependenciesOf( const std::string& key )
@@ -326,6 +345,9 @@ namespace Desert::Core::WorldCells
 
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( records, *scene.WorldPartition, BoundsFrom( registries ) );
+        // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and
+        // names every one of them once, after the reference walk below has added its own.
+        Common::Json::Issues issues    = plan.Issues;
         const std::size_t unitCount = Rules::ResidencyUnitCount( plan );
 
         CookedWorld cooked;
@@ -381,10 +403,10 @@ namespace Desert::Core::WorldCells
         for ( std::size_t record = 0; record < records.size(); ++record )
             for ( const Rules::EntityReferenceRow& reference : Rules::kEntityReferences )
             {
-                const auto   block = Rules::Detail::BlockOf( records[record], reference.ComponentKey );
+                const auto   block = Rules::Detail::BlockOf( records[record], reference.ComponentKey, issues );
                 Common::UUID target;
-                if ( !block.has_value() || !Rules::Detail::ReadReference( *block, reference.Field, target ) ||
-                     target.IsNull() )
+                if ( !block.has_value() ||
+                     !Rules::Detail::ReadReference( *block, reference.Field, target, issues ) || target.IsNull() )
                     continue;
                 const auto found = byId.find( target );
                 if ( found == byId.end() || unitOf[found->second] == unitOf[record] )
@@ -401,6 +423,8 @@ namespace Desert::Core::WorldCells
                        static_cast<std::uint32_t>( unitOf[found->second] ), std::string( reference.ComponentKey ),
                        std::string( reference.Field ) } );
             }
+
+        Common::Json::ReportIssues( issues, scene.SceneName );
 
         // One file per distinct name, in the order the units first name them: the always-loaded file (if any)
         // holds every always-loaded unit, a cell file holds its one cell.
@@ -420,7 +444,8 @@ namespace Desert::Core::WorldCells
                 for ( const std::size_t record : members[unit] )
                     payload.Records.push_back( records[record] );
             }
-            auto wrapped = Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, rfl::json::write( payload ) );
+            auto wrapped =
+                 Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
             if ( !wrapped )
                 return Common::MakeError<CookedWorld>( wrapped.GetError() );
             CookedFile file{ name, wrapped.ExtractValue() };
@@ -429,7 +454,7 @@ namespace Desert::Core::WorldCells
             cooked.Files.push_back( std::move( file ) );
         }
         auto wrappedIndex =
-             Wrap( CC::ContentKind::WorldIndex, scene.SceneName, kIndexFileName, rfl::json::write( index ) );
+             Wrap( CC::ContentKind::WorldIndex, scene.SceneName, kIndexFileName, Common::Json::Write( index ) );
         if ( !wrappedIndex )
             return Common::MakeError<CookedWorld>( wrappedIndex.GetError() );
         cooked.Files.push_back( { std::string( kIndexFileName ), wrappedIndex.ExtractValue() } );
@@ -442,11 +467,11 @@ namespace Desert::Core::WorldCells
         auto              payload = Unwrap( fileName, CC::ContentKind::WorldIndex, bytes );
         if ( !payload )
             return Common::MakeError<WorldIndex>( payload.GetError() );
-        auto parsed = rfl::json::read<WorldIndex>( payload.GetValue() );
+        auto parsed = Common::Json::Read<WorldIndex>( payload.GetValue() );
         if ( !parsed )
             return Common::MakeError<WorldIndex>( "'" + name +
-                                                  "' is not a readable world index: " + parsed.error().what() );
-        WorldIndex index = std::move( parsed.value() );
+                                                  "' is not a readable world index: " + parsed.GetError() );
+        WorldIndex index = parsed.ExtractValue();
 
         // The index is the one thing a streamer decides with, so it is checked whole before it is used.
         std::uint64_t held = 0;
@@ -496,11 +521,11 @@ namespace Desert::Core::WorldCells
                                                    "' was cooked with (" + text + "): a stale cook. Re-cook it." );
         }
 
-        auto parsed = rfl::json::read<CellPayload>( payload.GetValue() );
+        auto parsed = Common::Json::Read<CellPayload>( payload.GetValue() );
         if ( !parsed )
             return Common::MakeError<CellPayload>( "'" + name +
-                                                   "' is not a readable cell file: " + parsed.error().what() );
-        CellPayload cell = std::move( parsed.value() );
+                                                   "' is not a readable cell file: " + parsed.GetError() );
+        CellPayload cell = parsed.ExtractValue();
 
         std::vector<std::string>   units;
         std::vector<std::uint64_t> ids;
@@ -726,7 +751,7 @@ namespace Desert::Core::WorldCells
         keyed.reserve( scene.Entities.size() );
         for ( const auto& record : scene.Entities )
             keyed.emplace_back( record.id.has_value() ? static_cast<std::uint64_t>( *record.id ) : 0,
-                                rfl::json::write( record ) );
+                                Common::Json::Write( record ) );
         std::sort( keyed.begin(), keyed.end() );
         std::vector<std::string> out;
         out.reserve( keyed.size() );

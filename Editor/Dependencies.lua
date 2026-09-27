@@ -1,4 +1,4 @@
-local baseDir = "%{wks.location}/ThirdParty"
+local baseDir = "%{_MAIN_SCRIPT_DIR}/ThirdParty"
 
 -- Assimp: ONE source, ONE version, both platforms — BuildScripts/ThirdParty/Assimp.lua compiles the
 -- pinned submodule as the `Assimp` static library. Consumers name the PROJECT, never a file, so the
@@ -11,8 +11,8 @@ local baseDir = "%{wks.location}/ThirdParty"
 -- produces them at generation time instead. A consumer that includes only the first gets
 -- "assimp/config.h: No such file or directory" from the very first assimp header.
 local assimpIncludeDirs = {
-    "%{wks.location}/Editor/ThirdParty/assimp/include",
-    "%{wks.location}/build/generated/assimp/include",
+    "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+    "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
 }
 
 Dependencies = {

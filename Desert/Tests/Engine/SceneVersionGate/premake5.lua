@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The version gate and nothing else. SceneFormat.cpp is the whole of what the loader decides with:
     -- parse the tree, compare two integers, build the refusal. That it compiles here — with no renderer, no
@@ -14,17 +14,17 @@ project(test_name)
     -- Tools/SceneMigrator, and it is why the corpus sweep at the bottom of the suite can run at all.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",       -- PrefabData reaches ECS headers
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the scene tree is rfl::Generic
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- PrefabData reaches ECS headers
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the scene tree is rfl::Generic
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -50,10 +50,6 @@ project(test_name)
 
     -- Common: UUID and AssetHandle. Optick: Common's JobSystem registers its worker threads with it.
     links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

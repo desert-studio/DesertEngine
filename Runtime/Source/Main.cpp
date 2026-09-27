@@ -30,12 +30,15 @@
 
 #include <Common/Utilities/VFS.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Version.hpp>
 
 #include <filesystem>
+#include <optional>
 
 #include "PackagedContent.hpp"
+#include <Engine/Graphic/PipelineCacheFile.hpp>
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
 
@@ -87,12 +90,15 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     namespace fs = std::filesystem;
 
     std::string projectArg;
+    std::string crashTestArg;
     for ( int i = 1; i + 1 < argc; ++i )
     {
         if ( std::strcmp( argv[i], "--project" ) == 0 )
             projectArg = argv[++i];
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
             Desert::Player::s_SceneOverride = argv[++i];
+        else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
+            crashTestArg = argv[++i];
     }
 
     // THE ONLY WAY TO PHOTOGRAPH THE PROCESS A PLAYER STARTS. Parsed from a vector rather than from
@@ -110,6 +116,21 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         FailStartup( parsed.GetError(), 2 );
     }
 #endif
+
+    // THE CRASH HANDLER, BEFORE ANYTHING THAT CAN FAULT (PKG1c; UE installs its handler before the
+    // project loads). Mounting the archive and parsing the .deproj are exactly that, and the game's Name —
+    // which names its per-user directory — is known only after them. So the handler starts under the
+    // ENGINE's per-user root (no project: `$HOME/.desertengine/Crashes`, `%LOCALAPPDATA%/DesertEngine/
+    // Crashes`), never the install folder, and MoveReportRoot below moves it once the Name is read.
+    {
+        Common::Crash::InstallOptions crashOptions;
+        crashOptions.hostName = "Runtime";
+        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+             !installed.IsSuccess() )
+        {
+            FailStartup( "Crash handler: " + installed.GetError(), 1 );
+        }
+    }
 
     // DEV: an explicit --project opens the loose on-disk descriptor (overrides packaged discovery).
     if ( !projectArg.empty() && !Desert::Project::ProjectContext::Open( projectArg ) )
@@ -182,6 +203,27 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                      1 );
     }
 
+    // THE REPORTS FOLLOW THE GAME from here on: GameUserDirectory(<.deproj Name>)/Crashes (PKG1), beside
+    // machine.json and the pipeline cache — not <install>/Saved/Crashes, since a player's install folder
+    // is read-only (Program Files, a signed .app). The handler itself was installed before the mount.
+    if ( const Common::BoolResultStr moved = Common::Crash::MoveReportRoot(
+              Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "Crashes" );
+         !moved.IsSuccess() )
+    {
+        FailStartup( "Crash handler: " + moved.GetError(), 1 );
+    }
+
+    if ( !crashTestArg.empty() )
+    {
+        const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( crashTestArg );
+        if ( !kind.has_value() )
+        {
+            FailStartup(
+                 "--crash-test '" + crashTestArg + "' is not a crash kind; it knows: segv, abort, purecall", 2 );
+        }
+        Common::Crash::TriggerTestCrash( *kind );
+    }
+
     // Through the logger, so a support ticket's engine_log.txt says which BUILD and which content set
     // the player was actually running — the three facts every "it does not work" report is missing.
     LOG_INFO( "Desert Runtime {} — {} (base archive: {}, {} update(s) mounted)", Common::Version::Full(),
@@ -199,6 +241,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // this game rendered before it had a dial at all.
     Common::Settings::MachineSettings::Load(
          Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json" );
+
+    // The driver pipeline cache goes beside machine.json, in this player's directory, never the install
+    // (PKG1). Before the application: the device reads it while it is being created.
+    Desert::Graphic::PipelineCacheFile::DeclareHost( Desert::Graphic::PipelineCacheFile::Host::Game );
 
     ApplicationInfo appInfo;
     appInfo.Title = Desert::Project::ProjectContext::Current().Name;

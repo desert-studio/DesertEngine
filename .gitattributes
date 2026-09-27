@@ -22,6 +22,15 @@
 *.frag     -text
 *.comp     -text
 
+# Source models. Most FBX is binary and git leaves it alone, but an ASCII FBX (the hand-authored
+# unit fixture under Desert/Tests) is detected as text and would be checked out with CRLF on Windows
+# — a different byte count for a file whose whole purpose is to state one number the same way
+# everywhere.
+*.fbx          -text
+*.gltf         -text
+*.glb          -text
+*.obj          -text
+
 # Authored content the registry sizes and the packager hashes.
 *.desce        -text
 *.demat        -text
@@ -50,9 +59,6 @@
 *.dwcell       -text
 *.dwindex      -text
 
-# Canonical-text registers compared byte for byte by their tests (LegacyMaterialIds: Windows CI
-# 2026-09-24 read it back CRLF and the "re-writing changes no byte" check failed on every line).
-Editor/Resources/LegacyMaterialIds.json -text
 
 # The cooked texture container (B17). It stopped being JSON the day it grew a pixel payload, and a
 # line-ending translation inside a mip chain would not merely resize the file — it would rewrite every

@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The authoring lock is a PURE PREDICATE over an entt registry (Engine/ECS/EntityLock.hpp): no Scene,
     -- no GPU, no AssetManager, no window. That is the whole reason it was written as a free function
@@ -17,12 +17,12 @@ project(test_name)
     files { test_files }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",        -- Components.hpp is an entt registry away
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- rfl::Generic and rfl::fields<>
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",        -- Components.hpp is an entt registry away
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- rfl::Generic and rfl::fields<>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -47,10 +47,6 @@ project(test_name)
     filter {}
 
     links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

@@ -93,6 +93,12 @@ namespace Common::DDC
     // The live root: machine.json's DerivedDataCachePath resolved against the current project.
     std::filesystem::path Root();
 
+    // Root(), but only when it is CONFIGURED: an open project or an absolute DerivedDataCachePath. Without
+    // either, Root() is relative to the working directory, and a suite run from the tree root used to leave
+    // DerivedDataCache/Buckets/... in the checkout (09-26) — so a write there is refused with the reason, never
+    // made. Tests that need the cache hold a Desert::TestSupport::DerivedDataSandbox.
+    Common::ResultStr<std::filesystem::path> WritableRoot();
+
     // "Buckets/<Bucket>/<h0h1>/<h2h3>/<h4..h15><Extension>" over the key's 16 lowercase hex digits — UE's
     // two-level fan-out, so no directory holds more than 1/65536 of a bucket. The one layout shared by the
     // DDC, Saved/Cooked and the archive.

@@ -317,14 +317,18 @@ TEST( CanonicalText, EveryTextAssetWriterGoesThroughTheCanonicalWriter )
         {
             const std::size_t begin     = code.find_last_of( ";{}", at ) + 1;
             const std::string statement = code.substr( begin, code.find( ';', at ) - begin );
-            EXPECT_FALSE( statement.find( "rfl::json::write" ) != std::string::npos &&
+            EXPECT_FALSE( ( statement.find( "rfl::json::write" ) != std::string::npos ||
+                            statement.find( "Json::Write(" ) != std::string::npos ) &&
                           statement.find( "CanonicalJsonText" ) == std::string::npos )
                  << rel << " writes rfl::json text to disk without CanonicalJsonText:\n"
                  << statement;
         }
 
         const bool writesFiles = code.find( "WriteContentToFileAtomic" ) != std::string::npos;
-        const bool serializes  = code.find( "rfl::json::write" ) != std::string::npos ||
+        // Common::Json::Write is rfl::json::write behind the strict facade — the same single-line text — so a
+        // file that moved onto the facade is still a serializer, and must not drop out of the census by the move.
+        const bool serializes = code.find( "rfl::json::write" ) != std::string::npos ||
+                                code.find( "Json::Write(" ) != std::string::npos ||
                                 code.find( "Serialize(" ) != std::string::npos ||
                                 code.find( "Save()" ) != std::string::npos;
         // A file whose saves go through WriteCanonicalJsonFileAtomic names the canonical writer by that call.

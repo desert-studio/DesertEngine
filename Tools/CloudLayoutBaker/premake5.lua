@@ -22,17 +22,17 @@ project "CloudLayoutBaker"
 
     files {
         "Source/**.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
-        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Tools/Shared",
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/stb/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

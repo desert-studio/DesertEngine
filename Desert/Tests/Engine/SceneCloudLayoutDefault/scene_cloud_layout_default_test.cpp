@@ -42,13 +42,12 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
-#include <Common/Json/Document.hpp>
 
 namespace
 {
@@ -83,7 +82,7 @@ namespace
     /// is private and there is no `contains` — and the DISTINCTION between "absent" and "present but
     /// defaulted" is the entire subject of this suite, so it cannot be reached for through `operator[]`,
     /// which would insert the key it was asked about.
-    bool HasKey( const rfl::Generic::Object& object, const std::string& key )
+    bool HasKey( const Common::Json::Object& object, const std::string& key )
     {
         for ( auto it = object.begin(); it != object.end(); ++it )
             if ( it->first == key )
@@ -106,9 +105,9 @@ namespace
     /// WRITTEN OUT RATHER THAN SERIALISED FROM A DEFAULTED COMPONENT, and that is the point of the fixture:
     /// serialising today's struct would write the six new keys and prove nothing at all. What a v6 file has
     /// is the ABSENCE of them.
-    rfl::Generic::Object CloudPayloadV6()
+    Common::Json::Object CloudPayloadV6()
     {
-        rfl::Generic::Object o;
+        Common::Json::Object o;
         o["Enabled"]              = true;
         o["CloudType1"]           = std::string( "Clouds/Types/CumulusCongestus.decloudtype" );
         o["Coverage"]             = 0.762;
@@ -166,7 +165,7 @@ namespace
 // written, stated as an assertion instead of as an argument in a commit message.
 TEST( SceneCloudLayoutDefault, AV6PayloadWithNoLayoutKeysBindsNoPainting )
 {
-    const rfl::Generic::Object payload = CloudPayloadV6();
+    const Common::Json::Object payload = CloudPayloadV6();
 
     // `CloudLayout` is the name the one slot had when this fixture's generation was current; the two
     // beside it are what O-4 split it into. All three are listed because the claim is that a v6 file

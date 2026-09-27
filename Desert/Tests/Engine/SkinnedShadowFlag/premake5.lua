@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Nothing from the engine is compiled in: the two ends of the chain are header-only (Components.hpp,
     -- the Ser mirror in PrefabData.hpp) and the middle links live in a render system and an ECS system
@@ -17,12 +17,12 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",       -- Components.hpp is an entt registry away
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the Ser mirror round-trips through rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- Components.hpp is an entt registry away
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the Ser mirror round-trips through rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -48,10 +48,6 @@ project(test_name)
 
     -- Common: UUID and AssetHandle. Optick: Common's JobSystem registers its worker threads with it.
     links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

@@ -3,6 +3,9 @@
 # Logs live under build/DevLogs (ignored by git, one copy per worktree) so parallel agents never share them.
 
 DEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# premake writes the workspace Makefile and every <Project>.make here (BuildScripts/Workspace.lua `location`), never
+# at the root; paths inside them are relative to this directory, so make always runs with `-C "$DEV_PROJECTS"`.
+DEV_PROJECTS="$DEV_ROOT/build/Projects"
 
 # dev_logdir <name> — creates and prints build/DevLogs/<name>-<timestamp>
 dev_logdir() {
@@ -29,7 +32,7 @@ dev_help() {
 dev_regen_makefiles() {
     local sums; sums=$(git -C "$DEV_ROOT" ls-files '*.cpp' '*.mm' '*.c' 'premake5.lua' '*/premake5.lua' | md5)
     [ "$sums" = "$(cat "$DEV_ROOT/build/DevLogs/.sources.md5" 2>/dev/null)" ] && \
-        [ -z "$(find "$DEV_ROOT" -maxdepth 4 -name premake5.lua -newer "$DEV_ROOT/Common.make" 2>/dev/null | head -1)" ] && return 0
+        [ -z "$(find "$DEV_ROOT" -maxdepth 4 -name premake5.lua -newer "$DEV_PROJECTS/Common.make" 2>/dev/null | head -1)" ] && return 0
     (cd "$DEV_ROOT" && CI=true premake5 gmake) >"$1/premake.log" 2>&1 || { echo "premake5 gmake FAILED; log $1/premake.log"; return 1; }
     mkdir -p "$DEV_ROOT/build/DevLogs" && echo "$sums" >"$DEV_ROOT/build/DevLogs/.sources.md5"
 }

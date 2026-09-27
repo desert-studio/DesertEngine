@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- NO ASSIMP, AND THAT IS THE POINT OF THIS SUITE. Every assertion here is about the repository's own
     -- TEXT — which translation units include assimp, which build files name a toolset, what the
@@ -18,7 +18,7 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -44,10 +44,6 @@ project(test_name)
     -- Common: nothing of it is used by the assertions, but gtest's main links against the workspace's
     -- standard set and Optick is what Common's JobSystem registers its threads with.
     links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

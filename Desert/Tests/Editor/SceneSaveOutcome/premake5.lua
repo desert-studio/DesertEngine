@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- SceneSaveRules.hpp is header-only and depends on nothing but Common's ResultStr, which is why the
     -- editor's "did the save happen, and what may I do now" decision is assertable without a window, a
@@ -17,8 +17,8 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source", -- <Editor/Core/SceneSaveRules.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- <Editor/Core/SceneSaveRules.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

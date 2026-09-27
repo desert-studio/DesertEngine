@@ -425,7 +425,7 @@ namespace Desert::Graphic::API::Vulkan
         // VK_ERROR_DEVICE_LOST, and everything below it is a vkDestroy*, which the specification keeps
         // legal precisely so that a lost device can still be torn down.
         if ( Graphic::DeviceLost::AllowWork() )
-            vkDeviceWaitIdle( device );
+            vkLogicalDevice->WaitIdle(); // under the queue lock (VK1)
 
         if ( m_SwapChain != VK_NULL_HANDLE )
         {
@@ -485,11 +485,18 @@ namespace Desert::Graphic::API::Vulkan
                 m_CompositeFramebuffer                  = nullptr;
                 return;
             }
-            vmaDestroyImage( allocator, m_ColorImages.Image, (VmaAllocation)m_VmaAllocation[0] );
-            vkDestroyImageView( device, m_ColorImages.ImageView, nullptr );
-            
-            vmaDestroyImage( allocator, m_DepthStencilImages.Image, (VmaAllocation)m_VmaAllocation[1] );
-            vkDestroyImageView( device, m_DepthStencilImages.ImageView, nullptr );
+            // Through the allocator's own door, as every other image is: its ledger recorded these two by tag
+            // on creation and drops the rows only when the deferred queue really destroys them, so a window
+            // resize leaves no dead rows and no untracked bytes behind.
+            const auto& vulkanAllocator = SP_CAST( VulkanContext, ctx )->GetVulkanAllocator();
+            // The header keeps the two allocations as `const void*` so it need not include vk_mem_alloc.h
+            // (see m_VmaAllocation); this is where the opaque handle is given its type back.
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
+            vulkanAllocator->RT_DestroyImage( m_ColorImages.Image, (VmaAllocation)m_VmaAllocation[0],
+                                              m_ColorImages.ImageView );
+            vulkanAllocator->RT_DestroyImage( m_DepthStencilImages.Image, (VmaAllocation)m_VmaAllocation[1],
+                                              m_DepthStencilImages.ImageView );
+            // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
 
             m_VmaAllocation[0] = m_VmaAllocation[1] = nullptr;
             m_ColorImages = {}; m_DepthStencilImages = {};
@@ -746,12 +753,17 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<VkResult> VulkanSwapChain::CreateColorAndDepthImages( const std::shared_ptr<VulkanLogicalDevice>& device )
     {
-        VmaAllocator allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator()->GetVMAAllocator();
-        
+        const auto& allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+
         // Color
         VkImageCreateInfo cInfo = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = m_ColorFormat, .extent = { m_Width, m_Height, 1 }, .mipLevels = 1, .arrayLayers = 1, .samples = m_MSAASamples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-        VmaAllocationCreateInfo cAllocInfo = { .usage = VMA_MEMORY_USAGE_GPU_ONLY };
-        VK_CHECK_RESULT( vmaCreateImage( allocator, &cInfo, &cAllocInfo, &m_ColorImages.Image, (VmaAllocation*)&m_VmaAllocation[0], nullptr ) );
+        auto colorAllocation = allocator->RT_AllocateImage( "SwapChain_Color", cInfo, VMA_MEMORY_USAGE_GPU_ONLY,
+                                                            m_ColorImages.Image );
+        if ( !colorAllocation )
+            return Common::MakeFormattedError<VkResult>( "swap chain colour image {}x{}: {}", m_Width, m_Height,
+                                                         colorAllocation.GetError() );
+        m_VmaAllocation[0] = colorAllocation.GetValue();
 
         // A refused view used to be stored as VK_NULL_HANDLE and attached to the swap chain's
         // framebuffer anyway; the resulting failure surfaced at framebuffer creation with no mention
@@ -769,8 +781,12 @@ namespace Desert::Graphic::API::Vulkan
         // Depth
         VkFormat dFormat = device->GetPhysicalDevice()->GetDepthFormat();
         VkImageCreateInfo dInfo = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = dFormat, .extent = { m_Width, m_Height, 1 }, .mipLevels = 1, .arrayLayers = 1, .samples = m_MSAASamples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-        VmaAllocationCreateInfo dAllocInfo = { .usage = VMA_MEMORY_USAGE_GPU_ONLY };
-        VK_CHECK_RESULT( vmaCreateImage( allocator, &dInfo, &dAllocInfo, &m_DepthStencilImages.Image, (VmaAllocation*)&m_VmaAllocation[1], nullptr ) );
+        auto depthAllocation = allocator->RT_AllocateImage( "SwapChain_Depth", dInfo, VMA_MEMORY_USAGE_GPU_ONLY,
+                                                            m_DepthStencilImages.Image );
+        if ( !depthAllocation )
+            return Common::MakeFormattedError<VkResult>( "swap chain depth image {}x{}: {}", m_Width, m_Height,
+                                                         depthAllocation.GetError() );
+        m_VmaAllocation[1] = depthAllocation.GetValue();
 
         auto depthView = Utils::CreateImageView( device->GetVulkanLogicalDevice(), m_DepthStencilImages.Image,
                                                  dFormat, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_VIEW_TYPE_2D, 1, 1 );

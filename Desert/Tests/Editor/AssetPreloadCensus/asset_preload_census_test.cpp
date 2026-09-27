@@ -40,6 +40,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -233,9 +234,11 @@ namespace
     };
     constexpr SkyboxBindSite kSkyboxBindSites[] = {
          { "Desert/Desert/Source/Engine/Runtime/Services/AssetServiceRegistration.cpp",
-           "service->Register( skybox )" },
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp", "svc.Register(" },
-         { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp", "svc->Register(" },
+           "service->Request( skybox )" },
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp",
+           "Runtime::EnsureSkyboxRegistered( a )" },
+         { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
+           "Runtime::EnsureSkyboxRegistered( a )" },
     };
 } // namespace
 
@@ -248,7 +251,7 @@ TEST( AssetPreloadCensus, TheHeaderStillDeclaresPreloadsAtAll )
 
     // A census that found nothing would pass the test below for the wrong reason — the failure mode of
     // every source-scanning suite, and the one it has to rule out about itself first.
-    EXPECT_GE( declared.size(), 5u ) << "the scan found " << declared.size() << " Preload* declarations in "
+    EXPECT_GE( declared.size(), 4u ) << "the scan found " << declared.size() << " Preload* declarations in "
                                      << kPreloaderHeader
                                      << ", which means the parse stopped matching rather than that the "
                                         "asset layer shrank";
@@ -319,8 +322,13 @@ TEST( AssetPreloadCensus, ThePopulationIsGivenTheScansOwnCountAndSoCannotPrecede
     // no longer needs a root or an extension list — but it still RETURNS the count, and that count is
     // still the only thing that can tell "this project has no clips" from "the clips never reached the
     // library".
+    // SINCE AL1-6 the count is the registry's `.anim` rows: clips are no longer created at boot, the
+    // library indexes the rows and the loader reads a clip when an animator names it.
+    EXPECT_EQ( source.find( "ProcessAssetKind<AnimationAsset>" ), std::string::npos )
+         << kPreloaderSource << " creates clip assets at boot again; they are read on demand since AL1-6.";
     std::smatch      scan;
-    const std::regex scanPattern( R"((\w+)\s*=\s*[\s\S]{0,40}?ProcessAssetKind<\s*AnimationAsset\s*>)" );
+    const std::regex scanPattern(
+         R"((\w+)\s*=\s*[\s\S]{0,80}?ContentRegistry::Rows\(\s*Common::Content::ContentKind::Animation\s*\))" );
     ASSERT_TRUE( std::regex_search( source, scan, scanPattern ) )
          << "the `.anim` scan in " << kPreloaderSource
          << " no longer assigns its result to anything. That count is the only thing that can tell 'this "
@@ -480,8 +488,125 @@ TEST( AssetPreloadCensus, BothSceneSkyboxResolversBuildTheEnvironment )
     }
 }
 
+// AL1-4: textures and materials are discovered by their services on first use, so the boot creates no
+// shell of either kind — and that is also what makes hot reload see ONLY the materials something asked
+// for, because AssetHotReload::PollMaterials walks the manager's SurfaceMaterialAssets and nothing else
+// puts one there at boot.
+TEST( AssetPreloadCensus, TexturesAndMaterialsAreNotCreatedAtBootSoHotReloadSeesOnlyRequestedMaterials )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
+    ASSERT_FALSE( preloader.empty() );
+    constexpr const char* kGone[] = {
+         "ProcessAssetKind<TextureAsset>",
+         "ProcessAssetKind<SurfaceMaterialAsset>",
+         "FindAllByType<Assets::TextureAsset>",
+         "FindAllByType<Assets::MaterialAsset>",
+         "ContentKind::Texture",
+         "ContentKind::Material",
+         "GetTextureService()->RegisterAsset",
+         "GetMaterialService()->RegisterAsset",
+    };
+    for ( const char* token : kGone )
+        EXPECT_EQ( preloader.find( token ), std::string::npos )
+             << kPreloaderSource << " names " << token
+             << " again; textures and materials are discovered on demand since AL1-4, and a boot scan "
+                "would hand hot reload every material in the project instead of the requested ones.";
+
+    // The other half of the relation: the hot-reload walk is over the MANAGER's materials, so what it sees
+    // is exactly what was created — by MaterialService's discovery.
+    const std::string hotReload =
+         WithoutComments( ReadFile( root + "Desert/Desert/Source/Engine/Runtime/AssetHotReload.cpp" ) );
+    ASSERT_FALSE( hotReload.empty() );
+    EXPECT_NE( hotReload.find( "FindAllByType<Assets::SurfaceMaterialAsset>" ), std::string::npos )
+         << "PollMaterials no longer walks the manager's materials; this census no longer describes it.";
+    const std::string service = WithoutComments(
+         ReadFile( root + "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp" ) );
+    EXPECT_NE( service.find( "CreateFromRegistryRow<Assets::SurfaceMaterialAsset>" ), std::string::npos )
+         << "MaterialService no longer discovers materials from the registry row";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THE CLOUD KINDS ARE CREATED ON DEMAND, NOT PRELOADED (AL1-2). Noise volumes, sculpted hero-cloud bodies
+// and painted layouts each had a boot stage that minted a shell for every file of the kind, whether any
+// scene named it or not. Their services now create the shell from the content registry's row the first
+// time a handle is resolved (`CreateFromRegistryRow`), so a stage that came back would be the eager
+// scan this change removed — and the first census above would then demand both hosts call it, which is
+// the wrong repair. This pins the removal in the header, both hosts and the preloader's source.
+TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    constexpr const char* kRemovedStages[] = {
+         "PreloadCloudNoiseVolumes", "PreloadCloudModellingVolumes", "PreloadCloudLayouts",
+         "PreloadCloudTypes", // AL1-7: CloudTypeService reads a type from its registry row when first named
+         "PreloadUIThemes",   // AL1-7: UIThemeService, the same for a theme
+    };
+
+    const std::vector<std::string> declared = DeclaredPreloads( ReadFile( root + kPreloaderHeader ) );
+    ASSERT_FALSE( declared.empty() );
+
+    std::vector<std::string> files = { kPreloaderHeader, kPreloaderSource };
+    for ( const char* layer : kLayers )
+        files.emplace_back( layer );
+
+    for ( const char* stage : kRemovedStages )
+    {
+        EXPECT_EQ( std::count( declared.begin(), declared.end(), std::string( stage ) ), 0 )
+             << kPreloaderHeader << " declares AssetPreloader::" << stage
+             << " again; that kind is created on demand by its service from the registry row.";
+
+        for ( const std::string& file : files )
+        {
+            const std::string source = WithoutComments( ReadFile( root + file ) );
+            ASSERT_FALSE( source.empty() ) << "could not read " << file;
+            EXPECT_EQ( source.find( std::string( stage ) + "(" ), std::string::npos )
+                 << file << " names " << stage << "(); the cloud kinds have no boot stage since AL1-2.";
+        }
+    }
+}
+
+TEST( AssetPreloadCensus, TheRigGraphAndRetargetKindsHaveNoBootStage )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    constexpr const char* kRemovedStages[] = { "PreloadControlRigs", "PreloadAnimGraphs", "PreloadRetargets" };
+
+    const std::vector<std::string> declared = DeclaredPreloads( ReadFile( root + kPreloaderHeader ) );
+    ASSERT_FALSE( declared.empty() );
+
+    std::vector<std::string> files = { kPreloaderHeader, kPreloaderSource };
+    for ( const char* layer : kLayers )
+        files.emplace_back( layer );
+
+    for ( const char* stage : kRemovedStages )
+    {
+        EXPECT_EQ( std::count( declared.begin(), declared.end(), std::string( stage ) ), 0 )
+             << kPreloaderHeader << " declares AssetPreloader::" << stage
+             << " again; rigs, graphs and retargets are created from their registry row when named (AL1-6).";
+        for ( const std::string& file : files )
+        {
+            const std::string source = WithoutComments( ReadFile( root + file ) );
+            ASSERT_FALSE( source.empty() ) << "could not read " << file;
+            EXPECT_EQ( source.find( std::string( stage ) + "(" ), std::string::npos )
+                 << file << " names " << stage << "(); that kind has no boot stage since AL1-6.";
+        }
+    }
+
+    // MESHES AND SKELETONS HAVE NO BOOT SHELLS SINCE AL1-5: MeshService discovers a mesh from its registry
+    // row and names its rig by the registry's Rig tag, so the preloader creates neither kind.
+    const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
+    for ( const char* created : { "ProcessAssetKind<SkeletonAsset>", "ProcessAssetKind<StaticMeshAsset>",
+                                  "ProcessAssetKind<SkinnedMeshAsset>", "GetMeshService()->RegisterAsset" } )
+        EXPECT_EQ( preloader.find( created ), std::string::npos )
+             << "the preloader does " << created << " again; meshes and skeletons are on demand (AL1-5)";
 }

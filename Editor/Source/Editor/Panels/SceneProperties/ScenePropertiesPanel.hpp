@@ -35,7 +35,7 @@ namespace Desert::Editor
         // Is the Details preview holding one of the six renderer slots right now? Asked by the editor's slot
         // census before a new asset-document window is admitted — Details is the largest demand-driven
         // consumer, and a census that guessed at it would name the wrong thing to close.
-        [[nodiscard]] bool HoldsRendererSlot() const
+        [[nodiscard]] bool HoldsView() const
         {
             return m_Preview != nullptr;
         }

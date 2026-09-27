@@ -5,22 +5,22 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The landscape core is PURE by construction (no Scene, renderer, entity or asset manager), and this
     -- project is the proof: it compiles the engine's LandscapeData.cpp on its own and links only Common
     -- (Crc32c for the blob checksum, the logger behind DESERT_VERIFY).
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -46,10 +46,6 @@ project(test_name)
 
     -- Optick: Common's JobSystem registers its worker threads with it.
     links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

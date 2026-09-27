@@ -4,9 +4,14 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 #include <array>
+#include <span>
+#include <vector>
+#include <unordered_set>
 
 namespace Desert::Graphic
 {
@@ -42,6 +47,17 @@ namespace Desert::Runtime
         // taking it over. Before this, whichever material registered second won the service map and the
         // other could never resolve — with nothing logged to say a material had been displaced.
         Common::BoolResultStr Register( const std::shared_ptr<Assets::MaterialAsset>& materialAsset );
+
+        /// The manager on-demand discovery creates `.demat` shells in (AL1-4): a handle nobody registered is
+        /// found by its content-registry row on first use. Bound by ResourceRegistry::BindOnDemandAssets.
+        void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+
+        /// ONE ROW OF A CLOSURE (AL1-8b, plan §2.4(b)): start the worker read of the `.demat` @p handle names
+        /// (discovered from its registry row if nobody registered it) and append the loader handle to wait on
+        /// to @p awaited; nothing is appended for a material already read or one the project does not have.
+        /// Never reads on this thread. The parent of an instance is not walked here: it is a `deps` edge of
+        /// the instance's row, so the closure (Runtime::AwaitClosure) already holds it.
+        void StartRead( const Assets::AssetHandle& handle, std::vector<Assets::AssetHandle>& awaited ) const;
         // Lazy: register the asset SHELL + the external->internal map only; the runtime Material (which binds
         // its textures) is built on the first Get. Refuses a colliding identity on the same terms as
         // Register above.
@@ -248,10 +264,24 @@ namespace Desert::Runtime
             return static_cast<size_t>( path ) * Graphic::kMeshPassCount + static_cast<size_t>( pass );
         }
 
-        uint32_t                                                                        m_InvalidationVersion = 0;
-        mutable std::unordered_map<Assets::AssetHandle, PathVariants>                   m_Materials;
-        std::unordered_map<Common::UUID, Assets::AssetHandle>                           m_ExternalToInternal;
-        std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>> m_MaterialAssets;
+        mutable uint32_t                                              m_InvalidationVersion = 0;
+        mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
+        // Mutable: discovery on a miss fills these from const lookups (Get, ShaderNameOf, ...), which is a
+        // cache fill, not a change of what the service answers.
+        mutable std::unordered_map<Common::UUID, Assets::AssetHandle> m_ExternalToInternal;
+        mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>> m_MaterialAssets;
+        /// Handles the registry has no row for; logged once each, not once per frame.
+        mutable std::unordered_set<Assets::AssetHandle> m_ReportedMissing;
+        /// Live metadata reads started by Get(); a handle here answers Pending (nullptr).
+        mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
+        std::weak_ptr<Assets::AssetManager>                                  m_Assets;
+
+        /// THE ONE LOOKUP every `m_MaterialAssets.find` went through: the held shell, or one discovered
+        /// from the registry row now, or `end()`.
+        std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator
+        FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        /// True when @p asset is read; otherwise starts its read once (AsyncAssetLoader) and answers false.
+        bool RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const;
 
         // Which `.demat` a built runtime material came from — the inverse of m_Materials, and the only way
         // GetVariant can answer without the caller carrying an asset handle it does not have.

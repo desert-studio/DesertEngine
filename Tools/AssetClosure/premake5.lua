@@ -14,14 +14,14 @@ project "AssetClosure"
 
     files {
         "Source/**.cpp",
-        "%{wks.location}/Editor/Source/Editor/Core/AssetReferences.cpp",
-        "%{wks.location}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Tools/Shared",
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

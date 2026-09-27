@@ -9,6 +9,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Assets
@@ -36,6 +37,9 @@ namespace Desert::Assets
             bool        Settled         = false;
             LoadOutcome Outcome         = LoadOutcome::Failed;
             std::string Error;
+
+            /// Set only by `Await`: the non-blocking question polled each `Pump()` until it says yes.
+            std::function<bool()> Poll;
         };
 
         mutable std::mutex                                    Lock;
@@ -55,6 +59,14 @@ namespace Desert::Assets
         /// job at all; they settle together with the first when it lands, with its outcome. That is
         /// also the honest answer: they asked for the same file and the same read served them.
         std::unordered_map<AssetHandle, std::vector<uint64_t>> Waiting;
+
+        /// THE JOB THAT OWNS THE READ of a waiting handle, by the id of the request that submitted it.
+        /// `FlushOne` takes the read by erasing the ticket; a job whose ticket is gone (or belongs to a
+        /// later read of the same handle) skips without reading or settling. Without it a job queued behind
+        /// a flush read the file a second time after the flush had settled it.
+        std::unordered_map<AssetHandle, uint64_t> Tickets;
+        /// Handles a worker is inside `Load()` for; a flush of one of these waits instead of reading.
+        std::unordered_set<AssetHandle> WorkerReading;
 
         uint64_t              NextId = 1;
         std::atomic<uint64_t> Started{ 0 };
@@ -206,6 +218,7 @@ namespace Desert::Assets
             else
             {
                 state.Waiting[record->Handle] = { record->Id };
+                state.Tickets[record->Handle] = record->Id;
                 submit                        = true;
             }
         }
@@ -214,12 +227,13 @@ namespace Desert::Assets
         {
             state.Started.fetch_add( 1, std::memory_order_relaxed );
             const AssetHandle handle = record->Handle;
+            const uint64_t    ticket = record->Id;
             // THE STATE IS CAPTURED BY POINTER, and its lifetime is the process's: the loader is a
             // function-local static, so the only way a worker could outlive it is a job still running at
             // exit -- which `ShutdownAndDrain` is there to make impossible.
             State* inner = m_State.get();
             Common::JobSystem::Get().Submit(
-                 [record, handle, inner]
+                 [record, handle, ticket, inner]
                  {
                      inner->InFlight.fetch_add( 1, std::memory_order_relaxed );
 
@@ -233,6 +247,14 @@ namespace Desert::Assets
                          // This is the half of `Cancel()` that actually saves work, and it is why a scene
                          // that was closed while loading does not sit through its own content.
                          skip = record->CancelRequested;
+                         if ( const auto owner = inner->Tickets.find( handle );
+                              owner == inner->Tickets.end() || owner->second != ticket )
+                         {
+                             // FlushOne took this read onto the caller's thread and settled it there.
+                             inner->InFlight.fetch_sub( 1, std::memory_order_relaxed );
+                             return;
+                         }
+                         inner->WorkerReading.insert( handle );
                      }
 
                      if ( !skip )
@@ -252,6 +274,8 @@ namespace Desert::Assets
 
                      {
                          const std::lock_guard<std::mutex> guard( inner->Lock );
+                         inner->WorkerReading.erase( handle );
+                         inner->Tickets.erase( handle );
                          SettleWaitingLocked( *inner, handle, outcome, error );
                      }
 
@@ -265,6 +289,27 @@ namespace Desert::Assets
     void AsyncAssetLoader::Pump()
     {
         State& state = *m_State;
+
+        // GPU WAITS FIRST, OUTSIDE THE LOCK: a poll asks the device, and a record that settles here joins
+        // `Done` below in this same tick, exactly like a read that landed.
+        std::vector<std::shared_ptr<State::Record>> polled;
+        {
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            for ( const auto& [id, record] : state.Live )
+                if ( record->Poll && !record->Settled && !record->CancelRequested )
+                    polled.push_back( record );
+        }
+        for ( const auto& record : polled )
+        {
+            if ( !record->Poll() )
+                continue;
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            if ( !state.Live.contains( record->Id ) || record->Settled )
+                continue;
+            record->Settled = true;
+            record->Outcome = LoadOutcome::Loaded;
+            state.Done.push_back( record->Id );
+        }
 
         std::vector<std::shared_ptr<State::Record>> cancelled;
         std::vector<std::shared_ptr<State::Record>> completed;
@@ -303,6 +348,127 @@ namespace Desert::Assets
 
         for ( const auto& record : completed )
             record->Ready( record->Payload, record->Outcome, record->Error );
+    }
+
+    bool AsyncAssetLoader::FlushOne( const AssetHandle& handle )
+    {
+        State& state = *m_State;
+
+        std::shared_ptr<State::Record> reader;
+        bool                           mustWait = false;
+        {
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            if ( const auto waiting = state.Waiting.find( handle ); waiting != state.Waiting.end() )
+            {
+                if ( state.WorkerReading.contains( handle ) )
+                    mustWait = true; // a worker is inside Load() already; the file is not read twice
+                else
+                {
+                    for ( const uint64_t id : waiting->second )
+                        if ( const auto live = state.Live.find( id ); live != state.Live.end() )
+                        {
+                            reader = live->second;
+                            break;
+                        }
+                    if ( reader )
+                        state.Tickets.erase( handle ); // the queued job now skips
+                }
+            }
+        }
+
+        if ( reader )
+        {
+            // ON THIS THREAD AND WITHOUT AN AsyncLoadMarker, deliberately: a flush is a synchronous load the
+            // caller asked for, and SyncLoadLedger has to count it as one (as in-frame, inside a frame).
+            LoadOutcome outcome = LoadOutcome::Loaded;
+            std::string error;
+            if ( const auto loaded = reader->Payload->Load(); !loaded )
+            {
+                outcome = LoadOutcome::Failed;
+                error   = loaded.GetError();
+            }
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            SettleWaitingLocked( state, handle, outcome, error );
+        }
+        else if ( mustWait )
+        {
+            for ( ;; )
+            {
+                {
+                    const std::lock_guard<std::mutex> guard( state.Lock );
+                    if ( state.Waiting.find( handle ) == state.Waiting.end() )
+                        break;
+                }
+                std::this_thread::yield();
+            }
+        }
+
+        // Deliver only THIS handle's settled requests; every other completion keeps its place for Pump.
+        return DeliverCompleted( handle );
+    }
+
+    bool AsyncAssetLoader::AwaitOne( const AssetHandle& handle )
+    {
+        State& state = *m_State;
+        for ( ;; )
+        {
+            {
+                const std::lock_guard<std::mutex> guard( state.Lock );
+                if ( state.Waiting.find( handle ) == state.Waiting.end() )
+                    break;
+            }
+            // The queued job is a worker's to run; this thread only waits for it to settle.
+            std::this_thread::yield();
+        }
+        return DeliverCompleted( handle );
+    }
+
+    bool AsyncAssetLoader::DeliverCompleted( const AssetHandle& handle )
+    {
+        State&                                      state = *m_State;
+        std::vector<std::shared_ptr<State::Record>> completed;
+        {
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            std::erase_if( state.Done,
+                           [&]( const uint64_t id )
+                           {
+                               const auto live = state.Live.find( id );
+                               if ( live == state.Live.end() || live->second->Handle != handle )
+                                   return false;
+                               completed.push_back( live->second );
+                               state.Live.erase( live );
+                               return true;
+                           } );
+        }
+        for ( const auto& record : completed )
+            record->Ready( record->Payload, record->Outcome, record->Error );
+        return !completed.empty();
+    }
+
+    LoadRequest AsyncAssetLoader::Await( const AssetHandle& handle, std::function<bool()> isDone,
+                                         std::function<void()> onDone, OnCancel onCancel )
+    {
+        if ( !isDone || !onDone || !onCancel )
+        {
+            LOG_ERROR( "[AsyncLoad] an await for handle {} was refused: {} delegate is null, and every one "
+                       "of the three is required.",
+                       static_cast<uint64_t>( handle ),
+                       !isDone ? "the poll" : ( !onDone ? "the done" : "the cancel" ) );
+            return {};
+        }
+
+        State& state   = *m_State;
+        auto   record  = std::make_shared<State::Record>();
+        record->Handle = handle;
+        record->Poll   = std::move( isDone );
+        record->Ready  = [done = std::move( onDone )]( const Asset<AssetBase>&, LoadOutcome, const std::string& )
+        { done(); };
+        record->Cancel = std::move( onCancel );
+
+        const std::lock_guard<std::mutex> guard( state.Lock );
+        record->Id             = state.NextId++;
+        state.Live[record->Id] = record;
+        return { record->Id, handle };
     }
 
     size_t AsyncAssetLoader::Outstanding() const
@@ -369,6 +535,8 @@ namespace Desert::Assets
             state.Done.clear();
             state.Cancelled.clear();
             state.Waiting.clear();
+            state.Tickets.clear();
+            state.WorkerReading.clear();
         }
 
         // SPIN RATHER THAN CONDITION-VARIABLE, and it is a deliberate trade for a path that runs twice in

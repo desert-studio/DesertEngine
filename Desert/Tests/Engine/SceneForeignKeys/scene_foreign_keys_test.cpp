@@ -22,7 +22,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -60,27 +60,23 @@ using namespace Desert::Core::Serialize;
 
 namespace
 {
-    rfl::Generic::Object Parse( const std::string& json )
+    Common::Json::Object Parse( const std::string& json )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( json );
-        EXPECT_TRUE( parsed.has_value() ) << json;
-        if ( !parsed.has_value() )
-            return {};
-        const auto object = parsed.value().to_object();
-        EXPECT_TRUE( object.has_value() ) << json;
-        return object.has_value() ? object.value() : rfl::Generic::Object{};
+        const auto parsed = Common::Json::Read<Common::Json::Object>( json );
+        EXPECT_TRUE( parsed ) << json << " - " << parsed.GetError();
+        return parsed ? parsed.GetValue() : Common::Json::Object{};
     }
 
-    std::string Write( const rfl::Generic::Object& object )
+    std::string Write( const Common::Json::Object& object )
     {
-        return rfl::json::write( object );
+        return Common::Json::Write( object );
     }
 
     // The merge runs on TextDocuments (Common/Json/Carry.hpp); the rule fixtures here are small objects with
     // small numbers, so each call carries them across as text and back.
     Common::Json::TextDocument AsText( const Common::Json::Object& object )
     {
-        auto document = Common::Json::TextDocument::Parse( rfl::json::write( object ) );
+        auto document = Common::Json::TextDocument::Parse( Common::Json::Write( object ) );
         EXPECT_TRUE( static_cast<bool>( document ) );
         return document.ExtractValue();
     }
@@ -189,16 +185,28 @@ namespace
 
     // Every key of `source`, at every depth, as "a.b.c" -> the value's JSON. What the loss test
     // compares, because "is anything gone" is a question about the whole tree and not one level.
-    void Flatten( const rfl::Generic::Object& source, const std::string& prefix,
+    // A worklist, not recursion: recursing through the facade's ForEachMember lambda is a call chain
+    // clang-tidy reports inside Document.hpp, where no directive of ours can reach it.
+    void Flatten( const Common::Json::Node& source, const std::string& prefix,
                   std::map<std::string, std::string>& into )
     {
-        for ( const auto& [key, value] : source )
+        std::vector<std::pair<Common::Json::Node, std::string>> pending{ { source, prefix } };
+        while ( !pending.empty() )
         {
-            const std::string path = prefix.empty() ? key : prefix + "." + key;
-            if ( const auto nested = value.to_object(); nested.has_value() )
-                Flatten( nested.value(), path, into );
-            else
-                into[path] = rfl::json::write( value );
+            // Named copies, not a structured binding: a lambda capturing a binding is a C++20 corner MSVC
+            // has refused before.
+            const Common::Json::Node node = pending.back().first;
+            const std::string        at   = pending.back().second;
+            pending.pop_back();
+            node.ForEachMember(
+                 [&]( std::string_view key, const Common::Json::Node& value )
+                 {
+                     std::string path = at.empty() ? std::string( key ) : at + "." + std::string( key );
+                     if ( value.GetKind() == Common::Json::Kind::Object )
+                         pending.emplace_back( value, std::move( path ) );
+                     else
+                         into[path] = Common::Json::Write( value.Raw() );
+                 } );
         }
     }
 } // namespace
@@ -294,7 +302,7 @@ namespace
 {
     // A document of `count` entity records shaped like a generated world's (a transform, a mesh block and
     // one foreign key each), with the fresh side in REVERSED order so no record is found by luck of place.
-    std::pair<rfl::Generic::Object, rfl::Generic::Object> WorldOf( const int count )
+    std::pair<Common::Json::Object, Common::Json::Object> WorldOf( const int count )
     {
         std::string source = R"({"SceneName":"W","Entities":[)";
         std::string fresh  = R"({"SceneName":"W","Entities":[)";
@@ -325,8 +333,11 @@ namespace
             best               = std::min(
                  best,
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count() );
-            EXPECT_EQ( merged.get( "Entities" ).value().to_array().value().size(),
-                       static_cast<std::size_t>( count ) );
+            const Common::Json::Value mergedValue( merged );
+            std::size_t               entities = 0;
+            if ( const auto list = Common::Json::Root( mergedValue ).Find( "Entities" ) )
+                list->ForEachElement( [&]( std::size_t, const Common::Json::Node& ) { ++entities; } );
+            EXPECT_EQ( entities, static_cast<std::size_t>( count ) );
         }
         return best;
     }
@@ -389,13 +400,13 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
         const auto stated   = document.get( "Settings" );
         if ( !stated.has_value() )
             continue;
-        const auto block = stated.value().to_object();
-        if ( !block.has_value() )
+        const auto block = Common::Json::Root( stated.value() ).As<Common::Json::Object>();
+        if ( !block )
             continue;
 
         Desert::Core::SceneSettings settings;
-        ReadReflectedValue( *settingsType, &settings, block.value() );
-        rfl::Generic::Object written = Desert::Reflection::SerializeReflected( *settingsType, &settings );
+        ReadReflectedValue( *settingsType, &settings, block.GetValue() );
+        Common::Json::Object written = Desert::Reflection::SerializeReflected( *settingsType, &settings );
 
         // AN ASSET HANDLE HAS TWO ON-DISK FORMS AND THIS SUITE CANNOT PRODUCE THE RIGHT ONE. The saver
         // passes SerializeReflected an asset RESOLVER, which writes a handle as a path string; without
@@ -408,15 +419,17 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
         // measurement, because it looks like evidence.
         for ( const auto& field : settingsType->Fields )
             if ( field.Type == Desert::Reflection::FieldType::AssetHandle )
-                if ( const auto asStated = block.value().get( field.Name ); asStated.has_value() )
+                if ( const auto asStated = block.GetValue().get( field.Name ); asStated.has_value() )
                     written[field.Name] = asStated.value();
 
-        const rfl::Generic::Object merged = MergeObjects( written, block.value(), NothingIsOurs() );
+        const Common::Json::Object merged = MergeObjects( written, block.GetValue(), NothingIsOurs() );
 
         std::map<std::string, std::string> before;
         std::map<std::string, std::string> after;
-        Flatten( block.value(), "", before );
-        Flatten( merged, "", after );
+        const Common::Json::Value          blockValue( block.GetValue() );
+        const Common::Json::Value          mergedValue( merged );
+        Flatten( Common::Json::Root( blockValue ), "", before );
+        Flatten( Common::Json::Root( mergedValue ), "", after );
 
         for ( const auto& [key, value] : before )
         {
@@ -433,7 +446,7 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
                                                         "that does not declare it";
         }
 
-        if ( rfl::json::write( merged ) == rfl::json::write( block.value() ) )
+        if ( Common::Json::Write( merged ) == Common::Json::Write( block.GetValue() ) )
             ++canonical;
     }
 
@@ -495,9 +508,9 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskComesBackByteIdenticalThroughTheLoaders
     }
 }
 
-// An entity id at or above 2^63 is a uint64 the typed writer spells unsigned. Json::Value (rfl::Generic) has no
-// unsigned 64-bit number, and the pre-fix save re-read the scene as a Value before the merge, so every save of a
-// loaded scene wrote such an id NEGATIVE (the same bits, different text: 9365333062700381311 came out as
+// An entity id at or above 2^63 is a uint64 the typed writer spells unsigned. Json::Value (the generic tree) has
+// no unsigned 64-bit number, and the pre-fix save re-read the scene as a Value before the merge, so every save of
+// a loaded scene wrote such an id NEGATIVE (the same bits, different text: 9365333062700381311 came out as
 // -9081411011009170305). Pinned on the committed scene that showed it, through the loader's parse and the
 // saver's compose, and on a record whose id a pre-fix save already spelled negative: it is still matched, so
 // the key another build put on it is carried rather than dropped.
@@ -506,7 +519,7 @@ TEST( ForeignKeysCorpus, AnIdAtOrAbove2To63SurvivesLoadAndSaveUnsigned )
     const std::filesystem::path path =
          std::filesystem::path( RepoRoot() ) / "Editor/Resources/Assets/Scenes/UI_OverScene.desce";
     const std::string bytes = ReadAll( path );
-    ASSERT_NE( bytes.find( "\"id\": 9365333062700381311" ), std::string::npos ) << "the fixture id moved";
+    ASSERT_NE( bytes.find( R"("id": 9365333062700381311)" ), std::string::npos ) << "the fixture id moved";
 
     const auto loadable = Desert::Core::ParseLoadableScene( path.string(), bytes );
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
@@ -516,7 +529,7 @@ TEST( ForeignKeysCorpus, AnIdAtOrAbove2To63SurvivesLoadAndSaveUnsigned )
     ASSERT_TRUE( static_cast<bool>( composed ) ) << composed.GetError();
     const auto written = Common::Json::WriteCanonical( composed.GetValue() );
     ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
-    EXPECT_NE( written.GetValue().find( "\"id\": 9365333062700381311" ), std::string::npos );
+    EXPECT_NE( written.GetValue().find( R"("id": 9365333062700381311)" ), std::string::npos );
     EXPECT_EQ( written.GetValue().find( "-9081411011009170305" ), std::string::npos )
          << "the id was written negative";
     EXPECT_TRUE( written.GetValue() == bytes ) << FirstDifference( written.GetValue(), bytes );

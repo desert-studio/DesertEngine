@@ -5,6 +5,7 @@
 
 #include <Editor/Core/CommandLine.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Editor/Core/StartupRefusal.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Editor/Core/ProjectContext.hpp>
@@ -212,6 +213,31 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         }
     }
 
+    // THE CRASH HANDLER, INSTALLED THE MOMENT THE REPORT CAN BE FILED SOMEWHERE USEFUL — after the
+    // project is open (so reports land in <project>/Saved/Crashes and travel with the project) and
+    // before a single engine subsystem exists. Earlier than this and every editor report would go to
+    // %LOCALAPPDATA% with no project named in it; later and the whole of startup — the riskiest code
+    // in the process, because it touches the driver first — would fault with nothing written.
+    {
+        Common::Crash::InstallOptions crashOptions;
+        crashOptions.hostName    = "Editor";
+        crashOptions.projectRoot = Desert::Project::ProjectContext::Directory();
+        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+             !installed.IsSuccess() )
+        {
+            // Refused rather than carried on: a run whose crashes leave nothing behind is exactly
+            // the run this task exists to end, and saying so at startup costs one line.
+            Desert::Editor::RefuseToStart( 1, "Crash handler: " + installed.GetError() );
+        }
+    }
+
+    // `--crash-test` is acted on HERE, one statement after the handler is installed, so that what it
+    // proves is the handler and not some later subsystem's idea of a fault.
+    if ( options.CrashTest.has_value() )
+    {
+        Common::Crash::TriggerTestCrash( *options.CrashTest );
+    }
+
     // Where this engine is, written down for the launcher — which after L3 has no DESERT_ROOT of
     // its own and no other way to find an engine. Skipped for the same runs the recent list skips:
     // an unattended run inside a worktree would otherwise register that worktree as an installed
@@ -284,6 +310,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     splash->SetProgress( { "Starting the renderer...", "", 0.0 } );
 
     ApplicationInfo appInfo;
+    // The editor's driver pipeline cache lives in ~/.desertengine, one folder per project (PKG1). Before the
+    // application: the device reads it while it is being created.
+    Desert::Graphic::PipelineCacheFile::DeclareHost( Desert::Graphic::PipelineCacheFile::Host::Editor );
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;
     // HIDDEN UNTIL THE EDITOR IS READY: the splash is what is on screen until then, and EditorLayer shows
     // the window on its first real frame (RevealWhenReady).

@@ -66,21 +66,22 @@ namespace Desert::Editor
         }
     } // namespace
 
-    void ImportManager::Import( const std::filesystem::path& path, bool force )
+    CookVerdict ImportManager::Import( const std::filesystem::path& path, bool force )
     {
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
 
         if ( !m_Importers.contains( ext ) )
-            return;
+            return CookVerdict::NotCookable;
 
         // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when the mesh output is
-        // current. A source produces either a static mesh asset beside it (fresh by its IMPT content hash) or
-        // a skinned cook under Cooked/ (fresh by mtime until AF4f moves it), so accept either. `force`
-        // (Rebuild Cooked Assets) bypasses this.
+        // current. A source produces either a static mesh envelope in the DDC (fresh by its IMPT content
+        // hash - AF4h moved that envelope out from beside the source) or a skinned cook under Cooked/
+        // (fresh by mtime until AF4f moves it), so accept either. `force` (Rebuild Cooked Assets)
+        // bypasses this.
         if ( !force &&
              ( ImportedMeshAssetIsFresh( path ) || CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
-            return;
+            return CookVerdict::UpToDate;
 
         auto result = m_Importers[ext]->Import( path, *this );
         // The cook's verdict stops HERE, at a log line naming the file and the reason. It has nowhere
@@ -90,23 +91,24 @@ namespace Desert::Editor
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
         if ( const auto cooked = CreateAssetsFromImport( result, path ); !cooked )
+        {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
                        cooked.GetError() );
+            return CookVerdict::Failed;
+        }
+        return CookVerdict::Cooked;
     }
 
-    void ImportManager::ImportAllFromDirectory( const std::filesystem::path& root, bool force )
+    std::vector<std::filesystem::path> ImportManager::MeshSources( const std::filesystem::path& root )
     {
         namespace fs = std::filesystem;
 
-        std::error_code ec;
-        if ( !fs::exists( root, ec ) ) // tolerate a missing source dir (e.g. clean/from-scratch project)
-            return;
-
-        // Gather first, cook in PARALLEL after: each source file is an independent CPU+disk job (that is
-        // exactly what AsyncMeshLoader relies on for single files). Each worker thread cooks on its OWN
-        // ImportManager (Assimp importers are not reentrant); shared cooked-texture writes are serialized
-        // inside TextureImporter.
         std::vector<fs::path> files;
+        std::error_code       ec;
+        if ( !fs::exists( root, ec ) ) // tolerate a missing source dir (e.g. clean/from-scratch project)
+            return files;
+
+        const ImportManager probe; // the importer table is the one filter; `.blend` is left to on-demand
         for ( const auto& entry : fs::recursive_directory_iterator( root, ec ) )
         {
             if ( !entry.is_regular_file() )
@@ -116,21 +118,32 @@ namespace Desert::Editor
             std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
 
             // .blend is converted via a (potentially multi-minute) headless Blender run — far too heavy to do
-            // for every file during a blocking bulk scan at boot. It's imported ON DEMAND instead (drag-drop
-            // goes through AsyncMeshLoader on a worker thread), so the editor never freezes on it.
+            // for every file during a bulk scan. It's imported ON DEMAND instead (drag-drop goes through
+            // AsyncMeshLoader on a worker thread), so the editor never freezes on it.
             if ( ext == ".blend" )
                 continue;
 
-            if ( m_Importers.contains( ext ) )
+            if ( probe.m_Importers.contains( ext ) )
                 files.push_back( entry.path() );
         }
+        return files;
+    }
 
+    void ImportManager::ImportAllFromDirectory( const std::filesystem::path& root, bool force )
+    {
+        namespace fs = std::filesystem;
+
+        // Gather first, cook in PARALLEL after: each source file is an independent CPU+disk job (that is
+        // exactly what AsyncMeshLoader relies on for single files). Each worker thread cooks on its OWN
+        // ImportManager (Assimp importers are not reentrant); shared cooked-texture writes are serialized
+        // inside TextureImporter.
+        const std::vector<fs::path> files = MeshSources( root );
         if ( files.empty() )
             return;
 
         if ( files.size() == 1 )
         {
-            Import( files.front(), force );
+            (void)Import( files.front(), force );
             return;
         }
 
@@ -140,7 +153,7 @@ namespace Desert::Editor
                                               {
                                                   // One cooker per worker thread, reused across files.
                                                   thread_local ImportManager s_ThreadImporter;
-                                                  s_ThreadImporter.Import( files[i], force );
+                                                  (void)s_ThreadImporter.Import( files[i], force );
                                               } );
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                              std::chrono::steady_clock::now() - started )

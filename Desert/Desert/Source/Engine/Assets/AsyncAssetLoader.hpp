@@ -153,6 +153,44 @@ namespace Desert::Assets
          */
         void Pump();
 
+        /**
+         * @brief Finish the request for @p handle NOW, on the calling thread, and fire its delegates.
+         *
+         * The one synchronous door (plan §2.4(c)): an editor that must show an asset in the frame it was
+         * opened. If no worker has started the read it runs here, outside any AsyncLoadMarker, so
+         * SyncLoadLedger counts it; if a worker is inside it, this waits for that read rather than doing a
+         * second one. Only @p handle's completions are delivered; the rest keep their place for `Pump()`.
+         * Returns whether any delegate ran; false means nothing was requested for @p handle.
+         */
+        bool FlushOne( const AssetHandle& handle );
+
+        /**
+         * @brief Block until a WORKER has finished the read for @p handle, then fire its delegates.
+         *
+         * The scene-open door (plan §2.4(b)): the caller must not see the first frame before the scene's
+         * closure is resident, but the read itself stays on the worker, under its AsyncLoadMarker, so
+         * `SyncLoadLedger::InFrameLoads` does not move. That is the whole difference from `FlushOne`,
+         * which reads on the calling thread and is counted as a synchronous load. Returns whether any
+         * delegate ran; false means nothing was requested for @p handle.
+         */
+        bool AwaitOne( const AssetHandle& handle );
+
+        /**
+         * @brief Keep @p handle OUTSTANDING until @p isDone answers true, then call @p onDone.
+         *
+         * THE SECOND HALF OF A LOAD WHOSE LAST STEP IS GPU WORK — a skybox whose cache missed hands its
+         * convolution to the GPU inside its completion delegate (AL1-3c) and is not usable until that
+         * batch's fence. Counted by `Outstanding()` and seen by `IsRequested()` exactly like a read in
+         * flight, so ContentGate cannot open on a sky the GPU is still convolving, and there is no second
+         * counter beside this one to disagree with it.
+         *
+         * @p isDone is polled by `Pump()` on the main thread, once per tick, and must never block. The
+         * handle rules are `Request`'s: `Cancel()` gets @p onCancel, `Release()` gets nothing, every
+         * delegate runs from `Pump()`. Null delegates are a refusal, as for `Request`.
+         */
+        [[nodiscard]] LoadRequest Await( const AssetHandle& handle, std::function<bool()> isDone,
+                                         std::function<void()> onDone, OnCancel onCancel );
+
         /// How many requests are still live — in flight, or finished but not yet pumped. A host waits on
         /// this to know its content has settled; a test waits on it to know the loader is quiet.
         [[nodiscard]] size_t Outstanding() const;
@@ -206,6 +244,7 @@ namespace Desert::Assets
         void               CancelById( uint64_t id );
         void               ReleaseById( uint64_t id );
         [[nodiscard]] bool IsLive( uint64_t id ) const;
+        bool               DeliverCompleted( const AssetHandle& handle );
 
         /// THE LOADER'S STATE IS THE LOADER'S, and it did not start out that way. It began as a
         /// file-local `static LoaderState&`, which compiles and works and is wrong in a way the analyser

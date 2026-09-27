@@ -394,6 +394,21 @@ namespace Desert::Tests::PointerCensus
           "The table has static storage duration, so Q2 is closed by the language; Q1 does not arise "
           "because nobody allocated it. Never null after Get() — the constructor resolves the source "
           "language and says so loudly if that row has been deleted" },
+        { "Desert/Desert/Source/Engine/Localization/LocalizationService.hpp",
+          "Localization", "m_Requested", Guard::StaticStorage,
+          "the language asked for and not yet committed (its table may still be loading): a row of the same "
+          "static `constexpr std::array` in LocaleFormat.cpp, taken from FindLocale exactly as m_Language is; "
+          "nullptr once committed or refused" },
+        { "Desert/Desert/Source/Engine/Assets/StringTableAsset.hpp",
+          "StringTableAsset", "m_Language", Guard::StaticStorage,
+          "the language the table's file states, from Localization::StringTableLanguageOf, which returns a row "
+          "of the static language table in LocaleFormat.cpp (FindLocale) or an error; nullptr until loaded "
+          "and again after Unload" },
+        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp",
+          "CommandBufferAllocator", "m_Device", Guard::HostOutlivesUs,
+          "VK1: the logical device that owns the queues and their lock (SubmitToQueue). Set in Init from the "
+          "device that creates the allocator; VulkanLogicalDevice::Destroy calls "
+          "CommandBufferAllocator::Destroy before the VkDevice goes, so the allocator never outlives it" },
         { "Desert/Desert/Source/Engine/Graphic/GpuTimestampLayout.hpp",
           "GpuScopeRecorder", "m_Stacks", Guard::IdentityOnly,
           "the owner key of a per-view scope stack (the view that opened the scopes), compared and never dereferenced; Reset clears m_Stacks at every frame's start, so a key lives one frame, inside which the view it names is still recording and its address cannot be recycled" },
@@ -485,18 +500,6 @@ namespace Desert::Tests::PointerCensus
           "MaterialSSAO", "m_Normal", Guard::OwnedByThisObject,
           kWhyMaterialProperty },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
-          "MaterialSSR", "m_Albedo", Guard::OwnedByThisObject,
-          kWhyMaterialProperty },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
-          "MaterialSSR", "m_Normal", Guard::OwnedByThisObject,
-          kWhyMaterialProperty },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
-          "MaterialSSR", "m_WorldPos", Guard::OwnedByThisObject,
-          kWhyMaterialProperty },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
-          "MaterialSSR", "m_SceneColor", Guard::OwnedByThisObject,
-          kWhyMaterialProperty },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
           "MaterialSSRResolve", "m_Trace", Guard::OwnedByThisObject,
           kWhyMaterialProperty },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
@@ -510,6 +513,12 @@ namespace Desert::Tests::PointerCensus
           kWhyMaterialProperty },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
           "MaterialSSRComposite", "m_Normal", Guard::OwnedByThisObject,
+          kWhyMaterialProperty },
+        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
+          "MaterialSSRResolve", "m_TileMask", Guard::OwnedByThisObject,
+          kWhyMaterialProperty },
+        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialSSR.hpp",
+          "MaterialSSRComposite", "m_TileMask", Guard::OwnedByThisObject,
           kWhyMaterialProperty },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Fog/MaterialHeightFog.hpp",
           "MaterialHeightFog", "m_FogTexture", Guard::OwnedByThisObject,
@@ -721,6 +730,15 @@ namespace Desert::Tests::PointerCensus
           "and the object dies with the walk, which is what makes a theme switch reach the very next "
           "frame without any invalidation to remember" },
         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
+          "UICanvasContext", "RowRecord", Guard::CallScoped,
+          "UIL1: the record of a collection-bound list row, set by the list around the DrawElement of that "
+          "row and restored to the outer value right after it. The record lives in UIDataStore's collection, "
+          "which only gameplay mutates and never during a canvas walk, so it outlives the call that reads it" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
+          "EnumScope", "Row", Guard::CallScoped,
+          "UIL1: the record answering a bound list row's bindings during one EnumerateCanvas recursion; the "
+          "scope is a stack value of that recursion and the collection is not mutated while a query runs" },
+        { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
           "UIViewContext", "Materials", Guard::ObservedContainsUs,
           "where this view's UI materials come from, as an IUIMaterialSource. The one implementation is "
           "the UIMaterialCache that is a MEMBER of the Render2D backend the view's host owns alongside "
@@ -757,7 +775,16 @@ namespace Desert::Tests::PointerCensus
           "reopened document at the same address cannot inherit the closed one's numbers" },
         { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
           "Render2D", "m_WhiteImage", Guard::FrameScoped,
-          "resolved from ImageService, whose only release path is Renderer::Shutdown -- terminal, and after the last Flush" },
+          "resolved from ImageService for the image of m_WhiteTexture, which this Render2D owns; it is declared AFTER "
+          "that texture, so it is destroyed first and the texture's destructor (which unregisters the image) runs "
+          "last. The only other release path is Renderer::Shutdown -- terminal, after the last Flush" },
+        { "Desert/Desert/Source/Engine/Graphic/Texture.hpp",
+          "Texture2D", "m_Service", Guard::StaticStorage,
+          "ResourceRegistry::GetImageService's function-local static; ResourceRegistry.cpp constructs it before "
+          "every registry service that holds a Texture2D, so it is destroyed after all of them" },
+        { "Desert/Desert/Source/Engine/Graphic/Environment/OwnedEnvironment.hpp",
+          "OwnedEnvironment", "m_Service", Guard::StaticStorage,
+          "ResourceRegistry::GetImageService's function-local static, which outlives every view that owns an environment" },
         { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
           "Render2D", "m_Backdrop", Guard::ReboundBeforeEveryUse,
           "BackdropBlurRenderer::Resize does destroy the image this equals, but the UI pass calls "
@@ -1437,6 +1464,18 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Common/Source/Common/Core/AssetHandle.hpp",
           "PathRoot", "Root", Guard::StaticStorage,
           "a namespace-scope path constant in Common/Core/Constants.hpp -- a pointer rather than a copy so a SetProjectRoot remap is followed rather than frozen" },
+        { "Desert/Common/Source/Common/Core/CrashHandler.cpp",
+          "FaultDescription", "kind", Guard::StaticStorage,
+          "CR1: always a string literal (\"exception\", a signal's name) -- the crash writer may not allocate, so the description names static text" },
+        { "Desert/Common/Source/Common/Core/CrashHandler.cpp",
+          "FaultDescription", "codeName", Guard::StaticStorage,
+          "CR1: always a string literal from the code-name table -- the crash writer may not allocate, so the description names static text" },
+        { "Desert/Common/Source/Common/Json/Template.cpp",
+          "Value", "Ref", Guard::CallScoped,
+          "TPL1: points into the data the caller passed to the render call, which outlives the call; a value the template produced lives in Owned instead" },
+        { "Desert/Common/Source/Common/Json/Template.cpp",
+          "Binding", "Ref", Guard::CallScoped,
+          "TPL1: a loop/let binding into the caller's data for the duration of one render call; a produced value lives in Owned" },
         { "Desert/Common/Source/Common/Core/AutoRegistry.hpp",
           "AutoRegistry", "m_Instances", Guard::SelfDeregistering,
           "the constructor pushes `this`, the destructor erases it, and copy and move are already deleted -- the complete form of this pattern, and the one ViewportPanel::s_Live was missing until A8-2" },
@@ -1569,9 +1608,6 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Core/Input.hpp",
           "Mouse", "m_Window", Guard::IdentityOnly,
           "the GLFW window handle, kept as `const void*` so Engine/Core does not include GLFW; it is passed back to the platform layer, never dereferenced here" },
-        { "Desert/Desert/Source/Engine/Core/RendererSlotPool.hpp",
-          "RendererSlotLease", "m_Pool", Guard::HostOutlivesUs,
-          "the pool is a process-wide singleton and the lease is the RAII object that returns the slot to it; a lease outliving its pool would mean returning a slot to a dead pool, and the pool is created before any renderer and destroyed after the last one" },
         { "Desert/Desert/Source/Engine/Graphic/ViewResources.cpp",
           "RegistryState", "Live", Guard::HostOutlivesUs,
           "the live-view list (RT2b). Each ViewResources is owned by its view (SceneRenderer::m_ViewResources) and puts ITSELF on the list in its constructor and takes itself off in its destructor, under the list's lock, so an entry never outlives its pointee; copy and move are deleted so the registered address cannot go stale" },

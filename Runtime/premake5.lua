@@ -10,7 +10,7 @@ project "Runtime"
 
     -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
     -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
-    debugdir "%{wks.location}/Editor"
+    debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
     debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
 
     files {
@@ -19,20 +19,20 @@ project "Runtime"
     }
 
     includedirs {
-        "%{wks.location}/Desert/Desert/Source/",
-        "%{wks.location}/Runtime/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Runtime/Source/",
 
-        "%{wks.location}/Desert/Common/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
     }
     externalincludedirs {
 
-        "%{wks.location}/ThirdParty/spdlog/include/",
-        "%{wks.location}/ThirdParty/GLFW/include/",
-        "%{wks.location}/ThirdParty/Glad/include/",
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/glm/",
-        "%{wks.location}/ThirdParty/optick/src/",
-        "%{wks.location}/ThirdParty/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/Glad/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/glm/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/optick/src/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
     }
 
     for name, path in pairs(deps.EditorSpecific.IncludeDir) do

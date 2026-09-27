@@ -5,23 +5,27 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- THIS SUITE LINKS THE BUILT LIBRARY ON PURPOSE. Its three questions — which formats did we get,
     -- which version did we get, and what does a real file import to — can only be answered by the
     -- artifact, not by the build files that asked for it. The text half is AssimpBoundary next door.
     files {
         test_files,
+        -- The unit RULE itself, compiled in rather than restated: this suite asserts the SIZE a file
+        -- imports at, and a second copy of the rule here would be a second thing to keep in agreement.
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportUnits.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",  -- <Editor/Import/ImportUnits.hpp>
     }
 
     externalincludedirs {
-        "%{wks.location}/Editor/ThirdParty/assimp/include",
-        "%{wks.location}/build/generated/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -47,10 +51,6 @@ project(test_name)
     -- Common: nothing of it is used by the assertions, but gtest's main links against the workspace's
     -- standard set and Optick is what Common's JobSystem registers its threads with.
     links { "Common", "Optick", "Assimp" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

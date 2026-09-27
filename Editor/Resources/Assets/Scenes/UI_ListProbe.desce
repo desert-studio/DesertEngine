@@ -1,0 +1,339 @@
+{
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "c723dc3007b54940920b8c56f36b51da",
+        "Versions": {
+            "SCNE": 32,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
+    "SceneName": "UI_ListProbe",
+    "Entities": [
+        {
+            "id": 4001,
+            "siblingIndex": 0,
+            "Tag": "UI Canvas",
+            "UICanvas": {
+                "ScaleMode": 2,
+                "ReferenceWidth": 1280.0,
+                "ReferenceHeight": 720.0,
+                "MatchWidthHeight": 0.5,
+                "Visible": true
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/UIListProbe.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4002,
+            "parent": 4001,
+            "siblingIndex": 0,
+            "Tag": "BG",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [0, 0],
+                "OffsetMax": [0, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIPanel": {
+                "Color": [0.09, 0.1, 0.13],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0
+            }
+        },
+        {
+            "id": 4003,
+            "parent": 4001,
+            "siblingIndex": 1,
+            "Tag": "Title",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [1, 0],
+                "OffsetMin": [0, 16],
+                "OffsetMax": [0, 64],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIText": {
+                "Text": "Bound lists - inventory (10 000 records) and chat",
+                "FontSize": 28.0,
+                "Align": 1,
+                "VerticalAlign": 1,
+                "Color": [0.93, 0.95, 0.98]
+            }
+        },
+        {
+            "id": 4004,
+            "parent": 4001,
+            "siblingIndex": 2,
+            "Tag": "Inventory Count",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [0, 0],
+                "OffsetMin": [60, 70],
+                "OffsetMax": [600, 100],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIText": {
+                "Text": "",
+                "FontSize": 18.0,
+                "Align": 0,
+                "VerticalAlign": 1,
+                "Color": [0.6, 0.65, 0.75]
+            },
+            "UIBinding": {
+                "Key": "probe.inventory.caption",
+                "Target": 0
+            }
+        },
+        {
+            "id": 4100,
+            "parent": 4001,
+            "siblingIndex": 3,
+            "Tag": "Inventory",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [0, 0],
+                "OffsetMin": [60, 104],
+                "OffsetMax": [600, 680],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIListView": {
+                "ScrollY": 0.0,
+                "ItemHeight": 44.0,
+                "Spacing": 2.0,
+                "Overscan": 1,
+                "Background": [0.07, 0.08, 0.11],
+                "ShowScrollbar": true,
+                "ScrollbarColor": [0.35, 0.37, 0.44],
+                "Collection": "probe.inventory",
+                "FollowEnd": false
+            }
+        },
+        {
+            "id": 4101,
+            "parent": 4100,
+            "siblingIndex": 0,
+            "Tag": "Inventory Entry",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [0, 0],
+                "OffsetMax": [0, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIPanel": {
+                "Color": [1.0, 1.0, 1.0],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0
+            },
+            "UIBinding": {
+                "Key": "tint",
+                "Target": 3
+            }
+        },
+        {
+            "id": 4102,
+            "parent": 4101,
+            "siblingIndex": 0,
+            "Tag": "Name",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [14, 0],
+                "OffsetMax": [-120, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIText": {
+                "Text": "item",
+                "FontSize": 20.0,
+                "Align": 0,
+                "VerticalAlign": 1,
+                "Color": [0.08, 0.09, 0.12]
+            },
+            "UIBinding": {
+                "Key": "name",
+                "Target": 0
+            }
+        },
+        {
+            "id": 4103,
+            "parent": 4101,
+            "siblingIndex": 1,
+            "Tag": "Count",
+            "UILayout": {
+                "AnchorMin": [1, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [-110, 0],
+                "OffsetMax": [-14, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIText": {
+                "Text": "0",
+                "FontSize": 20.0,
+                "Align": 2,
+                "VerticalAlign": 1,
+                "Color": [0.08, 0.09, 0.12]
+            },
+            "UIBinding": {
+                "Key": "count",
+                "Target": 0
+            }
+        },
+        {
+            "id": 4200,
+            "parent": 4001,
+            "siblingIndex": 4,
+            "Tag": "Chat",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [0, 0],
+                "OffsetMin": [680, 104],
+                "OffsetMax": [1220, 680],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIListView": {
+                "ScrollY": 0.0,
+                "ItemHeight": 30.0,
+                "Spacing": 2.0,
+                "Overscan": 1,
+                "Background": [0.07, 0.08, 0.11],
+                "ShowScrollbar": true,
+                "ScrollbarColor": [0.35, 0.37, 0.44],
+                "Collection": "probe.chat",
+                "FollowEnd": true
+            }
+        },
+        {
+            "id": 4201,
+            "parent": 4200,
+            "siblingIndex": 0,
+            "Tag": "Chat Entry",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [0, 0],
+                "OffsetMax": [0, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIPanel": {
+                "Color": [0.12, 0.13, 0.17],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0
+            }
+        },
+        {
+            "id": 4202,
+            "parent": 4201,
+            "siblingIndex": 0,
+            "Tag": "From",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [0, 1],
+                "OffsetMin": [10, 0],
+                "OffsetMax": [110, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIText": {
+                "Text": "",
+                "FontSize": 18.0,
+                "Align": 0,
+                "VerticalAlign": 1,
+                "Color": [0.95, 0.75, 0.35]
+            },
+            "UIBinding": {
+                "Key": "from",
+                "Target": 0
+            }
+        },
+        {
+            "id": 4203,
+            "parent": 4201,
+            "siblingIndex": 1,
+            "Tag": "Line",
+            "UILayout": {
+                "AnchorMin": [0, 0],
+                "AnchorMax": [1, 1],
+                "OffsetMin": [120, 0],
+                "OffsetMax": [-10, 0],
+                "CustomMinimumSize": [0, 0],
+                "ClipContents": false
+            },
+            "UIText": {
+                "Text": "",
+                "FontSize": 18.0,
+                "Align": 0,
+                "VerticalAlign": 1,
+                "Color": [0.85, 0.88, 0.94]
+            },
+            "UIBinding": {
+                "Key": "line",
+                "Target": 0
+            }
+        }
+    ],
+    "Settings": {
+        "RenderingPath": 1,
+        "EnableSSAO": true,
+        "GlobalIllumination": 1,
+        "GIIntensity": 2.0,
+        "EnableSSR": false,
+        "SSRIntensity": 1.0,
+        "SSRMaxDistance": 4000.0,
+        "EnableShadows": true,
+        "ShadowBias": 0.004999999888241291,
+        "CascadeSplitLambda": 0.6000000238418579,
+        "Tonemapper": 0,
+        "Exposure": 1.0,
+        "Gamma": 2.200000047683716,
+        "WhitePoint": 8.0,
+        "AutoExposure": false,
+        "AutoExposureKey": 0.18000000715255737,
+        "AutoExposureSpeed": 1.5,
+        "AutoExposureMin": 0.019999999552965164,
+        "AutoExposureMax": 8.0,
+        "EnableBloom": false,
+        "BloomThreshold": 2.0,
+        "BloomIntensity": 0.800000011920929,
+        "LensDispersion": 0.0,
+        "EnableLensFlare": false,
+        "LensFlareIntensity": 0.3499999940395355,
+        "LensFlareTint": [1.0, 1.0, 1.0],
+        "LensFlareThreshold": 4.0,
+        "LensFlareGhostCount": 4,
+        "LensFlareGhostSpacing": 0.3499999940395355,
+        "LensFlareGhostSizeNear": 1.0,
+        "LensFlareGhostSizeFar": 3.0,
+        "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+        "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
+        "LensFlareHaloIntensity": 0.25,
+        "LensFlareHaloRadius": 0.18000000715255737,
+        "LensFlareStreakIntensity": 8.0,
+        "LensFlareStreakLength": 0.3499999940395355,
+        "LensFlareStreakAngle": 0.0,
+        "LensFlareChromaShift": 0.15000000596046448,
+        "Gravity": 981.0,
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
+    }
+}

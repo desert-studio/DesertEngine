@@ -6,8 +6,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 // glm::vec3 <-> JSON reflector (OutlineColor). Must be visible before the rfl::json read/write below.
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -144,34 +143,33 @@ namespace Desert::Editor
     // shape the contract's §1.4 warns about, in miniature.
     static std::vector<std::string> ChangedFields( const std::string& before, const std::string& after )
     {
-        const auto lhs = rfl::json::read<rfl::Generic>( before );
-        const auto rhs = rfl::json::read<rfl::Generic>( after );
-        if ( !lhs.has_value() || !rhs.has_value() )
+        // Both texts are this file's own canonical serializations, so each is a JSON object; a text that is
+        // not one names no key and the caller's log line says nothing changed rather than guessing.
+        const auto lhs = Common::Json::Read<Common::Json::Object>( before );
+        const auto rhs = Common::Json::Read<Common::Json::Object>( after );
+        if ( !lhs || !rhs )
             return {};
-
-        const auto lhsObject = lhs.value().to_object();
-        const auto rhsObject = rhs.value().to_object();
-        if ( !lhsObject.has_value() || !rhsObject.has_value() )
-            return {};
+        const Common::Json::Object& lhsObject = lhs.GetValue();
+        const Common::Json::Object& rhsObject = rhs.GetValue();
 
         std::vector<std::string> keys;
-        for ( const auto& [name, value] : lhsObject.value() )
+        for ( const auto& [name, value] : lhsObject )
             keys.push_back( name );
-        for ( const auto& [name, value] : rhsObject.value() )
+        for ( const auto& [name, value] : rhsObject )
             if ( std::find( keys.begin(), keys.end(), name ) == keys.end() )
                 keys.push_back( name );
 
         std::vector<std::string> differing;
         for ( const std::string& key : keys )
         {
-            const auto a = lhsObject.value().get( key );
-            const auto b = rhsObject.value().get( key );
+            const auto a = lhsObject.get( key );
+            const auto b = rhsObject.get( key );
             if ( !a.has_value() || !b.has_value() )
             {
                 differing.push_back( key );
                 continue;
             }
-            if ( rfl::json::write( a.value() ) != rfl::json::write( b.value() ) )
+            if ( Common::Json::Write( a.value() ) != Common::Json::Write( b.value() ) )
                 differing.push_back( key );
         }
         return differing;
@@ -246,7 +244,7 @@ namespace Desert::Editor
         if ( p.UnknownKeys.empty() )
             return;
 
-        rfl::ExtraFields<rfl::Generic> kept;
+        Common::Json::KeyedValues kept;
         for ( const auto& [key, value] : p.UnknownKeys )
         {
             if ( !IsRetiredKey( key ) )
@@ -292,21 +290,21 @@ namespace Desert::Editor
             return std::nullopt;
         }
 
-        auto parsed = rfl::json::read<EditorPreferences, rfl::DefaultIfMissing>( raw.GetValue() );
-        if ( !parsed.has_value() )
+        auto parsed = Common::Json::Read<EditorPreferences>( raw.GetValue() );
+        if ( !parsed )
         {
             LOG_WARN( "[Prefs] {} is corrupt ({}); it is being replaced rather than merged, so any key "
                       "another build put in it is lost with it.",
-                      PrefsFile(), parsed.error().what() );
+                      PrefsFile(), parsed.GetError() );
             return std::nullopt;
         }
 
-        EditorPreferences fromDisk = parsed.value();
+        EditorPreferences fromDisk = parsed.GetValue();
 
         // The file's canonical text is taken BEFORE the retirement, on purpose: it is the memo the write
         // is decided against, and a retired key still sitting on disk has to read as a difference or the
         // save that removes it would be skipped as redundant.
-        const std::string canonical = rfl::json::write( fromDisk );
+        const std::string canonical = Common::Json::Write( fromDisk );
 
         DropRetiredKeys( fromDisk, nullptr );
         EditorPreferences::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
@@ -340,7 +338,7 @@ namespace Desert::Editor
         else if ( std::filesystem::exists( PrefsFile() ) )
             s_OnDisk.clear();
 
-        const std::string json = rfl::json::write( EditorPreferences::Get() );
+        const std::string json = Common::Json::Write( EditorPreferences::Get() );
         if ( json == s_OnDisk && std::filesystem::exists( PrefsFile() ) )
         {
             // The file already says exactly this. No write, and no log line about one — a line saying
@@ -555,20 +553,19 @@ namespace Desert::Editor
             {
                 LOG_WARN( "[Prefs] {} is empty; using defaults.", PrefsFile() );
             }
-            // DefaultIfMissing: prefs written by older builds (fewer fields) keep loading — new
-            // fields just take their in-struct defaults instead of failing the whole file.
-            else if ( auto parsed = rfl::json::read<EditorPreferences, rfl::DefaultIfMissing>( raw.GetValue() );
-                      parsed.has_value() )
+            // Lenient (DESERT_JSON_LENIENT in the header): prefs written by older builds (fewer fields) keep
+            // loading — new fields just take their in-struct defaults instead of failing the whole file.
+            else if ( auto parsed = Common::Json::Read<EditorPreferences>( raw.GetValue() ); parsed )
             {
-                Get() = parsed.value();
+                Get() = parsed.GetValue();
                 // The canonical form of what the file holds, NOT the raw bytes: an older build's key order or
                 // spacing is not a settings change, and a memo taken from the raw text would report the whole
                 // struct as changed on the first save after an upgrade.
-                s_OnDisk = rfl::json::write( Get() );
+                s_OnDisk = Common::Json::Write( Get() );
             }
             else
             {
-                LOG_WARN( "[Prefs] editor.json is corrupt, using defaults: {}", parsed.error().what() );
+                LOG_WARN( "[Prefs] editor.json is corrupt, using defaults: {}", parsed.GetError() );
             }
 
             if ( const auto raised = MigrateLoaded( Get() ); !raised.empty() )

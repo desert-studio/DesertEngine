@@ -5,6 +5,9 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <atomic>
+#include <future>
+
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanPipeline final : public GraphicsPipeline
@@ -13,8 +16,24 @@ namespace Desert::Graphic::API::Vulkan
         VulkanPipeline( const GraphicsPipelineSpecification& specification );
         ~VulkanPipeline() override;
 
+        // Builds on the calling thread: the handle is final when this returns.
         virtual void Invalidate() override;
+        // Everything but the driver compile on the calling thread; vkCreateGraphicsPipelines on the
+        // JobSystem (PSO1). Until it lands, GetVkPipeline() is null and GetBuildState() is Compiling.
+        void         InvalidateAsync();
         virtual void Release() override;
+
+        enum class BuildState : uint8_t
+        {
+            Unbuilt,   ///< never built, or refused before a compile started (reason logged)
+            Compiling, ///< the driver compile is running on a worker
+            Built,
+            Failed, ///< the driver refused (reason logged)
+        };
+        BuildState GetBuildState() const
+        {
+            return m_State.load( std::memory_order_acquire );
+        }
 
         [[nodiscard]] virtual PipelineType GetType() const override { return PipelineType::Graphics; }
         [[nodiscard]] virtual const std::shared_ptr<Shader>& GetShader() const override { return m_Specification.Shader; }
@@ -24,9 +43,10 @@ namespace Desert::Graphic::API::Vulkan
             return m_Specification;
         }
 
+        // Null until the compile has landed: a pipeline still in the driver is not drawn through.
         VkPipeline GetVkPipeline() const
         {
-            return m_Pipeline;
+            return GetBuildState() == BuildState::Built ? m_Pipeline : VK_NULL_HANDLE;
         }
 
         VkPipelineLayout GetVkPipelineLayout() const
@@ -50,7 +70,14 @@ namespace Desert::Graphic::API::Vulkan
         void CreateDepthStencilState();
         void CreateColorBlendState();
 
-        void CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader );
+        enum class CompileOn : uint8_t
+        {
+            CallingThread,
+            Worker,
+        };
+        void Build( CompileOn where );
+        void CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader, CompileOn where );
+        void Compile( VkDevice device, VkPipelineCache pipelineCache );
 
     private:
         std::pair<uint32_t, VkPushConstantRange> SetUpPushConstantRange() const;
@@ -78,5 +105,10 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkVertexInputAttributeDescription>   m_VertexAttributes;
         std::vector<VkDynamicState>                      m_DynamicStates;
         std::vector<VkPipelineColorBlendAttachmentState> m_ColorBlendAttachments;
+
+        VkPipelineTessellationStateCreateInfo m_Tessellation{};
+        VkGraphicsPipelineCreateInfo          m_PipelineInfo{};
+        std::atomic<BuildState>               m_State{ BuildState::Unbuilt };
+        std::future<void>                     m_Compile;
     };
 } // namespace Desert::Graphic::API::Vulkan

@@ -180,6 +180,11 @@ namespace Desert::Editor
             m_OnActivate = std::move( cb );
         }
 
+        // The palette's door to DropMeshAsset (below): the drop lands in the ACTIVE viewport, which is the
+        // view the control channel's camera commands address. Refuses when no viewport is live.
+        static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
+                                                                 std::optional<glm::vec3> at );
+
     private:
         // THE VIEWPORT THE USER IS WORKING IN: the most recently FOCUSED one, else the first live one.
         // Null only when no viewport exists at all.
@@ -191,6 +196,14 @@ namespace Desert::Editor
         // the short version is that ImGui's focus order already IS this state and a second copy of it is
         // the defect, not the fix.
         static ViewportPanel* ActiveViewport();
+
+        // THE MESH DROP, the one body behind both doors: the viewport's drag-drop target and the palette's
+        // `Assets / Drop into the viewport: <file>` (which is how the control channel drops a mesh without a
+        // mouse). A new entity is created NOW with a pending StaticMeshComponent at @p at (the origin when
+        // nullopt), selected and recorded for undo; the source is cooked on the async mesh loader and the
+        // mesh is assigned by UpdateAsyncLoads on a later frame. Refuses when this view has no scene or no
+        // asset manager — nothing to drop into.
+        Common::BoolResultStr DropMeshAsset( const std::string& path, std::optional<glm::vec3> at );
 
         // Aim THIS viewport's camera. Refuses with a reason when the view has no editor camera — a
         // closed view, or Play mode, where the camera is the scene's and not the user's to orbit.

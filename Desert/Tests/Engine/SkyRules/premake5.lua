@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The units under test are header-only pure math: Engine/Graphic/SkyRules.hpp, SkyPayload.hpp,
     -- AtmosphereEnv.hpp, SkySettings.hpp. No renderer, no GPU — AtmosphereEnv only FORWARD-declares the
@@ -22,11 +22,11 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- reached through the cloud component's headers
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- reached through the cloud component's headers
     }
 
     -- Common: Common::UUID, behind the AssetHandle members of the cloud component.
@@ -41,10 +41,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_MACOS" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
-    filter {}
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
     filter {}
 
     for name, path in pairs(deps.Common.IncludeDir) do

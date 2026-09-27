@@ -145,20 +145,23 @@ namespace Desert::Core::Rules
             // The observation register, resolved to record indices once. A target the file does not contain is
             // dangling, not a streaming matter — the planner already names those.
             std::vector<std::pair<std::size_t, std::size_t>> observations;
+            Common::Json::Issues                             issues;
             for ( std::size_t record = 0; record < records.size(); ++record )
                 for ( const EntityReferenceRow& row : kEntityReferences )
                 {
                     if ( row.Kind != ReferenceKind::Observation )
                         continue;
-                    const auto   block = Detail::BlockOf( records[record], row.ComponentKey );
+                    const auto   block = Detail::BlockOf( records[record], row.ComponentKey, issues );
                     Common::UUID target;
-                    if ( !block.has_value() || !Detail::ReadReference( block.value(), row.Field, target ) ||
+                    if ( !block.has_value() || !Detail::ReadReference( *block, row.Field, target, issues ) ||
                          target.IsNull() )
                         continue;
                     const auto found = byId.find( target );
                     if ( found != byId.end() )
                         observations.emplace_back( record, found->second );
                 }
+            // An observation field of the wrong type observes nothing; it is named, not skipped in silence.
+            Common::Json::ReportIssues( issues, "world partition observation references" );
             auto made = Make( std::move( plan ), std::move( partition ), settings, records.size(), observations );
             if ( !made.IsSuccess() )
                 return made;

@@ -363,7 +363,7 @@ namespace Desert::UI
 
             // The cell's locals before the process-wide store — the one question, asked in the one place
             // the layout walk asks it too, so the two cannot disagree about a frame.
-            const UIDataStore& store = BindingStore( &cell, b.Key );
+            const UIDataStore& store = BindingStore( &cell, b.Key, cell.RowRecord );
             switch ( b.Target )
             {
                 case ECS::UIBindTarget::Text:
@@ -1983,10 +1983,36 @@ namespace Desert::UI
                 // the row that draws here and the row that is picked in the editor cannot be two rows.
                 const bool isList = reg.has<ECS::UIListViewComponent>( e );
                 ListWindow window;
+                const UICollection* boundRows = nullptr;
                 if ( isList )
                 {
-                    auto&             lv       = reg.get<ECS::UIListViewComponent>( e ).Data;
-                    const std::size_t rowCount = reg.get<ECS::RelationshipComponent>( e ).Children.size();
+                    auto& lv = reg.get<ECS::UIListViewComponent>( e ).Data;
+                    // Bound (UIL1): the row count is the collection's, and a list whose collection has not
+                    // been written yet is an empty list — the same answer a binding to an unwritten key
+                    // gives, the authored state until gameplay says otherwise.
+                    boundRows =
+                         lv.Collection.empty() ? nullptr : UIDataStore::Get().FindCollection( lv.Collection );
+                    std::size_t rowCount = reg.get<ECS::RelationshipComponent>( e ).Children.size();
+                    if ( !lv.Collection.empty() )
+                        rowCount = boundRows != nullptr ? static_cast<std::size_t>( boundRows->Size() ) : 0;
+                    if ( boundRows != nullptr )
+                    {
+                        // Follow the records, not the indices: see AnchorListScroll. Done BEFORE the wheel
+                        // and the solve, so this frame's window is already the anchored one.
+                        auto& seen = ctx.Canvas.ListBindings[e];
+                        if ( seen.Serial != boundRows->Serial() || seen.Generation != boundRows->Generation() )
+                        {
+                            std::vector<UICollection::Change> changes;
+                            const bool                        complete = seen.Serial == boundRows->Serial() &&
+                                                  boundRows->ChangesSince( seen.Generation, changes );
+                            const float pitch = std::max( 1.0f, lv.ItemHeight ) + std::max( 0.0f, lv.Spacing );
+                            if ( seen.Serial != 0 )
+                                lv.ScrollY = AnchorListScroll( lv.ScrollY, pitch, lv.FollowEnd, seen.AtEnd,
+                                                               complete, changes );
+                            seen.Serial     = boundRows->Serial();
+                            seen.Generation = boundRows->Generation();
+                        }
+                    }
                     dl.AddRectFilled(
                          { rect.X, rect.Y }, { rect.X + rect.W, rect.Y + rect.H },
                          glm::vec4( st.Color( StyleSlot::ScrollViewBackground, lv.Background ), 1.0f ) );
@@ -2001,6 +2027,8 @@ namespace Desert::UI
                     // Written back CLAMPED, from the one place that knows the content height — which here
                     // is derived from the child count and not authored, so it cannot be stale.
                     lv.ScrollY = scale > 0.0f ? window.ScrollPx / scale : 0.0f;
+                    if ( boundRows != nullptr )
+                        ctx.Canvas.ListBindings[e].AtEnd = window.ScrollPx >= window.ScrollMaxPx - 0.5f;
 
                     contentPx      = window.ContentPx;
                     scrollPx       = window.ScrollPx;
@@ -2031,7 +2059,36 @@ namespace Desert::UI
                     // reached, so it costs no rect, no style, no tween, no hit test and no vertex — and,
                     // because asking is also the demand, a UIRenderTexture row that left the window has
                     // its capture destroyed and its renderer slot returned with no code at this site.
-                    for ( int i = window.First; i <= window.Last; ++i )
+                    const bool bound = !reg.get<ECS::UIListViewComponent>( e ).Data.Collection.empty();
+                    if ( bound && children.size() != 1 && ctx.Canvas.WarnedListTemplates.insert( e ).second )
+                    {
+                        LOG_WARN( "[UI] list {} is bound to collection '{}' and has {} children; a bound list "
+                                  "draws its ONE child as the entry template, so it draws no rows",
+                                  static_cast<std::uint32_t>( e ),
+                                  reg.get<ECS::UIListViewComponent>( e ).Data.Collection, children.size() );
+                    }
+                    if ( bound )
+                    {
+                        // ONE ENTITY, MANY ROWS: the template is walked once per record in the window with
+                        // that record answering its bindings, so a record costs a row only while it is on
+                        // screen. The previous record is restored rather than cleared, for a bound list
+                        // nested inside another one's row.
+                        const entt::entity entry =
+                             children.size() == 1 ? children.front() : entt::entity( entt::null );
+                        if ( boundRows != nullptr && reg.valid( entry ) )
+                        {
+                            const UIDataStore* outer = ctx.Canvas.RowRecord;
+                            for ( int i = window.First; i <= window.Last; ++i )
+                            {
+                                ctx.Canvas.RowRecord = &boundRows->Record( i );
+                                const Rect rowRect   = ListRowRect( rect, window, i );
+                                DrawElement( ctx, reg, entry, rect, scale, dl, input, outClicked, focused, popups,
+                                             focusables, childClip, childScope, &rowRect );
+                            }
+                            ctx.Canvas.RowRecord = outer;
+                        }
+                    }
+                    for ( int i = window.First; !bound && i <= window.Last; ++i )
                     {
                         const entt::entity c = children[static_cast<std::size_t>( i )];
                         if ( !reg.valid( c ) )

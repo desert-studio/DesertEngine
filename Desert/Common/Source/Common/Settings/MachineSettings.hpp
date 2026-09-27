@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // The unknown-key carrier below is a FIELD of the struct, so its type has to be visible here.
@@ -183,6 +184,7 @@ namespace Common::Settings
     // launcher and the tools, and a shipped game has no engine installation to belong to. Per PRODUCT
     // because two games on one machine are two different budgets, and `product` is the project's Name.
     //
-    // A name is sanitised rather than trusted: it comes from a `.deproj` and lands in a path.
+    // A name is sanitised rather than trusted (SanitizeProductName, ProductName.hpp): it comes from a
+    // `.deproj` and lands in a path.
     std::filesystem::path GameUserDirectory( const std::string& product );
 } // namespace Common::Settings

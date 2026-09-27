@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
+#include <Engine/Graphic/AllocationLedger.hpp>
 #include <Engine/Graphic/MappedMemory.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
@@ -120,6 +121,13 @@ namespace Desert::Graphic::API::Vulkan
         /// How many deferred destructions are still owed. Nonzero after the last frame means leaked.
         [[nodiscard]] std::size_t QueuedCount() const;
 
+        /// Every live buffer and image this allocator made, by the creator's tag. A row leaves when the object
+        /// is really destroyed (DestroyQueued), not when it is queued. See AllocationLedger for why.
+        [[nodiscard]] const AllocationLedger& Ledger() const noexcept
+        {
+            return m_Ledger;
+        }
+
         /// A mapping you cannot write through without having asked whether it exists — see
         /// Engine/Graphic/MappedMemory.hpp for the whole argument, and for the ten `memcpy`s into a
         /// possibly-null pointer that this return type makes uncompilable rather than merely loud.
@@ -161,5 +169,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
         std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
+
+        AllocationLedger m_Ledger;
     };
 } // namespace Desert::Graphic::API::Vulkan

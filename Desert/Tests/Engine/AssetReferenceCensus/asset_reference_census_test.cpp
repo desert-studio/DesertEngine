@@ -58,12 +58,13 @@
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: the glm/UUID adapters plus the json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -412,7 +413,7 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     {
         std::ofstream out( scratch / "M_Dangling.demat" );
         ASSERT_TRUE( out.is_open() );
-        // No `Header`, on purpose: `ReferencesUnder` reads through `rfl::json::read<MaterialData>` and
+        // No `Header`, on purpose: `ReferencesUnder` reads through `Common::Json::Read<MaterialData>` and
         // `Header` is optional, so this fixture stays the minimal shape the census actually needs.
         out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","Guid":")"
             << Common::Content::AssetGuidToText( goodKey.GetValue().Guid )
@@ -495,34 +496,35 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
     ASSERT_FALSE( handleNames.empty() ) << "no unambiguous AssetHandle field names were found";
 
     // Recursive walk of one parsed document, reporting every offending occurrence rather than the first.
-    std::vector<std::string>                                       offences;
-    std::function<void( const Common::Json::Value&, const std::string& )> visit =
-         [&]( const Common::Json::Value& node, const std::string& file )
+    std::vector<std::string>                                             offences;
+    std::function<void( const Common::Json::Node&, const std::string& )> visit =
+         [&]( const Common::Json::Node& node, const std::string& file )
     {
-        if ( const auto object = node.to_object() )
+        if ( node.GetKind() == Common::Json::Kind::Object )
         {
-            for ( const auto& [key, value] : object.value() )
-            {
-                // A NUMBER specifically, not merely "not a string". A key is not owned by the field
-                // census: `"Material"` is both an AssetHandle field (Terrain's slot) AND the component
-                // key the inline MaterialComponent serializes under, and the latter is an OBJECT. Flagging
-                // "not a string" reported 24 of those in one scene as if the format were broken. The
-                // defect being held here is one concept written as two TYPES — string and integer — so
-                // the integer is what the test looks for, and an object simply means the name is being
-                // used for something that is not a reference at all.
-                if ( handleNames.count( key ) != 0 &&
-                     ( value.to_int64().has_value() || value.to_double().has_value() ) )
-                {
-                    offences.push_back( file + ": '" + key + "' is written as a number, not a string" );
-                }
-                visit( value, file );
-            }
+            node.ForEachMember(
+                 [&]( std::string_view key, const Common::Json::Node& value )
+                 {
+                     // A NUMBER specifically, not merely "not a string". A key is not owned by the field
+                     // census: `"Material"` is both an AssetHandle field (Terrain's slot) AND the
+                     // component key the inline MaterialComponent serializes under, and the latter is an
+                     // OBJECT. Flagging "not a string" reported 24 of those in one scene as if the format
+                     // were broken. The defect being held here is one concept written as two TYPES —
+                     // string and integer — so the integer is what the test looks for, and an object
+                     // simply means the name is being used for something that is not a reference at all.
+                     if ( handleNames.contains( std::string( key ) ) && value.AsNumber() )
+                     {
+                         offences.push_back( file + ": '" + std::string( key ) +
+                                             "' is written as a number, not a string" );
+                     }
+                     visit( value, file );
+                 } );
             return;
         }
-        if ( const auto array = node.to_array() )
+        if ( node.GetKind() == Common::Json::Kind::Array )
         {
-            for ( const auto& element : array.value() )
-                visit( element, file );
+            node.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                 { visit( element, file ); } );
         }
     };
 
@@ -553,7 +555,7 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
             if ( !parsed )
                 continue; // parsing is SceneVersionGate's subject, not this one
             ++documents;
-            visit( parsed.GetValue(),
+            visit( Common::Json::Root( parsed.GetValue() ),
                    fs::relative( entry.path(), root + "Editor/Resources/Assets" ).generic_string() );
         }
     }
@@ -570,6 +572,150 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
             "resolver; find that caller and give it one, then re-save the file."
          << "\n(Names excluded as ambiguous, i.e. declared under more than one field type: " << ambiguous.size()
          << ")";
+}
+
+// ── A reference that names a file by PATH alone ─────────────────────────────────────────────────────
+
+// A path is a locator, not an identity: a reference that states a path and no GUID loads as an empty slot
+// (M10_MeshSlot drew nothing for three scene generations). Three spellings carry a GUID beside a path, and
+// each is judged here: `XPath` beside `XGuid` (MeshPath / MeshGuid), `XPaths` beside `XGuids` element by
+// element (MaterialPaths / MaterialGuids), and the reference object `{"Guid": ..., "Path": ...}` (sprites,
+// skybox, shader, scene). A PrefabPath has no GUID field at all, so it is outside this census.
+namespace
+{
+    // The GUID fields that sit beside a path field. The mesh components serialize by hand, so the generated
+    // reflection does not list them and cannot be the source; a new `XGuid` beside an `XPath` joins here.
+    const std::set<std::string> kGuidFieldNames{ "MeshGuid", "MaterialGuids" };
+
+    std::string StringOr( const Common::Json::Node& value )
+    {
+        auto text = value.AsString();
+        return text ? text.GetValue() : std::string();
+    }
+
+    // Appends "file: where = 'path' states no GUID" for every path-only reference under `node`.
+    // Recursion follows the document's own nesting, which a committed scene/asset file keeps shallow.
+    // NOLINTBEGIN(misc-no-recursion)
+    void PathsWithoutGuid( const Common::Json::Node& node, const std::string& where,
+                           const std::set<std::string>& guidNames, std::vector<std::string>& offences )
+    {
+        if ( node.GetKind() == Common::Json::Kind::Array )
+        {
+            node.ForEachElement(
+                 [&]( std::size_t i, const Common::Json::Node& element )
+                 { PathsWithoutGuid( element, where + "[" + std::to_string( i ) + "]", guidNames, offences ); } );
+            return;
+        }
+        if ( node.GetKind() != Common::Json::Kind::Object )
+            return;
+
+        const auto refPath = node.Find( "Path" );
+        const auto refGuid = node.Find( "Guid" );
+        if ( refPath && refGuid && !StringOr( *refPath ).empty() && StringOr( *refGuid ).empty() )
+            offences.push_back( where + " = '" + StringOr( *refPath ) + "' states no GUID" );
+
+        node.ForEachMember(
+             [&]( std::string_view name, const Common::Json::Node& value )
+             {
+                 const std::string key( name );
+                 const bool        many = key.size() > 5 && key.compare( key.size() - 5, 5, "Paths" ) == 0;
+                 const bool        one  = !many && key.size() > 4 && key.compare( key.size() - 4, 4, "Path" ) == 0;
+                 if ( one || many )
+                 {
+                     const std::string guidKey =
+                          key.substr( 0, key.size() - ( many ? 5 : 4 ) ) + ( many ? "Guids" : "Guid" );
+                     if ( guidNames.contains( guidKey ) )
+                     {
+                         const auto guid = node.Find( guidKey );
+                         if ( one && !StringOr( value ).empty() && ( !guid || StringOr( *guid ).empty() ) )
+                             offences.push_back( where + "." + key + " = '" + StringOr( value ) + "' states no " +
+                                                 guidKey );
+                         if ( many && value.GetKind() == Common::Json::Kind::Array )
+                         {
+                             std::vector<std::string> guids;
+                             if ( guid )
+                                 guid->ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                                       { guids.push_back( StringOr( element ) ); } );
+                             value.ForEachElement(
+                                  [&]( std::size_t i, const Common::Json::Node& element )
+                                  {
+                                      const std::string path   = StringOr( element );
+                                      const bool        stated = i < guids.size() && !guids[i].empty();
+                                      if ( !path.empty() && !stated )
+                                          offences.push_back( where + "." + key + "[" + std::to_string( i ) +
+                                                              "] = '" + path + "' states no " + guidKey + "[" +
+                                                              std::to_string( i ) + "]" );
+                                  } );
+                         }
+                     }
+                 }
+                 PathsWithoutGuid( value, where + "." + key, guidNames, offences );
+             } );
+    }
+    // NOLINTEND(misc-no-recursion)
+} // namespace
+
+TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const std::set<std::string>& guidNames = kGuidFieldNames;
+    std::vector<std::string>     offences;
+    size_t                       documents = 0;
+    for ( const char* subdir : { "Scenes", "Prefabs" } )
+    {
+        const fs::path dir = root + "Editor/Resources/Assets/" + subdir;
+        if ( !fs::exists( dir ) )
+            continue;
+        for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
+        {
+            const auto extension = entry.path().extension();
+            if ( !entry.is_regular_file() || ( extension != ".desce" && extension != ".deprefab" ) )
+                continue;
+            // The editor's gitignored crash-recovery copies are not content (see the census above).
+            bool autosave = false;
+            for ( const auto& part : entry.path() )
+                autosave = autosave || part == "Autosave";
+            if ( autosave )
+                continue;
+            const auto parsed = Common::Json::Parse( ReadAll( entry.path() ) );
+            if ( !parsed )
+                continue; // parsing is SceneVersionGate's subject, not this one
+            ++documents;
+            PathsWithoutGuid( Common::Json::Root( parsed.GetValue() ),
+                              fs::relative( entry.path(), root + "Editor/Resources/Assets" ).generic_string(),
+                              guidNames, offences );
+        }
+    }
+    ASSERT_GT( documents, 50u ) << "only " << documents << " documents were walked — the sweep found nothing";
+
+    std::string report;
+    for ( const auto& offence : offences )
+        report += "\n  " + offence;
+    EXPECT_TRUE( offences.empty() )
+         << offences.size() << " reference(s) in shipped content name an asset by PATH alone:" << report
+         << "\n\nThe loader resolves a reference by its GUID; the path is a locator. Give "
+            "the file its GUIDs with the migrator (scripts/Dev/migrate.sh --write), "
+            "not by hand.";
+}
+
+TEST( AssetReferenceCensus, TheByPathCensusReportsEachSpellingOfAPathOnlyReference )
+{
+    const std::set<std::string> guidNames{ "MeshGuid", "MaterialGuids" };
+    const auto                  parsed = Common::Json::Parse( R"({"Entities":[
+        {"StaticMesh":{"MeshPath":"M.stmesh","MaterialPaths":["A.demat","B.demat"],"MaterialGuids":["g",""]}},
+        {"SkinnedMesh":{"MeshPath":"S.skmesh","MeshGuid":"g"}},
+        {"Sprite":{"Guid":"","Path":"assets:T.detex"},"PrefabPath":"P.deprefab"},
+        {"Sprite":{"Guid":"","Path":""}}]})" );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    std::vector<std::string> offences;
+    PathsWithoutGuid( Common::Json::Root( parsed.GetValue() ), "doc", guidNames, offences );
+    std::sort( offences.begin(), offences.end() ); // the walk follows the object's key order
+
+    ASSERT_EQ( offences.size(), 3u ) << "a stated GUID, an empty reference and a PrefabPath are not offences";
+    EXPECT_EQ( offences[0], "doc.Entities[0].StaticMesh.MaterialPaths[1] = 'B.demat' states no MaterialGuids[1]" );
+    EXPECT_EQ( offences[1], "doc.Entities[0].StaticMesh.MeshPath = 'M.stmesh' states no MeshGuid" );
+    EXPECT_EQ( offences[2], "doc.Entities[2].Sprite = 'assets:T.detex' states no GUID" );
 }
 
 // ── The property the census depends on ─────────────────────────────────────────────────────────────

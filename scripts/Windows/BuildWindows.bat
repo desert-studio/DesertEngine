@@ -84,7 +84,7 @@ if errorlevel 1 (
 )
 
 if "%GEN_ONLY%"=="1" (
-    echo === Desert.sln generated ===
+    echo === build\Projects\Desert.sln generated ===
     exit /b 0
 )
 
@@ -106,7 +106,7 @@ if not defined MSBUILD (
 
 echo --- Building ^(%CONFIG% ^| x64^)
 echo     Tip: close Editor.exe first — a running one makes the link fail with LNK1168.
-"%MSBUILD%" "%ROOT%\Desert.sln" -p:Configuration=%CONFIG% -p:Platform=x64 -m -v:minimal
+"%MSBUILD%" "%ROOT%\build\Projects\Desert.sln" -p:Configuration=%CONFIG% -p:Platform=x64 -m -v:minimal
 if errorlevel 1 (
     echo [ERROR] build failed ^(%CONFIG%^). 1>&2
     exit /b 1

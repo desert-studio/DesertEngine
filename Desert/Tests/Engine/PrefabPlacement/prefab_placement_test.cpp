@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include <Common/Json/Json.hpp>
 #include <Engine/Assets/Prefab/PrefabPlacement.hpp>
 
 #include <string>
@@ -29,7 +30,7 @@ namespace
         EntityData data;
         for ( const std::string& key : componentKeys )
         {
-            data.Components[key] = rfl::Generic( rfl::Generic::Object{} );
+            data.Components[key] = Common::Json::Value( Common::Json::Object{} );
         }
         return data;
     }

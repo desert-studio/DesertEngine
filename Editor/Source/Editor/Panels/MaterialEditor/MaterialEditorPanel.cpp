@@ -1,6 +1,8 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include "MaterialEditorPanel.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include "MaterialShaderRebuild.hpp"
 
 #include "../Clouds/CloudDocumentOpen.hpp"
@@ -14,6 +16,7 @@
 #include <Editor/Widgets/ThumbnailService.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
@@ -30,6 +33,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
@@ -49,6 +53,7 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -428,7 +433,19 @@ namespace Desert::Editor
                        "'. Drop an HDR skybox onto that slot in the parameters beside this pane and the "
                        "ball appears.";
 
-            auto*      skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
+            auto* skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
+            // The boot only SCANS .hdr files; a skybox is baked when something registers it. A material
+            // opened with its slot already bound never went through the drop that registers (below), so
+            // the lookup came back empty for a file that is on disk. Registering is idempotent.
+            if ( skyboxService != nullptr && !skyboxService->Get( Assets::AssetHandle( bound ) ) &&
+                 m_AssetManager )
+            {
+                if ( auto sky = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( Assets::AssetHandle( bound ) ) )
+                {
+                    Graphic::Renderer::GetInstance().WaitDeviceIdle();
+                    Runtime::EnsureSkyboxRegistered( sky );
+                }
+            }
             const auto skybox = skyboxService ? skyboxService->Get( Assets::AssetHandle( bound ) ) : nullptr;
             if ( !skybox || !skybox->GetEnvironment() )
                 return "No preview: the skybox bound to '" + cubeParam->DisplayName +
@@ -618,7 +635,7 @@ namespace Desert::Editor
         // was removed on the grounds that a document is destroyed rather than hidden — which was true while
         // a document could only be closed. It is not true of a document docked as a tab behind another one,
         // which is open, invisible, and was holding one of the six for as long as the user left it there.
-        // The editor drives it now: EditorLayer asks the document to ReleaseRendererSlot() when its window
+        // The editor drives it now: EditorLayer asks the document to ReleaseView() when its window
         // has not been drawn for a while, behind the same device-idle wait a close uses. Written there
         // rather than here because "not drawn" is ImGui's answer and this function runs before the frame.
         if ( !m_DrewThisFrame )
@@ -739,6 +756,7 @@ namespace Desert::Editor
                  valuesOf, parentOf ) );
         }
 
+        PreviewEnvironment::ApplyTo( *m_Preview, m_AssetManager.get() );
         if ( Graphic::IsUsableViewExtent( m_PreviewExtent ) )
             m_Preview->Update( m_PreviewExtent.Width, m_PreviewExtent.Height );
     }
@@ -838,7 +856,7 @@ namespace Desert::Editor
             {
                 place( ImGui::GetFrameHeight() + style.ItemInnerSpacing.x +
                        ImGui::CalcTextSize( "Floor", nullptr, true ).x );
-                ImGui::Checkbox( "Floor", &setup.ShowFloor );
+                PreviewEnvironment::DrawShowFloor( "Floor" );
             }
         }
 
@@ -881,6 +899,7 @@ namespace Desert::Editor
                                  if ( m_Preview )
                                      m_Preview->ResetView();
                              } } );
+        PreviewEnvironment::AppendActions( actions );
         return actions;
     }
 
@@ -1439,8 +1458,7 @@ namespace Desert::Editor
                         {
                             if ( auto a = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( handle ) )
                             {
-                                Graphic::Renderer::GetInstance().WaitDeviceIdle();
-                                svc->Register( a );
+                                Runtime::EnsureSkyboxRegistered( a );
                             }
                         }
                         // By the panorama's header GUID (MATL 3): a skybox that states none cannot be named.
@@ -1484,13 +1502,14 @@ namespace Desert::Editor
                     {
                         if ( m_AssetManager )
                         {
-                            const auto skyboxes = m_AssetManager->FindAllByType<Assets::SkyboxAsset>();
-                            for ( const auto& [handle, sky] : skyboxes )
+                            const auto skyboxes =
+                                 Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skybox );
+                            for ( const auto& row : skyboxes )
                             {
-                                const std::string name = sky->GetMetadata().Filepath.filename().string();
-                                if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( handle ) ==
+                                const std::string name = row.Path.filename().string();
+                                if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( row.Handle ) ==
                                                                            data.GetTexture( p.Name ) ) )
-                                    bindSkybox( handle );
+                                    bindSkybox( row.Handle );
                             }
                             if ( skyboxes.empty() )
                                 ImGui::TextDisabled( "No HDR skyboxes in this project"
@@ -1562,7 +1581,8 @@ namespace Desert::Editor
                 {
                     if ( m_AssetManager )
                     {
-                        const auto     textures = m_AssetManager->FindAllByType<Assets::TextureAsset>();
+                        const auto textures =
+                             Assets::ContentRegistry::Rows( Common::Content::ContentKind::Texture );
                         const uint64_t bound    = data.GetTexture( p.Name );
 
                         // UNBINDING, WHICH WAS NOT EXPRESSIBLE UNTIL M9. This entry was deliberately absent
@@ -1582,23 +1602,22 @@ namespace Desert::Editor
                             ImGui::SetItemDefaultFocus();
                         ImGui::Separator();
 
-                        for ( const auto& [handle, texture] : textures )
+                        for ( const auto& row : textures )
                         {
                             // The SOURCE path when there is one, exactly as the button label above resolves
                             // it: a cooked asset's own filepath is a hash nobody recognises, and a list of
                             // those is a list of nothing.
-                            const auto& source = texture->GetSourcePath();
-                            const auto  path = !source.empty() ? source : texture->GetMetadata().Filepath.string();
+                            const auto texture = m_AssetManager->ProbeByHandle<Assets::TextureAsset>( row.Handle );
+                            const std::string source = texture ? texture->GetSourcePath() : std::string();
+                            const auto        path   = !source.empty() ? source : row.Path.string();
                             const std::string name = std::filesystem::path( path ).filename().string();
-                            if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( handle ) == bound ) &&
-                                 !texture->Guid().IsNull() )
+                            if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( row.Handle ) == bound ) &&
+                                 row.Guid.has_value() && !row.Guid->IsNull() )
                             {
-                                data.SetTexture(
-                                     p.Name, texture->Guid(),
-                                     Common::AssetHandle::StableKeyForPath( texture->GetMetadata().Filepath ) );
+                                data.SetTexture( p.Name, *row.Guid, row.Key );
                                 changed = true;
                             }
-                            if ( static_cast<uint64_t>( handle ) == bound )
+                            if ( static_cast<uint64_t>( row.Handle ) == bound )
                                 ImGui::SetItemDefaultFocus();
                         }
                         if ( textures.empty() )
@@ -1726,8 +1745,9 @@ namespace Desert::Editor
                 }
                 if ( m_AssetManager )
                 {
-                    for ( const auto& [h, shader] : m_AssetManager->FindAllByType<Assets::ShaderAsset>() )
+                    for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Shader ) )
                     {
+                        const auto shader = m_AssetManager->ProbeByHandle<Assets::ShaderAsset>( row.Handle );
                         if ( !shader )
                             continue;
                         // Parsed rather than guessed from the path: "is this a medium" is a property of
@@ -1752,7 +1772,7 @@ namespace Desert::Editor
                         if ( !parsed.GetValue().Meta.IsMediumProgram() )
                             continue;
 
-                        const bool selected = ( static_cast<uint64_t>( h ) == handle );
+                        const bool selected = ( static_cast<uint64_t>( row.Handle ) == handle );
                         const auto label    = name;
                         if ( ImGui::Selectable( label.c_str(), selected ) )
                         {
@@ -1800,10 +1820,10 @@ namespace Desert::Editor
                               m_AssetManager->FindByHandle<Assets::CloudTypeAsset>( Common::UUID( handle ) ) )
                         preview = type->GetDisplayName();
                 }
-                else if ( auto painting =
-                               m_AssetManager->FindByHandle<Assets::CloudLayoutAsset>( Common::UUID( handle ) ) )
+                else if ( const auto row = Assets::ContentRegistry::RowOf(
+                               Common::Content::ContentKind::CloudLayout, static_cast<uint64_t>( handle ) ) )
                 {
-                    preview = painting->GetMetadata().Filepath.filename().string();
+                    preview = row->Path.filename().string();
                 }
             }
         }
@@ -1830,14 +1850,13 @@ namespace Desert::Editor
             }
             if ( m_AssetManager && isType )
             {
-                for ( const auto& [h, type] : m_AssetManager->FindAllByType<Assets::CloudTypeAsset>() )
+                for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::CloudType ) )
                 {
-                    const bool selected = ( static_cast<uint64_t>( h ) == handle );
-                    if ( ImGui::Selectable( type->GetDisplayName().c_str(), selected ) && !type->Guid().IsNull() )
+                    const bool selected = ( static_cast<uint64_t>( row.Handle ) == handle );
+                    if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(), selected ) &&
+                         row.Guid.has_value() && !row.Guid->IsNull() )
                     {
-                        data.SetCloudAsset(
-                             p.Name, type->Guid(),
-                             Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
+                        data.SetCloudAsset( p.Name, *row.Guid, row.Key );
                         changed = true;
                     }
                     if ( selected )
@@ -1846,16 +1865,14 @@ namespace Desert::Editor
             }
             else if ( m_AssetManager && isLayout )
             {
-                for ( const auto& [h, painting] : m_AssetManager->FindAllByType<Assets::CloudLayoutAsset>() )
+                for ( const auto& row :
+                      Assets::ContentRegistry::Rows( Common::Content::ContentKind::CloudLayout ) )
                 {
-                    const bool selected = ( static_cast<uint64_t>( h ) == handle );
-                    if ( ImGui::Selectable( painting->GetMetadata().Filepath.filename().string().c_str(),
-                                            selected ) &&
-                         !painting->Guid().IsNull() )
+                    const bool selected = ( static_cast<uint64_t>( row.Handle ) == handle );
+                    if ( ImGui::Selectable( row.Path.filename().string().c_str(), selected ) &&
+                         row.Guid.has_value() && !row.Guid->IsNull() )
                     {
-                        data.SetCloudAsset(
-                             p.Name, painting->Guid(),
-                             Common::AssetHandle::StableKeyForPath( painting->GetMetadata().Filepath ) );
+                        data.SetCloudAsset( p.Name, *row.Guid, row.Key );
                         changed = true;
                     }
                     if ( selected )
@@ -2058,10 +2075,11 @@ namespace Desert::Editor
                                    "the 51 cloud scenes in this project author; set it to your level's "
                                    "value if that level disagrees." );
 
-            // ROTATION IS NOT OFFERED, and its absence is a decision rather than an omission. For a
-            // preset sky the environment's rotation IS the sun's azimuth — the row below — so a second
-            // control would be two knobs on one number; and for an HDR environment the engine has no
-            // rotation at all, on the sky, the skybox or in any shader. See the report.
+            // THE HDR ENVIRONMENT, as UE's Preview Scene Settings: one editor-wide choice shared by every
+            // preview window, so it is drawn from EditorPreferences rather than from this window's setup.
+            ImGui::Separator();
+            ImGui::TextUnformatted( "HDR Environment" );
+            PreviewEnvironment::DrawEnvironmentRows();
         }
 
         if ( ImGui::CollapsingHeader( "Light", ImGuiTreeNodeFlags_DefaultOpen ) )
@@ -2094,7 +2112,7 @@ namespace Desert::Editor
             }
             else
             {
-                ImGui::Checkbox( "Show Floor", &setup.ShowFloor );
+                PreviewEnvironment::DrawShowFloor( "Show Floor" );
                 ImGui::BeginDisabled( !setup.ShowFloor );
                 ImGui::Checkbox( "Receive Shadow", &setup.FloorReceivesShadow );
                 if ( ImGui::IsItemHovered() )

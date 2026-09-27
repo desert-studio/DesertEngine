@@ -57,4 +57,41 @@ namespace Desert::Assets
     // DDC hit, or - where a builder is registered - build and Put. A failed Put is an error carrying the file
     // system's reason: a cache that silently stays cold rebuilds on every load and nobody learns why.
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset );
+
+    // AF4h: THE IMPORTED SOURCE ENVELOPE IS ALSO DERIVED. Everything an import writes into a static mesh's
+    // MeshSourceAsset - the source's EditMesh models, its material slot table - is a pure function of the
+    // raw file's own bytes (AF4g already made unit/axis resolution pure too, reading them out of the file
+    // instead of asking the user). It belongs in the DDC beside the render-data bucket above, keyed by the
+    // SOURCE FILE'S bytes rather than by the (not-yet-built) envelope's - not as a multi-megabyte file left
+    // beside `base.fbx`: untracked, not gitignored, and on disk indistinguishable from a genuinely
+    // hand-authored `.stmesh` source such as StaticProbe.stmesh.
+    inline constexpr Common::DDC::Deriver kMeshSourceDeriver{
+         "ImportedMeshSource", ".stmesh", { 0x51F3A9C0D4E6B812ULL, 0x2A7C15E8934FD061ULL } };
+
+    // The importer's own determinism version (AssimpImporter -> MeshSourceFromImport): bump it whenever that
+    // conversion produces different bytes for the same source file.
+    inline constexpr uint32_t kMeshSourceBuilderVersion = 1;
+
+    // Reads and hashes @p file whole (Utils::PakContentHash over its bytes) - the one place both the
+    // importer (keying its Put) and the loader (keying its Get) compute this, so they can never drift into
+    // hashing two different things for "the same" file.
+    Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file );
+
+    // Source file bytes -> DDC key. No settings image beyond the builder version: unlike the render bucket,
+    // there is no independent build setting here - AF4g already made unit/axis/LOD-split resolution a pure
+    // function of the file's own bytes, so the file's hash is the whole input.
+    uint64_t MeshSourceDerivedDataKey( uint64_t sourceFileHash );
+
+    // Resolves the MeshSourceAsset an asset PATH names (e.g. `Meshes/Props/base.stmesh`).
+    //
+    // A companion raw source beside it (today: `base.fbx`, same stem) means this .stmesh is DERIVED: its
+    // bytes are read from the DDC, keyed by the source file's OWN content, and @p assetPath itself is never
+    // opened - a stale beside-source file left over from a build that still wrote one (AF4h retires that
+    // write) is therefore never read in its place, whether or not it happens to exist. A DDC miss is a
+    // refusal naming the source and the key: nothing here silently falls back to reading the stale file, and
+    // nothing here re-imports (that is the editor's job, on request).
+    //
+    // No companion source (e.g. `StaticProbe.stmesh`, MeshSourceProvenance::Recovered) means @p assetPath IS
+    // the source, exactly as before: read directly from disk.
+    Common::ResultStr<MeshSourceAsset> LoadMeshSourceAsset( const std::filesystem::path& assetPath );
 } // namespace Desert::Assets

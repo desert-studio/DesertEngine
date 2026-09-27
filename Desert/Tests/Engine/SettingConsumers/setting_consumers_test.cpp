@@ -827,10 +827,17 @@ namespace
     };
 
     constexpr Row kListViewRows[] = {
-         { "ScrollY", kCanvasRenderer },        { "ItemHeight", kCanvasRenderer },
-         { "Spacing", kCanvasRenderer },        { "Overscan", kCanvasRenderer },
-         { "Background", kCanvasRenderer },     { "ShowScrollbar", kCanvasRenderer },
+         { "ScrollY", kCanvasRenderer },
+         { "ItemHeight", kCanvasRenderer },
+         { "Spacing", kCanvasRenderer },
+         { "Overscan", kCanvasRenderer },
+         { "Background", kCanvasRenderer },
+         { "ShowScrollbar", kCanvasRenderer },
          { "ScrollbarColor", kCanvasRenderer },
+         // UIL1: the collection the rows come from (row count, entry template, record per row) and the
+         // chat behaviour that pins the scroll to the end — both read by the canvas walk.
+         { "Collection", kCanvasRenderer },
+         { "FollowEnd", kCanvasRenderer },
     };
 
     constexpr Row kInputFieldRows[] = {

@@ -1,6 +1,7 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Engine/Assets/Serialization/EnvironmentStaging.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
@@ -54,6 +55,9 @@ namespace Desert::Assets
                                                m_Metadata.Filepath.string() );
         }
 
+        // Runs on the AsyncAssetLoader worker: the cache read and decode happen HERE, off the frame, and
+        // the main thread is left with the upload (hit) or the bake (miss) — SceneEnvironment.cpp.
+        m_Staged      = std::make_shared<const StagedEnvironment>( StageEnvironment( m_Metadata.Filepath ) );
         m_ReadyForUse = true;
         return BOOLSUCCESS;
     }
@@ -65,6 +69,7 @@ namespace Desert::Assets
         // AND meant the file-existence check above — the entire point of Load() for this type — would
         // never be re-asked. One bool, and it is the whole of the asset.
         m_ReadyForUse = false;
+        m_Staged.reset();
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

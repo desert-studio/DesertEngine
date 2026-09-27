@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
@@ -14,13 +14,13 @@ project(test_name)
         -- suite asserts that the closure the PACKAGER ships covers the base scene, so it has to
         -- compute it with the packager's own code rather than with a second implementation.
         -- AssetReferencesScanProject.cpp is deliberately absent — it is the half that needs an engine.
-        "%{wks.location}/Editor/Source/Editor/Core/AssetReferences.cpp",
-        "%{wks.location}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferences.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/AssetReferencesScan.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

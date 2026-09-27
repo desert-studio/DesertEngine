@@ -5,6 +5,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -29,8 +30,8 @@ namespace Desert::Editor::ThumbnailSubject
      * built geometry is empty must be refused rather than captured as a picture of empty sky.
      *
      * All of that lived once, inside `FileExplorerPanel`, when the browser tile was the only thing that
-     * ever asked. It is not any more: the background sweep (Editor/Widgets/ThumbnailSweep.hpp) asks the
-     * same question about assets no panel has walked past. Two copies of this resolution would be two
+     * ever asked. It is not any more: the Details rows (StaticMeshComponent, MaterialsPanelComponent) ask
+     * the same question through ThumbnailService about the same assets. Two copies of this resolution would be two
      * answers to "which file is photographed" and "when is a mesh not photographable" — and the FIRST of
      * those two questions has already been got wrong in this subsystem once, when the browser filed a
      * mesh's picture under its source while the Details row filed it under the cooked form and the same
@@ -139,15 +140,32 @@ namespace Desert::Editor::ThumbnailSubject
         Common::AssetHandle Material{ static_cast<uint64_t>( 0 ) };
     };
 
+    /// Called on the main thread, from `AsyncAssetLoader::Pump`, once a material that was pending has been
+    /// read: the resolution ResolveMaterial would have returned had the bytes been there, refusal included.
+    using OnMaterialArrived =
+         std::function<void( const std::string& assetPath, const Common::ResultStr<Material>& resolved )>;
+
     /**
-     * @brief Load, create-if-missing and register the material at @p assetPath.
+     * @brief Create-if-missing, and resolve the material at @p assetPath once its bytes are in memory.
+     *
+     * THREE ANSWERS, NOT TWO. A value is a material ready to be captured; an error is a refusal with the
+     * reason; `std::nullopt` is PENDING — the material is a registered but unparsed shell, a read has
+     * been requested from `AsyncAssetLoader`, and @p onArrived will be called with the real resolution
+     * on a later frame. The sweep and the browser used to `Load()` the shell right here, inside the
+     * frame: 14–16 `.demat` reads a second after the window appeared on Starter (AL1-5b's census).
+     *
+     * ONE READ PER MATERIAL, WHOEVER ASKS. The browser asks every frame a tile is visible and the sweep
+     * asks once per pass; while a read is in flight a second ask answers pending again and its
+     * @p onArrived is dropped — the first one's delivers the same resolution. @p onArrived must be
+     * non-null: a pending answer whose arrival nobody hears is a thumbnail that never comes.
      *
      * REFUSES WITH THE REASON rather than returning an invalid handle. "This file is not a material the
      * manager will accept" and "this material is ready" have to be distinguishable by the caller, or the
      * browser draws a swatch for ever and the sweep re-queues the same doomed asset every scan.
      */
-    [[nodiscard]] Common::ResultStr<Material> ResolveMaterial( Assets::AssetManager& manager,
-                                                               const std::string&    assetPath );
+    [[nodiscard]] Common::ResultStr<std::optional<Material>> ResolveMaterial( Assets::AssetManager&    manager,
+                                                                              const std::string&       assetPath,
+                                                                              const OnMaterialArrived& onArrived );
 
     /**
      * @brief Map a browsed mesh source to its cooked form, build it, and refuse if there is nothing to

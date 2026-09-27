@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Header-only rules (Engine/Core/Serialize/WorldPartitionRules.hpp): the partitioner and the entity
     -- reference register, WITHOUT the Scene the loader normally hangs them off. SceneSerializer.cpp
@@ -19,21 +19,21 @@ project(test_name)
         -- a block written by a build whose writer does not state the key -- every build before WPC1. That
         -- is a claim about this file, so this file is compiled and asserted rather than described. It is
         -- pure -- its only includes are its own header and <utility>.
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         -- A landscape tile is placed by its root's frame, and the partitioner computes the rectangle with
         -- the same functions the loader uses. Both files are pure and link only Common.
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the record's component payloads are rfl::Generic
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the record's component payloads are rfl::Generic
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -60,8 +60,6 @@ project(test_name)
     -- Common: UUID and AssetHandle. Optick: Common's JobSystem registers its worker threads with it.
     links { "Common", "Optick" }
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
     -- The corpus census gathers the asset registry (Common/Content/ContentScan.cpp), whose
     -- file reads go through Common's FileSystem, and on macOS that object carries the Cocoa file dialogs.
     filter "system:macosx"

@@ -60,5 +60,9 @@ namespace Desert::Runtime
         // headless capture used to exit 139 with. This list lives HERE, beside the getters it has to agree
         // with, so that adding a service and forgetting to release it is one screen of code, not two files.
         static void ClearAll();
+
+        // Hands the three on-demand cloud services the manager they create registry-row shells in (AL1-2).
+        // Called by each host right after its AssetManager exists, before any scene resolves a cloud.
+        static void BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets );
     };
 } // namespace Desert::Runtime

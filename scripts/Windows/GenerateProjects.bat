@@ -3,7 +3,7 @@ REM Generate Desert.sln for Visual Studio 2022 and open it -- no build.
 REM
 REM Usage: scripts\Windows\GenerateProjects.bat [--with-tests] [--no-open]
 REM   --with-tests  also generate every test suite project into the solution
-REM   --no-open     only write Desert.sln, do not start Visual Studio
+REM   --no-open     only write build\Projects\Desert.sln, do not start Visual Studio
 REM
 REM One source of truth for the generation step: this delegates to BuildWindows.bat --gen-only, which
 REM finds premake5 (PATH, then vendor\bin) and fails loudly when the Vulkan SDK is missing -- run
@@ -25,9 +25,9 @@ exit /b 1
 call "%~dp0BuildWindows.bat" %GEN_ARGS%
 if errorlevel 1 exit /b 1
 
-set "SLN=%~dp0..\..\Desert.sln"
+set "SLN=%~dp0..\..\build\Projects\Desert.sln"
 if not exist "%SLN%" (
-    echo [ERROR] premake5 reported success but Desert.sln is not in the repository root. 1>&2
+    echo [ERROR] premake5 reported success but build\Projects\Desert.sln is not there. 1>&2
     exit /b 1
 )
 echo --- Solution: %SLN%

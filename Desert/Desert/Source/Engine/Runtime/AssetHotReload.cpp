@@ -1,6 +1,7 @@
 #include <Engine/Runtime/AssetHotReload.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -13,6 +14,7 @@
 #include <Engine/Graphic/Materials/MaterialFactory.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -74,6 +76,7 @@ namespace Desert::Runtime
         PollCloudTypes( assetManager );
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
+        m_ContentWatch.Poll();
         m_FirstScan = false;
     }
 
@@ -234,6 +237,9 @@ namespace Desert::Runtime
     {
         auto* materialService = ResourceRegistry::GetMaterialService();
 
+        // ONLY MATERIALS SOMETHING ASKED FOR (AL1-4): the boot no longer creates a shell per `.demat`, so
+        // this walk sees exactly the materials MaterialService discovered on use. An edit to a file nobody
+        // has asked for is not missed: that material is read fresh when it is first asked for.
         for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::SurfaceMaterialAsset>() )
         {
             if ( !asset )
@@ -314,7 +320,13 @@ namespace Desert::Runtime
     {
         // Missing leaves the in-memory version alone; First is a baseline, not an edit. A same-size rewrite
         // inside one tick of the file system's clock is Changed too: the watch hashes a racy stamp's content.
-        return m_Watch.Observe( path.generic_string(), path ) == Common::Utils::WriteWatch::Seen::Changed;
+        const bool changed =
+             m_Watch.Observe( path.generic_string(), path ) == Common::Utils::WriteWatch::Seen::Changed;
+        // The registry row follows the bytes: a rewritten header may state another GUID, other edges or
+        // another size, and the pickers read the row, not the object this poll is about to reload.
+        if ( changed )
+            Assets::ContentRegistry::Update( path );
+        return changed;
     }
 
     void AssetHotReload::PollShaders( Assets::AssetManager& assetManager, Core::Scene* scene )
@@ -382,6 +394,8 @@ namespace Desert::Runtime
             if ( !shader )
                 continue;
 
+            // A pipeline compile on a worker reads this shader's stage infos; Reload replaces them.
+            Graphic::PipelineBuilds::Get().WaitIdle();
             if ( const auto res = shader->Reload(); !res )
             {
                 // Compile errors land here (and in the Logs panel). Existing pipelines keep the

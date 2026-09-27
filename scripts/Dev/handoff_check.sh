@@ -2,7 +2,8 @@
 # handoff_check.sh [base=origin/dev] — everything a branch must pass before hand-off, in one call.
 # Runs every built test in build/Bin/Tests/Debug from the tree root (exit codes, 300 s cap, HANDOFF_JOBS=4 in
 # parallel, reds re-run alone), RepoOnlyIncludes --require-replacements, llvm@18 clang-format on changed lines,
-# and the .claude guard; warns on test binaries older than their .o or linked libs. Exit 0 = all green.
+# and the .claude guard; warns on test binaries older than their .o or linked libs; red if the suites left anything
+# new in the checkout (names the suite that wrote it). Exit 0 = all green.
 # On green with a clean tree, writes .cache/handoff/<full HEAD sha>.ok (the summary line); any red deletes it.
 set -u
 source "$(dirname "$0")/_common.sh"
@@ -23,16 +24,18 @@ fail=0
 # Parallel for time; a suite that fails in parallel is re-run ALONE before it counts as red, so two suites
 # sharing a temp path cannot manufacture a red.
 BIN=build/Bin/Tests/Debug
-run_one() { dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"; }
+# run_one (records each run's window), tree_state and trace_leaks — step (h) — live in tree_leaks.sh, which
+# also runs the same check standalone on named suites.
+source "$(dirname "$0")/tree_leaks.sh"
 export -f run_one dev_capped
 dev_regen_makefiles "$LOG" || exit 2
 # A suite deleted on this branch keeps its old .make (premake never removes one), and the build below stops on
 # "No rule to make target" — LODFold did this in five trees on 09-26. A test makefile that the regeneration did not
 # rewrite names a suite the workspace Makefile no longer lists: park it (never delete) so the list below is what
 # premake made.
-projects=" $(grep -m1 '^PROJECTS' Makefile 2>/dev/null | sed 's/^PROJECTS *:= *//') "
+projects=" $(grep -m1 '^PROJECTS' "$DEV_PROJECTS/Makefile" 2>/dev/null | sed 's/^PROJECTS *:= *//') "
 if [ "$projects" != "  " ]; then
-    for mk in $(grep -l "TARGETDIR = build/Bin/Tests/Debug" ./*.make 2>/dev/null); do
+    for mk in $(grep -l "TARGETDIR = ../Bin/Tests/Debug" "$DEV_PROJECTS"/*.make 2>/dev/null); do
         name=$(basename "$mk" .make)
         [[ "$projects" == *" $name "* ]] || { mkdir -p build/stale-make; mv "$mk" build/stale-make/; echo "handoff_check: parked stale $mk"; }
     done
@@ -41,19 +44,20 @@ fi
 # binary at all, and an agent that fixed that by hand spent a whole second pass (~45 min) per branch, five times on
 # 09-25. make rebuilds only what is out of date, so on a fresh tree this is seconds. HANDOFF_NO_BUILD=1 skips it.
 if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
-    suites=$(grep -l "TARGETDIR = build/Bin/Tests/Debug" ./*.make 2>/dev/null | xargs -n1 basename | sed 's/\.make$//')
+    suites=$(grep -l "TARGETDIR = ../Bin/Tests/Debug" "$DEV_PROJECTS"/*.make 2>/dev/null | xargs -n1 basename | sed 's/\.make$//')
     if ! printf '%s\n' $suites | xargs "$DEV_ROOT/scripts/Dev/suite.sh" --build-only >"$LOG/build.log" 2>&1; then
         echo "handoff_check: building the suites FAILED; log $LOG/build.log"; tail -5 "$LOG/build.log"; exit 1
     fi
     # (0b) the Editor too: suites compile a fraction of the Editor's sources, and on 09-26 two batches each passed
     # every suite while together they broke the Editor build (AV1d changed PreviewViewport::Draw, AV1e called the
     # old one). HANDOFF_NO_EDITOR=1 skips it.
-    if [ -z "${HANDOFF_NO_EDITOR:-}" ] && [ -f Editor.make ]; then
+    if [ -z "${HANDOFF_NO_EDITOR:-}" ] && [ -f "$DEV_PROJECTS/Editor.make" ]; then
         if ! "$HOME/.claude/tools/build_quiet.sh" "$PWD" "$LOG/editor.log" Editor >/dev/null 2>&1; then
             echo "handoff_check: building the Editor FAILED; log $LOG/editor.log"; grep -m5 "error:" "$LOG/editor.log"; exit 1
         fi
     fi
 fi
+tree_state >"$LOG/tree.before"
 bins=()
 for t in "$BIN"/*; do [ -f "$t" ] && [ -x "$t" ] && bins+=("$t"); done
 total=${#bins[@]}
@@ -61,7 +65,7 @@ total=${#bins[@]}
 passed=0; red=(); stale=()
 # (f) never built: a suite whose makefile exists but whose binary does not is not "not run", it is untested code.
 # The AF7 branch passed 146/146 in a tree that had built 146 of 332 suites; ModelingToolTarget no longer compiled.
-for mk in $(grep -l "TARGETDIR = build/Bin/Tests/Debug" ./*.make 2>/dev/null); do
+for mk in $(grep -l "TARGETDIR = ../Bin/Tests/Debug" "$DEV_PROJECTS"/*.make 2>/dev/null); do
     name=$(basename "$mk" .make)
     [ -x "$BIN/$name" ] || stale+=("$name<never built")
 done
@@ -83,12 +87,17 @@ for t in "${bins[@]}"; do
     if [ "$name" = BuildVersion ] && [ "$(stat -f %m "$t")" -lt "$(git log -1 --format=%ct HEAD)" ]; then
         stale+=("$name<HEAD commit"); continue
     fi
-    [ -f "$name.make" ] || continue
+    [ -f "$DEV_PROJECTS/$name.make" ] || continue
     for lib in $(awk '/^ifeq \(\$\(config\),debug\)/{d=1} /^ifeq \(\$\(config\),release\)/{d=0}
-                      d && /^LDDEPS \+=/{for(i=3;i<=NF;i++)print $i}' "$name.make"); do
+                      d && /^LDDEPS \+=/{for(i=3;i<=NF;i++)print $i}' "$DEV_PROJECTS/$name.make"); do
+        # LDDEPS is relative to the makefile's directory, not to the root this script runs in.
+        case "$lib" in /*) ;; *) lib="$DEV_PROJECTS/$lib" ;; esac
         if [ -f "$lib" ] && [ "$lib" -nt "$t" ]; then stale+=("$name<$(basename "$lib")"); break; fi
     done
 done
+# (h) the suites must leave the checkout as they found it; a new entry is traced to the suite that wrote it.
+trace_leaks "$LOG" "${bins[@]}" || fail=1
+
 [ ${#red[@]} -gt 0 ] && fail=1
 [ "$total" -eq 0 ] && { red+=("no test binaries in $BIN — build the suites first"); fail=1; }
 

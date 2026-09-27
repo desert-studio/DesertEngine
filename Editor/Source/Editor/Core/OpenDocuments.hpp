@@ -186,7 +186,7 @@ namespace Desert::Editor
         //
         // A document gives its renderer slot back after a run of frames in which it was not DRAWN — four
         // documents docked as tabs in one node show one tab, and the other three were rendering previews
-        // nobody could see while holding three of the six slots (ISubjectDocument::ReleaseRendererSlot).
+        // nobody could see while holding three of the six slots (ISubjectDocument::ReleaseView).
         //
         // THE COUNT BELONGS HERE BECAUSE "NOBODY" IS ABOUT ALL THE VIEWS AT ONCE. It used to live in
         // EditorLayer as a map written by the document well's draw loop, which was the whole truth while

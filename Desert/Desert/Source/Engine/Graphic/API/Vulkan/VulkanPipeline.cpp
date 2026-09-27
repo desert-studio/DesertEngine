@@ -1,4 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
+#include <Common/Core/JobSystem.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
@@ -128,6 +130,13 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipeline::Release()
     {
+        // A compile on a worker reads this object's create-info and writes m_Pipeline: it must be over
+        // before either is touched.
+        if ( m_Compile.valid() )
+            m_Compile.wait();
+        m_Compile = {};
+        m_State.store( BuildState::Unbuilt, std::memory_order_release );
+
         if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE )
             return;
 
@@ -149,6 +158,16 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     void VulkanPipeline::Invalidate()
+    {
+        Build( CompileOn::CallingThread );
+    }
+
+    void VulkanPipeline::InvalidateAsync()
+    {
+        Build( CompileOn::Worker );
+    }
+
+    void VulkanPipeline::Build( const CompileOn where )
     {
         Release();
 
@@ -211,9 +230,7 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
 
-        CreateGraphicsPipeline( device, vulkanShader );
-
-        LOG_INFO( "Created {} VulkanPipeline", m_Specification.DebugName );
+        CreateGraphicsPipeline( device, vulkanShader, where );
     }
 
     void VulkanPipeline::CreatePipelineLayout()
@@ -406,7 +423,8 @@ namespace Desert::Graphic::API::Vulkan
              .blendConstants  = { 0.0f, 0.0f, 0.0f, 0.0f } };
     }
 
-    void VulkanPipeline::CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader )
+    void VulkanPipeline::CreateGraphicsPipeline( VkDevice device, VulkanShader* vulkanShader,
+                                                 const CompileOn where )
     {
         // The `throw std::runtime_error( "Framebuffer is required for pipeline creation" )` that stood
         // here is now a REFUSAL at the top of Invalidate, before a pipeline layout is created and
@@ -417,46 +435,79 @@ namespace Desert::Graphic::API::Vulkan
              m_Specification.UseLoadRenderPass ? vkFb->GetVKRenderPassLoad() : vkFb->GetVKRenderPass();
 
         // Tessellation: patch-list topology needs a tessellation state (control points per patch).
-        VkPipelineTessellationStateCreateInfo tessellationState = {
-             .sType              = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
-             .patchControlPoints = m_Specification.PatchControlPoints };
+        m_Tessellation              = { .sType              = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
+                                        .pNext              = nullptr,
+                                        .flags              = 0,
+                                        .patchControlPoints = m_Specification.PatchControlPoints };
         const bool usesTessellation = m_Specification.PatchControlPoints > 0;
 
-        VkGraphicsPipelineCreateInfo pipelineInfo = {
-             .sType      = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-             .stageCount = static_cast<uint32_t>( vulkanShader->GetPipelineShaderStageCreateInfos().size() ),
-             .pStages    = vulkanShader->GetPipelineShaderStageCreateInfos().data(),
-             .pVertexInputState   = &m_VertexInputInfo,
-             .pInputAssemblyState = &m_InputAssembly,
-             .pTessellationState  = usesTessellation ? &tessellationState : nullptr,
-             .pViewportState      = &m_ViewportState,
-             .pRasterizationState = &m_Rasterizer,
-             .pMultisampleState   = &m_Multisampling,
-             .pDepthStencilState  = &m_DepthStencil,
-             .pColorBlendState    = &m_ColorBlending,
-             .pDynamicState       = &m_DynamicStateInfo,
-             .layout              = m_PipelineLayout,
-             .renderPass          = renderPass,
-             .subpass             = 0,
-             .basePipelineHandle  = VK_NULL_HANDLE,
-             .basePipelineIndex   = -1 };
+        // Members, not locals: a compile on a worker reads them after this function has returned.
+        m_PipelineInfo = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                           .pNext = nullptr,
+                           .flags = 0,
+                           .stageCount =
+                                static_cast<uint32_t>( vulkanShader->GetPipelineShaderStageCreateInfos().size() ),
+                           .pStages             = vulkanShader->GetPipelineShaderStageCreateInfos().data(),
+                           .pVertexInputState   = &m_VertexInputInfo,
+                           .pInputAssemblyState = &m_InputAssembly,
+                           .pTessellationState  = usesTessellation ? &m_Tessellation : nullptr,
+                           .pViewportState      = &m_ViewportState,
+                           .pRasterizationState = &m_Rasterizer,
+                           .pMultisampleState   = &m_Multisampling,
+                           .pDepthStencilState  = &m_DepthStencil,
+                           .pColorBlendState    = &m_ColorBlending,
+                           .pDynamicState       = &m_DynamicStateInfo,
+                           .layout              = m_PipelineLayout,
+                           .renderPass          = renderPass,
+                           .subpass             = 0,
+                           .basePipelineHandle  = VK_NULL_HANDLE,
+                           .basePipelineIndex   = -1 };
 
-        // Use the device-wide, disk-persisted pipeline cache so the driver reuses previously-built
-        // pipeline binaries across runs instead of compiling this graphics pipeline from scratch.
-        const VkPipelineCache pipelineCache =
+        // The device-wide, disk-persisted cache: the driver reuses binaries across runs. VkPipelineCache is
+        // internally synchronized (the spec requires no external lock for vkCreate*Pipelines), so workers
+        // share the one cache — no per-thread caches to merge.
+        VkPipelineCache pipelineCache =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
+        if ( where == CompileOn::CallingThread )
+        {
+            Compile( device, pipelineCache );
+            return;
+        }
+        m_State.store( BuildState::Compiling, std::memory_order_release );
+        PipelineBuilds::Get().OnStarted();
+        m_Compile = Common::JobSystem::Get().Async(
+             [this, device, pipelineCache]
+             {
+                 Compile( device, pipelineCache );
+                 PipelineBuilds::Get().OnFinished();
+             } );
+    }
+
+    void VulkanPipeline::Compile( VkDevice device, VkPipelineCache pipelineCache )
+    {
+        VkPipeline built = VK_NULL_HANDLE;
+        VkResult   result{};
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
-            VK_CHECK_RESULT(
-                 vkCreateGraphicsPipelines( device, pipelineCache, 1, &pipelineInfo, nullptr, &m_Pipeline ) );
+            result = vkCreateGraphicsPipelines( device, pipelineCache, 1, &m_PipelineInfo, nullptr, &built );
+        }
+        if ( result != VK_SUCCESS )
+        {
+            // A refusal with the driver's code, not an assert: on a worker there is nobody to catch one,
+            // and the draw path reports the unbuilt pipeline by name (VulkanRendererAPI::BindGraphicsPipeline).
+            LOG_ERROR( "[Pipeline] '{}' not created: vkCreateGraphicsPipelines = {}", m_Specification.DebugName,
+                       VkResultToString( result ) );
+            m_State.store( BuildState::Failed, std::memory_order_release );
+            return;
         }
 
         // Debug name so RenderDoc/validation identify the pipeline by its spec name.
         if ( !m_Specification.DebugName.empty() )
-        {
-            VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.DebugName,
-                                              m_Pipeline );
-        }
+            VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.DebugName, built );
+        m_Pipeline = built;
+        // Release: the handle written above is visible to whoever reads Built.
+        m_State.store( BuildState::Built, std::memory_order_release );
+        LOG_INFO( "Created {} VulkanPipeline", m_Specification.DebugName );
     }
 
     std::pair<uint32_t, VkPushConstantRange> VulkanPipeline::SetUpPushConstantRange() const

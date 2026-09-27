@@ -725,6 +725,8 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
 //   it, and a mesh row's box
 //     comes from the mesh's own 64-byte header. Derived in a clean clone of 1de8ad1a, where only tracked
 //     meshes can answer - a developer's ignored local meshes under Editor/Cooked would answer too.
+//   * +12 with UIL1 (2480 / 2448): UI_ListProbe.desce, twelve UI entities (canvas, panels, texts, two list
+//     views and their entry templates). A UI element has no world extent, so every one is point-only.
 //
 // The mesh references are resolved as the loader resolves them - handle, else path - and a path is
 // relative to the editor's working directory, so the walk runs from there.
@@ -733,7 +735,7 @@ namespace
     // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
     // records stay point-only once the gathered registry answers for them.
     constexpr std::size_t kCorpusMeshReferences        = 32;
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2436;
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2448;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
@@ -813,7 +815,7 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGathered
         seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
     }
 
-    EXPECT_EQ( blind, 2468u );
+    EXPECT_EQ( blind, 2480u );
     EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
     EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
     std::printf( "[corpus] %zu answered of %zu asked; point-only %zu blind, %zu with the registry\n", answers,
@@ -1828,6 +1830,24 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
     EXPECT_GT( globalByComponent, 0u ) << "no corpus composite is global by component, so the always-loaded "
                                           "half is vacuous";
     EXPECT_GT( instancesSeen, 0u ) << "no InstancedStaticMesh instance was checked, so the ISM half is vacuous";
+}
+
+// A WRONG TYPE IS NEVER SILENT. A tile whose TileX is a string is read as the loader reads it — the default
+// coordinate is kept, so the tile is placed — and the planner names the value by its full path. Before the
+// facade it was silently dropped into UnplacedLandscapeTiles with nothing to say why.
+TEST( WorldPartitionLandscape, ATileCoordinateOfTheWrongTypeIsAnIssueAndKeepsItsDefault )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Root", { 0.0f, 0.0f, 0.0f } ) );
+    records.push_back( Record( 2, "Tile", { 0.0f, 0.0f, 0.0f } ) );
+    With( records[0], "Landscape", "{}" );
+    With( records[1], "LandscapeTile", R"({"Landscape":"1","TileX":"one","TileZ":0})" );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Issues.size(), 1u );
+    EXPECT_EQ( plan.Issues[0].Path, "Entities[id=2].LandscapeTile.TileX" );
+    EXPECT_EQ( plan.Issues[0].Expected.rfind( "integer", 0 ), 0u ) << plan.Issues[0].Expected;
+    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
 }
 
 int main( int argc, char** argv )

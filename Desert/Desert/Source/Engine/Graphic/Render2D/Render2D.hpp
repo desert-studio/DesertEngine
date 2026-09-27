@@ -31,6 +31,15 @@ namespace Desert::Graphic::Render2D
     class Render2D
     {
     public:
+        Render2D() = default;
+        ~Render2D();
+        // Owns per-view GPU state (pipelines, buffers, executors keyed by image address) that two
+        // copies could not share.
+        Render2D( const Render2D& )            = delete;
+        Render2D& operator=( const Render2D& ) = delete;
+        Render2D( Render2D&& )                 = delete;
+        Render2D& operator=( Render2D&& )      = delete;
+
         // (Re)creates the pipeline against @p target (the scene HDR framebuffer, composited via a load pass).
         // Call after every Scene::Init — the framebuffers are recreated there. Idempotent.
         Common::BoolResultStr Init( const std::shared_ptr<Framebuffer>& target );

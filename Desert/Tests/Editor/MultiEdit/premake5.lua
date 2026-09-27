@@ -5,17 +5,17 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Core/MultiEdit.cpp", -- std-only, compiled straight in
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/MultiEdit.cpp", -- std-only, compiled straight in
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source", -- <Editor/Core/MultiEdit.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- <Editor/Core/MultiEdit.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

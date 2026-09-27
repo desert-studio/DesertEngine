@@ -2,11 +2,23 @@
 
 #include <Engine/Assets/Common.hpp>
 
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Core.hpp>
+
+namespace Desert::Core
+{
+    class Scene;
+}
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
+
+namespace Desert::Assets::ContentRegistry
+{
+    struct ClosureRow;
+}
 
 namespace Desert::Assets
 {
@@ -61,11 +73,10 @@ namespace Desert::Runtime
      * MAIN THREAD ONLY: every function here touches the runtime services.
      */
 
-    /// Register @p material with the MaterialService if it is not already there. Idempotent; parses the
-    /// shell first, because the service keys a material by the external id stored inside the file and an
-    /// unparsed shell reports a zero one. A refusal (another `.demat` already holds this MaterialId) is
-    /// logged with both filenames — the slot is about to fall back to the default material and this is
-    /// the only place that knows why.
+    /// Register @p material with the MaterialService if it is not already there. Idempotent; reads
+    /// nothing — a file-backed shell carries its external id from its header GUID. A refusal (another `.demat`
+    /// already holds this MaterialId) is logged with both filenames — the slot is about to fall back to the
+    /// default material and this is the only place that knows why.
     void EnsureMaterialRegistered( const Assets::Asset<Assets::MaterialAsset>& material );
 
     /// Register @p mesh with the MeshService as a LAZY SHELL if it is not already there. Idempotent.
@@ -75,6 +86,43 @@ namespace Desert::Runtime
     /// registry again later. Ф6 measured what its absence costs — a mesh registered without one draws
     /// nothing and prints "needs a deferred load but no AssetManager is bound" once per frame.
     void EnsureMeshRegistered( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry );
+
+    /// Register @p mesh (as EnsureMeshRegistered) and ASK for it without waiting: a cold mesh is handed to
+    /// AsyncAssetLoader and becomes resident on a later frame. The non-blocking twin of EnsureMeshDrawable,
+    /// for a caller inside a frame that can come back (the thumbnail sweep).
+    void RequestMeshRead( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry );
+
+    /// What waiting for a closure did: its rows, the worker reads it waited for (0 when everything was
+    /// resident already) and how many of its meshes are drawable afterwards.
+    struct ClosureResidency
+    {
+        std::size_t Rows           = 0;
+        std::size_t Reads          = 0;
+        std::size_t DrawableMeshes = 0;
+    };
+
+    /// THE SCENE'S DEPENDENCIES, FROM THE REGISTRY (AL1-8b, plan §2.4(b)). The roots are what the scene's
+    /// components name — every static, skinned and instanced mesh, every material slot, each cloud layer's
+    /// material — and the rest is the registry's `deps` column walked transitively
+    /// (Assets::ContentRegistry::Closure): a mesh's own materials, an instance's parent, textures, shaders,
+    /// cloud assets. Nothing is read to learn it.
+    std::vector<Assets::ContentRegistry::ClosureRow> SceneDependencies( const Core::Scene& owner );
+
+    /// THE ONE WAIT FOR A CLOSURE: every row's read is started on the loader's WORKERS first (meshes and their
+    /// rigs, materials, textures — the kinds whose services read on demand; shaders and cloud assets have
+    /// their own residency), then this thread blocks until each has landed (AsyncAssetLoader::AwaitOne, so
+    /// SyncLoadLedger counts no in-frame load), then the meshes are built so the first frame draws them.
+    ClosureResidency AwaitClosure( const std::vector<Assets::ContentRegistry::ClosureRow>& closure );
+
+    /// Scene open: `AwaitClosure( SceneDependencies( scene ) )`, before the scene is initialised.
+    ClosureResidency AwaitSceneClosure( const Core::Scene& scene );
+
+    /// One asset and everything its row depends on — a dropped mesh, a material about to be photographed.
+    ClosureResidency AwaitAssetClosure( const Assets::AssetHandle& handle, Common::Content::ContentKind kind );
+
+    /// A mesh named only by its handle (a scene's MeshGuid): known to MeshService, or discoverable from its
+    /// content-registry row. Creates the shell; reads nothing.
+    NO_DISCARD bool DiscoverMesh( const Assets::AssetHandle& handle );
 
     /// Register the texture behind @p handle with the TextureService as a lazy shell. Idempotent; a
     /// zero handle, or one the registry does not hold, is a no-op. The GPU upload stays deferred to the

@@ -5,26 +5,26 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
-        "%{wks.location}/ThirdParty/stb/stb_truetype.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/FontBaker.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Text/Msdf.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",       -- <Engine/Text/FontBaker.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",       -- <Engine/Text/FontBaker.hpp>
         -- The shader root, because SdfTextReference.hpp compiles Common/SdfText.glslh AS C++: the
         -- median and the screen-space ramp under test are the text the fragment shaders run, not a
         -- second copy of them that could agree with itself while the GPU does something else.
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/stb/include",      -- <stb_truetype/stb_truetype.h>
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",      -- <stb_truetype/stb_truetype.h>
     }
 
     -- glm, for the vec2/vec3 the shader text is compiled against.

@@ -16,6 +16,19 @@
 
 namespace Splash = Desert::Editor::Splash;
 
+namespace
+{
+    // The checkout root, found by walking up from the working directory (suites run from the root):
+    // __FILE__ is relative to wherever the project file sits (build/Projects), so it cannot name the tree.
+    std::filesystem::path RepoRoot()
+    {
+        for ( std::filesystem::path prefix = "."; prefix.string().size() < 20; prefix /= ".." )
+            if ( std::filesystem::exists( prefix / "Editor" / "Resources" / "Splash" ) )
+                return prefix;
+        return {};
+    }
+} // namespace
+
 // --- The layout -------------------------------------------------------------------------------------
 
 TEST( SplashLayout, TheElementsSitWhereTheDesignPutsThem )
@@ -83,8 +96,8 @@ TEST( SplashLayout, TheWordmarkBoxIsWhereThePictureDrawsEngine )
     // THE CONSTANT AGAINST THE PIXELS: every sand-coloured pixel in the lower-left of the committed
     // picture (ENGINE's glyphs; DESERT is white) lies inside kWordmarkEngine, and the box is not empty.
     // A re-baked picture that moved the wordmark fails here instead of under the project line.
-    const std::filesystem::path repo =
-         std::filesystem::path( __FILE__ ).parent_path().parent_path().parent_path().parent_path().parent_path();
+    const std::filesystem::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() ) << "no Editor/Resources/Splash above the working directory";
     const auto loaded = Splash::LoadSplashPixels( repo / "Editor" / Splash::kSplashTexture );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
     const Splash::SplashPixels& picture = loaded.GetValue();
@@ -272,8 +285,8 @@ TEST( SplashLayout, TheRepositoryCarriesAPictureTheSplashCanDraw )
     // THE RELATION, NOT THE FILE: the committed .tex must decode to the size of the source it was made
     // from. A regenerated Splash.jpg without a regenerated Splash.tex (or the reverse) fails here, and
     // the first start of every fresh clone would otherwise show a stale or missing picture.
-    const stdfs::path repo =
-         stdfs::path( __FILE__ ).parent_path().parent_path().parent_path().parent_path().parent_path();
+    const stdfs::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() ) << "no Editor/Resources/Splash above the working directory";
     const stdfs::path picture = repo / "Editor" / Splash::kSplashTexture;
     const auto        loaded  = Splash::LoadSplashPixels( picture );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();

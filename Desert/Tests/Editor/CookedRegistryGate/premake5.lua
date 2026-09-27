@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The test cpp alone. The content census (Common/Content/ContentKinds.hpp) and the registry
     -- format (Common/Utilities/AssetRegistry.hpp) both live below the engine, which is the whole
@@ -15,11 +15,11 @@ project(test_name)
     files { test_files }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -35,9 +35,6 @@ project(test_name)
     end
 
     links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
 
     -- Common contains Objective-C (the MacOS file dialog), so the ObjC runtime + AppKit link too.
     filter "system:macosx"

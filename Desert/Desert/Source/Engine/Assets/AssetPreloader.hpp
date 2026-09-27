@@ -52,9 +52,6 @@ namespace Desert::Assets
         // against images that are about to be replaced). Splitting it would move that ordering
         // constraint out into two startup sequences in two different layers, where nothing states it.
         //
-        // NOT the same walk as the editor's thumbnail sweep (Editor/Widgets/ThumbnailSweep.hpp), which
-        // covers overlapping directories and is deliberately not derived from this one. The difference
-        // is written down there, in one place, beside the walk that came second.
         // @p progress names each registry row as it is created (the splash's item line).
         void PreloadCookedAssetsAndMaterials( const ItemProgress& progress = {} );
         // The number of registry rows `PreloadCookedAssetsAndMaterials` works through — the splash weighs
@@ -65,49 +62,14 @@ namespace Desert::Assets
         // @p stop is asked before each program; true ends the preload there, the rest unregistered.
         void               PreloadShaders( const ItemProgress& progress = {}, const StopRequested& stop = {} );
         static std::size_t ShaderRowCount();
-        // Cloud noise volumes (`.dcnv`). Scanned so the type asset's slot can offer them by name and so a
-        // type that names one finds it already loaded; no GPU work happens here, the renderer uploads.
-        void PreloadCloudNoiseVolumes();
-        // Cloud types (`.decloudtype`). MUST run after PreloadCloudNoiseVolumes: a type names its noise
-        // volume by path and binds it in ResolveDependencies, which the AssetManager calls the moment the
-        // type is created — a volume that is not in the manager yet resolves to nothing and the type
-        // renders with the default edge instead of its own.
-        void PreloadCloudTypes();
-        // Sculpted hero-cloud bodies (`.dcmv`). Independent of the two above — a body names no other
-        // asset and no other asset names it — so its position in the order is free; it is last because
-        // a scene without one still has a sky and this is the stage a project may have nothing in.
-        void PreloadCloudModellingVolumes();
-        // Painted cloud layouts (`.dclayout`). Independent of the three above — a layout names no other
-        // asset and no other asset names it — so its position in the order is free; it is last because a
-        // scene without one still has a sky, which is the state every shipped scene is in.
-        void PreloadCloudLayouts();
-        // UI themes (`.detheme`). MUST run after the font scan the FontService does on demand is
-        // reachable — it is, because the service registers a font path the moment it is asked — and it is
-        // independent of every cloud stage above. A canvas without a theme still draws, which is the
-        // state every scene authored before themes existed is in.
-        void PreloadUIThemes();
+        // Cloud types (`.decloudtype`) and UI themes (`.detheme`) have no stage (AL1-7): CloudTypeService and
+        // UIThemeService read the one a scene names from its registry row, through the loader, when first asked.
         // String tables (`.destrings`). Independent of everything above — a table names no other asset and
         // no other asset names it. Loading one PUBLISHES it to the process's localisation lookup, which is
         // why there is no register loop beside this call the way the cloud stages have one.
         void PreloadStringTables();
-        // Control rigs (`.derig`). Independent of everything above — a rig names no other asset and no
-        // other asset names it. Scanned rather than left to the scene's own on-demand load so the
-        // entity's rig slot can OFFER them by name: a picker that can only show what a scene already
-        // names is a picker that can never be used to pick a different rig.
-        void PreloadControlRigs();
-
-        // Anim graphs (`.danimgraph`). Independent of every other preload: a graph names no asset and is
-        // named by a component slot, so nothing orders it against the rigs or the clips.
-        void PreloadAnimGraphs();
-
-        // Retargets (`.retarget`). AFTER the cooked scan in both layers, and that ordering is the one thing
-        // this preload has that the two above do not: a `.retarget` names its SOURCE RIG by signature, and
-        // `RetargetAsset::ResolveDependencies` can only find that rig among the `SkeletonAsset`s the cooked
-        // scan has registered. Run before it, and every retarget in the project binds to nothing — and
-        // because the dependency is only re-resolved on a later `EnsureLoaded`, it would recover only by
-        // accident. That is the `PreloadCloudLayouts` shape one step along: not an uncalled function, but a
-        // function called at a moment that cannot work.
-        void PreloadRetargets();
+        // Control rigs, anim graphs and retargets have NO boot stage since AL1-6: pickers read their
+        // registry rows, and the scene load and AnimationECSSystem create and read one when it is named.
 
     private:
         std::weak_ptr<AssetManager> m_AssetManager;

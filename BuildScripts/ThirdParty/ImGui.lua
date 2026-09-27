@@ -10,7 +10,7 @@ local root = _MAIN_SCRIPT_DIR .. "/ThirdParty/ImGui"
 project "ImGui"
 	kind "StaticLib"
 	language "C++"
-	location ( root )
+	location ( _MAIN_SCRIPT_DIR .. "/build/Projects/ImGui" )
 
 	files
 	{

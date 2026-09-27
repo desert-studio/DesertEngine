@@ -5,6 +5,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Editor/Widgets/PreviewInput.hpp>
@@ -14,6 +15,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Desert::Editor::UI
@@ -150,6 +152,15 @@ namespace Desert::Editor
 
             bool ShowGrid = false;
 
+            // ── The HDR environment (Preview Scene Settings, PreviewEnvironment.hpp) ──────────────────────
+            //
+            // A SkyboxAsset handle replaces the procedural sky as what the preview is lit and backed by; empty
+            // is the preset sky above. The look (rotation, 2^EV) is applied where the cubes are sampled, so
+            // neither costs a bake. ShowEnvironment hides the backdrop only — the IBL keeps lighting.
+            std::optional<uint64_t> EnvironmentSkybox;
+            Graphic::SkyLook        EnvironmentLook;
+            bool                    ShowEnvironment = true;
+
             // ── The sky dome's own budget (Fill::SkyDome only) ─────────────────────────────────────────
             //
             // A cloud march on every frame the window is open is the dome's whole cost, and MaxSteps /
@@ -231,6 +242,11 @@ namespace Desert::Editor
         // After SetCubemapMaterial: draw the cube as the pane's BACKGROUND too, not only on the ball — the
         // skybox viewer, where orbiting is looking around the sky. Any later Set*/Clear drops it again.
         void SetCubemapBackdrop( bool cubeIsBackdrop );
+
+        // After SetCubemapMaterial: show the cube unwrapped long-lat over the whole pane (true) or on the ball.
+        // Not a content revision by itself — the caller folds it into SetContentFingerprint with its other
+        // view state, so re-sending the same value every frame costs no render.
+        void SetCubemapProjection( bool longLat );
 
         // Show a VOLUME-domain material as the sky it authors: a preview world with ground, a sun and a
         // wide enough vertical lens that horizon, mid-elevation and zenith are in one frame.
@@ -407,6 +423,8 @@ namespace Desert::Editor
         ECS::Entity m_Light;
         ECS::Entity m_Floor;
         ECS::Entity m_Sky;
+        // The HDR environment's carrier: a SkyboxComponent whose handle is empty while the preset sky shows.
+        ECS::Entity m_Skybox;
         // The volumetric layer, present only once a Volume-domain material has asked for it: it carries a
         // modelling volume of 8 MiB and a sky-occlusion volume of 2 MiB per renderer, which no material
         // preview should pay for by existing.

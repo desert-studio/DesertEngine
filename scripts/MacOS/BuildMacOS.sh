@@ -156,7 +156,7 @@ MAKE_CONFIG="$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')"
 CORES="$(sysctl -n hw.ncpu)"
 
 echo "--- Building ($CONFIG, -j$CORES)"
-make config="$MAKE_CONFIG" -j"$CORES" "${MAKE_TOOL_VARS[@]+"${MAKE_TOOL_VARS[@]}"}"
+make -C build/Projects config="$MAKE_CONFIG" -j"$CORES" "${MAKE_TOOL_VARS[@]+"${MAKE_TOOL_VARS[@]}"}"
 
 echo ""
 echo "=== Build complete: build/Bin/$CONFIG ==="

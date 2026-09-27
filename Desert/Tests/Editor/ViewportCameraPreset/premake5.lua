@@ -14,15 +14,15 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files { test_files }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",   -- <Engine/Core/CameraPitchLimit.hpp>
-        "%{wks.location}/Editor/Source",          -- <Editor/Panels/ViewportPanel/ViewportCameraPreset.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",   -- <Engine/Core/CameraPitchLimit.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",          -- <Editor/Panels/ViewportPanel/ViewportCameraPreset.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

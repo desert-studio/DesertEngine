@@ -446,7 +446,7 @@ namespace
           "included" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanImage.cpp",
           "CalculateImageSize( side, side, m_Specification.Format )", Sizes::OneImage, Blocks::Correct,
-          "ONE FACE of one mip in VulkanImageCube::RT_ReadAllLevels, which is the right unit there: "
+          "ONE FACE of one mip in VulkanImageCube::RT_BeginReadAllLevels, which is the right unit there: "
           "the function advances the buffer offset per face and per level, so the product it wants is "
           "the single image a copy region covers" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanImage.cpp",
@@ -455,12 +455,12 @@ namespace
           "(Image3DSpecification deliberately has no Mips field either), and no block format is legal "
           "on one" },
         { "Desert/Desert/Source/Engine/Graphic/Environment/EnvironmentBake.cpp",
-          "TightlyPackedChainBytes( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount, " "kCubeFormat )", Sizes::EveryLayer, Blocks::Correct,
+          "TightlyPackedChainBytes( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount, " "Assets::kEnvironmentComputeFormat )", Sizes::EveryLayer, Blocks::Correct,
           "the bake asserting that what came back off the device is the shape it is about to place: a "
           "disagreement here is the middle link dropping a property, so it is a refusal with both "
-          "numbers rather than a silent truncation. kCubeFormat is the COMPUTE format -- a storage "
+          "numbers rather than a silent truncation. kEnvironmentComputeFormat is the COMPUTE format -- a storage "
           "image cannot be a block format -- and the encode to BC6H happens after this" },
-        { "Desert/Desert/Source/Engine/Graphic/Environment/EnvironmentBake.cpp",
+        { "Desert/Desert/Source/Engine/Assets/Serialization/EnvironmentStaging.cpp",
           "CalculateCubeImageSize( faceSize, mips, data.Format )", Sizes::EveryLayer, Blocks::Correct,
           "what a cube read off the cache costs RESIDENT, logged where it is paid. The format is the "
           "FILE's, not a constant, because that is the whole point: the same cube is 128 MiB as "

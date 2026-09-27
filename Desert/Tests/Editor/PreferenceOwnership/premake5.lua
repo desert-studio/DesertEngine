@@ -7,8 +7,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The REAL preference store and the REAL gizmo seam, plus the project context that resolves
     -- ~/.desertengine. Half of what this suite asserts is about what reaches editor.json and comes
@@ -16,23 +16,23 @@ project(test_name)
     -- Nothing from the renderer or from ImGui is needed: the two files under test are std + rfl.
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Core/EditorPreferences.cpp",
-        "%{wks.location}/Editor/Source/Editor/Core/GizmoState.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/EditorPreferences.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GizmoState.cpp",
         -- К10's seam: the pure "user's answer minus what a viewport mode hides" function. It is a
         -- separate translation unit from ViewportPanel precisely so a test can link it — the panel
         -- itself needs ImGui, ImGuizmo and the whole renderer, and the arithmetic under test needs none
         -- of that.
-        "%{wks.location}/Editor/Source/Editor/Core/ViewportModes.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ViewportModes.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",   -- <Engine/Graphic/RenderConfig.hpp>, <Engine/Project/...>
-        "%{wks.location}/Editor/Source",          -- <Editor/Core/EditorPreferences.hpp>, <Editor/Core/GizmoState.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",   -- <Engine/Graphic/RenderConfig.hpp>, <Engine/Project/...>
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",          -- <Editor/Core/EditorPreferences.hpp>, <Editor/Core/GizmoState.hpp>
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- rfl::fields<>, rfl::Generic, rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- rfl::fields<>, rfl::Generic, rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -58,9 +58,6 @@ project(test_name)
     filter {}
 
     links { "Common", "Optick" } -- Common's JobSystem registers its worker threads with Optick
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
 
     -- Common contains Objective-C (the macOS file dialog), pulled in because EditorPreferences writes
     -- through Common::Utils::FileSystem, so the ObjC runtime + AppKit must link too.

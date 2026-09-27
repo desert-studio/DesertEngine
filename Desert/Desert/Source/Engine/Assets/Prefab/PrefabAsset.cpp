@@ -2,7 +2,9 @@
 #include "PrefabFormat.hpp"
 #include "PrefabPlacement.hpp"
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <functional>
@@ -87,6 +89,18 @@ namespace Desert::Assets
             }
         }
 
+        // THE BOX THE REGISTRY WILL CARRY FOR THIS FILE (AL1-8a), composed from the body by the partitioner's
+        // own rule, with each mesh and nested prefab measured by its registry row - nothing is loaded for it.
+        // A block the rule cannot read is named on the log and adds no box; the body itself is saved as is.
+        data.Bounds.reset();
+        Common::Json::Issues boundsIssues;
+        if ( const auto box =
+                  Core::Rules::PrefabBounds( data.Entities, data.Root, &ContentRegistry::BoundsOf, boundsIssues );
+             box.has_value() )
+            data.Bounds = PrefabBoundsSer{ box->Min, box->Max };
+        if ( !boundsIssues.empty() )
+            Common::Json::ReportIssues( boundsIssues, "prefab bounds of '" + m_Metadata.Filepath.string() + "'" );
+
         // The one writer: stamps both generation integers, so every file this engine saves is one its
         // own gate accepts. Writing rfl::json directly here would be a prefab the loader refuses.
         return WritePrefabJson( std::move( data ) );
@@ -98,7 +112,13 @@ namespace Desert::Assets
         if ( !text )
             return Common::MakeFormattedError<bool>( "prefab save of '{}' refused, the file is unchanged: {}",
                                                      file.string(), text.GetError() );
-        return Common::Utils::FileSystem::WriteContentToFileAtomic( file, text.GetValue() );
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( file, text.GetValue() );
+             !written )
+            return written;
+        // The row is re-described from the file just written, which is what carries the box it states into
+        // the registry now rather than at the next scan (the mesh cook's NoteFile, for the same reason).
+        ContentRegistry::NoteFile( file );
+        return BOOLSUCCESS;
     }
 
     void PrefabAsset::CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager )

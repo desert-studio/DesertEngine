@@ -14,7 +14,7 @@ namespace Desert::Editor::CloudThumbnail
      * @brief THE FOUR CLOUD FORMATS, PHOTOGRAPHED WITHOUT A CAMERA.
      *
      * WHY THIS IS NOT A SceneRenderer. Every thumbnail this editor made before it was an offscreen RENDER
-     * — a scene, a camera, a light, one of the six renderer slots (Engine/Core/RendererSlotPool.hpp) held
+     * — a scene, a camera, a light, a whole view's GPU memory (Graphic/ViewResources.hpp) held
      * for the ~370 ms the capture takes. That is the right answer for a material and for a mesh, because
      * what those look like is a question about shading and geometry that only the renderer can answer.
      *
@@ -59,7 +59,7 @@ namespace Desert::Editor::CloudThumbnail
      */
 
     /// The output PNG's side, in pixels. THE SAME NUMBER AssetThumbnailRenderer::kSize uses, and
-    /// deliberately not an independent choice: `ThumbnailCache::kThumbMaxDim` is the size every thumbnail
+    /// deliberately not an independent choice: `ThumbnailPixels::kMaxDim` is the size every thumbnail
     /// is uploaded at, so a picture written at any other size is either upscaled on screen or box-filtered
     /// away on every load. One size for every producer, so the grid cannot show two of them at two
     /// sharpnesses.

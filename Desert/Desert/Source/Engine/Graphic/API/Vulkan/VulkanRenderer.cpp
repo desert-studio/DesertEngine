@@ -300,6 +300,10 @@ namespace Desert::Graphic::API::Vulkan
                                vulkanPipeline->GetVkPipeline() );
             return true;
         }
+        // Still in the driver (PSO1): not an error, and not drawn. PipelineBuilds counts it and the
+        // content gate waits for it, so no gated frame is shown with this draw missing.
+        if ( vulkanPipeline->GetBuildState() == VulkanPipeline::BuildState::Compiling )
+            return false;
 
         // See the declaration: this is where "a shader that will not compile will not draw" stops being
         // a sentence in a log message and starts being what happens. The name is the pipeline's, because
@@ -771,10 +775,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
-        const VkResult idle = vkDeviceWaitIdle(
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice() );
-        if ( idle != VK_SUCCESS && !NoteIfDeviceLost( idle, "vkDeviceWaitIdle", __FILE__, __LINE__ ) )
-            LOG_ERROR( "[Renderer] vkDeviceWaitIdle failed: {}", VkResultToString( idle ) );
+        // Through the device, not vkDeviceWaitIdle here: it must hold the queue lock (VK1).
+        EngineContext::GetInstance().GetDevice()->WaitIdle();
     }
     std::shared_ptr<Framebuffer> VulkanRendererAPI::GetCompositeFramebuffer() const
     {

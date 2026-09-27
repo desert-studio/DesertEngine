@@ -342,7 +342,7 @@ TEST( AnimationClipFormat, ASkeletonStillStatingTheOldBoneIndexIsRefusedByName )
 // Until Д35 this suite could only test the direction that READS a `.anim`. The direction that writes one
 // lived inside SequencerPanel::SaveClipToDisk — a member of an ImGui panel — so the format's round trip
 // was an assumption, and the row Д31-D called its WORST was in the part no test could reach: the panel
-// did `out << Common::Json::Write( data )` with no check after it at all and returned the path as proof of
+// did `out << rfl::json::write( data )` with no check after it at all and returned the path as proof of
 // a save.
 
 namespace

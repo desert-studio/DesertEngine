@@ -29,6 +29,7 @@
 // load, a project with content is refused as if its registry were stale. The editor does this in
 // EditorLayer::OnCreate; a host that does not is a host that has not finished starting.
 
+#include <Common/Core/CrashHandler.hpp>
 #include <ToolMain.hpp>
 
 #include <Editor/Packaging/GamePackager.hpp>
@@ -111,6 +112,16 @@ int main( int argc, char** argv )
          "GamePackager", argc, argv,
          []( int count, char** args ) -> int
          {
+             // Installed here rather than in ToolMain.hpp: that header is deliberately
+             // dependency-free (six of the thirteen tools link nothing but a vendored stb), so the
+             // tools that DO link Common install their own. No project root - a packager is handed a
+             // descriptor path, so its reports go to the per-user crash folder.
+             Common::Crash::InstallOptions crashOptions;
+             crashOptions.hostName = "GamePackager";
+             if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+                  !installed.IsSuccess() )
+                 return Fail( "crash handler: " + installed.GetError() );
+
              if ( count < 2 )
                  return Usage();
 

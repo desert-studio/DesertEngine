@@ -30,5 +30,16 @@ namespace Desert::Core::Preprocess
 
         static Core::Formats::ShaderProgramMeta ParseProgramMetaForPass( const std::string& source,
                                                                          const std::string& passName );
+
+        // Both of the above from ONE parse. A shader-map miss needs the pass's metadata and its stages
+        // together, and asking the two functions separately parsed the whole DShader twice — half of
+        // the cold start's preprocess time (AL1-12a).
+        struct PreprocessedPass
+        {
+            Core::Formats::ShaderProgramMeta                            Meta;
+            std::unordered_map<Core::Formats::ShaderStage, std::string> Stages;
+        };
+        static PreprocessedPass PreProcessPass( const std::string& source, const std::filesystem::path& basePath,
+                                                const std::string& passName );
     };
 } // namespace Desert::Core::Preprocess

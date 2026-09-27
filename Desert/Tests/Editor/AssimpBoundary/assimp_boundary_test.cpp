@@ -226,7 +226,7 @@ TEST( AssimpBoundary, NoBuildFileCarriesAToolsetNameInsideALibraryName )
             buildFiles.push_back( file );
         }
     }
-    for ( const char* file : { "premake5.lua", "Makefile" } )
+    for ( const char* file : { "premake5.lua", "build/Projects/Makefile" } )
     {
         if ( std::filesystem::exists( root / file ) )
         {

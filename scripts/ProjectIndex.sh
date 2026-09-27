@@ -23,13 +23,13 @@ WHAT="${1:-all}"
 section() { printf '\n== %s ==\n' "$1"; }
 
 if [ "$WHAT" = all ] || [ "$WHAT" = suites ]; then
-    section "TEST SUITES (from the root Makefile's own PROJECTS, never from *.make)"
+    section "TEST SUITES (from build/Projects/Makefile's own PROJECTS, never from *.make)"
     # *.make would include orphans premake never deletes; that cost a false BUILD-FAIL and, in the
     # tidy gate, a whole dead run.
-    if [ -f Makefile ]; then
+    if [ -f build/Projects/Makefile ]; then
         TMPLIST="$(mktemp -t projectindex)"
         TOOLS="|$(ls Tools | tr '\n' '|')"
-        sed -n 's/^PROJECTS := //p' Makefile | tr ' ' '\n' | while read -r p; do
+        sed -n 's/^PROJECTS := //p' build/Projects/Makefile | tr ' ' '\n' | while read -r p; do
             [ -n "$p" ] || continue
             case "$p" in Desert|Common|Editor|Runtime|GLFW|ImGui*|imgui-node-editor|yaml-cpp|Jolt|Lua|Optick|MeshOptimizer|Dlib|ReflectCpp|Assimp|GoogleTest|BuildAllTests|RunAllTests) continue;; esac
             case "$TOOLS" in *"|$p|"*) continue;; esac
@@ -44,7 +44,7 @@ if [ "$WHAT" = all ] || [ "$WHAT" = suites ]; then
         printf '\n  count: %s   (test suites only — libraries, Tools/ and the aggregate targets are excluded)\n' "$(grep -c . "$TMPLIST")"
         rm -f "$TMPLIST"
     else
-        echo "  no Makefile — run: CI=true premake5 gmake"
+        echo "  no build/Projects/Makefile — run: CI=true premake5 gmake"
     fi
 fi
 
@@ -62,7 +62,7 @@ fi
 if [ "$WHAT" = all ] || [ "$WHAT" = gates ]; then
     section "GATES, and the exit codes that are the interface"
     cat <<'TXT'
-  build       make Desert config=debug -j8 ; make Editor config=debug -j8
+  build       make -C build/Projects Desert config=debug -j8 ; make -C build/Projects Editor config=debug -j8
               new files first: CI=true premake5 gmake
 
   sweep       recipe in .claude/skills/desert-engine-verify §3, verbatim

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 #include <cstddef>
+#include <mutex>
 #include <unordered_map>
 
 namespace Desert::Graphic::API::Vulkan
@@ -24,6 +25,26 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkResult> RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer );
         Common::ResultStr<VkResult> RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer );
         Common::ResultStr<VkResult> RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer );
+
+        /// A one-off graphics submission that nobody waited for: the buffer, the pool that allocated it and
+        /// the fence its completion signals. The buffer is freed only by RT_ReleaseSubmitted.
+        struct Submitted
+        {
+            VkCommandBuffer Buffer = VK_NULL_HANDLE;
+            VkCommandPool   Pool   = VK_NULL_HANDLE;
+            VkFence         Fence  = VK_NULL_HANDLE;
+        };
+
+        /// Ends and submits @p commandBuffer on the graphics queue WITHOUT waiting for it — the caller polls
+        /// IsComplete() on later frames. The flush above blocks the calling thread until the GPU is done,
+        /// which is what made a thumbnail readback a main-thread stall (TH3).
+        Common::ResultStr<Submitted> RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer );
+
+        /// True once the submission's fence has signalled. Never blocks.
+        [[nodiscard]] bool IsComplete( const Submitted& submitted ) const;
+
+        /// Waits for the fence (normally already signalled), then frees the buffer and destroys the fence.
+        void RT_ReleaseSubmitted( const Submitted& submitted );
 
         /// Destroys the nine command pools, and with them every command buffer ever allocated from one.
         /// EXPLICIT, because this object is a Common::Singleton: its unique_ptr is a namespace-scope
@@ -48,6 +69,14 @@ namespace Desert::Graphic::API::Vulkan
     private:
         /// Frees @p commandBuffer from the pool it was actually allocated from, after its fence.
         Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue );
+        /// vkAllocateCommandBuffers and the pool record, under m_PoolMutex.
+        VkResult AllocateOneShot( const VkCommandBufferAllocateInfo& allocateInfo,
+                                  VkCommandBuffer&                   commandBuffer );
+
+        /// GUARDS m_OneShotPools AND vkAllocate/vkFreeCommandBuffers on the nine pools. One-off uploads are
+        /// flushed from whichever thread creates the texture or mesh; an unordered_map written from two
+        /// threads is undefined behaviour, and a VkCommandPool must be externally synchronised as well.
+        mutable std::mutex m_PoolMutex;
 
         /// WHICH POOL EACH ONE-OFF BUFFER CAME FROM. Not recomputed at flush time from the current frame
         /// index, which is what the three Flush functions used to do: the index can advance between the
@@ -65,5 +94,8 @@ namespace Desert::Graphic::API::Vulkan
         VkQueue m_TransferOpsQueue;
 
         VkDevice m_LogicalDevice;
+        /// The owner of the queues, for SubmitToQueue. Outlives this allocator: VulkanContext::Shutdown
+        /// destroys the allocator while the device is still alive.
+        const VulkanLogicalDevice* m_Device = nullptr;
     };
 } // namespace Desert::Graphic::API::Vulkan

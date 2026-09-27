@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Reflection.gen.cpp is written by DesertHeaderTool, which runs as a PREBUILD STEP OF `Desert` — so
     -- without this the parallel build can compile the table for this test before the codegen has rewritten
@@ -18,27 +18,27 @@ project(test_name)
     -- namespace, and Reflection.gen.cpp + the registry are the only two translation units they need.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         -- The cloud packer takes a cloud TYPE's twelve numbers as an argument now, and the payload tests
         -- drive it with the built-in default: the shape an empty slot resolves to lives here.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
         -- THE WRITER AND THE READER OF A `.desce`'s COMPONENT BLOCK, because a census of what a component
         -- EXPOSES is only half of §1.3 if nothing checks that the exposed value comes back. У13 shipped
         -- five fields that were authored in Details and silently never saved, and no suite in this tree
         -- round-trips a real component through this path — ReflectionSerializer next door builds its
         -- TypeInfo by hand, so it proves the mechanism and never the table. It brings nothing with it: no
         -- GPU, no asset layer, no filesystem.
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/", -- Components.hpp is an entt registry away
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- ReflectionTypes.hpp -> <rflcpp/rfl/Generic.hpp>
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/", -- Components.hpp is an entt registry away
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- ReflectionTypes.hpp -> <rflcpp/rfl/Generic.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -65,10 +65,6 @@ project(test_name)
     -- Common: the generated table default-constructs an AssetHandle, which is a Common::UUID.
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

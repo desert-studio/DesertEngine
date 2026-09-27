@@ -9,6 +9,18 @@
 
 namespace Desert::Graphic
 {
+    void Texture2D::ReleaseImage()
+    {
+        if ( m_Service != nullptr )
+            m_Service->Unregister( m_Handle );
+    }
+
+    void Texture2D::AdoptImage( std::shared_ptr<Image2D>&& image )
+    {
+        m_Service = Runtime::ResourceRegistry::GetImageService();
+        m_Handle  = m_Service->Register( std::move( image ), Runtime::ImageHandle::Type::Image2D );
+    }
+
     Common::ResultStr<std::shared_ptr<Texture2D>>
     Texture2D::CreateFromAsset( const std::filesystem::path& cookedPath )
     {
@@ -66,8 +78,7 @@ namespace Desert::Graphic
                  data.Width, data.Height, data.Levels.size() );
         }
 
-        texture->m_Handle = Runtime::ResourceRegistry::GetImageService()->Register(
-             std::move( image ), Runtime::ImageHandle::Type::Image2D );
+        texture->AdoptImage( std::move( image ) );
         return Common::MakeSuccess( texture );
     }
 
@@ -90,8 +101,7 @@ namespace Desert::Graphic
             .Usage      = Core::Formats::Image2DUsage::Image2D,
             .Properties = Core::Formats::Sample };
 
-        texture->m_Handle = Runtime::ResourceRegistry::GetImageService()->Register(
-             Image2D::Create( imageSpec ), Runtime::ImageHandle::Type::Image2D );
+        texture->AdoptImage( Image2D::Create( imageSpec ) );
         return Common::MakeSuccess( texture );
     }
 

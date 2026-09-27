@@ -5,7 +5,9 @@
 // metadata) into Desert::Reflection::ReflectionRegistry at static-init time.
 //
 // Usage:
-//   DesertHeaderTool <source-root> <output-file> [scan-subdir]
+//   DesertHeaderTool --templates <dir> <source-root> <output-file> [scan-subdir]
+//     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates); the entry
+//                    is Reflection.gen.cpp.tpl. Required: the emitted text lives only there.
 //     <source-root>  include root (e.g. Desert/Desert/Source). #include paths in the generated
 //                    file are computed relative to this.
 //     <output-file>  path of the generated .cpp (e.g. .../Source/Engine/Generated/Reflection.gen.cpp)
@@ -15,6 +17,8 @@
 // tool reads them. See Engine/Reflection/ReflectionMacros.hpp.
 
 #include <algorithm>
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Template.hpp>
 #include <ToolMain.hpp>
 
 #include <cctype>
@@ -739,150 +743,135 @@ namespace
 
     // --------------------------------------------------------------------- generator
 
-    void EmitMetadata( std::ostream& o, const Metadata& m )
+    // The text lives in Templates/*.tpl; this is only the data they are rendered against. A property enters the
+    // `meta` object only when it is set, so a template's `{% if f.meta.x %}` is the whole emission rule.
+    Common::Json::Value MetadataModel( const Metadata& m )
     {
-        o << "PropertyMetadata{ ";
-        if ( !m.displayName.empty() ) o << ".DisplayName = \"" << m.displayName << "\", ";
-        if ( !m.category.empty() )    o << ".Category = \"" << m.category << "\", ";
-        // Designated initializers must follow declaration order (DisplayName, Category, Tooltip, Header, ...).
-        if ( !m.tooltip.empty() )     o << ".Tooltip = \"" << m.tooltip << "\", ";
-        if ( !m.header.empty() )      o << ".Header = \"" << m.header << "\", ";
-        if ( m.hasRange ) o << ".HasRange = true, .RangeMin = " << m.rangeMin << ", .RangeMax = " << m.rangeMax << ", ";
-        if ( m.isColor )  o << ".IsColor = true, ";
-        if ( m.isAsset )  o << ".IsAsset = true, .AssetType = \"" << m.assetType << "\", ";
-        if ( m.thumbnail ) o << ".Thumbnail = true, ";
-        if ( m.readOnly )  o << ".ReadOnly = true, ";
-        if ( m.hidden )    o << ".Hidden = true, ";
-        if ( m.isLength )
-            o << ".IsLength = true, ";
-        if ( !m.units.empty() )
-            o << ".Units = \"" << m.units << "\", ";
-        if ( m.advanced )
-            o << ".Advanced = true, ";
-        if ( m.summary )
-            o << ".Summary = true, ";
-        if ( m.temperature )
-            o << ".Temperature = true, ";
-        if ( m.preview )
-            o << ".Preview = true, ";
-        if ( !m.editCondition.empty() )
-            o << ".EditCondition = \"" << m.editCondition << "\", ";
-        o << "}";
+        Common::Json::ObjectBuilder b;
+        const auto                  text = [&b]( std::string_view key, const std::string& value )
+        {
+            if ( !value.empty() )
+                b.Set( key, value );
+        };
+        const auto flag = [&b]( std::string_view key, bool value )
+        {
+            if ( value )
+                b.Set( key, true );
+        };
+        text( "displayName", m.displayName );
+        text( "category", m.category );
+        text( "tooltip", m.tooltip );
+        text( "header", m.header );
+        if ( m.hasRange )
+            b.Set( "hasRange", true ).Set( "rangeMin", m.rangeMin ).Set( "rangeMax", m.rangeMax );
+        flag( "isColor", m.isColor );
+        if ( m.isAsset )
+            b.Set( "isAsset", true ).Set( "assetType", m.assetType );
+        flag( "thumbnail", m.thumbnail );
+        flag( "readOnly", m.readOnly );
+        flag( "hidden", m.hidden );
+        flag( "isLength", m.isLength );
+        text( "units", m.units );
+        flag( "advanced", m.advanced );
+        flag( "summary", m.summary );
+        flag( "temperature", m.temperature );
+        flag( "preview", m.preview );
+        text( "editCondition", m.editCondition );
+        return b.Build();
     }
 
-    // Emits `.IsContainer = true` + typed serialize/deserialize lambdas for a std::vector<...> field.
-    // Uses decltype( T::field ) so the exact vector type never has to be re-spelled here.
-    void EmitContainerLambdas( std::ostream& o, const Field& f )
+    Common::Json::Value FieldModel( const Field& f )
     {
-        // An asset handle is stored as its 64-bit id; every other element type as itself. Both halves live in
-        // ReflectionSerializer.hpp, where the reader applies the wrong-type rule.
-        const std::string vector = "decltype( T::" + f.name + " )";
-        const std::string stored = f.elemFieldType == "AssetHandle" ? vector + ", std::uint64_t" : vector;
-        o << ", .IsContainer = true"
-          << ", .SerializeContainer = ::Desert::Reflection::WriteContainer<" << stored << ">"
-          << ", .DeserializeContainer = ::Desert::Reflection::ReadContainer<" << stored << ">";
+        Common::Json::ObjectBuilder b;
+        b.Set( "name", f.name )
+             .Set( "fieldType", f.fieldType )
+             .Set( "cppType", f.cppType )
+             .Set( "meta", MetadataModel( f.meta ) );
+        if ( f.fieldType == "Enum" && !f.enumValues.empty() )
+        {
+            Common::Json::Value::Array values;
+            for ( const auto& [name, value] : f.enumValues )
+                values.emplace_back(
+                     Common::Json::ObjectBuilder().Set( "name", name ).Set( "value", value ).Build() );
+            b.Set( "enumValues", Common::Json::Value( std::move( values ) ) );
+        }
+        if ( f.isContainer )
+            b.Set( "isContainer", true ).Set( "elemFieldType", f.elemFieldType );
+        return b.Build();
     }
 
-    void Generate( std::ostream& o, const std::vector<ReflectedType>& types )
+    Common::Json::Value ReflectionModel( const std::vector<ReflectedType>& types )
     {
-        o << "// AUTO-GENERATED by DesertHeaderTool. DO NOT EDIT.\n";
-        o << "// Regenerated on every build from REFLECT()/PROPERTY() annotations.\n";
-        // The emitter's line wrapping is not clang-format-stable across versions (the CI gate runs a
-        // different clang-format than developers), so exclude the whole file from formatting. Keeps the
-        // "changed lines" format gate green when an enum/field change regenerates these long initializers.
-        o << "// clang-format off\n";
-        // AND OUT OF THE ANALYSER FOR THE SAME REASON, one level up. The clang-tidy gate checks CHANGED
-        // LINES, and every line of this file changes whenever anybody adds a PROPERTY — so a diagnostic
-        // here is reported against a developer who did not write the line and cannot fix it in place: the
-        // file's own first line says DO NOT EDIT, and the next build would overwrite the fix anyway. The
-        // finding belongs to THIS emitter, which is analysed on its own like any other source.
-        //
-        // Measured 2026-09-14, adding two reflected components: the gate reported `bugprone-sizeof-
-        // container` on every `sizeof( T::<a std::string field> )` and `clang-diagnostic-missing-field-
-        // initializers` on every designated initializer that omits an optional member of PropertyMetadata
-        // — hundreds of them, none about the change that triggered them. The sizeof one is worth reading
-        // rather than only silencing: `FieldInfo::Size` for a string field is sizeof(std::string) and not
-        // the text's length, which is what the serializer wants, but nothing states that.
-        o << "// NOLINTBEGIN\n\n";
-        o << "#include <Engine/Reflection/TypeRegistrar.hpp>\n";
-        o << "#include <Engine/Reflection/ReflectionRegistry.hpp>\n";
-        o << "#include <Engine/Reflection/ReflectionSerializer.hpp>\n";
-        o << "#include <cstddef>\n";
-        o << "#include <cstdint>\n";
-        o << "#include <string>\n";
-        o << "#include <type_traits>\n";
-        o << "#include <vector>\n\n";
-
-        // unique includes
+        // Each header is included once, in first-use order.
         std::vector<std::string> includes;
         for ( const auto& t : types )
             if ( std::find( includes.begin(), includes.end(), t.headerInclude ) == includes.end() )
                 includes.push_back( t.headerInclude );
-        for ( const auto& inc : includes )
-            o << "#include <" << inc << ">\n";
+        Common::Json::Value::Array includeValues( includes.begin(), includes.end() );
 
-        o << "\nnamespace\n{\n";
-        o << "    struct DesertReflectionAutoRegister\n    {\n";
-        o << "        DesertReflectionAutoRegister()\n        {\n";
-        o << "            using namespace ::Desert::Reflection;\n";
-
+        Common::Json::Value::Array typeValues;
         for ( const auto& t : types )
         {
-            o << "            {\n";
-            o << "                using T = ::" << t.fqn << ";\n";
-            o << "                TypeBuilder( \"" << t.registryName << "\", sizeof( T ) )\n";
+            Common::Json::Value::Array fields;
             for ( const auto& f : t.fields )
-            {
-                o << "                    .Field( FieldInfo{ " << ".Name = \"" << f.name << "\", "
-                  << ".Type = FieldType::" << f.fieldType << ", " << ".Offset = offsetof( T, " << f.name
-                  << " ), "
-                  // FieldFootprint<decltype(...)>() and not sizeof(...): see the note on the function.
-                  << ".Size = ::Desert::Reflection::FieldFootprint<decltype( T::" << f.name << " )>(), "
-                  << ".TypeName = \"" << f.cppType << "\", " << ".Meta = ";
-                EmitMetadata( o, f.meta );
-                if ( f.fieldType == "Enum" && !f.enumValues.empty() )
-                {
-                    o << ", .EnumValues = { ";
-                    for ( const auto& [vname, vval] : f.enumValues )
-                        o << "EnumValue{ \"" << vname << "\", " << vval << " }, ";
-                    o << "}";
-                }
-                if ( f.isContainer )
-                    EmitContainerLambdas( o, f );
-                o << " } )\n";
-            }
-            // Capture a default-constructed instance so the editor can offer reset-to-default per field.
-            o << "                    .WithDefault<T>()\n";
-            o << "                    .Register();\n";
-            o << "            }\n";
+                fields.push_back( FieldModel( f ) );
+            typeValues.emplace_back( Common::Json::ObjectBuilder()
+                                          .Set( "fqn", t.fqn )
+                                          .Set( "registryName", t.registryName )
+                                          .Set( "fields", Common::Json::Value( std::move( fields ) ) )
+                                          .Build() );
         }
+        return Common::Json::ObjectBuilder()
+             .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
+             .Set( "types", Common::Json::Value( std::move( typeValues ) ) )
+             .Build();
+    }
 
-        o << "            ReflectionRegistry::Get().ResolveStructLinks();\n";
-        o << "        }\n";
-        o << "    } g_DesertReflectionAutoRegister;\n";
-        o << "}\n\n";
-
-        // Force-link anchor: this TU lives in a static lib, so its static initializer (the registrar
-        // above) is only pulled into the final image if a symbol from it is referenced. Engine startup
-        // calls this no-op to guarantee the registrations actually run.
-        o << "namespace Desert::Reflection\n{\n";
-        o << "    void ForceLinkGeneratedReflection() {}\n";
-        o << "}\n";
-        o << "// NOLINTEND\n";
+    // Every *.tpl in `dir` under its file name, so `{% include "Field.tpl" %}` resolves inside the same set.
+    // No directory, no entry template or a template that does not compile is an error with the path.
+    Common::ResultStr<std::string> RenderReflection( const fs::path& dir, const std::vector<ReflectedType>& types )
+    {
+        constexpr std::string_view entry = "Reflection.gen.cpp.tpl";
+        if ( !fs::is_directory( dir ) )
+            return Common::MakeError<std::string>( "template directory does not exist: " + dir.string() );
+        Common::Text::TemplateSet set;
+        for ( const auto& file : fs::directory_iterator( dir ) )
+        {
+            if ( !file.is_regular_file() || file.path().extension() != ".tpl" )
+                continue;
+            if ( auto added = set.Add( file.path().filename().string(), ReadFile( file.path() ) );
+                 !added.IsSuccess() )
+                return Common::MakeError<std::string>( file.path().string() + ": " + added.GetError() );
+        }
+        const Common::Text::Template* root = set.Find( entry );
+        if ( root == nullptr )
+            return Common::MakeError<std::string>( "entry template missing: " + ( dir / entry ).string() );
+        const Common::Json::Value model = ReflectionModel( types );
+        return Common::Text::Render( *root, Common::Json::Root( model ), set.Loader() );
     }
 } // namespace
 
 static int RunTool( int argc, char** argv )
 {
-    if ( argc < 3 )
+    std::optional<fs::path>  templateDir;
+    std::vector<std::string> positional;
+    for ( int i = 1; i < argc; ++i )
     {
-        std::cerr << "Usage: DesertHeaderTool <source-root> <output-file> [scan-subdir]\n";
+        const std::string_view arg = argv[i];
+        if ( arg == "--templates" && i + 1 < argc )
+            templateDir = argv[++i];
+        else
+            positional.emplace_back( arg );
+    }
+    if ( !templateDir || positional.size() < 2 || positional.size() > 3 )
+    {
+        std::cerr << "Usage: DesertHeaderTool --templates <dir> <source-root> <output-file> [scan-subdir]\n";
         return 1;
     }
 
-    fs::path sourceRoot = argv[1];
-    fs::path outputFile = argv[2];
-    fs::path scanRoot   = ( argc >= 4 ) ? ( sourceRoot / argv[3] ) : sourceRoot;
+    const fs::path sourceRoot = positional[0];
+    const fs::path outputFile = positional[1];
+    const fs::path scanRoot   = positional.size() == 3 ? ( sourceRoot / positional[2] ) : sourceRoot;
 
     if ( !fs::exists( scanRoot ) )
     {
@@ -914,11 +903,15 @@ static int RunTool( int argc, char** argv )
     for ( const auto& h : headers )
         ParseFile( h, sourceRoot, types, enums );
 
-    std::ostringstream gen;
-    Generate( gen, types );
+    auto rendered = RenderReflection( *templateDir, types );
+    if ( !rendered.IsSuccess() )
+    {
+        std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
+        return 1;
+    }
 
     // Only rewrite when content changed — avoids needless recompiles of the generated TU.
-    std::string newContent = gen.str();
+    const std::string newContent = rendered.ExtractValue();
     if ( fs::exists( outputFile ) && ReadFile( outputFile ) == newContent )
     {
         std::cout << "[DesertHeaderTool] up to date (" << types.size() << " reflected types, "

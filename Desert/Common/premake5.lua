@@ -36,14 +36,15 @@ project "Common"
     -- Windows keeps the ordinary `prebuildcommands`, which is also the only one of the two that MSBuild
     -- understands — `makesettings` is a make-exporter setting and the vs2022 exporter ignores it.
     filter "system:not windows"
-        makesettings [[
-DESERT_VERSION_LOG := $(shell bash ./scripts/GenVersion.sh)
+        -- The script path is absolute: since the makefiles moved to build/Projects, make runs there, and
+        -- the old `./scripts/GenVersion.sh` failed silently inside $(shell) — the header stopped updating.
+        makesettings( 'DESERT_VERSION_LOG := $(shell bash "' .. _MAIN_SCRIPT_DIR .. '/scripts/GenVersion.sh")\n' .. [[
 ifneq (,$(DESERT_VERSION_LOG))
   $(info $(DESERT_VERSION_LOG))
 endif
-]]
+]] )
     filter "system:windows"
-        prebuildcommands { 'call "%{wks.location}\\scripts\\Windows\\GenVersion.bat"' }
+        prebuildcommands { 'call "%{_MAIN_SCRIPT_DIR}\\scripts\\Windows\\GenVersion.bat"' }
     filter {}
 
     files {
@@ -53,8 +54,8 @@ endif
         -- for the engine and the launcher); the ENGINE compiles it into Common, the launcher
         -- compiles the same file itself. Missing file here means an uninitialized submodule:
         -- `git submodule update --init ThirdParty/desert-shared`.
-        "%{wks.location}/ThirdParty/desert-shared/Source/ProjectFormat.cpp",
-        "%{wks.location}/ThirdParty/desert-shared/Source/EngineRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Source/ProjectFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Source/EngineRegistry.cpp",
     }
 
     includedirs {
@@ -107,6 +108,11 @@ endif
 
     filter { "system:windows" }
         defines { "DESERT_PLATFORM_WINDOWS" }
+        -- dbghelp is the Windows crash handler's only extra dependency (MiniDumpWriteDump,
+        -- StackWalk64, SymFromAddr — Common/Core/CrashHandler.cpp). Declared HERE and not in each
+        -- host for the same reason reflect-cpp is declared here: the reference lives in Common, and a
+        -- tool that links Common must not have to know what Common needs underneath it.
+        links { "dbghelp" }
         files {
             "Source/Common/Platform/Windows/**.cpp",
             "Source/Common/Platform/Windows/**.hpp",

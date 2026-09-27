@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "MaterialsPanelComponent.hpp"
 #include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
@@ -39,6 +40,7 @@
 #include <chrono>
 #include <filesystem>
 #include <system_error>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -756,8 +758,10 @@ namespace Desert::Editor
                 row.HasOwnSlot = hasOwnSlot;
                 row.IsInstance = isInstanceAsset;
 
-                std::string      dropped;
-                const SlotAction action = DrawSlotRow( row, dropped );
+                std::string dropped;
+                SlotAction  action = DrawSlotRow( row, dropped );
+                if ( TakeDetailsPickerRequest( "Material slot " + std::to_string( i ) ) )
+                    action = SlotAction::Pick;
 
                 // Drop an existing material asset on the row to assign it (creates the slot if needed).
                 if ( !dropped.empty() )
@@ -824,6 +828,15 @@ namespace Desert::Editor
                     materialFilter.Draw( "##search", 200.0f );
                     ImGui::Separator();
 
+                    // A list of fixed height that scrolls, not a popup as tall as the project's material count:
+                    // with ~120 materials the popup outgrew the editor window, and with multi-viewports an
+                    // overflowing popup becomes its own OS window (measured: 480x876 at y=49 over an 882-tall
+                    // editor), clamped to the monitor and away from the slot that opened it.
+                    constexpr float kPickerRows = 14.0f;
+                    ImGui::BeginChild( "##materials",
+                                       ImVec2( ImGui::GetFontSize() * 20.0f,
+                                               ImGui::GetTextLineHeightWithSpacing() * kPickerRows ) );
+
                     if ( hasOwnSlot && ImGui::Selectable( "None (use the engine default)" ) )
                     {
                         ( *host.Slots )[i] = Common::UUID::Null();
@@ -832,11 +845,11 @@ namespace Desert::Editor
 
                     if ( m_AssetManager )
                     {
-                        for ( const auto& [candidate, matAsset] :
-                              m_AssetManager->FindAllByType<Assets::SurfaceMaterialAsset>() )
+                        for ( const auto& row :
+                              Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
                         {
-                            const std::string matName =
-                                 std::filesystem::path( matAsset->GetMetadata().Filepath ).stem().string();
+                            const Common::AssetHandle candidate = row.Handle;
+                            const std::string         matName   = ::Desert::Editor::PickerDisplayName( row );
                             if ( !materialFilter.PassFilter( matName.c_str() ) )
                                 continue;
                             if ( ImGui::Selectable( matName.c_str(), candidate == handle ) )
@@ -847,6 +860,7 @@ namespace Desert::Editor
                             }
                         }
                     }
+                    ImGui::EndChild();
                     ImGui::EndPopup();
                 }
 

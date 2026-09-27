@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- One unit under test — the `.decloudtype` format — and one body of CONTENT: the nine shipped presets,
     -- which this suite opens off the disk rather than embedding. Embedding them would be a third statement
@@ -22,28 +22,28 @@ project(test_name)
     -- claim the format makes.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         -- The PRODUCER, because "what this type puts in the sky" is what it places and no longer what a
         -- curve in a header said it would. The anchor is the shipped library either way; what moved is
         -- the instrument it is measured with.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp",
         -- The painted layout: CloudProceduralVolume.cpp reads it to decide a cell's coverage, so
         -- everything that compiles the bake compiles this too. It brings nothing with it -- no asset
         -- layer, no GPU, no filesystem -- which is the property that makes adding one line enough.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
     }
 
     -- The SHADER ROOT is here so that Common/CloudGeometry.glslh — the march's step schedule — can be
     -- compiled as C++ beside the library it has to agree with (CloudScheduleReference.hpp).
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the file is rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the file is rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -74,10 +74,6 @@ project(test_name)
     -- carries Objective-C (MacOSFileSystem's dialogs): the ObjC runtime + AppKit link too.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
-    filter {}
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
     filter {}
 
     filter "configurations:Debug"

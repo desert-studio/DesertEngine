@@ -38,8 +38,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -100,22 +99,20 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
-        auto data =
-             rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        return data.has_value() ? data.value().Bones : std::vector<BoneInfo>{};
+        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
+        return data.IsSuccess() ? data.GetValue().Bones : std::vector<BoneInfo>{};
     }
 
     Desert::Animation::AnimationClip ClipFrom( const char* path )
     {
         const std::string raw = ReadFile( RepoRoot() + path );
         EXPECT_FALSE( raw.empty() ) << "could not read " << path;
-        const auto data =
-             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        if ( !data.has_value() )
+        const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << path << ": " << data.GetError();
+        if ( !data.IsSuccess() )
             return {};
-        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.value() );
+        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
         EXPECT_TRUE( built.IsSuccess() ) << ( built.IsSuccess() ? "" : built.GetError() );
         if ( !built.IsSuccess() )
             return {};

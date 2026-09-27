@@ -5,6 +5,9 @@
 // editor -- so a fixture that wants StaticMeshAsset to load chosen render data stores both halves itself, which
 // is exactly what the cook leaves behind for a game.
 
+#include "derived_data_sandbox.hpp"
+
+#include <optional>
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
@@ -65,4 +68,27 @@ namespace Desert::TestSupport
         }
         return Common::DDC::PathFor( Assets::kMeshDeriver, key );
     }
+
+    // A cooked mesh's render form lives in the DDC, and none of the suites that write one opens a project, so
+    // the cache would have no root and Put refuses (it used to land in <cwd>/DerivedDataCache — the tree root
+    // under handoff_check). Including this header gives the whole run one throwaway cache.
+    class CookedMeshDerivedDataEnvironment final : public ::testing::Environment
+    {
+    public:
+        void SetUp() override
+        {
+            m_Sandbox.emplace( "CookedStaticMesh" );
+        }
+        void TearDown() override
+        {
+            m_Sandbox.reset();
+        }
+
+    private:
+        std::optional<DerivedDataSandbox> m_Sandbox;
+    };
+
+    // gtest owns the environment it is handed.
+    inline ::testing::Environment* const g_CookedMeshDerivedData = ::testing::AddGlobalTestEnvironment(
+         new CookedMeshDerivedDataEnvironment ); // NOLINT(cppcoreguidelines-owning-memory)
 } // namespace Desert::TestSupport

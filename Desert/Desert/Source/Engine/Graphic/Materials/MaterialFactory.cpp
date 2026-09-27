@@ -51,6 +51,16 @@ namespace Desert::Graphic
                 return;
             }
 
+            // PENDING IS NOT MISSING (AL1-4): the texture is being read. The slot shows its default until
+            // it lands, and the texture service invalidates this material then, so it is rebuilt bound.
+            if ( auto* textures = Runtime::ResourceRegistry::GetTextureService();
+                 textures->Require( handle ).IsPending() )
+            {
+                material.BindSchemaDefaultTexture( shaderName );
+                textures->RebuildWhenReady( handle, asset.GetMetadata().Handle );
+                return;
+            }
+
             // The handle names a texture nobody has: the slot falls back to its schema default so the
             // surface at least shows what an EMPTY slot shows, rather than the previous material's map.
             // The error below is what says the difference out loud.
@@ -132,6 +142,15 @@ namespace Desert::Graphic
             if ( img )
             {
                 material.SetTexture( param.Name, img );
+                continue;
+            }
+
+            // Pending, not missing: the shader's empty-slot value until the texture lands (see above).
+            if ( auto* textures = Runtime::ResourceRegistry::GetTextureService();
+                 textures->Require( Common::UUID( handle ) ).IsPending() )
+            {
+                material.SetTexture( param.Name, nullptr );
+                textures->RebuildWhenReady( Common::UUID( handle ), asset.GetMetadata().Handle );
                 continue;
             }
 

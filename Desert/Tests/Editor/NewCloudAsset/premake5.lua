@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The unit under test is Editor/.../FileExplorer/NewCloudAsset.cpp — WHAT a freshly created cloud
     -- asset contains. It is a separate translation unit from FileExplorerPanel.cpp for exactly this
@@ -19,30 +19,30 @@ project(test_name)
     -- volume through the AssetManager), so AssetManager.cpp and the mesh asset it names come with it.
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp",
 
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeGenerator.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeGenerator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
 
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
     }
 
     -- The SHADER ROOT is on the path because CloudNoiseVolumeGenerator.cpp compiles
     -- Editor/Resources/Shaders/Common/CloudNoise.glslh AS C++ — the same arithmetic the march runs.
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Source", -- <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the `.decloudtype` is rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the `.decloudtype` is rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -74,10 +74,6 @@ project(test_name)
     -- lines, as Desert/Tests/Engine/AssetHandleStability.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
-    filter {}
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
     filter {}
 
     filter "configurations:Debug"

@@ -1,6 +1,7 @@
 #include "ThumbnailService.hpp"
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
@@ -13,6 +14,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
@@ -133,6 +135,9 @@ namespace Desert::Editor
 
     void ThumbnailService::Shutdown()
     {
+        // A worker decode must not outlive the process's teardown of the store it reports to.
+        ThumbnailPrefetch::Get().Clear();
+
         // THE PAINT QUEUE IS DRAINED FIRST AND UNCONDITIONALLY, and the "unconditionally" is the part
         // worth writing down: this function used to open with `if ( !m_Renderer ) return;`, on the sound
         // reasoning that a session which previewed nothing had nothing to release. That stopped being
@@ -159,7 +164,7 @@ namespace Desert::Editor
         if ( !m_Renderer )
             return;
 
-        // The queue goes first, so the state left behind is one a Tick() could legitimately act on rather
+        // The queue goes first, so the state left behind is one a TickCapture() could legitimately act on rather
         // than a half-cancelled capture: an in-flight PNG that no longer has a renderer behind it would be
         // reported as "never completed" by the give-up path if the service were ever ticked again.
         m_Queue.clear();
@@ -176,8 +181,8 @@ namespace Desert::Editor
         m_Renderer.reset();
         m_IdleTicks = 0;
 
-        LOG_INFO( "[Thumbnails] renderer released on shutdown ({}/{} renderer slots in use).",
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Thumbnails] renderer released on shutdown (views: {}).",
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     bool ThumbnailService::AcquireRenderer()
@@ -282,7 +287,12 @@ namespace Desert::Editor
              } );
     }
 
-    void ThumbnailService::Tick()
+    void ThumbnailService::TickDiskAndDecode()
+    {
+        ThumbnailPrefetch::Get().Tick();
+    }
+
+    void ThumbnailService::TickCapture()
     {
         // The slot-free half runs FIRST and unconditionally: every early return below is a statement
         // about a renderer, and a paint has no renderer to be blocked by. Putting it after them is how a
@@ -297,11 +307,20 @@ namespace Desert::Editor
         // is a cold cache doing its job, and "0, 0, 8" is the cache doing its job.
         if ( !HasWork() && ( m_Captured || m_Painted || m_Skipped ) )
         {
-            LOG_INFO( "[Thumbnails] queue drained: {} captured, {} painted, {} already fresh on disk.", m_Captured,
-                      m_Painted, m_Skipped );
+            const double runMs =
+                 m_RunBegan
+                      ? std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - *m_RunBegan )
+                             .count()
+                      : 0.0;
+            LOG_INFO( "[Thumbnails] queue drained: {} captured, {} painted, {} already fresh on disk; captures "
+                      "took {:.0f} ms from the first dispatch, longest wait on the budget {} frame(s).",
+                      m_Captured, m_Painted, m_Skipped, runMs, m_LongestBudgetWait );
             m_Captured = 0;
             m_Painted  = 0;
             m_Skipped  = 0;
+            m_RunBegan.reset();
+            m_BudgetWaitFrames  = 0;
+            m_LongestBudgetWait = 0;
         }
 
         // Nothing to preview this session -> never pay for the renderer (it owns a full SceneRenderer).
@@ -322,9 +341,8 @@ namespace Desert::Editor
                 // is what returns the slot.
                 m_Renderer.reset();
                 m_IdleTicks = 0;
-                LOG_INFO( "[Thumbnails] idle for {} frames — renderer released ({}/{} renderer slots in use).",
-                          kIdleTicksBeforeRelease, Graphic::SceneRenderer::GetLiveRendererCount(),
-                          EngineContext::kMaxRendererSlots );
+                LOG_INFO( "[Thumbnails] idle for {} frames — renderer released (views: {}).",
+                          kIdleTicksBeforeRelease, Graphic::SceneRenderer::DescribeLiveViews() );
             }
             return;
         }
@@ -333,7 +351,11 @@ namespace Desert::Editor
         if ( !m_Renderer && !AcquireRenderer() )
             return; // the queue is kept, not dropped: a slot freed later drains it
 
+        m_Budget.EndFrame();
+        const auto tickBegan = std::chrono::steady_clock::now();
         m_Renderer->Tick();
+        m_Budget.Spend(
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - tickBegan ).count() );
 
         // Settle the capture that was dispatched — the one still waited for, or one the give-up below
         // stopped waiting for and whose PNG the renderer wrote anyway (ThumbnailFreshness::Capture, TH1c).
@@ -385,11 +407,20 @@ namespace Desert::Editor
             return;
         }
 
+        // The previous capture's main-thread cost is repaid before the next one starts — for at most
+        // CaptureBudget::kMaxWaitFrames frames, so a queued request always progresses.
         if ( m_Renderer->HasPending() )
             return;
+        if ( !m_Budget.MayDispatch() )
+        {
+            if ( !m_Queue.empty() )
+                m_LongestBudgetWait = std::max( m_LongestBudgetWait, ++m_BudgetWaitFrames );
+            return;
+        }
+        m_BudgetWaitFrames = 0;
 
         // Drain anything the queue no longer owes. A request can sit here for seconds — the drain rate
-        // measured on this machine is one capture per ~2 s — and in that time the same asset may have been
+        // measured on this machine is one capture per ~0.35 s — and in that time the same asset may have been
         // captured through another entry (two panels showing one material), or the panel that asked may
         // have called Invalidate() and asked again, leaving a duplicate behind it. Dispatching those would
         // re-render a picture that is already correct, at full cost, one after another.
@@ -441,5 +472,7 @@ namespace Desert::Editor
 
         m_Capture.Begin( req.Identity, req.Png, req.Source );
         m_InFlightTicks = 0;
+        if ( !m_RunBegan )
+            m_RunBegan = std::chrono::steady_clock::now();
     }
 } // namespace Desert::Editor

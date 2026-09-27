@@ -6,6 +6,11 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Runtime/ImageHandle.hpp>
 
+namespace Desert::Runtime
+{
+    class ImageService;
+} // namespace Desert::Runtime
+
 namespace Desert::Graphic
 {
     class Texture
@@ -22,8 +27,30 @@ namespace Desert::Graphic
     class Texture2D final : public Texture
     {
     public:
-        Texture2D()          = default;
-        virtual ~Texture2D() = default;
+        Texture2D() = default;
+        // THE TEXTURE OWNS ITS IMAGE. Both factories register the image in the ImageService, and this is
+        // where it comes back out: before, the destructor was the default and nothing unregistered, so
+        // every asset texture, cooked panorama, GIF frame, video frame and BRDF LUT stayed resident until
+        // the process exited, and the one owner that did release (Render2D's white texture) had to say it
+        // by hand. The image's own destructor hands the VkImage to the allocator's deferred deletion
+        // queue, so dropping a texture mid-frame is safe -- the same rule as OwnedEnvironment.
+        //
+        // INLINE ON PURPOSE, the work out of line. An out-of-line destructor is this class's key
+        // function, so its typeinfo would be emitted in Texture.cpp alone -- and UBSan's `vptr` check
+        // references that typeinfo from every TU that calls a method through a Texture2D pointer
+        // (UICanvasRenderer2D), which then cannot link without the whole Texture.cpp. With no key
+        // function the typeinfo is emitted wherever it is used; the destructor body itself is emitted
+        // only where a Texture2D is constructed, which is Texture.cpp's factories.
+        ~Texture2D() override
+        {
+            ReleaseImage();
+        }
+
+        // One owner of the registration: a copy would unregister the same handle twice.
+        Texture2D( const Texture2D& )            = delete;
+        Texture2D& operator=( const Texture2D& ) = delete;
+        Texture2D( Texture2D&& )                 = delete;
+        Texture2D& operator=( Texture2D&& )      = delete;
 
         static constexpr Core::Formats::Image2DUsage Type = Core::Formats::Image2DUsage::Image2D;
 
@@ -64,8 +91,18 @@ namespace Desert::Graphic
                                                                      Core::Formats::ImagePixelData&& data );
 
     private:
+        // Registers `image` and records WHERE, so the destructor releases it from the same service.
+        void AdoptImage( std::shared_ptr<Image2D>&& image );
+        // Unregisters the image from the service AdoptImage recorded; nothing when none was registered.
+        void ReleaseImage();
+
         Runtime::ImageHandle m_Handle;
-        uint32_t             m_Width = 0, m_Height = 0;
+        // The service the image was registered in; null only while no image has been registered (a
+        // factory that refused before the upload), which is the one case with nothing to release.
+        // Not owned: the ImageService is a ResourceRegistry static constructed before any service that
+        // can hold a texture, so it outlives them all (ResourceRegistry.cpp, "CONSTRUCTED FIRST").
+        Runtime::ImageService* m_Service = nullptr;
+        uint32_t               m_Width = 0, m_Height = 0;
     };
 
 } // namespace Desert::Graphic

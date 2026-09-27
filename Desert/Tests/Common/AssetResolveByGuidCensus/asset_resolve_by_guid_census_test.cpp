@@ -128,9 +128,15 @@ namespace
         return std::nullopt;
     }
 
+    // The checkout root, found by walking up from the working directory (suites run from the root):
+    // __FILE__ is relative to wherever the project file sits (build/Projects), so it cannot name the tree,
+    // and a corpus that is not found silently turns every kind into a synthetic GUID-less fixture.
     fs::path RepoRoot()
     {
-        return fs::path( __FILE__ ).parent_path().parent_path().parent_path().parent_path().parent_path();
+        for ( fs::path prefix = "."; prefix.string().size() < 20; prefix /= ".." )
+            if ( fs::exists( prefix / "Editor" / "Resources" / "Assets" ) )
+                return prefix;
+        return {};
     }
 
     std::vector<char> ReadBytes( const fs::path& file )
@@ -386,6 +392,7 @@ namespace
 TEST( AssetResolveByGuidCensus, EveryKindSurvivesAMoveOrIsANamedRegisterRow )
 {
     const ProjectRootGuard guard;
+    ASSERT_FALSE( RepoRoot().empty() ) << "no Editor/Resources/Assets above the working directory";
     const fs::path         project = fs::temp_directory_path() / "AF10a_ResolveByGuid";
     fs::remove_all( project );
     fs::create_directories( project );

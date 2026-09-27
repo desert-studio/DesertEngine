@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Two units under test and no engine between them: the pure agreement maths
     -- (Engine/Assets/MaterialParamDiff.hpp) and the demo material table it is asked about
@@ -18,13 +18,13 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",        -- reached through the engine asset headers
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- rfl, under Common::Json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",        -- reached through the engine asset headers
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- rfl, under Common::Json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -53,10 +53,6 @@ project(test_name)
     links { "Common", "Optick" }
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
-    filter {}
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
     filter {}
 
     filter "configurations:Debug"

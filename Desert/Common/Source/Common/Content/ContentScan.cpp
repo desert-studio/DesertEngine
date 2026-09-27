@@ -7,10 +7,14 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <fstream>
+#include <optional>
 #include <span>
 #include <string>
 #include <cstdio>
@@ -222,18 +226,109 @@ namespace Common::Content
         }
     } // namespace
 
+    // A prefab's `Bounds` member (Engine PrefabData::Bounds / PrefabBoundsSer): two arrays of three,
+    // centimetres around the prefab's root. Only that member is read. Named, not anonymous: reflect-cpp
+    // counts the fields of a nested aggregate through a conversion that needs the type to have linkage.
+    namespace StatedMembers
+    {
+        struct StatedBox
+        {
+            std::array<float, 3> Min{};
+            std::array<float, 3> Max{};
+        };
+        struct StatedPrefabBounds
+        {
+            std::optional<StatedBox> Bounds;
+        };
+        DESERT_JSON_LENIENT( StatedPrefabBounds, "reads the one Bounds member of a whole prefab document; every "
+                                                 "other key is the rest of that prefab, not damage" )
+    } // namespace StatedMembers
+
+    namespace
+    {
+        // The string a JSON document states under its top-level `member`, or empty. The document is parsed as a
+        // generic tree and nothing is built from it — the asset stays unloaded; the files carrying a name are
+        // small documents (themes, rigs, retargets, graphs, cloud types).
+        // A skeleton's `Signature` member, which its cook writes from the bones (SkeletonAsset checks the
+        // loaded bones against it). Only that member is read; 0 when the document states none or is unreadable.
+        struct StatedRig
+        {
+            uint64_t Signature = 0;
+        };
+        DESERT_JSON_LENIENT( StatedRig, "reads the one Signature member of a whole skeleton document; every other "
+                                        "key is the rest of that skeleton, and a document stating none reads 0" )
+        uint64_t StatedRigSignature( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return 0;
+            const auto document = Json::Read<StatedRig>( text.GetValue() );
+            return document ? document.GetValue().Signature : 0;
+        }
+
+        ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return MakeFormattedError<MeshHeaderBounds>( "the prefab could not be read: {}", text.GetError() );
+            const auto document = Json::Read<StatedMembers::StatedPrefabBounds>( text.GetValue() );
+            if ( !document )
+                return MakeFormattedError<MeshHeaderBounds>( "its Bounds member is unreadable: {}",
+                                                             document.GetError() );
+            MeshHeaderBounds stated{ true, std::nullopt };
+            if ( const auto& box = document.GetValue().Bounds )
+                stated.Bounds = Math::AABB{ { box->Min[0], box->Min[1], box->Min[2] },
+                                            { box->Max[0], box->Max[1], box->Max[2] } };
+            return MakeSuccess( stated );
+        }
+
+        std::string StatedDisplayName( const std::filesystem::path& file, std::string_view member )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return {};
+            const auto document = Json::Read<Json::Object>( text.GetValue() );
+            if ( !document )
+                return {};
+            const auto value = document.GetValue().get( std::string( member ) );
+            if ( !value )
+                return {};
+            const auto name = value.value().to_string();
+            return name ? name.value() : std::string();
+        }
+    } // namespace
+
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
     {
         ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
         if ( kind == ContentKind::StaticMesh )
-            described.MeshBounds = ReadMeshAssetMetaBounds( file );
+            described.HeaderBounds = ReadMeshAssetMetaBounds( file );
         else if ( kind == ContentKind::SkinnedMesh )
         {
             // The mesh's box, from its 64-byte header and not its body — the reason the box is in the header.
             const auto head = Utils::FileSystem::ReadFileContentPrefix( file, sizeof( MeshBinaryFileHeader ) );
             if ( head )
-                described.MeshBounds = ReadMeshHeaderBounds( head.GetValue() );
+            {
+                described.HeaderBounds = ReadMeshHeaderBounds( head.GetValue() );
+                // The same header states the skeleton: a mesh the picker for skinned meshes must list, and the
+                // static one must not — known before the body is read, as the box is.
+                if ( described.HeaderBounds )
+                {
+                    MeshBinaryFileHeader header{};
+                    std::memcpy( &header, head.GetValue().data(), sizeof( header ) );
+                    described.Skinned = ( header.Flags & kMeshFlagIsSkinned ) != 0;
+                    if ( ( header.Flags & kMeshFlagHasSkeletonSignature ) != 0 )
+                        described.RigSignature = header.SkeletonSignature;
+                }
+            }
         }
+        if ( const std::string_view member = KindSpec( kind ).DisplayNameMember; !member.empty() )
+            described.DisplayName = StatedDisplayName( file, member );
+        if ( kind == ContentKind::Skeleton )
+            described.RigSignature = StatedRigSignature( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -241,6 +336,16 @@ namespace Common::Content
             described.HeaderError = stated.GetError();
         else
             described.Header = stated.GetValue();
+        // A PREFAB'S BOX IS STATED BESIDE ITS HEADER, and read with it: a member that is there and unreadable
+        // keeps the file out exactly as an unreadable header does.
+        if ( kind == ContentKind::Prefab && described.HeaderError.empty() )
+        {
+            auto box = ReadStatedPrefabBounds( file );
+            if ( !box )
+                described.HeaderError = box.GetError();
+            else
+                described.HeaderBounds = box.GetValue();
+        }
         // A REDIRECTOR'S OLD KEY IS IN ITS META SECTION, which the header read does not reach. The file is a
         // header and one small section, so reading it whole here costs what the header read did.
         if ( described.Header && described.Header->Kind == ContentKind::Redirector )
@@ -316,7 +421,11 @@ namespace Common::Content
         //    header is their only writer. A version-2 cache holds identities and edges a running editor
         //    learned from loaded assets (path-derived numbers among them); reusing one would keep those rows
         //    for as long as their files' size and stamp hold, so a version-2 cache is rebuilt once.
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 3";
+        // 4: rows carry the tags column (display name, skinned). A version-3 cache would hand back rows with
+        //    both empty for as long as their files' size and stamp hold, so it is refused and rebuilt once.
+        // 6: prefab rows carry the box their file states (AL1-8a). A version-5 cache holds every prefab row
+        //    without one for as long as its file's size and stamp hold, so it is refused and rebuilt once.
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 6";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()
@@ -378,9 +487,37 @@ namespace Common::Content
             std::sort( entry.Versions.begin(), entry.Versions.end(),
                        []( const SubsystemVersion& a, const SubsystemVersion& b ) { return a.Tag < b.Tag; } );
         }
-        if ( file.MeshBounds && file.MeshBounds->Stated )
-            entry.Bounds = file.MeshBounds->Bounds;
+        if ( file.HeaderBounds && file.HeaderBounds->Stated )
+            entry.Bounds = file.HeaderBounds->Bounds;
+        entry.DisplayName  = file.DisplayName;
+        entry.Skinned      = file.Skinned;
+        entry.RigSignature = file.RigSignature;
         return MakeSuccess( std::move( entry ) );
+    }
+
+    bool LoadsOnDemand( const ContentKind kind )
+    {
+        return kind == ContentKind::CloudNoiseVolume || kind == ContentKind::CloudModellingVolume ||
+               kind == ContentKind::CloudLayout;
+    }
+
+    std::vector<std::string> PathOnlyOnDemandRows( const Utils::AssetRegistry& registry )
+    {
+        std::vector<std::string> problems;
+        for ( std::size_t i = 0; i < CONTENT_KIND_COUNT; ++i )
+        {
+            const auto kind = static_cast<ContentKind>( i );
+            if ( !LoadsOnDemand( kind ) )
+                continue;
+            for ( const Utils::AssetRegistryEntry* row : registry.OfKind( KindName( kind ) ) )
+            {
+                if ( !row->Guid.has_value() )
+                    problems.push_back( row->Key + ": a " + std::string( KindName( kind ) ) +
+                                        " states no GUID, so it is reachable only by its path and is created "
+                                        "on demand by GUID -- re-save it so its header carries one" );
+            }
+        }
+        return problems;
     }
 
     GatheredRegistry GatherContentRegistry( const RegistryCache& cache )
@@ -416,7 +553,7 @@ namespace Common::Content
                  }
                  ++gathered.Read;
                  if ( ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh ) &&
-                      !( described.MeshBounds && described.MeshBounds->Stated ) )
+                      !( described.HeaderBounds && described.HeaderBounds->Stated ) )
                      gathered.MeshesWithoutHeaderBounds.push_back( key );
              } );
         return gathered;

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <atomic>
+#include <format>
 
 namespace Desert::Graphic
 {
@@ -79,17 +80,29 @@ namespace Desert::Graphic
              Engine::ViewBudget::DescribeRefusal( viewName, verdict, reading, SceneRenderer::LiveHoldings() ) );
     }
 
-    Common::BoolResultStr MayResizeView( const std::string_view viewName, const ViewProfile& profile,
-                                         const ViewExtent& from, const ViewExtent& to )
+    std::optional<std::string> DescribeResizeOverrun( const std::string_view viewName, const ViewProfile& profile,
+                                                      const ViewExtent& from, const ViewExtent& to )
     {
         const uint64_t current = SumViewTargets( ViewTargetCensus( profile, from.Width, from.Height ) ).Total();
         const uint64_t resized = SumViewTargets( ViewTargetCensus( profile, to.Width, to.Height ) ).Total();
         const Engine::ViewBudget::Reading reading = ReadViewBudget();
-        const Engine::ViewBudget::Verdict verdict = Engine::ViewBudget::MayResize( current, resized, reading );
-        if ( verdict.Ok )
-            return Common::MakeSuccess( true );
-        return Common::MakeFormattedError<bool>(
-             "Resize {}x{} -> {}x{} refused: {}", from.Width, from.Height, to.Width, to.Height,
-             Engine::ViewBudget::DescribeRefusal( viewName, verdict, reading, SceneRenderer::LiveHoldings() ) );
+        const uint64_t overrun = Engine::ViewBudget::ResizeOverrunBytes( current, resized, reading );
+        if ( overrun == 0 )
+            return std::nullopt;
+        const std::vector<Engine::ViewBudget::HeldView> held      = SceneRenderer::LiveHoldings();
+        uint64_t                                        heldTotal = 0;
+        std::string                                     views;
+        for ( const Engine::ViewBudget::HeldView& view : held )
+        {
+            heldTotal += view.Bytes;
+            views += std::format( "{} {} — {}", views.empty() ? ":" : ",", view.Name,
+                                  Engine::ViewBudget::FormatMiB( view.Bytes ) );
+        }
+        return std::format(
+             "View '{}' resized {}x{} -> {}x{} past the budget by {} ({}, in use {}); a live view's "
+             "resize is never refused, close another view to get back under it. Open views hold {}{}",
+             viewName, from.Width, from.Height, to.Width, to.Height, Engine::ViewBudget::FormatMiB( overrun ),
+             Engine::ViewBudget::DescribeCeiling( reading ), Engine::ViewBudget::FormatMiB( reading.UsageBytes ),
+             Engine::ViewBudget::FormatMiB( heldTotal ), views );
     }
 } // namespace Desert::Graphic

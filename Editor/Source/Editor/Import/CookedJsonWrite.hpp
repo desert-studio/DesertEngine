@@ -8,7 +8,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <filesystem>
 #include <optional>
@@ -85,7 +85,7 @@ namespace Desert::Editor
     template <typename T>
     [[nodiscard]] Common::BoolResultStr WriteCookedJson( const T& data, const std::filesystem::path& path )
     {
-        const auto text = Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( data ) );
+        const auto text = Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
         if ( !text )
             return Common::MakeFormattedError<bool>( "cooked write of '{}' refused: {}", path.string(),
                                                      text.GetError() );

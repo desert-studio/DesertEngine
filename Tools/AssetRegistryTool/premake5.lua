@@ -20,8 +20,8 @@ project "AssetRegistryTool"
     }
 
     includedirs {
-        "%{wks.location}/Tools/Shared",
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

@@ -1,6 +1,7 @@
 #include "MaterialService.hpp"
 
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Graphic/Materials/MaterialFactory.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -67,6 +68,78 @@ namespace Desert::Runtime
         return BOOLSUCCESS;
     }
 
+    void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
+    }
+
+    void MaterialService::StartRead( const Assets::AssetHandle&        handle,
+                                     std::vector<Assets::AssetHandle>& awaited ) const
+    {
+        if ( handle.IsNull() )
+            return;
+        // A copy of the pointer, not the iterator: the request below may discover and rehash.
+        const auto it = FindOrDiscover( handle );
+        if ( it == m_MaterialAssets.end() )
+            return;
+        const std::shared_ptr<Assets::MaterialAsset> shell = it->second;
+        if ( !RequestIfUnread( shell ) )
+            awaited.emplace_back( shell->GetMetadata().Handle );
+    }
+
+    std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator
+    MaterialService::FindOrDiscover( const Assets::AssetHandle& handle ) const
+    {
+        if ( const auto it = m_MaterialAssets.find( handle ); it != m_MaterialAssets.end() )
+            return it;
+        if ( handle.IsNull() || m_ReportedMissing.contains( handle ) || m_Assets.expired() )
+            return m_MaterialAssets.end();
+
+        auto created = Assets::CreateFromRegistryRow<Assets::SurfaceMaterialAsset>(
+             m_Assets, handle, Common::Content::ContentKind::Material );
+        if ( !created )
+        {
+            m_ReportedMissing.insert( handle );
+            LOG_ERROR( "[MaterialService] {}", created.GetError() );
+            return m_MaterialAssets.end();
+        }
+        // The external id IS the handle for every file-backed material (SurfaceMaterialAsset adopts both
+        // from the header GUID in its constructor), so the mesh->material link needs no load to resolve.
+        const auto& asset                              = created.GetValue();
+        m_ExternalToInternal[asset->GetMaterialUUID()] = handle;
+        return m_MaterialAssets.emplace( handle, asset ).first;
+    }
+
+    bool MaterialService::RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
+    {
+        if ( asset->IsReadyForUse() )
+            return true;
+        const auto handle = asset->GetMetadata().Handle;
+        if ( m_Requests.contains( handle ) )
+            return false;
+        // BOTH DELEGATES (T2.3). The completion bumps the invalidation version, so every cached instance
+        // set that drew nothing for this material asks again on its next tick.
+        m_Requests[handle] = Assets::AsyncAssetLoader::Get().Request(
+             asset,
+             [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
+                             const std::string& error )
+             {
+                 m_Requests.erase( handle );
+                 if ( outcome != Assets::LoadOutcome::Loaded )
+                 {
+                     LOG_ERROR( "[MaterialService] '{}' could not be read: {}",
+                                loaded->GetMetadata().Filepath.string(), error );
+                     return;
+                 }
+                 // The shader is resolved by name through the manager, which a worker may not touch.
+                 if ( const auto manager = m_Assets.lock() )
+                     loaded->ResolveDependencies( *manager );
+                 ++m_InvalidationVersion;
+             },
+             [this, handle] { m_Requests.erase( handle ); } );
+        return false;
+    }
+
     Common::BoolResultStr
     MaterialService::EnsureLoaded( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
     {
@@ -75,15 +148,23 @@ namespace Desert::Runtime
         if ( asset->IsReadyForUse() )
             return BOOLSUCCESS;
 
-        if ( const auto loaded = asset->Load(); !loaded )
+        // ONE LOADING PATH (AL1-4, plan §2.4(c)). The walks that need the data NOW (CreateRuntimeInstance,
+        // ResolveOverrides, ShaderNameOf, the editor) go through the same request Get() starts, finished on
+        // this thread by FlushOne: no second read of a file a worker is already reading, the shader resolved
+        // by the one completion, and SyncLoadLedger counting it as the synchronous load it is.
+        const auto handle = asset->GetMetadata().Handle;
+        if ( !RequestIfUnread( asset ) )
+            Assets::AsyncAssetLoader::Get().FlushOne( handle );
+
+        if ( !asset->IsReadyForUse() )
         {
-            // Loudly, and then the caller decides. A material that cannot be re-read is a surface that
-            // will draw with the shader's own defaults, and the ONLY place that knows which file it was is
-            // here — see the header for the round trip that found this.
-            LOG_ERROR( "[MaterialService] '{}' was released and could not be read back: {}. Anything drawn "
-                       "with it falls back to the shader's default parameters.",
-                       asset->GetMetadata().Filepath.string(), loaded.GetError() );
-            return loaded;
+            // Loudly, and then the caller decides. A material that cannot be read is a surface that will
+            // draw with the shader's own defaults, and the ONLY place that knows which file it was is here.
+            LOG_ERROR( "[MaterialService] '{}' could not be read. Anything drawn with it falls back to the "
+                       "shader's default parameters.",
+                       asset->GetMetadata().Filepath.string() );
+            return Common::MakeFormattedError<bool>( "material '{}' could not be read",
+                                                     asset->GetMetadata().Filepath.string() );
         }
 
         return BOOLSUCCESS;
@@ -127,13 +208,15 @@ namespace Desert::Runtime
         Assets::AssetHandle current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
-            if ( auto ait = m_MaterialAssets.find( current ); ait != m_MaterialAssets.end() )
+            if ( auto ait = FindOrDiscover( current ); ait != m_MaterialAssets.end() )
             {
                 // The chain is read out of the asset's DATA, so the asset has to have some. A released
                 // shell answers IsInstance() with false and the walk stops at the instance instead of
                 // resolving to its parent -- the surface then draws with the instance's own (empty)
-                // material rather than the base it overrides.
-                (void)EnsureLoaded( ait->second );
+                // material rather than the base it overrides. NOT READ HERE (AL1-4): Get runs in a frame,
+                // so an unread shell starts its read and answers Pending (nullptr) until it lands.
+                if ( !RequestIfUnread( ait->second ) )
+                    return nullptr;
                 auto*      surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( ait->second.get() );
                 const auto parentId =
                      ( surf != nullptr ) ? surf->Data().InstanceParentId() : std::optional<Common::UUID>{};
@@ -156,12 +239,13 @@ namespace Desert::Runtime
         // Lazy build: a shell is registered but this CELL's runtime material (with its bound textures)
         // isn't built yet. Every cell builds from the same asset, so the surface is the same by
         // construction rather than by anyone remembering to copy it across.
-        if ( auto ait = m_MaterialAssets.find( current ); ait != m_MaterialAssets.end() )
+        if ( auto ait = FindOrDiscover( current ); ait != m_MaterialAssets.end() )
         {
             // THE LINE THE ROUND TRIP WAS MISSING. Building from a released shell produces a material with
             // the shader's default parameters and no textures -- a white surface where a green one was,
             // with nothing in the log. See MaterialService::EnsureLoaded.
-            (void)EnsureLoaded( ait->second );
+            if ( !RequestIfUnread( ait->second ) )
+                return nullptr;
 
             auto material = Graphic::MaterialFactory::CreateMaterial( ait->second.get(), path, pass );
             if ( !material )
@@ -219,7 +303,7 @@ namespace Desert::Runtime
         Assets::AssetHandle                              current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
-            auto ait = m_MaterialAssets.find( current );
+            auto ait = FindOrDiscover( current );
             if ( ait == m_MaterialAssets.end() )
                 break;
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
@@ -261,7 +345,7 @@ namespace Desert::Runtime
         Assets::AssetHandle                              current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
-            auto ait = m_MaterialAssets.find( current );
+            auto ait = FindOrDiscover( current );
             if ( ait == m_MaterialAssets.end() )
                 break;
             // A released shell has no Data to walk: see MaterialService::EnsureLoaded.
@@ -283,7 +367,7 @@ namespace Desert::Runtime
             current = parent;
         }
 
-        auto baseIt = m_MaterialAssets.find( current );
+        auto baseIt = FindOrDiscover( current );
         if ( baseIt == m_MaterialAssets.end() )
             return false;
         // The base is read for its parameters AND its textures, and a released shell has neither. This is
@@ -319,7 +403,7 @@ namespace Desert::Runtime
         Assets::AssetHandle current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
-            auto it = m_MaterialAssets.find( current );
+            auto it = FindOrDiscover( current );
             if ( it == m_MaterialAssets.end() )
                 return {};
             (void)EnsureLoaded( it->second );
@@ -346,6 +430,8 @@ namespace Desert::Runtime
         m_Materials.clear();
         m_BuiltToAsset.clear();
         m_MaterialAssets.clear();
+        m_Requests.clear();
+        m_ReportedMissing.clear();
         m_ExternalToInternal.clear();
         m_Graveyard.clear();
     }
@@ -430,7 +516,7 @@ namespace Desert::Runtime
         // order the external->internal map fills in (the map stays authoritative for imported
         // materials whose ids genuinely diverge).
         const Assets::AssetHandle asHandle{ uuid };
-        if ( m_MaterialAssets.count( asHandle ) || m_Materials.count( asHandle ) )
+        if ( m_Materials.contains( asHandle ) || FindOrDiscover( asHandle ) != m_MaterialAssets.end() )
             return asHandle;
 
         return Common::UUID::Null();

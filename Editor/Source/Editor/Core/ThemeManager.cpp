@@ -10,10 +10,17 @@ namespace Desert::Editor
     static ImVec4 s_SelectedColor( 0.3f, 0.6f, 0.9f, 1.0f );
     static ImVec4 s_IconColor( 0.78f, 0.78f, 0.78f, 1.0f );
 
-    // Shorthand: integer RGB → normalized ImVec4
-    static constexpr ImVec4 C( int r, int g, int b, float a = 1.0f )
+    // Shorthand: integer RGBA, all four channels 0..255 → normalized ImVec4.
+    //
+    // ALPHA IS AN INTEGER TOO, and that is the point. It used to be a float passed through untouched while
+    // every caller wrote it as a byte (140, 89, 178...), so each of those colours reached ImGui with an alpha
+    // of 140.0 — clamped to fully opaque. The modal dim was the visible casualty: a solid (20,20,20) sheet
+    // over the whole editor, so a refusal dialog floated over what looked like an empty window. One unit for
+    // all four channels leaves no second convention to mix up. Asserted by the ThemePalette suite.
+    static constexpr ImVec4 C( int r, int g, int b, int a = 255 )
     {
-        return ImVec4( r / 255.0f, g / 255.0f, b / 255.0f, a );
+        return { static_cast<float>( r ) / 255.0f, static_cast<float>( g ) / 255.0f,
+                 static_cast<float>( b ) / 255.0f, static_cast<float>( a ) / 255.0f };
     }
 
     void ThemeManager::SetDarkTheme()

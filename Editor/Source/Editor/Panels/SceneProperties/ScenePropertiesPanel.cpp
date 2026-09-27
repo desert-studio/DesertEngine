@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "ScenePropertiesPanel.hpp"
 #include "ComponentEditor.hpp"
 
@@ -15,6 +16,7 @@
 #include <ImGui/imgui.h>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -322,7 +324,10 @@ namespace Desert::Editor
         // it keeps its viewport (and its slot) exactly as the material window does. What gives the slot
         // back is having nothing to show at all, handled above.
         if ( m_PreviewActive )
+        {
+            PreviewEnvironment::ApplyTo( *m_Preview, m_AssetManager.get() );
             m_Preview->Update( kPreviewRenderSize, kPreviewRenderSize );
+        }
         m_PreviewActive = false;
     }
 
@@ -355,6 +360,8 @@ namespace Desert::Editor
 
     void ScenePropertiesPanel::DrawNoSelectionState()
     {
+        GetDetailsNavigation().BeginFrame( 0, std::string() );
+        GetDetailsNavigation().EndFrame();
         // Details with nothing selected used to return immediately, leaving the dock as a bare grey
         // rectangle — the single worst square of the default editor layout, because it is also the
         // largest, and it says neither what the panel is nor how to make it show something.
@@ -670,8 +677,17 @@ namespace Desert::Editor
         if ( PreviewKeyOf( selectedEntity, static_cast<uint64_t>( *selectedOpt ) ) != 0 )
             (void)EnsurePreview();
         m_ComponentEditor->SetPreview( m_Preview.get(), m_ThumbnailUI.get(), &m_PreviewActive );
+        DetailsNavigation& navigation = GetDetailsNavigation();
+        navigation.BeginFrame(
+             selectedEntity.HasComponent<ECS::UUIDComponent>()
+                  ? static_cast<std::uint64_t>( selectedEntity.GetComponent<ECS::UUIDComponent>().UUID )
+                  : 0,
+             selectedEntity.HasComponent<ECS::TagComponent>()
+                  ? selectedEntity.GetComponent<ECS::TagComponent>().Tag
+                  : std::string() );
         m_ComponentEditor->Render( const_cast<ECS::Entity&>( selectedEntity ), m_Scene.get(),
                                    m_FieldSearch.c_str() );
+        navigation.EndFrame();
         ImGui::EndChild();
     }
 

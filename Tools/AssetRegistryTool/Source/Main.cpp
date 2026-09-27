@@ -37,6 +37,7 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -136,6 +137,15 @@ namespace
             return Fail( std::to_string( gathered.Refused.size() ) +
                          " content file(s) refused by the gather; nothing was written, because a registry "
                          "without them would ship without them" );
+
+        // T2.7: a noise volume, hero-cloud body or painted layout is created from its row by GUID when a
+        // scene names it, so one reachable only by its path would ship as a reference nothing can resolve.
+        const std::vector<std::string> pathOnly = Common::Content::PathOnlyOnDemandRows( gathered.Registry );
+        for ( const std::string& problem : pathOnly )
+            std::fprintf( stderr, "%s\n", problem.c_str() );
+        if ( !pathOnly.empty() )
+            return Fail( std::to_string( pathOnly.size() ) +
+                         " on-demand content file(s) state no GUID; nothing was written" );
 
         const fs::path  out = Common::DDC::PlatformCookedDir() / "AssetRegistry.dreg";
         std::error_code ec;

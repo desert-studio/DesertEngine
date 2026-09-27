@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
@@ -196,17 +197,50 @@ namespace Desert::Graphic::API::Vulkan
 
         // Immediate path: transition outputs to GENERAL, dispatch, transition back to SHADER_READ so the
         // result can be sampled, then submit + wait. Reuses the persistent set 0 (safe — we wait below).
-        for ( const auto& [binding, out] : m_BoundOutputs )
-            if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
-                img->TransitionLayout( cmd, VK_IMAGE_LAYOUT_GENERAL );
-
-        RecordDescriptorsAndDispatch( cmd, backend->GetDescriptorSet( 0, 0 ), groupsX, groupsY, groupsZ );
-
-        for ( const auto& [binding, out] : m_BoundOutputs )
-            if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
-                img->TransitionLayout( cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+        RecordTransitionedDispatch( cmd, backend->GetDescriptorSet( 0, 0 ), groupsX, groupsY, groupsZ );
 
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferCompute( cmd );
+    }
+
+    void VulkanPipelineCompute::Record( GpuBatch& batch, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ )
+    {
+        VkCommandBuffer cmd = RecordingBuffer( batch );
+        if ( !m_VulkanMaterialBackend || cmd == VK_NULL_HANDLE )
+        {
+            LOG_ERROR( "ComputePipeline '{}': {} -- the dispatch is not recorded.", m_Specification.DebugName,
+                       cmd == VK_NULL_HANDLE ? "the GPU batch was already submitted" : "no material backend" );
+            return;
+        }
+
+        // A RING set, not the persistent one: every dispatch of a batch is still pending when the next is
+        // recorded, and rewriting a set a recorded command references is undefined. The ring belongs to
+        // this pipeline, so its only users are this pipeline's own dispatches — the prefilter's mips are
+        // the most one batch records, well under kInFrameRingSize.
+        EnsureInFrameRing();
+        VkDescriptorSet set = m_InFrameRing[m_InFrameCursor];
+        m_InFrameCursor     = ( m_InFrameCursor + 1 ) % kInFrameRingSize;
+
+        RecordTransitionedDispatch( cmd, set, groupsX, groupsY, groupsZ );
+    }
+
+    void VulkanPipelineCompute::RecordTransitionedDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet,
+                                                            uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ )
+    {
+        // Explicit stages and access, because a batch puts the NEXT consumer (a blit, another dispatch,
+        // a readback) in the same command buffer: the layout alone orders nothing there.
+        for ( const auto& [binding, out] : m_BoundOutputs )
+            if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
+                img->TransitionLayout( cmd, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+                                       VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT );
+
+        RecordDescriptorsAndDispatch( cmd, descriptorSet, groupsX, groupsY, groupsZ );
+
+        for ( const auto& [binding, out] : m_BoundOutputs )
+            if ( auto* img = dynamic_cast<IVulkanImage*>( out.Image ) )
+                img->TransitionLayout( cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                       VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT );
     }
 
     void VulkanPipelineCompute::EnsureInFrameRing()

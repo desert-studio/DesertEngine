@@ -57,7 +57,7 @@ namespace Desert::Core::Formats
     /// THE LARGEST VALUE BC6H_UFLOAT CAN HOLD: its endpoints are half-float bit patterns, so its ceiling
     /// is the largest finite half. The encoder clamps anything above it rather than writing an infinity,
     /// and that clamp is an ENERGY LOSS on real skies — rural_asphalt_road_2k.hdr's sun peaks at 131072 —
-    /// so the one producer that feeds radiance into this encoder (`WriteBakedEnvironmentCube`) counts
+    /// so the one producer that feeds radiance into this encoder (`EncodeBakedEnvironmentCube`) counts
     /// what it is about to lose against this same number and says so.
     inline constexpr float kBC6HLargestValue = 65504.0f;
 

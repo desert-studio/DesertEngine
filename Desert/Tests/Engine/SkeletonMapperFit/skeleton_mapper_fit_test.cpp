@@ -53,8 +53,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -107,22 +106,20 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kRigPath );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kRigPath;
-        auto data =
-             rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        return data.has_value() ? data.value().Bones : std::vector<BoneInfo>{};
+        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
+        return data.IsSuccess() ? data.GetValue().Bones : std::vector<BoneInfo>{};
     }
 
     Desert::Animation::AnimationClip ProbeClip()
     {
         const std::string raw = ReadFile( RepoRoot() + kClipPath );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kClipPath;
-        const auto data =
-             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        if ( !data.has_value() )
+        const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
+        if ( !data.IsSuccess() )
             return {};
-        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.value() );
+        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
         EXPECT_TRUE( built.IsSuccess() ) << ( built.IsSuccess() ? "" : built.GetError() );
         if ( !built.IsSuccess() )
             return {};
@@ -613,19 +610,18 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
 
     const std::string raw = ReadFile( RepoRoot() + "Editor/Cooked/Meshes/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
-    auto data = rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-    ASSERT_TRUE( data.has_value() );
-    const std::vector<BoneInfo> twoBones = data.value().Bones;
+    auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
+    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
+    const std::vector<BoneInfo> twoBones = data.GetValue().Bones;
 
     const Skeleton source{ std::vector<BoneInfo>( twoBones ) };
     const Skeleton target = ScaledRig( twoBones, 1.5F );
 
     const std::string clipRaw = ReadFile( RepoRoot() + "Editor/Cooked/Meshes/TwoBoneProbe_Wave.anim" );
     ASSERT_FALSE( clipRaw.empty() );
-    const auto clipData =
-         rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( clipRaw );
-    ASSERT_TRUE( clipData.has_value() );
-    auto built = Desert::Assets::Serialization::BuildClipFromAssetData( clipData.value() );
+    const auto clipData = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( clipRaw );
+    ASSERT_TRUE( clipData.IsSuccess() ) << clipData.GetError();
+    auto built = Desert::Assets::Serialization::BuildClipFromAssetData( clipData.GetValue() );
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
     const auto clip = built.ExtractValue();
     ASSERT_EQ( clip.SkeletonSignature, source.GetSignature() );
@@ -986,9 +982,9 @@ TEST( SkeletonMapperFit, TheSourceRigMayBeLargerThanTheTargetAndJoltForbidsThat 
 
     const std::string raw = ReadFile( RepoRoot() + "Editor/Cooked/Meshes/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
-    auto data = rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-    ASSERT_TRUE( data.has_value() );
-    const Skeleton twoBone( std::move( data.value().Bones ) );
+    auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
+    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
+    const Skeleton twoBone( std::vector<BoneInfo>( data.GetValue().Bones ) );
 
     JPH::Skeleton joltBig;
     JPH::Skeleton joltSmall;

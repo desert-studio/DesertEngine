@@ -11,6 +11,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Project/ProjectFormat.hpp>
+#include <Common/Settings/ProductName.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Content/ContentChunks.hpp>
@@ -130,12 +131,16 @@ namespace Desert::Editor
             return true;
         }
 
-        std::string SanitizeName( std::string name )
+        // A CFBundleIdentifier is a reverse-DNS string: only letters, digits, '-' and '.'. That is a
+        // different namespace from a folder name, so it is derived here from the folder name rather than
+        // being a second folder-name rule.
+        std::string BundleIdentifierComponent( const std::string& inFolderName )
         {
-            for ( auto& ch : name )
-                if ( ch == ' ' || ch == '/' || ch == '\\' )
-                    ch = '_';
-            return name.empty() ? std::string( "Game" ) : name;
+            std::string id = inFolderName;
+            for ( char& c : id )
+                if ( std::isalnum( static_cast<unsigned char>( c ) ) == 0 && c != '-' && c != '.' )
+                    c = '-';
+            return id;
         }
 
         // THE DESCRIPTOR GOES INTO THE ARCHIVE, under the one name the player looks for
@@ -431,7 +436,7 @@ namespace Desert::Editor
             return { false, stale, "" };
 
         const std::string projectName = ProjectContext::Current().Name;
-        const std::string safeName    = SanitizeName( projectName );
+        const std::string safeName    = Common::Settings::SanitizeProductName( projectName );
 
         // THE TARGET IS THIS EDITOR'S OWN HOST, and everything below that used to be a macOS literal now
         // comes out of that one description (PackageTarget.hpp): the binary's name, whether a .app is a
@@ -549,9 +554,11 @@ namespace Desert::Editor
         // its own binary, reads the chunk list out of it, mounts those, and every content read
         // resolves through the same stack. Nothing loose, no flag.
         //
-        // AN UNDIVIDED PROJECT STILL PRODUCES EXACTLY ONE Content.dpak. The plan's base chunk is the
-        // total default, so a project with no scheme file packages byte-for-byte the way it did
-        // before chunks existed.
+        // ONE ARCHIVE IS A STATED CHOICE, not the absence of one. The scheme was loaded above and a
+        // project without ContentChunks.json never gets here (LoadChunkScheme refuses by path). A
+        // scheme with `"Chunks": []` — what WriteDefaultChunkScheme writes — plans nothing but the
+        // base chunk, so everything lands in Content.dpak; each named chunk adds a Chunk_<name>.dpak
+        // beside it (ChunkArchivePath).
         std::vector<std::pair<std::string, fs::path>>    contentFiles;
         std::vector<std::pair<std::string, std::string>> baseBlobs;
         Common::Content::ChunkedWriteStats               writtenArchives;
@@ -746,7 +753,8 @@ namespace Desert::Editor
                   << "<plist version=\"1.0\"><dict>\n"
                   << "  <key>CFBundleName</key><string>" << projectName << "</string>\n"
                   << "  <key>CFBundleExecutable</key><string>" << kBundleLauncherName << "</string>\n"
-                  << "  <key>CFBundleIdentifier</key><string>com.desertengine." << safeName << "</string>\n"
+                  << "  <key>CFBundleIdentifier</key><string>com.desertengine."
+                  << BundleIdentifierComponent( safeName ) << "</string>\n"
                   << "  <key>CFBundlePackageType</key><string>APPL</string>\n"
                   << "  <key>CFBundleShortVersionString</key><string>1.0</string>\n"
                   << "  <key>NSHighResolutionCapable</key><true/>\n"

@@ -24,8 +24,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-if ! ls ./*.make >/dev/null 2>&1; then
-    echo "No generated makefiles here. Run: CI=true premake5 gmake" >&2
+# premake writes the makefiles into build/Projects/ (BuildScripts/Workspace.lua), with sources relative to it.
+PROJ_DIR=build/Projects
+if ! ls "$PROJ_DIR"/*.make >/dev/null 2>&1; then
+    echo "No generated makefiles in $PROJ_DIR. Run: CI=true premake5 gmake" >&2
     exit 2
 fi
 
@@ -46,11 +48,11 @@ SUITES=$(wc -l < "$TMP/suites" | tr -d ' ')
 : > "$TMP/compiled"
 MISSING=""
 while read -r suite; do
-    if [ ! -f "$suite.make" ]; then
+    if [ ! -f "$PROJ_DIR/$suite.make" ]; then
         MISSING="$MISSING $suite"
         continue
     fi
-    awk '/^\$\(OBJDIR\)\/[^:]+: /{ print $2 }' "$suite.make" >> "$TMP/compiled"
+    awk '/^\$\(OBJDIR\)\/[^:]+: /{ sub(/^\.\.\/\.\.\//, "", $2); print $2 }' "$PROJ_DIR/$suite.make" >> "$TMP/compiled"
 done < "$TMP/suites"
 sort -u "$TMP/compiled" -o "$TMP/compiled"
 

@@ -617,6 +617,19 @@ jobs:
         shell: bash
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
 
+      # DEFENDER OFF for the build (task CIW4). The hosted windows-2022 image scans every file cl.exe and
+      # link.exe write in real time, and this job writes tens of thousands of objects, ccache blobs and
+      # PDBs. The runner is a throwaway VM with admin rights, so turning real-time scanning off costs
+      # nothing it protects; a machine that is NOT throwaway gets folder exclusions instead, never this.
+      # continue-on-error: a refused switch (a future image without the right) must not turn a build red --
+      # the step prints what it got, and the job budget line shows whether the build got faster.
+      - name: Windows Defender real-time scanning off
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $true
+          Write-Host "RealTimeProtectionEnabled = $((Get-MpComputerStatus).RealTimeProtectionEnabled)"
+
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
@@ -763,7 +776,7 @@ jobs:
         shell: cmd
         run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
-          msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal ^
+          msbuild build\Projects\Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal ^
             "-p:CustomBeforeMicrosoftCommonProps=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.props" ^
             "-p:CustomAfterMicrosoftCommonTargets=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.targets"
 

@@ -9,32 +9,32 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeRaycast.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeRaycast.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- Components.hpp -> ReflectionTypes.hpp -> rfl
-        "%{wks.location}/ThirdParty/stb/include",
-        "%{wks.location}/ThirdParty/JoltPhysics",          -- PhysicsWorld.cpp is compiled here
-        "%{wks.location}/ThirdParty/lua",                  -- Components.hpp -> ScriptProperty -> sol2 -> lua
-        "%{wks.location}/ThirdParty/sol2/include",
-        "%{wks.location}/ThirdParty/meshoptimizer/src",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- Components.hpp -> ReflectionTypes.hpp -> rfl
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/JoltPhysics",          -- PhysicsWorld.cpp is compiled here
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/lua",                  -- Components.hpp -> ScriptProperty -> sol2 -> lua
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/sol2/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/meshoptimizer/src",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -58,10 +58,6 @@ project(test_name)
     filter {}
 
     links { "Common", "Optick", "Jolt" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

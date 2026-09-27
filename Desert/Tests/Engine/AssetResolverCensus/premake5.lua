@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Reflection.gen.cpp is written by DesertHeaderTool, which runs as a PREBUILD STEP OF `Desert`. This
     -- suite enumerates SceneSettings' reflected field list, so without this the parallel build can compile
@@ -18,21 +18,21 @@ project(test_name)
     -- header, a header from a different TARGET and the data corpus side by side without a GPU.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
         -- The WRITE half of the resolver, so the census can CALL it instead of grepping for it. It was
         -- extracted from ComponentRegistry.cpp precisely so that this is possible, and it reaches
         -- AssetHandle and nothing else, so it costs this suite no renderer.
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/StoredAssetForm.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/StoredAssetForm.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",       -- the generated table reaches ECS headers
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- scene files are parsed as rfl::Generic
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- the generated table reaches ECS headers
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- scene files are parsed as rfl::Generic
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -59,10 +59,6 @@ project(test_name)
     -- Common: the generated table default-constructs an AssetHandle, which is a Common::UUID.
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
     links { "Common", "Optick" }
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

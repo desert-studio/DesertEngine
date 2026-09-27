@@ -10,19 +10,8 @@
 #include <chrono>
 
 #include "Shader/ShaderAsset.hpp"
-#include "Mesh/StaticMeshAsset.hpp"
-#include "Mesh/SkinnedMeshAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
-#include "TextureAsset.hpp"
-#include "CloudNoiseVolumeAsset.hpp"
-#include "CloudTypeAsset.hpp"
-#include "CloudModellingVolumeAsset.hpp"
-#include "CloudLayoutAsset.hpp"
-#include "AnimGraphAsset.hpp"
-#include "ControlRigAsset.hpp"
-#include "RetargetAsset.hpp"
-#include "UIThemeAsset.hpp"
-#include "StringTableAsset.hpp"
+#include "StringTableSource.hpp"
 
 namespace Desert::Assets
 {
@@ -53,11 +42,9 @@ namespace Desert::Assets
         // clips never arrived". It is deliberately not `[[nodiscard]]`: the other ten call sites have
         // nothing to do with the number, and a warning at each of them would be noise standing in for a
         // rule that applies to one of them.
-        // The kinds `PreloadCookedAssetsAndMaterials` creates, in its order: the stage's work, counted.
-        constexpr std::array kCookedAssetKinds = {
-             Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::Texture,
-             Common::Content::ContentKind::Animation,  Common::Content::ContentKind::Skeleton,
-             Common::Content::ContentKind::Material,   Common::Content::ContentKind::SkinnedMesh };
+        // The kinds `PreloadCookedAssetsAndMaterials` works over: since AL1-5 only the clip rows the
+        // animation library indexes (meshes and skeletons are discovered on demand by MeshService).
+        constexpr std::array kCookedAssetKinds = { Common::Content::ContentKind::Animation };
 
         // Progress across several ProcessAssetKind calls: one count of the whole call's rows.
         struct RowProgress
@@ -133,88 +120,22 @@ namespace Desert::Assets
 
     void AssetPreloader::PreloadCookedAssetsAndMaterials( const ItemProgress& progress )
     {
-        RowProgress rows{ &progress, 0, CookedAssetRowCount() };
-        // Meshes are scanned as UNPARSED shells (loadAfterCreate=false): the handle is path-derived in the
-        // ctor, so the big .stmesh parse + GPU build are deferred to the first Get (lazy). Textures/materials
-        // are cheap to parse (small metadata) so they load now to expose their stored handle / external id,
-        // but their GPU build is still deferred (RegisterAsset, below).
-        ProcessAssetKind<StaticMeshAsset>( Common::Content::ContentKind::StaticMesh, m_AssetManager,
-                                           AssetPriority::Low, &rows,
-                                           /*loadAfterCreate=*/false );
-
-        ProcessAssetKind<TextureAsset>( Common::Content::ContentKind::Texture, m_AssetManager, AssetPriority::Low,
-                                        &rows );
+        // TEXTURES AND MATERIALS ARE NOT HERE (AL1-4): TextureService and MaterialService discover a handle
+        // from its content-registry row on first use and read it through AsyncAssetLoader. NEITHER ARE
+        // MESHES OR SKELETONS (AL1-5): MeshService discovers a mesh the same way, and its rig by the
+        // registry's Rig tag, so no shell of either kind is created here.
 
         // The count is kept because the animation library's population needs it, and needing it is what
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
         // the tail of this function cannot be moved above this statement, because its argument would not
         // exist yet. See Animation::PopulateLibrary for the defect that argument is there to state.
-        const size_t animationFilesFound = ProcessAssetKind<AnimationAsset>(
-             Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low, &rows );
-
-        ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
-                                         AssetPriority::Low, &rows );
-
-        // Materials are editable CONTENT (the project's Materials/ dir): imported (per-mesh
-        // subfolders) and editor-created both land here, in the unified .demat format.
-        ProcessAssetKind<SurfaceMaterialAsset>( Common::Content::ContentKind::Material, m_AssetManager,
-                                                AssetPriority::Low, &rows );
-
-        ProcessAssetKind<SkinnedMeshAsset>( Common::Content::ContentKind::SkinnedMesh, m_AssetManager,
-                                            AssetPriority::Low, &rows,
-                                            /*loadAfterCreate=*/false );
+        // Clips are NOT created here: the library indexes their registry rows and the loader reads a
+        // clip when an animator first names it (AL1-6).
+        const size_t animationFilesFound = ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size();
+        ReportItem( progress, "animation library", 0, animationFilesFound );
 
         if ( auto manager = m_AssetManager.lock() )
         {
-            // WHAT THESE THREE LOOPS ARE FOR, now that it is no longer "so that scene loading works".
-            //
-            // They register EVERY asset under the two content roots, including the great majority no scene
-            // references: that is what the Content Browser, the thumbnail sweep, the material and mesh
-            // pickers and the drag-and-drop targets read. A scene's OWN references are registered by the
-            // scene parse itself (Engine/Core/Serialize/ComponentRegistry.cpp — search
-            // EnsureMeshRegistered), which is where they belong, because that is the only place that knows
-            // a scene asked for them.
-            //
-            // IT USED TO BE BOTH, AND ONLY ONE OF THE TWO JOBS WAS WRITTEN DOWN. The parse registered a
-            // reference only when it CREATED the record, so every reference to an asset these loops had
-            // already created was resolved to a live handle no service could answer for — and nothing
-            // broke, only because `EditorLayer::OnUpdate` holds every scene load until these stages have
-            // run. That ordering is still true and still wanted; it is no longer LOAD-BEARING, and a
-            // safety net nobody can see is a safety net somebody removes.
-            //
-            // Register SHELLS only — the GPU build (texture upload / mesh buffers / material instance) is
-            // deferred to the first Get (lazy, cascades from a spawned entity). Textures/materials are
-            // loaded first (cheap metadata) so their stored handle / external id is known for the map key.
-            for ( const auto& [handle, textureAsset] : manager->FindAllByType<Assets::TextureAsset>() )
-            {
-                if ( !textureAsset->IsReadyForUse() )
-                    textureAsset->Load();
-                Runtime::ResourceRegistry::GetTextureService()->RegisterAsset( textureAsset );
-            }
-
-            for ( const auto& [handle, meshAsset] : manager->FindAllByType<Assets::MeshAsset>() )
-            {
-                // The manager travels WITH the shell. A .skmesh names its skeleton by a signature stored
-                // inside the file, so the resolve CreateAsset already ran above saw a signature of 0 and
-                // bound nothing; the deferred load is the first moment the answer exists, and this is what
-                // lets it ask again. Without it a skinned mesh loaded from a scene is invisible and says
-                // "MeshFactory: Skeleton dependency invalid" once per frame forever.
-                if ( const auto registered = Runtime::ResourceRegistry::GetMeshService()->RegisterAsset(
-                          meshAsset, m_AssetManager ); // unparsed shell
-                     !registered )
-                {
-                    LOG_ERROR( "Mesh shell '{}' could not be registered: {}",
-                               meshAsset->GetMetadata().Filepath.string(), registered.GetError() );
-                }
-            }
-
-            for ( const auto& [handle, materialAsset] : manager->FindAllByType<Assets::MaterialAsset>() )
-            {
-                if ( !materialAsset->IsReadyForUse() )
-                    materialAsset->Load();
-                Runtime::ResourceRegistry::GetMaterialService()->RegisterAsset( materialAsset );
-            }
-
             // THE FOURTH REGISTER LOOP, and the reason it is here rather than in a layer. The animation
             // library is an index over clip assets exactly as the three services above are indexes over
             // theirs; it was the only one a HOST published to, and that is how one host ended up with a
@@ -286,201 +207,18 @@ namespace Desert::Assets
                                        nullptr );
     }
 
-    void AssetPreloader::PreloadCloudNoiseVolumes()
-    {
-        // ANNOUNCED, NOT READ — and the comment this replaces is the reason the whole tier exists.
-        //
-        // It said: "Loaded eagerly, unlike meshes: a volume is 8 MiB of bytes with no parse to speak of,
-        // and the renderer needs its contents on the first frame the component asks for it. Deferring
-        // would buy a stall exactly where the sky first appears." Every clause of that was true. What it
-        // did not say is what the eagerness cost when the component never asks: measured on this machine
-        // this stage was **1312.7 ms of a 5707.0 ms boot**, `CloudNoise_Default.dcnv` alone **607.12 ms
-        // by its own time**, and a scene with no clouds paid all of it.
-        //
-        // The stall the comment feared is real, and it is not answered by making the read lazy — that
-        // only moves it into a frame. It is answered by making the read ASYNCHRONOUS and by giving "not
-        // here yet" somewhere to live: `CloudNoiseService::Require` returns Pending, the read runs on a
-        // `JobSystem` worker, and the host holds its loading overlay up until the content it asked for
-        // has settled. The cost stays in the loading screen where it belongs and stops being paid by
-        // scenes that do not want it.
-        //
-        // THE SCAN ITSELF STAYS, and it is not vestigial: it is what mints every `.dcnv`'s handle, so
-        // the path->handle index still answers for a volume nothing has read (`Common::AssetPathIndex`),
-        // and the Content Browser and the component slot can still OFFER the project's volumes.
-        ProcessAssetKind<CloudNoiseVolumeAsset>( Common::Content::ContentKind::CloudNoiseVolume, m_AssetManager,
-                                                 AssetPriority::Medium, nullptr, /*loadAfterCreate=*/false );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudNoiseService();
-            for ( const auto& [handle, volumeAsset] : manager->FindAllByType<Assets::CloudNoiseVolumeAsset>() )
-            {
-                service->Announce( volumeAsset );
-
-                // The default is chosen by FILE NAME, and it is a project-owned file rather than something
-                // compiled in: a project that ships its own CloudNoise_Default.dcnv replaces the engine's
-                // without touching code, which is the same way every other built-in default here works.
-                //
-                // Note it is nominated from the NAME and not from anything inside the file, which is what
-                // lets this still work when nothing has been read.
-                if ( volumeAsset->GetMetadata().Filepath.filename().string() == kCloudNoiseDefaultVolumeName )
-                    service->SetDefault( handle );
-            }
-        }
-    }
-
-    void AssetPreloader::PreloadCloudTypes()
-    {
-        // Loaded eagerly like the volumes, and for a smaller version of the same reason: a type is a few
-        // hundred bytes of JSON, the renderer needs its numbers on the first frame the layer asks for
-        // them, and a scene that names one must find it already there rather than resolve to the built-in
-        // default for the first second of every session.
-        //
-        // THERE IS NO "DEFAULT TYPE" FILE to nominate here, unlike the volumes. The empty slot resolves to
-        // Assets::CloudTypeDefaultShape — twelve numbers compiled in — because a type costs nothing to
-        // synthesise where a 128^3 volume costs ten seconds, and because the sky of a project that has
-        // deleted every file in Clouds/Types must still be the sky it was.
-        ProcessAssetKind<CloudTypeAsset>( Common::Content::ContentKind::CloudType, m_AssetManager,
-                                          AssetPriority::Medium, nullptr );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudTypeService();
-            for ( const auto& [handle, typeAsset] : manager->FindAllByType<Assets::CloudTypeAsset>() )
-            {
-                if ( const auto result = service->Register( typeAsset ); !result )
-                    LOG_ERROR( "[Clouds] Cloud type '{}' could not be registered: {}",
-                               typeAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
-        }
-    }
-
-    void AssetPreloader::PreloadUIThemes()
-    {
-        // Loaded eagerly for the same reason a cloud type is: a theme is a few kilobytes of JSON, the
-        // first frame of a themed canvas needs its numbers, and a canvas that names one must find it
-        // already there rather than draw its elements' own colours for the first second of every session
-        // — which would look exactly like a theme that does not work.
-        ProcessAssetKind<UIThemeAsset>( Common::Content::ContentKind::UITheme, m_AssetManager,
-                                        AssetPriority::Medium, nullptr );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetUIThemeService();
-            for ( const auto& [handle, themeAsset] : manager->FindAllByType<Assets::UIThemeAsset>() )
-            {
-                if ( const auto result = service->Register( themeAsset ); !result )
-                    LOG_ERROR( "[UI] Theme '{}' could not be registered: {}",
-                               themeAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
-        }
-    }
-
-    void AssetPreloader::PreloadControlRigs()
-    {
-        // Loaded eagerly for the reason a cloud type is: a rig is a few kilobytes of JSON and the entity's
-        // rig slot has to be able to OFFER the project's rigs, which it does by asking the manager for
-        // every asset of this type. There is no service register loop beside this call the way the cloud
-        // stages have one: a rig has no process-wide runtime form — the pipeline stage is built per
-        // ENTITY, against that entity's own skeleton, by AnimationECSSystem.
-        ProcessAssetKind<ControlRigAsset>( Common::Content::ContentKind::ControlRig, m_AssetManager,
-                                           AssetPriority::Medium, nullptr );
-    }
-
-    void AssetPreloader::PreloadAnimGraphs()
-    {
-        // Loaded eagerly for the RIG's reason and not the shader graph's, and the difference is the
-        // decision. A `.dgraph` gets no preloader at all: nothing but an open editor window ever reads one,
-        // so parsing every graph in the project at boot would be work for a reader that does not exist. A
-        // `.danimgraph` is named by a COMPONENT SLOT, and that slot has to be able to OFFER the project's
-        // graphs — which it does by asking the manager for every asset of this type. An entity's own graph
-        // is resolved by path at scene load whether or not this ran; what this buys is the picker.
-        //
-        // There is no service register loop beside this call: a graph has no process-wide runtime form —
-        // the evaluator is per ENTITY, built by AnimationECSSystem from the object this asset owns.
-        ProcessAssetKind<AnimGraphAsset>( Common::Content::ContentKind::AnimGraph, m_AssetManager,
-                                          AssetPriority::Medium, nullptr );
-    }
-
-    void AssetPreloader::PreloadRetargets()
-    {
-        // Loaded eagerly for the rig's reason — the entity's retarget slot has to be able to OFFER the
-        // project's retargets, which it does by asking the manager for every asset of this type — and for
-        // one more of its own: loading is what runs `ResolveDependencies`, which is what binds the source
-        // rig. A retarget registered but not read is a retarget with no source rig, and the character
-        // naming it plays its clip on its own proportions with nothing said.
-        //
-        // There is no service register loop beside this call: a retarget has no process-wide runtime form
-        // — the retargeter is per ENTITY, against that entity's own skeleton, built by AnimationECSSystem.
-        ProcessAssetKind<RetargetAsset>( Common::Content::ContentKind::Retarget, m_AssetManager,
-                                         AssetPriority::Medium, nullptr );
-    }
-
-    void AssetPreloader::PreloadCloudModellingVolumes()
-    {
-        // ANNOUNCED, NOT READ. The comment this replaces said the reads were free because there is "no
-        // parse to speak of"; measured, this stage cost **913.0 ms of a 5707.0 ms boot** for three
-        // sculpted bodies of 4 MiB each, and a scene with no hero cloud in it paid every millisecond.
-        // The service's own header already promised the right rule for the ATLAS — "a frame pays 4.00 MiB
-        // for each body an entity actually names, not for the library" — and the boot was the one place
-        // that rule did not hold.
-        //
-        // NO DEFAULT IS NOMINATED, unlike the noise volumes, and the absence is the decision: an empty
-        // hero-cloud slot means the artist has not chosen a body, and the right answer is no cloud rather
-        // than a cloud they did not put there. `CloudModellingService::RequireBody` says the same thing by
-        // answering Null — never Pending — for an empty handle.
-        ProcessAssetKind<CloudModellingVolumeAsset>( Common::Content::ContentKind::CloudModellingVolume,
-                                                     m_AssetManager, AssetPriority::Medium, nullptr,
-                                                     /*loadAfterCreate=*/false );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudModellingService();
-            for ( const auto& [handle, bodyAsset] : manager->FindAllByType<Assets::CloudModellingVolumeAsset>() )
-                service->Announce( bodyAsset );
-        }
-    }
-
-    void AssetPreloader::PreloadCloudLayouts()
-    {
-        // ANNOUNCED, NOT READ, and this stage is the clearest case in the project for why. Measured on
-        // this machine it cost **689.0 ms of a 5707.0 ms boot** to read ten paintings totalling 10.3 MiB
-        // — and EVERY SCENE IN THIS REPOSITORY LEAVES BOTH LAYOUT SLOTS EMPTY, so every one of those
-        // milliseconds was spent on pixels nothing points at. The comment this replaces called the stage
-        // "cheaper than any of them", which was true per file and beside the point.
-        //
-        // NO DEFAULT IS NOMINATED, and here the absence is the shipped state rather than an edge case: an
-        // empty slot means the sky places its clouds procedurally, which is what every scene in this
-        // repository does and what the phase's acceptance criterion requires stay byte-identical. That is
-        // also why an empty handle resolves to Null and never to Pending — there is nothing to wait for.
-        ProcessAssetKind<CloudLayoutAsset>( Common::Content::ContentKind::CloudLayout, m_AssetManager,
-                                            AssetPriority::Medium, nullptr,
-                                            /*loadAfterCreate=*/false );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudLayoutService();
-            for ( const auto& [handle, layoutAsset] : manager->FindAllByType<Assets::CloudLayoutAsset>() )
-                service->Announce( layoutAsset );
-        }
-    }
-
     void AssetPreloader::PreloadStringTables()
     {
-        // LOADING IS PUBLISHING for this type: StringTableAsset::Load hands its rows to the process-wide
-        // Localization lookup, so there is no register loop after the scan the way the cloud stages have
-        // one. That is deliberate — a table that parsed but was not published would be an asset reporting
-        // success while every key it owns resolved as missing, which is the empty-successful-answer shape.
-        //
-        // ORDER IS FREE: a table names no other asset and no other asset names it. It is FIRST among the
-        // optional stages anyway, because a missing translation is visible on the very first frame drawn
-        // and the log line it produces is much easier to read before the rest of the content arrives.
+        // ONE LANGUAGE, REQUESTED, NOT EVERY TRANSLATION READ HERE (AL1-7b). A table is a file per language
+        // (`Localization/<language>/`), so the registry says which files the current language needs without
+        // opening any; they are read on AsyncAssetLoader workers and published on the main thread as they
+        // land, while the ContentGate holds the loading screen (it waits on the loader's outstanding count).
+        // The other languages' files are read only when `SetLanguage` asks for them.
         //
         // A PROJECT WITH NO Localization/ FOLDER IS NOT AN ERROR. It is a project whose UI is authored in
-        // literals, which is every project that predates this stage; the scan matches nothing, no table is
-        // published, and every literal element draws exactly what it drew before.
-        ProcessAssetKind<StringTableAsset>( Common::Content::ContentKind::StringTable, m_AssetManager,
-                                            AssetPriority::High, nullptr );
+        // literals; the registry lists nothing, nothing is requested, and every literal draws as before.
+        if ( const auto begun = BeginStringTables( m_AssetManager ); !begun )
+            LOG_ERROR( "[Localization] {}", begun.GetError() );
     }
 
     std::size_t AssetPreloader::CookedAssetRowCount()

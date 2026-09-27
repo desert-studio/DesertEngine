@@ -3,6 +3,9 @@
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
+
+#include <unordered_map>
 
 #include <string>
 #include <vector>
@@ -43,6 +46,15 @@ namespace Desert::Animation
 
         void Clear();
 
+        // Indexes every `.anim` row of the content registry by its stated clip name WITHOUT reading a
+        // clip. A clip's rig identity lives in its body, so a row becomes matchable only once the loader
+        // has read it; a lookup that names it starts that read. Returns how many rows were indexed.
+        size_t IndexRegistryRows();
+
+        // Whether a clip named @p clipName (any clip, when empty) is still being read or waits to be.
+        // A lookup that failed while this is true is "not yet", not "never" — callers stay quiet.
+        [[nodiscard]] bool HasPending( const std::string& clipName ) const;
+
     private:
         /// The handle -> asset step both lookups share, INCLUDING the reload. One place, so a third lookup
         /// cannot be written that forgets it.
@@ -51,7 +63,19 @@ namespace Desert::Animation
         // Non-owning, and it outlives nothing: the library is destroyed with the layer that made it, and
         // the manager with the project. A project switch that replaced the manager without replacing this
         // would leave it dangling — nothing does that today, and nothing checks either.
+        struct UnreadRow
+        {
+            Assets::AssetHandle Handle;
+            std::string         ClipName; // the row's stated name; empty = unknown until read
+        };
+
+        void RequestUnread( const std::string& clipName ) const;
+        void RequestRead( const Assets::Asset<Assets::AnimationAsset>& asset ) const;
+
         Assets::AssetManager* m_AssetManager;
+        // Rows indexed but not yet read, and the reads in flight. Mutable: a const lookup is what asks.
+        mutable std::vector<UnreadRow>                                       m_Unread;
+        mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
 
         // ONE record per registered clip, holding everything the match rule is allowed to look at. There used
         // to be two indexes of the same clips — a signature map and this list — and Clear() emptied only one

@@ -1,4 +1,4 @@
-local baseDir = "%{wks.location}/ThirdParty"
+local baseDir = "%{_MAIN_SCRIPT_DIR}/ThirdParty"
 
 -- ============================================================================
 -- Vulkan SDK discovery (platform-aware).
@@ -230,7 +230,7 @@ Dependencies = {
             -- Shader headers compiled as C++ (LandscapeHeight.glslh via LandscapeData.cpp, and the rest of
             -- Shaders/Common). Every suite gets it because the partitioner reaches LandscapeData.cpp, and a
             -- per-suite line was forgotten four times in one day (2026-09-24).
-            desert_shaders = "%{wks.location}/Editor/Resources/Shaders",
+            desert_shaders = "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
         },
         Libraries = {
             Debug = {
@@ -247,8 +247,8 @@ Dependencies = {
             "TESTING"
         },
         EnvVars = {
-            GTEST_OUTPUT = "xml:%{wks.location}/build/TestReports/%{prj.name}.xml",
-            TEST_REPORTS_DIR = "%{wks.location}/build/TestReports"
+            GTEST_OUTPUT = "xml:%{_MAIN_SCRIPT_DIR}/build/TestReports/%{prj.name}.xml",
+            TEST_REPORTS_DIR = "%{_MAIN_SCRIPT_DIR}/build/TestReports"
         }
     }
 }

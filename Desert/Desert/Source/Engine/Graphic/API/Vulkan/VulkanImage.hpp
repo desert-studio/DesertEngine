@@ -170,6 +170,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_Specification;
         }
         NO_DISCARD Common::ResultStr<std::vector<uint8_t>> ReadPixelsRGBA8() override;
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8() override;
 
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
@@ -257,9 +258,10 @@ namespace Desert::Graphic::API::Vulkan
         /// memory is not a statement.
         NO_DISCARD Common::BoolResultStr RT_ClearToColor( float r, float g, float b, float a );
 
-        /// Every level of every face, in the image's OWN format, tightly packed in table order
-        /// (level 0's six faces, then level 1's). See the definition for why it converts nothing.
-        NO_DISCARD Common::ResultStr<std::vector<unsigned char>> RT_ReadAllLevels();
+        /// Submits a copy of every level of every face, in the image's OWN format, tightly packed in table
+        /// order (level 0's six faces, then level 1's), and does not wait: poll the readback, then
+        /// ReadBytes() — on any thread. See the definition for why it converts nothing.
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> RT_BeginReadAllLevels();
 
     private:
         Common::BoolResultStr CreateResource();

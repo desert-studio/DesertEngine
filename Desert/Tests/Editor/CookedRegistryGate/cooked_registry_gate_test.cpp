@@ -14,6 +14,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -106,7 +107,7 @@ TEST( CookedRegistryGate, WithNoCacheAndNoCookedRegistryTheScanFindsTheShaders )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
@@ -126,7 +127,7 @@ TEST( CookedRegistryGate, TheRegistryFromTheScanIsTheRegistryFromTheCache )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Content::GatheredRegistry scanned = Common::Content::GatherContentRegistry( {} );
@@ -150,7 +151,7 @@ TEST( CookedRegistryGate, AFileWhoseStampChangedIsReadAgain )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Content::GatheredRegistry scanned = Common::Content::GatherContentRegistry( {} );
@@ -170,7 +171,7 @@ TEST( CookedRegistryGate, EveryTrackedContentFileIsGathered )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const auto tracked = Common::Content::TrackedContent( root );
@@ -332,7 +333,7 @@ TEST( CookedRegistryGate, EveryRowWithAGuidIsKnownByItsGuidsFold )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry         registry = ScannedCorpus();
@@ -349,11 +350,61 @@ TEST( CookedRegistryGate, EveryRowWithAGuidIsKnownByItsGuidsFold )
         ADD_FAILURE() << problem;
 }
 
+// ── T2.7: AN ON-DEMAND KIND IS NEVER REACHABLE ONLY BY ITS PATH (AL1-2) ────────────────────────────────
+//
+// Noise volumes, hero-cloud bodies and painted layouts are no longer walked at boot; a process creates one
+// from its registry row when something names it by handle. A row of those kinds without a GUID could only
+// be found by path, which is the cook's refusal (AssetRegistryTool) -- asserted here on the corpus, and the
+// mutation below proves the check can fail.
+TEST( CookedRegistryGate, EveryOnDemandRowStatesAGuid )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    std::size_t                        onDemand = 0;
+    for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+    {
+        const auto kind = Common::Content::ContentKindNamed( row.Kind );
+        onDemand += kind && Common::Content::LoadsOnDemand( *kind ) ? 1 : 0;
+    }
+    EXPECT_GT( onDemand, 0u ) << "the corpus holds no on-demand row, so this gate proves nothing";
+    for ( const std::string& problem : Common::Content::PathOnlyOnDemandRows( registry ) )
+        ADD_FAILURE() << problem;
+}
+
+TEST( CookedRegistryGate, AnOnDemandRowWithoutAGuidIsRefused )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    Common::Utils::AssetRegistry       mutated;
+    bool                               stripped = false;
+    for ( Common::Utils::AssetRegistryEntry row : registry.Entries() )
+    {
+        const auto kind = Common::Content::ContentKindNamed( row.Kind );
+        if ( !stripped && kind == Common::Content::ContentKind::CloudLayout && row.Guid.has_value() )
+        {
+            row.Guid.reset();
+            row.Identity = 0;
+            stripped     = true;
+        }
+        ASSERT_TRUE( mutated.Insert( std::move( row ) ) );
+    }
+    ASSERT_TRUE( stripped ) << "the corpus holds no .dclayout with a GUID to strip";
+    EXPECT_EQ( Common::Content::PathOnlyOnDemandRows( mutated ).size(), 1u );
+}
+
 TEST( CookedRegistryGate, EveryDependencyNamesARowByItsGuid )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -372,7 +423,7 @@ TEST( CookedRegistryGate, AnEdgeWithAChangedGuidIsCaught )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -403,7 +454,7 @@ TEST( CookedRegistryGate, ACorruptIdentityIsCaught )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -425,7 +476,7 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -435,15 +486,15 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
     const std::string firstLine = current.substr( 0, current.find( '\n' ) );
     const std::string body      = current.substr( current.find( '\n' ) );
     // The previous form, whose rows carried runtime-learned identities and edges.
-    const std::string previous = "DesertAssetRegistryCache 2" + body;
-    EXPECT_FALSE( Common::Content::ParseRegistryCache( previous ) ) << "a version-2 cache was reused";
+    const std::string previous = "DesertAssetRegistryCache 3" + body;
+    EXPECT_FALSE( Common::Content::ParseRegistryCache( previous ) ) << "a version-3 cache was reused";
     // A later form is not this one either; the magic is compared whole, not as a prefix.
     EXPECT_FALSE( Common::Content::ParseRegistryCache( firstLine + "0" + body ) );
     // An older registry form embedded in a current cache would hand back rows without their header columns.
     std::string olderRegistry = current;
-    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 3" );
+    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 5" );
     ASSERT_NE( at, std::string::npos );
-    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 3" ).size(), "\nDesertAssetRegistry 2" );
+    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 5" ).size(), "\nDesertAssetRegistry 4" );
     EXPECT_FALSE( Common::Content::ParseRegistryCache( olderRegistry ) );
 
     // And what the editor does with a refused cache: an empty one, i.e. every header read afresh.

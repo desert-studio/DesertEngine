@@ -9,7 +9,7 @@ project "GLFW"
 	kind "StaticLib"
 	language "C"
 	staticruntime "off"
-	location ( root )
+	location ( _MAIN_SCRIPT_DIR .. "/build/Projects/GLFW" )
 
 	files
 	{

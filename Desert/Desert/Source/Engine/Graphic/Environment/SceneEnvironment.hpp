@@ -15,6 +15,8 @@ namespace Desert::ShaderResources
 
 namespace Desert::Graphic
 {
+    class GpuBatch;
+
     struct Environment
     {
         Common::Filepath Filepath; // TODO: Asset Env
@@ -57,7 +59,13 @@ namespace Desert::Graphic
         // Builds the three IBL cubes of an HDR skybox asset — the panorama as authored, at unit gain. The
         // scene's look (rotation, tint, intensity) is NOT in them: it is applied where they are sampled
         // (Environment/SkyLook.hpp), which is what keeps a slider drag from being a bake per value.
-        static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset );
+        //
+        // ON A MISS THE CUBES ARE NOT WRITTEN YET WHEN THIS RETURNS. The whole chain is recorded into one
+        // batch, submitted, and handed back through @p convolving still running on the GPU; the caller keeps
+        // it until `IsComplete()` and samples nothing before then (SkyboxService holds the skybox pending
+        // meanwhile). A hit, and every refusal, leaves @p convolving empty.
+        static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
+                                   std::unique_ptr<GpuBatch>&                  convolving );
 
         // Builds an IBL environment from the engine-generated procedural atmosphere (no HDR asset): the sky
         // is baked into an equirect panorama of @p panoramaWidth x @p panoramaHeight, then run through the
@@ -85,12 +93,14 @@ namespace Desert::Graphic
         // the prefilter convolves). Named for the RESULT: the 4x3 "cross" this used to be named after was
         // an internal unwrap of the source pixels, and carrying it in the name is how call sites came to
         // reason in cross widths instead of faces.
-        static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( const Runtime::ImageHandle& panorama );
+        static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( GpuBatch&                   batch,
+                                                                         const Runtime::ImageHandle& panorama );
 
-        static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( const Runtime::ImageHandle& panorama );
+        static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( GpuBatch&                   batch,
+                                                                   const Runtime::ImageHandle& panorama );
 
         // GGX-prefilters an already-built radiance cubemap (per-mip roughness).
-        static std::shared_ptr<ImageCube>
-        CreatePrefilteredMap( const Runtime::ImageHandle& radianceCube );
+        static std::shared_ptr<ImageCube> CreatePrefilteredMap( GpuBatch&                   batch,
+                                                                const Runtime::ImageHandle& radianceCube );
     };
 } // namespace Desert::Graphic

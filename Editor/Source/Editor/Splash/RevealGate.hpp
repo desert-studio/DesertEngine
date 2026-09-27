@@ -28,10 +28,21 @@ namespace Desert::Editor::Splash
                s.RealFrameDrawn;
     }
 
-    /// Background work that is NOT the scene's content — asset thumbnails — waits until the splash has
-    /// handed over. Before that it would compete with the settle for the same frames and the same asset
-    /// loader, and a preview nobody can see yet would hold the splash on screen.
-    [[nodiscard]] constexpr bool BackgroundWorkAllowed( const RevealState& s )
+    /// Decoding thumbnails that are ALREADY on disk (ThumbnailPrefetch) is allowed in every state, splash
+    /// included. It is file reads and stb on a JobSystem worker: no renderer slot, no device, nothing the
+    /// settle waits on. Doing it during the splash is the point — the first frame after the hand-over then
+    /// only uploads (as UE shows a cached thumbnail at once). A predicate that is always true still earns its
+    /// name: the call site says which half of the thumbnail work it is, and the test pins that this half does
+    /// not wait.
+    [[nodiscard]] constexpr bool ThumbnailDiskDecodeAllowed( const RevealState& /*unused*/ )
+    {
+        return true;
+    }
+
+    /// CAPTURING a thumbnail (a renderer slot, ~370 ms a material) and painting a cloud one wait until the
+    /// splash has handed over. Before that they would compete with the settle for the same frames and the
+    /// same asset loader, and a preview nobody can see yet would hold the splash on screen.
+    [[nodiscard]] constexpr bool ThumbnailCaptureAllowed( const RevealState& s )
     {
         return !s.HasSplash || s.Revealed;
     }

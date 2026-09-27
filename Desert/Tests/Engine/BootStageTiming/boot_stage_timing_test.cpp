@@ -148,7 +148,7 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryPreloadInAStage )
     {
         declared.push_back( ( *it )[1].str() );
     }
-    ASSERT_GE( declared.size(), 5u ) << "the scan found " << declared.size()
+    ASSERT_GE( declared.size(), 4u ) << "the scan found " << declared.size()
                                      << " Preload* declarations, which means the scan broke";
 
     const std::string layer = Desert::Tests::ConsumerText::StripComments(

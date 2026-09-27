@@ -259,12 +259,20 @@ N_CHANGED=$(printf '%s\n' "$CHANGED" | grep -c .)
 # gate exists to catch, so absence is reported as an environment failure and named file by file.
 # It happens for two reasons and the message names both: premake was not re-run after the file was
 # added, or the build was generated without test projects while the change is in Desert/Tests.
+#
+# BOTH SIDES ARE RESOLVED BEFORE THEY ARE COMPARED. The database is clang-shaped: `directory` is where
+# the build compiles (build/Projects), `file` is absolute; the changed list is "$ROOT/<git path>". A
+# plain string comparison holds only while both happen to be spelled from the same root: a symlinked
+# checkout, a `..` left in a `file`, or a relative `file` resolved against `directory` would each turn
+# a covered source into an "orphan" (exit 2) with nothing in the message to say why.
 COUNTS=$(CHANGED_FILES="$CHANGED" python3 -c '
 import json, os
-db = {e["file"] for e in json.load(open("compile_commands.json"))}
+def canon(e):
+    return os.path.realpath(os.path.join(e["directory"], e["file"]))
+db = {canon(e) for e in json.load(open("compile_commands.json"))}
 changed = os.environ["CHANGED_FILES"].split()
-print(sum(1 for f in changed if f in db))
-print(" ".join(f for f in changed if f.endswith((".cpp", ".mm")) and f not in db))')
+print(sum(1 for f in changed if os.path.realpath(f) in db))
+print(" ".join(f for f in changed if f.endswith((".cpp", ".mm")) and os.path.realpath(f) not in db))')
 COVERED=$(printf '%s\n' "$COUNTS" | sed -n 1p)
 ORPHANS=$(printf '%s\n' "$COUNTS" | sed -n 2p)
 echo "changed C++ files vs $BASE: $N_CHANGED, of which $COVERED are translation units in the database"
@@ -348,8 +356,9 @@ if ! CHANGED_FILES="$CHANGED" OUT_DB="$HDRDB/compile_commands.json" python3 -c '
 import json, os, re, shlex
 db = json.load(open("compile_commands.json"))
 names = {e["file"] for e in db}
+known = {os.path.realpath(os.path.join(e["directory"], e["file"])) for e in db}
 headers = [f for f in os.environ["CHANGED_FILES"].split()
-           if f.endswith((".hpp", ".h")) and f not in names and os.path.isfile(f)]
+           if f.endswith((".hpp", ".h")) and os.path.realpath(f) not in known and os.path.isfile(f)]
 extra = []
 if headers:
     inc = re.compile(r"^\s*#\s*include\s*[<\"]([^>\"]+)[>\"]", re.M)

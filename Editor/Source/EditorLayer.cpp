@@ -1,5 +1,9 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Editor/Core/DetailsNavigation.hpp>
+#include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
+#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -19,6 +23,8 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
 
+#include <Engine/Runtime/ResourceRegistry.hpp>
+
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <functional>
@@ -26,8 +32,13 @@
 
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Common/Core/Core.hpp>
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Profiler.hpp>
+#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Common/Core/JobSystem.hpp>
 
 // 1. Engine Core
 #include <Engine/Core/Scene.hpp>
@@ -84,6 +95,7 @@
 #include "Editor/Packaging/GamePackager.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <Engine/Graphic/Image.hpp>                      // Image2D::ReadPixelsRGBA8 (debug frame dump)
 #include <Engine/Core/Input.hpp>
@@ -369,6 +381,15 @@ namespace Desert::Editor
         return std::string( PanelIcon( name ) ) + "  " + label + "###" + name;
     }
 
+    // The name a person reads for a panel: the ImGui "##id" suffix dropped (the palette's Panel labels).
+    static std::string PanelShownName( const std::string& name )
+    {
+        std::string shown = name;
+        if ( const auto hash = shown.find( "##" ); hash != std::string::npos )
+            shown.erase( hash );
+        return shown;
+    }
+
     // THE DOCUMENT WELL'S OWN WINDOW: the index of open documents. It is not where they open — a document opens
     // as a tab beside the level viewport (Editor/Core/DocumentPlacement.hpp).
     static constexpr const char* kDocumentWellWindow =
@@ -467,12 +488,9 @@ namespace Desert::Editor
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
         // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
         // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
-        m_StartupStages.push_back(
-             { "Cooking meshes...",
-               [this] { m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::MESH_PATH ); } } );
-        m_StartupStages.push_back(
-             { "Cooking collections...", [this]
-               { m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH ); } } );
+        //
+        // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
+        // JobSystem after the reveal (StartBackgroundCook) and the preload reads whatever cook is on the disk.
         // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
         // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
         // this repository then committed had no producer in any automatic path -- and a stale one (a container
@@ -504,44 +522,6 @@ namespace Desert::Editor
                                      kSecondsPerAssetRow, nullptr, [] { return PreloadCosts(); } } );
         m_StartupStages.push_back(
              { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
-        m_StartupStages.push_back(
-             { "Preloading cloud noise volumes...", [this] { m_AssetPreloader->PreloadCloudNoiseVolumes(); } } );
-        // AFTER the volumes, always: a cloud type binds the volume it names the moment it is created, and
-        // one created first would find nothing to bind and render with the default edge.
-        m_StartupStages.push_back(
-             { "Preloading cloud types...", [this] { m_AssetPreloader->PreloadCloudTypes(); } } );
-        m_StartupStages.push_back(
-             { "Preloading hero clouds...", [this] { m_AssetPreloader->PreloadCloudModellingVolumes(); } } );
-        // THIS LINE WAS MISSING FROM THE DAY THE PAINTED LAYOUT SHIPPED, and its absence made the whole
-        // feature dead: AssetPreloader::PreloadCloudLayouts existed, scanned Clouds/Layouts and registered
-        // every `.dclayout` with the service — and nothing ever called it. Every scene binding a painting
-        // logged "referenced but not registered" and rendered its sky procedurally. Order-free, like the
-        // hero clouds above: a layout names nothing and is named only by a material.
-        m_StartupStages.push_back(
-             { "Preloading painted layouts...", [this] { m_AssetPreloader->PreloadCloudLayouts(); } } );
-        // THE SAME LINE THE PAINTED LAYOUT SPENT ITS WHOLE LIFE WITHOUT — added WITH the feature this
-        // time, and for exactly the failure the comment above records: a scene naming a theme the scan
-        // never ran would log "referenced but not registered" and draw every element's own colours, which
-        // looks precisely like a theme system that does not work. Order-free: a theme names only font
-        // paths, which FontService registers on demand, and nothing else names a theme.
-        m_StartupStages.push_back(
-             { "Preloading UI themes...", [this] { m_AssetPreloader->PreloadUIThemes(); } } );
-        // CALLED, and that is the point of the line existing (A12). The stage above carries the note about
-        // PreloadCloudLayouts having been a scan nobody ran; a rig library nobody scans is the same defect
-        // with a different extension — the entity's rig slot would be empty in every project that has
-        // rigs, and only a scene that already named one would ever load it.
-        m_StartupStages.push_back(
-             { "Preloading control rigs...", [this] { m_AssetPreloader->PreloadControlRigs(); } } );
-        // And the graphs, for the same reason one line up: an entity's graph slot has to be able to offer
-        // the project's `.danimgraph` files, and it does that by asking the manager for every one of them.
-        m_StartupStages.push_back(
-             { "Preloading anim graphs...", [this] { m_AssetPreloader->PreloadAnimGraphs(); } } );
-        // AND THE RETARGETS, WHICH ARE NOT ORDER-FREE the way the two above are. A `.retarget` names its
-        // source rig by signature and binds it while loading, so it has to run after the cooked scan that
-        // registers the project's `.skeleton` files — which is the very first content stage. Placed here,
-        // beside the other two animation preloads, that ordering holds by construction.
-        m_StartupStages.push_back(
-             { "Preloading retargets...", [this] { m_AssetPreloader->PreloadRetargets(); } } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.
@@ -566,6 +546,7 @@ namespace Desert::Editor
         // ran — so with two `.anim` files on disk it reported the four procedural clips and nothing else.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
+        Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
         m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
@@ -1126,7 +1107,7 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::ParticleEmitterComponent>( subject.Owner ); } } );
         // THE UI CANVAS. Its window owns a Framebuffer and a Render2D rather than a SceneRenderer, so it
-        // takes none of the six renderer slots and says so (UIEditorPanel::ClaimsRendererSlot) — a document
+        // takes none of the six renderer slots and says so (UIEditorPanel::ClaimsView) — a document
         // that renders is not automatically a document that costs a slot.
         m_SubjectEditors.Register(
              Editor::UIEditorPanel::SubjectType(),
@@ -1474,7 +1455,10 @@ namespace Desert::Editor
         // volume, and doing that before the frame's passes resolve their inputs is what lets the volume
         // be used by the same frame it arrived in rather than by the next one.
         Assets::AsyncAssetLoader::Get().Pump();
+        // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
+        Graphic::EnvironmentCacheWriter::Get().Pump();
         UpdateContentSettling();
+        DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         if ( m_SceneLoadRequested && !StartupLoading() )
@@ -1665,12 +1649,14 @@ namespace Desert::Editor
         // is open, hidden or closed no longer changes whether previews progress, and a request made by one
         // panel is finished for all of them.
         //
-        // NOT WHILE THE SPLASH IS UP. A preview is background work nobody can see until the window is
-        // shown, and pumped during the settle it shares the settle's frames and asset loader — the one
-        // thing the splash is waiting on. Requests made before the hand-over stay queued and are served
-        // after it, at the service's own per-frame pace.
-        if ( Splash::BackgroundWorkAllowed( CurrentRevealState() ) )
-            ThumbnailService::Get().Tick();
+        // Two halves, two gates (Editor/Splash/RevealGate.hpp). A PNG already in the disk cache is decoded
+        // on a worker even while the splash is up, so the first frame after the hand-over only uploads it.
+        // A CAPTURE is not: it shares the settle's frames and asset loader — the one thing the splash is
+        // waiting on — so requests made before the hand-over stay queued and are served after it.
+        if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
+            ThumbnailService::TickDiskAndDecode();
+        if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
+            ThumbnailService::Get().TickCapture();
 
         UpdateContextualPanels();
 
@@ -2615,8 +2601,9 @@ namespace Desert::Editor
             entry.Name               = DocumentDisplayName( document->GetName() );
             entry.Type               = m_SubjectEditors.TypeName( subject );
             entry.Subject            = subject.ToString();
-            entry.HoldsRendererSlot  = document->HoldsRendererSlot();
-            entry.ClaimsRendererSlot = document->ClaimsRendererSlot();
+            entry.HoldsView          = document->HoldsView();
+            entry.ClaimsView         = document->ClaimsView();
+            entry.ViewForecastBytes  = document->ViewForecastBytes();
             entry.Focused            = ( subject == m_FocusedDocument );
 
             // The three states, asked of the document itself. Written out as words here rather than
@@ -2667,9 +2654,18 @@ namespace Desert::Editor
             snapshot.Panels.push_back( std::move( entry ) );
         }
 
-        snapshot.RendererSlotsLive    = Graphic::SceneRenderer::GetLiveRendererCount();
-        snapshot.RendererSlotsPending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
-        snapshot.RendererSlotsMax     = EngineContext::kMaxRendererSlots;
+        {
+            // The same reading and holdings a refusal is decided on (Graphic::ReadViewBudget), so the state a
+            // client reads and the verdict the editor gives cannot disagree.
+            const auto holdings = Graphic::SceneRenderer::LiveHoldings();
+            snapshot.ViewsLive  = static_cast<uint32_t>( holdings.size() );
+            for ( const Engine::ViewBudget::HeldView& view : holdings )
+                snapshot.ViewBytes += view.Bytes;
+            snapshot.PendingViewBytes                 = PendingViewBytes( m_OpenDocuments.Documents() );
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
+            snapshot.BudgetBytes                      = reading.CeilingBytes;
+            snapshot.UsageBytes                       = reading.UsageBytes;
+        }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
         snapshot.LogWarningCount = LogsPanel::WarningCount();
@@ -2922,9 +2918,8 @@ namespace Desert::Editor
         m_Panels.Adopt( std::move( vp ) );
 
         m_ExtraScenes.emplace_back( std::move( doc ) );
-        LOG_INFO( "[Editor] Opened scene view #{} (now {} scenes open, {}/{} renderer slots in use)", id,
-                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::GetLiveRendererCount(),
-                  EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Opened scene view #{} (now {} scenes open; views: {})", id, m_ExtraScenes.size() + 1,
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::CloseDismissedSceneViews()
@@ -3001,11 +2996,10 @@ namespace Desert::Editor
         doc->Renderer.reset();
         m_ExtraScenes.erase( m_ExtraScenes.begin() + static_cast<ptrdiff_t>( *index ) );
 
-        // The count is printed, not left to be derived: a surface that fails to return its slot produces no
+        // The count is printed, not left to be derived: a surface that fails to destroy its view produces no
         // error at all, and this line beside the one in AddSceneView is what makes the leak readable.
-        LOG_INFO( "[Editor] Closed scene view #{} '{}' ({} scenes open, {}/{} renderer slots in use)", id, name,
-                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::GetLiveRendererCount(),
-                  EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Closed scene view #{} '{}' ({} scenes open; views: {})", id, name,
+                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::AddSceneViewport()
@@ -3044,10 +3038,9 @@ namespace Desert::Editor
         view->Renderer = std::move( renderer );
         m_ExtraViewports.emplace_back( std::move( view ) );
 
-        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world, {}/{} renderer slots in "
-                  "use)",
+        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world; views: {})",
                   m_ExtraViewports.back()->Id, scene->GetSceneName(), scene->GetViewCount(),
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::BuildViewportGrid()
@@ -3112,10 +3105,10 @@ namespace Desert::Editor
             }
         }
 
-        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' ({}/{} renderer slots in use); the dock "
-                  "split runs on the next frame.",
+        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' (views: {}); the dock split runs on the "
+                  "next frame.",
                   m_PendingViewportGrid.size(), scene->GetSceneName(),
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::CloseDismissedSceneViewports()
@@ -3159,27 +3152,30 @@ namespace Desert::Editor
         view->Renderer.reset();
         m_ExtraViewports.erase( m_ExtraViewports.begin() + static_cast<ptrdiff_t>( *index ) );
 
-        LOG_INFO( "[Editor] Closed viewport '{}' ({}/{} renderer slots in use)", name,
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Closed viewport '{}' (views: {})", name, Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
-    std::vector<EditorLayer::RendererSlotConsumer> EditorLayer::RendererSlotCensus() const
+    std::vector<EditorLayer::ViewConsumer> EditorLayer::ViewCensus() const
     {
-        std::vector<RendererSlotConsumer> census;
-        census.push_back( { "main viewport", true } ); // the primary scene's renderer exists for the session
+        std::vector<ViewConsumer> census;
+        census.push_back( { "main viewport", true } ); // the primary scene's view exists for the session
 
         for ( const auto& doc : m_ExtraScenes )
             census.push_back( { "scene view '" + doc->Name + "'", true } );
 
-        // A second ANGLE holds a slot exactly as a second document does — leaving it out of the census
-        // would make the budget's own report disagree with SceneRenderer::GetLiveRendererCount().
+        // A second ANGLE holds a view exactly as a second document does — leaving it out of the census
+        // would make the refusal's own list disagree with SceneRenderer::LiveHoldings().
         for ( const auto& view : m_ExtraViewports )
             census.push_back( { "viewport '" + view->Name + "'", view->Renderer != nullptr } );
 
         // The Details preview is a TOOL that happens to own a renderer, so it is found among the panels.
         for ( const auto& panel : m_Panels )
             if ( const auto* details = dynamic_cast<const ScenePropertiesPanel*>( panel.get() ) )
-                census.push_back( { "Details preview", details->HoldsRendererSlot() } );
+                // Only while it HOLDS one. With nothing previewable selected it owns no renderer and has
+                // no forecast either (it builds lazily on a selection, not on a document), so a row here
+                // read "will allocate ~0.0 MiB when it draws" — a line the user could do nothing with.
+                if ( details->HoldsView() )
+                    census.push_back( { "Details preview", true } );
 
         // The documents are asked of their own owner rather than sifted out of the panel list with a
         // dynamic_cast. That cast was the seam an earlier task closed: it only existed because the two
@@ -3188,10 +3184,12 @@ namespace Desert::Editor
         {
             // The VISIBLE half of the name. The census tells a user what to close, and they close a window
             // titled "MP_GreenTint", not one titled "MP_GreenTint###docasset:2:3333333333333333333".
-            census.push_back( { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
-                                     DocumentDisplayName( document->GetName() ) + "'",
-                                document->HoldsRendererSlot(), document->ClaimsRendererSlot(),
-                                document->Subject() } );
+            census.push_back(
+                 { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
+                        DocumentDisplayName( document->GetName() ) + "'",
+                   document->HoldsView(), document->ClaimsView(),
+                   document->ClaimsView() && !document->HoldsView() ? document->ViewForecastBytes() : 0,
+                   document->Subject() } );
         }
 
         return census;
@@ -3255,68 +3253,22 @@ namespace Desert::Editor
                 continue;
             }
 
-            // Checked BEFORE the slot arithmetic below, so a kind with no editor is reported as the missing
-            // editor it is rather than as a resource shortage it had nothing to do with.
+            // Checked BEFORE the budget below, so a kind with no editor is reported as the missing editor it
+            // is rather than as a memory shortage it had nothing to do with.
             if ( !m_SubjectEditors.HasEditorFor( subject.Type() ) )
             {
                 LOG_WARN( "[Editor] Nothing edits subject '{}' — no window opened.", subject.ToString() );
                 continue;
             }
 
-            // THE SEVENTH CONSUMER IS REFUSED, OUT LOUD. There are six renderer slots. A document admitted
-            // past the cap would not fail — SceneRenderer would hand it slot 0 to share with the main view,
-            // and the symptom is two surfaces quietly trading each other's per-frame camera some minutes
-            // later, with no error anywhere. So the count is checked here and the census is printed with
-            // names, because a bare "no slots" leaves the user with nothing to close.
-            //
-            // Pending demand is counted separately and it is not pedantry: a document that is open but has
-            // not drawn yet holds NO slot and has a claim coming, so the live-renderer count alone would
-            // admit a document there is no slot for and discover it a frame later.
-            //
-            // The counting rule itself lives in SubjectEditorRegistry.hpp, not here: this file is compiled
-            // by no suite, and a rule written in it is a rule nothing can assert.
-            const uint32_t live    = Graphic::SceneRenderer::GetLiveRendererCount();
-            const uint32_t pending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
-
-            if ( live + pending >= EngineContext::kMaxRendererSlots )
-            {
-                auto        rows = RendererSlotCensus();
-                std::string census;
-                for ( const auto& consumer : rows )
-                {
-                    const char* state = consumer.HoldsSlot ? "holds a slot"
-                                        : consumer.ClaimsSlot
-                                             ? "no slot right now, but will claim one when it draws"
-                                             : "holds no slot and never will (drawn on the CPU) — closing "
-                                               "it frees nothing";
-                    census += "\n    " + consumer.Name + " — " + state;
-                }
-                LOG_ERROR( "[Editor] Refusing to open a document for subject '{}': {} of {} renderer slots "
-                           "are in use and {} more are already committed. Close one of these first:{}",
-                           subject.ToString(), live, EngineContext::kMaxRendererSlots, pending, census );
-
-                // AND THE SAME THING WHERE THE USER IS. The census above has always been written; it went
-                // to a log the user was not reading, so a double-click on the seventh document did nothing
-                // at all as far as the screen was concerned. The dialog carries the identical rows and, for
-                // the ones that are documents, a button that acts on them.
-                //
-                // The subject is named by its FILE NAME or its ENTITY NAME where one is known: "handle
-                // 3333333333333333333" is the log's identifier, not the user's.
-                m_OpenRefusal = OpenRefusal{ RefusedSubjectName( subject ), m_SubjectEditors.TypeName( subject ),
-                                             live, pending, std::move( rows ) };
-                m_OpenRefusalPending = true;
-                continue;
-            }
-
+            // BUILT FIRST, JUDGED SECOND. The admission asks the document what its view will cost
+            // (ISubjectDocument::ViewForecastBytes), and only the document knows: a Material Editor forecasts
+            // a preview view, a cloud document forecasts nothing. Building one allocates no GPU memory — a
+            // document builds its view on its first DRAW — so a refused document is dropped here having cost
+            // nothing but the object.
             auto document = m_SubjectEditors.Create( subject );
             if ( !document )
                 continue; // the registry already said why
-
-            const std::string name = document->GetName();
-            // Asked BEFORE the move, and counted rather than assumed: a document that will never claim a
-            // slot adds nothing to the committed total, and "pending + 1" would have reported every cloud
-            // document as a claim on a slot it does not take. See ISubjectDocument::ClaimsRendererSlot.
-            const uint32_t committed = pending + ( document->ClaimsRendererSlot() ? 1u : 0u );
 
             // ASKED THE MOMENT IT IS BUILT, and not left to the sweep a frame later. A document whose
             // subject was already gone would otherwise appear for one frame and vanish, which reads as a
@@ -3329,6 +3281,66 @@ namespace Desert::Editor
                           subject.ToString(), m_SubjectEditors.TypeName( subject ) );
                 continue;
             }
+
+            // A DOCUMENT WHOSE VIEW DOES NOT FIT IS REFUSED, OUT LOUD, IN BYTES. Admitted past the budget it
+            // would not fail here — its view would fail to allocate on the first frame it draws, far from the
+            // click that asked for it. So the device-local budget is asked now, with every number printed and
+            // the open views named, because a bare "out of memory" leaves the user with nothing to close.
+            //
+            // Pending bytes are counted separately and it is not pedantry: a document that is open but has
+            // not drawn yet holds no memory the device reports and has an allocation coming, so the usage
+            // alone would admit a document there is no room for and discover it a frame later.
+            //
+            // The rule itself lives in SubjectEditorRegistry.hpp (AdmitDocumentView over
+            // Engine::ViewBudget::MayCreate), not here: this file is compiled by no suite, and a rule written
+            // in it is a rule nothing can assert.
+            const uint64_t                    pending = PendingViewBytes( m_OpenDocuments.Documents() );
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
+            const Engine::ViewBudget::Verdict verdict = AdmitDocumentView( *document, pending, reading );
+            if ( !verdict.Ok )
+            {
+                std::vector<Engine::ViewBudget::HeldView> views = Graphic::SceneRenderer::LiveHoldings();
+                std::vector<ViewConsumer>                 rows  = ViewCensus();
+                std::string                               census;
+                for ( const ViewConsumer& consumer : rows )
+                {
+                    std::string state =
+                         "holds no view and never will (drawn on the CPU) — closing it frees nothing";
+                    if ( consumer.HoldsView )
+                        state = "holds a view";
+                    else if ( consumer.ClaimsView )
+                        state = std::format( "no view yet, will allocate ~{} when it draws",
+                                             Engine::ViewBudget::FormatMiB( consumer.ForecastBytes ) );
+                    census += "\n    " + consumer.Name + " — " + state;
+                }
+                LOG_ERROR( "[Editor] Refusing to open a document for subject '{}': {} (of which {} is spoken for "
+                           "by open documents that have not drawn yet). Close one of these first:{}",
+                           subject.ToString(),
+                           Engine::ViewBudget::DescribeRefusal( document->GetName(), verdict, reading, views ),
+                           Engine::ViewBudget::FormatMiB( pending ), census );
+
+                // AND THE SAME THING WHERE THE USER IS. The census above went to a log the user was not
+                // reading, so a double-click on a document that did not fit did nothing at all as far as the
+                // screen was concerned. The dialog carries the identical numbers and rows and, for the ones
+                // that are documents, a button that acts on them.
+                //
+                // The subject is named by its FILE NAME or its ENTITY NAME where one is known: "handle
+                // 3333333333333333333" is the log's identifier, not the user's.
+                m_OpenRefusal        = OpenRefusal{ RefusedSubjectName( subject ),
+                                             m_SubjectEditors.TypeName( subject ),
+                                             verdict,
+                                             reading,
+                                             pending,
+                                             std::move( views ),
+                                             std::move( rows ) };
+                m_OpenRefusalPending = true;
+                continue;
+            }
+
+            const std::string name = document->GetName();
+            // Asked BEFORE the move: what this document adds to the memory spoken for. A document that will
+            // never build a view adds nothing. See ISubjectDocument::ClaimsView.
+            const uint64_t committed = pending + ( document->ClaimsView() ? document->ViewForecastBytes() : 0 );
 
             // THROUGH THE OWNER'S OWN DOOR, which is what refuses a duplicate rather than appending one.
             // The open-or-focus above already answered for the route this function serves; the refusal
@@ -3355,11 +3367,11 @@ namespace Desert::Editor
             m_DocumentWell.Opened( subject ); // also brings a closed well back
             m_FocusPanel      = name;         // brings the new window forward in the document well
             m_FocusedDocument = subject;
-            LOG_INFO( "[Editor] Opened a '{}' document '{}' ({} open, {}/{} renderer slots in use, {} "
-                      "committed).",
+            LOG_INFO( "[Editor] Opened a '{}' document '{}' ({} open; {} spoken for by documents that have not "
+                      "drawn yet; {}, in use {}).",
                       m_SubjectEditors.TypeName( subject ), name, m_OpenDocuments.Count(),
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots,
-                      committed );
+                      Engine::ViewBudget::FormatMiB( committed ), Engine::ViewBudget::DescribeCeiling( reading ),
+                      Engine::ViewBudget::FormatMiB( reading.UsageBytes ) );
         }
     }
 
@@ -3462,27 +3474,27 @@ namespace Desert::Editor
             const uint32_t undrawn = m_OpenDocuments.FramesUndrawn( document->Subject() );
             if ( undrawn < kFramesHiddenBeforeSlotRelease )
                 continue;
-            if ( !document->HoldsRendererSlot() )
+            if ( !document->HoldsView() )
                 continue;
 
-            document->ReleaseRendererSlot();
+            document->ReleaseView();
 
-            // VERIFIED, NOT ASSUMED. ReleaseRendererSlot's contract is that HoldsRendererSlot answers false
+            // VERIFIED, NOT ASSUMED. ReleaseView's contract is that HoldsView answers false
             // afterwards; a document that inherited the empty default while genuinely holding a slot would
             // otherwise keep it for ever and the census would go on blaming a window the user cannot fix.
-            if ( document->HoldsRendererSlot() )
+            if ( document->HoldsView() )
             {
                 LOG_ERROR( "[Editor] '{}' was asked to release its renderer slot after {} hidden frames and "
-                           "still holds one. ReleaseRendererSlot must make HoldsRendererSlot false — see "
+                           "still holds one. ReleaseView must make HoldsView false — see "
                            "ISubjectDocument.",
                            DocumentDisplayName( document->GetName() ), undrawn );
                 continue;
             }
 
-            LOG_INFO( "[Editor] '{}' gave its renderer slot back after {} frames off screen ({}/{} in use). "
+            LOG_INFO( "[Editor] '{}' released its view after {} frames off screen (views: {}). "
                       "It is rebuilt on the first frame the window is drawn again.",
                       DocumentDisplayName( document->GetName() ), undrawn,
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                      Graphic::SceneRenderer::DescribeLiveViews() );
         }
     }
 
@@ -3495,7 +3507,7 @@ namespace Desert::Editor
         for ( const auto& document : m_OpenDocuments )
         {
             if ( m_OpenDocuments.FramesUndrawn( document->Subject() ) >= kFramesHiddenBeforeSlotRelease &&
-                 document->HoldsRendererSlot() )
+                 document->HoldsView() )
             {
                 releasePending = true;
                 break;
@@ -3540,10 +3552,9 @@ namespace Desert::Editor
             // The slot count is printed rather than derived for a different reason: a document that failed
             // to return its slot produces no error at all, and this line beside the one in
             // ServiceSubjectOpenRequests is what makes the leak readable.
-            LOG_INFO( "[Editor] Closed document '{}' — {} ({} open, {}/{} renderer slots in use after "
-                      "release).",
+            LOG_INFO( "[Editor] Closed document '{}' — {} ({} open; views after release: {}).",
                       DocumentDisplayName( name ), pending.Reason, m_OpenDocuments.Count(),
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                      Graphic::SceneRenderer::DescribeLiveViews() );
         }
 
         m_DocumentsToClose.clear();
@@ -3986,6 +3997,34 @@ namespace Desert::Editor
                 m_FocusPanel.clear();
             }
 
+            // Maximize / restore (palette "Panel" group): the dock node is read from the window as it stands,
+            // so a panel the user re-docked by hand is simply not maximized any more.
+            {
+                const ImGuiWindow* window =
+                     ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                const std::uint32_t dockId = window != nullptr ? window->DockId : 0;
+                const auto directive       = m_PanelMaximize.Before( PanelShownName( panel->GetName() ), dockId );
+                switch ( directive.Kind )
+                {
+                    case PanelMaximize::Step::Undock:
+                    {
+                        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                        ImGui::SetNextWindowDockID( 0, ImGuiCond_Always );
+                        ImGui::SetNextWindowViewport( viewport->ID );
+                        ImGui::SetNextWindowPos( viewport->WorkPos, ImGuiCond_Always );
+                        ImGui::SetNextWindowSize( viewport->WorkSize, ImGuiCond_Always );
+                        ImGui::SetNextWindowFocus();
+                        break;
+                    }
+                    case PanelMaximize::Step::Redock:
+                        ImGui::SetNextWindowDockID( directive.DockId, ImGuiCond_Always );
+                        ImGui::SetNextWindowFocus();
+                        break;
+                    case PanelMaximize::Step::None:
+                        break;
+                }
+            }
+
             ImGui::Begin( PanelDisplayTitle( panel->GetName() ).c_str(), &panel->GetVisibility() );
             ImGui::PopStyleVar(); // right after Begin: the window kept it, child windows must not inherit
             {
@@ -4099,13 +4138,30 @@ namespace Desert::Editor
             std::string name = p->GetName();
             if ( const auto hash = name.find( "##" ); hash != std::string::npos )
                 name.erase( hash ); // drop the "###id" ImGui suffix for display
+            // Through PanelRequests, the one "show that panel" wire: it also brings the panel's tab
+            // forward, which setting visibility alone never did for a panel already docked behind another.
             commands.push_back( { "Panel", "Open " + name, [p]
                                   {
-                                      p->GetVisibility() = true;
-                                      p->Pinned()        = true; // asked for explicitly: keep it open
+                                      Core::PanelRequests::Open( p->GetName() );
                                       return PaletteCommandDone();
                                   } } );
         }
+
+        // DELIBERATE CRASH. It is here and not behind a build flag because the thing it proves — that a
+        // crash leaves a report on the machine it happened on — has to be provable on a developer's or a
+        // QA machine with the editor they are already running, not only on a build that was compiled for
+        // the purpose. It refuses when the handler is not installed, rather than killing the process and
+        // leaving nothing: that refusal IS the useful answer.
+        commands.push_back( { "Debug", "Crash (test)", []
+                              {
+                                  if ( !Common::Crash::IsInstalled() )
+                                  {
+                                      return Common::MakeFormattedError(
+                                           "the crash handler is not installed in this process, so a "
+                                           "deliberate crash would leave no report" );
+                                  }
+                                  Common::Crash::TriggerTestCrash( Common::Crash::TestKind::Segv );
+                              } } );
 
         // Switching a world on (UE's "Convert Level to World Partition"). Offered UNCONDITIONALLY, unlike
         // the panel's button: a command that vanishes from the palette cannot tell the user WHY it is not
@@ -4139,11 +4195,28 @@ namespace Desert::Editor
                 commands.push_back( { "Assets", "Select asset " + path,
                                       std::bind_front( &FileExplorerPanel::SelectEntry,
                                                        std::to_address( m_FileExplorerPanel ), path ) } );
-                commands.push_back( { "Assets", "Open folder " + path,
-                                      std::bind_front( &FileExplorerPanel::OpenFolder,
-                                                       std::to_address( m_FileExplorerPanel ), path ) } );
             }
         }
+
+        // Maximize any panel that sits in a dock now; restore the maximized one.
+        {
+            std::vector<std::string> docked;
+            for ( const auto& panel : m_Panels )
+            {
+                if ( !panel->GetVisibility() )
+                    continue;
+                const ImGuiWindow* window =
+                     ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                if ( window != nullptr && window->DockId != 0 )
+                    docked.push_back( PanelShownName( panel->GetName() ) );
+            }
+            for ( PaletteCommand& command : PanelMaximizePaletteCommands( m_PanelMaximize, docked ) )
+                commands.push_back( std::move( command ) );
+        }
+
+        // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
+        for ( PaletteCommand& command : DetailsPaletteCommands( GetDetailsNavigation() ) )
+            commands.push_back( std::move( command ) );
 
         // THE SIX STAGES OF THE SKY, each as a command that opens the Clouds window ON that stage.
         //
@@ -5268,6 +5341,40 @@ namespace Desert::Editor
         // motivated it.
         const std::vector<std::filesystem::path> assetFiles =
              Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH );
+        // THE MESH DROP WITHOUT A MOUSE: one entry per model source, running the viewport's own drop body at
+        // the surface the active view's centre looks at. The control channel had "Place a cube" and nothing
+        // that exercised MeshDnD — AL1-5b could not check a dropped mesh for in-frame reads.
+        for ( const std::filesystem::path& file : assetFiles )
+        {
+            std::string ext = file.extension().string();
+            std::transform( ext.begin(), ext.end(), ext.begin(),
+                            []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            if ( ext != ".fbx" && ext != ".obj" && ext != ".gltf" && ext != ".glb" && ext != ".blend" )
+                continue;
+            const std::string path = file.generic_string();
+            const std::string label =
+                 "Drop into the viewport: " +
+                 file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+            // The same clang-tidy 18 finding as the folder entries below: the closure's implicit copy of
+            // `path`, which std::function needs.
+            // NOLINTBEGIN(bugprone-exception-escape)
+            commands.push_back(
+                 { "Assets", label, [this, path]
+                   {
+                       ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
+                       if ( camera == nullptr || !m_MainScene )
+                           return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                       const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
+                       ::Desert::Core::RaycastHit hit;
+                       if ( !m_MainScene->Raycast( ray, hit ) )
+                           return PaletteCommandOutcome( false, "the viewport centre looks at no surface" );
+                       const auto dropped = ViewportPanel::DropMeshIntoActiveViewport( path, hit.Point );
+                       if ( !dropped )
+                           return Common::MakeError<bool>( dropped.GetError() );
+                       return PaletteCommandDone();
+                   } } );
+            // NOLINTEND(bugprone-exception-escape)
+        }
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {
@@ -5313,12 +5420,13 @@ namespace Desert::Editor
                                   } } );
         }
 
-        // FOLDERS, one "Browse" entry each: brings the Assets browser forward ON that folder. Derived from the
-        // SAME content enumeration as the "Open" entries above (every folder that holds content, each ancestor
-        // up to the assets root included), not from a second walk of the disk: that one call sees a mounted
-        // .dpak as well as loose files, and the ContentScanners gate holds every content walk to it. A folder
-        // with no file anywhere beneath it is therefore not offered, which is the packaged project's truth
-        // too. The label is the path under the assets root.
+        // FOLDERS, one "Open folder: <path under the assets root>" entry each (the ONE folder command — the
+        // Assets window's own per-shown-folder duplicate that took an absolute path is gone): brings the Assets
+        // browser forward ON that folder. Derived from the SAME content enumeration as the "Open" entries above
+        // (every folder that holds content, each ancestor up to the assets root included), not from a second walk
+        // of the disk: that one call sees a mounted .dpak as well as loose files, and the ContentScanners gate
+        // holds every content walk to it. A folder with no file anywhere beneath it is therefore not offered,
+        // which is the packaged project's truth too. The label is the path under the assets root.
         {
             const std::filesystem::path assetsRoot =
                  std::filesystem::path( Common::Constants::Path::ASSETS_PATH ).lexically_normal();
@@ -5340,8 +5448,8 @@ namespace Desert::Editor
                 // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
                 // closure's implicit copy, which std::function needs; nothing in the body throws.
                 // NOLINTBEGIN(bugprone-exception-escape)
-                commands.push_back(
-                     { "Browse", label, [this, folder] { return ShowFolderInBrowser( folder ); } } );
+                commands.push_back( { "Assets", "Open folder: " + label,
+                                      [this, folder] { return ShowFolderInBrowser( folder ); } } );
                 // NOLINTEND(bugprone-exception-escape)
             }
         }
@@ -5387,6 +5495,24 @@ namespace Desert::Editor
                                   m_AddSceneViewportRequested = true;
                                   return PaletteCommandDone();
                               } } );
+
+        // THE ALLOCATOR'S OWN CENSUS, for the leak no view ledger can see: device usage that grows while every
+        // view's HeldBytes stays flat (RT2k). One line per tag, so a before/after pair diffs to the culprit.
+        commands.push_back(
+             { "Debug", "Log GPU allocations by tag", []() -> Common::BoolResultStr
+               {
+                   const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
+                        EngineContext::GetInstance().GetRendererContext() );
+                   if ( !context || !context->GetVulkanAllocator() )
+                       return Common::MakeError<bool>(
+                            "the renderer is not Vulkan; there is no allocator to read." );
+                   const auto& ledger = context->GetVulkanAllocator()->Ledger();
+                   LOG_INFO( "[AllocLedger] {} live allocation(s), {:.2f} MiB", ledger.LiveCount(),
+                             static_cast<double>( ledger.LiveBytes() ) / ( 1024.0 * 1024.0 ) );
+                   for ( const auto& row : ledger.ByTag() )
+                       LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
+                   return PaletteCommandDone();
+               } } );
 
         // FOUR ANGLES IN ONE ACTION. Opening three viewports by hand and dragging each into a quarter is
         // eleven gestures, none of which a headless run can make (synthetic input is closed on this
@@ -5992,7 +6118,7 @@ namespace Desert::Editor
         // SOMETHING IS OPEN: the well becomes the INDEX of the area it names. Past about six documents the
         // tab strip has the one you want off its end, so a list is not a fallback here — it is the primary
         // way to switch, and it carries the two facts a tab cannot: which type each document is, and
-        // whether it is holding one of the six renderer slots.
+        // whether it is holding a view.
         ImGui::TextDisabled( "OPEN DOCUMENTS \xe2\x80\x94 %zu", m_OpenDocuments.Count() );
         ImGui::Separator();
 
@@ -6014,14 +6140,14 @@ namespace Desert::Editor
                                     ImGuiSelectableFlags_AllowItemOverlap ) )
                 FocusDocument( subject );
 
-            // The slot column. "Cloud - no slot" is not trivia: it is the answer to "I closed four windows
+            // The view column. "Cloud - no view" is not trivia: it is the answer to "I closed four windows
             // and it still will not open", because closing a CPU-drawn document frees nothing.
-            const char* slot = "no slot";
-            if ( document->HoldsRendererSlot() )
-                slot = "1 slot";
-            else if ( document->ClaimsRendererSlot() )
-                slot = "claiming";
-            const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + slot;
+            std::string view = "no view";
+            if ( document->HoldsView() )
+                view = "1 view";
+            else if ( document->ClaimsView() )
+                view = "claiming ~" + Engine::ViewBudget::FormatMiB( document->ViewForecastBytes() );
+            const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + view;
             const float       rightW = ImGui::CalcTextSize( right.c_str() ).x;
             ImGui::SameLine( ImGui::GetContentRegionMax().x - rightW - 28.0f );
             ImGui::TextDisabled( "%s", right.c_str() );
@@ -6214,19 +6340,41 @@ namespace Desert::Editor
         ImGui::Text( "Cannot open %s", m_OpenRefusal->AssetName.c_str() );
         ImGui::PopFont();
 
-        ImGui::TextDisabled( "All %u renderer slots are in use%s. Close one of these to free one:",
-                             EngineContext::kMaxRendererSlots,
-                             m_OpenRefusal->Pending > 0 ? " or already committed" : "" );
+        // EVERY NUMBER THAT DECIDED IT, the same ones the log line carries: what the document needs (its own
+        // forecast plus what open documents have spoken for), the ceiling and where it came from, what is in
+        // use and what is left. "Not enough memory" without them cannot be acted on.
+        const Engine::ViewBudget::Verdict& verdict = m_OpenRefusal->Verdict;
+        ImGui::TextDisabled( "Needs %s (%s already spoken for by documents that have not drawn yet).",
+                             Engine::ViewBudget::FormatMiB( verdict.RequestBytes ).c_str(),
+                             Engine::ViewBudget::FormatMiB( m_OpenRefusal->PendingBytes ).c_str() );
+        ImGui::TextDisabled( "%s.", Engine::ViewBudget::DescribeCeiling( m_OpenRefusal->Reading ).c_str() );
+        ImGui::TextDisabled( "In use %s%s, free %s.", Engine::ViewBudget::FormatMiB( verdict.UsageBytes ).c_str(),
+                             m_OpenRefusal->Reading.UsageKnown ? "" : " (counted from open views only)",
+                             Engine::ViewBudget::FormatMiB( verdict.FreeBytes ).c_str() );
         ImGui::Separator();
 
+        // WHERE THE MEMORY WENT, by view, largest first — what each open view actually holds.
+        std::vector<Engine::ViewBudget::HeldView> views = m_OpenRefusal->Views;
+        std::sort( views.begin(), views.end(),
+                   []( const Engine::ViewBudget::HeldView& a, const Engine::ViewBudget::HeldView& b )
+                   { return a.Bytes > b.Bytes; } );
+        ImGui::TextUnformatted( "Open views" );
+        ImGui::Indent( 18.0f );
+        for ( const Engine::ViewBudget::HeldView& view : views )
+            ImGui::TextDisabled( "%s \xe2\x80\x94 %s", view.Name.c_str(),
+                                 Engine::ViewBudget::FormatMiB( view.Bytes ).c_str() );
+        ImGui::Unindent( 18.0f );
+        ImGui::Separator();
+        ImGui::TextUnformatted( "Close one of these to make room:" );
+
         std::vector<SubjectId> closeRequests;
-        for ( const RendererSlotConsumer& consumer : m_OpenRefusal->Census )
+        for ( const ViewConsumer& consumer : m_OpenRefusal->Census )
         {
             ImGui::TextUnformatted( consumer.Name.c_str() );
 
             // A row the user can act on gets a button; the main viewport and the Details preview do not,
             // because neither is a window a person closes to make room. Saying nothing on those rows is
-            // the honest version: they are named because they explain where the slots went.
+            // the honest version: they are named because they explain where the memory went.
             if ( consumer.Document && m_OpenDocuments.Find( *consumer.Document ) )
             {
                 ImGui::SameLine( ImGui::GetContentRegionMax().x - 64.0f );
@@ -6236,10 +6384,20 @@ namespace Desert::Editor
                 ImGui::PopID();
             }
 
+            // A document that has not drawn yet holds nothing the device reports, but it WILL — say how
+            // much, because that is memory the refusal counted against the new document.
+            if ( !consumer.HoldsView && consumer.ClaimsView )
+            {
+                ImGui::Indent( 18.0f );
+                ImGui::TextDisabled( "will allocate ~%s when it draws",
+                                     Engine::ViewBudget::FormatMiB( consumer.ForecastBytes ).c_str() );
+                ImGui::Unindent( 18.0f );
+            }
+
             // The CPU-drawn documents say so, for the reason the log line already did: closing one frees
             // nothing, and a census that let the user close four of them and still be refused would be a
             // longer way of saying nothing.
-            if ( !consumer.HoldsSlot && !consumer.ClaimsSlot )
+            if ( !consumer.HoldsView && !consumer.ClaimsView )
             {
                 ImGui::Indent( 18.0f );
                 ImGui::TextDisabled( "drawn on the CPU \xe2\x80\x94 closing it frees nothing" );
@@ -6259,7 +6417,7 @@ namespace Desert::Editor
         ImGui::EndPopup();
 
         for ( const SubjectId& subject : closeRequests )
-            RequestDocumentClose( subject, "closed to free a renderer slot" );
+            RequestDocumentClose( subject, "closed to free view memory" );
     }
 
     void EditorLayer::DrawRecoveryPopup()
@@ -6592,7 +6750,7 @@ namespace Desert::Editor
 
     void EditorLayer::BeginContentSettle()
     {
-        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+        m_Content.BeginWorld( Assets::ContentWorkNow().Started );
     }
 
     // SECONDS PER ITEM, MEASURED — so the bar's share of a stage is the share of the wait it is. A Debug
@@ -6640,6 +6798,95 @@ namespace Desert::Editor
     // loading frames the whole time it was hidden, and a window shown ahead of the first real present would
     // put the last of those — an empty frame — on screen for as long as that frame takes. Shown here, the
     // surface it reveals already holds the editor, and the splash crossfades into it from this instant.
+    void EditorLayer::StartBackgroundCook()
+    {
+        m_BackgroundCook = std::make_unique<BackgroundCookQueue>(
+             []( const std::filesystem::path& source )
+             {
+                 // One cooker per worker thread: Assimp importers are not reentrant.
+                 thread_local ImportManager s_ThreadImporter;
+                 return s_ThreadImporter.Import( source );
+             },
+             []( std::function<void()> job ) { Common::JobSystem::Get().Submit( std::move( job ) ); } );
+        m_BackgroundCookStart = std::chrono::steady_clock::now();
+
+        const std::array<std::filesystem::path, 2> roots{ Common::Constants::Path::MESH_PATH,
+                                                          Common::Constants::Path::COLLECTIONS_PATH };
+        for ( const std::filesystem::path& root : roots )
+            for ( const std::filesystem::path& source : ImportManager::MeshSources( root ) )
+                m_BackgroundCook->Enqueue( source );
+        LOG_INFO( "[BackgroundCook] {} mesh source(s) queued on the JobSystem after the reveal; a source whose "
+                  "cache entry is missing or stale stays Pending until its cook lands",
+                  m_BackgroundCook->Total() );
+    }
+
+    void EditorLayer::ReloadRecookedMesh( const std::filesystem::path& source )
+    {
+        // THE PENDING ASSET AND THE COOKED ONE MUST BE THE SAME HANDLE: the scene already names the Pending one,
+        // and nothing rewrites the scene when the cook lands. The handle comes from the asset's path (or a
+        // header stated in the file at that path), never from the envelope the cook minted, so it holds — and a
+        // drift would be a scene pointing at a mesh that never arrives, so it is checked, not assumed.
+        const std::filesystem::path staticPath = CookPaths::MeshAsset( source );
+        std::optional<uint64_t>     pendingHandle;
+        if ( const auto pending = m_AssetManager->FindByPath<Assets::MeshAsset>( staticPath.generic_string() ) )
+        {
+            pendingHandle = static_cast<uint64_t>( pending->GetMetadata().Handle );
+            // The failed load is dropped with the built GPU mesh; the shell stays, so the next draw reads the
+            // fresh entry through the path a first use takes.
+            if ( const auto unloaded = pending->Unload(); !unloaded )
+                LOG_ERROR( "[BackgroundCook] '{}' was cooked but its Pending asset could not be reset: {}",
+                           staticPath.string(), unloaded.GetError() );
+            if ( auto* service = Runtime::ResourceRegistry::GetMeshService() )
+                (void)service->EvictBuilt( pending->GetMetadata().Handle );
+        }
+        const auto resolved = MeshDnD::ResolveOrImportMesh( *m_AssetManager, source.string() );
+        if ( resolved.Handle.IsNull() )
+        {
+            LOG_ERROR( "[BackgroundCook] '{}' cooked but its asset did not resolve; it stays Pending",
+                       source.string() );
+            return;
+        }
+        if ( pendingHandle && *pendingHandle != static_cast<uint64_t>( resolved.Handle ) )
+            LOG_ERROR( "[BackgroundCook] '{}' was Pending as handle {} and resolved as {} after its cook; the "
+                       "scene's reference no longer reaches it",
+                       source.string(), *pendingHandle, static_cast<uint64_t>( resolved.Handle ) );
+        LOG_INFO( "[BackgroundCook] '{}' cooked; its asset now resolves{}", source.string(),
+                  pendingHandle ? " under the handle it was Pending as" : "" );
+    }
+
+    void EditorLayer::DrainBackgroundCook()
+    {
+        if ( !m_BackgroundCook )
+            return;
+        for ( const BackgroundCookQueue::Completed& done : m_BackgroundCook->Drain() )
+        {
+            switch ( DecideCookCompletion( done.Verdict ) )
+            {
+                case CookCompletionAction::Nothing:
+                    break;
+                case CookCompletionAction::ReportFailure:
+                    ++m_BackgroundCookFailed;
+                    LOG_ERROR( "[BackgroundCook] '{}' did not cook; its asset stays Pending (not drawn)",
+                               done.Source.string() );
+                    break;
+                case CookCompletionAction::Reload:
+                    ++m_BackgroundCookChanged;
+                    ReloadRecookedMesh( done.Source );
+                    break;
+            }
+        }
+        if ( !m_BackgroundCookReported && m_BackgroundCook->AllSettled() )
+        {
+            m_BackgroundCookReported = true;
+            LOG_INFO( "[BackgroundCook] {} mesh source(s) checked after the reveal in {} ms: {} cooked, {} failed",
+                      m_BackgroundCook->Total(),
+                      std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() -
+                                                                             m_BackgroundCookStart )
+                           .count(),
+                      m_BackgroundCookChanged, m_BackgroundCookFailed );
+        }
+    }
+
     void EditorLayer::RevealWhenReady()
     {
         if ( !Splash::MayReveal( CurrentRevealState() ) )
@@ -6653,6 +6900,7 @@ namespace Desert::Editor
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
         LOG_INFO( "[Startup] reveal: the scene's content has settled and the editor window is shown" );
+        StartBackgroundCook();
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
         LOG_INFO( "[Startup] the splash is closed" );
@@ -6677,7 +6925,8 @@ namespace Desert::Editor
     void EditorLayer::UpdateContentSettling()
     {
         const auto& loader  = Assets::AsyncAssetLoader::Get();
-        const bool  settled = m_Content.Tick( loader.Outstanding(), loader.StartedCount() );
+        const auto  work    = Assets::ContentWorkNow();
+        const bool  settled = m_Content.Tick( work.Outstanding, work.Started );
         if ( !settled )
         {
             // THE SETTLE SAYS HOW MUCH IS LEFT, not only that it is waiting: a count that moves is the
@@ -6696,6 +6945,13 @@ namespace Desert::Editor
                   "this session. This is the cost that used to be a boot stage, and a scene that asks "
                   "for nothing pays none of it.",
                   m_Content.FramesWaited(), m_Content.ElapsedMs(), loader.StartedCount() );
+        // PSO1: the content pipelines went to workers; what they still cost the frame is this line.
+        const auto& pipelines = Graphic::PipelineBuilds::Get();
+        const auto  blocked   = pipelines.CallerBlocked();
+        LOG_INFO( "[Content] pipelines: {} compiled on workers; the frame was blocked {:.1f} ms in total, "
+                  "{:.2f} ms at most for one",
+                  pipelines.Started(), std::chrono::duration<double, std::milli>( blocked.Total ).count(),
+                  std::chrono::duration<double, std::milli>( blocked.Max ).count() );
     }
 
     // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no
@@ -6923,6 +7179,13 @@ namespace Desert::Editor
         DrawBottomDrawerToggle();
         ImGui::SameLine( 0.0f, 12.0f );
 
+        if ( m_BackgroundCook && m_BackgroundCook->Outstanding() > 0 )
+        {
+            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu of %zu mesh source(s)",
+                                 m_BackgroundCook->Outstanding(), m_BackgroundCook->Total() );
+            ImGui::SameLine( 0.0f, 12.0f );
+        }
+
         // Cmd: one line of Lua against the live scene, the same engine the Lua Console runs. UE puts a
         // console here for the same reason — a question about the running world should not need a panel.
         ImGui::TextDisabled( ICON_MDI_CONSOLE );
@@ -6977,32 +7240,40 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "Triangles in the VISIBLE meshes of this scene (LOD 0)." );
         }
 
-        // HOW MANY DOCUMENTS, AND HOW MANY OF THE SIX SLOTS ARE GONE. Both numbers already existed in the
-        // code — GetLiveRendererCount and PendingRendererSlotDemand — and neither had anywhere to appear,
-        // so the first a user heard of the cap was a click that did nothing. A count of documents is not
-        // the number that matters; the slot census is, which is why they are shown together: three
-        // documents can be three slots or none, depending on which three.
+        // HOW MANY DOCUMENTS, AND HOW MUCH OF THE VIEW BUDGET IS GONE. A count of documents is not the number
+        // that matters; the memory the views hold against the device-local budget is, which is why they are
+        // shown together: three documents can be three views or none, depending on which three.
         ImGui::SameLine( 0.0f, 16.0f );
         {
-            const uint32_t live    = Graphic::SceneRenderer::GetLiveRendererCount();
-            const uint32_t pending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
+            uint64_t held = 0;
+            for ( const Engine::ViewBudget::HeldView& view : Graphic::SceneRenderer::LiveHoldings() )
+                held += view.Bytes;
+            const uint64_t                    pending = PendingViewBytes( m_OpenDocuments.Documents() );
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
 
-            // ImGuiCol_TextDisabled, not ImGuiCol_Text: the line below is drawn with TextDisabled like the
-            // rest of the bar, and pushing the wrong colour would leave it grey with a colour nobody sees.
-            const bool tight = live + pending >= EngineContext::kMaxRendererSlots;
+            // Warned past 90 %: the next document is likely refused, and the user should see that coming
+            // before the click rather than after it. ImGuiCol_TextDisabled, not ImGuiCol_Text: the line
+            // below is drawn with TextDisabled like the rest of the bar.
+            const bool tight =
+                 ( reading.UsageBytes + pending ) * 10 > reading.CeilingBytes * 9 && reading.CeilingBytes != 0;
             if ( tight )
                 ImGui::PushStyleColor( ImGuiCol_TextDisabled, ThemeManager::GetWarningColor() );
-            ImGui::TextDisabled( ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE " %zu document%s \xc2\xb7 %u/%u slots",
-                                 m_OpenDocuments.Count(), m_OpenDocuments.Count() == 1 ? "" : "s", live,
-                                 EngineContext::kMaxRendererSlots );
+            ImGui::TextDisabled( ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE " %zu document%s \xc2\xb7 %s / %s",
+                                 m_OpenDocuments.Count(), m_OpenDocuments.Count() == 1 ? "" : "s",
+                                 Engine::ViewBudget::FormatMiB( held ).c_str(),
+                                 Engine::ViewBudget::FormatMiB( reading.CeilingBytes ).c_str() );
             if ( tight )
                 ImGui::PopStyleColor();
 
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "%zu open document(s). %u of the %u renderer slots are in use and %u more "
-                                   "are committed to documents that have not drawn yet; a document that "
-                                   "needs one is refused when they are all spoken for.",
-                                   m_OpenDocuments.Count(), live, EngineContext::kMaxRendererSlots, pending );
+                ImGui::SetTooltip(
+                     "%zu open document(s). Open views hold %s; %s; in use %s; %s more is spoken for "
+                     "by documents that have not drawn yet. A document whose view does not fit is "
+                     "refused.",
+                     m_OpenDocuments.Count(), Engine::ViewBudget::FormatMiB( held ).c_str(),
+                     Engine::ViewBudget::DescribeCeiling( reading ).c_str(),
+                     Engine::ViewBudget::FormatMiB( reading.UsageBytes ).c_str(),
+                     Engine::ViewBudget::FormatMiB( pending ).c_str() );
         }
 
         // Active snap state: off, or the step of the CURRENT transform tool — answers "why did it
@@ -7070,7 +7341,11 @@ namespace Desert::Editor
         const float starW   = dirty ? ImGui::CalcTextSize( "* " ).x : 0.0f;
         const float statsW  = ImGui::CalcTextSize( stats ).x;
         const float alertsW = alerts[0] ? ImGui::CalcTextSize( alerts ).x + 16.0f : 0.0f;
-        ImGui::SameLine( ImGui::GetWindowContentRegionMax().x - statsW - starW - alertsW );
+        // Right-aligned, but never left of where the left half actually ended: the document/budget text
+        // grows with its numbers, and a position computed from the right edge alone drew the counters on
+        // top of it. When both halves do not fit, the right half is pushed out and clipped, not overlaid.
+        const float leftEndX = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + 16.0f;
+        ImGui::SameLine( std::max( leftEndX, ImGui::GetWindowContentRegionMax().x - statsW - starW - alertsW ) );
 
         if ( alerts[0] )
         {
@@ -8425,6 +8700,14 @@ namespace Desert::Editor
         const std::size_t incoming = m_MainScene->GetAllEntities().size();
         phases.Lap( "deserialize (its own phases are logged above)", incoming );
 
+        // THE SCENE'S DEPENDENCY CLOSURE, from the registry's `deps` column, is read by the loader's workers
+        // while the open waits — meshes, their materials, parents and textures in one batch — so its first
+        // frame is whole and no read happens in a frame (AL1-8b).
+        const Runtime::ClosureResidency closure = Runtime::AwaitSceneClosure( *m_MainScene );
+        phases.Lap( "wait for the scene's dependency closure (rows)", closure.Rows );
+        LOG_INFO( "[SceneLoad] closure: {} row(s), {} worker read(s) awaited, {} drawable mesh(es)", closure.Rows,
+                  closure.Reads, closure.DrawableMeshes );
+
         if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
         {
             LOG_ERROR( "[EditorLayer] loaded scene failed to initialise: {}", inited.GetError() );
@@ -9248,6 +9531,8 @@ namespace Desert::Editor
         // Before the panels rather than after: a panel's own teardown must never be able to queue one last
         // preview into a service that has already let its renderer go.
         ThumbnailService::Get().Shutdown();
+        // The same reason for the environment cache: its readbacks own staging buffers and command buffers.
+        Graphic::EnvironmentCacheWriter::Get().Drain();
 
         // The SECOND half of the same problem, and the half the sentence above still does not cover: the
         // component widgets keep their thumbnail caches in function-statics (StaticMeshComponent.cpp,

@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The unit under test is the pair of functions that turn a texture handle into the string a `.desce`
     -- carries and back. They were extracted OUT of ComponentRegistry.cpp precisely so this suite could
@@ -17,23 +17,23 @@ project(test_name)
     -- texture reference needs the AssetManager and the `.tex` parser and nothing else.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/TextureSlot.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- TextureBinary's BlockCompressChain encodes through it
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/TextureSlot.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- TextureBinary's BlockCompressChain encodes through it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
         -- The cooked asset registry, which is where the write side gets its answer since T2.4, is NOT
         -- listed here and does not need to be: it is header-only, for the reason AssetManager's own
         -- header gives. It had a `.cpp` for about an hour, and seven suites stopped linking.
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

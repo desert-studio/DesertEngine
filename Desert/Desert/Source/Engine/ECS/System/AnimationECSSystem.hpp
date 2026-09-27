@@ -18,6 +18,8 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/ControlRig.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -30,6 +32,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Desert::ECS
 {
@@ -181,7 +184,7 @@ namespace Desert::ECS
                                         anim.Animator->Play( clip, res.Current->Loop );
                                 }
                             }
-                            else
+                            else if ( !m_AnimationLibrary->HasPending( res.Current->Clip ) )
                             {
                                 ReportUnplayableState( clipRig, res.Current->Name, res.Current->Clip,
                                                        found.GetError() );
@@ -213,7 +216,7 @@ namespace Desert::ECS
                         else if ( current->AnimationName != clip.AnimationName )
                             anim.Animator->CrossFade( clip, 0.15f, anim.Loop );
                     }
-                    else
+                    else if ( !m_AnimationLibrary->HasPending( anim.CurrentClip ) )
                     {
                         ReportUnplayableState( clipRig, "AnimationComponent.CurrentClip", anim.CurrentClip,
                                                found.GetError() );
@@ -231,7 +234,7 @@ namespace Desert::ECS
                         anim.CurrentClip = clip.AnimationName;
                         anim.Animator->Play( clip, anim.Loop );
                     }
-                    else
+                    else if ( !m_AnimationLibrary->HasPending( {} ) )
                     {
                         // THE T-POSE'S OWN VOICE. This branch is what an entity does when it names no clip
                         // and the library offers none for its rig, and until now it did it in complete
@@ -441,9 +444,16 @@ namespace Desert::ECS
                 return 0;
             }
 
-            auto asset = m_AssetManager->FindByHandle<Assets::AnimGraphAsset>( Common::UUID( wanted ) );
+            bool pending = false;
+            auto asset =
+                 Demand<Assets::AnimGraphAsset>( wanted, Common::Content::ContentKind::AnimGraph, pending );
             if ( !asset || !asset->IsReadyForUse() )
             {
+                // Being read: not missing, so not reported; the clip poses the entity meanwhile.
+                if ( pending )
+                {
+                    return 0;
+                }
                 // SAID, NOT SWALLOWED, for SyncControlRig's reason: the silent version is a character
                 // playing one clip while its scene file plainly names a state machine, which reads as a
                 // graph system that does not work.
@@ -521,9 +531,17 @@ namespace Desert::ECS
                 return;
             }
 
-            auto asset = m_AssetManager->FindByHandle<Assets::ControlRigAsset>( Common::UUID( wanted ) );
+            bool pending = false;
+            auto asset =
+                 Demand<Assets::ControlRigAsset>( wanted, Common::Content::ContentKind::ControlRig, pending );
             if ( !asset || !asset->IsReadyForUse() )
             {
+                // Being read: not missing, so not reported; the clip poses the entity meanwhile.
+                if ( pending )
+                {
+                    forget();
+                    return;
+                }
                 // SAID, NOT SWALLOWED. The silent version of this is a character that poses from its clip
                 // while the scene file plainly names a rig, which is indistinguishable from a rig system
                 // that does not work.
@@ -625,9 +643,16 @@ namespace Desert::ECS
                 return;
             }
 
-            auto asset = m_AssetManager->FindByHandle<Assets::RetargetAsset>( Common::UUID( wanted ) );
+            bool pending = false;
+            auto asset = Demand<Assets::RetargetAsset>( wanted, Common::Content::ContentKind::Retarget, pending );
             if ( !asset || !asset->IsReadyForUse() )
             {
+                // Being read: not missing, so not reported; the clip poses the entity meanwhile.
+                if ( pending )
+                {
+                    forget();
+                    return;
+                }
                 // SAID, NOT SWALLOWED, for SyncControlRig's reason: the silent version is a character
                 // played on its own rig while the scene file plainly names a retarget, which is
                 // indistinguishable from a retargeting system that does not work.
@@ -713,6 +738,57 @@ namespace Desert::ECS
         }
 
     private:
+        /**
+         * @brief A rig, graph or retarget named by handle, found through its REGISTRY ROW and read by the
+         * loader (AL1-6) - none of them is created at boot any more. Null with @p pending set while the
+         * read is in flight: the caller waits quietly; null without it is a real miss the caller reports.
+         */
+        template <typename AssetType>
+        Assets::Asset<AssetType> Demand( const Assets::AssetHandle&         wanted,
+                                         const Common::Content::ContentKind kind, bool& pending ) const
+        {
+            pending    = false;
+            auto asset = m_AssetManager->ProbeByHandle<AssetType>( Common::UUID( wanted ) );
+            if ( !asset && !m_Unresolvable.contains( wanted ) )
+            {
+                if ( const auto row = Assets::ContentRegistry::RowOf( kind, static_cast<uint64_t>( wanted ) ) )
+                    asset = m_AssetManager->CreateAsset<AssetType>( Assets::AssetPriority::Medium, row->Path,
+                                                                    /*loadAfterCreate=*/false );
+                if ( !asset )
+                    m_Unresolvable.insert( wanted );
+            }
+            if ( !asset || asset->IsReadyForUse() || m_FailedReads.contains( wanted ) )
+                return asset && asset->IsReadyForUse() ? asset : nullptr;
+
+            if ( !m_Requests.contains( wanted ) )
+            {
+                m_Requests[wanted] = Assets::AsyncAssetLoader::Get().Request(
+                     asset,
+                     [this, wanted]( const Assets::Asset<Assets::AssetBase>& loaded,
+                                     const Assets::LoadOutcome outcome, const std::string& error )
+                     {
+                         m_Requests.erase( wanted );
+                         if ( outcome != Assets::LoadOutcome::Loaded )
+                         {
+                             m_FailedReads.insert( wanted );
+                             LOG_ERROR( "[Animation] '{}' could not be read: {}",
+                                        loaded->GetMetadata().Filepath.string(), error );
+                             return;
+                         }
+                         loaded->ResolveDependencies( *m_AssetManager );
+                     },
+                     [this, wanted] { m_Requests.erase( wanted ); } );
+            }
+            pending = true;
+            return nullptr;
+        }
+
+        mutable std::unordered_set<Assets::AssetHandle>
+             m_Unresolvable; // no registry row of the kind: reported by the caller
+        mutable std::unordered_set<Assets::AssetHandle> m_FailedReads; // the loader said Failed, logged once
+        // Declared after everything the callbacks touch; destroyed first, so no callback outlives them.
+        mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
+
         Animation::AnimationLibrary*          m_AnimationLibrary;
         // Non-owning: the manager belongs to the host, which outlives its scene. MAY BE NULL — a host
         // that builds no asset manager simply has no rigs, and SyncControlRig says so once.

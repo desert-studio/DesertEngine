@@ -1,4 +1,5 @@
 #include "ComponentRegistry.hpp"
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Core/Serialize/AssetReferenceResolve.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
@@ -576,7 +577,8 @@ namespace Desert::Core::Serialize
                      [&]
                      {
                          return Assets::Asset<Assets::MaterialAsset>(
-                              m.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, full ) );
+                              m.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, full,
+                                                                           /*loadAfterCreate=*/false ) );
                      },
                      []( const Assets::Asset<Assets::MaterialAsset>& material, ReferenceOrigin )
                      { Runtime::EnsureMaterialRegistered( material ); } );
@@ -601,8 +603,8 @@ namespace Desert::Core::Serialize
             // bound in Assets::CloudTypeAsset::ResolveDependencies, from the path inside the type's
             // file, which is where a reference to a `.dcnv` now lives.
             // THE READ-SIDE "CloudTypeAsset" AND "CloudLayoutAsset" BRANCHES ARE GONE WITH THE WRITE
-            // SIDE ABOVE (O1). What replaced their register-on-load duty: AssetPreloader::PreloadCloudTypes
-            // / PreloadCloudLayouts registers the library directories at startup, and the Material Editor's
+            // SIDE ABOVE (O1). What replaced their register-on-load duty: CloudTypeService and CloudLayoutService
+            // create the named file from its registry row on first use (AL1-2, AL1-7), and the Material Editor's
             // drop target registers an out-of-library file the moment it is bound. A file outside the
             // library that only a `.demat` names is NOT re-registered on the next launch — the renderer
             // and the services say so loudly, once, with the handle — which is the named cost of the
@@ -647,7 +649,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full,
+                                                                /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -660,7 +663,7 @@ namespace Desert::Core::Serialize
                 // skeleton, so it is built by the ECS system rather than registered globally.
                 if ( !a->IsReadyForUse() )
                 {
-                    if ( const auto loaded = a->Load(); !loaded )
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
                     {
                         LOG_ERROR( "[Animation] Control rig '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
@@ -680,7 +683,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full,
+                                                              /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -693,7 +697,7 @@ namespace Desert::Core::Serialize
                 // proportions while the scene file plainly names a retarget.
                 if ( !a->IsReadyForUse() )
                 {
-                    if ( const auto loaded = a->EnsureLoaded( m ); !loaded )
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
                     {
                         LOG_ERROR( "[Animation] Retarget '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
@@ -713,7 +717,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full,
+                                                               /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -725,7 +730,7 @@ namespace Desert::Core::Serialize
                 // a state machine — the silent shape §5.1 exists to end.
                 if ( !a->IsReadyForUse() )
                 {
-                    if ( const auto loaded = a->Load(); !loaded )
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
                     {
                         LOG_ERROR( "[Animation] Anim graph '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
@@ -744,19 +749,15 @@ namespace Desert::Core::Serialize
 
                 auto a = mgr.FindByPath<Assets::UIThemeAsset>( full );
                 if ( !a )
-                    a = m.CreateAsset<Assets::UIThemeAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::UIThemeAsset>( Assets::AssetPriority::Medium, full,
+                                                             /*loadAfterCreate=*/false );
                 if ( !a )
                     return 0;
-                if ( !a->IsReadyForUse() && !a->Load() )
-                    return 0;
-                // REGISTERED HERE AND NOT ONLY IN THE PRELOADER, because a theme an author points at
-                // outside the shipped library is never scanned: without this the canvas would hold a
-                // valid handle the service has never heard of, and every element would draw its local
-                // colours while the scene file plainly names a theme.
-                if ( const auto registered = Runtime::ResourceRegistry::GetUIThemeService()->Register( a );
-                     !registered )
-                    LOG_ERROR( "[UI] Theme '{}' named by the scene could not be registered: {}", full.string(),
-                               registered.GetError() );
+                // REQUESTED HERE, NOT READ (AL1-7): the scene names the theme, so its read starts during the
+                // scene load and lands on a worker while ContentGate holds the loading screen. The shell
+                // exists already, so a theme outside the shipped library is requested the same way; a
+                // read that fails is reported by UIThemeService with the file's path.
+                (void)Runtime::ResourceRegistry::GetUIThemeService()->Get( a->GetMetadata().Handle );
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
             // The three SERVICE-REGISTRY types. `path` here is the file's ROOT-TAGGED KEY (I10), so it
@@ -793,9 +794,9 @@ namespace Desert::Core::Serialize
                      {
                          return type == "SkinnedMeshAsset"
                                      ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
-                                            Assets::AssetPriority::High, path ) )
+                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) )
                                      : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
-                                            Assets::AssetPriority::High, path ) );
+                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) );
                      },
                      [&m]( const Assets::Asset<Assets::MeshAsset>& mesh, ReferenceOrigin )
                      { Runtime::EnsureMeshRegistered( mesh, m ); } );
@@ -860,16 +861,18 @@ namespace Desert::Core::Serialize
             }
             if ( type == "StaticMeshAsset" || type == "SkinnedMeshAsset" || type == "MeshAsset" )
             {
-                auto a = mgr.FindByHandle<Assets::MeshAsset>( handle );
-                if ( !a )
-                    return 0;
-                // The SAME registration the path branch performs, through the SAME helper. The guard that
-                // stood here was `!svc->GetAsset( handle )`, which PARSES the `.stmesh` through
-                // EnsureLoaded before answering — asking "is it registered?" at the price of registering.
-                // The const_cast is the same one `FromPath` makes at its head and for the same reason: a
-                // resolver is handed the registry as const, and registering against it is a write.
-                Runtime::EnsureMeshRegistered( a, const_cast<Assets::AssetManager&>( mgr ) );
-                return guid;
+                // A shell already on record is registered; otherwise MeshService discovers the mesh from its
+                // registry row (AL1-5: no mesh shell is created at startup). Nothing is read here — the scene
+                // open waits for the scene's meshes afterwards (MeshService::AwaitResident).
+                if ( auto a = mgr.FindByHandle<Assets::MeshAsset>( handle ) )
+                {
+                    // The same const_cast `FromPath` makes at its head, for the same reason: a resolver is
+                    // handed the registry as const, and registering against it is a write.
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+                    Runtime::EnsureMeshRegistered( a, const_cast<Assets::AssetManager&>( mgr ) );
+                    return guid;
+                }
+                return Runtime::DiscoverMesh( handle ) ? guid : 0;
             }
             if ( type == "SkyboxAsset" )
             {

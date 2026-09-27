@@ -15,23 +15,49 @@ project "FbxMeshSplitter"
     files {
         "**.cpp",
         "**.hpp",
+        -- The JSON facade, compiled in as one source (the DesertCtl recipe): collection.json is written through
+        -- Editor/Panels/Collections/CollectionManifest.hpp, the header the Collections panel reads it with.
+        -- Linking Common instead would drag Optick and Cocoa into a CLI.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Json/Json.cpp",
     }
 
     -- Header-only: Editor/Import/TextureSourceFormats.hpp, the single texture-source priority list this
     -- tool shares with AssimpImporter. Nothing from Editor is compiled or linked here.
     includedirs {
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
+
+    -- ResultStr needs fmt, header-only from the vendored spdlog.
+    defines { "FMT_HEADER_ONLY" }
 
     -- Assimp: the same pinned, source-built static library the Editor links, on every platform.
     -- BEFORE the configuration filters, and that is not cosmetic: the first version of this block sat
     -- after `filter "configurations:Release"`, so it applied to RELEASE ONLY and the Debug build failed
     -- with "assimp/Importer.hpp file not found". A filter stays in force until the next one.
     externalincludedirs {
-        "%{wks.location}/Editor/ThirdParty/assimp/include",
-        "%{wks.location}/build/generated/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
+    }
+    externalincludedirs {
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include",
     }
     links { "Assimp" }
+
+    -- ON EVERY PLATFORM, as DesertCtl does for the same compiled-in Json.cpp. The `system:not windows`
+    -- filter this replaced dates from the prebuilt reflectcpp.lib; the Windows build reached no rfl code
+    -- until Json.cpp was compiled in, and then failed with 24 LNK2001 on rfl::json::Writer and yyjson_*
+    -- (run 36297409433). No Common is linked here, so nothing else carries the edge.
+    links { "ReflectCpp" }
+
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
 
     filter "configurations:Debug"
         symbols "On"

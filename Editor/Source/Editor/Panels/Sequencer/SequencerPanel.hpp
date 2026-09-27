@@ -148,12 +148,12 @@ namespace Desert::Editor
         // it is not pending demand for one of the six and closing it would free nothing. Answering the
         // base class's conservative `true` would have it refuse a sixth window over a slot it was never
         // going to take.
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }

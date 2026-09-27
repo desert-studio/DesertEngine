@@ -22,6 +22,7 @@
 // else.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 
 #include <string>
 #include <string_view>
@@ -58,6 +59,25 @@ namespace Desert::Editor
             if ( const auto asset = assets->FindByHandle<TAsset>( subject ) )
                 return asset->GetMetadata().Filepath.filename().string();
         }
+        return std::string( fallback );
+    }
+
+    // BY TYPE, FOR A KIND CREATED ON DEMAND. The document is constructed before its asset exists: the
+    // title is baked into ISubjectDocument's constructor, and the constructor is what creates the shell. So
+    // the lookup PROBES (a miss is the expected case, not a defect) and a miss reads the registry row of
+    // @p kind, which names the file without creating anything.
+    template <typename TAsset>
+    [[nodiscard]] std::string AssetSubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets,
+                                                 const Common::Content::ContentKind kind,
+                                                 const std::string_view             fallback )
+    {
+        if ( assets != nullptr )
+        {
+            if ( const auto asset = assets->ProbeByHandle<TAsset>( subject ) )
+                return asset->GetMetadata().Filepath.filename().string();
+        }
+        if ( const auto row = Assets::ContentRegistry::RowOf( kind, static_cast<uint64_t>( subject ) ) )
+            return row->Path.filename().string();
         return std::string( fallback );
     }
 } // namespace Desert::Editor

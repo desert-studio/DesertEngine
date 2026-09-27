@@ -20,6 +20,8 @@ namespace Desert::ShaderResources
 
 namespace Desert::Graphic
 {
+    class GpuBatch;
+
     enum class PipelineType
     {
         Graphics,
@@ -251,6 +253,17 @@ namespace Desert::Graphic
          */
         NO_DISCARD static Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
         Create( const GraphicsPipelineSpecification& spec );
+
+        /**
+         * Create's refusals, synchronously, and then the driver compile on the JobSystem (PSO1). The
+         * pipeline draws from the frame its compile lands; until then the draws through it are skipped and
+         * counted by PipelineBuilds, which ContentGate waits on. A driver refusal on the worker is logged
+         * with its VkResult and leaves the pipeline unbuilt (reported by name at the first draw).
+         * PipelineCache::GetOrCreate is the one caller: material and mesh pipelines, which appear with
+         * content. Pipelines a system builds once at renderer start keep the synchronous Create.
+         */
+        NO_DISCARD static Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
+        CreateAsync( const GraphicsPipelineSpecification& spec );
     };
 
     // --- Compute Pipeline ---
@@ -323,6 +336,10 @@ namespace Desert::Graphic
         virtual ComputePipeline& SetPushConstants( const void* data, uint32_t size ) = 0;
         /** Record + submit one immediate compute dispatch with the currently-bound resources. */
         virtual void Dispatch( uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) = 0;
+        /** Record one dispatch into @p batch with the currently-bound resources — no submit, no wait. The
+         *  outputs end in SHADER_READ with the writes visible to every later command of the queue. The
+         *  pipeline must outlive the batch's completion (GpuBatch::Retain). */
+        virtual void Record( GpuBatch& batch, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) = 0;
 
         // GetInput/GetOutput were here and had no caller: a compute pipeline's bindings are SET and then
         // dispatched, never read back, and the backend keeps its own maps for the descriptor writes. Г12.

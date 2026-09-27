@@ -11,7 +11,6 @@
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Core/RendererSlotPool.hpp>
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 
@@ -23,7 +22,9 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <format>
 #include <cmath>
 #include <string>
 #include <string_view>
@@ -67,16 +68,16 @@ namespace Desert::Graphic
         // wrongly dropped.
         if ( built )
         {
-            LOG_INFO( "[SceneRenderer] Renderer slot {} built in {:.1f} ms ({} systems, {} cached pipelines) "
+            LOG_INFO( "[SceneRenderer] View '{}' built in {:.1f} ms ({} systems, {} cached pipelines) "
                       "and bound its first scene in {:.1f} ms.",
-                      m_SlotLease.RecordingSlot(), ms( started, resourcesDone ), m_RenderSystemOrder.size(),
+                      m_ViewResources.GetName(), ms( started, resourcesDone ), m_RenderSystemOrder.size(),
                       m_PipelineCache.Size(), ms( resourcesDone, done ) );
         }
         else
         {
-            LOG_INFO( "[SceneRenderer] Renderer slot {} rebound to a new scene in {:.1f} ms ({} systems and "
+            LOG_INFO( "[SceneRenderer] View '{}' rebound to a new scene in {:.1f} ms ({} systems and "
                       "{} cached pipelines kept).",
-                      m_SlotLease.RecordingSlot(), ms( started, done ), m_RenderSystemOrder.size(),
+                      m_ViewResources.GetName(), ms( started, done ), m_RenderSystemOrder.size(),
                       m_PipelineCache.Size() );
         }
 
@@ -94,7 +95,7 @@ namespace Desert::Graphic
         {
             const uint32_t viewW = m_TargetFramebuffer->GetFramebufferWidth();
             const uint32_t viewH = m_TargetFramebuffer->GetFramebufferHeight();
-            LOG_INFO( "[ViewMemory] slot {} {}", m_SlotLease.RecordingSlot(),
+            LOG_INFO( "[ViewMemory] view '{}' {}", m_ViewResources.GetName(),
                       FormatViewTargetCensus( ViewTargetCensus( m_ViewProfile, viewW, viewH ), viewW, viewH ) );
         }
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
@@ -436,12 +437,18 @@ namespace Desert::Graphic
 
     namespace
     {
-        // The one lease register for the process. The accounting itself lives in a pure header so a test
-        // can drive it without a GPU (Engine/Core/RendererSlotPool.hpp); this is only where it is kept.
-        Engine::RendererSlotPool& SlotPool()
+        // A view's name: what kind of surface it is and a serial that is never reused, so two log lines
+        // about "preview #4" are about the same window and a reopened preview is visibly a new view.
+        std::string NameView( const ViewProfile& profile )
         {
-            static Engine::RendererSlotPool pool;
-            return pool;
+            static std::atomic<uint32_t> serial{ 0 };
+            const uint32_t               number = ++serial;
+            const char*                  kind   = "scene view";
+            if ( profile == kPreviewViewProfile )
+                kind = "preview";
+            else if ( profile == kThumbnailViewProfile )
+                kind = "thumbnail";
+            return std::string( kind ) + " #" + std::to_string( number );
         }
 
         // Every live renderer, so the view budget can name what each holds. Guarded: views are built and
@@ -475,36 +482,28 @@ namespace Desert::Graphic
         return held;
     }
 
-    uint32_t SceneRenderer::GetLiveRendererCount()
+    std::string SceneRenderer::DescribeLiveViews()
     {
-        return SlotPool().InUseCount();
+        uint64_t held = 0;
+        for ( const Engine::ViewBudget::HeldView& view : LiveHoldings() )
+            held += view.Bytes;
+        return std::format( "{} live, {:.1f} MiB", ViewResourceRegistry::LiveCount(),
+                            static_cast<double>( held ) / ( 1024.0 * 1024.0 ) );
     }
 
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_SlotLease( SlotPool() ),
-           m_ViewResources( "renderer slot " + std::to_string( m_SlotLease.RecordingSlot() ) ),
-           m_ViewProfile( profile ), m_ViewExtent( extent )
+         : m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ), m_ViewExtent( extent )
     {
         {
             const std::scoped_lock lock( LiveRenderersMutex() );
             LiveRenderers().push_back( this );
         }
-        if ( !m_SlotLease.IsValid() )
-        {
-            // More live renderers than slots: the newcomer records into slot 0 and says so, because the
-            // symptom (two views borrowing each other's camera) is otherwise a mystery.
-            LOG_WARN( "[SceneRenderer] No free renderer slot ({} in use) — this renderer shares slot 0 and "
-                      "will trade per-frame state with the main view.",
-                      EngineContext::kMaxRendererSlots );
-            return;
-        }
 
-        // Occupancy is logged on BOTH edges, with the resulting count, because the failure this guards
-        // against is silent by construction: a surface that never returns its slot produces no error at
-        // all, only two panels quietly sharing a camera some minutes later. Counting slots is the only way
-        // to see it, so the count is printed rather than left for a reader to derive.
-        LOG_INFO( "[SceneRenderer] Claimed renderer slot {} ({}/{} in use).", m_SlotLease.RecordingSlot(),
-                  SlotPool().InUseCount(), EngineContext::kMaxRendererSlots );
+        // Logged on BOTH edges with the resulting count and bytes: a surface that never destroys its view
+        // produces no error at all, only a budget that fills up some minutes later, so the numbers are
+        // printed rather than left for a reader to derive. There is no ceiling on the count — each view
+        // owns its own copies, and the only limit is the byte budget the editor checks before opening one.
+        LOG_INFO( "[SceneRenderer] Created view '{}' ({}).", m_ViewResources.GetName(), DescribeLiveViews() );
     }
 
     SceneRenderer::~SceneRenderer()
@@ -514,29 +513,18 @@ namespace Desert::Graphic
             const std::scoped_lock lock( LiveRenderersMutex() );
             std::erase( LiveRenderers(), this );
         }
-        if ( !m_SlotLease.IsValid() )
-            return;
-
-        // Logged BEFORE the lease's destructor runs, so the slot number is still readable; the count it
-        // prints is therefore the one that includes this renderer, minus itself.
-        LOG_INFO( "[SceneRenderer] Releasing renderer slot {} ({}/{} in use after release).",
-                  m_SlotLease.RecordingSlot(), SlotPool().InUseCount() - 1, EngineContext::kMaxRendererSlots );
+        // Logged while this view's resources are still registered, so the count includes it.
+        LOG_INFO( "[SceneRenderer] Destroying view '{}' ({} before release).", m_ViewResources.GetName(),
+                  DescribeLiveViews() );
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer" )
-
-    void SceneRenderer::BindRecordingSlot() const
-    {
-        EngineContext::GetInstance().SetActiveRendererSlot( m_SlotLease.RecordingSlot() );
-    }
 
     NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene,
                                                                 Core::Camera*              camera )
     {
-        // Which renderer is recording, alongside which frame is in flight — see
-        // EngineContext::GetActiveRendererSlot. Set FIRST, before anything writes a per-frame resource.
-        BindRecordingSlot();
-        // This view is where per-frame writes go until the phase returns; the frame context gets them back
-        // on every exit, so nothing written after the last view of a frame lands in this view's copies.
+        // This view is where per-frame writes go until the phase returns — set FIRST, before anything writes
+        // a per-frame resource; the frame context gets them back on every exit, so nothing written after the
+        // last view of a frame lands in this view's copies.
         const ActiveViewScope viewScope( m_ViewResources );
 
         // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
@@ -603,6 +591,11 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetWhitePoint( sceneSettings.WhitePoint );
 
+        // The systems map is keyed by the name each system was registered under, so the downcast is to the type
+        // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
+             ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.MeshLOD );
@@ -693,13 +686,11 @@ namespace Desert::Graphic
     {
         DESERT_PROFILE_SCOPE( "SceneRenderer::OnUpdate" );
 
-        // RE-BOUND HERE, and it is not belt-and-braces. Scene drives the views PHASE BY PHASE — every
-        // view's BeginScene, then every view's OnUpdate — so by the time this runs the slot BeginScene
-        // set belongs to whichever view opened last. Without this line a second view writes its
-        // per-frame GPU state into the first view's slot, which is the exact failure the slot exists to
-        // prevent and produces a torn picture with nothing in the log (Docs/RENDERER_FRAME_STATE.md).
-        BindRecordingSlot();
-        const ActiveViewScope viewScope( m_ViewResources ); // re-opened for the same reason, see BeginScene
+        // RE-OPENED HERE, and it is not belt-and-braces. Scene drives the views PHASE BY PHASE — every
+        // view's BeginScene, then every view's OnUpdate — and each phase's scope is gone when it returns.
+        // Without this line a second view writes its per-frame GPU state into the frame context instead of
+        // its own copies, a torn picture with nothing in the log (Docs/RENDERER_FRAME_STATE.md).
+        const ActiveViewScope viewScope( m_ViewResources );
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
@@ -1172,8 +1163,7 @@ namespace Desert::Graphic
 
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
-        BindRecordingSlot(); // same reason as OnUpdate: the phases interleave across views
-        const ActiveViewScope viewScope( m_ViewResources );
+        const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
 
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
@@ -1286,7 +1276,8 @@ namespace Desert::Graphic
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
 
-        // Same gate as GI: the trace target and its ping-pong history are sampled/blended RGBA32F.
+        // Same gate as GI: the trace target and its ping-pong history are sampled/blended float targets
+        // (ViewTargetFormats::kSSRTrace / kSSRAccum).
         if ( !HasFloatRenderTargetSupport() )
         {
             LOG_WARN( "[SceneRenderer] SSR needs blendable float render targets, which this device does not "
@@ -1297,23 +1288,12 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        // SSR trace target (HDR reflection colour, reflectance in .a). Traced first, then denoised and
-        // composited — blending the raw single-sample trace straight onto the scene looks stippled.
-        FramebufferSpecification ssrSpec;
-        ssrSpec.DebugName = "SSRTrace";
-        ssrSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSRTrace );
-        m_SSRBuffer = Graphic::Framebuffer::Create( ssrSpec );
-        m_SSRBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
-                             m_TargetFramebuffer->GetFramebufferHeight() );
-
         RegisterSystem<System::SSRRenderer>( "SSRSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
         const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
-        ssrSys->SetTraceBuffer( m_SSRBuffer ); // must be set BEFORE Initialize()
         if ( !ssrSys->Initialize() )
         {
             LOG_WARN( "[SceneRenderer] SSR system unavailable." );
             m_SSRResourcesFailed = true;
-            m_SSRBuffer.reset();
             return false;
         }
 
@@ -1336,23 +1316,20 @@ namespace Desert::Graphic
         // that its camera turns square, and a rebuild would idle the device for identical targets.
         if ( m_ViewExtent == ViewExtent{ width, height } )
             return;
-        // A GROWTH THAT DOES NOT FIT IS REFUSED BEFORE ANYTHING IS DESTROYED: the view keeps its old targets
-        // and its old extent, so it still draws, only not at the new size. Said once per refused size, since
-        // the panel asks again every frame it stays that size.
+        // A LIVE VIEW'S RESIZE IS NEVER REFUSED (Engine::ViewBudget::ResizeOverrunBytes): the view is on
+        // screen, and refusing its size is what left the main view at its 64x64 placeholder on a full device.
+        // Going past the budget is said once per size, since the panel asks again every frame it stays that
+        // size; admission of a NEW view is where the budget says no.
         if ( m_TargetFramebuffer )
         {
             const ViewExtent requested{ width, height };
-            if ( const auto may =
-                      MayResizeView( m_ViewResources.GetName(), m_ViewProfile, m_ViewExtent, requested );
-                 !may )
+            if ( const auto overrun =
+                      DescribeResizeOverrun( m_ViewResources.GetName(), m_ViewProfile, m_ViewExtent, requested ) )
             {
-                if ( !( m_RefusedResize == requested ) )
-                    LOG_WARN( "[ViewBudget] {}. The view keeps its {}x{} targets.", may.GetError(),
-                              m_ViewExtent.Width, m_ViewExtent.Height );
-                m_RefusedResize = requested;
-                return;
+                if ( !( m_OverrunWarnedAt == requested ) )
+                    LOG_WARN( "[ViewBudget] {}.", *overrun );
+                m_OverrunWarnedAt = requested;
             }
-            m_RefusedResize = ViewExtent{};
         }
         m_ViewExtent = ViewExtent{ width, height };
         // Before the first build there is no target yet and the extent is all there is to update: the
@@ -1372,8 +1349,6 @@ namespace Desert::Graphic
             m_SSAOBuffer->Resize( width, height );
         if ( m_SceneColorCopy )
             m_SceneColorCopy->Resize( width, height );
-        if ( m_SSRBuffer )
-            m_SSRBuffer->Resize( width, height );
         if ( m_GIBuffer )
             m_GIBuffer->Resize( width, height );
         // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated

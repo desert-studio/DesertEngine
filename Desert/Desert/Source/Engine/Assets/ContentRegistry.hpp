@@ -449,15 +449,20 @@ namespace Desert::Assets
                 }
                 // The header states the GUID and the edges again (a resaved material may name other
                 // textures); a header-less row keeps the identity the session learned, and a mesh keeps
-                // its box until NoteBounds states the new one.
+                // its box until NoteBounds states the new one. A PREFAB DOES NOT: its file states its box
+                // (PrefabData::Bounds), so a re-saved prefab with no extent left has none, and keeping the
+                // old box would place its instances by a body the file no longer holds.
                 Common::Utils::AssetRegistryEntry updated = described.GetValue();
                 if ( !updated.Guid.has_value() )
                     updated.Identity = known->Identity;
-                if ( !updated.Bounds.has_value() )
+                const bool isMesh = *kind == Common::Content::ContentKind::StaticMesh ||
+                                    *kind == Common::Content::ContentKind::SkinnedMesh;
+                if ( isMesh && !updated.Bounds.has_value() )
                     updated.Bounds = known->Bounds;
                 if ( updated.Size == known->Size && updated.Guid == known->Guid &&
                      updated.Identity == known->Identity && updated.Dependencies == known->Dependencies &&
-                     updated.Versions == known->Versions )
+                     updated.Versions == known->Versions &&
+                     Common::Utils::SameBounds( updated.Bounds, known->Bounds ) )
                     return;
                 state.Registry.Remove( key );
                 if ( const auto inserted = state.Registry.Insert( std::move( updated ) ); !inserted )
@@ -487,6 +492,184 @@ namespace Desert::Assets
             state.Dirty = true;
         }
 
+        // ONE ROW AS A PICKER READS IT — what the editor's asset lists enumerate instead of the objects the
+        // preloader happened to create. Reading it creates nothing and loads nothing: this is UE's
+        // `IAssetRegistry::GetAssetsByClass` returning FAssetData, not UObjects, and it is what lets the
+        // preloader be removed later without every dropdown in the editor going empty at the same time.
+        struct PickerRow
+        {
+            Common::AssetHandle                       Handle; // the number the engine knows the file by
+            std::string                               Key;    // the stable key, `root:relative/path`
+            std::filesystem::path                     Path;   // the key expanded on THIS machine
+            std::optional<Common::Content::AssetGuid> Guid;   // the header's GUID, when the file states one
+            // The Name tag: what the file states as its display name, read by the scan without loading it;
+            // empty when the file states none (then a list shows the stem, as the asset itself does).
+            std::string DisplayName;
+            bool        Skinned      = false; // the Skinned tag: a mesh whose header flags a skeleton
+            uint64_t    RigSignature = 0;     // the Rig tag (AssetRegistryEntry::RigSignature)
+        };
+
+        // The rows of one kind in registry order — the SAME order `FilesOfKind` hands the preloader, so a
+        // list built from these is the list the loaded shells used to produce, entry for entry.
+        inline std::vector<PickerRow> Rows( Common::Content::ContentKind kind )
+        {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            std::vector<PickerRow> rows;
+            for ( const Common::Utils::AssetRegistryEntry* row :
+                  state.Registry.OfKind( Common::Content::KindName( kind ) ) )
+            {
+                rows.push_back( { Common::AssetHandle( row->EffectiveHandle() ), row->Key,
+                                  Common::AssetHandle::PathForStableKey( row->Key ), row->Guid, row->DisplayName,
+                                  row->Skinned, row->RigSignature } );
+            }
+            return rows;
+        }
+
+        // THE ROW OF ONE REFERENCE, AS A KIND: what an on-demand service asks before it creates anything. The
+        // registry's handle lookup also answers for the GUID fold (`HandleForGuid`), which is the number every
+        // GUID-identified kind is referenced by; a row of ANOTHER kind under the same number is refused here,
+        // because creating a noise volume from a layout's file would be a load error blamed on the wrong file.
+        inline std::optional<PickerRow> RowOf( Common::Content::ContentKind kind, uint64_t handle )
+        {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle );
+            if ( row == nullptr || row->Kind != Common::Content::KindName( kind ) )
+                return std::nullopt;
+            return PickerRow{ Common::AssetHandle( row->EffectiveHandle() ),
+                              row->Key,
+                              Common::AssetHandle::PathForStableKey( row->Key ),
+                              row->Guid,
+                              row->DisplayName,
+                              row->Skinned,
+                              row->RigSignature };
+        }
+
+        // ONE ROW OF A DEPENDENCY CLOSURE: the number a reference holds and the kind of the row it names.
+        struct ClosureRow
+        {
+            Common::AssetHandle Handle;
+            std::string         Kind; // Common::Content::KindName spelling
+        };
+
+        // THE ROWS A SET OF REFERENCES NEEDS, TRANSITIVELY (AL1-8b, plan §2.4(b)): each root and every row its
+        // `deps` column names, and theirs — a mesh's materials, an instance's parent, a material's textures,
+        // shader and cloud assets. The edges are the files' own header GUIDs (ContentScan.cpp, RegistryRowFor),
+        // so nothing is read to learn them. A ROOT is kept with the kind its caller states even when no row
+        // answers for it (a mesh cooked this session before its row was noted must still be read); an EDGE to
+        // no row is dropped, because a dependency the registry does not know is no file anyone could read.
+        inline std::vector<ClosureRow> Closure( const std::vector<ClosureRow>& roots )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            std::vector<ClosureRow> closure;
+            std::vector<uint64_t>   pending;
+            std::vector<uint64_t>   seen; // sorted; a scene's closure is tens of rows
+            const auto              firstTime = [&seen]( uint64_t raw )
+            {
+                const auto at = std::lower_bound( seen.begin(), seen.end(), raw );
+                if ( at != seen.end() && *at == raw )
+                    return false;
+                seen.insert( at, raw );
+                return true;
+            };
+            for ( const ClosureRow& root : roots )
+            {
+                const auto raw = static_cast<uint64_t>( root.Handle );
+                if ( raw == 0 || !firstTime( raw ) )
+                    continue;
+                closure.push_back( root );
+                pending.push_back( raw );
+            }
+            while ( !pending.empty() )
+            {
+                const uint64_t raw = pending.back();
+                pending.pop_back();
+                const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( raw );
+                if ( row == nullptr )
+                    continue;
+                for ( const uint64_t dependency : row->Dependencies )
+                {
+                    if ( dependency == 0 || !firstTime( dependency ) )
+                        continue;
+                    if ( const Common::Utils::AssetRegistryEntry* next =
+                              state.Registry.FindByHandle( dependency ) )
+                    {
+                        closure.push_back( { Common::AssetHandle( dependency ), next->Kind } );
+                        pending.push_back( dependency );
+                    }
+                }
+            }
+            return closure;
+        }
+
+        // THE MESH PICKERS' ROWS, split by the Skinned tag and not by extension (UE filters FAssetData by its
+        // tags the same way): every mesh row of both mesh kinds whose header does (`skinned`) or does not flag
+        // a skeleton. The header is read at scan time, so a mesh nobody has loaded is on the right list — the
+        // loaded-object filter this replaces put unloaded skinned meshes on the static list.
+        inline std::vector<PickerRow> MeshRows( bool skinned )
+        {
+            std::vector<PickerRow> rows;
+            for ( const Common::Content::ContentKind kind :
+                  { Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::SkinnedMesh } )
+            {
+                for ( PickerRow& row : Rows( kind ) )
+                {
+                    if ( row.Skinned == skinned )
+                        rows.push_back( std::move( row ) );
+                }
+            }
+            return rows;
+        }
+
+        // THE SKELETON A SKINNED MESH NAMES, found by the Rig tag both rows carry: the mesh's header states
+        // the rig's signature and the skeleton's document states its own, so the lookup reads no file (UE:
+        // USkeletalMesh -> USkeleton is a soft reference, not a search over loaded skeletons). Empty when no
+        // Skeleton row states @p signature; 0 is never a rig.
+        inline std::optional<PickerRow> RigRow( uint64_t signature )
+        {
+            if ( signature == 0 )
+                return std::nullopt;
+            for ( PickerRow& row : Rows( Common::Content::ContentKind::Skeleton ) )
+            {
+                if ( row.RigSignature == signature )
+                    return std::move( row );
+            }
+            return std::nullopt;
+        }
+
+        // ONE FILE CHANGED ON DISK — appeared, was rewritten or went away — and the registry follows it
+        // without a walk. Called by the editor's hot reload for exactly the files it saw move; the full
+        // `Refresh` remains the safety net for what arrived while nobody was looking. A file that is not a
+        // census kind is ignored, the same way `NoteFile` ignores it.
+        inline void Update( const std::filesystem::path& file )
+        {
+            if ( !KindForFile( file ) )
+                return;
+
+            std::error_code ec;
+            if ( std::filesystem::exists( file, ec ) )
+            {
+                NoteFile( file );
+                return;
+            }
+
+            const std::string key = Common::AssetHandle::StableKeyForPath( file );
+            if ( key.empty() )
+                return;
+
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            if ( state.Registry.Remove( key ) )
+                state.Dirty = true;
+        }
+
         // Records the box `file` occupies around its own origin — the mesh cook's statement at the moment
         // it writes a `.stmesh` / `.skmesh`, which is the one time the cook holds the geometry. Called after
         // `NoteFile`, which is what gives the file its row; a file with no row is not content and gets no box.
@@ -503,6 +686,19 @@ namespace Desert::Assets
                 return;
             state.Registry.SetBounds( key, bounds );
             state.Dirty = true;
+        }
+
+        // THE BOX A REFERENCE'S ROW STATES - a mesh named by GUID and path, a prefab by path - under the
+        // registry's lock; nullopt when no row answers or the row states none. The source a prefab's box is
+        // composed from when it is written (PrefabAsset::Serialize), so the box the file states and the box a
+        // world cell reads for a mesh are one column.
+        inline std::optional<Common::Math::AABB> BoundsOf( const Common::Content::AssetGuid& guid,
+                                                           std::string_view                  path )
+        {
+            Detail::State&                           state = Detail::Get_();
+            const std::lock_guard<std::mutex>        lock( state.Mutex );
+            const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByGuidReference( guid, path );
+            return row != nullptr ? row->Bounds : std::nullopt;
         }
 
         // RENAME / MOVE OF ONE ASSET (AF10c), the editor's single route: the Common move (file renamed, a

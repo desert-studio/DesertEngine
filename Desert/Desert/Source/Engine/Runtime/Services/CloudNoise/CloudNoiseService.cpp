@@ -1,5 +1,9 @@
 #include "CloudNoiseService.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Assets/CloudNoiseVolume.hpp>
+
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -154,6 +158,10 @@ namespace Desert::Runtime
     {
         if ( handle != 0 )
         {
+            if ( m_Volumes.find( handle ) == m_Volumes.end() &&
+                 m_ReportedMissing.find( handle ) == m_ReportedMissing.end() )
+                Discover( handle );
+
             const auto it = m_Volumes.find( handle );
             if ( it != m_Volumes.end() )
             {
@@ -181,6 +189,22 @@ namespace Desert::Runtime
                 LOG_ERROR( "[Clouds] Noise volume {} is referenced but was never announced — falling back "
                            "to the default volume. The scene names a .dcnv the asset scan did not find.",
                            static_cast<uint64_t>( handle ) );
+            }
+        }
+
+        // THE DEFAULT IS FOUND BY FILE NAME IN THE REGISTRY, the rule the boot preloader used to apply to
+        // every shell it created: a project that ships its own CloudNoise_Default.dcnv replaces the engine's.
+        if ( m_Default == 0 && !m_DefaultSought && !m_Assets.expired() )
+        {
+            m_DefaultSought = true;
+            for ( const auto& row :
+                  Assets::ContentRegistry::Rows( Common::Content::ContentKind::CloudNoiseVolume ) )
+            {
+                if ( row.Path.filename() == Assets::kCloudNoiseDefaultVolumeName && Discover( row.Handle ) )
+                {
+                    m_Default = row.Handle;
+                    break;
+                }
             }
         }
 
@@ -248,6 +272,29 @@ namespace Desert::Runtime
         m_Volumes.clear();
         m_Default                = Assets::AssetHandle{ 0 };
         m_ReportedMissingDefault = false;
+        m_DefaultSought          = false;
         m_ReportedMissing.clear();
+    }
+    bool CloudNoiseService::Discover( const Assets::AssetHandle& handle )
+    {
+        // AL1-2: the boot no longer announces every file of this kind; the first reference creates the
+        // shell from its registry row, and the read still goes through BeginRead / AsyncAssetLoader.
+        auto created = Assets::CreateFromRegistryRow<Assets::CloudNoiseVolumeAsset>(
+             m_Assets, handle, Common::Content::ContentKind::CloudNoiseVolume );
+        if ( !created )
+        {
+            m_ReportedMissing.insert( handle );
+            LOG_ERROR(
+                 "[Clouds] Noise volume {} cannot be used (layers naming it fall back to the default volume): {}",
+                 static_cast<uint64_t>( handle ), created.GetError() );
+            return false;
+        }
+        Announce( created.GetValue() );
+        return true;
+    }
+
+    void CloudNoiseService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
     }
 } // namespace Desert::Runtime

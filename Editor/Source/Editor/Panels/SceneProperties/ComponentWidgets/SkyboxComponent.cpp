@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "SkyboxComponent.hpp"
 #include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -15,10 +16,12 @@
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -65,8 +68,7 @@ namespace Desert::Editor
                       {
                           if ( auto a = assetManager->FindByHandle<Assets::SkyboxAsset>( handle ) )
                           {
-                              Graphic::Renderer::GetInstance().WaitDeviceIdle();
-                              svc.Register( a );
+                              Runtime::EnsureSkyboxRegistered( a );
                           }
                       }
                       skybox.SkyboxHandle = handle;
@@ -113,7 +115,9 @@ namespace Desert::Editor
 
                   // --- HDR skybox picker (dropdown of loaded SkyboxAssets) ---
                   ImGui::TextUnformatted( "Skybox (HDR)" );
-                  if ( ImGui::Button( currentName.c_str(), ImVec2( ImGui::GetContentRegionAvail().x, 0 ) ) )
+                  const bool clicked =
+                       ImGui::Button( currentName.c_str(), ImVec2( ImGui::GetContentRegionAvail().x, 0 ) );
+                  if ( TakeDetailsPickerRequest( "Skybox" ) || clicked )
                       ImGui::OpenPopup( "skybox_selector" );
 
                   // --- drag-drop a skybox/texture file from the File Explorer ---
@@ -139,14 +143,13 @@ namespace Desert::Editor
                       static ImGuiTextFilter filter;
                       filter.Draw( "##Search", 200 );
                       ImGui::Separator();
-                      auto skyboxes = assetManager->FindAllByType<Assets::SkyboxAsset>();
-                      for ( const auto& [handle, asset] : skyboxes )
+                      auto skyboxes = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skybox );
+                      for ( const auto& row : skyboxes )
                       {
-                          const std::string name =
-                               Common::Utils::FileSystem::GetFileName( asset->GetMetadata().Filepath );
+                          const std::string name = ::Desert::Editor::PickerDisplayName( row );
                           if ( filter.PassFilter( name.c_str() ) &&
-                               ImGui::Selectable( name.c_str(), handle == skybox.SkyboxHandle ) )
-                              bindSkybox( handle );
+                               ImGui::Selectable( name.c_str(), row.Handle == skybox.SkyboxHandle ) )
+                              bindSkybox( row.Handle );
                       }
                       if ( skyboxes.empty() )
                           ImGui::TextDisabled( "No skybox assets available" );

@@ -26,6 +26,8 @@
 
 #include <gtest/gtest.h>
 
+#include <random>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -205,7 +207,53 @@ namespace
         Common::Constants::Path::ProjectRootState m_Saved;
     };
 
-    // A file that exists for the duration of one test and is removed afterwards.
+    // Every test that writes a file or names `RegistryProbe/...` runs inside one of these: a fresh directory
+    // under the system temp directory becomes the working directory for the test and is deleted with
+    // everything in it afterwards. The tests need a RELATIVE spelling to resolve against the working
+    // directory (that is what they measure), but the suites run from the tree root, and a test that died
+    // between writing and cleaning up used to leave `Assets/Library/` or `RegistryProbe/Content/` in the
+    // checkout (TST1). Here a failure can leave at most a directory in temp.
+    class ScratchWorkingDirectory
+    {
+    public:
+        ScratchWorkingDirectory()
+        {
+            std::error_code ec;
+            m_Previous = std::filesystem::current_path( ec );
+            if ( ec )
+            {
+                ADD_FAILURE() << "could not read the working directory: " << ec.message();
+                return;
+            }
+            m_Dir = std::filesystem::temp_directory_path( ec ) /
+                    ( "desert-assethandlestability-" + std::to_string( std::random_device{}() ) );
+            std::filesystem::create_directories( m_Dir, ec );
+            if ( !ec )
+                std::filesystem::current_path( m_Dir, ec );
+            if ( ec )
+                ADD_FAILURE() << "could not enter the scratch directory '" << m_Dir.string()
+                              << "': " << ec.message();
+        }
+
+        ~ScratchWorkingDirectory()
+        {
+            std::error_code ec;
+            if ( !m_Previous.empty() )
+                std::filesystem::current_path( m_Previous, ec );
+            if ( !m_Dir.empty() )
+                std::filesystem::remove_all( m_Dir, ec );
+        }
+
+        ScratchWorkingDirectory( const ScratchWorkingDirectory& )            = delete;
+        ScratchWorkingDirectory& operator=( const ScratchWorkingDirectory& ) = delete;
+
+    private:
+        std::filesystem::path m_Previous;
+        std::filesystem::path m_Dir;
+    };
+
+    // A file that exists for the duration of one test and is removed afterwards; create it inside a
+    // ScratchWorkingDirectory, which owns the directories it needs.
     //
     // WHY THE REGISTRY TESTS NEED ONE. SkyboxAsset::Load used to be `m_ReadyForUse = true; return
     // BOOLSUCCESS;` — it never opened the file it named, so a skybox whose .hdr had been moved or left
@@ -518,6 +566,34 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
     EXPECT_FALSE( material.GetMaterialUUID().IsNull() );
 }
 
+TEST( AssetHandleStability, AnUnloadedMaterialShellAlreadyWearsItsHeaderGuidHandle )
+{
+    // AL1-4: MaterialService creates a `.demat` shell from its content-registry row and CreateFromRegistryRow
+    // compares the shell's handle with the row's BEFORE anything loads it. The GUID handle used to be adopted
+    // only by Load, so every unloaded material wore the path-derived number and the registry refused it.
+    const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_guid.demat";
+    {
+        std::ofstream out( scratch );
+        ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
+        out << R"({"Header":{"Kind":"Material","Guid":"df51ca6ed9cb71779a9b5634db0863bc","Versions":{"MATL":4},)"
+            << R"("Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})";
+    }
+    const auto guid = Desert::Assets::ReadTextHeaderGuid( Common::Filepath( scratch ) );
+    ASSERT_FALSE( guid.IsNull() ) << "the fixture's header GUID did not parse";
+
+    const Desert::Assets::SurfaceMaterialAsset shell( AssetPriority::Medium, Common::Filepath( scratch ) );
+    std::filesystem::remove( scratch );
+
+    EXPECT_FALSE( shell.IsReadyForUse() ) << "the shell was loaded; this test is about one that was not";
+    EXPECT_EQ( static_cast<uint64_t>( shell.GetMetadata().Handle ),
+               static_cast<uint64_t>( Desert::Assets::MaterialData::HandleOf( guid ) ) )
+         << "an unloaded material carries a handle other than its header GUID's; the registry row names the "
+            "GUID handle, so on-demand discovery refuses every material";
+    EXPECT_EQ( static_cast<uint64_t>( shell.GetMaterialUUID() ),
+               static_cast<uint64_t>( shell.GetMetadata().Handle ) )
+         << "the external id must equal the handle before load too: the mesh->material link resolves by it";
+}
+
 // The defect as a USER meets it: save a reference, restart, dereference it.
 //
 // This is the scenario spelled out literally rather than argued about. Process A registers a skybox and
@@ -529,6 +605,7 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
 // this measuring identity and nothing else.
 TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The child process registers this path, and registering now requires the file to be there.
     const ScratchFile subject( kPathA );
 
@@ -545,6 +622,7 @@ TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 
 TEST( AssetHandleStability, AHandleFromNoAssetStillFailsToResolve )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The companion the test above needs to mean anything: if FindByHandle returned something for every
     // number, "RESOLVED" would be worthless. The scratch file is here for the same reason it is there —
     // the child registers this path, and a registration that fails would print its reason onto the
@@ -988,6 +1066,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
 
 TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 {
+    const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
 
     const std::filesystem::path projectDir = std::filesystem::current_path() / "RegistryProbe";
@@ -1015,6 +1094,7 @@ TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 
 TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The companion: a dedup key that answered "yes" to everything would satisfy the test above and
     // collapse the whole library onto one record.
     ProjectRootGuard guard;
@@ -1033,6 +1113,7 @@ TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
 
 TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The handle derivation deliberately gives every type at one path the SAME number (asserted at the
     // top of this file), so the registry's key has to carry the type as well or the second type would be
     // deduplicated away as a duplicate of the first.
@@ -1076,6 +1157,7 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 
 TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 {
+    const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
 
@@ -1113,6 +1195,7 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 
 TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
 {
+    const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
 
@@ -1286,7 +1369,9 @@ int main( int argc, char** argv )
         return 0;
     }
 
-    g_ExecutablePath = argv[0];
+    // Absolute: the child-process tests run from a scratch working directory, where a relative argv[0]
+    // would name nothing.
+    g_ExecutablePath = std::filesystem::absolute( argv[0] ).string();
 
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
@@ -1366,9 +1451,9 @@ TEST( AssetHandleStability, AStringTableHandleIsHandleForGuidOfItsHeader )
     fs::create_directories( dir );
     const fs::path                        file = dir / "A.destrings";
     Desert::Localization::StringTableData data;
-    Desert::Localization::LocalizedEntry  entry;
+    Desert::Localization::StringTableEntry entry;
     entry.Key         = "menu.play";
-    entry.Forms["en"] = { { "other", "PLAY" } };
+    entry.Forms       = { { "other", "PLAY" } };
     data.Entries.push_back( entry );
     ASSERT_TRUE( Desert::Assets::StringTableAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::StringTableAsset>( file, Common::Content::ContentKind::StringTable );
@@ -1521,9 +1606,9 @@ namespace
     bool WriteStringTable( const std::filesystem::path& file )
     {
         Desert::Localization::StringTableData data;
-        Desert::Localization::LocalizedEntry  entry;
+        Desert::Localization::StringTableEntry entry;
         entry.Key         = "af10d.play";
-        entry.Forms["en"] = { { "other", "PLAY" } };
+        entry.Forms       = { { "other", "PLAY" } };
         data.Entries.push_back( entry );
         return static_cast<bool>( Desert::Assets::StringTableAsset::Save( file, data ) );
     }
@@ -1599,7 +1684,9 @@ TEST_P( AssetOpenedByItsOldPath, IsTheMovedAssetAndLoadsItsBytes )
     root = fs::canonical( root );
     Common::Constants::Path::SetProjectRoot( root, "Resources/Assets" );
     const fs::path& spec = *Common::Content::KindSpec( kind.Kind ).Root;
-    const fs::path  dir  = spec.is_absolute() ? spec : root / spec;
+    // A string table's language is its directory (STRT 3), so it sits one level down, as in a project.
+    const fs::path dir = ( spec.is_absolute() ? spec : root / spec ) /
+                         ( kind.Kind == Common::Content::ContentKind::StringTable ? "en" : "" );
     fs::create_directories( dir );
     const fs::path oldFile = dir / ( "Before" + ext );
     const fs::path newFile = dir / ( "After" + ext );

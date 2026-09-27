@@ -1,4 +1,7 @@
 #include "RuntimeLayer.hpp"
+
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include "RuntimeShot.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -16,10 +19,12 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetPreloader.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Core/SceneRenderCollectors.hpp>
@@ -130,6 +135,7 @@ namespace Desert::Player
         // bind pose, and no editor session could reproduce it.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
+        Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The game's view IS the window, so here — and only here — the window's size is the view's.
         const auto window = EngineContext::GetInstance().GetWindow();
         m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
@@ -185,31 +191,6 @@ namespace Desert::Player
         m_Boot.Run( "Preloading meshes, textures and materials",
                     [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
         m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
-        m_Boot.Run( "Preloading cloud noise volumes", [this] { m_AssetPreloader->PreloadCloudNoiseVolumes(); } );
-        // MUST follow the volumes: a type binds the one it names.
-        m_Boot.Run( "Preloading cloud types", [this] { m_AssetPreloader->PreloadCloudTypes(); } );
-        // order-free: a body names nothing and is named by nothing but a scene
-        m_Boot.Run( "Preloading cloud modelling volumes",
-                    [this] { m_AssetPreloader->PreloadCloudModellingVolumes(); } );
-        // Missing here too, and for the same reason it was missing from the editor: PreloadCloudLayouts
-        // was written, tested and never called, so a packaged game rendered every painted sky
-        // procedurally. Order-free like the line above.
-        m_Boot.Run( "Preloading cloud layouts", [this] { m_AssetPreloader->PreloadCloudLayouts(); } );
-        // The UI themes (Ю13). HERE AND NOT ONLY IN THE EDITOR, because this is the process that ships:
-        // a canvas whose theme the player's build never scanned draws every element's own colour, which
-        // is a game that looks right in the editor and wrong on the player's machine — the worst shape a
-        // missing preload can take. Order-free: a theme names only font paths, which FontService
-        // registers on demand, and nothing else names a theme.
-        m_Boot.Run( "Preloading UI themes", [this] { m_AssetPreloader->PreloadUIThemes(); } );
-        // AND HERE TOO, which the editor's copy alone would not have given us: AssetPreloadCensus caught
-        // exactly this omission on A12's first sweep. A rig that loads in the editor and silently does not
-        // in the packaged game is worse than no rig — the scene names it, one line goes to the log, and the
-        // character poses from its clips.
-        m_Boot.Run( "Preloading control rigs", [this] { m_AssetPreloader->PreloadControlRigs(); } );
-        m_Boot.Run( "Preloading anim graphs", [this] { m_AssetPreloader->PreloadAnimGraphs(); } );
-        // AND HERE TOO, for the rig's reason four lines up. Not order-free: a retarget binds its source
-        // rig while loading, so it must follow the cooked scan that registers the `.skeleton` files.
-        m_Boot.Run( "Preloading retargets", [this] { m_AssetPreloader->PreloadRetargets(); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_Boot.Run( "Preloading string tables", [this] { m_AssetPreloader->PreloadStringTables(); } );
@@ -263,6 +244,9 @@ namespace Desert::Player
                                   [&] { return serializer.DeserializeFromJson( sceneJson, scenePath ); } );
                  !loaded )
                 return Common::MakeError( loaded.GetError() );
+            // The first level's dependency closure is read by the loader's workers while the boot waits,
+            // exactly as a scene switch does, so the game's first frame is whole (AL1-8b).
+            (void)Runtime::AwaitSceneClosure( *m_Scene );
             if ( const auto init =
                       m_Boot.Run( "Initialising the loaded scene", [this] { return m_Scene->Init(); } );
                  !init )
@@ -301,7 +285,7 @@ namespace Desert::Player
         // TriggerSplash() is NOT called here any more. It used to start the authored splash at the top of
         // the boot, so the duration a designer picked was spent racing a file read instead of being seen;
         // it is armed on the tick the gate opens (OnContentReady), over a world that is actually there.
-        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+        m_Content.BeginWorld( Assets::ContentWorkNow().Started );
 
         m_Boot.LogSummary();
         // AND HERE THE BOOT IS OVER, which is what turns every later synchronous load into a reported
@@ -351,6 +335,8 @@ namespace Desert::Player
         m_BlitExecutor.reset();
         m_BlitPipeline.reset();
         m_PresentReady = false;
+        // Its readbacks own staging buffers and command buffers: finished while the device is alive.
+        Graphic::EnvironmentCacheWriter::Get().Drain();
         return BOOLSUCCESS;
     }
 
@@ -423,6 +409,8 @@ namespace Desert::Player
             LOG_ERROR( "[Runtime] Scene switch failed after teardown: {}", loaded.GetError() );
             return;
         }
+        // The level's dependency closure is read by the loader's workers while the switch waits (AL1-8b).
+        (void)Runtime::AwaitSceneClosure( *m_Scene );
         if ( const auto init = m_Scene->Init(); !init )
         {
             LOG_ERROR( "[Runtime] Scene switch init failed: {}", init.GetError() );
@@ -442,7 +430,7 @@ namespace Desert::Player
         // is a second world handed over at run time — its clouds, its layouts, its themes are read on
         // demand exactly like the first one's — so a loading state that covered only the boot would ship
         // the defect back into the game the moment a door was opened.
-        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+        m_Content.BeginWorld( Assets::ContentWorkNow().Started );
         m_LoadingFramesPresented = 0;
         LOG_INFO( "[Runtime] Switched scene: {}", path );
     }
@@ -618,6 +606,8 @@ namespace Desert::Player
         // editor's copy is at the head of its own OnUpdate for the same reason and is asserted beside
         // it by `AsyncAssetPump`.
         Assets::AsyncAssetLoader::Get().Pump();
+        // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
+        Graphic::EnvironmentCacheWriter::Get().Pump();
 
         // THE LOADING STATE, TICKED HERE AND NOWHERE ELSE. The rule it applies -- nothing outstanding AND
         // the frame just rendered asked for nothing new, and never before the second frame -- is one
@@ -627,8 +617,8 @@ namespace Desert::Player
         // The marker this replaced said the same thing to the LOG and to nothing else. A log line is not
         // a state: nothing could branch on it, so the frames it described were presented anyway.
         {
-            const auto& loader = Assets::AsyncAssetLoader::Get();
-            if ( m_Content.Tick( loader.Outstanding(), loader.StartedCount() ) )
+            const auto work = Assets::ContentWorkNow();
+            if ( m_Content.Tick( work.Outstanding, work.Started ) )
                 OnContentReady();
         }
 
