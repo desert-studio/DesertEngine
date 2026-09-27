@@ -372,10 +372,10 @@ namespace Desert::Geometry
         auto mesh                      = std::make_shared<DynamicMesh3>();
         if ( !subd.ComputeTopologySubdivision() || !subd.ComputeSubdividedMesh( *mesh ) )
             return Common::MakeFormattedError<RegionOutcome>( "Mesh Subdivide: {}", subd.Failure() );
-        // The result is built fresh; a tangent space the source carried is derived again (see RecomputeTangents).
+        // The result is built fresh; a tangent space the source carried is derived again (see RecomputeTangentSpace).
         if ( before.Attributes() != nullptr && before.Attributes()->HasTangentSpace() )
             mesh->Attributes()->EnableTangents();
-        if ( auto tangents = RecomputeTangents( *mesh, "Subdivide" ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Subdivide" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
     }
