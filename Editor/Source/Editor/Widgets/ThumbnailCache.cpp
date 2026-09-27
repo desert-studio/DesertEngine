@@ -57,23 +57,30 @@ namespace Desert::Editor
 
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )
     {
+        if ( m_Cache.size() >= kMaxEntries && !m_Cache.contains( sourcePath ) )
+        {
+            m_Cache.clear(); // simple bound; thumbnails re-decode lazily
+            m_Watch.Clear();
+            m_Outdated.clear();
+        }
+
+        // Observed BEFORE the decode reads the file, so a write that lands between the two makes the next Get()
+        // decode again rather than keep the older picture. A same-size rewrite inside one tick of the file
+        // system's clock is a change too: the watch hashes the content while the stamp is racy (FIX2's class).
+        // The watch reports a change ONCE, and the new picture may take a worker several frames: the path stays
+        // in m_Outdated until its new picture is cached, or the old one would be served as current from then on.
+        if ( m_Watch.Observe( sourcePath, sourcePath ) == Common::Utils::WriteWatch::Seen::Changed )
+            m_Outdated.insert( sourcePath );
         std::error_code                   stampEc;
         const auto                        stamp = std::filesystem::last_write_time( sourcePath, stampEc );
         std::shared_ptr<Graphic::Image2D> previous;
         if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
         {
-            const auto seen = m_Stamps.find( sourcePath );
-            if ( stampEc || ( seen != m_Stamps.end() && seen->second == stamp ) )
+            if ( !m_Outdated.contains( sourcePath ) )
                 return it->second; // may be null (decode previously failed)
             // The file was rewritten since it was decoded (a capture landed): the old picture stays on
             // screen until the worker has the new one, instead of the icon for those frames.
             previous = it->second;
-        }
-
-        if ( m_Cache.size() >= kMaxEntries )
-        {
-            m_Cache.clear(); // simple bound; thumbnails re-decode lazily
-            m_Stamps.clear();
         }
 
         // NOTHING IS DECODED HERE, IN ANY CASE. The decode (file read, stb, box filter: ~24 ms for a 512px
@@ -181,23 +188,22 @@ namespace Desert::Editor
                        sourcePath, failure );
         }
         m_Cache[sourcePath] = result; // cache success or failure (null)
-        if ( !stampEc )
-            m_Stamps[sourcePath] = stamp;
-        else
-            m_Stamps.erase( sourcePath );
+        m_Outdated.erase( sourcePath );
         return result;
     }
 
     void ThumbnailCache::Invalidate( const std::string& sourcePath )
     {
         m_Cache.erase( sourcePath );
-        m_Stamps.erase( sourcePath );
+        m_Watch.Forget( sourcePath );
+        m_Outdated.erase( sourcePath );
     }
 
     void ThumbnailCache::Clear()
     {
         m_Cache.clear();
-        m_Stamps.clear();
+        m_Watch.Clear();
+        m_Outdated.clear();
     }
 
     std::unordered_set<ThumbnailCache*>& ThumbnailCache::Live()

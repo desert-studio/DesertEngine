@@ -126,25 +126,10 @@ namespace Desert::Runtime
                 continue;
             const auto& path = asset->GetMetadata().Filepath;
 
-            std::error_code ec;
-            const auto      mtime = std::filesystem::last_write_time( path, ec );
-            if ( ec )
-                continue; // deleted/missing — leave the in-memory volume alone
+            if ( !TouchWatched( path ) || m_FirstScan )
+                continue;
 
             const std::string key = path.generic_string();
-            auto              it  = m_KnownTimes.find( key );
-            if ( it == m_KnownTimes.end() )
-            {
-                m_KnownTimes[key] = mtime;
-                continue; // first sighting — baseline only
-            }
-            if ( it->second == mtime || m_FirstScan )
-            {
-                it->second = mtime;
-                continue;
-            }
-            it->second = mtime;
-            Assets::ContentRegistry::Update( path );
 
             // A FAILED RE-READ LEAVES THE OLD VOLUME BOUND, deliberately. The panel writes a volume with a
             // single truncating stream write, so a poll that lands mid-write sees a short file; refusing it
@@ -257,25 +242,10 @@ namespace Desert::Runtime
                 continue;
             const auto& path = asset->GetMetadata().Filepath;
 
-            std::error_code ec;
-            const auto      mtime = std::filesystem::last_write_time( path, ec );
-            if ( ec )
-                continue; // deleted/missing — leave the in-memory asset alone
+            if ( !TouchWatched( path ) || m_FirstScan )
+                continue;
 
             const std::string key = path.generic_string();
-            auto              it  = m_KnownTimes.find( key );
-            if ( it == m_KnownTimes.end() )
-            {
-                m_KnownTimes[key] = mtime;
-                continue; // first sighting — baseline only
-            }
-            if ( it->second == mtime || m_FirstScan )
-            {
-                it->second = mtime;
-                continue;
-            }
-            it->second = mtime;
-            Assets::ContentRegistry::Update( path );
 
             // Only the shader NAME is snapshotted before the re-parse. A `wasCustom` flag was taken here
             // too and then never read: whether the asset crossed between PBR and data-driven is already
@@ -344,21 +314,10 @@ namespace Desert::Runtime
 
     bool AssetHotReload::TouchWatched( const std::filesystem::path& path )
     {
-        std::error_code ec;
-        const auto      mtime = std::filesystem::last_write_time( path, ec );
-        if ( ec )
-            return false; // deleted/missing — leave the in-memory version alone
-
-        const std::string key = path.generic_string();
-        auto              it  = m_KnownTimes.find( key );
-        if ( it == m_KnownTimes.end() )
-        {
-            m_KnownTimes[key] = mtime; // first sighting — baseline only
-            return false;
-        }
-
-        const bool changed = it->second != mtime;
-        it->second         = mtime;
+        // Missing leaves the in-memory version alone; First is a baseline, not an edit. A same-size rewrite
+        // inside one tick of the file system's clock is Changed too: the watch hashes a racy stamp's content.
+        const bool changed =
+             m_Watch.Observe( path.generic_string(), path ) == Common::Utils::WriteWatch::Seen::Changed;
         // The registry row follows the bytes: a rewritten header may state another GUID, other edges or
         // another size, and the pickers read the row, not the object this poll is about to reload.
         if ( changed )

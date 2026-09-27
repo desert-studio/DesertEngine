@@ -4,6 +4,8 @@
 
 #include <Engine/Graphic/Image.hpp>
 
+#include <Common/Utilities/WriteWatch.hpp>
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -27,9 +29,9 @@ namespace Desert::Editor
 
         // Returns a cached thumbnail image for the source path (decoding + downscaling on first request),
         // or null if the file can't be decoded (caller falls back to an icon). Null results are cached too.
-        // A file whose modtime moved since it was decoded is decoded again: a reader may keep drawing an
-        // outdated rendered PNG while its replacement is captured (ThumbnailFreshness::Choose), and the new
-        // file must reach the screen without every reader keeping its own table of stamps.
+        // A file that changed since it was decoded (Common::Utils::WriteWatch) is decoded again: a reader may keep
+        // drawing an outdated rendered PNG while its replacement is captured (ThumbnailFreshness::Choose), and the
+        // new file must reach the screen without every reader keeping its own table of stamps.
         std::shared_ptr<Graphic::Image2D> Get( const std::string& sourcePath );
 
         // Drop the cached entry for one path so the next Get() re-decodes it (used when a thumbnail PNG was
@@ -95,7 +97,8 @@ namespace Desert::Editor
         static constexpr std::size_t kMaxEntries = 512; // bound VRAM/handles
 
         std::unordered_map<std::string, std::shared_ptr<Graphic::Image2D>> m_Cache;
-        std::unordered_map<std::string, std::filesystem::file_time_type>   m_Stamps; // modtime at decode
+        Common::Utils::WriteWatch                                          m_Watch; // the file as decoded
+        std::unordered_set<std::string> m_Outdated; // changed on disk, new picture not cached yet
 
         // Every constructed cache, so ReleaseAll() can reach the ones no panel owns. Raw pointers to
         // objects that deregister themselves; this set outlives them all and holds nothing that needs a

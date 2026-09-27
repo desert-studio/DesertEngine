@@ -1,13 +1,13 @@
 #pragma once
 
 #include <Common/Core/Timestep.hpp>
+#include <Common/Utilities/WriteWatch.hpp>
 
 #include <Engine/Assets/ContentDirectoryWatch.hpp>
 
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <unordered_map>
 
 namespace Desert::Assets
 {
@@ -42,7 +42,7 @@ namespace Desert::Runtime
     //             still need a restart — logged when they're affected.
     //
     // Polling (not FS events) keeps it portable (macOS/Windows/Linux) and cheap: one stat()
-    // per watched file per interval.
+    // per watched file per interval, plus a content hash while a file's write time is still racy.
     class AssetHotReload
     {
     public:
@@ -65,16 +65,16 @@ namespace Desert::Runtime
         // frame, so re-registering the flattened table IS the whole of the reload — no scene to refresh.
         void PollUIThemes( Assets::AssetManager& assetManager );
 
-        // Records @p path's mtime and reports whether it MOVED since the last poll. A file seen for the
-        // first time returns false: the first sighting is a baseline, not an edit.
+        // Reports whether @p path CHANGED since the last poll (Common::Utils::WriteWatch: a moved stamp, or a
+        // racy stamp over different content). A file seen for the first time returns false: the first
+        // sighting is a baseline, not an edit.
         bool TouchWatched( const std::filesystem::path& path );
 
-        using Clock = std::filesystem::file_time_type;
-        std::unordered_map<std::string, Clock> m_KnownTimes;
+        Common::Utils::WriteWatch m_Watch;
         // Files that appeared or went away with no loaded object to report them: their rows follow here.
-        Assets::ContentDirectoryWatch          m_ContentWatch;
-        float                                  m_Accum       = 0.0f;
-        bool                                   m_FirstScan   = true;
-        static constexpr float                 kPollInterval = 0.7f; // seconds
+        Assets::ContentDirectoryWatch m_ContentWatch;
+        float                         m_Accum       = 0.0f;
+        bool                          m_FirstScan   = true;
+        static constexpr float        kPollInterval = 0.7f; // seconds
     };
 } // namespace Desert::Runtime
