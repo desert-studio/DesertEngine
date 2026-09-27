@@ -1072,8 +1072,8 @@ namespace Desert::Editor::Tools
             {
                 const auto  lu = static_cast<float>( kPosts[k].AtUMax ? m_Sel.UMax + 1 : m_Sel.UMin );
                 const auto  lv = static_cast<float>( kPosts[k].AtVMax ? m_Sel.VMax + 1 : m_Sel.VMin );
-                const float hW =
-                     planeW + static_cast<float>( m_Plane.Sign * m_CornerH[k] ) / static_cast<float>( CornerDen ) * u;
+                const float hW = planeW + static_cast<float>( m_Plane.Sign * m_CornerH[k] ) /
+                                               static_cast<float>( CornerDen ) * u;
                 ok[k] = WorldToScreen( worldPt( lu, lv, m_Plane.Na, hW ), viewProj, viewportPos, viewportSize,
                                        sp[k] );
                 if ( !ok[k] )

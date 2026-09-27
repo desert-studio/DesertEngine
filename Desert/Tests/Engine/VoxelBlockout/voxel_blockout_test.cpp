@@ -823,8 +823,8 @@ namespace
     // A 3 x 3 floor one cell tall, top plane at y = 1.
     Volume Floor3( const GridFrame& frame = {} )
     {
-        Volume v   = Ground();
-        v.m_Frame  = frame;
+        Volume v  = Ground();
+        v.m_Frame = frame;
         WorkPlane p;
         v.PushPull( p, Rect{ 0, 2, 0, 2 }, +1, 1, 0 );
         return v;
@@ -836,9 +836,9 @@ TEST( VoxelBlockoutCornerMode, AWallSlopesAlongItsOwnNormalOnEitherSide )
 {
     for ( const int sign : { +1, -1 } )
     {
-        Volume    v = Ground();
-        WorkPlane side{ 0, sign, 0 }; // u is Y, v is Z
-        const Rect sel{ 0, 1, 0, 0 }; // two cells stacked up the wall
+        Volume     v = Ground();
+        WorkPlane  side{ 0, sign, 0 }; // u is Y, v is Z
+        const Rect sel{ 0, 1, 0, 0 };  // two cells stacked up the wall
         v.PushPull( side, sel, +1, 1, 0 );
         const CornerHeights lean{ 0, 0, CornerDen, CornerDen }; // the +Z edge leans out of the wall
         const auto          r = v.ApplyCornerHeights( side, sel, lean, false );
@@ -955,7 +955,8 @@ TEST( VoxelBlockoutCornerMode, ARampInAFrameTurned30DegreesIsTheSameRampTurned )
     Volume          flat = Floor3();
     Volume          v    = Floor3( turned );
     for ( Volume* each : { &flat, &v } )
-        ASSERT_TRUE( each->ApplyCornerHeights( kFloorTop, row, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
+        ASSERT_TRUE(
+             each->ApplyCornerHeights( kFloorTop, row, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
 
     const auto    mesh = v.Bake();
     const Measure m    = Measured( mesh );
@@ -992,9 +993,9 @@ TEST( VoxelBlockoutCornerMode, SaveLoadKeepsTheSlopeAxisAndTheDiagonalAndRefuses
 
     auto refused = [&saved]( size_t at, int32_t value, const char* why )
     {
-        SavedBlockout bad = saved;
+        SavedBlockout bad          = saved;
         bad.Layers[0].Deformed[at] = value;
-        auto r = Load( bad );
+        auto r                     = Load( bad );
         ASSERT_FALSE( r.IsSuccess() ) << why;
         EXPECT_NE( r.GetError().find( why ), std::string::npos ) << r.GetError();
     };

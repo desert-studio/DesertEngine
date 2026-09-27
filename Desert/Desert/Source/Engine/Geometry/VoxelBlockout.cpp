@@ -135,8 +135,8 @@ namespace Desert::Geometry::VoxelBlockout
         // cover, as quads in f's winding; `axis` is ColumnAxis. Along the plane's other axis s both faces'
         // bottoms and tops are straight lines, so the uncovered part is at most one piece below `b` and one
         // above it per stretch of s between the points where two of those four lines cross.
-        std::vector<std::array<glm::vec3, 4>> ColumnPieces( const glm::ivec3& c, const Cell& a, const Cell& b, int f,
-                                                            int axis, float unit )
+        std::vector<std::array<glm::vec3, 4>> ColumnPieces( const glm::ivec3& c, const Cell& a, const Cell& b,
+                                                            int f, int axis, float unit )
         {
             const int n    = FaceNormalAxis( f );
             const int sAx  = 3 - n - axis;
@@ -144,7 +144,8 @@ namespace Desert::Geometry::VoxelBlockout
             const int side = ( kFaceCorner[f][0] & nBit ) != 0 ? nBit : 0;
             auto      off  = []( const Cell& cell, int i )
             { return static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen ); };
-            auto corner = [&]( int s, int t ) { return side | ( s != 0 ? 1 << sAx : 0 ) | ( t != 0 ? 1 << axis : 0 ); };
+            auto corner = [&]( int s, int t )
+            { return side | ( s != 0 ? 1 << sAx : 0 ) | ( t != 0 ? 1 << axis : 0 ); };
             // Lines over s in [0, 1] as (value at 0, value at 1): bottom and top of a, then of b.
             std::array<glm::vec2, 4> line;
             for ( int t = 0; t < 2; ++t )
@@ -197,7 +198,7 @@ namespace Desert::Geometry::VoxelBlockout
                     std::array<glm::vec3, 4> q{ point( s0, at( lo, s0 ) ), point( s1, at( lo, s1 ) ),
                                                 point( s1, std::max( at( hi, s1 ), at( lo, s1 ) ) ),
                                                 point( s0, std::max( at( hi, s0 ), at( lo, s0 ) ) ) };
-                    const glm::vec3 nrm =
+                    const glm::vec3          nrm =
                          glm::cross( q[1] - q[0], q[3] - q[0] ) + glm::cross( q[3] - q[2], q[1] - q[2] );
                     if ( glm::dot( nrm, outward ) < 0.0f )
                         std::swap( q[1], q[3] );
@@ -456,14 +457,15 @@ namespace Desert::Geometry::VoxelBlockout
         const auto spanU = static_cast<float>( sel.UMax + 1 - sel.UMin );
         const auto spanV = static_cast<float>( sel.VMax + 1 - sel.VMin );
         if ( spanU <= 0.0f || spanV <= 0.0f )
-            return Common::MakeFormattedError<bool>( "CubeGrid Corner Mode: the selection {}..{} x {}..{} is empty",
-                                                     sel.UMin, sel.UMax, sel.VMin, sel.VMax );
+            return Common::MakeFormattedError<bool>(
+                 "CubeGrid Corner Mode: the selection {}..{} x {}..{} is empty", sel.UMin, sel.UMax, sel.VMin,
+                 sel.VMax );
 
         // The blend never leaves the posts' range, so checking the posts checks every corner it writes.
         for ( const int h : heights )
             if ( h < std::numeric_limits<int16_t>::min() || h > std::numeric_limits<int16_t>::max() )
-                return Common::MakeFormattedError<bool>( "CubeGrid Corner Mode: post height {} does not fit 16 bits",
-                                                         h );
+                return Common::MakeFormattedError<bool>(
+                     "CubeGrid Corner Mode: post height {} does not fit 16 bits", h );
         auto heightAt = [&]( int lu, int lv )
         {
             const float fu = ( static_cast<float>( lu - sel.UMin ) ) / spanU;
@@ -500,9 +502,10 @@ namespace Desert::Geometry::VoxelBlockout
             for ( int i = 0; i < 8; ++i )
             {
                 if ( ( i & ( 1 << na ) ) != outer ) // the inner corners stay on the lattice, so the cell behind
-                    continue;                     // the sloped row still meets it
-                cell->V[i] = static_cast<int16_t>( plane.Sign * heightAt( c[ua] + ( ( i & ( 1 << ua ) ) != 0 ? 1 : 0 ),
-                                                                          c[va] + ( ( i & ( 1 << va ) ) != 0 ? 1 : 0 ) ) );
+                    continue;                       // the sloped row still meets it
+                cell->V[i] =
+                     static_cast<int16_t>( plane.Sign * heightAt( c[ua] + ( ( i & ( 1 << ua ) ) != 0 ? 1 : 0 ),
+                                                                  c[va] + ( ( i & ( 1 << va ) ) != 0 ? 1 : 0 ) ) );
             }
         }
         return Common::MakeSuccess( true );
@@ -611,7 +614,7 @@ namespace Desert::Geometry::VoxelBlockout
         {
             int                      Material;
             std::array<glm::vec3, 4> P;
-            int                      Count; // 3 when two corners of the quad fell together
+            int                      Count;  // 3 when two corners of the quad fell together
             bool                     Diag13; // split along corners 1-3 instead of 0-2 (SplitsAlong13)
             glm::vec3                N;
             FaceUvFrame              Uv;
@@ -1018,8 +1021,8 @@ namespace Desert::Geometry::VoxelBlockout
                         const int32_t crosswise = values[at + 18];
                         if ( axis < 0 || axis > 2 || crosswise < 0 || crosswise > 1 )
                             return Common::MakeFormattedError<bool>(
-                                 "CubeGrid layer {}: cell ({}, {}, {}) axis {} / crosswise {} is not 0..2 / 0..1", li,
-                                 c.x, c.y, c.z, axis, crosswise );
+                                 "CubeGrid layer {}: cell ({}, {}, {}) axis {} / crosswise {} is not 0..2 / 0..1",
+                                 li, c.x, c.y, c.z, axis, crosswise );
                         cell.Axis      = static_cast<uint8_t>( axis );
                         cell.Crosswise = crosswise != 0;
                     }
