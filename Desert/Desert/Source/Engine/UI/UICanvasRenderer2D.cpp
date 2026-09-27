@@ -1582,7 +1582,7 @@ namespace Desert::UI
                                 RequestScreen( ctx, "", true );
                                 *outClicked = "screen:back";
                                 break;
-                            case ECS::UIButtonAction::SendMessage:
+                            case ECS::UIButtonAction::SendEvent:
                                 *outClicked = b.OnClickMessage;
                                 break;
                             case ECS::UIButtonAction::None:

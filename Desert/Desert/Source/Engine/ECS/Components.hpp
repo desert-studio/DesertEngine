@@ -2290,18 +2290,18 @@ namespace Desert::ECS
 
     // Interactive button: tints its panel by pointer state, and on click hands its encoded action to the
     // HOST (RenderCanvas2D writes it to `outClicked`) -- the canvas itself knows nothing about scenes,
-    // URLs or scripting. LoadScene/QuitGame/OpenURL are executed by the host; everything else, SendMessage
+    // URLs or scripting. LoadScene/QuitGame/OpenURL are executed by the host; everything else, SendEvent
     // included, goes on UI::UIMessageQueue and reaches every Lua script defining OnUIMessage. The word
     // "dispatches ... to Lua" used to stand here and was FALSE: both hosts logged the message and never
     // queued it, so the one action documented as a "gameplay event name" was the one that arrived nowhere.
     //
     // What a UI Button does when clicked. The target/payload is the button's "Action Target" string:
-    //  LoadScene   -> load that scene path        SendMessage -> gameplay event name (Lua/scripts)
+    //  LoadScene   -> load that scene path        SendEvent   -> gameplay event name (Lua/scripts)
     //  QuitGame    -> quit (target ignored)        OpenURL     -> open the URL
     enum class UIButtonAction
     {
         None,
-        SendMessage,
+        SendEvent,
         LoadScene,
         QuitGame,
         OpenURL,
@@ -2323,7 +2323,7 @@ namespace Desert::ECS
         glm::vec3 PressedColor = glm::vec3( 0.15f, 0.30f, 0.55f );
 
         PROPERTY( DisplayName( "Click Action" ), Category( "UI Button" ) )
-        UIButtonAction Action = UIButtonAction::SendMessage;
+        UIButtonAction Action = UIButtonAction::SendEvent;
 
         PROPERTY( DisplayName( "Action Target" ), Category( "UI Button" ) )
         std::string OnClickMessage = ""; // scene path / message name / URL, depending on Action

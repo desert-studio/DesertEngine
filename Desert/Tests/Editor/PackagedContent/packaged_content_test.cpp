@@ -130,17 +130,31 @@ namespace
 #endif
     }
 
+    void UnsetEnv( const char* key )
+    {
+#if defined( _WIN32 )
+        _putenv_s( key, "" ); // an empty value removes the variable on Windows
+#else
+        unsetenv( key );
+#endif
+    }
+
     // Restores cwd, HOME and the (global) project-root remap, whatever the test body did.
     struct EnvironmentGuard
     {
         fs::path    OldCwd  = fs::current_path();
-        std::string OldHome = std::getenv( "HOME" ) ? std::getenv( "HOME" ) : "";
+        bool        HadHome = std::getenv( "HOME" ) != nullptr;
+        std::string OldHome = HadHome ? std::getenv( "HOME" ) : "";
         ~EnvironmentGuard()
         {
             std::error_code ec;
             fs::current_path( OldCwd, ec );
-            if ( !OldHome.empty() )
+            // A Windows runner has no HOME until a test sets one: leaving the test's HOME behind would point
+            // every later test in this process at a deleted sandbox, so an absent HOME is restored as absent.
+            if ( HadHome )
                 SetEnv( "HOME", OldHome );
+            else
+                UnsetEnv( "HOME" );
             Common::Utils::VFS::Unmount();
             // Back to the built-in sandbox mapping the process started with.
             Common::Constants::Path::SetProjectRoot( "", "Resources/Assets" );

@@ -120,7 +120,12 @@ TEST( ThumbnailFreshness, AnEditIsCapturedExactlyOnce )
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Capture )
          << "an edited material kept its old picture";
 
+    // The second record has the size of the first; pin its modtime to the first's as well, which is what a
+    // Windows clock (~15.6 ms steps) does to two writes in one tick. Only the writer's word can tell them apart.
+    const fs::path record      = ThumbnailFreshness::RecordPath( png );
+    const auto     firstRecord = fs::last_write_time( record );
     Capture( png, source );
+    fs::last_write_time( record, firstRecord );
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "the re-capture did not settle";
 }
 

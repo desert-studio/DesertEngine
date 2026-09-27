@@ -215,16 +215,16 @@ TEST( CloudLayoutTextures, ATableOfTheWrongSideIsRefusedFromEitherDirection )
 {
     const uint32_t identity[kCloudLayoutChannels] = { 0u, 1u, 2u, 3u };
 
-    const std::vector<unsigned char> small( static_cast<size_t>( 16u ) * 16u * 4u, 128u );
+    const std::vector<unsigned char> smallOne( static_cast<size_t>( 16u ) * 16u * 4u, 128u );
 
     CloudLayoutCanvas withMask = DistinctCanvas();
     ASSERT_TRUE( SetCloudLayoutCanvasMask( withMask, true ) );
-    EXPECT_FALSE( SetCloudLayoutCanvasPatternFromImage( withMask, small, 16u, 16u, identity ) )
+    EXPECT_FALSE( SetCloudLayoutCanvasPatternFromImage( withMask, smallOne, 16u, 16u, identity ) )
          << "a 16-square pattern was accepted onto a canvas whose mask is 32 square, so one of the two "
             "tables would be sampled at a resolution nobody authored";
 
     CloudLayoutCanvas withPattern = DistinctCanvas();
-    EXPECT_FALSE( SetCloudLayoutCanvasMaskFromImage( withPattern, small, 16u, 16u, 0u ) )
+    EXPECT_FALSE( SetCloudLayoutCanvasMaskFromImage( withPattern, smallOne, 16u, 16u, 0u ) )
          << "a 16-square mask was accepted onto a 32-square pattern";
 
     // AND A NON-SQUARE PICTURE IS REFUSED IN BOTH SLOTS, for the reason the file's own note gives: the

@@ -296,6 +296,21 @@ namespace Common::Content
             return ec ? 0 : static_cast<std::int64_t>( stamp.time_since_epoch().count() );
         }
 
+        // The stamp a cached row is trusted by. (size, stamp) is only an identity once the stamp has SETTLED: two
+        // same-size writes inside one file-system tick (~15.6 ms on NTFS) leave both unchanged, and the cache is
+        // persisted, so a row captured inside that window would be served stale for as long as the file sat
+        // untouched. A racy row is written with 0, which no file's stamp equals: it is re-read on the next
+        // gather and settles in a later cache (Utils::IsRacyWriteTime, git's racy-index rule).
+        std::int64_t SettledModifiedTime( const std::filesystem::path&    file,
+                                          std::filesystem::file_time_type serializedAt )
+        {
+            std::error_code ec;
+            const auto      stamp = std::filesystem::last_write_time( file, ec );
+            if ( ec || Utils::IsRacyWriteTime( stamp, serializedAt ) )
+                return 0;
+            return static_cast<std::int64_t>( stamp.time_since_epoch().count() );
+        }
+
         // 2: mesh rows read since carry their header box; a version-1 cache is rebuilt once.
         // 3: a row's identity and dependency edges are the header's GUIDs folded by HandleForGuid, and the
         //    header is their only writer. A version-2 cache holds identities and edges a running editor
@@ -409,11 +424,13 @@ namespace Common::Content
 
     std::string SerializeRegistryCache( const Utils::AssetRegistry& registry )
     {
+        const auto  serializedAt = std::filesystem::file_time_type::clock::now();
         std::string text( kCacheMagic );
         text += '\n';
         for ( const Utils::AssetRegistryEntry& row : registry.Entries() )
         {
-            text += std::to_string( ModifiedTime( AssetHandle::PathForStableKey( row.Key ) ) );
+            text +=
+                 std::to_string( SettledModifiedTime( AssetHandle::PathForStableKey( row.Key ), serializedAt ) );
             text += ' ';
             text += row.Key;
             text += '\n';

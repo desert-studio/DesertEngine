@@ -2,13 +2,16 @@
 #include "ModelingToolTarget.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <filesystem>
 #include <map>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace Desert::Editor
@@ -42,30 +45,49 @@ namespace Desert::Editor
         if ( assetFile.empty() )
             return Common::MakeError<ToolTargetMesh>(
                  "the entity has no editable mesh and no static mesh asset (a primitive or an unset mesh)" );
+        // Sampled before the stat, so a write that lands after it is racy by construction (IsRacyWriteTime).
+        const auto      readBegan = std::filesystem::file_time_type::clock::now();
         std::error_code ec;
         const auto      stamp = std::filesystem::last_write_time( assetFile, ec );
         if ( ec )
             return Common::MakeFormattedError<ToolTargetMesh>( "static mesh {}: {}", assetFile.string(),
                                                                ec.message() );
 
-        // Keyed by file and write time: the same file lifts to the same object until it is rewritten.
-        static std::map<std::string, std::pair<std::filesystem::file_time_type, MeshPtr>> lifted;
-        auto& slot = lifted[assetFile.string()];
-        if ( !slot.second || slot.first != stamp )
+        // The same file lifts to the same object until its CONTENT changes: the element selection tracks by
+        // identity. The write time is only a shortcut past the read, and only once it has settled — two
+        // same-size writes inside one file-system tick (~15.6 ms on NTFS) leave it unchanged, and keying on
+        // it alone served the old mesh after a rewrite (the class ThumbnailFreshness met on Windows CI).
+        struct Lift
         {
-            // THE LOADER'S READ, NOT THE FILE'S BYTES: a .stmesh is a MeshSourceAsset (AF4d) and what the entity
-            // draws is its render form from the DDC (StaticMeshAsset::LoadFromFile). Lifting that same form keeps
-            // the target in the space the viewport picks in (import scale / up axis applied), and a file that is
-            // not a source asset is refused here by name exactly as the loader refuses it.
-            const auto raw = Assets::LoadMeshPlatformData( assetFile );
-            if ( !raw.IsSuccess() )
-                return Common::MakeError<ToolTargetMesh>( raw.GetError() );
+            std::filesystem::file_time_type Stamp{};
+            bool                            Racy        = true;
+            std::size_t                     ContentHash = 0;
+            MeshPtr                         Mesh;
+        };
+        static std::map<std::string, Lift> lifted;
+        Lift&                              slot = lifted[assetFile.string()];
+        if ( slot.Mesh && !slot.Racy && slot.Stamp == stamp )
+            return Common::MakeSuccess( ToolTargetMesh{ slot.Mesh, nullptr } );
+
+        // THE LOADER'S READ, NOT THE FILE'S BYTES: a .stmesh is a MeshSourceAsset (AF4d) and what the entity
+        // draws is its render form from the DDC (StaticMeshAsset::LoadFromFile). Lifting that same form keeps
+        // the target in the space the viewport picks in (import scale / up axis applied), and a file that is
+        // not a source asset is refused here by name exactly as the loader refuses it.
+        const auto raw = Assets::LoadMeshPlatformData( assetFile );
+        if ( !raw.IsSuccess() )
+            return Common::MakeError<ToolTargetMesh>( raw.GetError() );
+        const std::size_t contentHash = std::hash<std::string_view>{}( raw.GetValue() );
+        if ( !slot.Mesh || slot.ContentHash != contentHash )
+        {
             auto mesh = LiftStaticMeshBytes( raw.GetValue(), assetFile.string() );
             if ( !mesh.IsSuccess() )
                 return Common::MakeError<ToolTargetMesh>( mesh.GetError() );
-            slot = { stamp, mesh.ExtractValue() };
+            slot.Mesh        = mesh.ExtractValue();
+            slot.ContentHash = contentHash;
         }
-        return Common::MakeSuccess( ToolTargetMesh{ slot.second, nullptr } );
+        slot.Stamp = stamp;
+        slot.Racy  = Common::Utils::IsRacyWriteTime( stamp, readBegan );
+        return Common::MakeSuccess( ToolTargetMesh{ slot.Mesh, nullptr } );
     }
 
     MeshRestore PlanMeshRestore( const MeshPtr& current, const MeshPtr& state )

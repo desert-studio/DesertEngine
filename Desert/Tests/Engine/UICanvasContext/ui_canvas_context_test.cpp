@@ -935,7 +935,7 @@ namespace
     void ArmButton( Nested& n )
     {
         auto& b          = n.Registry.get<ECS::UIButtonComponent>( n.Button ).Data;
-        b.Action         = ECS::UIButtonAction::SendMessage;
+        b.Action         = ECS::UIButtonAction::SendEvent;
         b.OnClickMessage = kFired;
     }
 

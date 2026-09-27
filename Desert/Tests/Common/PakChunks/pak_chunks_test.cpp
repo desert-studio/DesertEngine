@@ -38,6 +38,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -997,6 +998,136 @@ TEST( PakChunks, TheFolderSummaryIsTheDivisionTheWrittenArchivesHave )
     for ( const auto& [folder, tally] : fromSummary )
         inRegion += tally[1];
     EXPECT_GT( inRegion, 0u );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// CONTENT IS CHECKED OUT BYTE FOR BYTE (class (i), CIW6)
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+//
+// A Windows runner checks out with core.autocrlf, which rewrites every LF of a file git judges to be text.
+// The registry records each file's SIZE, the packager each file's CRC, and the content hash keys the DDC:
+// all three move by one byte per line on Windows unless .gitattributes marks the file `-text`. That has
+// been found one extension at a time (shaders 09-22, LegacyMaterialIds 09-24, .tex with B17); these two
+// tests ask the relation instead: every content kind, and every file the packager would pack that git would
+// translate, is covered by a `-text` rule.
+namespace
+{
+    struct VerbatimRules
+    {
+        std::vector<std::string> Suffixes; // `*.ext -text`: the file name ends with this
+        std::vector<std::string> Prefixes; // `dir/** -text`: the repository-relative path starts with this
+        std::set<std::string>    Paths;    // `path -text`: exactly this repository-relative path
+    };
+
+    VerbatimRules ReadVerbatimRules( const fs::path& repo )
+    {
+        VerbatimRules rules;
+        std::ifstream in( repo / ".gitattributes" );
+        std::string   line;
+        while ( std::getline( in, line ) )
+        {
+            std::istringstream words( line );
+            std::string        pattern;
+            if ( !( words >> pattern ) || pattern[0] == '#' )
+                continue;
+            bool        verbatim = false;
+            std::string attribute;
+            while ( words >> attribute )
+                verbatim = verbatim || attribute == "-text" || attribute == "binary";
+            if ( !verbatim )
+                continue;
+            if ( pattern.rfind( "*", 0 ) == 0 && pattern.find( '/' ) == std::string::npos )
+                rules.Suffixes.push_back( pattern.substr( 1 ) );
+            else if ( pattern.size() > 3 && pattern.compare( pattern.size() - 3, 3, "/**" ) == 0 )
+                rules.Prefixes.push_back( pattern.substr( 0, pattern.size() - 2 ) );
+            else
+                rules.Paths.insert( pattern );
+        }
+        return rules;
+    }
+
+    bool IsVerbatim( const VerbatimRules& rules, const std::string& relative )
+    {
+        const std::string name = fs::path( relative ).filename().string();
+        for ( const std::string& suffix : rules.Suffixes )
+        {
+            if ( name.size() >= suffix.size() &&
+                 name.compare( name.size() - suffix.size(), suffix.size(), suffix ) == 0 )
+                return true;
+        }
+        for ( const std::string& prefix : rules.Prefixes )
+        {
+            if ( relative.rfind( prefix, 0 ) == 0 )
+                return true;
+        }
+        return rules.Paths.count( relative ) != 0;
+    }
+
+    // git's own test for "text": no NUL byte in the first 8000.
+    bool GitWouldCallItText( const fs::path& file )
+    {
+        std::ifstream in( file, std::ios::binary );
+        std::string   head( 8000, '\0' );
+        in.read( head.data(), static_cast<std::streamsize>( head.size() ) );
+        head.resize( static_cast<std::size_t>( in.gcount() ) );
+        return head.find( '\0' ) == std::string::npos;
+    }
+} // namespace
+
+TEST( PakChunks, EveryContentKindIsCheckedOutVerbatim )
+{
+    const fs::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() );
+    const VerbatimRules rules = ReadVerbatimRules( repo );
+    ASSERT_FALSE( rules.Suffixes.empty() ) << "no `-text` rule read from " << ( repo / ".gitattributes" ).string();
+
+    std::vector<std::string> uncovered;
+    for ( const Common::Content::ContentKindSpec& kind : Common::Content::ContentKinds() )
+    {
+        if ( kind.Extension.empty() )
+            continue;
+        if ( !IsVerbatim( rules, "Any/Name" + std::string( kind.Extension ) ) )
+            uncovered.push_back( std::string( kind.Name ) + " (" + std::string( kind.Extension ) + ")" );
+    }
+    std::string listed;
+    for ( const std::string& u : uncovered )
+        listed += "\n  " + u;
+    EXPECT_TRUE( uncovered.empty() ) << "content kinds with no `*<ext> -text` line in .gitattributes: a Windows "
+                                        "checkout resizes them and the registry, the pak CRC and the DDC key "
+                                        "disagree with every other platform:"
+                                     << listed;
+}
+
+TEST( PakChunks, EveryPackedTextFileIsCheckedOutVerbatim )
+{
+    const fs::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() );
+    const SandboxProject project( repo );
+    ASSERT_TRUE( project.Opened() );
+    const VerbatimRules rules = ReadVerbatimRules( repo );
+
+    const std::vector<fs::path> tree = WalkContentTree();
+    ASSERT_GT( tree.size(), 100u ) << "the content walk found almost nothing; the census would be vacuous";
+
+    std::set<std::string> uncovered;
+    std::size_t           text = 0;
+    for ( const fs::path& file : tree )
+    {
+        const std::string relative = fs::relative( file, repo ).generic_string();
+        if ( relative.rfind( "..", 0 ) == 0 || !GitWouldCallItText( file ) )
+            continue;
+        ++text;
+        if ( !IsVerbatim( rules, relative ) )
+            uncovered.insert( relative );
+    }
+    EXPECT_GT( text, 0u );
+    std::string listed;
+    for ( const std::string& u : uncovered )
+        listed += "\n  " + u;
+    EXPECT_TRUE( uncovered.empty() ) << uncovered.size()
+                                     << " packed file(s) git would line-translate on a Windows checkout; add a "
+                                        "`-text` rule to .gitattributes:"
+                                     << listed;
 }
 
 int main( int argc, char** argv )

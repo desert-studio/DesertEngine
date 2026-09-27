@@ -90,10 +90,13 @@ TEST( TextAssetHeader, StopsAtTheHeaderEvenWithBracesInsideStrings )
     std::istringstream in( R"({ "Header": { "Kind": "Mat}{erial", "Guid": "x\"}" }, "Body": garbage)" );
     const auto         object = ReadTextHeaderObject( in );
     ASSERT_TRUE( object ) << object.GetError();
-    EXPECT_EQ( object.GetValue(), R"({ "Kind": "Mat}{erial", "Guid": "x\"}" })" );
+    // MSVC mis-lexes a raw string holding \" inside a macro argument; name the expectations first.
+    const std::string expectedHeader = R"({ "Kind": "Mat}{erial", "Guid": "x\"}" })";
+    const std::string expectedRest   = R"(, "Body": garbage)";
+    EXPECT_EQ( object.GetValue(), expectedHeader );
     std::string rest;
     std::getline( in, rest );
-    EXPECT_EQ( rest, R"(, "Body": garbage)" ) << "the reader went past the header's closing brace";
+    EXPECT_EQ( rest, expectedRest ) << "the reader went past the header's closing brace";
 }
 
 TEST( TextAssetHeader, GuidTextRoundTripsAndRefusesMalformedText )

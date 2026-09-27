@@ -198,7 +198,7 @@ namespace Desert::Editor
                                       bool processChildren );
 
         void ChangeDirectory( DirectoryInformation* directory );
-        void RemoveDirectory( DirectoryInformation* directory, bool removeFromParent = true );
+        void RemoveDirectoryNode( DirectoryInformation* directory, bool removeFromParent = true );
         // void OnNewProject() override;
         void Refresh();
         // Re-scan ONLY the current directory in place (keeps navigation; used by the watcher + QueueRefresh).

@@ -38,7 +38,7 @@ namespace Desert::Editor
 
     // Refused, by name, when the component has neither an EditableMesh nor a readable .stmesh behind its
     // MeshHandle (a primitive, an unset handle, a skinned or non-welding file). A lift is cached per file and
-    // write time, so repeated calls return the SAME mesh object: the element selection tracks by identity.
+    // content, so repeated calls return the SAME mesh object: the element selection tracks by identity.
     [[nodiscard]] Common::ResultStr<ToolTargetMesh> GetToolTargetMesh( const ECS::StaticMeshComponent& component );
 
     // The rule itself, with the component's two inputs already resolved: its EditableMesh (may be null) and the
