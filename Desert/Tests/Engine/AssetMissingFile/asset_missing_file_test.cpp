@@ -29,6 +29,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Assets/Serialization/EnvironmentStaging.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
@@ -324,6 +325,54 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
     ContentRegistry::ResetForTest();
     Common::AssetPathIndex::Clear();
     fs::remove_all( project );
+}
+
+// THE WORKER'S HALF OF THE ENVIRONMENT IS STATED, NOT SILENT (AL1-3). A skybox file that is there but is no
+// cooked panorama still loads (the asset is the file's identity), and what the loader's worker staged must
+// carry the sentence naming the file, because `EnvironmentManager::Create` logs exactly that and nothing else.
+TEST( AssetMissingFile, SkyboxStagingNamesTheFileThatIsNoPanorama )
+{
+    const fs::path path = PathWith( "junk.detex", "not a cooked texture container" );
+
+    Desert::Assets::SkyboxAsset skybox( Desert::Assets::AssetPriority::Medium, path );
+    ASSERT_TRUE( skybox.Load().IsSuccess() );
+    const auto staged = skybox.Staged();
+    ASSERT_NE( staged, nullptr ) << "Load ran on the worker and staged nothing";
+    EXPECT_FALSE( staged->Error.empty() );
+    EXPECT_FALSE( staged->Cached.has_value() );
+    EXPECT_NE( staged->Error.find( path.filename().string() ), std::string::npos ) << staged->Error;
+
+    // Unload drops what was staged, so a re-request re-reads the cache instead of binding a stale plan.
+    ASSERT_TRUE( skybox.Unload().IsSuccess() );
+    EXPECT_EQ( skybox.Staged(), nullptr );
+
+    fs::remove_all( path.parent_path() );
+}
+
+// THE CACHE PLAN, WITHOUT A DEVICE: three cubes of one panorama address three files, the same inputs address
+// the same file on every call, and a cube that is not there yet is a miss that names its path.
+TEST( AssetMissingFile, EnvironmentCacheMissNamesTheCubeItLookedFor )
+{
+    using namespace Desert::Assets;
+    const uint64_t source = 0x1234abcd5678ef00ull;
+    const uint64_t radiance =
+         EnvironmentBakeSignature( BakedEnvironmentCube::Radiance, kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
+    const uint64_t irradiance =
+         EnvironmentBakeSignature( BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
+    const uint64_t prefilter = EnvironmentBakeSignature( BakedEnvironmentCube::Prefiltered,
+                                                         kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
+    EXPECT_NE( radiance, irradiance );
+    EXPECT_NE( radiance, prefilter );
+    EXPECT_NE( irradiance, prefilter );
+    EXPECT_NE( EnvironmentBakePath( source, radiance ), EnvironmentBakePath( source, prefilter ) );
+    EXPECT_EQ( EnvironmentBakePath( source, radiance ), EnvironmentBakePath( source, radiance ) );
+    EXPECT_EQ( EnvironmentBakePath( source, radiance ).extension(), ".tex" );
+
+    const fs::path missing = MissingPath( "never-baked.tex" );
+    const auto read = ReadBakedEnvironmentCube( missing, "EnvRadiance", kSkyEnvCubeFaceSize, kSkyEnvRadianceMips,
+                                                source, radiance );
+    ASSERT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( missing.string() ), std::string::npos ) << read.GetError();
 }
 
 int main( int argc, char** argv )

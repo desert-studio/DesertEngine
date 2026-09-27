@@ -245,17 +245,19 @@ TEST( ProceduralEnvironmentCube, TheSkyboxAssetDecidesAndEveryEmptyEnvironmentIs
 
     EXPECT_EQ( body.find( "GetFileExtension" ), std::string::npos )
          << "EnvironmentManager::Create decides by the skybox's file NAME again. Skyboxes are `.detex` "
-            "containers; the container's own kind and key (FindCookedPanorama) is the one gate.";
+            "containers; the container's own kind and key (Assets::FindCookedPanorama) is the one gate.";
     EXPECT_EQ( body.find( "\".hdr\"" ), std::string::npos )
          << "EnvironmentManager::Create compares against \".hdr\" -- no committed skybox has that extension.";
 
-    const std::size_t gate = body.find( "FindCookedPanorama(" );
-    ASSERT_NE( gate, std::string::npos ) << "EnvironmentManager::Create no longer asks FindCookedPanorama";
+    // AL1-3: the gate moved to the loader's worker (`Assets::StageEnvironment` asks `FindCookedPanorama`), so what
+    // Create reads first is the staged result, and nothing may branch before it.
+    const std::size_t gate = body.find( "->Staged()" );
+    ASSERT_NE( gate, std::string::npos ) << "EnvironmentManager::Create no longer reads the staged environment";
     const std::string beforeGate = body.substr( 0, gate );
     EXPECT_EQ( FindIdentifier( beforeGate, "if", 0 ), std::string::npos )
-         << "something branches before FindCookedPanorama is asked -- it must be the first and only gate";
+         << "something branches before the staged environment is read -- it must be the first and only gate";
     EXPECT_EQ( FindIdentifier( beforeGate, "return", 0 ), std::string::npos )
-         << "EnvironmentManager::Create returns before FindCookedPanorama is asked";
+         << "EnvironmentManager::Create returns before the staged environment is read";
 
     // Every empty environment is the statement right after a LOG_ERROR: `}` or anything else before a
     // `return {};` is the silent fall-through this test exists for.
@@ -413,6 +415,53 @@ TEST( ProceduralEnvironmentCube, AFreedCubeIsNotResolvableAndItsNeighbourIsUntou
     EXPECT_EQ( service.Resolve( radiance ), nullptr );
     EXPECT_EQ( service.Resolve( prefiltered ), reinterpret_cast<Desert::Graphic::Image*>( 0x2000 ) )
          << "freeing the bake's radiance cube took the prefiltered cube with it";
+}
+
+// ------------------------------------------------------------------------------------------------
+// 4. A cache miss is convolved on the GPU AFTER `Create` returns (AL1-3c), so the skybox must not be
+//    handed out to be sampled before that batch's fence. Three links carry it, and dropping any one
+//    samples unwritten cubes: `Create` hands the submitted batch out instead of dropping (and so
+//    waiting on) it, MaterialSkybox keeps it, SkyboxService publishes the material only from the
+//    loader's await on it.
+// ------------------------------------------------------------------------------------------------
+TEST( ProceduralEnvironmentCube, AMissIsHandedOutOnlyAfterItsConvolutionFence )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string env    = StripComments( ReadAll( root + kSceneEnvironment ) );
+    const std::string create = BodyOf( env, "Environment EnvironmentManager::Create(" );
+    ASSERT_FALSE( create.empty() );
+    const std::size_t submit  = create.find( "batch->Submit()" );
+    const std::size_t handOut = create.find( "convolving = std::move( batch );" );
+    ASSERT_NE( submit, std::string::npos ) << "the HDR miss no longer submits its convolution batch";
+    EXPECT_NE( handOut, std::string::npos )
+         << "EnvironmentManager::Create no longer hands its running batch to the caller: the batch is "
+            "dropped on return, which either waits on the main thread (the 211 ms AL1-3c removed) or lets "
+            "nobody know when the cubes are written.";
+    EXPECT_GT( handOut, submit ) << "the batch is handed out before it is submitted";
+    EXPECT_EQ( create.find( "->Wait()" ), std::string::npos ) << "the HDR miss waits for its GPU work again";
+
+    const std::string material = StripComments(
+         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Materials/Skybox/MaterialSkybox.cpp" ) );
+    EXPECT_NE( material.find( "EnvironmentManager::Create( baseAsset, m_Convolving )" ), std::string::npos )
+         << "MaterialSkybox does not keep the convolution batch, so IsConvolving() can never say yes";
+
+    const std::string service = StripComments(
+         ReadAll( root + "Desert/Desert/Source/Engine/Runtime/Services/Skybox/SkyboxService.cpp" ) );
+    const std::string request = BodyOf( service, "void SkyboxService::Request(" );
+    ASSERT_FALSE( request.empty() );
+    const std::size_t convolving = request.find( "if ( !material->IsConvolving() )" );
+    const std::size_t await      = request.find( "AsyncAssetLoader::Get().Await(" );
+    const std::size_t published  = request.find( "m_Skyboxes[handle] = material;" );
+    ASSERT_NE( convolving, std::string::npos )
+         << "SkyboxService no longer asks whether the GPU is still convolving";
+    ASSERT_NE( await, std::string::npos )
+         << "a convolving skybox is not held outstanding in the loader (ContentGate)";
+    ASSERT_NE( published, std::string::npos );
+    EXPECT_GT( published, await ) << "the convolving material is published outside the await's completion";
+    EXPECT_LT( convolving, request.find( "m_Skyboxes[handle]" ) )
+         << "a material is published before SkyboxService asked whether the GPU is still convolving it";
 }
 
 int main( int argc, char** argv )

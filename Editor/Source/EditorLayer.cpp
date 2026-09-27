@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -1441,6 +1442,8 @@ namespace Desert::Editor
         // volume, and doing that before the frame's passes resolve their inputs is what lets the volume
         // be used by the same frame it arrived in rather than by the next one.
         Assets::AsyncAssetLoader::Get().Pump();
+        // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
+        Graphic::EnvironmentCacheWriter::Get().Pump();
         UpdateContentSettling();
         DrainBackgroundCook();
 
@@ -1633,12 +1636,14 @@ namespace Desert::Editor
         // is open, hidden or closed no longer changes whether previews progress, and a request made by one
         // panel is finished for all of them.
         //
-        // NOT WHILE THE SPLASH IS UP. A preview is background work nobody can see until the window is
-        // shown, and pumped during the settle it shares the settle's frames and asset loader — the one
-        // thing the splash is waiting on. Requests made before the hand-over stay queued and are served
-        // after it, at the service's own per-frame pace.
-        if ( Splash::BackgroundWorkAllowed( CurrentRevealState() ) )
-            ThumbnailService::Get().Tick();
+        // Two halves, two gates (Editor/Splash/RevealGate.hpp). A PNG already in the disk cache is decoded
+        // on a worker even while the splash is up, so the first frame after the hand-over only uploads it.
+        // A CAPTURE is not: it shares the settle's frames and asset loader — the one thing the splash is
+        // waiting on — so requests made before the hand-over stay queued and are served after it.
+        if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
+            ThumbnailService::TickDiskAndDecode();
+        if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
+            ThumbnailService::Get().TickCapture();
 
         UpdateContextualPanels();
 
@@ -9351,6 +9356,8 @@ namespace Desert::Editor
         // Before the panels rather than after: a panel's own teardown must never be able to queue one last
         // preview into a service that has already let its renderer go.
         ThumbnailService::Get().Shutdown();
+        // The same reason for the environment cache: its readbacks own staging buffers and command buffers.
+        Graphic::EnvironmentCacheWriter::Get().Drain();
 
         // The SECOND half of the same problem, and the half the sentence above still does not cover: the
         // component widgets keep their thumbnail caches in function-statics (StaticMeshComponent.cpp,

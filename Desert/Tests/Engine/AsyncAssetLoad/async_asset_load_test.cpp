@@ -604,6 +604,77 @@ TEST( TextureWaiters, ATextureLandingInvalidatesEveryMaterialThatWaitedOnItExact
     EXPECT_EQ( generation, 3u ) << "the other texture's waiter was lost when the first one settled";
 }
 
+// ── AWAIT: A GPU TAIL IS OUTSTANDING UNTIL ITS POLL SAYS YES (AL1-3c) ─────────────────────────────────
+//
+// A skybox whose cache missed is usable only at its convolution batch's fence. ContentGate reads
+// `Outstanding()`, so an await that is not counted would let a load screen open on an unconvolved sky.
+
+TEST_F( AsyncAssetLoad, AnAwaitIsOutstandingUntilItsPollSaysDoneAndThenCompletesOnce )
+{
+    bool gpuDone = false;
+    int  polls   = 0;
+    int  done    = 0;
+    int  cancels = 0;
+    auto awaited = AsyncAssetLoader::Get().Await(
+         Desert::Assets::AssetHandle{ 42 },
+         [&]
+         {
+             ++polls;
+             return gpuDone;
+         },
+         [&done] { ++done; }, [&cancels] { ++cancels; } );
+    ASSERT_TRUE( awaited.IsValid() );
+    EXPECT_EQ( polls, 0 ) << "the poll ran inside Await(); every delegate belongs to Pump().";
+
+    AsyncAssetLoader::Get().Pump();
+    AsyncAssetLoader::Get().Pump();
+    EXPECT_EQ( polls, 2 );
+    EXPECT_EQ( done, 0 );
+    EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 1u ) << "a GPU tail still running is not counted";
+    EXPECT_TRUE( AsyncAssetLoader::Get().IsRequested( Desert::Assets::AssetHandle{ 42 } ) );
+
+    gpuDone = true;
+    AsyncAssetLoader::Get().Pump();
+    EXPECT_EQ( done, 1 );
+    EXPECT_EQ( cancels, 0 );
+    EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
+    EXPECT_FALSE( awaited.IsValid() );
+
+    AsyncAssetLoader::Get().Pump();
+    EXPECT_EQ( done, 1 ) << "an await completed twice";
+    EXPECT_EQ( polls, 3 ) << "a settled await was polled again";
+}
+
+TEST_F( AsyncAssetLoad, ACancelledAwaitFiresItsCancelAndNeverPollsAgain )
+{
+    int  polls   = 0;
+    int  done    = 0;
+    int  cancels = 0;
+    auto awaited = AsyncAssetLoader::Get().Await(
+         Desert::Assets::AssetHandle{ 43 },
+         [&polls]
+         {
+             ++polls;
+             return false;
+         },
+         [&done] { ++done; }, [&cancels] { ++cancels; } );
+    awaited.Cancel();
+    AsyncAssetLoader::Get().Pump();
+    AsyncAssetLoader::Get().Pump();
+    EXPECT_EQ( cancels, 1 );
+    EXPECT_EQ( done, 0 );
+    EXPECT_EQ( polls, 0 );
+    EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
+}
+
+TEST_F( AsyncAssetLoad, AnAwaitWithANullDelegateIsRefused )
+{
+    auto awaited =
+         AsyncAssetLoader::Get().Await( Desert::Assets::AssetHandle{ 44 }, [] { return true; }, [] {}, nullptr );
+    EXPECT_FALSE( awaited.IsValid() );
+    EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

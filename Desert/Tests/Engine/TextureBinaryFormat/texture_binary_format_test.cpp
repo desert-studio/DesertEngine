@@ -202,7 +202,7 @@ namespace
     }
 
     /// Every level of every face, tightly packed in TABLE ORDER — level 0's six faces, then level 1's.
-    /// This is the shape a cube arrives in from the device (`VulkanImageCube::RT_ReadAllLevels`), so the
+    /// This is the shape a cube arrives in from the device (`VulkanImageCube::RT_BeginReadAllLevels`), so the
     /// tests below drive `BuildLevelTable` with the same layout the engine hands it.
     std::vector<unsigned char> TightCubeChain( const uint32_t faceSize, const uint32_t levelCount )
     {

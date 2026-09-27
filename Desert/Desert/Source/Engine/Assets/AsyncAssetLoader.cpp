@@ -37,6 +37,9 @@ namespace Desert::Assets
             bool        Settled         = false;
             LoadOutcome Outcome         = LoadOutcome::Failed;
             std::string Error;
+
+            /// Set only by `Await`: the non-blocking question polled each `Pump()` until it says yes.
+            std::function<bool()> Poll;
         };
 
         mutable std::mutex                                    Lock;
@@ -287,6 +290,27 @@ namespace Desert::Assets
     {
         State& state = *m_State;
 
+        // GPU WAITS FIRST, OUTSIDE THE LOCK: a poll asks the device, and a record that settles here joins
+        // `Done` below in this same tick, exactly like a read that landed.
+        std::vector<std::shared_ptr<State::Record>> polled;
+        {
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            for ( const auto& [id, record] : state.Live )
+                if ( record->Poll && !record->Settled && !record->CancelRequested )
+                    polled.push_back( record );
+        }
+        for ( const auto& record : polled )
+        {
+            if ( !record->Poll() )
+                continue;
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            if ( !state.Live.contains( record->Id ) || record->Settled )
+                continue;
+            record->Settled = true;
+            record->Outcome = LoadOutcome::Loaded;
+            state.Done.push_back( record->Id );
+        }
+
         std::vector<std::shared_ptr<State::Record>> cancelled;
         std::vector<std::shared_ptr<State::Record>> completed;
         {
@@ -419,6 +443,32 @@ namespace Desert::Assets
         for ( const auto& record : completed )
             record->Ready( record->Payload, record->Outcome, record->Error );
         return !completed.empty();
+    }
+
+    LoadRequest AsyncAssetLoader::Await( const AssetHandle& handle, std::function<bool()> isDone,
+                                         std::function<void()> onDone, OnCancel onCancel )
+    {
+        if ( !isDone || !onDone || !onCancel )
+        {
+            LOG_ERROR( "[AsyncLoad] an await for handle {} was refused: {} delegate is null, and every one "
+                       "of the three is required.",
+                       static_cast<uint64_t>( handle ),
+                       !isDone ? "the poll" : ( !onDone ? "the done" : "the cancel" ) );
+            return {};
+        }
+
+        State& state   = *m_State;
+        auto   record  = std::make_shared<State::Record>();
+        record->Handle = handle;
+        record->Poll   = std::move( isDone );
+        record->Ready  = [done = std::move( onDone )]( const Asset<AssetBase>&, LoadOutcome, const std::string& )
+        { done(); };
+        record->Cancel = std::move( onCancel );
+
+        const std::lock_guard<std::mutex> guard( state.Lock );
+        record->Id             = state.NextId++;
+        state.Live[record->Id] = record;
+        return LoadRequest( record->Id, handle );
     }
 
     size_t AsyncAssetLoader::Outstanding() const

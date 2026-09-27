@@ -19,6 +19,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetPreloader.hpp>
@@ -333,6 +334,8 @@ namespace Desert::Player
         m_BlitExecutor.reset();
         m_BlitPipeline.reset();
         m_PresentReady = false;
+        // Its readbacks own staging buffers and command buffers: finished while the device is alive.
+        Graphic::EnvironmentCacheWriter::Get().Drain();
         return BOOLSUCCESS;
     }
 
@@ -602,6 +605,8 @@ namespace Desert::Player
         // editor's copy is at the head of its own OnUpdate for the same reason and is asserted beside
         // it by `AsyncAssetPump`.
         Assets::AsyncAssetLoader::Get().Pump();
+        // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
+        Graphic::EnvironmentCacheWriter::Get().Pump();
 
         // THE LOADING STATE, TICKED HERE AND NOWHERE ELSE. The rule it applies -- nothing outstanding AND
         // the frame just rendered asked for nothing new, and never before the second frame -- is one

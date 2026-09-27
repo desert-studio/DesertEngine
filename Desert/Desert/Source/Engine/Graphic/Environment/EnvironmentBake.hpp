@@ -46,9 +46,16 @@
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/Serialization/EnvironmentStaging.hpp>
 #include <Engine/Graphic/Image.hpp>
 
+#include <array>
+#include <chrono>
+#include <future>
+#include <list>
+#include <vector>
 #include <cstdint>
+#include <optional>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -56,73 +63,58 @@
 
 namespace Desert::Graphic
 {
-    /// Which of the three cubes a cached file holds. It is part of the key, so the three cannot collide,
-    /// and part of the header check, so a file that somehow arrived under the wrong name is refused
-    /// rather than bound.
-    enum class BakedEnvironmentCube : uint32_t
-    {
-        Radiance    = 0,
-        Irradiance  = 1,
-        Prefiltered = 2,
-    };
+    // The CPU half of the cache (keys, paths, the read, the staging) is `Assets/Serialization/EnvironmentStaging`:
+    // it runs on an `AsyncAssetLoader` worker, and the asset layer does not link the device (AL1-3).
 
-    /// Bumped when anything about the BAKE changes that the numbers below cannot see — a shader edit, a
-    /// different convolution, a different STORAGE FORMAT. It is part of `EncoderHash`, so bumping it
-    /// re-bakes every environment without anybody deleting a directory.
-    ///
-    ///   1  RGBA32F levels, six faces, written by T3.1's container.
-    ///   2  the levels are encoded to BC6H on the way out (`kStoredCubeFormat`). A v1 file is still
-    ///      LOADED — the load accepts either format and an uncompressed cube is a correct cube — but it
-    ///      is no longer FOUND, because the signature it was filed under has moved. That is the right
-    ///      shape here and not a waste: the v1 file costs sixteen times its successor in resident
-    ///      memory, and going on using it is the defect this version exists to prevent.
-    ///   3  the radiance cube carries its whole mip chain and both convolutions read it filtered
-    ///      (mipmap-filtered importance sampling in PrefilterEnvMap AND DiffuseIrradiance). A v2 file's
-    ///      irradiance and prefilter were integrated from level 0 alone and show the sun as splats.
-    ///   4  the cubes no longer carry the authored `SkyLook`: they are the panorama as it is, at unit
-    ///      gain, and rotation/intensity/tint are applied where the cubes are SAMPLED. The look left the
-    ///      signature with the same change, so one `.hdr` is one set of three files whatever its sliders
-    ///      say; the bump makes that a stated miss rather than a hash that merely happened to move.
-    inline constexpr uint32_t kEnvironmentBakeVersion = 4;
+    [[nodiscard]] Common::ResultStr<std::shared_ptr<ImageCube>>
+    CreateBakedEnvironmentCube( Core::Formats::ImageCubeSpecification spec, const std::filesystem::path& path );
 
-    /// Everything except the source file that the baked pixels depend on. See the header note.
-    [[nodiscard]] uint64_t EnvironmentBakeSignature( BakedEnvironmentCube which, uint32_t faceSize,
-                                                     uint32_t mips );
-
-    /// Where this (source, cube) lands. Deterministic and content-addressed: the same three
-    /// inputs name the same file on every machine, which is what lets a cooked environment be committed.
-    [[nodiscard]] std::filesystem::path EnvironmentBakePath( uint64_t sourceSignature, uint64_t bakeSignature );
-
-    /// An `.hdr` skybox as the RUNTIME knows it: the cooked panorama `TextureImporter` wrote for it, and
-    /// the source signature that cook recorded.
-    struct CookedPanorama
+    /// What one cached cube is: where it goes and the provenance it records. @p SourceKey is the `.hdr`'s
+    /// stable project key, recorded exactly as a cooked texture records its PNG.
+    struct EnvironmentCacheEntry
     {
         std::filesystem::path Path;
+        std::string           SourceKey;
         uint64_t              SourceSignature = 0;
+        uint64_t              BakeSignature   = 0;
+        uint32_t              FaceSize        = 0;
+        uint32_t              Mips            = 0;
     };
 
-    /// THE PANORAMA IS A COOKED TEXTURE, AND THE RUNTIME DOES NOT DECODE ITS SOURCE. This used to be two
-    /// things: `EnvironmentSourceSignature` hashed the `.hdr`'s bytes, and `EnvironmentManager::Create`
-    /// decoded the same file through stb into a `Texture2D` — BEFORE asking the cache, so a hit paid the
-    /// decode for nothing and a miss kept an image decoder in the draw layer. Both answers are in the
-    /// cooked panorama's header, which is one prefix read.
-    ///
-    /// A refusal is a sentence naming the path it looked at: "no cooked panorama" means the editor's
-    /// texture pass has not run over this source, and that is the remedy the log has to be able to say.
-    [[nodiscard]] Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr );
+    /// The CPU half of the write: census, BC6H encode, container, atomic file write. Touches no device, so
+    /// it runs on a worker. @p levels is the cube's chain in its own format, tightly packed in table order.
+    [[nodiscard]] Common::BoolResultStr EncodeBakedEnvironmentCube( const EnvironmentCacheEntry& entry,
+                                                                    const std::vector<uint8_t>&  levels );
 
-    /// A baked cube off the disk, or a REFUSAL NAMING WHY. Every reason is a sentence: no file, a file
-    /// from another source, a file from another bake version, a cube of the wrong shape. The caller's answer to
-    /// all of them is the same — bake — but the log has to be able to say which one happened, because
-    /// "the cache never hits" and "the cache is never written" look identical from the frame rate.
-    [[nodiscard]] Common::ResultStr<std::shared_ptr<ImageCube>>
-    LoadBakedEnvironmentCube( const std::filesystem::path& path, std::string_view tag, uint32_t faceSize,
-                              uint32_t mips, uint64_t sourceSignature, uint64_t bakeSignature );
+    /// THE WRITE, OFF THE MAIN THREAD (AL1-3). Measured on SKY_HdrOrientation: 14 668 ms of the cold open
+    /// were the blocking readback plus the BC6H encode plus the file write, all on the main thread, for a
+    /// file that only the NEXT run reads. Now the readback is submitted without a wait, the fence is polled
+    /// once a tick by `Pump`, and the encode and write run on a JobSystem worker; the environment is in
+    /// use from the GPU cubes the whole time. Main-thread only, except the job it starts.
+    class EnvironmentCacheWriter
+    {
+    public:
+        static EnvironmentCacheWriter& Get();
 
-    /// Read @p cube back off the device and write it as a cooked container. @p sourceKey is the
-    /// `.hdr`'s stable project key, recorded as provenance exactly as a cooked texture records its PNG.
-    [[nodiscard]] Common::BoolResultStr WriteBakedEnvironmentCube( const std::filesystem::path& path,
-                                                                   ImageCube& cube, const std::string& sourceKey,
-                                                                   uint64_t sourceSignature,
-                                                                   uint64_t bakeSignature );
+        /// Submits the readback of @p cube; the bytes become @p entry's file some ticks later.
+        [[nodiscard]] Common::BoolResultStr Begin( ImageCube& cube, EnvironmentCacheEntry entry );
+        /// Once a tick, beside `AsyncAssetLoader::Pump`: starts the encode of a landed readback, retires a
+        /// finished write with one line naming the file and its latency.
+        void Pump();
+        /// Host teardown, while the device is alive: finishes every write in flight and releases the readbacks.
+        void Drain();
+        [[nodiscard]] size_t InFlight() const { return m_InFlight.size(); }
+
+    private:
+        struct Write
+        {
+            EnvironmentCacheEntry                    Entry;
+            std::shared_ptr<ImageReadback>           Readback;
+            std::future<Common::BoolResultStr>       Encoded;
+            std::chrono::steady_clock::time_point    StartedAt;
+        };
+        static void Finish( Write& write );
+
+        std::list<Write> m_InFlight;
+    };
 } // namespace Desert::Graphic

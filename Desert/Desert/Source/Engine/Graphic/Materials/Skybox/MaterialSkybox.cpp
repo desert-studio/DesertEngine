@@ -15,7 +15,7 @@ namespace Desert::Graphic
         // The FILE as authored — identity rotation, white tint, unit intensity — and that is ALL it will
         // ever be: the scene's look is applied where the cubes are sampled (BindInputs below, and
         // SceneEnvironmentBind for the lit materials), so there is no second bake for it to trigger.
-        m_Environment = Graphic::EnvironmentManager::Create( baseAsset );
+        m_Environment = Graphic::EnvironmentManager::Create( baseAsset, m_Convolving );
     }
 
     void MaterialSkybox::BindInputs( const UpdateMaterialSkyboxInfo& data )
