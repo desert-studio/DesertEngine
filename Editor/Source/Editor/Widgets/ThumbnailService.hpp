@@ -1,10 +1,12 @@
 #pragma once
 
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
+#include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <future>
 #include <optional>
@@ -225,9 +227,10 @@ namespace Desert::Editor
         std::unordered_set<std::string> m_Queued; // asset identities currently queued or in flight
         std::unordered_set<std::string> m_Failed; // gave up: do not retry every frame
         // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
-        ThumbnailFreshness::Capture m_Capture;
-        int                         m_InFlightTicks = 0;
-        int                         m_IdleTicks     = 0; // consecutive frames with no work
+        ThumbnailFreshness::Capture    m_Capture;
+        int                            m_InFlightTicks = 0;
+        int                            m_IdleTicks     = 0; // consecutive frames with no work
+        ThumbnailEncode::CaptureBudget m_Budget;            // paces dispatch by main-thread ms (TH3)
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
         // stretch of scarcity rather than one per frame, and cleared — with its own line — the moment one
         // comes free, because "it is running again" is as much news as "it stopped".
@@ -238,6 +241,11 @@ namespace Desert::Editor
         // looked identical in a log — and the second is what M8 was reported as.
         int m_Captured = 0;
         int m_Skipped  = 0; // queued, then found already fresh before it was dispatched
+        // The run's pace, for the one line that reports it: when its first capture was dispatched, and the
+        // longest the queue waited on the budget with nothing in flight (CaptureBudget::kMaxWaitFrames bounds it).
+        std::optional<std::chrono::steady_clock::time_point> m_RunBegan;
+        int                                                  m_BudgetWaitFrames  = 0;
+        int                                                  m_LongestBudgetWait = 0;
 
         // ── THE SLOT-FREE HALF ────────────────────────────────────────────────────────────────────────
         //

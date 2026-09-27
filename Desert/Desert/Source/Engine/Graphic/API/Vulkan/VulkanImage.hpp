@@ -170,6 +170,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_Specification;
         }
         NO_DISCARD Common::ResultStr<std::vector<uint8_t>> ReadPixelsRGBA8() override;
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8() override;
 
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
