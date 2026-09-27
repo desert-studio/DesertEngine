@@ -77,10 +77,10 @@ TEST( WorldPartitionStreamingPerformance, AQueueThatFitsTheFrameNeitherSlowsNorB
 TEST( WorldPartitionStreamingPerformance, FallingBehindWithACellUnderfootFliesOnTheHLOD )
 {
     const auto plan = TwoCells( 10, 400 );
-    for ( const Rules::Residency far : { Rules::Residency::Loading, Rules::Residency::Loaded } )
+    for ( const Rules::Residency farCell : { Rules::Residency::Loading, Rules::Residency::Loaded } )
     {
         const auto seen =
-             Rules::AssessStreaming( plan, Budget(), States( Rules::Residency::Activated, far ), kStandingHere );
+             Rules::AssessStreaming( plan, Budget(), States( Rules::Residency::Activated, farCell ), kStandingHere );
         EXPECT_EQ( seen.Performance, Rules::StreamingPerformance::Slow );
         EXPECT_FALSE( seen.Blocks() );
         EXPECT_GT( seen.QueuedMs, Budget().ActivationBudgetMs );
