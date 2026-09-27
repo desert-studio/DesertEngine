@@ -551,10 +551,9 @@ namespace Desert::Migration
             namespace CC                        = Common::Content;
             const CC::SubsystemVersion kKnown[] = {
                  { Desert::Assets::kCloudLayoutSubsystemTag, Desert::Assets::kCloudLayoutContainerVersion } };
-            const std::string bytes = ReadAll( path );
-            const auto*       first = reinterpret_cast<const std::byte*>( bytes.data() );
-            const auto        header =
-                 CC::ReadEnvelopeHeader( std::span( first, bytes.size() ), CC::AssetHeaderReadContext{ kKnown } );
+            const std::string bytes  = ReadAll( path );
+            const auto        header = CC::ReadEnvelopeHeader( std::as_bytes( std::span( bytes ) ),
+                                                               CC::AssetHeaderReadContext{ kKnown } );
             if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudLayout )
             {
                 err << "FAIL   " << path.string() << " — not a cloud layout envelope at v"
@@ -775,8 +774,7 @@ namespace Desert::Migration
             if ( stated.GetValue() != Desert::Assets::kMaterialSchemaVersion )
             {
                 err << "FAIL   " << path.string() << " — states MATL v" << stated.GetValue()
-                    << "; this tool reads "
-                    << "only MATL v" << Desert::Assets::kMaterialSchemaVersion
+                    << "; this tool reads " << "only MATL v" << Desert::Assets::kMaterialSchemaVersion
                     << ( stated.GetValue() < Desert::Assets::kMaterialSchemaVersion
                               ? " (older materials are not supported)"
                               : " (written by a later build)" )
@@ -905,7 +903,7 @@ namespace Desert::Migration
         {
             const std::string text = ReadAll( path );
             if ( const TextHeaderGate* row = TextHeaderGateFor( path );
-                 row && !PassesTextHeaderGate( *row, path, text, err ) )
+                 row != nullptr && !PassesTextHeaderGate( *row, path, text, err ) )
             {
                 ++failed;
                 continue;

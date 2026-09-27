@@ -115,7 +115,7 @@ namespace Desert::Editor::PreviewEnvironment
         setup.ShowFloor                    = settings.ShowFloor;
     }
 
-    void DrawEnvironmentRows( const Assets::AssetManager* assets )
+    void DrawEnvironmentRows()
     {
         Settings&         settings = EditorPreferences::Get().PreviewScene;
         const std::string current  = settings.Skybox.empty()
@@ -165,8 +165,7 @@ namespace Desert::Editor::PreviewEnvironment
         return true;
     }
 
-    void AppendActions( std::vector<ISubjectDocument::DocumentAction>& actions,
-                        const Assets::AssetManager*                    assets )
+    void AppendActions( std::vector<ISubjectDocument::DocumentAction>& actions )
     {
         actions.push_back(
              { "Preview environment: preset sky", [] { Edit( []( Settings& s ) { s.Skybox.clear(); } ); } } );

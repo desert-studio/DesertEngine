@@ -212,9 +212,11 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
     ASSERT_TRUE( ready.IsSuccess() ) << ready.GetError();
 
     const Assets::MaterialData& data = ready.GetValue()->Data();
-    ASSERT_TRUE( data.Shader.has_value() ) << "fixture changed: M_CubemapCheck names no shader any more";
+    if ( !data.Shader.has_value() )
+        FAIL() << "fixture changed: M_CubemapCheck names no shader any more";
+    const auto& shader = *data.Shader;
     EXPECT_FALSE( ready.GetValue()->GetShaderName().empty() )
-         << "shader GUID " << data.Shader->Guid << " ('" << data.Shader->Path
+         << "shader GUID " << shader.Guid << " ('" << shader.Path
          << "') did not resolve to a name, so the Material Editor would report the shader '' is not loaded";
 }
 

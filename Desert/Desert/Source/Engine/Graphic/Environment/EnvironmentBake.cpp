@@ -25,7 +25,8 @@ namespace Desert::Graphic
     namespace Ser = Assets::Serialization;
 
     Common::ResultStr<std::shared_ptr<ImageCube>>
-    CreateBakedEnvironmentCube( Core::Formats::ImageCubeSpecification spec, const std::filesystem::path& path )
+    CreateBakedEnvironmentCube( const Core::Formats::ImageCubeSpecification& spec,
+                                const std::filesystem::path&                 path )
     {
         auto cube = SP_CAST( ImageCube, ImageCube::Create( spec, nullptr ) );
         if ( !cube )
@@ -194,7 +195,7 @@ namespace Desert::Graphic
     Common::BoolResultStr EnvironmentCacheWriter::Begin( ImageCube& cube, EnvironmentCacheEntry entry )
     {
         auto* vulkanCube = dynamic_cast<API::Vulkan::VulkanImageCube*>( &cube );
-        if ( !vulkanCube )
+        if ( vulkanCube == nullptr )
             return Common::MakeError<bool>( "the environment bake can only read back a Vulkan cube" );
         entry.FaceSize = cube.GetWidth();
         entry.Mips     = cube.GetMipmapLevels();

@@ -107,7 +107,7 @@ TEST( CookedRegistryGate, WithNoCacheAndNoCookedRegistryTheScanFindsTheShaders )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
@@ -127,7 +127,7 @@ TEST( CookedRegistryGate, TheRegistryFromTheScanIsTheRegistryFromTheCache )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Content::GatheredRegistry scanned = Common::Content::GatherContentRegistry( {} );
@@ -151,7 +151,7 @@ TEST( CookedRegistryGate, AFileWhoseStampChangedIsReadAgain )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Content::GatheredRegistry scanned = Common::Content::GatherContentRegistry( {} );
@@ -171,7 +171,7 @@ TEST( CookedRegistryGate, EveryTrackedContentFileIsGathered )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const auto tracked = Common::Content::TrackedContent( root );
@@ -333,7 +333,7 @@ TEST( CookedRegistryGate, EveryRowWithAGuidIsKnownByItsGuidsFold )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry         registry = ScannedCorpus();
@@ -360,7 +360,7 @@ TEST( CookedRegistryGate, EveryOnDemandRowStatesAGuid )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -379,7 +379,7 @@ TEST( CookedRegistryGate, AnOnDemandRowWithoutAGuidIsRefused )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -404,7 +404,7 @@ TEST( CookedRegistryGate, EveryDependencyNamesARowByItsGuid )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -423,7 +423,7 @@ TEST( CookedRegistryGate, AnEdgeWithAChangedGuidIsCaught )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -454,7 +454,7 @@ TEST( CookedRegistryGate, ACorruptIdentityIsCaught )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     Common::Utils::AssetRegistry registry = ScannedCorpus();
@@ -476,7 +476,7 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    SandboxProject sandbox( root );
+    const SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
     const Common::Utils::AssetRegistry registry = ScannedCorpus();

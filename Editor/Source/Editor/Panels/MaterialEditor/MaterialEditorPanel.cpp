@@ -36,7 +36,6 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -900,7 +899,7 @@ namespace Desert::Editor
                                  if ( m_Preview )
                                      m_Preview->ResetView();
                              } } );
-        PreviewEnvironment::AppendActions( actions, m_AssetManager.get() );
+        PreviewEnvironment::AppendActions( actions );
         return actions;
     }
 
@@ -2080,7 +2079,7 @@ namespace Desert::Editor
             // preview window, so it is drawn from EditorPreferences rather than from this window's setup.
             ImGui::Separator();
             ImGui::TextUnformatted( "HDR Environment" );
-            PreviewEnvironment::DrawEnvironmentRows( m_AssetManager.get() );
+            PreviewEnvironment::DrawEnvironmentRows();
         }
 
         if ( ImGui::CollapsingHeader( "Light", ImGuiTreeNodeFlags_DefaultOpen ) )

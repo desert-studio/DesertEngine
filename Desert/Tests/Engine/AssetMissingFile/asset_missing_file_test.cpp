@@ -318,6 +318,8 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
     const fs::path source = repo / "Editor/Resources/Assets/Clouds/Layouts/PTP_Channels_Green.dclayout";
     ASSERT_TRUE( fs::exists( source ) );
 
+    // A snapshot, not a reference: the test repoints the live root and restores this copy afterwards.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const Path::ProjectRootState saved   = Path::CurrentProjectRoot();
     const fs::path               project = fs::temp_directory_path() / "al1_on_demand_cloud_project";
     fs::remove_all( project );
@@ -331,9 +333,11 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
     ASSERT_TRUE( ContentRegistry::Gather() );
     const auto rows = ContentRegistry::Rows( ContentKind::CloudLayout );
     ASSERT_EQ( rows.size(), 1u );
-    ASSERT_TRUE( rows.front().Guid.has_value() ) << "the fixture layout states no GUID in its header";
+    const auto& fixtureGuid = rows.front().Guid;
+    if ( !fixtureGuid.has_value() )
+        FAIL() << "the fixture layout states no GUID in its header";
     const Desert::Assets::AssetHandle handle = rows.front().Handle;
-    const std::string                 guid   = Common::Content::AssetGuidToText( *rows.front().Guid );
+    const std::string                 guid   = Common::Content::AssetGuidToText( *fixtureGuid );
 
     {
         // The file is there: the shell is created unread, under the number it was asked for.

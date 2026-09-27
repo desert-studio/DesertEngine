@@ -590,10 +590,12 @@ namespace
     std::string StringOr( const Common::Json::Node& value )
     {
         auto text = value.AsString();
-        return text ? std::move( text.GetValue() ) : std::string();
+        return text ? text.GetValue() : std::string();
     }
 
     // Appends "file: where = 'path' states no GUID" for every path-only reference under `node`.
+    // Recursion follows the document's own nesting, which a committed scene/asset file keeps shallow.
+    // NOLINTBEGIN(misc-no-recursion)
     void PathsWithoutGuid( const Common::Json::Node& node, const std::string& where,
                            const std::set<std::string>& guidNames, std::vector<std::string>& offences )
     {
@@ -622,7 +624,7 @@ namespace
                  {
                      const std::string guidKey =
                           key.substr( 0, key.size() - ( many ? 5 : 4 ) ) + ( many ? "Guids" : "Guid" );
-                     if ( guidNames.count( guidKey ) != 0 )
+                     if ( guidNames.contains( guidKey ) )
                      {
                          const auto guid = node.Find( guidKey );
                          if ( one && !StringOr( value ).empty() && ( !guid || StringOr( *guid ).empty() ) )
@@ -650,6 +652,7 @@ namespace
                  PathsWithoutGuid( value, where + "." + key, guidNames, offences );
              } );
     }
+    // NOLINTEND(misc-no-recursion)
 } // namespace
 
 TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone )

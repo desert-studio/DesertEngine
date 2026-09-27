@@ -533,7 +533,7 @@ namespace Desert::Assets
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
             const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle );
-            if ( !row || row->Kind != Common::Content::KindName( kind ) )
+            if ( row == nullptr || row->Kind != Common::Content::KindName( kind ) )
                 return std::nullopt;
             return PickerRow{ Common::AssetHandle( row->EffectiveHandle() ),
                               row->Key,
