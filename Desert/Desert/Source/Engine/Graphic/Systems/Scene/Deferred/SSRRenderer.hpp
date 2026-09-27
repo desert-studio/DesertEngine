@@ -254,6 +254,7 @@ namespace Desert::Graphic::System
                      .Height     = h,
                      .Format     = format,
                      .Mips       = 1,
+                     .Data       = {},
                      .Usage      = Core::Formats::Image2DUsage::Image2D,
                      .Properties = Core::Formats::Storage | Core::Formats::Sample,
                 };

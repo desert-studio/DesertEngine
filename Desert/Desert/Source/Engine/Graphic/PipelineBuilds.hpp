@@ -22,7 +22,7 @@ namespace Desert::Graphic::PipelineBuilds
         // A compile was handed to a worker. Called on the thread that submits it, BEFORE the submit.
         void OnStarted()
         {
-            std::lock_guard lock( m_Mutex );
+            const std::lock_guard lock( m_Mutex );
             ++m_Pending;
             ++m_Started;
         }
@@ -31,7 +31,7 @@ namespace Desert::Graphic::PipelineBuilds
         void OnFinished()
         {
             {
-                std::lock_guard lock( m_Mutex );
+                const std::lock_guard lock( m_Mutex );
                 --m_Pending;
             }
             m_Idle.notify_all();
@@ -40,7 +40,7 @@ namespace Desert::Graphic::PipelineBuilds
         // Compiles still running.
         size_t Pending() const
         {
-            std::lock_guard lock( m_Mutex );
+            const std::lock_guard lock( m_Mutex );
             return m_Pending;
         }
 
@@ -48,7 +48,7 @@ namespace Desert::Graphic::PipelineBuilds
         // started nothing new") needs a count that moves on START, not only a queue depth.
         uint64_t Started() const
         {
-            std::lock_guard lock( m_Mutex );
+            const std::lock_guard lock( m_Mutex );
             return m_Started;
         }
 
@@ -64,7 +64,7 @@ namespace Desert::Graphic::PipelineBuilds
         // setup and the hand-off. The driver compile is not in it any more; this is the number that says so.
         void RecordCallerBlock( const std::chrono::nanoseconds blocked )
         {
-            std::lock_guard lock( m_Mutex );
+            const std::lock_guard lock( m_Mutex );
             m_CallerBlocked += blocked;
             if ( blocked > m_CallerBlockedMax )
                 m_CallerBlockedMax = blocked;
@@ -77,7 +77,7 @@ namespace Desert::Graphic::PipelineBuilds
         };
         CallerCost CallerBlocked() const
         {
-            std::lock_guard lock( m_Mutex );
+            const std::lock_guard lock( m_Mutex );
             return { m_CallerBlocked, m_CallerBlockedMax };
         }
 

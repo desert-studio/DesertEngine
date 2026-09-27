@@ -23,6 +23,10 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+// Apple deprecated OpenGL in 10.14; the reporter's few GL calls (viewport, clear) are the whole of its use.
+#if defined( __APPLE__ )
+#define GL_SILENCE_DEPRECATION
+#endif
 #include <GLFW/glfw3.h>
 
 #include <cstdio>
@@ -121,7 +125,7 @@ namespace
 
     ImVec2 Add( const ImVec2& inLeft, const ImVec2& inRight )
     {
-        return ImVec2( inLeft.x + inRight.x, inLeft.y + inRight.y );
+        return { inLeft.x + inRight.x, inLeft.y + inRight.y };
     }
 
     std::string Upper( const std::string& inText )
@@ -172,7 +176,7 @@ namespace
         }
         return std::filesystem::path( buffer ).parent_path();
 #else
-        return std::filesystem::path();
+        return {};
 #endif
     }
 
@@ -255,7 +259,7 @@ namespace
                 char text[160] = {};
                 std::snprintf( text, sizeof( text ), "icon %s (U+%04X) is not in fontawesome-webfont.ttf",
                                icon.name, static_cast<unsigned int>( icon.codepoint ) );
-                fonts.missing.push_back( text );
+                fonts.missing.emplace_back( text );
             }
         }
         return fonts;
@@ -451,7 +455,7 @@ namespace
 
         // The width available to content: ImGui's own GetContentRegionAvail is short by one padding
         // after Indent, so full-width items take this instead of -1.
-        float InnerWidth() const
+        [[nodiscard]] float InnerWidth() const
         {
             return mWidth - ( mPad * 2.0f );
         }
@@ -716,6 +720,8 @@ namespace
     }
 } // namespace
 
+// An exception escaping main terminates the reporter, which is the only sensible end for it.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main( int inArgc, char** inArgv )
 {
     const std::filesystem::path reportDirectory =

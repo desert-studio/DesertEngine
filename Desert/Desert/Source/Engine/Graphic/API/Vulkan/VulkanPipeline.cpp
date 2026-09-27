@@ -436,11 +436,15 @@ namespace Desert::Graphic::API::Vulkan
 
         // Tessellation: patch-list topology needs a tessellation state (control points per patch).
         m_Tessellation              = { .sType              = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
+                                        .pNext              = nullptr,
+                                        .flags              = 0,
                                         .patchControlPoints = m_Specification.PatchControlPoints };
         const bool usesTessellation = m_Specification.PatchControlPoints > 0;
 
         // Members, not locals: a compile on a worker reads them after this function has returned.
         m_PipelineInfo = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                           .pNext = nullptr,
+                           .flags = 0,
                            .stageCount =
                                 static_cast<uint32_t>( vulkanShader->GetPipelineShaderStageCreateInfos().size() ),
                            .pStages             = vulkanShader->GetPipelineShaderStageCreateInfos().data(),

@@ -15,11 +15,11 @@ namespace Desert::Graphic::PipelineCacheFile
 
         struct Header
         {
-            std::array<char, 4> Magic;
-            uint32_t            Version;
+            std::array<char, 4> Magic{};
+            uint32_t            Version = 0;
             DeviceIdentity      Identity;
-            uint64_t            PayloadSize;
-            uint64_t            PayloadHash;
+            uint64_t            PayloadSize = 0;
+            uint64_t            PayloadHash = 0;
         };
         static_assert( sizeof( DeviceIdentity ) == 3 * sizeof( uint32_t ) + 16,
                        "identity is hashed/stored as bytes" );
@@ -52,7 +52,7 @@ namespace Desert::Graphic::PipelineCacheFile
     std::filesystem::path Directory( const Host host, const std::filesystem::path& userDir,
                                      const std::string_view projectName )
     {
-        const std::filesystem::path root = userDir / "PipelineCache";
+        std::filesystem::path root = userDir / "PipelineCache";
         if ( host == Host::Game )
             return root;
         return root / Common::Settings::UserFolderName( projectName );

@@ -36,7 +36,6 @@
 #include <Common/Core/Profiler.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Core/JobSystem.hpp>
 

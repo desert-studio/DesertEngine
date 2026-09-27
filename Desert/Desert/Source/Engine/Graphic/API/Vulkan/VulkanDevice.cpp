@@ -29,7 +29,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         // The blob is only valid for the GPU and driver that wrote it (the driver discards anything else),
         // so they name the file: two GPUs in one machine, or a driver update, get files of their own.
-        PipelineCacheFile::DeviceIdentity PipelineIdentity( const VkPhysicalDevice gpu )
+        PipelineCacheFile::DeviceIdentity PipelineIdentity( VkPhysicalDevice gpu )
         {
             VkPhysicalDeviceProperties props{};
             vkGetPhysicalDeviceProperties( gpu, &props );
@@ -611,9 +611,11 @@ namespace Desert::Graphic::API::Vulkan
         }
         m_PersistedPipelineHash = initial.empty() ? 0 : PipelineCacheFile::HashBytes( initial );
 
-        VkPipelineCacheCreateInfo info{ .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
-                                        .initialDataSize = initial.size(),
-                                        .pInitialData    = initial.empty() ? nullptr : initial.data() };
+        const VkPipelineCacheCreateInfo info{ .sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+                                              .pNext           = nullptr,
+                                              .flags           = 0,
+                                              .initialDataSize = initial.size(),
+                                              .pInitialData    = initial.empty() ? nullptr : initial.data() };
         if ( const VkResult r = vkCreatePipelineCache( m_LogicalDevice, &info, nullptr, &m_PipelineCache );
              r != VK_SUCCESS )
         {

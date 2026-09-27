@@ -233,7 +233,7 @@ namespace CrashReporter
             return report;
         }
 
-        std::ifstream input( file, std::ios::binary );
+        const std::ifstream input( file, std::ios::binary );
         if ( !input )
         {
             report.error = "the crash report exists but could not be opened for reading: " + file.string();
@@ -258,8 +258,8 @@ namespace CrashReporter
             return inReport.crashEpoch + " (not a timestamp)";
         }
 
-        const std::time_t asTime = static_cast<std::time_t>( epoch );
-        std::tm           local{};
+        const auto asTime = static_cast<std::time_t>( epoch );
+        std::tm    local{};
 #if defined( _WIN32 )
         if ( ::localtime_s( &local, &asTime ) != 0 )
         {

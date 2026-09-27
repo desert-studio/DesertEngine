@@ -73,9 +73,11 @@ TEST( PipelineCacheFile, FileNameCarriesVendorDeviceDriverAndUuid )
 TEST( PipelineCacheFile, RoundTripsTheDriverBytes )
 {
     const std::string blob( "\x01\x02\0driver-bytes", 15 );
-    const auto        decoded = Decode( Gpu(), Encode( Gpu(), blob ) );
-    ASSERT_TRUE( decoded.Blob ) << decoded.Refusal;
-    EXPECT_EQ( *decoded.Blob, blob );
+    const auto        decoded     = Decode( Gpu(), Encode( Gpu(), blob ) );
+    const auto&       decodedBlob = decoded.Blob;
+    if ( !decodedBlob.has_value() )
+        FAIL() << decoded.Refusal;
+    EXPECT_EQ( *decodedBlob, blob );
     EXPECT_TRUE( decoded.Refusal.empty() );
 }
 

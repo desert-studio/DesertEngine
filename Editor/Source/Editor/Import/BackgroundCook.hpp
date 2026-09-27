@@ -83,7 +83,7 @@ namespace Desert::Editor
             for ( ;; )
             {
                 {
-                    std::lock_guard<std::mutex> lock( m_Mutex );
+                    const std::lock_guard<std::mutex> lock( m_Mutex );
                     if ( m_Running == 0 )
                         break;
                 }
@@ -95,15 +95,18 @@ namespace Desert::Editor
         void Enqueue( const std::filesystem::path& source )
         {
             {
-                std::lock_guard<std::mutex> lock( m_Mutex );
+                const std::lock_guard<std::mutex> lock( m_Mutex );
                 ++m_Running;
                 ++m_Total;
             }
             m_Submit(
+                 // clang-tidy 18 reports the closure's implicit move constructor, which only moves a
+                 // std::filesystem::path (noexcept).
+                 // NOLINTNEXTLINE(bugprone-exception-escape)
                  [this, source]
                  {
-                     const CookVerdict           verdict = m_Cooker( source );
-                     std::lock_guard<std::mutex> lock( m_Mutex );
+                     const CookVerdict                 verdict = m_Cooker( source );
+                     const std::lock_guard<std::mutex> lock( m_Mutex );
                      m_Completed.push_back( { source, verdict } );
                      --m_Running;
                  } );
@@ -112,26 +115,26 @@ namespace Desert::Editor
         // Main thread, once a frame.
         std::vector<Completed> Drain()
         {
-            std::lock_guard<std::mutex> lock( m_Mutex );
+            const std::lock_guard<std::mutex> lock( m_Mutex );
             return std::exchange( m_Completed, {} );
         }
 
         // Cooks queued or running — the status bar's counter.
         std::size_t Outstanding() const
         {
-            std::lock_guard<std::mutex> lock( m_Mutex );
+            const std::lock_guard<std::mutex> lock( m_Mutex );
             return m_Running;
         }
         // Every queued cook has completed (the startup report's trigger). A named question rather than
         // `Outstanding() == 0` in the host, which RuntimeLoadingState reserves for the loader's rule.
         bool AllSettled() const
         {
-            std::lock_guard<std::mutex> lock( m_Mutex );
+            const std::lock_guard<std::mutex> lock( m_Mutex );
             return m_Running == 0;
         }
         std::size_t Total() const
         {
-            std::lock_guard<std::mutex> lock( m_Mutex );
+            const std::lock_guard<std::mutex> lock( m_Mutex );
             return m_Total;
         }
 

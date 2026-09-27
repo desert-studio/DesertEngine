@@ -83,7 +83,7 @@ namespace Desert::Graphic::PipelineCacheFile
         // True when a write is due now; records `builtSoFar`/`now` as the last write when it is.
         bool Due( uint64_t builtSoFar, std::chrono::steady_clock::time_point now );
 
-        std::chrono::steady_clock::duration Interval() const
+        [[nodiscard]] std::chrono::steady_clock::duration Interval() const
         {
             return m_Interval;
         }

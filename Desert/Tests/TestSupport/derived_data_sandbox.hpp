@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace Desert::TestSupport
 {
@@ -37,7 +38,8 @@ namespace Desert::TestSupport
 
         ~DerivedDataSandbox()
         {
-            Common::Settings::MachineSettings::Get().DerivedDataCachePath = m_Previous;
+            // Moved, not copied: a copy may throw, and this runs in a destructor.
+            Common::Settings::MachineSettings::Get().DerivedDataCachePath = std::move( m_Previous );
             std::error_code ec;
             std::filesystem::remove_all( m_Root, ec );
         }

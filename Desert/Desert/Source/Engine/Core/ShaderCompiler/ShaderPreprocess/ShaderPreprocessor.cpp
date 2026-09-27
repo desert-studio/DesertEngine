@@ -34,7 +34,7 @@ namespace Desert::Core::Preprocess
         // other programs (ShaderProgramMeta::MediumSource). Without this branch the verify below turns a
         // perfectly good authored medium into a fatal engine error, which is how a new file type kills
         // the packager on its first run.
-        if ( !pass && parsed.Meta.IsMediumProgram() )
+        if ( pass == nullptr && parsed.Meta.IsMediumProgram() )
             return {};
 
         DESERT_VERIFY( pass, "Shader has no pass named '{}' ({})", passName, basePath.string() );
@@ -51,7 +51,7 @@ namespace Desert::Core::Preprocess
             const auto* pass = parsed.FindPass( passName );
             // See PreProcessProgramPass: a medium-only shader has no pass to take a render state from, and
             // its metadata is the whole of what it has.
-            if ( !pass && parsed.Meta.IsMediumProgram() )
+            if ( pass == nullptr && parsed.Meta.IsMediumProgram() )
                 return parsed.Meta;
             DESERT_VERIFY( pass, "Shader has no pass named '{}' ({})", passName, context );
             Core::Formats::ShaderProgramMeta meta = parsed.Meta;
