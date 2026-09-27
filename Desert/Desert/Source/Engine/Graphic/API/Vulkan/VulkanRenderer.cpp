@@ -300,6 +300,10 @@ namespace Desert::Graphic::API::Vulkan
                                vulkanPipeline->GetVkPipeline() );
             return true;
         }
+        // Still in the driver (PSO1): not an error, and not drawn. PipelineBuilds counts it and the
+        // content gate waits for it, so no gated frame is shown with this draw missing.
+        if ( vulkanPipeline->GetBuildState() == VulkanPipeline::BuildState::Compiling )
+            return false;
 
         // See the declaration: this is where "a shader that will not compile will not draw" stops being
         // a sentence in a log message and starts being what happens. The name is the pipeline's, because

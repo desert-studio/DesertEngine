@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // The unknown-key carrier below is a FIELD of the struct, so its type has to be visible here.
@@ -183,6 +184,25 @@ namespace Common::Settings
     // launcher and the tools, and a shipped game has no engine installation to belong to. Per PRODUCT
     // because two games on one machine are two different budgets, and `product` is the project's Name.
     //
-    // A name is sanitised rather than trusted: it comes from a `.deproj` and lands in a path.
+    // A name is sanitised rather than trusted (UserFolderName below): it comes from a `.deproj` and lands
+    // in a path.
     std::filesystem::path GameUserDirectory( const std::string& product );
+
+    // ONE PATH SEGMENT from a `.deproj` Name, the one rule for every per-user folder named after a product
+    // (GameUserDirectory, the editor's per-project pipeline cache). Separators and the two relative names
+    // would turn the name into a write somewhere else entirely; the rest are the characters Windows refuses
+    // in a file name, so a name that works on the developer's Mac cannot fail on a player's PC.
+    inline std::string UserFolderName( const std::string_view product )
+    {
+        std::string safe;
+        for ( const char c : product )
+        {
+            const bool refused = static_cast<unsigned char>( c ) < 0x20 || c == '/' || c == '\\' || c == ':' ||
+                                 c == '<' || c == '>' || c == '"' || c == '|' || c == '?' || c == '*';
+            safe += refused ? '_' : c;
+        }
+        if ( safe.empty() || safe == "." || safe == ".." )
+            safe = "DesertGame";
+        return safe;
+    }
 } // namespace Common::Settings

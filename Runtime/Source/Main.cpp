@@ -38,6 +38,7 @@
 #include <optional>
 
 #include "PackagedContent.hpp"
+#include <Engine/Graphic/PipelineCacheFile.hpp>
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
 
@@ -232,6 +233,10 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // this game rendered before it had a dial at all.
     Common::Settings::MachineSettings::Load(
          Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json" );
+
+    // The driver pipeline cache goes beside machine.json, in this player's directory, never the install
+    // (PKG1). Before the application: the device reads it while it is being created.
+    Desert::Graphic::PipelineCacheFile::DeclareHost( Desert::Graphic::PipelineCacheFile::Host::Game );
 
     ApplicationInfo appInfo;
     appInfo.Title = Desert::Project::ProjectContext::Current().Name;

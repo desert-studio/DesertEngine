@@ -1,5 +1,8 @@
 #pragma once
 
+#include <Engine/Graphic/PipelineBuilds.hpp>
+
+#include <chrono>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
@@ -195,7 +198,11 @@ namespace Desert::Graphic
             if ( auto it = m_Cache.find( key ); it != m_Cache.end() )
                 return it->second;
 
-            auto built = GraphicsPipeline::Create( spec );
+            // The driver compile goes to a worker (PSO1): this is the path content takes — a material or a
+            // mesh appearing — and the frame must not stall on the driver for it.
+            const auto requested = std::chrono::steady_clock::now();
+            auto       built     = GraphicsPipeline::CreateAsync( spec );
+            PipelineBuilds::Get().RecordCallerBlock( std::chrono::steady_clock::now() - requested );
             m_Cache.emplace( key, built );
             return built;
         }

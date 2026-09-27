@@ -3,6 +3,7 @@
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
+#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -6715,7 +6716,7 @@ namespace Desert::Editor
 
     void EditorLayer::BeginContentSettle()
     {
-        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+        m_Content.BeginWorld( Assets::ContentWorkNow().Started );
     }
 
     // SECONDS PER ITEM, MEASURED — so the bar's share of a stage is the share of the wait it is. A Debug
@@ -6800,7 +6801,8 @@ namespace Desert::Editor
     void EditorLayer::UpdateContentSettling()
     {
         const auto& loader  = Assets::AsyncAssetLoader::Get();
-        const bool  settled = m_Content.Tick( loader.Outstanding(), loader.StartedCount() );
+        const auto  work    = Assets::ContentWorkNow();
+        const bool  settled = m_Content.Tick( work.Outstanding, work.Started );
         if ( !settled )
         {
             // THE SETTLE SAYS HOW MUCH IS LEFT, not only that it is waiting: a count that moves is the
@@ -6819,6 +6821,13 @@ namespace Desert::Editor
                   "this session. This is the cost that used to be a boot stage, and a scene that asks "
                   "for nothing pays none of it.",
                   m_Content.FramesWaited(), m_Content.ElapsedMs(), loader.StartedCount() );
+        // PSO1: the content pipelines went to workers; what they still cost the frame is this line.
+        const auto& pipelines = Graphic::PipelineBuilds::Get();
+        const auto  blocked   = pipelines.CallerBlocked();
+        LOG_INFO( "[Content] pipelines: {} compiled on workers; the frame was blocked {:.1f} ms in total, "
+                  "{:.2f} ms at most for one",
+                  pipelines.Started(), std::chrono::duration<double, std::milli>( blocked.Total ).count(),
+                  std::chrono::duration<double, std::milli>( blocked.Max ).count() );
     }
 
     // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no

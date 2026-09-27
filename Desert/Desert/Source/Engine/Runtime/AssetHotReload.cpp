@@ -14,6 +14,7 @@
 #include <Engine/Graphic/Materials/MaterialFactory.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -390,6 +391,8 @@ namespace Desert::Runtime
             if ( !shader )
                 continue;
 
+            // A pipeline compile on a worker reads this shader's stage infos; Reload replaces them.
+            Graphic::PipelineBuilds::Get().WaitIdle();
             if ( const auto res = shader->Reload(); !res )
             {
                 // Compile errors land here (and in the Logs panel). Existing pipelines keep the

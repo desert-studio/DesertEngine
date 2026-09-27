@@ -287,8 +287,9 @@ namespace Desert::Editor
 
         // Copies the DDC buckets a game reads into Saved/Cooked/<Platform>/ under the same relative layout.
         // WHOLE BUCKETS, not a list of what this pass touched: a fixture or an earlier cook's entry under a
-        // key the runtime will ask for is exactly as valid (the key is its inputs), and the pipeline blob
-        // is keyed by the driver, which no cook can enumerate.
+        // key the runtime will ask for is exactly as valid (the key is its inputs). The driver pipeline blob
+        // is per user and per device and lives in the player's own directory (PipelineCacheFile.hpp), so no
+        // cook ships one.
         //
         // The set of buckets is Assets::ShippedDDCBuckets() (DDCShipRegister.hpp), not a literal array here:
         // a hand-written list is exactly what let kMeshDeriver's mesh-render-data bucket go unshipped (PK3) -

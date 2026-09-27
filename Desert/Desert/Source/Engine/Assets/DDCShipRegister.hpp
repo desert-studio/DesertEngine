@@ -53,7 +53,6 @@ namespace Desert::Assets
         { "FontCache",        DDCBucketReach::Shipped,    "Text/FontCache.cpp kFontDeriver - text rendering reads this at runtime" },
         { "IconCache",        DDCBucketReach::Shipped,    "Vector/IconBake.cpp kIconDeriver - in-game UI icon rendering reads this at runtime" },
         { "EnvironmentCache", DDCBucketReach::Shipped,    "Graphic/Environment/EnvironmentBake.cpp kEnvironmentDeriver - sky/reflection rendering reads this at runtime" },
-        { "PipelineCache",    DDCBucketReach::Shipped,    "Graphic/API/Vulkan/VulkanDevice.cpp kPipelineDeriver - the GPU pipeline-cache blob the driver reads at runtime" },
         { "ShaderCache",      DDCBucketReach::Shipped,    "Core/ShaderCompiler/ShaderSpirvCache.cpp kSpirvDeriver - compiled SPIR-V the material pipelines read at runtime" },
         { "ShaderMap",        DDCBucketReach::Shipped,    "Core/ShaderCompiler/ShaderMapCache.cpp kShaderMapDeriver - VulkanShader::Reload reads this at runtime" },
         { "Thumbnails",       DDCBucketReach::EditorOnly, "no Common::DDC::Deriver; Editor/Widgets/ThumbnailCache.cpp - asset-browser previews, no runtime reader" },

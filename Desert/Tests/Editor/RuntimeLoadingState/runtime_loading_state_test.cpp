@@ -223,12 +223,17 @@ TEST( RuntimeLoadingState, BothHostsTickTheGateWithBothCounters )
     // THE ARGUMENT LIST IS THE SECOND CONDITION. Asserted on the values passed and not on a name, for
     // the reason AsyncAssetPump records next door: the obvious spelling of a check like this reads a
     // COMMENT, which WithoutComments has already deleted.
-    const std::regex tick( R"(m_Content\.Tick\(\s*loader\.Outstanding\(\)\s*,\s*loader\.StartedCount\(\)\s*\))" );
+    const std::regex tick( R"(m_Content\.Tick\(\s*work\.Outstanding\s*,\s*work\.Started\s*\))" );
+    const std::regex gathered( R"(work\s*=\s*Assets::ContentWorkNow\(\))" );
 
     for ( const char* layer : { kEditorLayer, kRuntimeLayer } )
     {
         const std::string source = WithoutComments( ReadFile( root + layer ) );
         ASSERT_FALSE( source.empty() ) << layer << " could not be read";
+        EXPECT_TRUE( std::regex_search( source, gathered ) )
+             << layer
+             << " does not gather what its ContentGate waits for through Assets::ContentWorkNow() -- the one "
+                "place that adds pipelines still in the driver to the asset reads (PSO1).";
         EXPECT_TRUE( std::regex_search( source, tick ) )
              << layer
              << " does not tick its ContentGate with both of the loader's counters. Outstanding() alone "

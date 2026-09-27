@@ -5,6 +5,7 @@
 
 #include <Editor/Core/CommandLine.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Editor/Core/StartupRefusal.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Editor/Core/ProjectContext.hpp>
@@ -309,6 +310,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     splash->SetProgress( { "Starting the renderer...", "", 0.0 } );
 
     ApplicationInfo appInfo;
+    // The editor's driver pipeline cache lives in ~/.desertengine, one folder per project (PKG1). Before the
+    // application: the device reads it while it is being created.
+    Desert::Graphic::PipelineCacheFile::DeclareHost( Desert::Graphic::PipelineCacheFile::Host::Editor );
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;
     // HIDDEN UNTIL THE EDITOR IS READY: the splash is what is on screen until then, and EditorLayer shows
     // the window on its first real frame (RevealWhenReady).
