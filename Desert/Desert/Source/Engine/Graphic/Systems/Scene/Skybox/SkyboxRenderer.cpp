@@ -827,20 +827,16 @@ namespace Desert::Graphic::System
             LOG_ERROR( "[SkyAtmosphere] Environment bake at {}x{} failed — the previous environment is "
                        "kept. The BakeProceduralSky compute shader is the usual cause.",
                        size.Width, size.Height );
+            // A half-made bake (one cube registered, the other not) is still registered: owning it for an
+            // instant is how its valid half gets released instead of staying resident for the session.
+            OwnedEnvironment discarded;
+            discarded.Replace( *Runtime::ResourceRegistry::GetImageService(), std::move( baked ) );
             return;
         }
 
-        const Environment previous = m_ProceduralEnv;
-        m_ProceduralEnv            = baked;
-
-        // Release the previous baked cubes (the image service owns them until unregistered).
-        if ( previous )
-        {
-            auto* imageService = Runtime::ResourceRegistry::GetImageService();
-            imageService->Unregister( previous.RadianceMap );
-            imageService->Unregister( previous.IrradianceMap );
-            imageService->Unregister( previous.PreFilteredMap );
-        }
+        // The previous environment's cubes are released by the replacement (the image service owns them
+        // until unregistered); the last one is released when this renderer dies.
+        m_ProceduralEnv.Replace( *Runtime::ResourceRegistry::GetImageService(), std::move( baked ) );
 
         m_BakedSunDir           = m_SunDir;
         m_BakedCloudFingerprint = clouds.Fingerprint;

@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/AtmosphereEnv.hpp>
+#include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialProceduralSky.hpp>
@@ -76,7 +77,7 @@ namespace Desert::Graphic::System
         {
             // While the procedural sky is active, the baked atmosphere IBL drives ambient/reflections.
             if ( m_UseProceduralSky && m_ProceduralEnv )
-                return m_ProceduralEnv;
+                return m_ProceduralEnv.Get();
 
             if ( const auto& material = m_MaterialSkybox.lock() )
             {
@@ -238,7 +239,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> m_CloudBakeMediumParams;
 
         // Baked sky IBL (radiance/irradiance/prefiltered cubes) generated from the procedural atmosphere.
-        Environment m_ProceduralEnv;
+        // OWNED, not a copy of handles: its cubes live in the process-wide ImageService, and this view is the
+        // only one that can release them — when it rebakes, and when it dies (see OwnedEnvironment).
+        OwnedEnvironment m_ProceduralEnv;
         glm::vec3   m_BakedSunDir = glm::vec3( 0.0f, 1.0f, 0.0f );
         bool        m_BakeRequested = false;
 
