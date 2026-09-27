@@ -4,6 +4,7 @@
 #include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/PreviewInput.hpp>
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
@@ -127,6 +128,7 @@ namespace Desert::Editor
         for ( std::size_t lod = 0; lod < lods; ++lod )
             actions.push_back(
                  { std::format( "LOD {}", lod ), [this, lod]() { m_ForcedLOD = static_cast<int>( lod ); } } );
+        PreviewEnvironment::AppendActions( actions, m_Assets );
         return actions;
     }
 
@@ -143,6 +145,7 @@ namespace Desert::Editor
             return;
 
         m_Preview->SetForcedLOD( m_ForcedLOD );
+        PreviewEnvironment::ApplyTo( *m_Preview, m_Assets );
         m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
     }
 
@@ -205,6 +208,12 @@ namespace Desert::Editor
         ImGui::SliderFloat( "Sun yaw", &setup.SunYawDegrees, -180.0f, 180.0f, "%.0f deg" );
         ImGui::SliderFloat( "Sun pitch", &setup.SunPitchDegrees, -89.0f, 89.0f, "%.0f deg" );
         ImGui::SliderFloat( "Sun intensity", &setup.LightIntensity, 0.0f, 20.0f, "%.2f" );
+
+        // The editor-wide Preview Scene Settings, the same rows the Material Editor draws.
+        ImGui::Separator();
+        ImGui::TextUnformatted( "Environment" );
+        PreviewEnvironment::DrawEnvironmentRows( m_Assets );
+        PreviewEnvironment::DrawShowFloor( "Show Floor" );
     }
 
     void StaticMeshViewerDocument::OnUIRender()

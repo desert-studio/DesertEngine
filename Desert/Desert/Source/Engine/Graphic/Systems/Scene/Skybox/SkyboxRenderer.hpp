@@ -26,6 +26,13 @@ namespace Desert::Graphic::System
 
         void PrepareCamera( Core::Camera* camera );
         void PrepareMaterial( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
+        // Whether the Sky pass draws the sky BEHIND the geometry. The environment keeps lighting the scene
+        // either way (GetEnvironment does not read this): hiding the backdrop is a view flag, the way UE's
+        // preview scene hides its environment sphere and keeps its image-based light.
+        void SetBackdropVisible( bool visible )
+        {
+            m_BackdropVisible = visible;
+        }
 
         // When enabled, the Sky pass renders the engine-generated atmosphere instead of the HDR cubemap.
         // @p sunDir is the direction TOWARD the sun, normalized. @p bakeNow is the editor's one-shot
@@ -159,6 +166,7 @@ namespace Desert::Graphic::System
         // Applied where the cubes are sampled (GetEnvironment, Render), never baked, so a change costs a
         // uniform write and not a convolution chain.
         SkyLook                           m_SkyboxLook{};
+        bool                              m_BackdropVisible = true;
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<Shader>           m_Shader;
 

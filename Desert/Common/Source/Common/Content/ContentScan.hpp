@@ -54,6 +54,12 @@ namespace Common::Content
         // A cooked mesh's box as its 64-byte header states it (MeshBinaryHeader.hpp); std::nullopt for every
         // other kind and for a mesh file whose header this host cannot read (the loader names that one).
         std::optional<MeshHeaderBounds> MeshBounds;
+        // The registry's tags (AssetRegistryEntry::DisplayName / Skinned): the name the document states under
+        // its kind's DisplayNameMember, and a cooked mesh header's skinned flag. A document that cannot be
+        // parsed states no name here; the loader names that fault when the asset is used (UE lists such a
+        // package and fails at load, never hides it).
+        std::string DisplayName;
+        bool        Skinned = false;
     };
 
     // The file at `file`, of `kind`: its size and its header, read the way the registry cook reads it.
@@ -113,6 +119,17 @@ namespace Common::Content
                                                                        const ContentFile& file );
 
     [[nodiscard]] GatheredRegistry GatherContentRegistry( const RegistryCache& cache );
+
+    // THE KINDS A RUNNING PROCESS CREATES ON DEMAND, from their registry row, when something names them by
+    // handle (AL1-2): the noise volumes, the hero-cloud bodies and the painted layouts. No boot stage walks
+    // them any more, so the row is the only way such a file enters a process -- which is what makes a row
+    // without a GUID a defect for these kinds rather than an older form.
+    [[nodiscard]] bool LoadsOnDemand( ContentKind kind );
+
+    // GAP_ANALYSIS T2.7: one sentence per row of an on-demand kind that states no GUID. Such a file is
+    // reachable only by its path, so a rename or a move orphans every reference to it and the packaged
+    // registry cannot answer for it. The cook refuses a registry with any.
+    [[nodiscard]] std::vector<std::string> PathOnlyOnDemandRows( const Utils::AssetRegistry& registry );
 
     // The cache text: every row's modification time, then the registry itself in its own form.
     [[nodiscard]] std::string              SerializeRegistryCache( const Utils::AssetRegistry& registry );

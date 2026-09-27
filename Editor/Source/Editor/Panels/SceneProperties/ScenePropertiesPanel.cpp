@@ -15,6 +15,7 @@
 #include <ImGui/imgui.h>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -322,7 +323,10 @@ namespace Desert::Editor
         // it keeps its viewport (and its slot) exactly as the material window does. What gives the slot
         // back is having nothing to show at all, handled above.
         if ( m_PreviewActive )
+        {
+            PreviewEnvironment::ApplyTo( *m_Preview, m_AssetManager.get() );
             m_Preview->Update( kPreviewRenderSize, kPreviewRenderSize );
+        }
         m_PreviewActive = false;
     }
 

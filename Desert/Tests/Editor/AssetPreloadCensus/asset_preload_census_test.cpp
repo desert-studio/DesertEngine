@@ -40,6 +40,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -484,4 +485,44 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THE CLOUD KINDS ARE CREATED ON DEMAND, NOT PRELOADED (AL1-2). Noise volumes, sculpted hero-cloud bodies
+// and painted layouts each had a boot stage that minted a shell for every file of the kind, whether any
+// scene named it or not. Their services now create the shell from the content registry's row the first
+// time a handle is resolved (`CreateFromRegistryRow`), so a stage that came back would be the eager
+// scan this change removed — and the first census above would then demand both hosts call it, which is
+// the wrong repair. This pins the removal in the header, both hosts and the preloader's source.
+TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    constexpr const char* kRemovedStages[] = {
+         "PreloadCloudNoiseVolumes",
+         "PreloadCloudModellingVolumes",
+         "PreloadCloudLayouts",
+    };
+
+    const std::vector<std::string> declared = DeclaredPreloads( ReadFile( root + kPreloaderHeader ) );
+    ASSERT_FALSE( declared.empty() );
+
+    std::vector<std::string> files = { kPreloaderHeader, kPreloaderSource };
+    for ( const char* layer : kLayers )
+        files.emplace_back( layer );
+
+    for ( const char* stage : kRemovedStages )
+    {
+        EXPECT_EQ( std::count( declared.begin(), declared.end(), std::string( stage ) ), 0 )
+             << kPreloaderHeader << " declares AssetPreloader::" << stage
+             << " again; that kind is created on demand by its service from the registry row.";
+
+        for ( const std::string& file : files )
+        {
+            const std::string source = WithoutComments( ReadFile( root + file ) );
+            ASSERT_FALSE( source.empty() ) << "could not read " << file;
+            EXPECT_EQ( source.find( std::string( stage ) + "(" ), std::string::npos )
+                 << file << " names " << stage << "(); the cloud kinds have no boot stage since AL1-2.";
+        }
+    }
 }

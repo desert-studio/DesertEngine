@@ -5,6 +5,8 @@
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Graphic/Image.hpp>
 
+#include <Engine/Assets/AssetManager.hpp>
+
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -56,6 +58,8 @@ namespace Desert::Runtime
     class CloudModellingService
     {
     public:
+        // The manager Resolve creates on-demand shells in, from their content-registry rows (AL1-2).
+        void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
         /// THE PROJECT HAS THIS BODY. Records the handle and the (unread) asset; opens no file.
         ///
         /// Reading every `.dcmv` at boot cost a measured **913.0 ms of a 5707.0 ms boot** on this machine
@@ -143,6 +147,9 @@ namespace Desert::Runtime
         /// logged its error EVERY FRAME for a scene with a stale reference; with a pending state in the
         /// mix that would have become a log nobody can read at all.
         std::unordered_set<Assets::AssetHandle> m_Reported;
+        // Creates and announces the shell of a handle nothing announced; false = logged and recorded.
+        bool                                Discover( const Assets::AssetHandle& handle );
+        std::weak_ptr<Assets::AssetManager> m_Assets;
 
         std::unordered_map<Assets::AssetHandle, Entry> m_Volumes;
 

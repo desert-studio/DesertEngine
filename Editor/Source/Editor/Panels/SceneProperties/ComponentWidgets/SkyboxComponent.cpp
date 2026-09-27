@@ -19,6 +19,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -139,14 +140,13 @@ namespace Desert::Editor
                       static ImGuiTextFilter filter;
                       filter.Draw( "##Search", 200 );
                       ImGui::Separator();
-                      auto skyboxes = assetManager->FindAllByType<Assets::SkyboxAsset>();
-                      for ( const auto& [handle, asset] : skyboxes )
+                      auto skyboxes = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skybox );
+                      for ( const auto& row : skyboxes )
                       {
-                          const std::string name =
-                               Common::Utils::FileSystem::GetFileName( asset->GetMetadata().Filepath );
+                          const std::string name = ::Desert::Editor::PickerDisplayName( row );
                           if ( filter.PassFilter( name.c_str() ) &&
-                               ImGui::Selectable( name.c_str(), handle == skybox.SkyboxHandle ) )
-                              bindSkybox( handle );
+                               ImGui::Selectable( name.c_str(), row.Handle == skybox.SkyboxHandle ) )
+                              bindSkybox( row.Handle );
                       }
                       if ( skyboxes.empty() )
                           ImGui::TextDisabled( "No skybox assets available" );

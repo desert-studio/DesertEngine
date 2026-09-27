@@ -23,6 +23,8 @@ namespace Desert::Tests::SkyPanoramaRef
         using glm::acos;
         using glm::atan;
         using glm::clamp;
+        using glm::cos;
+        using glm::sin;
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
 #include <Common/SkyPanorama.glslh>

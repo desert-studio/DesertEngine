@@ -19,6 +19,8 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
 
+#include <Engine/Runtime/ResourceRegistry.hpp>
+
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <functional>
@@ -505,20 +507,7 @@ namespace Desert::Editor
         m_StartupStages.push_back(
              { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
         m_StartupStages.push_back(
-             { "Preloading cloud noise volumes...", [this] { m_AssetPreloader->PreloadCloudNoiseVolumes(); } } );
-        // AFTER the volumes, always: a cloud type binds the volume it names the moment it is created, and
-        // one created first would find nothing to bind and render with the default edge.
-        m_StartupStages.push_back(
              { "Preloading cloud types...", [this] { m_AssetPreloader->PreloadCloudTypes(); } } );
-        m_StartupStages.push_back(
-             { "Preloading hero clouds...", [this] { m_AssetPreloader->PreloadCloudModellingVolumes(); } } );
-        // THIS LINE WAS MISSING FROM THE DAY THE PAINTED LAYOUT SHIPPED, and its absence made the whole
-        // feature dead: AssetPreloader::PreloadCloudLayouts existed, scanned Clouds/Layouts and registered
-        // every `.dclayout` with the service — and nothing ever called it. Every scene binding a painting
-        // logged "referenced but not registered" and rendered its sky procedurally. Order-free, like the
-        // hero clouds above: a layout names nothing and is named only by a material.
-        m_StartupStages.push_back(
-             { "Preloading painted layouts...", [this] { m_AssetPreloader->PreloadCloudLayouts(); } } );
         // THE SAME LINE THE PAINTED LAYOUT SPENT ITS WHOLE LIFE WITHOUT — added WITH the feature this
         // time, and for exactly the failure the comment above records: a scene naming a theme the scan
         // never ran would log "referenced but not registered" and draw every element's own colours, which
@@ -566,6 +555,7 @@ namespace Desert::Editor
         // ran — so with two `.anim` files on disk it reported the four procedural clips and nothing else.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
+        Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
         m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );

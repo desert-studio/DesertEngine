@@ -603,6 +603,11 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetWhitePoint( sceneSettings.WhitePoint );
 
+        // The systems map is keyed by the name each system was registered under, so the downcast is to the type
+        // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
+             ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.MeshLOD );
