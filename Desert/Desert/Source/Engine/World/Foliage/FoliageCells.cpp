@@ -1,8 +1,8 @@
-// Pattern from UE 5.8 Engine/Source/Runtime/Foliage/Private/InstancedFoliage.cpp:3125-3140 (AInstancedFoliageActor::
-// Get: the IFA for a location through UActorPartitionSubsystem) and :3222-3260 (FoliagePartitioningUtils::Update:
-// instances whose location left the IFA's cell move to the IFA of their new cell), with
-// Engine/Source/Runtime/Engine/Private/ActorPartition/ActorPartitionSubsystem.cpp:55-70 (the grid cell of a
-// location). Not ported line by line: all of it hangs off UObject actors, levels and FFoliageInfo's component
+// Pattern from UE 5.8 Engine/Source/Runtime/Foliage/Private/InstancedFoliage.cpp:3125-3140
+// (AInstancedFoliageActor:: Get: the IFA for a location through UActorPartitionSubsystem) and :3222-3260
+// (FoliagePartitioningUtils::Update: instances whose location left the IFA's cell move to the IFA of their new
+// cell), with Engine/Source/Runtime/Engine/Private/ActorPartition/ActorPartitionSubsystem.cpp:55-70 (the grid cell
+// of a location). Not ported line by line: all of it hangs off UObject actors, levels and FFoliageInfo's component
 // hash, none of which exist here. What is taken is the rule - an instance belongs to the field of the grid cell
 // holding its location - over our CellOf, which the partitioner files the same point by.
 #include <Engine/World/Foliage/FoliageCells.hpp>
