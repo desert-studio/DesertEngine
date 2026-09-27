@@ -789,14 +789,16 @@ namespace Desert::Core::Rules
             return guid ? guid.GetValue() : Common::Content::AssetGuid{};
         }
 
-        // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
-        // the top of this file. Returns false when the record contributed its position and nothing more.
-        inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
+        // THE BOXES ONE RECORD OCCUPIES IN ITS OWN FRAME, each handed to @p onBox: a primitive's unit box,
+        // the box of each mesh asset its mesh blocks name, and - for a prefab instance - the box the prefab's
+        // registry row states around its root (AL1-8a). The last two are asked of @p bounds and are skipped
+        // when there is none. One rule for both askers: the partitioner flattens these to a footprint, and
+        // PrefabBounds unions them into the box a prefab states, so the box a cell reads for an instance is
+        // the box its instantiated body would have been given.
+        template <class OnBox>
+        inline void ForEachLocalBox( const Assets::EntityData& record, const AssetBoundsSource& bounds,
+                                     OnBox&& onBox )
         {
-            out.emplace_back( world[3].x, world[3].z );
-            const std::size_t before = out.size();
-
             if ( const auto mesh = BlockOf( record, kPrimitiveComponent ); mesh.has_value() )
             {
                 const auto primitive = mesh.value().get( std::string( kPrimitiveField ) );
@@ -805,26 +807,45 @@ namespace Desert::Core::Rules
                 if ( shape.has_value() )
                 {
                     if ( const auto box = Geometry::PrimitiveBounds( shape.value() ); box.has_value() )
-                        AppendBoundsCorners( world, box.value(), out );
+                        onBox( box.value() );
                 }
             }
 
-            if ( bounds )
+            if ( !bounds )
+                return;
+
+            for ( const std::string_view key : kMeshAssetComponents )
             {
-                for ( const std::string_view key : kMeshAssetComponents )
-                {
-                    const auto mesh = BlockOf( record, key );
-                    if ( !mesh.has_value() )
-                        continue;
-                    const Common::Content::AssetGuid guid   = ReadGuid( mesh.value(), kMeshHandleField );
-                    const auto          path   = mesh.value().get( std::string( kMeshPathField ) );
-                    const std::string   text   = path.has_value() ? path.value().to_string().value_or( "" ) : "";
-                    if ( guid.IsNull() && text.empty() )
-                        continue;
-                    if ( const auto box = bounds( guid, text ); box.has_value() )
-                        AppendBoundsCorners( world, box.value(), out );
-                }
+                const auto mesh = BlockOf( record, key );
+                if ( !mesh.has_value() )
+                    continue;
+                const Common::Content::AssetGuid guid = ReadGuid( mesh.value(), kMeshHandleField );
+                const auto                       path = mesh.value().get( std::string( kMeshPathField ) );
+                const std::string text = path.has_value() ? path.value().to_string().value_or( "" ) : "";
+                if ( guid.IsNull() && text.empty() )
+                    continue;
+                if ( const auto box = bounds( guid, text ); box.has_value() )
+                    onBox( box.value() );
             }
+
+            // A prefab reference is a path (EntityData::PrefabPath); the registry answers it by stable key.
+            if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
+            {
+                if ( const auto box = bounds( Common::Content::AssetGuid{}, *record.PrefabPath ); box.has_value() )
+                    onBox( box.value() );
+            }
+        }
+
+        // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
+        // the top of this file. Returns false when the record contributed its position and nothing more.
+        inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
+        {
+            out.emplace_back( world[3].x, world[3].z );
+            const std::size_t before = out.size();
+
+            ForEachLocalBox( record, bounds,
+                             [&]( const Common::Math::AABB& box ) { AppendBoundsCorners( world, box, out ); } );
 
             AppendInstancePoints( record, out );
             return out.size() > before;
@@ -958,6 +979,57 @@ namespace Desert::Core::Rules
         return found;
     }
 
+    namespace Detail
+    {
+        // EVERY RECORD'S WORLD MATRIX, composed from its parent chain (ComposeLocal per link).
+        [[nodiscard]] inline std::vector<glm::mat4>
+        ComposeWorld( std::span<const Assets::EntityData>                  records,
+                      const std::unordered_map<Common::UUID, std::size_t>& byId )
+        {
+            // Resolved by walking each record's parent chain rather than by a topological sort: a chain is
+            // short, a file can name a parent that comes later, and a corrupt file can name a cycle. The
+            // depth cap is what makes a cycle terminate; it is generous enough that no authored hierarchy
+            // can reach it.
+            std::vector<glm::mat4>   world( records.size(), glm::mat4( 1.0f ) );
+            std::vector<bool>        resolved( records.size(), false );
+            std::vector<std::size_t> chain;
+            for ( std::size_t record = 0; record < records.size(); ++record )
+            {
+                if ( resolved[record] )
+                    continue;
+
+                chain.clear();
+                std::size_t walk = record;
+                while ( walk != kNoRecord && !resolved[walk] && chain.size() < records.size() + 1 )
+                {
+                    chain.push_back( walk );
+                    const Assets::EntityData& data = records[walk];
+                    std::size_t               next = kNoRecord;
+                    if ( data.parent.has_value() && !data.parent->IsNull() )
+                    {
+                        const auto found = byId.find( *data.parent );
+                        if ( found != byId.end() && found->second != walk )
+                            next = found->second;
+                    }
+                    walk = next;
+                }
+
+                // Compose from the far end of the chain back down to `record`. `walk` is either kNoRecord
+                // (a root), an already-resolved ancestor, or — on a cycle — a record already in `chain`,
+                // whose partial matrix is the identity and which therefore terminates without looping.
+                glm::mat4 above = ( walk != kNoRecord && resolved[walk] ) ? world[walk] : glm::mat4( 1.0f );
+                for ( std::size_t index = chain.size(); index-- > 0; )
+                {
+                    const std::size_t slot = chain[index];
+                    above                  = above * Detail::ComposeLocal( records[slot] );
+                    world[slot]            = above;
+                    resolved[slot]         = true;
+                }
+            }
+            return world;
+        }
+    } // namespace Detail
+
     // THE PARTITION, as a pure function of the parsed records and the world's own block.
     //
     // THE STEPS, and why in this order:
@@ -1007,47 +1079,7 @@ namespace Desert::Core::Rules
         }
 
         // ── 1. World positions ────────────────────────────────────────────────────────────────────
-        //
-        // Resolved by walking each record's parent chain rather than by a topological sort: a chain is
-        // short, a file can name a parent that comes later, and a corrupt file can name a cycle. The
-        // depth cap is what makes a cycle terminate; it is generous enough that no authored hierarchy
-        // can reach it.
-        std::vector<glm::mat4>   world( records.size(), glm::mat4( 1.0f ) );
-        std::vector<bool>        resolved( records.size(), false );
-        std::vector<std::size_t> chain;
-        for ( std::size_t record = 0; record < records.size(); ++record )
-        {
-            if ( resolved[record] )
-                continue;
-
-            chain.clear();
-            std::size_t walk = record;
-            while ( walk != kNoRecord && !resolved[walk] && chain.size() < records.size() + 1 )
-            {
-                chain.push_back( walk );
-                const Assets::EntityData& data = records[walk];
-                std::size_t               next = kNoRecord;
-                if ( data.parent.has_value() && !data.parent->IsNull() )
-                {
-                    const auto found = byId.find( *data.parent );
-                    if ( found != byId.end() && found->second != walk )
-                        next = found->second;
-                }
-                walk = next;
-            }
-
-            // Compose from the far end of the chain back down to `record`. `walk` is either kNoRecord
-            // (a root), an already-resolved ancestor, or — on a cycle — a record already in `chain`,
-            // whose partial matrix is the identity and which therefore terminates without looping.
-            glm::mat4 above = ( walk != kNoRecord && resolved[walk] ) ? world[walk] : glm::mat4( 1.0f );
-            for ( std::size_t index = chain.size(); index-- > 0; )
-            {
-                const std::size_t slot = chain[index];
-                above                  = above * Detail::ComposeLocal( records[slot] );
-                world[slot]            = above;
-                resolved[slot]         = true;
-            }
-        }
+        const std::vector<glm::mat4> world = Detail::ComposeWorld( records, byId );
 
         // A landscape tile's footprint is its rectangle, from its root — after step 1, because the root's
         // origin is the root's WORLD position.
@@ -1365,4 +1397,52 @@ namespace Desert::Core::Rules
         return line;
     }
 
+    // THE BOX A PREFAB STATES (AL1-8a): what its registry row carries in the `bounds` column, so a world
+    // cell holding an instance learns its extent without loading the file (UE's Actor Descriptor).
+    //
+    // IN THE ROOT'S OWN FRAME, WITHOUT THE ROOT'S TRANSFORM: an instance record states its own
+    // Translation/Rotation/Scale and those are what the instantiated root carries, so the partitioner
+    // applies the instance's matrix to this box exactly as it applies a mesh record's matrix to the mesh's.
+    // Every record's boxes are ForEachLocalBox's - the partitioner's rule - composed to the root through
+    // ComposeWorld. A root that names no record of @p records leaves the frame at the file's origin.
+    //
+    // nullopt when nothing in the body has an extent (a UI prefab, an empty group): the column's "absent".
+    [[nodiscard]] inline std::optional<Common::Math::AABB> PrefabBounds( std::span<const Assets::EntityData> records,
+                                                                        const Common::UUID&                 root,
+                                                                        const AssetBoundsSource&            bounds )
+    {
+        std::unordered_map<Common::UUID, std::size_t> byId;
+        for ( std::size_t record = 0; record < records.size(); ++record )
+        {
+            if ( records[record].id.has_value() && !records[record].id->IsNull() )
+                byId.emplace( *records[record].id, record );
+        }
+        const std::vector<glm::mat4> world = Detail::ComposeWorld( records, byId );
+
+        const auto      rootRecord = byId.find( root );
+        const glm::mat4 toRoot = rootRecord != byId.end() ? glm::inverse( world[rootRecord->second] ) : glm::mat4( 1.0f );
+
+        std::optional<Common::Math::AABB> united;
+        for ( std::size_t record = 0; record < records.size(); ++record )
+        {
+            const glm::mat4 frame = toRoot * world[record];
+            Detail::ForEachLocalBox( records[record], bounds,
+                                     [&]( const Common::Math::AABB& box )
+                                     {
+                                         for ( int corner = 0; corner < 8; ++corner )
+                                         {
+                                             const glm::vec4 local( ( corner & 1 ) != 0 ? box.Max.x : box.Min.x,
+                                                                    ( corner & 2 ) != 0 ? box.Max.y : box.Min.y,
+                                                                    ( corner & 4 ) != 0 ? box.Max.z : box.Min.z,
+                                                                    1.0f );
+                                             const glm::vec3 placed( frame * local );
+                                             if ( !united.has_value() )
+                                                 united = Common::Math::AABB{ placed, placed };
+                                             united->Min = glm::min( united->Min, placed );
+                                             united->Max = glm::max( united->Max, placed );
+                                         }
+                                     } );
+        }
+        return united;
+    }
 } // namespace Desert::Core::Rules

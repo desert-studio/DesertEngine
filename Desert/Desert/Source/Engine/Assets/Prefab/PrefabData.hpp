@@ -253,11 +253,24 @@ namespace Desert::Assets
         std::optional<std::vector<PrefabOverrideData>> PrefabOverrides;
     };
 
+    // The box a prefab occupies around its root, in centimetres (Core::Rules::PrefabBounds). Read by the
+    // content scan without loading the prefab (Common/Content/ContentScan.cpp, StatedPrefabBounds) - the
+    // spelling here and the one there are the same two arrays.
+    struct PrefabBoundsSer
+    {
+        glm::vec3 Min{ 0.0f };
+        glm::vec3 Max{ 0.0f };
+    };
+
     struct PrefabData
     {
         // First member: the header (Common/Content/TextAssetHeader.hpp) - the prefab's GUID and the two
         // generations it states (SCNE, UNIT); since scene v26 nowhere else.
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        // The registry's `bounds` column for this file (AL1-8a), stated beside the header so the scan reads
+        // it as it reads a mesh header's box. Written by PrefabAsset::Serialize from the body and the
+        // registry's mesh rows; absent when nothing in the body has an extent.
+        std::optional<PrefabBoundsSer> Bounds;
         std::string                                               Name;
         std::vector<EntityData>                                   Entities;
         Common::UUID                                              Root;

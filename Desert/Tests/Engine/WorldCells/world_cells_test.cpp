@@ -20,6 +20,9 @@
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentScan.hpp>
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -36,6 +39,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <map>
 #include <set>
 #include <span>
@@ -613,6 +617,141 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
                2 );
     EXPECT_NE( said.str().find( "--no-registry" ), std::string::npos ) << said.str();
     fs::remove_all( root );
+}
+
+// ── 6. A prefab's box (AL1-8a) ────────────────────────────────────────────────────────────────────
+
+namespace
+{
+    constexpr const char* kPrefabMeshGuid = "0000000000000000000000000000beef";
+
+    // A prefab's body as its file holds it: a root whose own transform the instance replaces, a scaled cube
+    // and a turned mesh asset. The root's transform is deliberately not the identity - the box is stated
+    // without it.
+    std::vector<EntityData> PrefabBody()
+    {
+        std::vector<EntityData> body;
+        EntityData              root = Record( 900, "PrefabRoot", { 30.0f, 0.0f, -20.0f } );
+        root.Rotation                = glm::vec3( 0.0f, glm::radians( 90.0f ), 0.0f );
+        body.push_back( root );
+        EntityData cube = Record( 901, "Cube", { 200.0f, 0.0f, 0.0f } );
+        cube.parent     = Common::UUID( 900 );
+        cube.Scale      = glm::vec3( 2.0f );
+        With( cube, "StaticMesh", R"({"Primitive": "Cube"})" );
+        body.push_back( cube );
+        EntityData crate = Record( 902, "Crate", { -150.0f, 50.0f, 0.0f } );
+        crate.parent     = Common::UUID( 900 );
+        crate.Rotation   = glm::vec3( 0.0f, glm::radians( 90.0f ), 0.0f );
+        With( crate, "StaticMesh", R"({"MeshGuid": ")" + std::string( kPrefabMeshGuid ) + R"("})" );
+        body.push_back( crate );
+        return body;
+    }
+
+    const Rules::PlannedComposite* CompositeHolding( const Rules::WorldPartitionPlan& plan, std::size_t record )
+    {
+        for ( const auto& composite : plan.Composites )
+            for ( const std::size_t member : composite.Members )
+                if ( member == record )
+                    return &composite;
+        return nullptr;
+    }
+} // namespace
+
+// THE BOX A CELL READS FOR AN INSTANCE IS THE BOX ITS INSTANTIATED BODY OCCUPIES. The prefab's row states
+// PrefabBounds of its body; a scene naming the prefab is planned from that row alone, and the same scene
+// with the body instantiated in place (the instance's root keeps the instance's transform, the body hangs
+// under it - PrefabFactory's shape) is planned from the records. Both footprints must be one rectangle.
+TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
+{
+    const std::vector<EntityData> body = PrefabBody();
+
+    Common::Utils::AssetRegistry      registry;
+    Common::Utils::AssetRegistryEntry mesh;
+    mesh.Key                = "assets:Meshes/Crate.stmesh";
+    mesh.Kind               = "StaticMesh";
+    const auto meshGuid     = Common::Content::AssetGuidFromText( kPrefabMeshGuid );
+    ASSERT_TRUE( meshGuid ) << meshGuid.GetError();
+    mesh.Guid   = meshGuid.GetValue();
+    mesh.Bounds = Common::Math::AABB{ { -10.0f, 0.0f, -40.0f }, { 10.0f, 20.0f, 40.0f } };
+    ASSERT_TRUE( registry.Insert( mesh ).IsSuccess() );
+
+    const std::vector<Common::Utils::AssetRegistry> meshesOnly{ registry };
+    const auto stated = Rules::PrefabBounds( body, Common::UUID( 900 ), Cells::BoundsFrom( meshesOnly ) );
+    ASSERT_TRUE( stated.has_value() ) << "a body holding a cube and a mesh states no box";
+    // By hand, in the root's frame: the cube is 200 +- 100 on x and z, +-100 on y; the crate, turned a
+    // quarter, is -150 +- 40 on x, 50..70 on y, +-10 on z.
+    EXPECT_NEAR( stated->Min.x, -190.0f, 1e-3f );
+    EXPECT_NEAR( stated->Max.x, 300.0f, 1e-3f );
+    EXPECT_NEAR( stated->Min.y, -100.0f, 1e-3f );
+    EXPECT_NEAR( stated->Max.y, 100.0f, 1e-3f );
+    EXPECT_NEAR( stated->Min.z, -100.0f, 1e-3f );
+    EXPECT_NEAR( stated->Max.z, 100.0f, 1e-3f );
+
+    const std::string                 prefabPath = "Prefabs/Boxed.deprefab";
+    Common::Utils::AssetRegistryEntry prefab;
+    prefab.Key    = Common::AssetHandle::StableKeyForPath( prefabPath );
+    prefab.Kind   = "Prefab";
+    prefab.Bounds = stated;
+    ASSERT_TRUE( registry.Insert( prefab ).IsSuccess() );
+    const std::vector<Common::Utils::AssetRegistry> registries{ registry };
+
+    const glm::vec3 where( 4200.0f, 0.0f, 2600.0f );
+    const glm::vec3 scale( 1.5f );
+    const auto      settings = *World().WorldPartition;
+
+    std::vector<EntityData> named;
+    EntityData              instance = Record( 1, "Instance", where );
+    instance.Scale                   = scale;
+    instance.PrefabPath              = prefabPath;
+    named.push_back( instance );
+
+    std::vector<EntityData> instantiated;
+    EntityData              root = body.front();
+    root.id                      = Common::UUID( 1 );
+    root.Translation             = where;
+    root.Rotation.reset();
+    root.Scale = scale;
+    instantiated.push_back( root );
+    for ( std::size_t record = 1; record < body.size(); ++record )
+    {
+        EntityData child = body[record];
+        child.parent     = Common::UUID( 1 );
+        instantiated.push_back( child );
+    }
+
+    const auto fromRow  = Rules::PlanWorldPartition( named, settings, Cells::BoundsFrom( registries ) );
+    const auto fromBody = Rules::PlanWorldPartition( instantiated, settings, Cells::BoundsFrom( registries ) );
+    const auto* a       = CompositeHolding( fromRow, 0 );
+    const auto* b       = CompositeHolding( fromBody, 0 );
+    ASSERT_TRUE( a != nullptr && b != nullptr && a->Footprint && b->Footprint );
+    EXPECT_EQ( fromRow.PointOnlyRecords, 0u ) << "the instance was planned as a point: its row's box was not read";
+    EXPECT_NEAR( a->Footprint->MinX, b->Footprint->MinX, 1e-2f );
+    EXPECT_NEAR( a->Footprint->MaxX, b->Footprint->MaxX, 1e-2f );
+    EXPECT_NEAR( a->Footprint->MinZ, b->Footprint->MinZ, 1e-2f );
+    EXPECT_NEAR( a->Footprint->MaxZ, b->Footprint->MaxZ, 1e-2f );
+    EXPECT_NEAR( a->Footprint->MaxX - a->Footprint->MinX, 490.0f * 1.5f, 1e-2f ) << "the instance's scale";
+}
+
+// THE CORPUS PREFAB: a UI card has no extent, so its body states no box, and its row - read by the scan
+// from the file - states none either.
+TEST( WorldCells, TheCorpusPrefabStatesTheBoxItsBodyHas )
+{
+    const std::filesystem::path file = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+    ASSERT_TRUE( std::filesystem::exists( file ) ) << "run from the repository root";
+    std::ifstream     in( file );
+    const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    const auto        parsed = Common::Json::Read<Desert::Assets::PrefabData>( text );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    const auto& prefab = parsed.GetValue();
+    ASSERT_FALSE( prefab.Entities.empty() );
+
+    const auto body = Rules::PrefabBounds( prefab.Entities, prefab.Root, Cells::BoundsFrom( {} ) );
+    const auto row  = Common::Content::RegistryRowFor(
+         "assets:Prefabs/UI_Card.deprefab",
+         Common::Content::DescribeContentFile( file, Common::Content::ContentKind::Prefab ) );
+    ASSERT_TRUE( row ) << row.GetError();
+    EXPECT_TRUE( Common::Utils::SameBounds( row.GetValue().Bounds, body ) );
+    EXPECT_EQ( prefab.Bounds.has_value(), body.has_value() );
 }
 
 int main( int argc, char** argv )

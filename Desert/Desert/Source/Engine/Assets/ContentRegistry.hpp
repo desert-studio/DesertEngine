@@ -449,15 +449,20 @@ namespace Desert::Assets
                 }
                 // The header states the GUID and the edges again (a resaved material may name other
                 // textures); a header-less row keeps the identity the session learned, and a mesh keeps
-                // its box until NoteBounds states the new one.
+                // its box until NoteBounds states the new one. A PREFAB DOES NOT: its file states its box
+                // (PrefabData::Bounds), so a re-saved prefab with no extent left has none, and keeping the
+                // old box would place its instances by a body the file no longer holds.
                 Common::Utils::AssetRegistryEntry updated = described.GetValue();
                 if ( !updated.Guid.has_value() )
                     updated.Identity = known->Identity;
-                if ( !updated.Bounds.has_value() )
+                const bool isMesh = *kind == Common::Content::ContentKind::StaticMesh ||
+                                    *kind == Common::Content::ContentKind::SkinnedMesh;
+                if ( isMesh && !updated.Bounds.has_value() )
                     updated.Bounds = known->Bounds;
                 if ( updated.Size == known->Size && updated.Guid == known->Guid &&
                      updated.Identity == known->Identity && updated.Dependencies == known->Dependencies &&
-                     updated.Versions == known->Versions )
+                     updated.Versions == known->Versions &&
+                     Common::Utils::SameBounds( updated.Bounds, known->Bounds ) )
                     return;
                 state.Registry.Remove( key );
                 if ( const auto inserted = state.Registry.Insert( std::move( updated ) ); !inserted )
@@ -622,6 +627,19 @@ namespace Desert::Assets
                 return;
             state.Registry.SetBounds( key, bounds );
             state.Dirty = true;
+        }
+
+        // THE BOX A REFERENCE'S ROW STATES - a mesh named by GUID and path, a prefab by path - under the
+        // registry's lock; nullopt when no row answers or the row states none. The source a prefab's box is
+        // composed from when it is written (PrefabAsset::Serialize), so the box the file states and the box a
+        // world cell reads for a mesh are one column.
+        inline std::optional<Common::Math::AABB> BoundsOf( const Common::Content::AssetGuid& guid,
+                                                           std::string_view                  path )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByGuidReference( guid, path );
+            return row != nullptr ? row->Bounds : std::nullopt;
         }
 
         // RENAME / MOVE OF ONE ASSET (AF10c), the editor's single route: the Common move (file renamed, a
