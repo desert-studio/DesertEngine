@@ -5,6 +5,8 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <string_view>
 
 namespace Desert::Graphic
@@ -30,11 +32,14 @@ namespace Desert::Graphic
                                                        const ViewProfile& profile, const ViewExtent& extent );
 
     /**
-     * @brief Asked BEFORE an open view rebuilds its targets at @p to: does the growth over @p from fit?
+     * @brief Told BEFORE an open view rebuilds its targets at @p to: the warning to log when the growth over
+     *        @p from goes past the ceiling, or empty when it fits.
      *
-     * A refusal names the view, both sizes, the growth, the ceiling and its source, the usage and every open
-     * view's holding; the caller keeps its old targets (Engine::ViewBudget::MayResize).
+     * Never a refusal (Engine::ViewBudget::ResizeOverrunBytes says why): the text names the view, both
+     * sizes, the overrun, the ceiling and its source, the usage and every open view's holding, so the log
+     * says what to close.
      */
-    [[nodiscard]] Common::BoolResultStr MayResizeView( std::string_view viewName, const ViewProfile& profile,
-                                                       const ViewExtent& from, const ViewExtent& to );
+    [[nodiscard]] std::optional<std::string> DescribeResizeOverrun( std::string_view   viewName,
+                                                                    const ViewProfile& profile,
+                                                                    const ViewExtent& from, const ViewExtent& to );
 } // namespace Desert::Graphic

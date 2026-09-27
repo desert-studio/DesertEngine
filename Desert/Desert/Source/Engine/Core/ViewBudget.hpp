@@ -126,18 +126,24 @@ namespace Desert::Engine::ViewBudget
     }
 
     /**
-     * @brief May an open view resize its targets from @p currentBytes to @p resizedBytes?
+     * @brief How far past the ceiling an open view goes by resizing its targets from @p currentBytes to
+     *        @p resizedBytes; 0 when the growth fits. A LIVE VIEW'S RESIZE IS NEVER REFUSED.
      *
-     * The resize releases the old targets, so only the growth has to fit: shrinking is always allowed, and
-     * growing asks MayCreate for the difference as a user surface (a view being resized is on screen). A
-     * refusal leaves the view at its old size: its old targets are still valid, which a half-done rebuild
-     * would not be. The verdict's RequestBytes is the growth, so the refusal text states what was missing.
+     * Refusing it was tried and it is the wrong answer (RT2l): the main view is built at a placeholder
+     * 64x64 and resized to its panel on the first frame, so on a full device the refusal left the view a
+     * person looks at stuck at 64x64 and the editor black behind the dialog that asked them to close
+     * something. As in UE, the view on screen always gets its size; admission is where a budget says no
+     * (MayCreate, for a NEW view or document), and that dialog offers the views to close. The number is
+     * returned so the resize can say out loud that it went over, not so anything can act on it. Shrinking
+     * never overruns. Total, and safe against overflow at every step.
      */
-    [[nodiscard]] constexpr Verdict MayResize( const uint64_t currentBytes, const uint64_t resizedBytes,
-                                               const Reading& reading ) noexcept
+    [[nodiscard]] constexpr uint64_t ResizeOverrunBytes( const uint64_t currentBytes, const uint64_t resizedBytes,
+                                                         const Reading& reading ) noexcept
     {
         const uint64_t growth = resizedBytes > currentBytes ? resizedBytes - currentBytes : 0;
-        return MayCreate( Demand::UserSurface, growth, 0, reading );
+        const uint64_t free =
+             reading.UsageBytes >= reading.CeilingBytes ? 0 : reading.CeilingBytes - reading.UsageBytes;
+        return growth > free ? growth - free : 0;
     }
 
     /// One open view and what it holds (SceneRenderer::HeldBytes), for the refusal text.
