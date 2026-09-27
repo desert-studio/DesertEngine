@@ -421,12 +421,13 @@ namespace Desert::World::Landscape
     /// 2 — v1, then between the samples and the trailer the weightmap section: layer count (u32, at most
     ///     kLandscapeMaxWeightLayers), and per layer its name length (u32), the name's bytes, and
     ///     SamplesX·SamplesZ weights, one byte each, row-major. The header's payload length still counts the
-    ///     height samples only. A v1 blob is read as a tile with no weight layers — that is exactly what it
-    ///     describes — and the next save writes it as v2.
-    inline constexpr uint32_t kLandscapeTileContainerVersion   = 2u;
-    inline constexpr uint32_t kLandscapeTileContainerVersionV1 = 1u;
+    ///     height samples only.
+    ///
+    /// Only the current version is read. A v1 blob is refused by its number: SceneMigrator raised the
+    /// committed corpus to v2 (LS-15) and the v1 reader was deleted with that step.
+    inline constexpr uint32_t kLandscapeTileContainerVersion = 2u;
 
-    /// Byte lengths of the v1 header and trailer. Exposed so the round-trip test can assert the total
+    /// Byte lengths of the header and trailer. Exposed so the round-trip test can assert the total
     /// size: a header that grew without this constant moving would pass a test that meant nothing.
     inline constexpr size_t kLandscapeTileHeaderSize  = 28u;
     inline constexpr size_t kLandscapeTileTrailerSize = 4u;

@@ -159,7 +159,9 @@ TEST( LandscapePaint, TileBlobRoundTripsWeightLayers )
     EXPECT_FALSE( DecodeLandscapeTile( bad ).IsSuccess() );
 }
 
-TEST( LandscapePaint, VersionOneBlobIsATileWithNoWeightLayers )
+// No legacy reader (LS-15): a well-formed v1 blob - valid checksum, valid sizes - is refused by its number,
+// never read as a tile with no weight layers.
+TEST( LandscapePaint, VersionOneBlobIsRefusedByItsNumber )
 {
     LandscapeTileData tile = Tile( 3 );
     tile.SetSample( 1, 1, 40000u );
@@ -171,9 +173,9 @@ TEST( LandscapePaint, VersionOneBlobIsATileWithNoWeightLayers )
     for ( int i = 0; i < 4; ++i )
         blob.push_back( static_cast<unsigned char>( ( crc >> ( 8 * i ) ) & 0xFFu ) );
     auto v1 = DecodeLandscapeTile( blob );
-    ASSERT_TRUE( v1.IsSuccess() ) << v1.GetError();
-    EXPECT_TRUE( v1.GetValue().WeightLayers().empty() );
-    EXPECT_EQ( v1.GetValue().Sample( 1, 1 ), 40000u );
+    ASSERT_FALSE( v1.IsSuccess() );
+    EXPECT_NE( v1.GetError().find( "version 1 " ), std::string::npos ) << v1.GetError();
+    EXPECT_NE( v1.GetError().find( "supported 2" ), std::string::npos ) << v1.GetError();
 }
 
 TEST( LandscapePaint, NinthLayerIsRefusedByName )

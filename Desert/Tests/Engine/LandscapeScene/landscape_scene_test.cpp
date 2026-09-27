@@ -24,6 +24,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <Common/Utilities/Crc32c.hpp>
 
 #include <gtest/gtest.h>
 
@@ -329,6 +330,29 @@ TEST( LandscapeScene, AFileThatIsNotATileIsRefusedByName )
     const auto missing = ReadLandscapeTileFile( dir / "absent.dlht" );
     ASSERT_FALSE( missing.IsSuccess() );
     EXPECT_NE( missing.GetError().find( "absent.dlht" ), std::string::npos ) << missing.GetError();
+}
+
+// A v1 tile file on disk is refused with its path and its version (LS-15: no legacy reader).
+TEST( LandscapeScene, AVersionOneTileFileIsRefusedByPathAndNumber )
+{
+    const fs::path dir     = Workspace( "version-one" );
+    const fs::path file    = dir / "old.dlht";
+    const auto     created = LandscapeTileData::Create( 3, 3 );
+    ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
+    std::vector<unsigned char> blob = EncodeLandscapeTile( created.GetValue() );
+    // The v1 form: version 1, no weight-count word, fresh checksum - a file the v1 reader accepted.
+    blob[4] = 1u;
+    blob.resize( blob.size() - kLandscapeTileTrailerSize - 4u );
+    const uint32_t crc = Common::Utils::Crc32c( blob.data(), blob.size() );
+    for ( int i = 0; i < 4; ++i )
+        blob.push_back( static_cast<unsigned char>( ( crc >> ( 8 * i ) ) & 0xFFu ) );
+    std::ofstream( file, std::ios::binary )
+         .write( reinterpret_cast<const char*>( blob.data() ), static_cast<std::streamsize>( blob.size() ) );
+
+    const auto refused = ReadLandscapeTileFile( file );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "old.dlht" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "version 1 " ), std::string::npos ) << refused.GetError();
 }
 
 // ── 4 ──────────────────────────────────────────────────────────────────────────────────────────────

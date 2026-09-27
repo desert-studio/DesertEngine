@@ -30,6 +30,8 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Utilities/Crc32c.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <gtest/gtest.h>
 
@@ -130,6 +132,46 @@ TEST( SceneMigratorWritePath, ARaisedSceneIsWrittenAndASecondCheckFindsNothingTo
 
     EXPECT_EQ( RunTool( { "--check", scene.string() }, report, errors ), 0 ) << report << errors;
     EXPECT_NE( report.find( "0 would change" ), std::string::npos ) << report;
+
+    fs::remove_all( dir );
+}
+
+// THE LANDSCAPE TILES (LS-15). A v2 tile is "ok" with its heights' CRC; a v1 tile - well formed, the file the
+// deleted v1 reader accepted - FAILS by path and version, the run exits 1 and the file is byte-identical.
+TEST( SceneMigratorWritePath, AVersionOneLandscapeTileFailsByPathAndNumberAndIsLeftAlone )
+{
+    namespace LS           = Desert::World::Landscape;
+    const fs::path dir     = MakeTempDir( "desert_migrator_tiles" );
+    auto           created = LS::LandscapeTileData::Create( 3, 3 );
+    ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
+    LS::LandscapeTileData tile = std::move( created.GetValue() );
+    tile.SetSample( 1, 1, 40000u );
+    std::vector<unsigned char> blob = LS::EncodeLandscapeTile( tile );
+    const fs::path             v2   = dir / "current.dlht";
+    std::ofstream( v2, std::ios::binary )
+         .write( reinterpret_cast<const char*>( blob.data() ), static_cast<std::streamsize>( blob.size() ) );
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { "--check", v2.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_NE( report.find( "ok     " + v2.string() + " — already at tile v2, heights crc " ), std::string::npos )
+         << report;
+
+    // The v1 form: version 1, no weight-count word, fresh checksum.
+    blob[4] = 1u;
+    blob.resize( blob.size() - LS::kLandscapeTileTrailerSize - 4u );
+    const uint32_t crc = Common::Utils::Crc32c( blob.data(), blob.size() );
+    for ( int i = 0; i < 4; ++i )
+        blob.push_back( static_cast<unsigned char>( ( crc >> ( 8 * i ) ) & 0xFFu ) );
+    const fs::path v1 = dir / "old.dlht";
+    std::ofstream( v1, std::ios::binary )
+         .write( reinterpret_cast<const char*>( blob.data() ), static_cast<std::streamsize>( blob.size() ) );
+    const std::string before = ReadRaw( v1 );
+
+    EXPECT_EQ( RunTool( { v1.string() }, report, errors ), 1 ) << report << errors;
+    EXPECT_NE( errors.find( "FAIL   " + v1.string() + " — Landscape tile blob version 1 " ), std::string::npos )
+         << errors;
+    EXPECT_EQ( ReadRaw( v1 ), before );
 
     fs::remove_all( dir );
 }

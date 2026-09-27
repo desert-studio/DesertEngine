@@ -50,7 +50,6 @@
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
-#include <Engine/Assets/ContainerBytes.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include "MigratorMain.hpp"
@@ -538,7 +537,8 @@ namespace Desert::Migration
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, landscape tile, shader "
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, landscape tile, "
+                   "shader "
                    "or other text "
                    "asset "
                    "files found\n";
@@ -682,17 +682,15 @@ namespace Desert::Migration
                 << Desert::Assets::kCloudModellingContainerVersion << "\n";
         }
 
-        // THE LANDSCAPE TILES: a v1 'DLHT' blob is raised to v2 - the same heights and no weight layers, which
-        // is all a v1 blob describes. The raised bytes are decoded again before anything is written and must
-        // give back the same samples, so a step that moved a height FAILS here instead of shipping a mountain.
-        // Every line carries the heights' CRC-32C, so two runs over the corpus compare heights bit for bit.
-        int tilesChanged = 0;
+        // THE LANDSCAPE TILES: only the current 'DLHT' container (v2) is read, by the engine's own decoder, so
+        // a v1 tile FAILS by path and number - its raising step was deleted once it had raised the corpus
+        // (LS-15). Every line carries the heights' CRC-32C, so two runs over the corpus compare heights bit
+        // for bit.
         for ( const auto& path : tiles )
         {
-            namespace LS             = Desert::World::Landscape;
-            const std::string  bytes = ReadAll( path );
-            const auto         all   = std::span( reinterpret_cast<const unsigned char*>( bytes.data() ), bytes.size() );
-            const auto         tile  = LS::DecodeLandscapeTile( all );
+            const std::string bytes = ReadAll( path );
+            const auto        tile  = Desert::World::Landscape::DecodeLandscapeTile(
+                 std::span( reinterpret_cast<const unsigned char*>( bytes.data() ), bytes.size() ) );
             if ( !tile )
             {
                 err << "FAIL   " << path.string() << " — " << tile.GetError() << "\n";
@@ -700,38 +698,10 @@ namespace Desert::Migration
                 continue;
             }
             const std::vector<uint16_t>& samples = tile.GetValue().Samples();
-            const uint32_t heights = Common::Utils::Crc32c( samples.data(), samples.size() * sizeof( uint16_t ) );
-            const uint32_t stated  = Desert::Assets::ReadU32( all.data() + sizeof( LS::kLandscapeTileMagic ) );
-            if ( stated == LS::kLandscapeTileContainerVersion )
-            {
-                out << "ok     " << path.string() << " — already at tile v" << LS::kLandscapeTileContainerVersion
-                    << ", heights crc " << std::hex << heights << std::dec << "\n";
-                continue;
-            }
-            const std::vector<unsigned char> raised = LS::EncodeLandscapeTile( tile.GetValue() );
-            const auto                       again  = LS::DecodeLandscapeTile( raised );
-            if ( !again || again.GetValue().Samples() != samples || !again.GetValue().WeightLayers().empty() )
-            {
-                err << "FAIL   " << path.string() << " — the raised v" << LS::kLandscapeTileContainerVersion
-                    << " tile does not decode to the v" << stated << " heights\n";
-                ++failed;
-                continue;
-            }
-            if ( !check )
-            {
-                if ( const auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
-                          path, std::as_bytes( std::span( raised.data(), raised.size() ) ) );
-                     !written )
-                {
-                    err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
-                    ++failed;
-                    continue;
-                }
-            }
-            out << ( check ? "would  " : "raised " ) << path.string() << " — tile v" << stated << " -> v"
-                << LS::kLandscapeTileContainerVersion << ", heights crc " << std::hex << heights << std::dec
+            out << "ok     " << path.string() << " — already at tile v"
+                << Desert::World::Landscape::kLandscapeTileContainerVersion << ", heights crc " << std::hex
+                << Common::Utils::Crc32c( samples.data(), samples.size() * sizeof( uint16_t ) ) << std::dec
                 << "\n";
-            ++tilesChanged;
         }
 
         // THE SHADERS: only SHDR 1 (the comment header line, ShaderAssetHeader.hpp) is read. A file stating no
@@ -1025,12 +995,12 @@ namespace Desert::Migration
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << tiles.size() << " landscape tile(s), "
-            << tilesChanged << ( check ? " would change, " : " raised, " ) << failed << " failed\n";
+            << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || tilesChanged > 0 ) ) ? 1 : 0;
+        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 ) ) ? 1 : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over
