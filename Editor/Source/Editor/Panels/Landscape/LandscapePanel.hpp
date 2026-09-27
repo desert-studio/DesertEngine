@@ -2,6 +2,7 @@
 
 #include "../IPanel.hpp"
 
+#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
 #include <Engine/ECS/Components.hpp>
 
 #include <memory>
@@ -46,6 +47,8 @@ namespace Desert::Editor
         /// The scene the Target Layers list edits (EditorLayer rebinds it to the focused viewport's scene).
         std::weak_ptr<Desert::Core::Scene> m_Scene;
         /// The layer list as it was when the current widget edit began; one undo entry per finished edit.
-        std::optional<std::vector<ECS::LandscapeLayerInfo>> m_LayersEditStart;
+        // The layer info being edited (Hardness / No Weight Blend / swatch): a copy written to its `.delayerinfo`
+        // when the widget is released, not every frame of a drag.
+        std::optional<std::pair<Assets::AssetHandle, Assets::Serialization::LandscapeLayerInfoData>> m_LayerEdit;
     };
 } // namespace Desert::Editor

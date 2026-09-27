@@ -51,7 +51,8 @@ namespace Desert::World::Landscape
     /**
      * @brief Resolves each channel of @p tile against the root's layer list by NAME — the key a tile layer
      * carries (UE's ULandscapeLayerInfoObject), so reordering the root never re-colours a tile.
-     * @p RootLayer is ECS::LandscapeLayerInfo (Name, NoWeightBlend, Color); a template so this stays ECS-free.
+     * @p RootLayer is Assets::Serialization::LandscapeLayerInfoData (LayerName, NoWeightBlend,
+     * LayerUsageDebugColor); a template so this stays asset-free.
      */
     template <typename RootLayers>
     LandscapeWeightChannels ResolveLandscapeWeightChannels( const LandscapeTileData& tile, const RootLayers& root )
@@ -64,9 +65,9 @@ namespace Desert::World::Landscape
             bool named = false;
             for ( const auto& info : root )
             {
-                if ( info.Name != layers[c].Name )
+                if ( info.LayerName != layers[c].Name )
                     continue;
-                out.Colors[c]           = glm::vec4( info.Color, 1.0f );
+                out.Colors[c]           = glm::vec4( info.LayerUsageDebugColor, 1.0f );
                 out.AlphaBlend[c]       = info.NoWeightBlend ? 1.0f : 0.0f;
                 named                   = true;
                 break;

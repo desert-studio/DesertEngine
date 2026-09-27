@@ -68,6 +68,9 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::LandscapeMaterialComponent>() )
             roots.Mark( registry.get<ECS::LandscapeMaterialComponent>( entity ).Data.Material,
                         "a landscape is surfaced with it" );
+        for ( const auto entity : registry.view<ECS::LandscapeComponent>() )
+            for ( const Assets::AssetHandle& layer : registry.get<ECS::LandscapeComponent>( entity ).Layers )
+                roots.Mark( layer, "a landscape paints with it" );
 
         // A generic shader material's texture overrides. `uint64_t` rather than AssetHandle in the
         // component, which is why this loop cannot be folded into the others.

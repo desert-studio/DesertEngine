@@ -7,6 +7,7 @@
 #include <Engine/ECS/System/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Render/Commands/DrawLandscapeTileCommand.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeWeightmap.hpp>
@@ -150,8 +151,11 @@ namespace Desert::ECS
         {
             glm::vec3                  LayerModes = glm::vec3( 0.0f );
             Graphic::MaterialOverrides Overrides;
-            // The root's weight layers, which give each tile channel its colour and blend by name.
-            std::vector<LandscapeLayerInfo> Layers;
+            // The root's weight layers (their `.delayerinfo` data), which give each tile channel its colour
+            // and blend by name. Pending: a layer is still loading, so a channel that names nothing yet is
+            // not reported as unknown.
+            std::vector<Assets::Serialization::LandscapeLayerInfoData> Layers;
+            bool                                                       LayersPending = false;
         };
         std::map<uint64_t, Surface> surfaces;
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
@@ -161,7 +165,18 @@ namespace Desert::ECS
                 return it->second;
             const entt::entity rootEntity = FindLandscapeRootEntity( registry, rootId );
             if ( rootEntity != entt::null && registry.has<LandscapeComponent>( rootEntity ) )
-                it->second.Layers = registry.get<LandscapeComponent>( rootEntity ).Layers;
+            {
+                // The service logs a failed layer once; a failed layer is simply absent here, and the tile's
+                // channels of it are reported below as layers the landscape does not list.
+                auto& service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                for ( const Assets::AssetHandle& handle : registry.get<LandscapeComponent>( rootEntity ).Layers )
+                {
+                    if ( const auto* info = service.Get( handle ) )
+                        it->second.Layers.push_back( *info );
+                    else if ( service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending )
+                        it->second.LayersPending = true;
+                }
+            }
             for ( const auto entity : registry.view<LandscapeMaterialComponent, UUIDComponent>() )
             {
                 if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
@@ -282,7 +297,8 @@ namespace Desert::ECS
                               "first {} (one RGBA8 weightmap), so {} are kept on the tile but not drawn",
                               tileComp.TileX, tileComp.TileZ, channels.Count, drawn, names );
                 }
-                if ( !channels.Unknown.empty() && m_WarnedWeights.insert( d.Entity ).second )
+                if ( !channels.Unknown.empty() && !surface.LayersPending &&
+                     m_WarnedWeights.insert( d.Entity ).second )
                 {
                     // Not dropped silently: the tile keeps the layer's weights (renaming it back on the root
                     // restores it), it is just not drawn while the root does not name it.

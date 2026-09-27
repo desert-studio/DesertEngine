@@ -36,6 +36,7 @@
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
@@ -260,6 +261,123 @@ namespace Desert::Core::Serialize
                                                               : e.AddComponent<TComponent>();
                     ReadComponent( block, comp, issues );
                 }
+            };
+            return s;
+        }
+
+        // A LANDSCAPE ROOT: the frame through the hand-mapped block, then its target layers as `.delayerinfo`
+        // references (LS-12b, SCNE 34) — [{Guid, Path}], the mesh block's shape: the GUID is the identity, the
+        // path is for the reader and the refusal. UE: ALandscape's target layers -> ULandscapeLayerInfoObject.
+        ComponentSerializer MakeLandscapeRoot()
+        {
+            ComponentSerializer s = MakeAuthored<ECS::LandscapeComponent>( "Landscape" );
+            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& assetManager ) -> Common::Json::Value
+            {
+                const auto&          landscape = e.GetComponent<ECS::LandscapeComponent>();
+                Common::Json::Object block     = WriteComponent( landscape );
+                // Written even when empty: an undo restores the whole block, and an absent key keeps the
+                // current value, so an omitted empty list would leave a just-added layer in place after undo.
+                Common::Json::Value::Array layers;
+                layers.reserve( landscape.Layers.size() );
+                for ( const Assets::AssetHandle& handle : landscape.Layers )
+                {
+                    const auto layer = assetManager.FindByHandle<Assets::LandscapeLayerInfoAsset>( handle );
+                    if ( !layer )
+                    {
+                        // The reader dropped every GUID it could not resolve, so this is a handle set in memory
+                        // that no asset carries; its GUID is not recoverable from the handle.
+                        LOG_ERROR( "[Landscape] Entity '{}' names layer info handle {} that no asset carries; the "
+                                   "layer is not saved",
+                                   e.GetComponent<ECS::TagComponent>().Tag, static_cast<uint64_t>( handle ) );
+                        continue;
+                    }
+                    layers.emplace_back(
+                         Common::Json::ObjectBuilder()
+                              .Set( "Guid", Common::Content::AssetGuidToText( layer->Guid() ) )
+                              .Set( "Path", layer->GetMetadata()
+                                                 .Filepath.lexically_normal()
+                                                 .lexically_relative(
+                                                      Common::Constants::Path::ASSETS_PATH.lexically_normal() )
+                                                 .generic_string() )
+                              .Build() );
+                }
+                block["Layers"] = Common::Json::Value( std::move( layers ) );
+                return Common::Json::Value( std::move( block ) );
+            };
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& block,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
+            {
+                if ( !block.ExpectKind( Common::Json::Kind::Object, issues ) )
+                    return;
+                auto& landscape = e.HasComponent<ECS::LandscapeComponent>()
+                                       ? e.GetComponent<ECS::LandscapeComponent>()
+                                       : e.AddComponent<ECS::LandscapeComponent>();
+                ReadComponent( block, landscape, issues );
+                const auto value = block.Find( "Layers" );
+                if ( !value )
+                    return; // absent: the list stays as it is (rule 1)
+                if ( value->GetKind() != Common::Json::Kind::Array )
+                {
+                    issues.push_back( { value->Where().ToString(), "an array of {Guid, Path}", "not an array" } );
+                    return;
+                }
+                auto&                            manager = const_cast<Assets::AssetManager&>( assetManager );
+                std::vector<Assets::AssetHandle> read;
+                std::optional<std::string>       refusal;
+                value->ForEachElement(
+                     [&]( std::size_t index, const Common::Json::Node& element )
+                     {
+                         if ( refusal )
+                             return;
+                         if ( element.GetKind() != Common::Json::Kind::Object || !element.Find( "Guid" ) )
+                         {
+                             refusal = std::format( "layer {} is not a {{Guid, Path}} reference", index );
+                             return;
+                         }
+                         std::string guidText;
+                         std::string path;
+                         element.ReadInto( "Guid", guidText, issues );
+                         element.ReadInto( "Path", path, issues );
+                         const auto guid = Common::Content::AssetGuidFromText( guidText );
+                         Assets::Asset<Assets::LandscapeLayerInfoAsset> layer;
+                         if ( guid )
+                         {
+                             layer = manager.FindByHandle<Assets::LandscapeLayerInfoAsset>( Common::UUID(
+                                  static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
+                             if ( !layer )
+                                 layer = Assets::CreateFromRegistryGuid<Assets::LandscapeLayerInfoAsset>(
+                                      manager, guid.GetValue(), Common::Content::ContentKind::LandscapeLayerInfo );
+                         }
+                         if ( !layer )
+                         {
+                             // DROPPED WITH A REPORT, NOT SUBSTITUTED: a default layer under this slot would
+                             // re-key the tiles' weight planes to a name nobody authored. The rest of the list
+                             // is kept; the tiles keep the dropped layer's weights (they are reported as
+                             // unknown and not drawn until a layer of that name is added back).
+                             issues.push_back( { element.Where().ToString(),
+                                                 "a .delayerinfo the content registry knows",
+                                                 "GUID '" + guidText + "', path '" + path + "'" } );
+                             LOG_ERROR( "[Landscape] Entity '{}': layer info GUID '{}' (path '{}') is not a "
+                                        ".delayerinfo this project has scanned; the layer is dropped",
+                                        e.GetComponent<ECS::TagComponent>().Tag, guidText, path );
+                             return;
+                         }
+                         const Assets::AssetHandle handle = layer->GetMetadata().Handle;
+                         if ( std::find( read.begin(), read.end(), handle ) != read.end() )
+                         {
+                             refusal = std::format( "layer {} ('{}') is listed twice", index, path );
+                             return;
+                         }
+                         read.push_back( handle );
+                     } );
+                if ( refusal )
+                {
+                    // Refused whole and kept as it is: the same report line as a wrong-typed field, because it
+                    // is the same kind of wrong — a file this build did not write.
+                    issues.push_back( { value->Where().ToString(), "a valid layer list", *refusal } );
+                    return;
+                }
+                landscape.Layers = std::move( read );
             };
             return s;
         }
@@ -1737,7 +1855,7 @@ namespace Desert::Core::Serialize
         // ---- Landscape (LS-3) ----
         // The root is its frame and nothing else; the tile loads its heights from the file it names
         // (MakeLandscapeTile above). No version bump: two new block keys, and no scene carried them before.
-        Register( MakeAuthored<ECS::LandscapeComponent>( "Landscape" ) );
+        Register( MakeLandscapeRoot() );
         Register( MakeReflected<ECS::LandscapeMaterialComponent, ECS::LandscapeMaterialData>(
              "LandscapeMaterial", "LandscapeMaterialData", &ECS::LandscapeMaterialComponent::Data ) );
         Register( MakeLandscapeTile() );

@@ -225,6 +225,47 @@ namespace Desert::Migration
         return report;
     }
 
+    std::vector<std::string> MigrateLandscapeLayerRefsV33ToV34( const std::vector<Assets::EntityData>& entities )
+    {
+        std::vector<std::string> inline_layers;
+        const auto scan = [&]( const rfl::ExtraFields<rfl::Generic>& components, const std::string& tag )
+        {
+            const auto payload = components.get( "Landscape" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return;
+            const auto layers = fields.value().get( "Layers" );
+            if ( !layers.has_value() )
+                return;
+            const auto list = layers.value().to_array();
+            if ( !list.has_value() )
+                return;
+            for ( std::size_t i = 0; i < list.value().size(); ++i )
+            {
+                const auto layer = list.value()[i].to_object();
+                if ( !layer.has_value() || layer.value().get( "Guid" ).has_value() )
+                    continue;
+                const auto name = layer.value().get( "Name" );
+                inline_layers.push_back( tag + " > Landscape.Layers[" + std::to_string( i ) + "] = '" +
+                                         ( name.has_value() ? name.value().to_string().value_or( "?" ) : "?" ) +
+                                         "'" );
+            }
+        };
+        for ( const auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            scan( entity.Components, tag );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
+                scan( ( *entity.PrefabOverrides )[i].Components,
+                      tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+        }
+        return inline_layers;
+    }
+
     namespace
     {
         // THE STEP CHAIN. LEG1 deleted every step below kSceneVersionShaderGuids along with the legacy
@@ -248,6 +289,24 @@ namespace Desert::Migration
                                      "': " + std::to_string( report.PathOnlyMeshGuids.UnknownNames.size() ) +
                                      " path-only mesh reference(s) cannot be given a header GUID: " + names +
                                      ". Nothing was written.";
+                    return;
+                }
+            }
+            // A landscape's inline layers become `.delayerinfo` references (LS-12b). Nothing to rewrite in
+            // the corpus; an inline layer refuses the file.
+            if ( statedSceneVersion < kSceneVersionLandscapeLayerRefs )
+            {
+                report.LandscapeLayerRefsRaised = true;
+                const auto inline_layers        = MigrateLandscapeLayerRefsV33ToV34( entities );
+                if ( !inline_layers.empty() )
+                {
+                    std::string names;
+                    for ( const auto& layer : inline_layers )
+                        names += ( names.empty() ? "" : "; " ) + layer;
+                    report.Refused = "'" + name + "': " + std::to_string( inline_layers.size() ) +
+                                     " inline landscape layer(s) must become .delayerinfo assets first (create "
+                                     "them in the Landscape panel and re-link): " +
+                                     names + ". Nothing was written.";
                     return;
                 }
             }

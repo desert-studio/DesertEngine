@@ -394,13 +394,14 @@ int main( int argc, char** argv )
 
 namespace
 {
-    // The root's layer list as LandscapeECSSystem hands it over (ECS::LandscapeLayerInfo has these members).
+    // The root's layer list as LandscapeECSSystem hands it over: the `.delayerinfo` data of each target layer
+    // (Assets::Serialization::LandscapeLayerInfoData has these members).
     struct RootLayer
     {
-        std::string Name;
-        float       Hardness      = 0.5f;
-        bool        NoWeightBlend = false;
-        glm::vec3   Color         = glm::vec3( 1.0f );
+        std::string LayerName;
+        float       Hardness             = 0.5f;
+        bool        NoWeightBlend        = false;
+        glm::vec3   LayerUsageDebugColor = glm::vec3( 1.0f );
     };
 
     const vec4 kC0( 0.9f, 0.1f, 0.1f, 1.0f );

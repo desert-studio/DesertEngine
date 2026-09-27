@@ -103,7 +103,15 @@ namespace Desert::Migration
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionPathOnlyMeshGuids == kSceneVersion,
+    //  34 - A LANDSCAPE'S LAYERS ARE `.delayerinfo` REFERENCES (LS-12b). The root's `Layers` list was inline
+    //       {Name, Hardness, NoWeightBlend, Color} objects; it is now [{Guid, Path}] naming layer info assets
+    //       (UE: ALandscape target layers -> ULandscapeLayerInfoObject). 33 is FO-1's foliage type step on its
+    //       own branch; this branch jumps from 32, and the two chains meet when both are merged. No tracked
+    //       file carries an inline layer, so the step is the identity on the corpus; a file that does carry
+    //       one is REFUSED by name (MigrateLandscapeLayerRefsV33ToV34) rather than guessed into assets.
+    inline constexpr int kSceneVersionLandscapeLayerRefs = 34;
+
+    static_assert( kSceneVersionLandscapeLayerRefs == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -129,6 +137,11 @@ namespace Desert::Migration
     MeshGuidsMigrationReport MigratePathOnlyMeshGuidsV31ToV32( std::vector<Assets::EntityData>& entities,
                                                                const std::filesystem::path&     assetsRoot );
 
+    // The inline landscape layers a file still carries, as "Tag > Landscape.Layers[i] = 'Name'". Non-empty
+    // REFUSES the file: the step would have to invent a `.delayerinfo` per layer, and it does not write assets.
+    // PURE - no filesystem access.
+    std::vector<std::string> MigrateLandscapeLayerRefsV33ToV34( const std::vector<Assets::EntityData>& entities );
+
     // Everything that ran, so the caller can say which FILE moved and how far.
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
@@ -143,10 +156,11 @@ namespace Desert::Migration
 
         bool                     PathOnlyMeshGuidsRaised = false; // below kSceneVersionPathOnlyMeshGuids
         MeshGuidsMigrationReport PathOnlyMeshGuids;
+        bool                     LandscapeLayerRefsRaised = false; // below kSceneVersionLandscapeLayerRefs
 
         bool Changed() const
         {
-            return PathOnlyMeshGuidsRaised;
+            return PathOnlyMeshGuidsRaised || LandscapeLayerRefsRaised;
         }
     };
 

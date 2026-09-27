@@ -3,11 +3,18 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 
+#include <Common/Core/Constants.hpp>
+
+#include <algorithm>
 #include <array>
+#include <filesystem>
 #include <utility>
 
 namespace Desert::Editor::Commands
@@ -18,8 +25,8 @@ namespace Desert::Editor::Commands
         {
         public:
             LandscapeLayersCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    const Common::UUID& landscape, std::vector<ECS::LandscapeLayerInfo> before,
-                                    std::vector<ECS::LandscapeLayerInfo> after, std::string label )
+                                    const Common::UUID& landscape, std::vector<Assets::AssetHandle> before,
+                                    std::vector<Assets::AssetHandle> after, std::string label )
                  : m_Scene( scene ), m_Landscape( landscape ), m_Before( std::move( before ) ),
                    m_After( std::move( after ) ), m_Label( std::move( label ) )
             {
@@ -39,7 +46,7 @@ namespace Desert::Editor::Commands
             }
 
         private:
-            bool Write( const std::vector<ECS::LandscapeLayerInfo>& layers )
+            bool Write( const std::vector<Assets::AssetHandle>& layers )
             {
                 const auto scene = m_Scene.lock();
                 if ( !scene )
@@ -62,8 +69,8 @@ namespace Desert::Editor::Commands
 
             std::weak_ptr<::Desert::Core::Scene> m_Scene;
             Common::UUID                         m_Landscape;
-            std::vector<ECS::LandscapeLayerInfo> m_Before;
-            std::vector<ECS::LandscapeLayerInfo> m_After;
+            std::vector<Assets::AssetHandle>     m_Before;
+            std::vector<Assets::AssetHandle>     m_After;
             std::string                          m_Label;
         };
 
@@ -78,56 +85,99 @@ namespace Desert::Editor::Commands
         } };
     } // namespace
 
-    bool SameLandscapeLayers( const std::vector<ECS::LandscapeLayerInfo>& a,
-                              const std::vector<ECS::LandscapeLayerInfo>& b )
-    {
-        if ( a.size() != b.size() )
-            return false;
-        for ( size_t i = 0; i < a.size(); ++i )
-        {
-            if ( a[i].Name != b[i].Name || a[i].Hardness != b[i].Hardness ||
-                 a[i].NoWeightBlend != b[i].NoWeightBlend || a[i].Color != b[i].Color )
-                return false;
-        }
-        return true;
-    }
-
     void RecordLandscapeLayersEdit( const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    const Common::UUID& landscape, std::vector<ECS::LandscapeLayerInfo> before,
-                                    std::vector<ECS::LandscapeLayerInfo> after, std::string label )
+                                    const Common::UUID& landscape, std::vector<Assets::AssetHandle> before,
+                                    std::vector<Assets::AssetHandle> after, std::string label )
     {
         CommandHistory::Get().PushCommand( std::make_unique<LandscapeLayersCommand>(
              scene, landscape, std::move( before ), std::move( after ), std::move( label ) ) );
     }
 
+    namespace
+    {
+        struct RootRef
+        {
+            Common::UUID                      Landscape;
+            std::vector<Assets::AssetHandle>* Layers = nullptr;
+        };
+
+        Common::ResultStr<RootRef> RootOf( const std::shared_ptr<::Desert::Core::Scene>& scene )
+        {
+            if ( !scene )
+                return Common::MakeFormattedError<RootRef>( "landscape layers: no scene" );
+            auto&      registry  = scene->GetRegistry();
+            const auto landscape = ECS::FirstLandscape( registry );
+            if ( !landscape )
+                return Common::MakeFormattedError<RootRef>( "landscape layers: the scene has no landscape" );
+            const auto root = ECS::FindLandscapeRootEntity( registry, *landscape );
+            if ( root == entt::null )
+                return Common::MakeFormattedError<RootRef>( "landscape layers: the landscape root is not loaded" );
+            return Common::MakeSuccess(
+                 RootRef{ *landscape, &registry.get<ECS::LandscapeComponent>( root ).Layers } );
+        }
+    } // namespace
+
     Common::ResultStr<std::string> AddLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
-        if ( !scene )
-            return Common::MakeFormattedError<std::string>( "landscape layers: no scene" );
-        auto&      registry  = scene->GetRegistry();
-        const auto landscape = ECS::FirstLandscape( registry );
-        if ( !landscape )
-            return Common::MakeFormattedError<std::string>( "landscape layers: the scene has no landscape" );
-        const auto root = ECS::FindLandscapeRootEntity( registry, *landscape );
-        if ( root == entt::null )
-            return Common::MakeFormattedError<std::string>( "landscape layers: the landscape root is not loaded" );
-        auto&       layers = registry.get<ECS::LandscapeComponent>( root ).Layers;
+        auto root = RootOf( scene );
+        if ( !root )
+            return Common::MakeError<std::string>( root.GetError() );
+        auto&       layers = *root.GetValue().Layers;
         const auto  before = layers;
+        const auto& dir    = Common::Constants::Path::LANDSCAPE_LAYER_INFO_PATH;
         std::string name;
         for ( size_t n = 1;; ++n )
         {
-            name       = "Layer " + std::to_string( n );
-            bool taken = false;
-            for ( const auto& layer : layers )
-                taken = taken || layer.Name == name;
-            if ( !taken )
+            name = "Layer " + std::to_string( n );
+            std::error_code ec;
+            if ( !std::filesystem::exists( dir / ( name + Assets::Serialization::kLandscapeLayerInfoExtension ),
+                                           ec ) )
                 break;
         }
-        ECS::LandscapeLayerInfo added;
-        added.Name  = name;
-        added.Color = kLayerSwatches[layers.size() % kLayerSwatches.size()];
-        layers.push_back( added );
-        RecordLandscapeLayersEdit( scene, *landscape, before, layers, "Add landscape layer " + name );
+        Assets::Serialization::LandscapeLayerInfoData data;
+        data.LayerName            = name;
+        data.LayerUsageDebugColor = kLayerSwatches[layers.size() % kLayerSwatches.size()];
+        const auto file           = dir / ( name + Assets::Serialization::kLandscapeLayerInfoExtension );
+        if ( auto saved = Assets::LandscapeLayerInfoAsset::Save( file, data ); !saved )
+            return Common::MakeError<std::string>( saved.GetError() );
+        const auto identity = Assets::ReadTextAssetIdentity( file );
+        if ( identity.Guid.IsNull() )
+            return Common::MakeFormattedError<std::string>( "'{}' was written but states no GUID", file.string() );
+        Assets::ContentRegistry::NoteFile( file );
+        layers.push_back( identity.Handle() );
+        RecordLandscapeLayersEdit( scene, root.GetValue().Landscape, before, layers,
+                                   "Create landscape layer " + name );
         return Common::MakeSuccess( name );
+    }
+
+    Common::BoolResultStr AssignLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene, size_t slot,
+                                                const Assets::AssetHandle& handle )
+    {
+        auto root = RootOf( scene );
+        if ( !root )
+            return Common::MakeError<bool>( root.GetError() );
+        auto& layers = *root.GetValue().Layers;
+        if ( slot >= layers.size() )
+            return Common::MakeFormattedError<bool>( "landscape layers: slot {} of {}", slot, layers.size() );
+        if ( std::find( layers.begin(), layers.end(), handle ) != layers.end() )
+            return Common::MakeFormattedError<bool>( "landscape layers: that layer info is already listed" );
+        const auto before = layers;
+        layers[slot]      = handle;
+        RecordLandscapeLayersEdit( scene, root.GetValue().Landscape, before, layers, "Assign landscape layer" );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr RemoveLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene, size_t slot )
+    {
+        auto root = RootOf( scene );
+        if ( !root )
+            return Common::MakeError<bool>( root.GetError() );
+        auto& layers = *root.GetValue().Layers;
+        if ( slot >= layers.size() )
+            return Common::MakeFormattedError<bool>( "landscape layers: slot {} of {}", slot, layers.size() );
+        const auto before = layers;
+        layers.erase( layers.begin() + static_cast<std::ptrdiff_t>( slot ) );
+        RecordLandscapeLayersEdit( scene, root.GetValue().Landscape, before, layers, "Remove landscape layer" );
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::Commands
