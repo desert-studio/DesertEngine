@@ -353,9 +353,8 @@ namespace Desert::Core::WorldCells
                     {
                         const std::string_view key   = row->Key;
                         const std::size_t      colon = key.find( ':' );
-                        const std::string stem = std::filesystem::path( std::string( key.substr( colon + 1 ) ) )
-                                                      .stem()
-                                                      .string();
+                        const std::string      stem =
+                             std::filesystem::path( std::string( key.substr( colon + 1 ) ) ).stem().string();
                         return !Assets::IsPBRSurfaceShader( stem );
                     }
                     if ( row->Kind == "Material" && parent == nullptr )

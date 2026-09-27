@@ -442,13 +442,14 @@ namespace
     // states them: each material names its shader (or its parent) among its dependencies.
     Common::Utils::AssetRegistry MaterialRegistry()
     {
-        const auto water    = Row( "assets:Shaders/Water.shader", "Shader", nullptr, {} );
-        const auto pbr      = Row( "assets:Shaders/StaticMeshPBR.shader", "Shader", nullptr, {} );
-        const auto custom   = Row( "assets:Materials/M_Water.demat", "Material", kCustomMaterial,
-                                   { water.PathHandle() } );
-        const auto instance = Row( "assets:Materials/MI_Water.demat", "Material", kCustomInstance,
-                                   { custom.PathHandle() } );
-        const auto surface  = Row( "assets:Materials/M_Rock.demat", "Material", kPbrMaterial, { pbr.PathHandle() } );
+        const auto water = Row( "assets:Shaders/Water.shader", "Shader", nullptr, {} );
+        const auto pbr   = Row( "assets:Shaders/StaticMeshPBR.shader", "Shader", nullptr, {} );
+        const auto custom =
+             Row( "assets:Materials/M_Water.demat", "Material", kCustomMaterial, { water.PathHandle() } );
+        const auto instance =
+             Row( "assets:Materials/MI_Water.demat", "Material", kCustomInstance, { custom.PathHandle() } );
+        const auto surface =
+             Row( "assets:Materials/M_Rock.demat", "Material", kPbrMaterial, { pbr.PathHandle() } );
         Common::Utils::AssetRegistry registry;
         for ( const auto& row : { water, pbr, custom, instance, surface } )
             EXPECT_TRUE( registry.Insert( row ).IsSuccess() );

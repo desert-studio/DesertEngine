@@ -143,8 +143,8 @@ namespace Desert::Core::Rules
                 if ( slot < guids && !( *key.MaterialGuids )[slot].empty() )
                     if ( const auto parsed = Common::Content::AssetGuidFromText( ( *key.MaterialGuids )[slot] ) )
                         guid = parsed.GetValue();
-                const std::string_view path = slot < paths ? std::string_view( ( *key.MaterialPaths )[slot] )
-                                                           : std::string_view();
+                const std::string_view path =
+                     slot < paths ? std::string_view( ( *key.MaterialPaths )[slot] ) : std::string_view();
                 if ( guid.IsNull() && path.empty() )
                     return false; // an empty slot draws with the default PBR material
                 if ( !customShader( guid, path ) )
