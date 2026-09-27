@@ -34,6 +34,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
@@ -47,6 +48,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -1075,4 +1077,76 @@ TEST( WorldSceneGenerator, NeighbouringCorpusDistrictsHoldDisjointMaterialsAndAR
                  << ": its assets would stay resident across the border";
     }
     EXPECT_GE( all.size(), 5u ) << "the row does not cross every theme";
+}
+
+// 8e. EVERY CORPUS PROP SITS ON LEVEL 0 AND NONE IS ALWAYS-LOADED, through the loader's own partition plan WITH
+// the meshes' real bounds. The defect this pins (WP14b): props were jittered by a quarter slot whatever their
+// footprint, two probes crossed x = 0 and became always-loaded, promoted ones reached level 4, and their themes'
+// textures stayed resident for the whole flight.
+TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlwaysLoaded )
+{
+    std::string bytes;
+    ASSERT_EQ(
+         Generate( Scratch() / "corpus_fit.desce",
+                   { "--preset", "corpus", "--project", ProjectRoot(), "--partition", "--loading-range", "4000" },
+                   bytes ),
+         0 )
+         << bytes;
+    const auto scene = ReadScene( bytes );
+    ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
+
+    // The bounds the engine plans with: each mesh's header box, read here the way the tool reads it.
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    std::map<std::string, Common::Math::AABB>     boxes;
+    // The corpus meshes (kCorpusProps); a mesh the world names outside this list is planned as a point and the
+    // AlwaysLoaded / level assertions below would not see it - so the list is checked against the file too.
+    for ( const std::string path : { "Cooked/Meshes/SkinProbe.skmesh", "Cooked/Meshes/TwoBoneProbe.skmesh",
+                                     "Cooked/Meshes/IKProbe.skmesh", "Resources/Assets/Meshes/StaticProbe.stmesh" } )
+    {
+        const std::string raw = ReadAll( ProjectRoot() + "/" + path );
+        if ( const auto cooked = Common::Content::ReadMeshHeaderBounds( raw ); cooked && cooked->Bounds )
+        {
+            boxes[path] = *cooked->Bounds;
+            continue;
+        }
+        const auto envelope =
+             Common::Content::ReadAssetEnvelope( std::as_bytes( std::span( raw.data(), raw.size() ) ), recordOnly );
+        ASSERT_TRUE( envelope.IsSuccess() ) << path << ": " << envelope.GetError();
+        for ( const auto& section : envelope.GetValue().Sections )
+            if ( section.Tag == Common::Content::EnvelopeSection::Meta )
+            {
+                const auto meta = Common::Content::DecodeEnvelopeMeta( section.Bytes );
+                ASSERT_TRUE( meta.IsSuccess() && meta.GetValue().Bounds ) << path;
+                const auto&        b = *meta.GetValue().Bounds;
+                Common::Math::AABB box;
+                box.Min     = glm::vec3( b.Lo[0], b.Lo[1], b.Lo[2] );
+                box.Max     = glm::vec3( b.Hi[0], b.Hi[1], b.Hi[2] );
+                boxes[path] = box;
+            }
+    }
+    for ( const auto& entity : scene->Entities )
+        if ( entity.Tag.value_or( "" ).find( "_P" ) != std::string::npos )
+        {
+            const std::string text = Common::Json::Write( entity );
+            const auto        at   = text.find( "\"MeshPath\"" );
+            ASSERT_NE( at, std::string::npos ) << text;
+            const auto open  = text.find( '"', text.find( ':', at ) );
+            const auto close = text.find( '"', open + 1 );
+            EXPECT_TRUE( boxes.contains( text.substr( open + 1, close - open - 1 ) ) ) << text;
+        }
+    ASSERT_GE( boxes.size(), 3u );
+
+    namespace Rules                       = Desert::Core::Rules;
+    const Rules::AssetBoundsSource bounds = [&]( const Common::Content::AssetGuid&,
+                                                 std::string_view path ) -> std::optional<Common::Math::AABB>
+    {
+        const auto it = boxes.find( std::string( path ) );
+        return it == boxes.end() ? std::nullopt : std::optional<Common::Math::AABB>( it->second );
+    };
+    const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition, bounds );
+    const auto per  = Rules::CellsPerLevel( plan );
+    EXPECT_EQ( plan.AlwaysLoaded.size(), 3u ) << Rules::SummarisePartition( plan, *scene->WorldPartition );
+    for ( std::size_t level = 1; level < per.size(); ++level )
+        EXPECT_EQ( per[level], 0u ) << "a corpus prop was promoted to level " << level << ": "
+                                    << Rules::SummarisePartition( plan, *scene->WorldPartition );
 }

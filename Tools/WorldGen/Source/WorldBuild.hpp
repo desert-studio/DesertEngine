@@ -78,6 +78,12 @@ namespace Desert::WorldGen
         // y = 0 at scale 1. From the file, because a probe authored around its centre and one authored at its
         // feet would otherwise sink into or float above the ground tile by a number nobody wrote down.
         float BaseLiftCm = 0.0f;
+        // The ground footprint of those bounds (x and z, at scale 1): what keeps a jittered prop inside its slot,
+        // so inside its tile, so on partition level 0.
+        float LoXCm = 0.0f;
+        float HiXCm = 0.0f;
+        float LoZCm = 0.0f;
+        float HiZCm = 0.0f;
     };
 
     // One thing a corpus cell may hold: a real mesh drawn with a real material.
@@ -107,6 +113,7 @@ namespace Desert::WorldGen
         int     GroundTiles = 0;
         int     Props        = 0; // corpus props (themes non-empty), skinned ones included
         int     SkinnedProps = 0;
+        int     PropsOverhanging = 0; // corpus props whose footprint is wider than their slot (the tool refuses)
         int64_t ExtentCm    = 0; // edge of the square world
     };
 

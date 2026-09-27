@@ -244,11 +244,30 @@ namespace Desert::WorldGen
 
                         // A quarter of the slot either way: the prop stays inside its slot, so inside its tile,
                         // whatever its footprint within half a slot.
-                        const int jitter = spacing / 4;
-                        const int x      = originX + sx * spacing + spacing / 2 + Range( d1, -jitter, jitter );
-                        const int z      = originZ + sz * spacing + spacing / 2 + Range( d2, -jitter, jitter );
-
                         const float scale = static_cast<float>( prop.ScalePercent ) / 100.0f;
+
+                        // Up to a quarter of the slot either way, but never so far that the prop's own footprint
+                        // leaves the slot: a prop across a tile edge is promoted by the partition, and one across
+                        // an axis is always-loaded (WP14b measured both). Offsets are whole centimetres.
+                        const int  slotHalf = spacing / 2;
+                        const auto range    = [&]( float lo, float hi, uint64_t bits, int& offset ) -> bool
+                        {
+                            const int least =
+                                 std::max( -spacing / 4, static_cast<int>( std::ceil( -slotHalf - lo * scale ) ) );
+                            const int most =
+                                 std::min( spacing / 4, static_cast<int>( std::floor( slotHalf - hi * scale ) ) );
+                            if ( least > most )
+                                return false;
+                            offset = Range( bits, least, most );
+                            return true;
+                        };
+                        int dx = 0;
+                        int dz = 0;
+                        if ( !range( prop.Mesh.LoXCm, prop.Mesh.HiXCm, d1, dx ) ||
+                             !range( prop.Mesh.LoZCm, prop.Mesh.HiZCm, d2, dz ) )
+                            ++stats.PropsOverhanging;
+                        const int x = originX + sx * spacing + slotHalf + dx;
+                        const int z = originZ + sz * spacing + slotHalf + dz;
 
                         char tag[48];
                         std::snprintf( tag, sizeof( tag ), "%s_P%02d", cellTag, i );

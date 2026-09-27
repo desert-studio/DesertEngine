@@ -17,6 +17,7 @@
 #include <array>
 #include <span>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <map>
@@ -213,11 +214,16 @@ namespace Desert::WorldGen
             if ( !bytes )
                 return Common::MakeError<MeshRef>( where + ": " + bytes.GetError() );
             std::optional<std::array<float, 3>> lowest;
+            std::optional<std::array<float, 3>> highest;
             if ( const auto cooked = Common::Content::ReadMeshHeaderBounds( bytes.GetValue() ) )
             {
                 if ( cooked->Bounds )
-                    lowest = std::array<float, 3>{ cooked->Bounds->Min[0], cooked->Bounds->Min[1],
-                                                   cooked->Bounds->Min[2] };
+                {
+                    lowest  = std::array<float, 3>{ cooked->Bounds->Min[0], cooked->Bounds->Min[1],
+                                                    cooked->Bounds->Min[2] };
+                    highest = std::array<float, 3>{ cooked->Bounds->Max[0], cooked->Bounds->Max[1],
+                                                    cooked->Bounds->Max[2] };
+                }
             }
             else
             {
@@ -233,10 +239,13 @@ namespace Desert::WorldGen
                     if ( !meta )
                         return Common::MakeError<MeshRef>( where + " Meta: " + meta.GetError() );
                     if ( meta.GetValue().Bounds )
-                        lowest = meta.GetValue().Bounds->Lo;
+                    {
+                        lowest  = meta.GetValue().Bounds->Lo;
+                        highest = meta.GetValue().Bounds->Hi;
+                    }
                 }
             }
-            if ( !lowest )
+            if ( !lowest || !highest )
                 return Common::MakeError<MeshRef>( where +
                                                    " states no bounds, so there is nothing to seat it by" );
 
@@ -245,6 +254,10 @@ namespace Desert::WorldGen
             mesh.Guid       = Common::Content::AssetGuidToText( header.GetValue().Guid );
             mesh.Skinned    = skinned;
             mesh.BaseLiftCm = -( *lowest )[1];
+            mesh.LoXCm      = ( *lowest )[0];
+            mesh.HiXCm      = ( *highest )[0];
+            mesh.LoZCm      = ( *lowest )[2];
+            mesh.HiZCm      = ( *highest )[2];
             return Common::MakeSuccess( std::move( mesh ) );
         }
 
@@ -573,6 +586,18 @@ namespace Desert::WorldGen
         {
             err << "WorldGen: " << written.GetError() << "\n";
             return 6;
+        }
+
+        // A prop that cannot sit inside its slot crosses its tile, and the partition promotes it - to a level
+        // whose loading range spans districts, or to always-loaded where it straddles an axis. Its theme's assets
+        // would then be resident everywhere, which is the one thing this instrument must not do (WP14b: three
+        // textures kept for the whole flight by two props that crossed x = 0).
+        if ( stats.PropsOverhanging > 0 )
+        {
+            err << "WorldGen: " << stats.PropsOverhanging << " corpus prop(s) are wider than their "
+                << spec.CellSizeCm / std::max( 1, static_cast<int>( std::ceil( std::sqrt( spec.PerCell ) ) ) )
+                << " cm slot and would cross their tile; lower --per-cell or raise --cell-size\n";
+            return 8;
         }
 
         out << "WorldGen wrote " << outPath << "\n"
