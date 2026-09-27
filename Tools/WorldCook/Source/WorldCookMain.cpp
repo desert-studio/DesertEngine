@@ -1,6 +1,7 @@
 #include "WorldCookMain.hpp"
 
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -92,7 +93,7 @@ namespace Desert::WorldCook
         const Options options = parsed.ExtractValue();
 
         const auto started = std::chrono::steady_clock::now();
-        auto       text    = Common::Utils::FileSystem::ReadFileContent( options.Source );
+        auto       text    = Core::ExternalEntities::ReadSceneFileText( options.Source );
         if ( !text )
         {
             err << "WorldCook: " << text.GetError() << "\n";

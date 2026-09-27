@@ -15,6 +15,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
@@ -233,7 +234,7 @@ namespace Desert::Player
             else
             {
                 auto read = m_Boot.Run( "Reading the scene file", [&scenePath]
-                                        { return Common::Utils::FileSystem::ReadFileContent( scenePath ); } );
+                                        { return Core::ExternalEntities::ReadSceneFileText( scenePath ); } );
                 if ( !read )
                     return Common::MakeError( read.GetError() );
                 sceneJson = read.ExtractValue();
@@ -366,7 +367,7 @@ namespace Desert::Player
             json = std::move( world->AlwaysLoadedJson );
         else
         {
-            auto jsonRead = Common::Utils::FileSystem::ReadFileContent( path );
+            auto jsonRead = Core::ExternalEntities::ReadSceneFileText( path );
             if ( !jsonRead )
             {
                 LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}",

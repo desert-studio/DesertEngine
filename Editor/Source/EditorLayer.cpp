@@ -61,6 +61,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp" // resolving a request to a palette entry
@@ -8948,7 +8949,7 @@ namespace Desert::Editor
         // and says why, with the command that fixes the file.
         Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
 
-        const auto contentRead = Common::Utils::FileSystem::ReadFileContent( path );
+        const auto contentRead = Desert::Core::ExternalEntities::ReadSceneFileText( path );
         if ( !contentRead )
         {
             LOG_ERROR( "{0}", contentRead.GetError() );
