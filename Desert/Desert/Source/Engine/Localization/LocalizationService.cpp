@@ -44,56 +44,96 @@ namespace Desert::Localization
                                                      std::string( tag ), known );
         }
 
-        if ( row == m_Language )
+        m_Requested = row;
+        if ( m_Requester )
+            m_Requester( *row );
+        if ( IsPending( *row ) )
+        {
+            LOG_INFO( "[Localization] language {} requested; {} stays on screen until its tables arrive", row->Tag,
+                      m_Language->Tag );
             return BOOLSUCCESS;
+        }
+        Commit( *row );
+        return BOOLSUCCESS;
+    }
 
+    void Localization::Commit( const LocaleRow& row )
+    {
+        m_Requested = nullptr;
+        if ( &row == m_Language )
+            return;
         const std::string_view previous = m_Language ? m_Language->Tag : std::string_view{};
-        m_Language                      = row;
+        m_Language                      = &row;
         ++m_Generation;
-
         // A key that was missing in the OLD language is not missing in the new one, so the "already
         // complained" set has to go with it. Without this, switching away and back would resolve
         // silently the second time — the log would be telling the truth about a session that no longer
         // exists.
         m_Reported.clear();
         m_MissOrder.clear();
-
-        LOG_INFO( "[Localization] language {} -> {} ({}), {} keys in {} tables, generation {}", previous, row->Tag,
-                  row->Endonym, m_Rows.size(), m_Tables.size(), m_Generation );
-        return BOOLSUCCESS;
+        LOG_INFO( "[Localization] language {} -> {} ({}), {} keys in {} tables, generation {}", previous, row.Tag,
+                  row.Endonym, m_Rows.size(), m_Tables.size(), m_Generation );
     }
 
-    Common::BoolResultStr Localization::RegisterTable( const std::string& tableId, StringTableData table )
+    void Localization::BindTableSource( std::vector<std::string> languagesOnDisk, TableRequester requester )
+    {
+        m_LanguagesOnDisk = { languagesOnDisk.begin(), languagesOnDisk.end() };
+        m_Requester       = std::move( requester );
+        ++m_Generation;
+    }
+
+    void Localization::TableRequested( const std::string_view tag )
+    {
+        ++m_InFlight[std::string( tag )];
+    }
+
+    void Localization::TableSettled( const std::string_view tag )
+    {
+        const auto it = m_InFlight.find( std::string( tag ) );
+        if ( it == m_InFlight.end() )
+            return;
+        if ( --it->second <= 0 )
+            m_InFlight.erase( it );
+        // The switch lands on the tick its last file does - refused files included, so a language with one
+        // broken table still switches, and the broken table's keys are named as misses.
+        if ( m_Requested != nullptr && !IsPending( *m_Requested ) )
+            Commit( *m_Requested );
+    }
+
+    bool Localization::IsPending( const LocaleRow& language ) const
+    {
+        return m_InFlight.contains( std::string( language.Tag ) );
+    }
+
+    Common::BoolResultStr Localization::RegisterTable( const std::string& tableId, const std::string_view language,
+                                                       StringTableData table )
     {
         // A re-registration of the same id is a hot reload: its old rows go first, so a key deleted from
         // the file is deleted from the lookup. Leaving them would make a removal a no-op and the feature
         // would report itself as working.
         UnregisterTable( tableId );
-
-        for ( LocalizedEntry& entry : table.Entries )
+        const std::string tag( language );
+        for ( StringTableEntry& entry : table.Entries )
         {
-            const auto existing = m_Rows.find( entry.Key );
-            if ( existing != m_Rows.end() )
+            Row& row = m_Rows[entry.Key];
+            if ( const auto owner = row.Owners.find( tag ); owner != row.Owners.end() )
             {
-                const std::string owner = existing->second.Table;
+                const std::string other = owner->second;
                 // Undo the rows this call has already added, so a refused table contributes nothing at
                 // all rather than half of itself.
                 UnregisterTable( tableId );
                 return Common::MakeFormattedError<bool>(
-                     "string table '{}' defines key '{}', which '{}' already defines; one key must resolve "
-                     "to one string, and which of the two wins would otherwise depend on load order",
-                     tableId, entry.Key, owner );
+                     "string table '{}' defines key '{}' in '{}', which '{}' already defines; one key must "
+                     "resolve to one string, and which of the two wins would otherwise depend on load order",
+                     tableId, entry.Key, tag, other );
             }
-            // THE KEY IS COPIED OUT BEFORE THE MOVE, and that is not style. `emplace( entry.Key,
-            // Row{ id, std::move( entry ) } )` puts a read of `entry` and a move-from `entry` in ONE
-            // argument list, which C++ leaves unsequenced: clang moved first and every row landed under
-            // the empty key, so a table that reported "loaded" resolved nothing. (The same unsequenced
-            // shape this project has already paid for in the shader-graph emitter, where it made the
-            // cache key platform-dependent.)
-            std::string key = entry.Key;
-            m_Rows.emplace( std::move( key ), Row{ tableId, std::move( entry ) } );
+            row.Entry.Key = entry.Key;
+            row.Owners.emplace( tag, tableId );
+            // The SOURCE language's note wins: it is written where the translator starts.
+            if ( entry.Comment.has_value() && ( !row.Entry.Comment.has_value() || tag == kSourceLanguage ) )
+                row.Entry.Comment = entry.Comment;
+            row.Entry.Forms[tag] = std::move( entry.Forms );
         }
-
         m_Tables.insert( tableId );
         ++m_Generation;
         m_Reported.clear();
@@ -109,7 +149,20 @@ namespace Desert::Localization
         // undo a PARTIAL insertion, whose rows exist while the id does not, and a guard would leave them
         // behind — a refused table half-present is worse than one that failed outright.
         for ( auto it = m_Rows.begin(); it != m_Rows.end(); )
-            it = ( it->second.Table == tableId ) ? m_Rows.erase( it ) : std::next( it );
+        {
+            Row& row = it->second;
+            for ( auto owner = row.Owners.begin(); owner != row.Owners.end(); )
+            {
+                if ( owner->second == tableId )
+                {
+                    row.Entry.Forms.erase( owner->first );
+                    owner = row.Owners.erase( owner );
+                }
+                else
+                    ++owner;
+            }
+            it = row.Owners.empty() ? m_Rows.erase( it ) : std::next( it );
+        }
 
         ++m_Generation;
         m_Reported.clear();
@@ -119,6 +172,10 @@ namespace Desert::Localization
     void Localization::Clear()
     {
         m_Rows.clear();
+        m_Requester = nullptr;
+        m_Requested = nullptr;
+        m_LanguagesOnDisk.clear();
+        m_InFlight.clear();
         m_Tables.clear();
         m_Reported.clear();
         m_MissOrder.clear();
@@ -156,6 +213,7 @@ namespace Desert::Localization
         for ( const LocaleRow& row : Locales() )
         {
             const bool carried =
+                 m_LanguagesOnDisk.contains( std::string( row.Tag ) ) ||
                  std::any_of( m_Rows.begin(), m_Rows.end(), [&row]( const auto& pair )
                               { return pair.second.Entry.Forms.count( std::string( row.Tag ) ) != 0; } );
             if ( carried )
@@ -198,6 +256,11 @@ namespace Desert::Localization
         };
 
         const auto row = m_Rows.find( keyText );
+        // NOT A MISS WHILE THE LANGUAGE IS ON ITS WAY: the key is drawn and nothing is logged, because
+        // nothing is wrong yet. The miss register stays a list of real defects.
+        if ( IsPending( locale ) &&
+             ( row == m_Rows.end() || !row->second.Entry.Forms.contains( std::string( locale.Tag ) ) ) )
+            return Resolved{ std::string( authored ), Outcome::Pending };
         if ( row == m_Rows.end() )
         {
             return complain(
@@ -209,8 +272,8 @@ namespace Desert::Localization
         if ( language == row->second.Entry.Forms.end() )
         {
             return complain( Outcome::MissingLanguage,
-                             fmt::format( "key '{}' (table '{}') has no '{}' translation", keyText,
-                                          row->second.Table, std::string( locale.Tag ) ) );
+                             fmt::format( "key '{}' has no '{}' translation in any loaded table", keyText,
+                                          std::string( locale.Tag ) ) );
         }
 
         const PluralCategory category =
@@ -223,7 +286,8 @@ namespace Desert::Localization
             return complain( Outcome::MissingLanguage,
                              fmt::format( "key '{}' (table '{}') has a '{}' translation with no form for "
                                           "category '{}'",
-                                          keyText, row->second.Table, std::string( locale.Tag ),
+                                          keyText, row->second.Owners.at( std::string( locale.Tag ) ),
+                                          std::string( locale.Tag ),
                                           std::string( PluralCategoryName( category ) ) ) );
         }
 

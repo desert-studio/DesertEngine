@@ -1,0 +1,19 @@
+{
+    "Header": {
+        "Kind": "StringTable",
+        "Guid": "a7b130403769125a319ac673bceb6417",
+        "Versions": {
+            "STRT": 3
+        },
+        "Dependencies": []
+    },
+    "DisplayName": "Probe scenes",
+    "Entries": [
+        {
+            "Key": "probe.title",
+            "Forms": {
+                "other": "Проба элементов UI"
+            }
+        }
+    ]
+}

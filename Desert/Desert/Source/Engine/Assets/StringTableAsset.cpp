@@ -7,11 +7,11 @@
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
 #include <filesystem>
-#include <set>
 
 namespace Desert::Assets
 {
@@ -78,49 +78,43 @@ namespace Desert::Assets
                                                      parsed.GetError() );
         }
 
-        Localization::StringTableData data = parsed.ExtractValue();
-
-        // Published BEFORE the members are updated, because a refusal must leave this asset exactly as it
-        // was: a hot reload that fails has to keep showing the strings that were working, not swap in a
-        // table the lookup never accepted.
-        if ( const auto published = Localization::Localization::Get().RegisterTable( PublishId(), data );
-             !published )
+        const auto language = Localization::StringTableLanguageOf( file );
+        if ( !language )
         {
             m_Ready = false;
-            return Common::MakeFormattedError<bool>( "String table '{}' was not published: {}", path,
-                                                     published.GetError() );
+            return Common::MakeFormattedError<bool>( "String table not loaded: {}", language.GetError() );
         }
 
-        m_Data        = std::move( data );
+        // NOT PUBLISHED HERE since AL1-7b: this runs on an AsyncAssetLoader worker, and the lookup is read by
+        // every frame on the main thread. `Publish` is the main-thread half, called from the completion.
+        m_Data        = parsed.ExtractValue();
+        m_Language    = language.GetValue();
         m_DisplayName = m_Data.DisplayName.value_or( m_Metadata.Filepath.stem().string() );
         m_Ready       = true;
+        return BOOLSUCCESS;
+    }
 
-        // The count of LANGUAGES matters as much as the count of keys: a table with one language is a
-        // table nobody has translated yet, and that is the state worth seeing in a log at a glance.
-        std::set<std::string> languages;
-        for ( const Localization::LocalizedEntry& entry : m_Data.Entries )
-        {
-            for ( const auto& [language, forms] : entry.Forms )
-                languages.insert( language );
-        }
-        std::string list;
-        for ( const std::string& language : languages )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += language;
-        }
-        LOG_INFO( "[Localization] String table '{}' loaded: {}, {} keys in {} languages ({})", path, m_DisplayName,
-                  m_Data.Entries.size(), languages.size(), list );
-
+    Common::BoolResultStr StringTableAsset::Publish()
+    {
+        if ( !m_Ready || m_Language == nullptr )
+            return Common::MakeFormattedError<bool>( "String table '{}' is not loaded, so it cannot be published",
+                                                     m_Metadata.Filepath.generic_string() );
+        if ( const auto published =
+                  Localization::Localization::Get().RegisterTable( PublishId(), m_Language->Tag, m_Data );
+             !published )
+            return Common::MakeFormattedError<bool>( "String table '{}' was not published: {}",
+                                                     m_Metadata.Filepath.generic_string(), published.GetError() );
+        LOG_INFO( "[Localization] String table '{}' published: {}, {} keys in '{}'",
+                  m_Metadata.Filepath.generic_string(), m_DisplayName, m_Data.Entries.size(), m_Language->Tag );
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr StringTableAsset::Unload()
     {
         Localization::Localization::Get().UnregisterTable( PublishId() );
-        m_Data  = {};
-        m_Ready = false;
+        m_Data     = {};
+        m_Language = nullptr;
+        m_Ready    = false;
         return BOOLSUCCESS;
     }
 
@@ -161,4 +155,5 @@ namespace Desert::Assets
                   data.Entries.size(), text.size() );
         return BOOLSUCCESS;
     }
+
 } // namespace Desert::Assets

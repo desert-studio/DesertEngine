@@ -3,7 +3,7 @@
         "Kind": "StringTable",
         "Guid": "3bdb45398d7a63e61134929364b7dec1",
         "Versions": {
-            "STRT": 2
+            "STRT": 3
         },
         "Dependencies": []
     },
@@ -13,12 +13,7 @@
             "Key": "probe.title",
             "Comment": "The ONE translated label in UI_ElementProbe. Every other string in that scene is a literal on purpose: the scene is the negative control of 'a language change moves a key and cannot move a literal', and translating the rest would delete the control.",
             "Forms": {
-                "en": {
-                    "other": "UI element probe"
-                },
-                "ru": {
-                    "other": "Проба элементов UI"
-                }
+                "other": "UI element probe"
             }
         }
     ]
