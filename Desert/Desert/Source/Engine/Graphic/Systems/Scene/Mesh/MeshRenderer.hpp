@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/InstanceCullDistance.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Common/Core/Units.hpp>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -105,6 +106,8 @@ namespace Desert::Graphic::System
             bool                                          CastShadows = true;
             // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
             InstanceCullDistance CullDistance;
+            // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
+            InstanceWind Wind;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -628,6 +631,9 @@ namespace Desert::Graphic::System
             // batched path drew at the default 0 while the per-object path next to it computed a level
             // and passed it — the same object at two detail levels depending on whether it batched.
             uint32_t LodLevel = 0;
+            // Pushed with the draw, zeros for everything but a swaying foliage field (FO-7): the push
+            // block keeps its bytes between draws, so an auto-batched wall must push its own stillness.
+            InstanceWindPush Wind;
         };
 
         // EVERY INSTANCED DRAW THAT ONE MATERIAL RECORDS, plus the two buffers those draws read.
@@ -671,6 +677,7 @@ namespace Desert::Graphic::System
             uint32_t            Count = 0;
             uint32_t            First = 0;
             uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix
+            InstanceWindPush    Wind;         ///< see InstancedDraw::Wind
         };
 
         // Every skinned pose drawn in one pass, packed end to end; each draw names its slice with a

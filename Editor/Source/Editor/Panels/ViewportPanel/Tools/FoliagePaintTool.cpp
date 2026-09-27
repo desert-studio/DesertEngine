@@ -307,6 +307,22 @@ namespace Desert::Editor::Tools
         ImGui::DragFloatRange2( "##CullDistance", &f.CullDistance.Min, &f.CullDistance.Max, 50.0f, 0.0f,
                                 1000000.0f, "Cull %.0f", "%.0f cm" );
         track();
+        // Wind (FO-7; UE SimpleGrassWind): the tip's largest sway, its rate, the height it is reached at, and
+        // the direction the wind blows towards. Strength 0 = still.
+        ImGui::TextDisabled( "WIND" );
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloat( "##WindStrength", &f.Wind.Strength, 1.0f, 0.0f, 10000.0f, "Strength %.0f cm" );
+        track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloat( "##WindSpeed", &f.Wind.Speed, 0.01f, 0.0f, 20.0f, "Speed %.2f Hz" );
+        track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloat( "##WindHeight", &f.Wind.Height, 1.0f, 1.0f, 100000.0f, "Full sway at %.0f cm" );
+        track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloat( "##WindDirection", &f.Wind.DirectionDegrees, 1.0f, -360.0f, 360.0f,
+                          "Direction %.0f deg" );
+        track();
 
         // UE LandscapeLayers: a `.delayerinfo` dropped here restricts the type to ground painted with it.
         ImGui::TextDisabled( "LANDSCAPE LAYERS%s", f.LandscapeLayers.empty() ? " (any)" : "" );

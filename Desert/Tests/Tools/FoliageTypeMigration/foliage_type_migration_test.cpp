@@ -1,4 +1,5 @@
-// FO-3: FOLT 1 -> 2; FO-5: FOLT 2 -> 3 (CullDistance joins at UE's never-culled default). A v1 `.defoliage` stated
+// FO-3: FOLT 1 -> 2; FO-5: FOLT 2 -> 3 (CullDistance joins at UE's never-culled default); FO-7: FOLT 3 -> 4
+// (Wind joins, still). A v1 `.defoliage` stated
 // Density per brush dab; v2 states it per 1000x1000 cm (UE). The step converts through the v1 brush's default
 // radius, so one reference dab places the same count under both, keeps every other number and the GUID, and the
 // engine reads the result while refusing v1.
@@ -42,12 +43,24 @@ namespace
     }
 } // namespace
 
-TEST( FoliageTypeMigration, TheEngineReadsVersionThreeOnlyAndRefusesVersionOne )
+TEST( FoliageTypeMigration, TheEngineReadsVersionFourOnlyAndRefusesVersionOne )
 {
     const auto v1 = Assets::Serialization::ParseFoliageType( kV1 );
     ASSERT_FALSE( v1 );
     EXPECT_NE( v1.GetError().find( "FOLT" ), std::string::npos ) << v1.GetError();
 }
+
+namespace
+{
+    // v2 -> v3 -> v4: the engine reads the last generation only.
+    Common::ResultStr<std::string> RaiseV2ToEngine( const std::string& v2 )
+    {
+        const auto toV3 = Migration::MigrateFoliageTypeV2ToV3( v2 );
+        if ( !toV3 )
+            return toV3;
+        return Migration::MigrateFoliageTypeV3ToV4( toV3.GetValue() );
+    }
+} // namespace
 
 TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 {
@@ -56,7 +69,7 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 
     const auto toV2 = Migration::MigrateFoliageTypeV1ToV2( kV1 );
     ASSERT_TRUE( toV2 ) << toV2.GetError();
-    const auto raised = Migration::MigrateFoliageTypeV2ToV3( toV2.GetValue() );
+    const auto raised = RaiseV2ToEngine( toV2.GetValue() );
     ASSERT_TRUE( raised ) << raised.GetError();
     const auto parsed = Assets::Serialization::ParseFoliageType( raised.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
@@ -68,7 +81,7 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 
     // Everything else crosses as it was; the new fields take UE's defaults; the identity is kept.
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 3u );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 4u );
     EXPECT_EQ( data.Mesh.Guid, "11112222333344445555666677778888" );
     EXPECT_EQ( data.Mesh.Path, "Cooked/Meshes/Grass.stmesh" );
     EXPECT_FLOAT_EQ( data.ScaleX.Min, 0.11f );
@@ -86,6 +99,9 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
     EXPECT_FLOAT_EQ( data.Height.Max, 262144.0f );
     EXPECT_FLOAT_EQ( data.CullDistance.Min, 0.0f );
     EXPECT_FLOAT_EQ( data.CullDistance.Max, 0.0f );
+    // FOLT 4 (FO-7): a raised type stands still, as every v3 field drew.
+    EXPECT_EQ( data.Wind, Assets::Serialization::FoliageWind{} );
+    EXPECT_FLOAT_EQ( data.Wind.Strength, 0.0f );
 }
 
 TEST( FoliageTypeMigration, OnlyVersionOneIsRaised )
@@ -116,11 +132,61 @@ TEST( FoliageTypeMigration, OnlyVersionTwoIsRaisedToThree )
     EXPECT_NE( three.GetError().find( "FOLT 3" ), std::string::npos ) << three.GetError();
 }
 
+TEST( FoliageTypeMigration, OnlyVersionThreeIsRaisedToFourAndKeepsItsCullDistance )
+{
+    const auto toV2 = Migration::MigrateFoliageTypeV1ToV2( kV1 );
+    ASSERT_TRUE( toV2 ) << toV2.GetError();
+    const auto toV3 = Migration::MigrateFoliageTypeV2ToV3( toV2.GetValue() );
+    ASSERT_TRUE( toV3 ) << toV3.GetError();
+    // The v2 step writes v3, which the engine (v4) refuses until the last step.
+    EXPECT_FALSE( Assets::Serialization::ParseFoliageType( toV3.GetValue() ) );
+
+    // A v3 file as FO-5 wrote it, with a CullDistance the step must carry.
+    const std::string v3 = R"({
+    "Header": {
+        "Kind": "FoliageType",
+        "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
+        "Versions": { "FOLT": 3 },
+        "Dependencies": [ "11112222333344445555666677778888" ]
+    },
+    "Mesh": { "Guid": "11112222333344445555666677778888", "Path": "Cooked/Meshes/Grass.stmesh" },
+    "Density": 300.0,
+    "ScaleX": { "Min": 0.3, "Max": 0.5 },
+    "ZOffset": { "Min": 0.0, "Max": 0.0 },
+    "AlignToNormal": true,
+    "RandomYaw": true,
+    "RandomPitchAngle": 0.0,
+    "GroundSlopeAngle": { "Min": 0.0, "Max": 90.0 },
+    "Height": { "Min": -262144.0, "Max": 262144.0 },
+    "LandscapeLayers": [],
+    "MinimumLayerWeight": 0.0,
+    "CullDistance": { "Min": 1500.0, "Max": 4000.0 }
+})";
+
+    const auto two = Migration::MigrateFoliageTypeV3ToV4( toV2.GetValue() );
+    ASSERT_FALSE( two );
+    EXPECT_NE( two.GetError().find( "FOLT 2" ), std::string::npos ) << two.GetError();
+
+    const auto toV4 = Migration::MigrateFoliageTypeV3ToV4( v3 );
+    ASSERT_TRUE( toV4 ) << toV4.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV4.GetValue() );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    EXPECT_EQ( parsed.GetValue().Header->Versions.at( "FOLT" ), 4u );
+    EXPECT_EQ( parsed.GetValue().Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
+    EXPECT_FLOAT_EQ( parsed.GetValue().CullDistance.Min, 1500.0f );
+    EXPECT_FLOAT_EQ( parsed.GetValue().CullDistance.Max, 4000.0f );
+    EXPECT_FLOAT_EQ( parsed.GetValue().Wind.Strength, 0.0f );
+
+    const auto four = Migration::MigrateFoliageTypeV3ToV4( toV4.GetValue() );
+    ASSERT_FALSE( four );
+    EXPECT_NE( four.GetError().find( "FOLT 4" ), std::string::npos ) << four.GetError();
+}
+
 TEST( FoliageTypeMigration, ARaisedFileIsAFixedPoint )
 {
     const auto toV2 = Migration::MigrateFoliageTypeV1ToV2( kV1 );
     ASSERT_TRUE( toV2 );
-    const auto raised = Migration::MigrateFoliageTypeV2ToV3( toV2.GetValue() );
+    const auto raised = RaiseV2ToEngine( toV2.GetValue() );
     ASSERT_TRUE( raised );
     const auto parsed = Assets::Serialization::ParseFoliageType( raised.GetValue() );
     ASSERT_TRUE( parsed );

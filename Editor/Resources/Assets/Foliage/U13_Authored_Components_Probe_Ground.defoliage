@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 3
+            "FOLT": 4
         },
         "Dependencies": []
     },
@@ -36,5 +36,11 @@
     "CullDistance": {
         "Min": 0.0,
         "Max": 0.0
+    },
+    "Wind": {
+        "Strength": 0.0,
+        "Speed": 0.5,
+        "Height": 100.0,
+        "DirectionDegrees": 0.0
     }
 }
