@@ -32,7 +32,9 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODSwitch.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
@@ -96,7 +98,22 @@ namespace Desert::Core
             std::string          ActivatedUnits;     // Rules::DescribeResidencyUnit of each, space-separated
             std::size_t          LiveRecords   = 0;  // records held as entities after the tick
             std::size_t          LoadsInFlight = 0;  // cell reads still on a worker after the tick
+            // Whether streaming keeps up, and whether the game must wait (WorldPartitionStreamingPerformance.hpp).
+            Rules::StreamingAssessment Streaming;
         };
+
+        // True while a cell under the streaming source is not resident: the host stops gameplay time and
+        // draws the loading overlay, and keeps calling Tick — the loader reads on its workers meanwhile.
+        [[nodiscard]] bool BlocksPlay() const
+        {
+            return m_LastTick.Streaming.Blocks();
+        }
+
+#if DESERT_DEV_INSTRUMENTS
+        // DEV ONLY: every cell read is reported @p ticks Ticks late, so a flight can outrun streaming on
+        // purpose (the editor's --stream-delay-ticks). Ticks and not milliseconds, so a capture is reproducible.
+        void SetDebugLoadDelayTicks( std::uint32_t ticks );
+#endif
         [[nodiscard]] const TickReport& LastTick() const
         {
             return m_LastTick;
@@ -194,6 +211,7 @@ namespace Desert::Core
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;
+        std::uint32_t m_FramesWaiting = 0;
 
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
         std::vector<std::vector<Common::UUID>> m_HLODIds;

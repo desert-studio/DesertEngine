@@ -2879,7 +2879,11 @@ namespace Desert::Editor
 
         {
             DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
-            if ( auto frame = scene.OnUpdate( ts ); !frame )
+            // Play's time stops while streaming waits for the cell under the camera (WP12, decision O2); the
+            // streamer's Tick above goes on, so the loader keeps reading and the wait ends by itself.
+            const bool streamingWaits =
+                 m_WorldStreamer && m_WorldStreamer->Streams( scene ) && m_WorldStreamer->BlocksPlay();
+            if ( auto frame = scene.OnUpdate( streamingWaits ? Common::Timestep( 0.0f ) : ts ); !frame )
                 return Common::MakeError( frame.GetError() );
         }
 
@@ -9118,6 +9122,14 @@ namespace Desert::Editor
         }
         m_WorldStreamer    = streamer.ExtractValue();
         m_WorldStreamClock = 0.0;
+#if DESERT_DEV_INSTRUMENTS
+        if ( m_WorldStreamer && ShotOptions::Get().StreamDelayTicks > 0 )
+        {
+            m_WorldStreamer->SetDebugLoadDelayTicks( ShotOptions::Get().StreamDelayTicks );
+            LOG_WARN( "[WorldPartition] DEV: every cell read is reported {0} frame(s) late (--stream-delay-ticks)",
+                      ShotOptions::Get().StreamDelayTicks );
+        }
+#endif
         // Play-time changes are discarded on Stop anyway, and the Stop restore recreates every entity —
         // an undo stack recorded against the authored scene must not fire into either state.
         CommandHistory::Get().Clear();

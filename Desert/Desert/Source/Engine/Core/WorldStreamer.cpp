@@ -246,6 +246,16 @@ namespace Desert::Core
         m_LastTick.LiveRecords           = Executor().LiveRecords();
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
+        m_LastTick.Streaming =
+             Rules::AssessStreaming( Executor().Plan(), m_Settings, Executor().State(), std::span( &source, 1 ) );
+        const bool wasWaiting = m_FramesWaiting > 0;
+        m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
+        if ( m_FramesWaiting == 1 )
+            LOG_INFO( "[WorldPartition] '{0}': the cell under the camera ({1}) is not resident; play waits for it",
+                      m_SceneName, Rules::DescribeResidencyUnit( Executor().Plan(), m_LastTick.Streaming.UnderSource ) );
+        else if ( wasWaiting && m_FramesWaiting == 0 )
+            LOG_INFO( "[WorldPartition] '{0}': the cell under the camera is resident; play resumes", m_SceneName );
+        m_Scene->GetRegistry().set<WorldStreamingWait>( WorldStreamingWait{ m_LastTick.Streaming, m_FramesWaiting } );
         // A reference across a cell boundary is legal and its reader handles the absence — but it is SAID.
         if ( done.DeferredReferences > 0 || done.UnboundReferences > 0 )
         {
@@ -256,6 +266,13 @@ namespace Desert::Core
         }
         return BOOLSUCCESS;
     }
+
+#if DESERT_DEV_INSTRUMENTS
+    void WorldStreamer::SetDebugLoadDelayTicks( std::uint32_t ticks )
+    {
+        m_Loader->SetDebugDelayTicks( ticks );
+    }
+#endif
 
     void WorldStreamer::StartLoad( std::size_t unit, std::uint64_t ticket )
     {
@@ -377,6 +394,10 @@ namespace Desert::Core
 
     WorldStreamer::~WorldStreamer()
     {
+        // The scene outlives its streamer (hosts reset the streamer before clearing the scene); what the
+        // streamer said about it must not outlive the streamer.
+        if ( m_Scene != nullptr )
+            m_Scene->GetRegistry().unset<WorldStreamingWait>();
         if ( !m_Executor.has_value() )
             return;
         LOG_INFO( "[WorldPartition] '{0}': streamed {1} activation(s), {2} record(s) in {3:.2f} ms on the main "
