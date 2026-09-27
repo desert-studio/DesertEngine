@@ -62,13 +62,12 @@ namespace Desert::Player
         Engine::Application* m_Application = nullptr;
 
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
-        // BEFORE the preloader, which holds a non-owning reference to it and must therefore not outlive
-        // it: members are destroyed in reverse declaration order.
-        // The boot's own record: one named, timed stage per preload, plus the systems and the scene load.
+        // The boot's own record: one named, timed stage per boot function, plus the systems and the scene load.
         // A MEMBER AND NOT A LOCAL IN OnAttach, because the summary is logged after the scene has loaded
         // and a local would have gone out of scope with the stage list in it.
         Core::BootTimeline m_Boot{ "Runtime" };
 
+        // The library the boot's "Indexing animation clips" stage fills (Assets::IndexAnimationClips).
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
         std::unique_ptr<Graphic::SceneRenderer>      m_SceneRenderer;
         std::shared_ptr<Core::Scene>                 m_Scene;

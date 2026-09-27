@@ -449,7 +449,7 @@ namespace Desert::Editor
         m_ImportManager = std::make_unique<ImportManager>();
         // Cook only what's missing/stale (skips the expensive Assimp re-parse on every launch). Collections
         // hold packs (a character + its animation FBXs), so they're cooked too — their outputs land under
-        // Cooked/Meshes/Collections/... where the preloader discovers them (see CookPaths::CookedSkinned).
+        // Cooked/Meshes/Collections/... where the content registry gathers them (see CookPaths::CookedSkinned).
         //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
@@ -457,7 +457,7 @@ namespace Desert::Editor
         // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
         //
         // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
-        // JobSystem after the reveal (StartBackgroundCook) and the preload reads whatever cook is on the disk.
+        // JobSystem after the reveal (StartBackgroundCook) and the registry lists whatever cook is on the disk.
         // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
         // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
         // this repository then committed had no producer in any automatic path -- and a stale one (a container
@@ -483,19 +483,22 @@ namespace Desert::Editor
                                          Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
                                          (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                                      },
-                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); } } );
+                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr,
+                                     0 } );
         // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
         // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
         // names them, and the scene settle below waits for the ones the scene names.
         m_StartupStages.push_back(
              { "Indexing animation clips...",
                [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); }, kSecondsPerClipRow,
-               [] { return Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size(); } } );
+               [] { return Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size(); },
+               nullptr, 0 } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.
-        m_StartupStages.push_back(
-             { "Requesting string tables...", [this] { Assets::RequestStringTables( m_AssetManager ); } } );
+        m_StartupStages.push_back( { "Requesting string tables...",
+                                     [this] { Assets::RequestStringTables( m_AssetManager ); }, kSecondsPerClipRow,
+                                     nullptr, nullptr, 0 } );
 
         // WHAT THIS MACHINE CAN AFFORD — a different file from editor.json and deliberately so (К3).
         // editor.json is one person's copy of the EDITOR and the packaged game never opens it, while every
@@ -1330,12 +1333,9 @@ namespace Desert::Editor
                     Assets::SyncLoadLedger::NoteBootFinished();
                     LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
                     LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
-                    // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER. The
-                    // eager preloader's directory walk is what mints them, so this number IS the size
-                    // of the path->handle inverse the engine holds at that moment — and therefore the
-                    // exact quantity the demand-driven model has to reproduce some other way once the
-                    // walk stops happening (GAP_ANALYSIS T2.4). Beside the two lines above because it
-                    // answers the same question they do: what did the boot buy.
+                    // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER: the registry's
+                    // rows publish them before anything is created (T2.4), so this is the size of the
+                    // path->handle inverse the engine holds without having created a single content shell.
                     LOG_INFO( "[AssetPathIndex] boot finished — {} handle(s) can name their own path",
                               Common::AssetPathIndex::Size() );
                     // AND WHAT IT COST TO MINT THEM. The line above is only an achievement next to this
