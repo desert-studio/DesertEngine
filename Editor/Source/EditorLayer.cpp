@@ -89,6 +89,7 @@
 #include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Engine/World/Landscape/LandscapeHeightmapIO.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -1266,6 +1267,18 @@ namespace Desert::Editor
 
         ServiceControlChannel();
 
+        // A New Landscape run that finished on the JobSystem is applied here, on the main thread and ahead of
+        // this frame's scene update, as one undo step. A cancel is the user's own act, so it is told, not flagged.
+        if ( auto created = Commands::FinishCreateLandscape() )
+        {
+            if ( created->IsSuccess() )
+                Editor::ToastManager::Push( "New Landscape created", Editor::ToastLevel::Info, 3.0f );
+            else if ( created->GetError() == World::Landscape::kLandscapeGenerateCancelled )
+                Editor::ToastManager::Push( "New Landscape cancelled", Editor::ToastLevel::Info, 3.0f );
+            else
+                Editor::ToastManager::Push( created->GetError(), Editor::ToastLevel::Error, 6.0f );
+        }
+
         // Staged startup loading: run ONE heavy stage per frame. While loading, the scene is NOT rendered
         // at all (shaders/assets aren't there yet — rendering before the preload stage crashed on the
         // missing StaticMeshPBR shader); the frame is ImGui-only and the window it goes to is still hidden.
@@ -2182,6 +2195,9 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
+        // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
+        // Create answers "started" at once and a client polls `state` until idle before photographing it.
+        quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
         m_FrameQuiescence = quiescence;
     }
 
@@ -4815,6 +4831,85 @@ namespace Desert::Editor
                                   Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Sculpt;
                                   return PaletteCommandDone();
                               } } );
+        // NEW LANDSCAPE (UE's Manage tab): the mode, the fill, the erosion passes and Create, so a generated
+        // landscape can be made and photographed unattended.
+        commands.push_back( { "Landscape", "Manage mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Manage;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Landscape", "New Landscape: noise fill with erosion and hydro erosion", []
+                              {
+                                  auto& s        = Core::LandscapeSculptState::Get().NewLandscape;
+                                  s.Fill         = World::Landscape::LandscapeGenerateFill::Noise;
+                                  s.Erosion      = true;
+                                  s.HydroErosion = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // The same fill without the passes: with the preset above, one seed photographed before and after erosion.
+        commands.push_back( { "Landscape", "New Landscape: noise fill without erosion", []
+                              {
+                                  auto& s        = Core::LandscapeSculptState::Get().NewLandscape;
+                                  s.Fill         = World::Landscape::LandscapeGenerateFill::Noise;
+                                  s.Erosion      = false;
+                                  s.HydroErosion = false;
+                                  return PaletteCommandDone();
+                              } } );
+        // Starts the background run and answers at once; `state` reports it (BackgroundWork::LandscapeGenerate).
+        commands.push_back( { "Landscape", "New Landscape: Create", [this] {
+                                 return Commands::StartCreateLandscape(
+                                      m_MainScene, Core::LandscapeSculptState::Get().NewLandscape );
+                             } } );
+        commands.push_back( { "Landscape", "New Landscape: Cancel", []
+                              {
+                                  if ( !Commands::IsCreatingLandscape() )
+                                      return PaletteCommandOutcome( false,
+                                                                    "new landscape: nothing is being generated" );
+                                  Commands::CancelCreateLandscape();
+                                  return PaletteCommandDone();
+                              } } );
+        // HEIGHTMAP IMPORT / EXPORT (UE's Manage mode, LS-11). PaletteCommand::Run takes no argument, so the path
+        // is in the label: one Import entry per 16-bit PNG / RAW file under Assets/Landscape/Heightmaps (as "Drop
+        // into the viewport:" names each mesh), and Export entries that name the file they write there.
+        {
+            const std::filesystem::path heightmaps =
+                 Common::Constants::Path::ASSETS_PATH / "Landscape" / "Heightmaps";
+            std::vector<std::filesystem::path> files;
+            std::error_code                    ec;
+            for ( const auto& entry : std::filesystem::directory_iterator( heightmaps, ec ) )
+                if ( entry.is_regular_file() &&
+                     World::Landscape::LandscapeHeightmapFormatOf( entry.path() ).IsSuccess() )
+                    files.push_back( entry.path() );
+            std::sort( files.begin(), files.end() );
+            for ( const auto& file : files )
+            {
+                const std::string rel =
+                     file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+                commands.push_back( { "Landscape", "Import heightmap as a new landscape: " + rel, [this, file]
+                                      {
+                                          auto made = Commands::ImportLandscapeHeightmapAsNew(
+                                               m_MainScene, file, Core::LandscapeSculptState::Get().NewLandscape );
+                                          return made.IsSuccess()
+                                                      ? PaletteCommandDone()
+                                                      : PaletteCommandOutcome( false, made.GetError() );
+                                      } } );
+                commands.push_back( { "Landscape", "Import heightmap into the landscape: " + rel, [this, file]
+                                      { return Commands::ImportLandscapeHeightmap( m_MainScene, file ); } } );
+            }
+            for ( const auto& [name, selected] : std::initializer_list<std::pair<const char*, bool>>{
+                       { "Landscape.png", false }, { "Landscape.r16", false }, { "SelectedTiles.png", true } } )
+            {
+                const std::filesystem::path file = heightmaps / name;
+                const std::string           rel =
+                     file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+                commands.push_back(
+                     { "Landscape",
+                       ( selected ? "Export heightmap of the selected tiles: " : "Export heightmap: " ) + rel,
+                       [this, file, selected]
+                       { return Commands::ExportLandscapeHeightmap( m_MainScene, file, selected ); } } );
+            }
+        }
         // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
         // Layers list, so a frame can show a list and a stroke unattended.
         for ( const char* label : { "Paint mode", "Tool: Paint" } )
@@ -4826,7 +4921,7 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
-        commands.push_back( { "Landscape", "Add layer", [this]
+        commands.push_back( { "Landscape", "Create Layer Info", [this]
                               {
                                   auto added = Commands::AddLandscapeLayer( m_MainScene );
                                   if ( !added.IsSuccess() )
@@ -4844,9 +4939,15 @@ namespace Desert::Editor
                  landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
             if ( root != entt::null )
             {
-                for ( const auto& layer : registry.get<ECS::LandscapeComponent>( root ).Layers )
+                // A layer whose `.delayerinfo` is not read yet has no name to offer; it appears once it is.
+                auto& layers = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                for ( const Assets::AssetHandle& handle : registry.get<ECS::LandscapeComponent>( root ).Layers )
                 {
-                    commands.push_back( { "Landscape", "Target layer: " + layer.Name, [this, name = layer.Name]
+                    const auto* info = layers.Get( handle );
+                    if ( !info )
+                        continue;
+                    commands.push_back( { "Landscape", "Target layer: " + info->LayerName,
+                                          [this, handle, name = info->LayerName]
                                           {
                                               auto&      reg   = m_MainScene->GetRegistry();
                                               const auto id    = ECS::FirstLandscape( reg );
@@ -4856,7 +4957,7 @@ namespace Desert::Editor
                                               if ( r != entt::null )
                                                   for ( const auto& l :
                                                         reg.get<ECS::LandscapeComponent>( r ).Layers )
-                                                      found = found || l.Name == name;
+                                                      found = found || l == handle;
                                               if ( !found )
                                                   return PaletteCommandOutcome( false, "landscape layer '" + name +
                                                                                             "' no longer exists" );

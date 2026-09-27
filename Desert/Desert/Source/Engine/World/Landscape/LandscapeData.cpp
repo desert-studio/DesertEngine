@@ -552,11 +552,10 @@ namespace Desert::World::Landscape
                                                        "expected 'DLHT'",
                                                        at[0], at[1], at[2], at[3] );
         const uint32_t version = Assets::ReadU32( at + 4 );
-        if ( version != kLandscapeTileContainerVersion && version != kLandscapeTileContainerVersionV1 )
-            return Common::MakeFormattedError<Result>( "Landscape tile blob version {} is not one of the "
-                                                       "supported {} and {}",
-                                                       version, kLandscapeTileContainerVersionV1,
-                                                       kLandscapeTileContainerVersion );
+        if ( version != kLandscapeTileContainerVersion )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob version {} is not the supported {} "
+                                                       "(older tiles are not read)",
+                                                       version, kLandscapeTileContainerVersion );
 
         // The checksum before any field is believed: a header bit flip that keeps every length consistent
         // is exactly what the checks below cannot see.
@@ -583,9 +582,7 @@ namespace Desert::World::Landscape
             return Common::MakeFormattedError<Result>( "Landscape tile blob of {} x {} states {} payload bytes, "
                                                        "the dimensions need {}",
                                                        samplesX, samplesZ, payloadBytes, expected );
-        const bool hasWeights = version >= 2u;
-        if ( hasWeights ? covered < kLandscapeTileHeaderSize + expected + 4u
-                        : covered != kLandscapeTileHeaderSize + expected )
+        if ( covered < kLandscapeTileHeaderSize + expected + 4u )
             return Common::MakeFormattedError<Result>(
                  "Landscape tile blob is {} bytes, header + payload + trailer "
                  "is {}",
@@ -596,7 +593,7 @@ namespace Desert::World::Landscape
         for ( size_t i = 0; i < samples.size(); ++i )
             samples[i] = static_cast<uint16_t>( payload[2u * i] | ( payload[2u * i + 1u] << 8 ) );
         auto tile = LandscapeTileData::FromSamples( samplesX, samplesZ, std::move( samples ) );
-        if ( !tile || !hasWeights )
+        if ( !tile )
             return tile;
 
         // The weight section: every length is checked against the bytes that remain before it is used.

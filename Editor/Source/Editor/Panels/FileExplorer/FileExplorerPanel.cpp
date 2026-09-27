@@ -212,6 +212,8 @@ namespace Desert::Editor
          // filter — and so the census above applies to it: it needs a row in ThumbnailFormats.hpp saying
          // who makes its picture or why nobody does.
          { "detheme", FileType::UITheme },
+         // The landscape layer info (LS-12b); ThumbnailFormats.hpp says why nobody paints its picture.
+         { "delayerinfo", FileType::LandscapeLayerInfo },
     };
 
     static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
@@ -228,6 +230,7 @@ namespace Desert::Editor
          { FileType::Cloud, { 0.62f, 0.78f, 0.95f, 1.00f } },
          { FileType::Ini, { 0.65f, 0.65f, 0.68f, 1.00f } },
          { FileType::UITheme, { 0.95f, 0.72f, 0.30f, 1.00f } },
+         { FileType::LandscapeLayerInfo, { 0.45f, 0.70f, 0.30f, 1.00f } },
     };
 
     static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
@@ -247,6 +250,7 @@ namespace Desert::Editor
          { FileType::Cloud, ICON_MDI_WEATHER_CLOUDY },
          { FileType::Ini, ICON_MDI_FILE_DOCUMENT },
          { FileType::UITheme, ICON_MDI_PALETTE },
+         { FileType::LandscapeLayerInfo, ICON_MDI_LAYERS },
     };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,

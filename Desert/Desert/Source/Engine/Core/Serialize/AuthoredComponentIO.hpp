@@ -43,7 +43,7 @@
 //      reader here takes a Json::Node rooted at the component's place in the scene and an Issues list:
 //      a value of the wrong type — or a number the field cannot hold, like 1e300 for a float, which a
 //      cast would have made infinity — becomes an Issue naming the full path
-//      ("Entities[id=4127].Foliage.Density"), and the field keeps the value it had.
+//      ("Entities[id=4127].Locomotion.WalkSpeed"), and the field keeps the value it had.
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -87,41 +87,6 @@ namespace Desert::Core::Serialize
                 out = std::move( read );
         }
     } // namespace AuthoredIO
-
-    // ── FOLIAGE TYPE ───────────────────────────────────────────────────────────────────────────────
-    // The scatter parameters the paint brush reads (Editor/.../Tools/FoliagePaintTool.cpp). Losing
-    // these is the most visible of the five: the next paint dab after a reload scatters at a density
-    // and a scale nobody asked for, and the instances already on the terrain do not match it.
-    inline Common::Json::Object WriteComponent( const ECS::FoliageComponent& c )
-    {
-        return Common::Json::ObjectBuilder()
-             .Set( "Density", c.Density )
-             .Set( "ScaleMin", c.ScaleMin )
-             .Set( "ScaleMax", c.ScaleMax )
-             .Set( "ZOffsetMin", c.ZOffsetMin )
-             .Set( "ZOffsetMax", c.ZOffsetMax )
-             .Set( "MaxPitchDeg", c.MaxPitchDeg )
-             .Set( "SlopeMinDeg", c.SlopeMinDeg )
-             .Set( "SlopeMaxDeg", c.SlopeMaxDeg )
-             .Set( "AlignToNormal", c.AlignToNormal )
-             .Set( "RandomYaw", c.RandomYaw )
-             .Build();
-    }
-
-    inline void ReadComponent( const Common::Json::Node& from, ECS::FoliageComponent& c,
-                               Common::Json::Issues& issues )
-    {
-        from.ReadInto( "Density", c.Density, issues );
-        from.ReadInto( "ScaleMin", c.ScaleMin, issues );
-        from.ReadInto( "ScaleMax", c.ScaleMax, issues );
-        from.ReadInto( "ZOffsetMin", c.ZOffsetMin, issues );
-        from.ReadInto( "ZOffsetMax", c.ZOffsetMax, issues );
-        from.ReadInto( "MaxPitchDeg", c.MaxPitchDeg, issues );
-        from.ReadInto( "SlopeMinDeg", c.SlopeMinDeg, issues );
-        from.ReadInto( "SlopeMaxDeg", c.SlopeMaxDeg, issues );
-        from.ReadInto( "AlignToNormal", c.AlignToNormal, issues );
-        from.ReadInto( "RandomYaw", c.RandomYaw, issues );
-    }
 
     // ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────
     // The state -> clip mapping LocomotionSystem reads. The clip NAMES are the whole point: a lost
@@ -243,91 +208,23 @@ namespace Desert::Core::Serialize
     // Hand-mapped for the reason the file header gives: the tile's `Landscape` is a Common::UUID, which is
     // not a reflectable field type, and the tile carries loaded heights that must NOT be written. The root
     // goes with it so the two halves of one feature are read in one place.
+    // `Layers` is not here: it names `.delayerinfo` assets by {Guid, Path}, and resolving a GUID needs the
+    // asset manager — the registry's Landscape serializer (ComponentRegistry.cpp) writes and reads it.
     inline Common::Json::Object WriteComponent( const ECS::LandscapeComponent& c )
     {
-        // Written even when empty: an undo restores the whole block, and an absent key keeps the current
-        // value (rule 1), so an omitted empty list would leave a just-added layer in place after its undo.
-        Common::Json::Value::Array layers;
-        layers.reserve( c.Layers.size() );
-        for ( const auto& layer : c.Layers )
-            layers.emplace_back( Common::Json::ObjectBuilder()
-                                      .Set( "Name", layer.Name )
-                                      .Set( "Hardness", layer.Hardness )
-                                      .Set( "NoWeightBlend", layer.NoWeightBlend )
-                                      .Set( "Color", layer.Color )
-                                      .Build() );
         return Common::Json::ObjectBuilder()
              .Set( "QuadsPerTile", c.QuadsPerTile )
              .Set( "SpacingCm", c.SpacingCm )
              .Set( "ZScale", c.ZScale )
-             .Set( "Layers", Common::Json::Value( std::move( layers ) ) )
              .Build();
     }
 
-    /// The layer list of one Landscape block, or the reason it cannot be one. A name is the key every tile's
-    /// weight plane is looked up by, so an empty, over-long or repeated name would make a plane unreachable
-    /// or ambiguous; Hardness is a 0..1 share (LandscapeLayerRule). A wrong-typed field of one layer is an
-    /// Issue and keeps that field's default; the rules above then judge the layer as read.
-    inline Common::ResultStr<std::vector<ECS::LandscapeLayerInfo>>
-    ReadLandscapeLayers( const Common::Json::Node& value, Common::Json::Issues& issues )
-    {
-        using Layers = std::vector<ECS::LandscapeLayerInfo>;
-        if ( value.GetKind() != Common::Json::Kind::Array )
-            return Common::MakeError<Layers>( "'Layers' is not an array" );
-        Layers                     read;
-        std::optional<std::string> refusal;
-        value.ForEachElement(
-             [&]( std::size_t index, const Common::Json::Node& element )
-             {
-                 if ( refusal )
-                     return;
-                 if ( element.GetKind() != Common::Json::Kind::Object )
-                 {
-                     refusal = std::format( "layer {} is not an object", index );
-                     return;
-                 }
-                 ECS::LandscapeLayerInfo layer;
-                 element.ReadInto( "Name", layer.Name, issues );
-                 element.ReadInto( "Hardness", layer.Hardness, issues );
-                 element.ReadInto( "NoWeightBlend", layer.NoWeightBlend, issues );
-                 element.ReadInto( "Color", layer.Color, issues );
-                 if ( layer.Name.empty() )
-                     refusal = std::format( "layer {} has no name", index );
-                 else if ( layer.Name.size() > World::Landscape::kLandscapeMaxWeightLayerName )
-                     refusal = std::format( "layer '{}' is {} bytes long, the limit is {}", layer.Name,
-                                            layer.Name.size(), World::Landscape::kLandscapeMaxWeightLayerName );
-                 else if ( std::isnan( layer.Hardness ) || layer.Hardness < 0.0f || layer.Hardness > 1.0f )
-                     refusal =
-                          std::format( "layer '{}' has Hardness {}, outside 0..1", layer.Name, layer.Hardness );
-                 else
-                     for ( const auto& earlier : read )
-                         if ( earlier.Name == layer.Name )
-                             refusal = std::format( "layer '{}' is named twice", layer.Name );
-                 if ( !refusal )
-                     read.push_back( std::move( layer ) );
-             } );
-        if ( refusal )
-            return Common::MakeError<Layers>( *refusal );
-        return Common::MakeSuccess( std::move( read ) );
-    }
-
-    // A refused layer list keeps the current one and is an Issue at "...Landscape.Layers": the same report
-    // line as a wrong-typed field, because it is the same kind of wrong — a file this build did not write.
     inline void ReadComponent( const Common::Json::Node& from, ECS::LandscapeComponent& c,
                                Common::Json::Issues& issues )
     {
         from.ReadInto( "QuadsPerTile", c.QuadsPerTile, issues );
         from.ReadInto( "SpacingCm", c.SpacingCm, issues );
         from.ReadInto( "ZScale", c.ZScale, issues );
-        // Absent in every scene written before layers existed: the list stays as it is (empty on load).
-        if ( const auto value = from.Find( "Layers" ) )
-        {
-            auto layers = ReadLandscapeLayers( *value, issues );
-            if ( layers )
-                c.Layers = layers.ExtractValue();
-            else
-                issues.push_back( { value->Where().ToString(), "a valid layer list", layers.GetError() } );
-        }
     }
 
     // `Heights` is not written: it is what `HeightFile` decodes to, and the registry's LandscapeTile

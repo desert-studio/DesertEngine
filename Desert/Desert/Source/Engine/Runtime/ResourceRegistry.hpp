@@ -18,6 +18,7 @@
 #include "Services/CloudModelling/CloudModellingService.hpp"
 #include "Services/CloudLayout/CloudLayoutService.hpp"
 #include "Services/UITheme/UIThemeService.hpp"
+#include "Services/Landscape/LandscapeLayerInfoService.hpp"
 
 namespace Desert::Runtime
 {
@@ -52,6 +53,9 @@ namespace Desert::Runtime
         // per viewport. Owns nothing on the GPU: the one device object a theme reaches (a font atlas)
         // belongs to FontService, which is where this one binds its font paths.
         static UIThemeService* GetUIThemeService();
+        // The `.delayerinfo` assets a landscape's target layers name (LS-12b): read on demand, held as the
+        // assets themselves so a panel edit re-read into one is what every reader sees. Owns nothing on the GPU.
+        static LandscapeLayerInfoService* GetLandscapeLayerInfoService();
 
         // Clear() every service above. Called once, from Renderer::Shutdown(), i.e. from ~Application and
         // therefore inside main. WHY IT HAS TO BE SAID OUT LOUD: each service is a function-local static,
