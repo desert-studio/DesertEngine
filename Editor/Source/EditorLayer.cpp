@@ -5194,11 +5194,32 @@ namespace Desert::Editor
                                   } } );
 
         // Select Elements' options for Subdivide, Mirror, Plane Cut and Trim.
-        modelingOnOff( "Modeling", "Subdivide: Smooth (Loop)",
-                       []( MS& ms, bool on ) {
-                           ms.ElementSubdivideScheme =
-                                on ? Geometry::SubdivideScheme::Loop : Geometry::SubdivideScheme::Uniform;
-                       } );
+        for ( const auto scheme : { Geometry::SubdivisionScheme::Bilinear, Geometry::SubdivisionScheme::CatmullClark,
+                                    Geometry::SubdivisionScheme::Loop } )
+            commands.push_back( { "Modeling", std::string( "Subdivide scheme: " ) + Geometry::ToString( scheme ),
+                                  [scheme]
+                                  {
+                                      MS::Get().ElementSubdivide.Scheme = scheme;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto boundary :
+              { Geometry::SubdivisionBoundaryScheme::SmoothCorners, Geometry::SubdivisionBoundaryScheme::SharpCorners } )
+            commands.push_back( { "Modeling", std::string( "Subdivide boundary: " ) + Geometry::ToString( boundary ),
+                                  [boundary]
+                                  {
+                                      MS::Get().ElementSubdivide.Boundary = boundary;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto normals :
+              { Geometry::SubdivisionOutputNormals::Interpolated, Geometry::SubdivisionOutputNormals::Generated } )
+            commands.push_back( { "Modeling", std::string( "Subdivide normals: " ) + Geometry::ToString( normals ),
+                                  [normals]
+                                  {
+                                      MS::Get().ElementSubdivide.Normals = normals;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Subdivide: New PolyGroups",
+                       []( MS& ms, bool on ) { ms.ElementSubdivide.NewPolyGroups = on; } );
         static constexpr std::array<const char*, 3> kAxisNames = { "X", "Y", "Z" };
         for ( int axis = 0; axis < 3; ++axis )
         {

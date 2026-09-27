@@ -62,6 +62,7 @@ project "Desert"
         "Lua",
         "Optick",
         "MeshOptimizer",
+        "OpenSubdiv",
     }
     
     for _, define in ipairs(deps.Common.Defines) do

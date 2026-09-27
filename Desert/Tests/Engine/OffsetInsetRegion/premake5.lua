@@ -40,6 +40,8 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/MergeCoincidentMeshEdges.cpp",
         -- RunRegionOperation and what it and the tangent-cube test call: selection, render conversion
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshRegionOperation.cpp",
+        -- Subdivide (P15): the SubdividePoly port and the OpenSubdiv refiner it runs on
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/SubdividePoly.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/DynamicMeshSelection.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/DynamicMeshRenderConversion.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp",
@@ -54,6 +56,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",        -- <Engine/Geometry/MeshCore/*.hpp>
     }
+    externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/OpenSubdiv" }
 
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
@@ -67,7 +70,7 @@ project(test_name)
         defines { define }
     end
 
-    links { "Common", "Optick" }
+    links { "Common", "Optick", "OpenSubdiv" }
 
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do

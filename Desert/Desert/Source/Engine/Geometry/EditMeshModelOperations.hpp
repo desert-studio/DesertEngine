@@ -9,51 +9,14 @@
 
 namespace Desert::Geometry
 {
-    // WHOLE-MESH SHAPE OPERATIONS - UE's Model tab: Subdivide (USubdividePolyTool, the Loop scheme on
-    // triangles), Plane Cut (UPlaneCutTool), Trim (UTrimMeshesTool) and Mirror (UMirrorTool: a plane, the
-    // seam welded, optionally the far half cropped first).
+    // WHOLE-MESH SHAPE OPERATIONS - UE's Model tab: Plane Cut (UPlaneCutTool), Trim (UTrimMeshesTool) and
+    // Mirror (UMirrorTool: a plane, the seam welded, optionally the far half cropped first). Subdivide runs on
+    // the ported core (MeshRegionOperation.hpp SubdivideMesh, P15).
     //
     // Same contract as EditMeshOperations.hpp: pure functions, the input is not touched, the result is a NEW
     // EditMesh; a refusal leaves nothing half-done and names what and where. None takes a selection: each
     // acts on every triangle and hands back an empty one (Plane Cut: its cap), as every ID changes. Units are
     // centimetres in the mesh's own space.
-
-    enum class SubdivideScheme : uint8_t
-    {
-        // Every triangle is cut into four at its edge midpoints; no vertex moves, so the shape, the volume
-        // and every attribute value stay exactly what they were - only the tessellation is finer.
-        Uniform,
-        // The same split, then Loop's smoothing masks: an old interior vertex of valence n moves to
-        // (1 - n*beta) * itself + beta * its neighbours (beta = 3/16 for n = 3, else 3/(8n)); a new interior
-        // edge vertex to 3/8 of each end + 1/8 of each opposite corner. The surface shrinks towards the
-        // smooth limit (a cube's volume falls monotonically, level after level).
-        Loop,
-    };
-
-    [[nodiscard]] const char* ToString( SubdivideScheme scheme );
-
-    // Level N quadruples the triangle count N times; above this the mesh is refused, named with the count.
-    inline constexpr int kMaxSubdivideLevels     = 5;
-    inline constexpr int kMaxSubdividedTriangles = 4 * 1024 * 1024;
-
-    // SUBDIVIDE the whole mesh `levels` times (1 .. kMaxSubdivideLevels).
-    //   * Open border: its vertices do not move and its new edge vertices sit at the exact midpoint, under
-    //     both schemes - the border stays the polyline it was (Loop's own boundary mask is a B-spline that
-    //     pulls a curved border inwards; a hole the user modelled must keep its size). A bowtie vertex is
-    //     pinned the same way: it has no single ring to average.
-    //   * Polygroup and material: each of the four children keeps its parent triangle's.
-    //   * UVs, colours: carried with their seams - a new edge vertex gets one element per distinct pair of
-    //     end elements, so an edge that was a seam is a seam in both of its halves; the value is the
-    //     midpoint of the two (UVs are not smoothed: a texture must not slide over the surface).
-    //   * Normals, Uniform: carried the same way, the midpoint renormalised - the faces are the same planes,
-    //     so the interpolated normal is still the right one.
-    //   * Normals, Loop: REBUILT smooth, one element per vertex, the angle-weighted average of its
-    //     triangles. Loop rounds every edge, the ones a hard normal marked included; a hard normal left on a
-    //     surface with no crease under it would draw a line the geometry does not have.
-    //   * Tangents: rebuilt from UV layer 0 and the new normals (ComputeTangentsAt).
-    // Refused: levels outside the range, an empty mesh, a result above kMaxSubdividedTriangles.
-    [[nodiscard]] Common::ResultStr<MeshEditOutcome> SubdivideMesh( const EditMesh& mesh, int levels,
-                                                                    SubdivideScheme scheme );
 
     enum class MirrorMode : uint8_t
     {

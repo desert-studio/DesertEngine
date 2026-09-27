@@ -4,6 +4,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/Geometry/EditMeshBridge.hpp> // the EditMesh operations cross here until P11-P17
+#include <Engine/Geometry/MeshRegionOperation.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -47,8 +48,7 @@ namespace Desert::Editor::Core
         float Distance      = 0.0f;  // Extrude .. Outset (cm, signed for Push/Pull and Offset); Bevel's width
         float LoopPosition  = 0.5f;  // Insert Edge Loop, in (0, 1) along each ring edge
         float WeldTolerance   = 0.01f; // Clean, and Mirror's seam, cm
-        int   SubdivideLevels = 1;
-        Geometry::SubdivideScheme SubdivideScheme = Geometry::SubdivideScheme::Loop;
+        Geometry::SubdivideSettings Subdivide{};
         int                       MirrorAxis      = 0;     // 0 = X, 1 = Y, 2 = Z
         bool                      MirrorWorld     = false; // the world's axis through its origin, not the entity's
         bool                      MirrorKeepNegative = false;
