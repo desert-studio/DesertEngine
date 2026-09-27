@@ -33,6 +33,7 @@
 #include <optional>
 #include <limits>
 #include <unordered_map>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -871,7 +872,7 @@ namespace Desert::Editor::Tools
         struct ToolTab
         {
             Core::FoliageTool Tool;
-            const char*       Label;
+            std::string_view  Label; // a literal: .data() is NUL-terminated
         };
         static constexpr ToolTab kTabs[] = {
              { Core::FoliageTool::Paint, ICON_MDI_BRUSH " Paint" },
@@ -887,7 +888,7 @@ namespace Desert::Editor::Tools
         {
             if ( i % 3 != 0 )
                 ImGui::SameLine();
-            if ( ToolTabButton( kTabs[i].Label, tool == kTabs[i].Tool, thirdW ) )
+            if ( ToolTabButton( kTabs[i].Label.data(), tool == kTabs[i].Tool, thirdW ) )
                 tool = kTabs[i].Tool;
         }
         if ( tool == Core::FoliageTool::Select || tool == Core::FoliageTool::Lasso )
