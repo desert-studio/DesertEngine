@@ -887,8 +887,7 @@ TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
             continue;
         // Platform directories compile on one platform only, so a MacOS/Windows pair never meets.
         if ( s.Name.find( "/Platform/MacOS/" ) != std::string::npos ||
-             s.Name.find( "/Platform/Linux/" ) != std::string::npos ||
-             s.Name.find( "lightweightvk" ) != std::string::npos )
+             s.Name.find( "/Platform/Linux/" ) != std::string::npos )
             continue;
         bool optedOut = false;
         for ( const std::string& o : optOuts )

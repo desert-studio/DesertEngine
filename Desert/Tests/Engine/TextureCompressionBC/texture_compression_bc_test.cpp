@@ -5,12 +5,10 @@
 //
 //     // .textureCompressionBC = vkFeatures10_.features.textureCompressionBC, // enable if supported
 //
-// in Graphic/API/Vulkan/VulkanUtils/lightweightvk/VulkanClasses.cpp, and that line reads exactly like a
-// switch somebody merely forgot to flip. It is not. THAT WHOLE FILE IS COMMENTED OUT -- all 8093 lines
-// of it, zero of them code -- and no header outside the vendored `lightweightvk` directory is included
-// by anything in the engine. Uncommenting those two lines would change nothing at all, because the
-// device that the engine actually creates is VulkanLogicalDevice::CreateDevice in VulkanDevice.cpp, and
-// before this suite's change it never mentioned the feature in any form. A comment is not the code.
+// in a vendored third-party Vulkan helper copy (since deleted), and that line read exactly like a switch somebody
+// merely forgot to flip. It was not: that whole file was commented out, and the device the engine
+// actually creates is VulkanLogicalDevice::CreateDevice in VulkanDevice.cpp, which before this suite's
+// change never mentioned the feature in any form. A comment is not the code.
 //
 // WHY A SOURCE CENSUS AND NOT A RUNTIME TEST. The question is "does the device we create ask for this
 // feature", and no test binary in this tree creates a Vulkan device. Worse, a runtime test on THIS
@@ -22,7 +20,7 @@
 // absence of the enable is undetectable at run time here and enforceable on other drivers, which is
 // precisely the combination a source census is for.
 //
-// FOUR ROWS ARE PINNED, each a named statement rather than a count.
+// THREE ROWS ARE PINNED, each a named statement rather than a count.
 
 #include <gtest/gtest.h>
 
@@ -160,7 +158,6 @@ namespace
 
     const char* kDevicePath = "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp";
     const char* kCapsPath   = "Desert/Desert/Source/Engine/Core/Device.hpp";
-    const char* kVendored   = "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanUtils/lightweightvk";
 } // namespace
 
 // ROW 1: the logical device ASKS FOR the feature, in code, not in a comment.
@@ -227,42 +224,6 @@ TEST( TextureCompressionBC, SupportIsReadBeforeItIsAskedFor )
          << "the enable must be gated on the capability. An ungated request for an unsupported feature "
             "does not degrade -- vkCreateDevice returns VK_ERROR_FEATURE_NOT_PRESENT and the engine has "
             "no device at all.";
-}
-
-// ROW 4: the enable does NOT move back into vendored lightweightvk.
-//
-// That tree is carried inside Desert/ rather than under ThirdParty/, which makes it look editable, and
-// the original mention of this feature lives there. It is dead: VulkanClasses.cpp contains no code, and
-// nothing outside the directory includes any of its headers. If a future change puts the enable back
-// there it will be invisible for the same reason it was invisible the first time, so this row asserts
-// the absence of live code mentioning the feature inside it. A comment there is fine -- it is what the
-// file is made of -- so comments are stripped before looking.
-TEST( TextureCompressionBC, VendoredLightweightVkHoldsNoLiveEnable )
-{
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() );
-
-    const fs::path dir = fs::path( root ) / kVendored;
-    ASSERT_TRUE( fs::exists( dir ) ) << "vendored lightweightvk directory moved; re-aim this row";
-
-    std::vector<std::string> offenders;
-    for ( const auto& entry : fs::directory_iterator( dir ) )
-    {
-        if ( !entry.is_regular_file() )
-            continue;
-        const std::string ext = entry.path().extension().string();
-        if ( ext != ".cpp" && ext != ".hpp" && ext != ".h" )
-            continue;
-        const std::string code = StripComments( ReadAll( entry.path() ) );
-        if ( code.find( "textureCompressionBC" ) != std::string::npos )
-            offenders.push_back( entry.path().filename().string() );
-    }
-
-    EXPECT_TRUE( offenders.empty() )
-         << "live code in the vendored lightweightvk tree now mentions textureCompressionBC ("
-         << ( offenders.empty() ? std::string{} : offenders.front() )
-         << "). The engine does not create its device there -- VulkanDevice.cpp does -- so an enable in "
-            "that tree is a change that cannot reach a running frame.";
 }
 
 int main( int argc, char** argv )
