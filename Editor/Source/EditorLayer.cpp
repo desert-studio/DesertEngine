@@ -520,15 +520,6 @@ namespace Desert::Editor
                                      kSecondsPerAssetRow, nullptr, [] { return PreloadCosts(); } } );
         m_StartupStages.push_back(
              { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
-        m_StartupStages.push_back(
-             { "Preloading cloud types...", [this] { m_AssetPreloader->PreloadCloudTypes(); } } );
-        // THE SAME LINE THE PAINTED LAYOUT SPENT ITS WHOLE LIFE WITHOUT — added WITH the feature this
-        // time, and for exactly the failure the comment above records: a scene naming a theme the scan
-        // never ran would log "referenced but not registered" and draw every element's own colours, which
-        // looks precisely like a theme system that does not work. Order-free: a theme names only font
-        // paths, which FontService registers on demand, and nothing else names a theme.
-        m_StartupStages.push_back(
-             { "Preloading UI themes...", [this] { m_AssetPreloader->PreloadUIThemes(); } } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.

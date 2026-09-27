@@ -602,8 +602,8 @@ namespace Desert::Core::Serialize
             // bound in Assets::CloudTypeAsset::ResolveDependencies, from the path inside the type's
             // file, which is where a reference to a `.dcnv` now lives.
             // THE READ-SIDE "CloudTypeAsset" AND "CloudLayoutAsset" BRANCHES ARE GONE WITH THE WRITE
-            // SIDE ABOVE (O1). What replaced their register-on-load duty: AssetPreloader::PreloadCloudTypes
-            // / PreloadCloudLayouts registers the library directories at startup, and the Material Editor's
+            // SIDE ABOVE (O1). What replaced their register-on-load duty: CloudTypeService and CloudLayoutService
+            // create the named file from its registry row on first use (AL1-2, AL1-7), and the Material Editor's
             // drop target registers an out-of-library file the moment it is bound. A file outside the
             // library that only a `.demat` names is NOT re-registered on the next launch — the renderer
             // and the services say so loudly, once, with the handle — which is the named cost of the
@@ -748,19 +748,15 @@ namespace Desert::Core::Serialize
 
                 auto a = mgr.FindByPath<Assets::UIThemeAsset>( full );
                 if ( !a )
-                    a = m.CreateAsset<Assets::UIThemeAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::UIThemeAsset>( Assets::AssetPriority::Medium, full,
+                                                             /*loadAfterCreate=*/false );
                 if ( !a )
                     return 0;
-                if ( !a->IsReadyForUse() && !a->Load() )
-                    return 0;
-                // REGISTERED HERE AND NOT ONLY IN THE PRELOADER, because a theme an author points at
-                // outside the shipped library is never scanned: without this the canvas would hold a
-                // valid handle the service has never heard of, and every element would draw its local
-                // colours while the scene file plainly names a theme.
-                if ( const auto registered = Runtime::ResourceRegistry::GetUIThemeService()->Register( a );
-                     !registered )
-                    LOG_ERROR( "[UI] Theme '{}' named by the scene could not be registered: {}", full.string(),
-                               registered.GetError() );
+                // REQUESTED HERE, NOT READ (AL1-7): the scene names the theme, so its read starts during the
+                // scene load and lands on a worker while ContentGate holds the loading screen. The shell
+                // exists already, so a theme outside the shipped library is requested the same way; a
+                // read that fails is reported by UIThemeService with the file's path.
+                ( void )Runtime::ResourceRegistry::GetUIThemeService()->Get( a->GetMetadata().Handle );
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
             // The three SERVICE-REGISTRY types. `path` here is the file's ROOT-TAGGED KEY (I10), so it

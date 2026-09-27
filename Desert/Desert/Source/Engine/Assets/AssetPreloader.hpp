@@ -62,15 +62,8 @@ namespace Desert::Assets
         // @p stop is asked before each program; true ends the preload there, the rest unregistered.
         void               PreloadShaders( const ItemProgress& progress = {}, const StopRequested& stop = {} );
         static std::size_t ShaderRowCount();
-        // Cloud types (`.decloudtype`). The noise volume a type names is bound by GUID in ResolveDependencies
-        // against the content registry, not against a loaded shell: noise volumes, hero-cloud bodies and
-        // painted layouts are created on demand by their services (AL1-2) and have no stage here.
-        void PreloadCloudTypes();
-        // UI themes (`.detheme`). MUST run after the font scan the FontService does on demand is
-        // reachable — it is, because the service registers a font path the moment it is asked — and it is
-        // independent of every cloud stage above. A canvas without a theme still draws, which is the
-        // state every scene authored before themes existed is in.
-        void PreloadUIThemes();
+        // Cloud types (`.decloudtype`) and UI themes (`.detheme`) have no stage (AL1-7): CloudTypeService and
+        // UIThemeService read the one a scene names from its registry row, through the loader, when first asked.
         // String tables (`.destrings`). Independent of everything above — a table names no other asset and
         // no other asset names it. Loading one PUBLISHES it to the process's localisation lookup, which is
         // why there is no register loop beside this call the way the cloud stages have one.

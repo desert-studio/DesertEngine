@@ -13,8 +13,6 @@
 #include "Mesh/StaticMeshAsset.hpp"
 #include "Mesh/SkinnedMeshAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
-#include "CloudTypeAsset.hpp"
-#include "UIThemeAsset.hpp"
 #include "StringTableAsset.hpp"
 
 namespace Desert::Assets
@@ -257,51 +255,6 @@ namespace Desert::Assets
                                        nullptr );
     }
 
-    void AssetPreloader::PreloadCloudTypes()
-    {
-        // Loaded eagerly like the volumes, and for a smaller version of the same reason: a type is a few
-        // hundred bytes of JSON, the renderer needs its numbers on the first frame the layer asks for
-        // them, and a scene that names one must find it already there rather than resolve to the built-in
-        // default for the first second of every session.
-        //
-        // THERE IS NO "DEFAULT TYPE" FILE to nominate here, unlike the volumes. The empty slot resolves to
-        // Assets::CloudTypeDefaultShape — twelve numbers compiled in — because a type costs nothing to
-        // synthesise where a 128^3 volume costs ten seconds, and because the sky of a project that has
-        // deleted every file in Clouds/Types must still be the sky it was.
-        ProcessAssetKind<CloudTypeAsset>( Common::Content::ContentKind::CloudType, m_AssetManager,
-                                          AssetPriority::Medium, nullptr );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudTypeService();
-            for ( const auto& [handle, typeAsset] : manager->FindAllByType<Assets::CloudTypeAsset>() )
-            {
-                if ( const auto result = service->Register( typeAsset ); !result )
-                    LOG_ERROR( "[Clouds] Cloud type '{}' could not be registered: {}",
-                               typeAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
-        }
-    }
-
-    void AssetPreloader::PreloadUIThemes()
-    {
-        // Loaded eagerly for the same reason a cloud type is: a theme is a few kilobytes of JSON, the
-        // first frame of a themed canvas needs its numbers, and a canvas that names one must find it
-        // already there rather than draw its elements' own colours for the first second of every session
-        // — which would look exactly like a theme that does not work.
-        ProcessAssetKind<UIThemeAsset>( Common::Content::ContentKind::UITheme, m_AssetManager,
-                                        AssetPriority::Medium, nullptr );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetUIThemeService();
-            for ( const auto& [handle, themeAsset] : manager->FindAllByType<Assets::UIThemeAsset>() )
-            {
-                if ( const auto result = service->Register( themeAsset ); !result )
-                    LOG_ERROR( "[UI] Theme '{}' could not be registered: {}",
-                               themeAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
-        }
     }
 
     void AssetPreloader::PreloadStringTables()

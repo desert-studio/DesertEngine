@@ -1680,6 +1680,11 @@ namespace Desert::Graphic::System
         Assets::AssetHandle perSpecies[kCloudSpeciesSlots] = {};
 
         const uint32_t species = std::min( speciesCount, kCloudSpeciesSlots );
+        // A TYPE STILL BEING READ (AL1-7) names no volume yet; asking now would answer "the default volume"
+        // and start a read of it that the type may be about to override. Not drawn, like a pending volume.
+        for ( uint32_t k = 0; k < species; ++k )
+            if ( types->IsPending( handles[k] ) )
+                return false;
         for ( uint32_t k = 0; k < species; ++k )
             perSpecies[k] = types->GetNoiseVolume( handles[k] );
 

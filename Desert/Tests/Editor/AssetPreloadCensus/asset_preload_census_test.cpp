@@ -549,6 +549,8 @@ TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
          "PreloadCloudNoiseVolumes",
          "PreloadCloudModellingVolumes",
          "PreloadCloudLayouts",
+         "PreloadCloudTypes", // AL1-7: CloudTypeService reads a type from its registry row when first named
+         "PreloadUIThemes",   // AL1-7: UIThemeService, the same for a theme
     };
 
     const std::vector<std::string> declared = DeclaredPreloads( ReadFile( root + kPreloaderHeader ) );
