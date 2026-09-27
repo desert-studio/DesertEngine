@@ -23,8 +23,8 @@ namespace Desert::World::Landscape
     inline std::vector<uint8_t> LandscapeWeightmapTexels( const LandscapeTileData& tile, uint32_t page )
     {
         const std::vector<LandscapeWeightLayer>& layers = tile.WeightLayers();
-        DESERT_VERIFY( page < LandscapeWeightmapPageCount( layers.size() ), "weightmap page {} of a tile with {} layers",
-                       page, layers.size() );
+        DESERT_VERIFY( page < LandscapeWeightmapPageCount( layers.size() ),
+                       "weightmap page {} of a tile with {} layers", page, layers.size() );
         const size_t         count = static_cast<size_t>( tile.SamplesX() ) * tile.SamplesZ();
         const size_t         first = static_cast<size_t>( page ) * kLandscapeWeightmapChannels;
         std::vector<uint8_t> texels( count * kLandscapeWeightmapChannels, 0u );

@@ -197,7 +197,8 @@ namespace Desert::World::Landscape
     /// Weightmap textures a tile of @p layers layers needs: 0 for none, 1 for 1..4, 2 for 5..8.
     constexpr uint32_t LandscapeWeightmapPageCount( size_t layers )
     {
-        return static_cast<uint32_t>( ( layers + kLandscapeWeightmapChannels - 1u ) / kLandscapeWeightmapChannels );
+        return static_cast<uint32_t>( ( layers + kLandscapeWeightmapChannels - 1u ) /
+                                      kLandscapeWeightmapChannels );
     }
 
     /// Longest weight-layer name a tile blob carries. Exists because the length comes from a file.

@@ -206,10 +206,10 @@ TEST( LandscapePaint, EightWeightBlendedLayersAlwaysSumToExactly255 )
 {
     // Every layer painted to every value in turn, from an uneven start: the rounding residue of seven
     // proportional shares must land somewhere every time, and never make the sum 254 or 256.
-    const std::vector<LandscapeLayerRule> rules = { { "A", 0.0f, false }, { "B", 0.2f, false }, { "C", 0.5f, false },
-                                                    { "D", 0.9f, false }, { "E", 1.0f, false }, { "F", 0.5f, false },
-                                                    { "G", 0.3f, false }, { "H", 0.7f, false } };
-    std::vector<uint8_t>                  w     = { 30u, 30u, 30u, 30u, 30u, 30u, 30u, 45u };
+    const std::vector<LandscapeLayerRule> rules = {
+         { "A", 0.0f, false }, { "B", 0.2f, false }, { "C", 0.5f, false }, { "D", 0.9f, false },
+         { "E", 1.0f, false }, { "F", 0.5f, false }, { "G", 0.3f, false }, { "H", 0.7f, false } };
+    std::vector<uint8_t> w = { 30u, 30u, 30u, 30u, 30u, 30u, 30u, 45u };
     ASSERT_EQ( Sum( w ), 255 );
     for ( size_t painted = 0; painted < 8u; ++painted )
         for ( int value = 0; value <= 255; value += 13 )
