@@ -73,44 +73,18 @@ namespace Desert::Runtime
         m_Assets = assets;
     }
 
-    std::size_t MaterialService::AwaitResident( std::span<const Assets::AssetHandle> handles )
+    void MaterialService::StartRead( const Assets::AssetHandle&         handle,
+                                     std::vector<Assets::AssetHandle>& awaited ) const
     {
-        // ALL READS START BEFORE THE FIRST WAIT, so the workers read the scene's materials side by side
-        // rather than one per wait. A parent is only known once its instance is read, so the chain is
-        // walked a generation at a time; `seen` also stops a Parent cycle, which Get refuses on its own.
-        std::vector<Assets::AssetHandle>        generation( handles.begin(), handles.end() );
-        std::unordered_set<Assets::AssetHandle> seen;
-        std::size_t                             resident = 0;
-        while ( !generation.empty() )
-        {
-            std::vector<std::shared_ptr<Assets::MaterialAsset>> shells;
-            for ( const auto& handle : generation )
-            {
-                if ( handle.IsNull() || !seen.insert( handle ).second )
-                    continue;
-                // A copy of the pointer, not the iterator: discovering the next shell may rehash the map.
-                if ( const auto it = FindOrDiscover( handle ); it != m_MaterialAssets.end() )
-                {
-                    (void)RequestIfUnread( it->second );
-                    shells.push_back( it->second );
-                }
-            }
-            std::vector<Assets::AssetHandle> parents;
-            for ( const auto& shell : shells )
-            {
-                if ( !shell->IsReadyForUse() )
-                    Assets::AsyncAssetLoader::Get().AwaitOne( shell->GetMetadata().Handle );
-                if ( !shell->IsReadyForUse() )
-                    continue; // the completion logged which file and why
-                ++resident;
-                const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( shell.get() );
-                const auto parentId = surface ? surface->Data().InstanceParentId() : std::optional<Common::UUID>{};
-                if ( parentId.has_value() )
-                    parents.push_back( GetAssetHandleByExternal( *parentId ) );
-            }
-            generation = std::move( parents );
-        }
-        return resident;
+        if ( handle.IsNull() )
+            return;
+        // A copy of the pointer, not the iterator: the request below may discover and rehash.
+        const auto it = FindOrDiscover( handle );
+        if ( it == m_MaterialAssets.end() )
+            return;
+        const std::shared_ptr<Assets::MaterialAsset> shell = it->second;
+        if ( !RequestIfUnread( shell ) )
+            awaited.push_back( shell->GetMetadata().Handle );
     }
 
     std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator

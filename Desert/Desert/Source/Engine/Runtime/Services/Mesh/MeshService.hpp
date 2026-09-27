@@ -74,6 +74,10 @@ namespace Desert::Runtime
         /// them, so the scene's first frame is complete. Returns how many are drawable.
         std::size_t AwaitResident( std::span<const Assets::AssetHandle> handles );
 
+        /// ONE ROW OF A CLOSURE (AL1-8b): start the worker reads of the mesh @p handle names and of its rig,
+        /// appending the loader handles to wait on to @p awaited. Never reads on this thread; builds nothing.
+        void StartRead( const Assets::AssetHandle& handle, std::vector<Assets::AssetHandle>& awaited ) const;
+
         /// Is @p handle a mesh this service has, or can discover from the content registry? Creates the
         /// shell on discovery; reads nothing.
         bool Discover( const Assets::AssetHandle& handle ) const

@@ -8529,14 +8529,13 @@ namespace Desert::Editor
         const std::size_t incoming = m_MainScene->GetAllEntities().size();
         phases.Lap( "deserialize (its own phases are logged above)", incoming );
 
-        // The scene's meshes are read by the loader's workers while the open waits, so its first frame is
-        // whole and no read happens in a frame (AL1-5).
-        const std::size_t meshes = Runtime::AwaitSceneMeshes( *m_MainScene );
-        phases.Lap( "wait for the scene's meshes", meshes );
-        // Then their materials, by the same door: the slots and the meshes' own materials are only known
-        // once the meshes are read (AL1-5b).
-        const std::size_t materials = Runtime::AwaitSceneMaterials( *m_MainScene );
-        phases.Lap( "wait for the scene's materials", materials );
+        // THE SCENE'S DEPENDENCY CLOSURE, from the registry's `deps` column, is read by the loader's workers
+        // while the open waits — meshes, their materials, parents and textures in one batch — so its first
+        // frame is whole and no read happens in a frame (AL1-8b).
+        const Runtime::ClosureResidency closure = Runtime::AwaitSceneClosure( *m_MainScene );
+        phases.Lap( "wait for the scene's dependency closure (rows)", closure.Rows );
+        LOG_INFO( "[SceneLoad] closure: {} row(s), {} worker read(s) awaited, {} drawable mesh(es)", closure.Rows,
+                  closure.Reads, closure.DrawableMeshes );
 
         if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
         {

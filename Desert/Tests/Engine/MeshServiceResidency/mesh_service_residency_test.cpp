@@ -11,10 +11,12 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -245,6 +247,43 @@ TEST_F( MeshServiceResidency, AnEvictedMeshReleasesItsBuffersAndRebuildsWithoutA
     EXPECT_EQ( *Uploads, 2 );
     EXPECT_EQ( Asset->Reads.load(), 1 );
     EXPECT_EQ( SyncLoadLedger::InFrameLoads(), 0u );
+}
+
+// THE CLOSURE A SCENE OPEN WAITS FOR IS THE REGISTRY'S `deps` COLUMN, WALKED (AL1-8b). A mesh reaches its
+// material, the material its parent and its texture; a cycle back to the instance is walked once, an edge to no
+// row is dropped (no file to read), a row nothing names stays out, and a ROOT with no row is kept with the kind
+// its caller stated — a mesh cooked this session before its row was noted must still be read.
+TEST( SceneClosure, TheDepsColumnIsWalkedTransitivelyOnceEachAndRootsKeepTheirKind )
+{
+    Common::Utils::AssetRegistry registry;
+    const auto row = [&registry]( const char* key, const char* kind, uint64_t identity, std::vector<uint64_t> deps )
+    {
+        Common::Utils::AssetRegistryEntry entry;
+        entry.Key          = key;
+        entry.Kind         = kind;
+        entry.Size         = 1;
+        entry.Identity     = identity;
+        entry.Dependencies = std::move( deps );
+        ASSERT_TRUE( registry.Insert( std::move( entry ) ).IsSuccess() ) << key;
+    };
+    row( "assets:Meshes/m.stmesh", "StaticMesh", 0x10, { 0x20 } );
+    row( "assets:Materials/inst.demat", "Material", 0x20, { 0x21, 0x30, 0x99 } );
+    row( "assets:Materials/parent.demat", "Material", 0x21, { 0x20 } );
+    row( "assets:Textures/t.detex", "Texture", 0x30, {} );
+    row( "assets:Materials/other.demat", "Material", 0x40, {} );
+    (void)Assets::ContentRegistry::Detail::Publish( std::move( registry ) );
+
+    auto closure = Assets::ContentRegistry::Closure( { { Assets::AssetHandle( static_cast<uint64_t>( 0x10 ) ), "StaticMesh" },
+                                                       { Assets::AssetHandle( static_cast<uint64_t>( 0x55 ) ), "StaticMesh" } } );
+    Assets::ContentRegistry::ResetForTest();
+
+    std::vector<std::pair<uint64_t, std::string>> got;
+    for ( const auto& entry : closure )
+        got.emplace_back( static_cast<uint64_t>( entry.Handle ), entry.Kind );
+    std::sort( got.begin(), got.end() );
+    const std::vector<std::pair<uint64_t, std::string>> expected{
+         { 0x10, "StaticMesh" }, { 0x20, "Material" }, { 0x21, "Material" }, { 0x30, "Texture" }, { 0x55, "StaticMesh" } };
+    EXPECT_EQ( got, expected );
 }
 
 int main( int argc, char** argv )

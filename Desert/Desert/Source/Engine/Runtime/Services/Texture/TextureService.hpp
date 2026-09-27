@@ -40,6 +40,10 @@ namespace Desert::Runtime
         /// `Require` reduced to a pointer: null while Pending as well as when absent.
         Graphic::Texture2D* Get( const Assets::AssetHandle& handle ) const;
 
+        /// ONE ROW OF A CLOSURE (AL1-8b): `Require`'s read start, with the loader handle to wait on appended
+        /// to @p awaited while the read is in flight. Never reads on this thread.
+        void StartRead( const Assets::AssetHandle& handle, std::vector<Assets::AssetHandle>& awaited ) const;
+
         /// A material that bound a slot default because @p texture was Pending; it is invalidated (rebuilt
         /// on its next draw) when the texture lands.
         void RebuildWhenReady( const Assets::AssetHandle& texture, const Assets::AssetHandle& material ) const;

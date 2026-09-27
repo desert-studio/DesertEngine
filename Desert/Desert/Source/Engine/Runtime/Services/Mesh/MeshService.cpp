@@ -275,24 +275,28 @@ namespace Desert::Runtime
         return entry->Asset.get();
     }
 
+    void MeshService::StartRead( const Assets::AssetHandle& handle, std::vector<Assets::AssetHandle>& awaited ) const
+    {
+        Entry* entry = FindOrDiscover( handle );
+        if ( !entry || Arrived( handle, *entry ) )
+            return;
+        if ( entry->Asset && !entry->Asset->IsReadyForUse() )
+            awaited.push_back( entry->Asset->GetMetadata().Handle );
+        if ( entry->Rig && !entry->Rig->IsReadyForUse() )
+            awaited.push_back( entry->Rig->GetMetadata().Handle );
+    }
+
     std::size_t MeshService::AwaitResident( std::span<const Assets::AssetHandle> handles )
     {
+        std::vector<Assets::AssetHandle> awaited;
         for ( const auto& handle : handles )
-            if ( Entry* entry = FindOrDiscover( handle ) )
-                (void)Arrived( handle, *entry );
+            StartRead( handle, awaited );
+        for ( const auto& read : awaited )
+            Assets::AsyncAssetLoader::Get().AwaitOne( read );
 
         std::size_t drawable = 0;
         for ( const auto& handle : handles )
-        {
-            if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
-            {
-                if ( it->second.Asset )
-                    Assets::AsyncAssetLoader::Get().AwaitOne( it->second.Asset->GetMetadata().Handle );
-                if ( it->second.Rig )
-                    Assets::AsyncAssetLoader::Get().AwaitOne( it->second.Rig->GetMetadata().Handle );
-            }
             drawable += Get( handle ) != nullptr ? 1 : 0;
-        }
         return drawable;
     }
 
