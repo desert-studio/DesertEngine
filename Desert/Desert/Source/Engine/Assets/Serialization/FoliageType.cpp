@@ -85,12 +85,12 @@ namespace Desert::Assets::Serialization
         {
             const auto& layer = data.LandscapeLayers[i];
             if ( layer.Guid.empty() || layer.Path.empty() )
-                return Common::MakeFormattedError<bool>( "LandscapeLayers[{}] must name a GUID and a path ('{}' / '{}')",
-                                                         i, layer.Guid, layer.Path );
+                return Common::MakeFormattedError<bool>(
+                     "LandscapeLayers[{}] must name a GUID and a path ('{}' / '{}')", i, layer.Guid, layer.Path );
             for ( size_t j = 0; j < i; ++j )
                 if ( data.LandscapeLayers[j].Guid == layer.Guid )
-                    return Common::MakeFormattedError<bool>( "LandscapeLayers[{}] repeats LandscapeLayers[{}] ('{}')",
-                                                             i, j, layer.Path );
+                    return Common::MakeFormattedError<bool>(
+                         "LandscapeLayers[{}] repeats LandscapeLayers[{}] ('{}')", i, j, layer.Path );
         }
         if ( data.Mesh.Guid.empty() != data.Mesh.Path.empty() )
             return Common::MakeFormattedError<bool>(
@@ -109,11 +109,13 @@ namespace Desert::Assets::Serialization
 
         // THE GENERATION BEFORE THE BODY: a v1 file lacks v2's fields, and the typed read would name those
         // missing fields instead of the one fact that matters — the file is an older generation.
-        if ( const auto stated = StatedGeneration( text ); stated && *stated != static_cast<uint32_t>( kFoliageTypeVersion ) )
+        if ( const auto stated = StatedGeneration( text );
+             stated && *stated != static_cast<uint32_t>( kFoliageTypeVersion ) )
             return Common::MakeFormattedError<FoliageTypeData>(
                  "foliage type states FOLT {}, and this build reads FOLT {} only{}", *stated, kFoliageTypeVersion,
-                 *stated < static_cast<uint32_t>( kFoliageTypeVersion ) ? " (scripts/Dev/migrate.sh --write raises it)"
-                                                                        : "" );
+                 *stated < static_cast<uint32_t>( kFoliageTypeVersion )
+                      ? " (scripts/Dev/migrate.sh --write raises it)"
+                      : "" );
 
         const auto parsed = Common::Json::Read<FoliageTypeData>( text );
         if ( !parsed )

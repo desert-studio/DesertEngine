@@ -123,7 +123,9 @@ namespace Desert::Editor::Tools
     class FoliageStroke
     {
     public:
-        FoliageStroke( uint64_t seed, bool erase ) : m_Random( seed ), m_Erase( erase ) {}
+        FoliageStroke( uint64_t seed, bool erase ) : m_Random( seed ), m_Erase( erase )
+        {
+        }
 
         FoliageRandom& Random()
         {

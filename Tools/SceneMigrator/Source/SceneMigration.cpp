@@ -446,7 +446,8 @@ namespace Desert::Migration
         if ( stated == old.Header->Versions.end() || stated->second != 1u )
             return Common::MakeFormattedError<std::string>(
                  "the header states FOLT {}, and this step raises FOLT 1 only",
-                 stated == old.Header->Versions.end() ? std::string( "nothing" ) : std::to_string( stated->second ) );
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
 
         Assets::Serialization::FoliageTypeData data;
         data.Header           = old.Header;

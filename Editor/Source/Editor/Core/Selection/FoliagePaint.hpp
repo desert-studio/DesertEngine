@@ -48,8 +48,14 @@ namespace Desert::Editor::Core
         static float& PaintDensity() { return s_PaintDensity; } // 0..1 multiplier on each type's Density
         static bool&  Erase() { return s_Erase; }
         // UE FFoliageUISettings bFilterLandscape / bFilterStaticMesh: the surfaces the brush may place on.
-        static bool& FilterLandscape() { return s_FilterLandscape; }
-        static bool& FilterStaticMesh() { return s_FilterStaticMesh; }
+        static bool& FilterLandscape()
+        {
+            return s_FilterLandscape;
+        }
+        static bool& FilterStaticMesh()
+        {
+            return s_FilterStaticMesh;
+        }
 
         // The seed of the next stroke: a stroke draws every random number from one stream seeded here, so a
         // stroke replayed with its seed places the same instances. SplitMix64 of a per-session counter, so

@@ -212,10 +212,10 @@ TEST( FoliageBrush, EraseRemovesWhatTheSphereHolds )
 
 TEST( FoliageBrush, AStrokeIsOneUndoStepHoldingThePressState )
 {
-    const Common::UUID grass( 1u ), rocks( 2u );
-    std::vector<glm::mat4>     grassField = { glm::mat4( 1.0f ) };
-    std::vector<glm::mat4>     rockField;
-    const auto                 original = grassField;
+    const Common::UUID     grass( 1u ), rocks( 2u );
+    std::vector<glm::mat4> grassField = { glm::mat4( 1.0f ) };
+    std::vector<glm::mat4> rockField;
+    const auto             original = grassField;
 
     FoliageStroke stroke( 77u, false );
     for ( float x = 0.0f; x < 2000.0f; x += 400.0f ) // five dabs, one stroke

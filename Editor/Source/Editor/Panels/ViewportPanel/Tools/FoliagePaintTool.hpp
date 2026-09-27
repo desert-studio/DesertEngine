@@ -15,8 +15,9 @@
 namespace Desert::Editor::Tools
 {
     // UE5-style foliage painting, extracted from ViewportPanel (god-object split). The tool holds only the
-    // stroke in flight (its random stream, the fields as they were at press for undo) — brush/selection live in Editor::Core::FoliagePaint; WHAT is painted is the `.defoliage` each foliage
-    // entity names (Assets::FoliageTypeAsset, FO-1); the host supplies the scene, asset manager and ray.
+    // stroke in flight (its random stream, the fields as they were at press for undo) — brush/selection live in
+    // Editor::Core::FoliagePaint; WHAT is painted is the `.defoliage` each foliage entity names
+    // (Assets::FoliageTypeAsset, FO-1); the host supplies the scene, asset manager and ray.
     class FoliagePaintTool
     {
     public:

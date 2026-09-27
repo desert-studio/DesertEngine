@@ -55,8 +55,8 @@ namespace Desert::Editor::Tools
         {
             std::filesystem::path file( path );
             if ( file.extension() != ".delayerinfo" )
-                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}' is not a landscape layer info (.delayerinfo)",
-                                                                         path );
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "'{}' is not a landscape layer info (.delayerinfo)", path );
             if ( file.is_relative() )
                 file = Common::Constants::Path::ASSETS_PATH / file;
             const auto text = Common::Utils::FileSystem::ReadFileContent( file );
@@ -65,18 +65,19 @@ namespace Desert::Editor::Tools
                                                                          text.GetError() );
             const auto info = Assets::Serialization::ParseLandscapeLayerInfo( text.GetValue() );
             if ( !info )
-                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}': {}", file.string(), info.GetError() );
+                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}': {}", file.string(),
+                                                                         info.GetError() );
             std::error_code   ec;
             const std::string relative =
                  std::filesystem::absolute( file, ec )
                       .lexically_normal()
-                      .lexically_relative(
-                           std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec ).lexically_normal() )
+                      .lexically_relative( std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec )
+                                                .lexically_normal() )
                       .generic_string();
             if ( relative.empty() || relative.starts_with( ".." ) )
-                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}' is not under the assets root '{}'",
-                                                                         file.string(),
-                                                                         Common::Constants::Path::ASSETS_PATH.string() );
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "'{}' is not under the assets root '{}'", file.string(),
+                     Common::Constants::Path::ASSETS_PATH.string() );
             return Common::MakeSuccess( Assets::AssetGuidRef{ info.GetValue().Header->Guid, relative } );
         }
 
@@ -304,7 +305,8 @@ namespace Desert::Editor::Tools
         ImGui::Button( ICON_MDI_PLUS " Drop a .delayerinfo", ImVec2( -1, 0 ) );
         if ( ImGui::BeginDragDropTarget() )
         {
-            if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+            if ( const ImGuiPayload* p =
+                      ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
             {
                 if ( auto ref = LayerInfoRefOf( std::string( static_cast<const char*>( p->Data ) ) ); !ref )
                 {
@@ -322,7 +324,8 @@ namespace Desert::Editor::Tools
         if ( !f.LandscapeLayers.empty() )
         {
             ImGui::SetNextItemWidth( -1 );
-            ImGui::SliderFloat( "##MinLayerWeight", &f.MinimumLayerWeight, 0.0f, 1.0f, "Minimum Layer Weight:  %.2f" );
+            ImGui::SliderFloat( "##MinLayerWeight", &f.MinimumLayerWeight, 0.0f, 1.0f,
+                                "Minimum Layer Weight:  %.2f" );
             track();
         }
         commit = ImGui::Checkbox( "Align to Normal", &f.AlignToNormal ) || commit;
@@ -350,8 +353,8 @@ namespace Desert::Editor::Tools
         // The largest weight, 0..1, of @p layers on @p tile at world (x, z): bilinear between the four samples
         // (UE ULandscapeComponent::GetLayerWeightAtLocation). A layer the tile holds no plane for weighs 0.
         float MaxLayerWeight( const World::Landscape::LandscapeTileData& tile,
-                              const World::Landscape::LandscapeFrame& frame, const std::vector<std::string>& layers,
-                              float x, float z )
+                              const World::Landscape::LandscapeFrame&    frame,
+                              const std::vector<std::string>& layers, float x, float z )
         {
             const float lastX = static_cast<float>( tile.SamplesX() - 1u );
             const float lastZ = static_cast<float>( tile.SamplesZ() - 1u );
@@ -379,7 +382,8 @@ namespace Desert::Editor::Tools
 
         // The weight-plane names of the type's layer infos. A layer info still loading or unusable is an
         // error naming it: painting without it would place on ground the type excludes.
-        Common::ResultStr<std::vector<std::string>> LayerNamesOf( const Assets::Serialization::FoliageTypeData& type )
+        Common::ResultStr<std::vector<std::string>>
+        LayerNamesOf( const Assets::Serialization::FoliageTypeData& type )
         {
             std::vector<std::string> names;
             auto*                    service = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
@@ -389,8 +393,8 @@ namespace Desert::Editor::Tools
                 if ( !guid )
                     return Common::MakeFormattedError<std::vector<std::string>>(
                          "landscape layer '{}' names an unreadable GUID '{}'", ref.Path, ref.Guid );
-                const auto handle = Common::Content::HandleForGuid( guid.GetValue() );
-                const auto* info  = service ? service->Get( handle ) : nullptr;
+                const auto  handle = Common::Content::HandleForGuid( guid.GetValue() );
+                const auto* info   = service ? service->Get( handle ) : nullptr;
                 if ( !info )
                     return Common::MakeFormattedError<std::vector<std::string>>(
                          "landscape layer '{}' is {}", ref.Path,
@@ -420,8 +424,9 @@ namespace Desert::Editor::Tools
             const auto root = scene.FindEntityByID( tile.Landscape );
             if ( !root || !root->get().HasComponent<ECS::LandscapeComponent>() )
                 return std::nullopt;
-            return TileSample{ &*tile.Heights, World::Landscape::LandscapeTileFrame(
-                                                    ECS::LandscapeRootOf( root->get() ), tile.TileX, tile.TileZ ) };
+            return TileSample{ &*tile.Heights,
+                               World::Landscape::LandscapeTileFrame( ECS::LandscapeRootOf( root->get() ),
+                                                                     tile.TileX, tile.TileZ ) };
         }
 
         // The tile whose frame covers world (x, z), for the layer weight under an existing instance.
@@ -566,7 +571,8 @@ namespace Desert::Editor::Tools
                 {
                     out.Surface = FoliageSurface::Landscape;
                     if ( !names.empty() )
-                        out.LayerWeight = MaxLayerWeight( *tile->Tile, tile->Frame, names, hit.Point.x, hit.Point.z );
+                        out.LayerWeight =
+                             MaxLayerWeight( *tile->Tile, tile->Frame, names, hit.Point.x, hit.Point.z );
                 }
                 else
                     out.Surface = FoliageSurface::StaticMesh;

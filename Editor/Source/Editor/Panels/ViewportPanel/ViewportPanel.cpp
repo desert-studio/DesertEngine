@@ -1582,7 +1582,8 @@ namespace Desert::Editor
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
                      { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
-                     static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
+                     static_cast<uint32_t>( m_ViewportData.Size.x ),
+                     static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing );
             }
         }

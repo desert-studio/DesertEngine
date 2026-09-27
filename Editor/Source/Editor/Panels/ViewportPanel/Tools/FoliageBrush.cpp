@@ -209,8 +209,8 @@ namespace Desert::Editor::Tools
         m_Touched.push_back( { entity, current, {} } );
     }
 
-    std::vector<FoliageStrokeField>
-    FoliageStroke::Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current ) const
+    std::vector<FoliageStrokeField> FoliageStroke::Finish(
+         const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current ) const
     {
         std::vector<FoliageStrokeField> changed;
         for ( const auto& field : m_Touched )

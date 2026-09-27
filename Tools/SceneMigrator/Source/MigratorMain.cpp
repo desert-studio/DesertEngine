@@ -110,8 +110,9 @@ namespace
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (IsCloudLayout).
     // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype", ".destrings", ".detheme",
-                                                ".derig",      ".retarget", ".skeleton",    ".defoliage" };
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype",
+                                                ".destrings",  ".detheme",  ".derig",
+                                                ".retarget",   ".skeleton", ".defoliage" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
