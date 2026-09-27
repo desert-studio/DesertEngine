@@ -485,8 +485,8 @@ TEST( AuthoredComponentRoundTrip, TheLandscapeBlockLeavesLayersToTheRegistry )
     const Common::Json::Object written = WriteComponent( with );
     EXPECT_FALSE( written.get( "Layers" ).has_value() );
 
-    Common::Json::Object block = written;
-    block["Layers"]            = Common::Json::Value( Common::Json::Value::Array{} );
+    Common::Json::Object block      = written;
+    block["Layers"]                 = Common::Json::Value( Common::Json::Value::Array{} );
     ECS::LandscapeComponent current = with;
     ReadAt( ThroughJsonText( block ), current );
     EXPECT_EQ( current.Layers, with.Layers );

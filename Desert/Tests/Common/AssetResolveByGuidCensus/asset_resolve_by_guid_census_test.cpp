@@ -115,7 +115,7 @@ namespace
          ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
          ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
          // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
-         ContentKind::FoliageType,  ContentKind::LandscapeLayerInfo };
+         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )

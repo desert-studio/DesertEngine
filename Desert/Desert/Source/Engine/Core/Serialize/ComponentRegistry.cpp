@@ -372,8 +372,8 @@ namespace Desert::Core::Serialize
                 {
                     // Refused whole: the entity keeps no layers, the tiles keep their weights (reported as
                     // unknown layers and not drawn), and the load reports the GUID and path.
-                    issues.push_back( { value->Where().ToString(), "a list of .delayerinfo the content registry knows",
-                                        *refusal } );
+                    issues.push_back( { value->Where().ToString(),
+                                        "a list of .delayerinfo the content registry knows", *refusal } );
                     LOG_ERROR( "[Landscape] Entity '{}': the target layer list is refused: {}",
                                e.GetComponent<ECS::TagComponent>().Tag, *refusal );
                     return;

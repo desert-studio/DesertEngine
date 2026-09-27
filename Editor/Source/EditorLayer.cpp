@@ -4896,7 +4896,8 @@ namespace Desert::Editor
                                                                     : entt::entity( entt::null );
                                               bool       found = false;
                                               if ( r != entt::null )
-                                                  for ( const auto& l : reg.get<ECS::LandscapeComponent>( r ).Layers )
+                                                  for ( const auto& l :
+                                                        reg.get<ECS::LandscapeComponent>( r ).Layers )
                                                       found = found || l == handle;
                                               if ( !found )
                                                   return PaletteCommandOutcome( false, "landscape layer '" + name +
