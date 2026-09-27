@@ -322,8 +322,13 @@ TEST( AssetPreloadCensus, ThePopulationIsGivenTheScansOwnCountAndSoCannotPrecede
     // no longer needs a root or an extension list — but it still RETURNS the count, and that count is
     // still the only thing that can tell "this project has no clips" from "the clips never reached the
     // library".
+    // SINCE AL1-6 the count is the registry's `.anim` rows: clips are no longer created at boot, the
+    // library indexes the rows and the loader reads a clip when an animator names it.
+    EXPECT_EQ( source.find( "ProcessAssetKind<AnimationAsset>" ), std::string::npos )
+         << kPreloaderSource << " creates clip assets at boot again; they are read on demand since AL1-6.";
     std::smatch      scan;
-    const std::regex scanPattern( R"((\w+)\s*=\s*[\s\S]{0,40}?ProcessAssetKind<\s*AnimationAsset\s*>)" );
+    const std::regex scanPattern(
+         R"((\w+)\s*=\s*[\s\S]{0,80}?ContentRegistry::Rows\(\s*Common::Content::ContentKind::Animation\s*\))" );
     ASSERT_TRUE( std::regex_search( source, scan, scanPattern ) )
          << "the `.anim` scan in " << kPreloaderSource
          << " no longer assigns its result to anything. That count is the only thing that can tell 'this "
@@ -567,4 +572,41 @@ TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
                  << file << " names " << stage << "(); the cloud kinds have no boot stage since AL1-2.";
         }
     }
+}
+
+TEST( AssetPreloadCensus, TheRigGraphAndRetargetKindsHaveNoBootStageButSkeletonsStillDo )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    constexpr const char* kRemovedStages[] = { "PreloadControlRigs", "PreloadAnimGraphs", "PreloadRetargets" };
+
+    const std::vector<std::string> declared = DeclaredPreloads( ReadFile( root + kPreloaderHeader ) );
+    ASSERT_FALSE( declared.empty() );
+
+    std::vector<std::string> files = { kPreloaderHeader, kPreloaderSource };
+    for ( const char* layer : kLayers )
+        files.emplace_back( layer );
+
+    for ( const char* stage : kRemovedStages )
+    {
+        EXPECT_EQ( std::count( declared.begin(), declared.end(), std::string( stage ) ), 0 )
+             << kPreloaderHeader << " declares AssetPreloader::" << stage
+             << " again; rigs, graphs and retargets are created from their registry row when named (AL1-6).";
+        for ( const std::string& file : files )
+        {
+            const std::string source = WithoutComments( ReadFile( root + file ) );
+            ASSERT_FALSE( source.empty() ) << "could not read " << file;
+            EXPECT_EQ( source.find( std::string( stage ) + "(" ), std::string::npos )
+                 << file << " names " << stage << "(); that kind has no boot stage since AL1-6.";
+        }
+    }
+
+    // THE ONE ANIMATION KIND STILL CREATED AT BOOT, deliberately: a skinned mesh binds its skeleton by
+    // scanning every created SkeletonAsset for its signature (SkinnedMeshAsset::ResolveDependencies), so
+    // skeletons go on demand only with the meshes (AL1-5). When that lands this pin is expected to flip.
+    const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
+    EXPECT_NE( preloader.find( "ProcessAssetKind<SkeletonAsset>" ), std::string::npos )
+         << "skeletons stopped being created at boot while skinned meshes still bind theirs among the "
+            "created ones; every skinned character would lose its rig";
 }

@@ -1,4 +1,5 @@
 #include "ComponentRegistry.hpp"
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Core/Serialize/AssetReferenceResolve.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
@@ -647,7 +648,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full,
+                                                                /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -660,7 +662,7 @@ namespace Desert::Core::Serialize
                 // skeleton, so it is built by the ECS system rather than registered globally.
                 if ( !a->IsReadyForUse() )
                 {
-                    if ( const auto loaded = a->Load(); !loaded )
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
                     {
                         LOG_ERROR( "[Animation] Control rig '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
@@ -680,7 +682,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full,
+                                                              /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -693,7 +696,7 @@ namespace Desert::Core::Serialize
                 // proportions while the scene file plainly names a retarget.
                 if ( !a->IsReadyForUse() )
                 {
-                    if ( const auto loaded = a->EnsureLoaded( m ); !loaded )
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
                     {
                         LOG_ERROR( "[Animation] Retarget '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );
@@ -713,7 +716,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full );
+                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full,
+                                                               /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -725,7 +729,7 @@ namespace Desert::Core::Serialize
                 // a state machine — the silent shape §5.1 exists to end.
                 if ( !a->IsReadyForUse() )
                 {
-                    if ( const auto loaded = a->Load(); !loaded )
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
                     {
                         LOG_ERROR( "[Animation] Anim graph '{}' named by the scene could not be loaded: {}",
                                    full.string(), loaded.GetError() );

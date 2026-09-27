@@ -14,9 +14,6 @@
 #include "Mesh/SkinnedMeshAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
 #include "CloudTypeAsset.hpp"
-#include "AnimGraphAsset.hpp"
-#include "ControlRigAsset.hpp"
-#include "RetargetAsset.hpp"
 #include "UIThemeAsset.hpp"
 #include "StringTableAsset.hpp"
 
@@ -142,8 +139,9 @@ namespace Desert::Assets
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
         // the tail of this function cannot be moved above this statement, because its argument would not
         // exist yet. See Animation::PopulateLibrary for the defect that argument is there to state.
-        const size_t animationFilesFound = ProcessAssetKind<AnimationAsset>(
-             Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low, &rows );
+        // Clips are NOT created here: the library indexes their registry rows and the loader reads a
+        // clip when an animator first names it (AL1-6).
+        const size_t animationFilesFound = ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size();
 
         ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
                                          AssetPriority::Low, &rows );
@@ -304,46 +302,6 @@ namespace Desert::Assets
                                themeAsset->GetMetadata().Filepath.string(), result.GetError() );
             }
         }
-    }
-
-    void AssetPreloader::PreloadControlRigs()
-    {
-        // Loaded eagerly for the reason a cloud type is: a rig is a few kilobytes of JSON and the entity's
-        // rig slot has to be able to OFFER the project's rigs, which it does by asking the manager for
-        // every asset of this type. There is no service register loop beside this call the way the cloud
-        // stages have one: a rig has no process-wide runtime form — the pipeline stage is built per
-        // ENTITY, against that entity's own skeleton, by AnimationECSSystem.
-        ProcessAssetKind<ControlRigAsset>( Common::Content::ContentKind::ControlRig, m_AssetManager,
-                                           AssetPriority::Medium, nullptr );
-    }
-
-    void AssetPreloader::PreloadAnimGraphs()
-    {
-        // Loaded eagerly for the RIG's reason and not the shader graph's, and the difference is the
-        // decision. A `.dgraph` gets no preloader at all: nothing but an open editor window ever reads one,
-        // so parsing every graph in the project at boot would be work for a reader that does not exist. A
-        // `.danimgraph` is named by a COMPONENT SLOT, and that slot has to be able to OFFER the project's
-        // graphs — which it does by asking the manager for every asset of this type. An entity's own graph
-        // is resolved by path at scene load whether or not this ran; what this buys is the picker.
-        //
-        // There is no service register loop beside this call: a graph has no process-wide runtime form —
-        // the evaluator is per ENTITY, built by AnimationECSSystem from the object this asset owns.
-        ProcessAssetKind<AnimGraphAsset>( Common::Content::ContentKind::AnimGraph, m_AssetManager,
-                                          AssetPriority::Medium, nullptr );
-    }
-
-    void AssetPreloader::PreloadRetargets()
-    {
-        // Loaded eagerly for the rig's reason — the entity's retarget slot has to be able to OFFER the
-        // project's retargets, which it does by asking the manager for every asset of this type — and for
-        // one more of its own: loading is what runs `ResolveDependencies`, which is what binds the source
-        // rig. A retarget registered but not read is a retarget with no source rig, and the character
-        // naming it plays its clip on its own proportions with nothing said.
-        //
-        // There is no service register loop beside this call: a retarget has no process-wide runtime form
-        // — the retargeter is per ENTITY, against that entity's own skeleton, built by AnimationECSSystem.
-        ProcessAssetKind<RetargetAsset>( Common::Content::ContentKind::Retarget, m_AssetManager,
-                                         AssetPriority::Medium, nullptr );
     }
 
     void AssetPreloader::PreloadStringTables()

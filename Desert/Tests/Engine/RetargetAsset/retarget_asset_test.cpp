@@ -1268,13 +1268,17 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "the clips a retarget exists to play" },
          { "Desert/Desert/Source/Engine/Animation/Animator.cpp", "m_Retarget->Run( m_Skeleton, sourcePose, pose )",
            "the source stage sampling on the source rig and retargeting onto this one" },
-         { "Desert/Desert/Source/Engine/Assets/AssetPreloader.cpp", "PreloadRetargets",
-           "without this no retarget is scanned, the Details slot can never offer one, and no source rig "
-           "is ever bound" },
-         { "Editor/Source/EditorLayer.cpp", "PreloadRetargets()",
-           "PreloadCloudLayouts existed and was called by nobody; this row is that defect's headstone" },
-         { "Runtime/Source/RuntimeLayer.cpp", "PreloadRetargets()",
-           "a retarget that works in the editor and not in the packaged runtime is worse than no retarget" },
+         // AL1-6: no boot stage any more. The retarget is created from its registry row when an entity
+         // names it, read by the loader, and binds its source rig through the rig's own registry row.
+         { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
+           "Demand<Assets::RetargetAsset>( wanted, Common::Content::ContentKind::Retarget, pending )",
+           "without this a retarget nobody created at boot is never created, and the entity plays on its own "
+           "rig" },
+         { "Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
+           "CreateFromRegistryGuid<SkeletonAsset>( manager, guid.GetValue(),",
+           "without this the source rig binds only when something else happened to create it first" },
+         { "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp", "Assets::LoadThroughLoader( m, a )",
+           "a retarget the scene names is read through the loader, so SyncLoadLedger sees the scene-open read" },
          { "Editor/Source/Editor/Panels/PropertyEditor/PropertyEditorBuilder.cpp", "\"RetargetAsset\"",
            "without this the Details page draws a raw handle number instead of a picker" },
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp", "RetargetComponent",

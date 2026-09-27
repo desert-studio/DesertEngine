@@ -75,24 +75,8 @@ namespace Desert::Assets
         // no other asset names it. Loading one PUBLISHES it to the process's localisation lookup, which is
         // why there is no register loop beside this call the way the cloud stages have one.
         void PreloadStringTables();
-        // Control rigs (`.derig`). Independent of everything above — a rig names no other asset and no
-        // other asset names it. Scanned rather than left to the scene's own on-demand load so the
-        // entity's rig slot can OFFER them by name: a picker that can only show what a scene already
-        // names is a picker that can never be used to pick a different rig.
-        void PreloadControlRigs();
-
-        // Anim graphs (`.danimgraph`). Independent of every other preload: a graph names no asset and is
-        // named by a component slot, so nothing orders it against the rigs or the clips.
-        void PreloadAnimGraphs();
-
-        // Retargets (`.retarget`). AFTER the cooked scan in both layers, and that ordering is the one thing
-        // this preload has that the two above do not: a `.retarget` names its SOURCE RIG by signature, and
-        // `RetargetAsset::ResolveDependencies` can only find that rig among the `SkeletonAsset`s the cooked
-        // scan has registered. Run before it, and every retarget in the project binds to nothing — and
-        // because the dependency is only re-resolved on a later `EnsureLoaded`, it would recover only by
-        // accident. That is the `PreloadCloudLayouts` shape one step along: not an uncalled function, but a
-        // function called at a moment that cannot work.
-        void PreloadRetargets();
+        // Control rigs, anim graphs and retargets have NO boot stage since AL1-6: pickers read their
+        // registry rows, and the scene load and AnimationECSSystem create and read one when it is named.
 
     private:
         std::weak_ptr<AssetManager> m_AssetManager;

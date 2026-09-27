@@ -197,15 +197,6 @@ namespace Desert::Player
         // missing preload can take. Order-free: a theme names only font paths, which FontService
         // registers on demand, and nothing else names a theme.
         m_Boot.Run( "Preloading UI themes", [this] { m_AssetPreloader->PreloadUIThemes(); } );
-        // AND HERE TOO, which the editor's copy alone would not have given us: AssetPreloadCensus caught
-        // exactly this omission on A12's first sweep. A rig that loads in the editor and silently does not
-        // in the packaged game is worse than no rig — the scene names it, one line goes to the log, and the
-        // character poses from its clips.
-        m_Boot.Run( "Preloading control rigs", [this] { m_AssetPreloader->PreloadControlRigs(); } );
-        m_Boot.Run( "Preloading anim graphs", [this] { m_AssetPreloader->PreloadAnimGraphs(); } );
-        // AND HERE TOO, for the rig's reason four lines up. Not order-free: a retarget binds its source
-        // rig while loading, so it must follow the cooked scan that registers the `.skeleton` files.
-        m_Boot.Run( "Preloading retargets", [this] { m_AssetPreloader->PreloadRetargets(); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_Boot.Run( "Preloading string tables", [this] { m_AssetPreloader->PreloadStringTables(); } );
