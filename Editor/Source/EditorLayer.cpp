@@ -122,7 +122,8 @@
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
-#include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
+#include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
+#include "Editor/Panels/WorldSettings/WorldSettingsPanel.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
@@ -277,8 +278,10 @@ namespace Desert::Editor
             return ICON_MDI_TUNE;
         if ( name == "Assets" )
             return ICON_MDI_FOLDER_OUTLINE;
-        if ( name == "Scene Settings" )
+        if ( name == "World Settings" )
             return ICON_MDI_COG;
+        if ( name == "Scalability" )
+            return ICON_MDI_TUNE;
         if ( name == "Logs" )
             return ICON_MDI_TEXT_BOX_OUTLINE;
         if ( name == "History" )
@@ -851,7 +854,8 @@ namespace Desert::Editor
         }
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
         m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
-        m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
+        m_Panels.Add<Editor::WorldSettingsPanel>( m_MainScene );
+        m_Panels.Add<Editor::ScalabilityPanel>();
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
         // the getter each frame, because Stop and a streaming error destroy it from this side.
         m_WorldPartitionPanel = &m_Panels.Add<Editor::WorldPartitionPanel>(
@@ -3884,7 +3888,7 @@ namespace Desert::Editor
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene Outliner" ).c_str(), left );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Collections" ).c_str(), leftBottom );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Details" ).c_str(), right );
-                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene Settings" ).c_str(), rightBottom );
+                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "World Settings" ).c_str(), rightBottom );
                 ::ImGui::DockBuilderDockWindow( "Profiler", rightBottom );
                 ::ImGui::DockBuilderDockWindow( "Foliage##FoliagePanel", rightBottom );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Assets" ).c_str(), bottom );
@@ -8135,7 +8139,7 @@ namespace Desert::Editor
         // ten panels under "NOT YET GROUPED" that are grouped. The census has to be readable without opening
         // anything, so it is stated once here and the drawing below refers to it.
         static constexpr const char* kLevelGroup[]    = { "Scene Outliner", "Collections",      "Details",
-                                                          "Scene Settings", "Scene Validation", "World Partition" };
+                                                          "World Settings", "Scene Validation", "World Partition" };
         static constexpr const char* kContentGroup[]  = { "Assets", "Asset References", "Shader Library" };
         static constexpr const char* kOutputGroup[]   = { "Logs", "Lua Console", "History" };
         static constexpr const char* kViewportGroup[] = { "Scene###scene" };
@@ -8149,7 +8153,7 @@ namespace Desert::Editor
         // Localization sits with the tools rather than with the level: it is about the PROJECT's strings,
         // not about the scene that happens to be open, and it keeps answering after every scene change.
         static constexpr const char* kToolGroup[] = { "Modeling", "Model from Photos", "Build Settings",
-                                                      "Localization" };
+                                                      "Scalability", "Localization" };
 
         std::unordered_set<std::string> placed;
         for ( const auto& group :

@@ -31,10 +31,10 @@ namespace Desert::Editor
     // Graphic::DebugViewState, and the Shadow Maps section that survived is an INSPECTOR (it reads GPU
     // images and writes nothing) rather than settings. A comment promising what the tree does not hold is
     // the same defect as dead code.
-    class SceneSettingsPanel final : public IPanel
+    class WorldSettingsPanel final : public IPanel
     {
     public:
-        explicit SceneSettingsPanel( std::shared_ptr<::Desert::Core::Scene> scene );
+        explicit WorldSettingsPanel( std::shared_ptr<::Desert::Core::Scene> scene );
 
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override

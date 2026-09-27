@@ -103,7 +103,13 @@ namespace Desert::Migration
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionPathOnlyMeshGuids == kSceneVersion,
+    // v36 (SET1): SceneSettings' grade and shadow fields left the Settings block for their UE homes - an
+    // Unbound PostProcessVolume entity and the DirectionalLight. NUMBERED 36, NOT 33: v33-v35 are taken by
+    // steps integrating in parallel (FO-1, LS-12b, WP16); on a tree without them this step raises v32 -> v36
+    // directly, and after they land it runs after them, as the last link of the chain.
+    inline constexpr int kSceneVersionSceneSettingsHomes = 36;
+
+    static_assert( kSceneVersionSceneSettingsHomes == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -129,6 +135,24 @@ namespace Desert::Migration
     MeshGuidsMigrationReport MigratePathOnlyMeshGuidsV31ToV32( std::vector<Assets::EntityData>& entities,
                                                                const std::filesystem::path&     assetsRoot );
 
+    // What MigrateSceneSettingsHomesV35ToV36 did to one scene.
+    struct SceneSettingsHomesReport
+    {
+        int  PostKeysMoved   = 0;     // Settings keys now stated by the Unbound PostProcessVolume
+        bool VolumeCreated   = false; // false when the Settings block stated no grade key at all
+        int  ShadowKeysFound = 0;     // EnableShadows / ShadowBias / CascadeSplitLambda stated by Settings
+        int  LightsStamped   = 0;     // DirectionLight blocks (records and prefab overrides) that took them
+    };
+
+    // Moves every grade key of the Settings block (the fields of Core::PostProcessSettings) into the
+    // `Settings` object of a new Unbound PostProcessVolume entity, and EnableShadows (renamed CastShadows),
+    // ShadowBias and CascadeSplitLambda onto every DirectionLight block of the scene, entity records and
+    // prefab overrides alike; all of them leave the Settings block. A key the block did not state is not
+    // written anywhere: its old default and its new default are the same number. Shadow keys of a scene
+    // with no DirectionLight are dropped - no light, no cascades to configure. The new entity's id is
+    // derived from the scene's GUID, so two runs on two branches mint one entity. PURE.
+    SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene );
+
     // Everything that ran, so the caller can say which FILE moved and how far.
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
@@ -144,9 +168,12 @@ namespace Desert::Migration
         bool                     PathOnlyMeshGuidsRaised = false; // below kSceneVersionPathOnlyMeshGuids
         MeshGuidsMigrationReport PathOnlyMeshGuids;
 
+        bool                     SceneSettingsHomesRaised = false; // below kSceneVersionSceneSettingsHomes
+        SceneSettingsHomesReport SceneSettingsHomes;
+
         bool Changed() const
         {
-            return PathOnlyMeshGuidsRaised;
+            return PathOnlyMeshGuidsRaised || SceneSettingsHomesRaised;
         }
     };
 

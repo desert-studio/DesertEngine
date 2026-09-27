@@ -4,6 +4,7 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -540,6 +541,16 @@ namespace Desert::Graphic
         m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
 
         const auto& sceneSettings = scene.GetSettings();
+
+        // THE ONE POINT THIS VIEW'S GRADE AND SHADOW POLICY ARE READ FROM (SET1) — UE's
+        // FFinalPostProcessSettings. The PostProcessVolume entities are blended at this camera's position and
+        // the directional light's shadow fields are taken from the light the scene shades with; everything
+        // below reads `post` and `shadows`, and no system reads a volume or the light's shadow fields itself.
+        const std::optional<glm::vec3> viewPosition =
+             camera ? std::optional<glm::vec3>( camera->GetPosition() ) : std::nullopt;
+        const FinalViewSettings          viewSettings = ResolveViewSettings( scene.GetRegistry(), viewPosition );
+        const Core::PostProcessSettings& post         = viewSettings.Post;
+        const ViewShadowSettings&        shadows      = viewSettings.Shadows;
         // Selection-outline appearance is NOT read from the scene: it's an editor-only viewport aid pushed
         // each frame via SetOutlineSettings (from EditorPreferences). Runtime builds never push -> the
         // JumpFlood system keeps its defaults, and MeshRenderer::HasOutline() gates whether it draws.
@@ -569,27 +580,27 @@ namespace Desert::Graphic
         // dead setting, reintroduced by the fix for one.
         m_RenderPath = ( m_DebugView.WireframeMode || m_DebugView.LightingDebug ) ? Core::RenderPath::Forward
                                                                                   : sceneSettings.RenderingPath;
-        m_EnableSSAO = sceneSettings.EnableSSAO;
+        m_EnableSSAO = post.EnableSSAO;
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.CloudQualityTier;
-        m_GIMode         = sceneSettings.GlobalIllumination;
-        m_GIIntensity    = sceneSettings.GIIntensity;
-        m_EnableSSR      = sceneSettings.EnableSSR;
-        m_SSRIntensity   = sceneSettings.SSRIntensity;
-        m_SSRMaxDistance = sceneSettings.SSRMaxDistance;
+        m_GIMode         = post.GlobalIllumination;
+        m_GIIntensity    = post.GIIntensity;
+        m_EnableSSR      = post.EnableSSR;
+        m_SSRIntensity   = post.SSRIntensity;
+        m_SSRMaxDistance = post.SSRMaxDistance;
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in the Transparency phase.
         UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
 
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetParams( sceneSettings.Exposure, sceneSettings.Gamma );
+             ->SetParams( post.Exposure, post.Gamma );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetTonemapOperator( sceneSettings.Tonemapper );
+             ->SetTonemapOperator( post.Tonemapper );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetWhitePoint( sceneSettings.WhitePoint );
+             ->SetWhitePoint( post.WhitePoint );
 
         // The systems map is keyed by the name each system was registered under, so the downcast is to the type
         // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
@@ -600,8 +611,8 @@ namespace Desert::Graphic
              ->SetWireframe( m_DebugView.WireframeMode );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.MeshLOD );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SetShadows( sceneSettings.EnableShadows, sceneSettings.ShadowBias,
-                           static_cast<int>( m_DebugView.ShadowDebug ), sceneSettings.CascadeSplitLambda );
+             ->SetShadows( shadows.Enabled, shadows.Bias, static_cast<int>( m_DebugView.ShadowDebug ),
+                           shadows.CascadeSplitLambda );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetDebugView( m_DebugView.ShowNormals, m_DebugView.ShowBoundingBoxes, m_DebugView.BoundingBoxColor,
                              m_DebugView.BoundingBoxLineWidth, m_DebugView.LightingDebug );
@@ -639,45 +650,43 @@ namespace Desert::Graphic
         // pass the adapted-luminance image and doing the comparison on the GPU, which is a binding this
         // pass does not have; it is written down in Docs/Clouds/CALIBRATION.md rather than left to be
         // rediscovered.
-        const float exposureNormalisation =
-             sceneSettings.AutoExposure ? 1.0f : std::max( sceneSettings.Exposure, 1e-4f );
+        const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( post.Exposure, 1e-4f );
 
-        m_BloomEnabled = sceneSettings.EnableBloom;
+        m_BloomEnabled = post.EnableBloom;
         UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )
-             ->SetThreshold( sceneSettings.BloomThreshold / exposureNormalisation );
+             ->SetThreshold( post.BloomThreshold / exposureNormalisation );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetBloomIntensity( sceneSettings.EnableBloom ? sceneSettings.BloomIntensity : 0.0f );
+             ->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetChromaticBloom( sceneSettings.EnableBloom ? sceneSettings.LensDispersion : 0.0f );
+             ->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
 
         // Lens flare: the authored "Lens Flare" group, copied whole. Intensity and Tint are held out of
         // the pass's own params because the pass never applies them — the tonemap does, so that a flare
         // whose sun has left the screen fades through ONE number instead of two that could disagree.
-        m_LensFlare.Enabled         = sceneSettings.EnableLensFlare;
-        m_LensFlare.Intensity       = sceneSettings.LensFlareIntensity;
+        m_LensFlare.Enabled   = post.EnableLensFlare;
+        m_LensFlare.Intensity = post.LensFlareIntensity;
         // Normalised for the reason given at the bloom threshold above, and by the same number: this pass
         // thresholds the same raw HDR image, so leaving one of the two in raw radiance would only move the
         // defect from one bright pass to the other.
-        m_LensFlare.Threshold       = sceneSettings.LensFlareThreshold / exposureNormalisation;
-        m_LensFlare.GhostCount      = sceneSettings.LensFlareGhostCount;
-        m_LensFlare.GhostSpacing    = sceneSettings.LensFlareGhostSpacing;
-        m_LensFlare.GhostSizeNear   = sceneSettings.LensFlareGhostSizeNear;
-        m_LensFlare.GhostSizeFar    = sceneSettings.LensFlareGhostSizeFar;
-        m_LensFlare.GhostTintInner  = sceneSettings.LensFlareGhostTintInner;
-        m_LensFlare.GhostTintOuter  = sceneSettings.LensFlareGhostTintOuter;
-        m_LensFlare.HaloIntensity   = sceneSettings.LensFlareHaloIntensity;
-        m_LensFlare.HaloRadius      = sceneSettings.LensFlareHaloRadius;
-        m_LensFlare.StreakIntensity = sceneSettings.LensFlareStreakIntensity;
-        m_LensFlare.StreakLength    = sceneSettings.LensFlareStreakLength;
-        m_LensFlare.StreakAngle     = sceneSettings.LensFlareStreakAngle;
-        m_LensFlare.ChromaShift     = sceneSettings.LensFlareChromaShift;
-        m_LensFlareTint             = sceneSettings.LensFlareTint;
+        m_LensFlare.Threshold       = post.LensFlareThreshold / exposureNormalisation;
+        m_LensFlare.GhostCount      = post.LensFlareGhostCount;
+        m_LensFlare.GhostSpacing    = post.LensFlareGhostSpacing;
+        m_LensFlare.GhostSizeNear   = post.LensFlareGhostSizeNear;
+        m_LensFlare.GhostSizeFar    = post.LensFlareGhostSizeFar;
+        m_LensFlare.GhostTintInner  = post.LensFlareGhostTintInner;
+        m_LensFlare.GhostTintOuter  = post.LensFlareGhostTintOuter;
+        m_LensFlare.HaloIntensity   = post.LensFlareHaloIntensity;
+        m_LensFlare.HaloRadius      = post.LensFlareHaloRadius;
+        m_LensFlare.StreakIntensity = post.LensFlareStreakIntensity;
+        m_LensFlare.StreakLength    = post.LensFlareStreakLength;
+        m_LensFlare.StreakAngle     = post.LensFlareStreakAngle;
+        m_LensFlare.ChromaShift     = post.LensFlareChromaShift;
+        m_LensFlareTint             = post.LensFlareTint;
 
         UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
-             ->SetParams( sceneSettings.AutoExposureSpeed, sceneSettings.AutoExposureMin,
-                          sceneSettings.AutoExposureMax );
+             ->SetParams( post.AutoExposureSpeed, post.AutoExposureMin, post.AutoExposureMax );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetAutoExposure( sceneSettings.AutoExposure, sceneSettings.AutoExposureKey );
+             ->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 
         return BOOLSUCCESS;
     }

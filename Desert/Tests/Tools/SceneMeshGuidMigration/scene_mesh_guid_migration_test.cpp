@@ -175,9 +175,10 @@ TEST( ScenePathOnlyMeshGuidMigration, AMeshStatingNoGuidRefuses )
     EXPECT_NE( report.Refused.find( "states no mesh GUID" ), std::string::npos ) << report.Refused;
 }
 
+// No longer the head since SET1 (v36), but still a generation every file the engine reads has passed.
 TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration )
 {
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionPathOnlyMeshGuids );
+    EXPECT_LT( Migration::kSceneVersionPathOnlyMeshGuids, Desert::Core::kSceneVersion );
 }
 
 namespace

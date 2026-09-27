@@ -143,6 +143,9 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIOverlayTriggerComponent, D
 // scene, and the fog height deliberately is not a field (it is the entity's transform Y).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponent, Data,
                                      "ExponentialHeightFogData", "Exponential Height Fog" )
+// Post Process Volume likewise: its bounds are the entity's Translation plus the Extent field.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, Data, "PostProcessVolumeData",
+                                     "Post Process Volume" )
 
 // Volumetric Cloud is a CUSTOM entry since O1: the reflected budget/routing fields PLUS the material
 // row — the same one-handle-with-Edit-button arrangement the landscape has, for the same Stage 3 reason.
