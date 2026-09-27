@@ -501,6 +501,7 @@ namespace Desert::Assets
             // empty when the file states none (then a list shows the stem, as the asset itself does).
             std::string DisplayName;
             bool        Skinned = false; // the Skinned tag: a mesh whose header flags a skeleton
+            uint64_t    RigSignature = 0; // the Rig tag (AssetRegistryEntry::RigSignature)
         };
 
         // The rows of one kind in registry order — the SAME order `FilesOfKind` hands the preloader, so a
@@ -517,7 +518,7 @@ namespace Desert::Assets
             {
                 rows.push_back( { Common::AssetHandle( row->EffectiveHandle() ), row->Key,
                                   Common::AssetHandle::PathForStableKey( row->Key ), row->Guid, row->DisplayName,
-                                  row->Skinned } );
+                                  row->Skinned, row->RigSignature } );
             }
             return rows;
         }
@@ -540,7 +541,8 @@ namespace Desert::Assets
                               Common::AssetHandle::PathForStableKey( row->Key ),
                               row->Guid,
                               row->DisplayName,
-                              row->Skinned };
+                              row->Skinned,
+                              row->RigSignature };
         }
 
         // THE MESH PICKERS' ROWS, split by the Skinned tag and not by extension (UE filters FAssetData by its
@@ -560,6 +562,22 @@ namespace Desert::Assets
                 }
             }
             return rows;
+        }
+
+        // THE SKELETON A SKINNED MESH NAMES, found by the Rig tag both rows carry: the mesh's header states
+        // the rig's signature and the skeleton's document states its own, so the lookup reads no file (UE:
+        // USkeletalMesh -> USkeleton is a soft reference, not a search over loaded skeletons). Empty when no
+        // Skeleton row states @p signature; 0 is never a rig.
+        inline std::optional<PickerRow> RigRow( uint64_t signature )
+        {
+            if ( signature == 0 )
+                return std::nullopt;
+            for ( PickerRow& row : Rows( Common::Content::ContentKind::Skeleton ) )
+            {
+                if ( row.RigSignature == signature )
+                    return std::move( row );
+            }
+            return std::nullopt;
         }
 
         // ONE FILE CHANGED ON DISK — appeared, was rewritten or went away — and the registry follows it

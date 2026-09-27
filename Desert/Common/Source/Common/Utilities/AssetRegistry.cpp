@@ -19,7 +19,7 @@ namespace Common::Utils
     namespace
     {
         constexpr std::string_view kMagic         = "DesertAssetRegistry";
-        constexpr int              kFormatVersion = 4;
+        constexpr int              kFormatVersion = 5;
         // The file's name under the Cooked tree. One spelling, here, because both the producer (the
         // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
         // literal is how they would come to name two.
@@ -239,6 +239,7 @@ namespace Common::Utils
 
         constexpr std::string_view kTagName    = "Name";
         constexpr std::string_view kTagSkinned = "Skinned";
+        constexpr std::string_view kTagRig     = "Rig";
 
         // `Name=<escaped>` and `Skinned`, comma separated in that order, or `-` when the file states neither.
         std::string TagsText( const AssetRegistryEntry& entry )
@@ -256,6 +257,14 @@ namespace Common::Utils
                     out += ',';
                 out += kTagSkinned;
             }
+            if ( entry.RigSignature != 0 )
+            {
+                if ( !out.empty() )
+                    out += ',';
+                out += kTagRig;
+                out += '=';
+                out += std::to_string( entry.RigSignature );
+            }
             return out.empty() ? std::string( kNone ) : out;
         }
 
@@ -269,6 +278,16 @@ namespace Common::Utils
                 const std::string_view one   = text.substr( 0, comma );
                 if ( one == kTagSkinned )
                     entry.Skinned = true;
+                else if ( one.starts_with( kTagRig ) && one.size() > kTagRig.size() + 1 &&
+                          one[kTagRig.size()] == '=' )
+                {
+                    const std::string_view number = one.substr( kTagRig.size() + 1 );
+                    const auto parsed = std::from_chars( number.data(), number.data() + number.size(),
+                                                         entry.RigSignature );
+                    if ( parsed.ec != std::errc() || parsed.ptr != number.data() + number.size() ||
+                         entry.RigSignature == 0 )
+                        return false;
+                }
                 else if ( one.starts_with( kTagName ) && one.size() > kTagName.size() + 1 &&
                           one[kTagName.size()] == '=' )
                 {
@@ -743,7 +762,7 @@ namespace Common::Utils
 
             if ( tagsText != kNone && !ParseTags( tagsText, entry ) )
                 return MakeFormattedError<AssetRegistry>( "line {}: '{}' is neither '-' nor 'Name=<%XX-escaped "
-                                                          "text>' and/or 'Skinned', comma separated",
+                                                          "text>', 'Skinned' and/or 'Rig=<signature>', comma separated",
                                                           lineNo, std::string( tagsText ) );
 
             if ( const auto inserted = registry.Insert( std::move( entry ) ); !inserted )
