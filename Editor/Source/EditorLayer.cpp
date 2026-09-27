@@ -5438,10 +5438,9 @@ namespace Desert::Editor
                               [] { return ViewportPanel::StrokeFoliageInActiveViewport(); } } );
         // FOLIAGE (FO-4): the tool the stroke above uses, and what UE does to the selected instances.
         // NOLINTBEGIN(bugprone-exception-escape)
-        for ( const auto tool :
-              { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
-                Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply,
-                Core::FoliageTool::Fill } )
+        for ( const auto tool : { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
+                                  Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply,
+                                  Core::FoliageTool::Fill } )
             commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
                                   [tool]() -> Common::BoolResultStr
                                   {

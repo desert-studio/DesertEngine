@@ -212,16 +212,16 @@ namespace Desert::Editor::Tools
     /// UE SelectInstanceAtLocation (the Select tool's click), without hit proxies: the instance whose mesh box
     /// - the mesh's local bounds @p localMin..@p localMax carried by the instance transform - the ray enters
     /// first. nullopt when the ray misses every box.
-    std::optional<FoliagePick> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
-                                                    const glm::vec3& rayDirection, const glm::vec3& localMin,
-                                                    const glm::vec3& localMax );
+    std::optional<FoliagePick> FoliagePickInstance( std::span<const glm::mat4> instances,
+                                                    const glm::vec3& rayOrigin, const glm::vec3& rayDirection,
+                                                    const glm::vec3& localMin, const glm::vec3& localMax );
 
     /// A world-space triangle of the mesh the Fill tool covers (UE FFoliagePaintBucketTriangle, no vertex colour).
     struct FoliageFillTriangle
     {
-        glm::vec3      A = glm::vec3( 0.0f );
-        glm::vec3      B = glm::vec3( 0.0f );
-        glm::vec3      C = glm::vec3( 0.0f );
+        glm::vec3      A       = glm::vec3( 0.0f );
+        glm::vec3      B       = glm::vec3( 0.0f );
+        glm::vec3      C       = glm::vec3( 0.0f );
         FoliageSurface Surface = FoliageSurface::StaticMesh;
     };
 

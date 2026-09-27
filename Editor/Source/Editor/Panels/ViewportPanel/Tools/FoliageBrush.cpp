@@ -357,9 +357,9 @@ namespace Desert::Editor::Tools
         return changed;
     }
 
-    std::optional<FoliagePick> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
-                                                    const glm::vec3& rayDirection, const glm::vec3& localMin,
-                                                    const glm::vec3& localMax )
+    std::optional<FoliagePick> FoliagePickInstance( std::span<const glm::mat4> instances,
+                                                    const glm::vec3& rayOrigin, const glm::vec3& rayDirection,
+                                                    const glm::vec3& localMin, const glm::vec3& localMax )
     {
         const glm::vec3            dir = glm::normalize( rayDirection );
         std::optional<FoliagePick> best;
@@ -498,9 +498,9 @@ namespace Desert::Editor::Tools
                 result.Added = added.size();
             }
         }
-        const float          r2      = dab.Radius * dab.Radius;
-        const bool           layered = !type.LandscapeLayers.empty();
-        std::vector<bool>    gone( instances.size(), false );
+        const float       r2      = dab.Radius * dab.Radius;
+        const bool        layered = !type.LandscapeLayers.empty();
+        std::vector<bool> gone( instances.size(), false );
         for ( size_t i = 0; i < instances.size(); ++i )
         {
             glm::mat4&      m      = instances[i];

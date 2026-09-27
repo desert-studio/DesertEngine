@@ -91,7 +91,6 @@ namespace Desert::Editor::Tools
         EditSelection( ::Desert::Core::Scene& scene, const std::string& label,
                        const std::function<void( std::vector<glm::mat4>&, FoliageSelection& )>& edit );
 
-
         std::optional<FoliageStroke>     m_Stroke;
         Core::FoliageTool                m_StrokeTool = Core::FoliageTool::Paint; ///< the tool at press
         bool                             m_Applied    = false; ///< Single / Select: this click already acted

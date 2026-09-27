@@ -164,7 +164,7 @@ TEST( FoliageTools, SelectPicksTheFirstMeshBoxTheRayEnters )
     // A tall thin mesh: 20 x 200 x 20 cm, standing on its origin.
     const glm::vec3 lo( -10.0f, 0.0f, -10.0f ), hi( 10.0f, 200.0f, 10.0f );
     auto            field = Row( 5 );
-    const auto      pick  = []( const std::vector<glm::mat4>& f, glm::vec3 o, glm::vec3 d, glm::vec3 a, glm::vec3 b )
+    const auto pick = []( const std::vector<glm::mat4>& f, glm::vec3 o, glm::vec3 d, glm::vec3 a, glm::vec3 b )
     {
         const auto p = FoliagePickInstance( f, o, d, a, b );
         return p ? static_cast<int>( p->Index ) : -1;
@@ -401,18 +401,19 @@ TEST( FoliageTools, ReapplyDensityThinsAndTopsUpToTheType )
     // = 28 in the brush disk.
     std::vector<glm::mat4> field;
     for ( int i = 0; i < 100; ++i )
-        field.push_back( glm::translate( glm::mat4( 1.0f ), { 20.0f * ( i % 10 ) - 90.0f, 0.0f, 20.0f * ( i / 10 ) - 90.0f } ) );
+        field.push_back( glm::translate( glm::mat4( 1.0f ),
+                                         { 20.0f * ( i % 10 ) - 90.0f, 0.0f, 20.0f * ( i / 10 ) - 90.0f } ) );
     field.push_back( glm::translate( glm::mat4( 1.0f ), { 5000.0f, 0.0f, 0.0f } ) ); // outside, untouched
     FoliageTypeData type;
     type.Density = 100.0f;
     FoliageReapplySettings settings;
-    settings.Density = true;
-    settings.Scale   = false;
+    settings.Density                = true;
+    settings.Scale                  = false;
     FoliageSelection       selected = { 100u };
     std::vector<glm::vec3> readjusted;
     FoliageRandom          rng( 0xDE5u );
-    const auto r = FoliageBrushReapply( type, settings, DabAt( {}, 300.0f ), field, readjusted, rng, Ground(),
-                                        &selected );
+    const auto             r =
+         FoliageBrushReapply( type, settings, DabAt( {}, 300.0f ), field, readjusted, rng, Ground(), &selected );
     EXPECT_EQ( r.Thinned, 72u );
     EXPECT_EQ( field.size(), 29u );
     EXPECT_EQ( selected, ( FoliageSelection{ 28u } ) ); // the outside instance, renumbered
@@ -430,7 +431,8 @@ TEST( FoliageTools, ReapplyDensityThinsAndTopsUpToTheType )
     // Deterministic from the seed.
     std::vector<glm::mat4> again;
     for ( int i = 0; i < 100; ++i )
-        again.push_back( glm::translate( glm::mat4( 1.0f ), { 20.0f * ( i % 10 ) - 90.0f, 0.0f, 20.0f * ( i / 10 ) - 90.0f } ) );
+        again.push_back( glm::translate( glm::mat4( 1.0f ),
+                                         { 20.0f * ( i % 10 ) - 90.0f, 0.0f, 20.0f * ( i / 10 ) - 90.0f } ) );
     again.push_back( glm::translate( glm::mat4( 1.0f ), { 5000.0f, 0.0f, 0.0f } ) );
     type.Density = 100.0f;
     readjusted.clear();

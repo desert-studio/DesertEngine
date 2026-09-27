@@ -802,12 +802,13 @@ namespace Desert::Editor::Tools
             if ( !mesh )
             {
                 if ( m_Refused.insert( uuid ).second )
-                    ToastManager::Push( "Foliage select: the field's mesh is not loaded, its instances cannot be picked",
-                                        ToastLevel::Error, 6.0f );
+                    ToastManager::Push(
+                         "Foliage select: the field's mesh is not loaded, its instances cannot be picked",
+                         ToastLevel::Error, 6.0f );
                 continue;
             }
-            const Common::Math::AABB box    = Geometry::LocalBounds( mesh->GetSubmeshes() );
-            const auto               picked = FoliagePickInstance( instances, ray.Origin, ray.Direction, box.Min, box.Max );
+            const Common::Math::AABB box = Geometry::LocalBounds( mesh->GetSubmeshes() );
+            const auto picked = FoliagePickInstance( instances, ray.Origin, ray.Direction, box.Min, box.Max );
             if ( picked && picked->Distance < bestDistance )
             {
                 best         = std::make_pair( uuid, picked->Index );
@@ -882,8 +883,8 @@ namespace Desert::Editor::Tools
         }
     }
 
-    Common::BoolResultStr FoliagePaintTool::FillEntity( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
-                                                        const Common::UUID& entity )
+    Common::BoolResultStr FoliagePaintTool::FillEntity( ::Desert::Core::Scene& scene,
+                                                        Assets::AssetManager& manager, const Common::UUID& entity )
     {
         const auto target = scene.FindEntityByID( entity );
         if ( !target || !target->get().HasComponent<ECS::StaticMeshComponent>() )
@@ -899,7 +900,8 @@ namespace Desert::Editor::Tools
         const Geometry::DynamicMesh3&    dm      = *mesh.GetValue().Mesh;
         std::vector<FoliageFillTriangle> triangles;
         triangles.reserve( static_cast<size_t>( dm.TriangleCount() ) );
-        const auto world = [&]( int v ) { return glm::vec3( toWorld * glm::vec4( glm::vec3( dm.GetVertex( v ) ), 1.0f ) ); };
+        const auto world = [&]( int v )
+        { return glm::vec3( toWorld * glm::vec4( glm::vec3( dm.GetVertex( v ) ), 1.0f ) ); };
         for ( const int t : dm.TriangleIndicesItr() )
         {
             const auto tri = dm.GetTriangle( t );
@@ -922,8 +924,8 @@ namespace Desert::Editor::Tools
                 continue;
             auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
             stroke.Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
-            const auto added =
-                 FoliageFill( type->GetData(), triangles, Core::FoliagePaint::PaintDensity(), filter, stroke.Random() );
+            const auto added = FoliageFill( type->GetData(), triangles, Core::FoliagePaint::PaintDensity(), filter,
+                                            stroke.Random() );
             instances.insert( instances.end(), added.begin(), added.end() );
             placed += added.size();
             LOG_INFO( "[Foliage] fill '{}': {} placed on {} triangles; field now {}", type->GetDisplayName(),
@@ -942,9 +944,10 @@ namespace Desert::Editor::Tools
             CommandHistory::Get().PushCommand(
                  std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage Fill" ) );
         if ( placed == 0 )
-            return Common::MakeFormattedError( "foliage fill: nothing placed on {} triangles (density, slope, height "
-                                               "or the static-mesh filter refused all of them)",
-                                               triangles.size() );
+            return Common::MakeFormattedError(
+                 "foliage fill: nothing placed on {} triangles (density, slope, height "
+                 "or the static-mesh filter refused all of them)",
+                 triangles.size() );
         return BOOLSUCCESS;
     }
 
@@ -1178,10 +1181,9 @@ namespace Desert::Editor::Tools
         }
 
         ImGui::Separator();
-        static constexpr const char* kHints[] = { "LMB drag: paint",       "LMB click: place one",
-                                                  "LMB click: select one", "LMB drag: select",
-                                                  "LMB drag: remove",      "LMB drag: reapply",
-                                                  "LMB click: fill a static mesh" };
+        static constexpr const char* kHints[] = {
+             "LMB drag: paint",  "LMB click: place one", "LMB click: select one",        "LMB drag: select",
+             "LMB drag: remove", "LMB drag: reapply",    "LMB click: fill a static mesh" };
         ImGui::TextDisabled( "%s  -  on the checked types", kHints[static_cast<size_t>( tool )] );
         ImGui::End();
     }
