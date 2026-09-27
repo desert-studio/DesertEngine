@@ -226,11 +226,19 @@ namespace Desert::Editor::Tools
     void FoliagePaintTool::DrawPanel( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
                                       const glm::vec2& viewportPos, UI::UIHelper* uiHelper )
     {
-        ImGui::SetNextWindowPos( ImVec2( viewportPos.x + 12.0f, viewportPos.y + 58.0f ), ImGuiCond_Always );
-        ImGui::SetNextWindowSize( ImVec2( 360.0f, 0.0f ), ImGuiCond_Always );
+        // Floats at the viewport's left edge while Foliage mode is on (UE's mode toolkit beside the level): as
+        // tall as its content, down to the bottom of the editor window at most, scrolling beyond that.
+        const ImGuiViewport* main = ImGui::GetMainViewport();
+        const float          top  = viewportPos.y + 58.0f;
+        ImGui::SetNextWindowPos( ImVec2( viewportPos.x + 12.0f, top ), ImGuiCond_Always );
+        ImGui::SetNextWindowSize( ImVec2( 380.0f, 0.0f ), ImGuiCond_Always );
+        ImGui::SetNextWindowSizeConstraints(
+             ImVec2( 380.0f, 120.0f ),
+             ImVec2( 380.0f, std::max( 120.0f, main->WorkPos.y + main->WorkSize.y - top - 8.0f ) ) );
         ImGui::SetNextWindowBgAlpha( 0.96f );
         const ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+                                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                       ImGuiWindowFlags_NoDocking;
         if ( !ImGui::Begin( "Foliage##FoliagePanel", nullptr, flags ) )
         {
             ImGui::End();
@@ -316,7 +324,7 @@ namespace Desert::Editor::Tools
         }
 
         // ----- Filters (UE bFilterLandscape / bFilterStaticMesh; + the brush's landscape layer) -------------
-        if ( Row::SectionHeader( "Filters" ) )
+        if ( Row::SectionHeader( "Filters", false ) )
         {
             Row::BeginPropertyRow( "Landscape" );
             ImGui::Checkbox( "##FilterLandscape", &Core::FoliagePaint::FilterLandscape() );
@@ -439,7 +447,10 @@ namespace Desert::Editor::Tools
                 Core::FoliagePaint::Search() = s_Search;
 
             // The drop zone is the whole list, as in UE: a Static Mesh, a `.defoliage` or a collection.
-            const float listHeight = grid ? 196.0f : 156.0f;
+            const float rowHeight  = ImGui::GetFrameHeightWithSpacing();
+            const float listHeight = grid ? 196.0f
+                                          : std::clamp( rowHeight * static_cast<float>( fields.size() ) + 12.0f,
+                                                        rowHeight * 2.0f, 156.0f );
             ImGui::BeginChild( "##FoliagePaletteList", ImVec2( -1, listHeight ), true );
             if ( fields.empty() )
                 ImGui::TextDisabled( "Drop a Static Mesh, a .defoliage or a collection here,\nor use + Foliage." );

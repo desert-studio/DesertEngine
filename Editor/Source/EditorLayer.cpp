@@ -3864,7 +3864,7 @@ namespace Desert::Editor
                 //  │ Outliner  │ per open asset document    ├──────────────┤
                 //  ├───────────┤ (DocumentPlacement)        │ SceneSettings│
                 //  │Collections├────────────────────────────┤ / Profiler   │
-                //  │           │ Assets / Logs / Documents  │ / Foliage    │
+                //  │           │ Assets / Logs / Documents  │              │
                 //  └───────────┴────────────────────────────┴──────────────┘
                 //
                 // THE CENTRE IS WHOLE. An asset document is a tab beside the level, the way Unreal opens an
@@ -3881,14 +3881,17 @@ namespace Desert::Editor
 
                 // Panels routed through the central Begin carry an icon (a ### suffix), so dock them by the
                 // SAME composed title — otherwise the icon-changed ImGui ID wouldn't match this assignment.
-                // Non-panel windows (Profiler / Foliage / Shader Code) self-Begin with plain names.
+                // Non-panel windows (Profiler / Shader Code) self-Begin with plain names.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene###scene" ).c_str(), center );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene Outliner" ).c_str(), left );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Collections" ).c_str(), leftBottom );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Details" ).c_str(), right );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene Settings" ).c_str(), rightBottom );
                 ::ImGui::DockBuilderDockWindow( "Profiler", rightBottom );
-                ::ImGui::DockBuilderDockWindow( "Foliage##FoliagePanel", rightBottom );
+                // NO LINE FOR "Foliage##FoliagePanel" (FO-UI1): docked here it became a tab behind Scene Settings
+                // that entering Foliage mode never showed, in a node ~300 px tall. It floats over the viewport's
+                // left edge while Foliage mode is on (FoliagePaintTool::DrawPanel), as UE's mode toolkit sits
+                // beside the level.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Assets" ).c_str(), bottom );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Logs" ).c_str(), bottom );
                 ::ImGui::DockBuilderDockWindow( "Shader Code", bottom );
