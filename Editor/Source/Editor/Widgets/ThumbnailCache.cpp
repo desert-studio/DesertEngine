@@ -73,7 +73,6 @@ namespace Desert::Editor
             m_Cache.erase( it );   // the file was rewritten since it was decoded
         }
 
-
         std::shared_ptr<Graphic::Image2D> result;
 
         // THE CACHE-HIT PATH IS NOT FREE, and it was the only part of the thumbnail system that had never

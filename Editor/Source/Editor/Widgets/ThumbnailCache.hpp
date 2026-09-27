@@ -29,9 +29,9 @@ namespace Desert::Editor
 
         // Returns a cached thumbnail image for the source path (decoding + downscaling on first request),
         // or null if the file can't be decoded (caller falls back to an icon). Null results are cached too.
-        // A file that changed since it was decoded (Common::Utils::WriteWatch) is decoded again: a reader may keep drawing an
-        // outdated rendered PNG while its replacement is captured (ThumbnailFreshness::Choose), and the new
-        // file must reach the screen without every reader keeping its own table of stamps.
+        // A file that changed since it was decoded (Common::Utils::WriteWatch) is decoded again: a reader may keep
+        // drawing an outdated rendered PNG while its replacement is captured (ThumbnailFreshness::Choose), and the
+        // new file must reach the screen without every reader keeping its own table of stamps.
         std::shared_ptr<Graphic::Image2D> Get( const std::string& sourcePath );
 
         // Drop the cached entry for one path so the next Get() re-decodes it (used when a thumbnail PNG was
