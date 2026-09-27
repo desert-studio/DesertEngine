@@ -175,9 +175,12 @@ TEST( ScenePathOnlyMeshGuidMigration, AMeshStatingNoGuidRefuses )
     EXPECT_NE( report.Refused.find( "states no mesh GUID" ), std::string::npos ) << report.Refused;
 }
 
+// The engine requires a generation AT OR ABOVE this step's: a v31 file cannot load until the step has run. Since
+// WP16 the head is the one-file-per-entity step (v35), which this step precedes.
 TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration )
 {
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionPathOnlyMeshGuids );
+    EXPECT_LT( Migration::kSceneVersionPathOnlyMeshGuids, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionExternalEntities );
 }
 
 namespace
