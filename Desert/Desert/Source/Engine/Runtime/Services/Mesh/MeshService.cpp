@@ -1,7 +1,5 @@
 #include "MeshService.hpp"
 
-#include <Engine/Geometry/MeshFactory.hpp>
-
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
@@ -9,29 +7,11 @@
 
 namespace Desert::Runtime
 {
-    namespace
+    MeshService::MeshService( std::unique_ptr<IMeshUploader> uploader ) : m_Uploader( std::move( uploader ) )
     {
-        // The two device buffers a mesh IS, named as the asset's. A procedural mesh is claimed differently
-        // in RegisterProcedural: it has no file, so nothing may ever release it. See ResourceLedger.hpp.
-        void ClaimMeshBuffers( const std::shared_ptr<Mesh>& mesh, const Graphic::ResourceOwner owner,
-                               const Assets::AssetHandle& asset )
-        {
-            if ( !mesh )
-                return;
-            if ( const auto& vertices = mesh->GetVertexBuffer() )
-            {
-                vertices->ClaimOwnership( owner, asset );
-                // The device bytes, from the buffer itself. This is the one place a mesh's two buffers are
-                // both in hand with the asset they came from — see Engine/Graphic/ResourceLedger.hpp.
-                vertices->RecordDeviceBytes( vertices->GetSize() );
-            }
-            if ( const auto& indices = mesh->GetIndexBuffer() )
-            {
-                indices->ClaimOwnership( owner, asset );
-                indices->RecordDeviceBytes( indices->GetSize() );
-            }
-        }
-    } // namespace
+    }
+
+    MeshService::~MeshService() = default;
 
     Common::BoolResultStr MeshService::Register( const std::shared_ptr<Assets::MeshAsset>& meshAsset )
     {
@@ -99,10 +79,10 @@ namespace Desert::Runtime
         const std::string path   = meshAsset->GetMetadata().Filepath.string();
         const auto        handle = meshAsset->GetMetadata().Handle;
 
-        auto mesh = Graphic::MeshFactory::Create( meshAsset );
+        auto mesh = m_Uploader->Upload( meshAsset );
         if ( !mesh )
         {
-            // MeshFactory has already said which of its preconditions failed; this adds the file, which it
+            // The uploader has already said which of its preconditions failed; this adds the file, which it
             // does not have. Nothing is cached: the comment this replaces was right that a sticky null can
             // never recover once the dependency is in place.
             return Common::MakeFormattedError( "MeshService: no runtime mesh could be built for '{}'", path );
@@ -119,7 +99,6 @@ namespace Desert::Runtime
         }
 
         m_Meshes[handle] = std::move( mesh );
-        ClaimMeshBuffers( m_Meshes[handle], Graphic::ResourceOwner::AssetService, handle );
         return BOOLSUCCESS;
     }
 
@@ -127,24 +106,18 @@ namespace Desert::Runtime
     {
         // Procedural meshes have no source path, so mint a fresh random id (the default handle is now Null).
         Assets::AssetHandle handle = Assets::AssetHandle::Generate();
-        // Build the GPU vertex/index buffers — the mesh ctor doesn't (asset meshes get this via
-        // MeshFactory::Create, and the ECS primitive path Invalidates explicitly). Without this a builtin
-        // procedural mesh (e.g. the Cube) has no buffers and renders nothing.
+        // Build the GPU vertex/index buffers — the mesh ctor doesn't. Without this a builtin procedural
+        // mesh (e.g. the Cube) has no buffers and renders nothing.
         if ( mesh )
         {
             // Reported, not refused: the caller receives a handle either way and the registry is the
             // only place this mesh can be found again. What must not happen is the previous behaviour —
             // a mesh whose buffers never uploaded sitting in the registry, drawing nothing, with the
             // handle looking exactly like a working one.
-            const auto uploaded = mesh->Invalidate();
-            if ( !uploaded.IsSuccess() )
+            if ( const auto uploaded = m_Uploader->UploadProcedural( mesh, handle ); !uploaded )
                 LOG_ERROR( "[MeshService] procedural mesh {} has no GPU buffers: {}", (uint64_t)handle,
                            uploaded.GetError() );
         }
-        // `Procedural`, NOT `AssetService`, and the distinction is load-bearing rather than cosmetic: this
-        // mesh was built from no file, so there is no recipe to rebuild it from and releasing it is data
-        // loss. The ledger's owner category is what asset eviction reads to know it must not touch this.
-        ClaimMeshBuffers( mesh, Graphic::ResourceOwner::Procedural, handle );
         m_Meshes[handle] = mesh;
         return handle;
     }

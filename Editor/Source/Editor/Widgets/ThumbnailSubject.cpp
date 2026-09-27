@@ -5,6 +5,7 @@
 #include <Editor/Import/MeshMaterial.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -13,6 +14,8 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
 #include <filesystem>
+#include <unordered_map>
+#include <utility>
 
 namespace Desert::Editor::ThumbnailSubject
 {
@@ -59,18 +62,61 @@ namespace Desert::Editor::ThumbnailSubject
              Core::Formats::ShaderDomainName( Core::Formats::kVolumePathDomain ) );
     }
 
-    Common::ResultStr<Material> ResolveMaterial( Assets::AssetManager& manager, const std::string& assetPath )
+    namespace
     {
+        // THE READS IN FLIGHT, BY PATH. The request handle is the keep-alive (AsyncAssetLoader.hpp), so
+        // holding it here is what keeps the shell alive until the bytes arrive; erasing the entry in the
+        // delegate is the ordinary end of a request whose result arrived.
+        std::unordered_map<std::string, Assets::LoadRequest>& MaterialReadsInFlight()
+        {
+            static std::unordered_map<std::string, Assets::LoadRequest> reads;
+            return reads;
+        }
+
+        // Everything after the bytes are in memory: route, register, answer. Shared by the resident case
+        // (answered in the caller's frame) and the arrival (answered from the loader's Pump).
+        Common::ResultStr<Material> ResolveLoadedMaterial( const Asset<Assets::SurfaceMaterialAsset>& asset,
+                                                           const std::string&                         assetPath )
+        {
+            auto route = PreviewRouteFor( *asset );
+            if ( !route )
+                return Common::MakeFormattedError<Material>( "'{}': {}", assetPath, route.GetError() );
+
+            // Was `if ( !GetMaterialService()->Get( h ) ) Register( a )`. `Get` BUILDS the runtime material on a
+            // miss, so the question and the answer were the same call — and the sweep asks it about every
+            // material in the project. The registration is a map write now; the build happens when the capture
+            // shades with it, which is one frame later and only for the materials actually photographed.
+            Runtime::EnsureMaterialRegistered( asset );
+
+            Material out;
+            out.Handle = asset->GetMetadata().Handle;
+            out.How    = route.GetValue();
+            return Common::MakeSuccess( out );
+        }
+    } // namespace
+
+    Common::ResultStr<std::optional<Material>> ResolveMaterial( Assets::AssetManager& manager,
+                                                                const std::string&    assetPath,
+                                                                OnMaterialArrived     onArrived )
+    {
+        using Answer = std::optional<Material>;
+        if ( !onArrived )
+            return Common::MakeFormattedError<Answer>( "'{}': asked with no arrival delegate, so a pending "
+                                                       "answer would be a thumbnail nobody ever hears about",
+                                                       assetPath );
+
         // Mirrors the component deserializer's create-if-missing logic, which is what a cold start needs:
         // the preloader registers every `.demat` under MATERIAL_PATH, but a material an artist has just
-        // dropped in — or one that lives outside that root — is not in the manager yet.
+        // dropped in — or one that lives outside that root — is not in the manager yet. Created UNLOADED:
+        // the read is the loader's, below.
         auto asset = manager.FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
-            asset = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath );
+            asset = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath,
+                                                                       false );
         if ( !asset )
         {
-            return Common::MakeFormattedError<Material>( "'{}' is not a material the asset manager will accept",
-                                                         assetPath );
+            return Common::MakeFormattedError<Answer>( "'{}' is not a material the asset manager will accept",
+                                                       assetPath );
         }
 
         // PARSED BEFORE IT IS ASKED ANYTHING, ON BOTH ROUTES, AND THAT MOVE IS THE WHOLE DEFECT. The Load
@@ -86,23 +132,46 @@ namespace Desert::Editor::ThumbnailSubject
         // MeshRenderer with the REAL shader. Three domain refusals in the log (Volume, Skybox, Terrain),
         // and an empty frame written to disk as each material's picture. The check was not missing; it was
         // reading a default.
-        if ( !asset->IsReadyForUse() )
-            asset->Load();
+        //
+        // AL1-5c: parsed, but no longer HERE. The Load that stood on this line ran inside the frame for
+        // every shell the sweep reached (16 `.demat`, ~5 ms, one second after the window appeared on
+        // Starter). The shell is handed to AsyncAssetLoader instead and the question is asked again when
+        // the bytes arrive — still never of a shell.
+        if ( asset->IsReadyForUse() )
+        {
+            auto resolved = ResolveLoadedMaterial( asset, assetPath );
+            if ( !resolved )
+                return Common::MakeError<Answer>( resolved.GetError() );
+            return Common::MakeSuccess( Answer( resolved.GetValue() ) );
+        }
 
-        auto route = PreviewRouteFor( *asset );
-        if ( !route )
-            return Common::MakeFormattedError<Material>( "'{}': {}", assetPath, route.GetError() );
+        auto& reads = MaterialReadsInFlight();
+        if ( reads.contains( assetPath ) )
+            return Common::MakeSuccess( Answer() );
 
-        // Was `if ( !GetMaterialService()->Get( h ) ) Register( a )`. `Get` BUILDS the runtime material on a
-        // miss, so the question and the answer were the same call — and the sweep asks it about every
-        // material in the project. The registration is a map write now; the build happens when the capture
-        // shades with it, which is one frame later and only for the materials actually photographed.
-        Runtime::EnsureMaterialRegistered( asset );
-
-        Material out;
-        out.Handle = asset->GetMetadata().Handle;
-        out.How    = route.GetValue();
-        return Common::MakeSuccess( out );
+        Assets::LoadRequest request = Assets::AsyncAssetLoader::Get().Request(
+             asset,
+             [assetPath, onArrived]( const Asset<Assets::AssetBase>& loaded, Assets::LoadOutcome outcome,
+                                     const std::string& error )
+             {
+                 // The map's handle is released first: the result has arrived, and the resolution below may
+                 // itself ask for another read.
+                 MaterialReadsInFlight().erase( assetPath );
+                 if ( outcome != Assets::LoadOutcome::Loaded )
+                 {
+                     onArrived( assetPath, Common::MakeFormattedError<Material>(
+                                                "'{}' could not be read: {}", assetPath, error ) );
+                     return;
+                 }
+                 onArrived( assetPath, ResolveLoadedMaterial(
+                                            std::static_pointer_cast<Assets::SurfaceMaterialAsset>( loaded ),
+                                            assetPath ) );
+             },
+             [assetPath]() { MaterialReadsInFlight().erase( assetPath ); } );
+        if ( !request.IsValid() )
+            return Common::MakeFormattedError<Answer>( "'{}': the async loader refused the read", assetPath );
+        reads.emplace( assetPath, std::move( request ) );
+        return Common::MakeSuccess( Answer() );
     }
 
     Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager, const std::string& sourcePath )
