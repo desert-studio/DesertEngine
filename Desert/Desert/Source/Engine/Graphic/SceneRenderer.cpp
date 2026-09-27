@@ -435,6 +435,18 @@ namespace Desert::Graphic
         RebuildRenderGraph();
     }
 
+    void SceneRenderer::ResetTemporalHistory()
+    {
+        // Over m_RenderSystemOrder for the reason RebindScene gives: the map can hold null entries.
+        for ( const auto& name : m_RenderSystemOrder )
+        {
+            if ( const auto it = m_RenderSystems.find( name ); it != m_RenderSystems.end() && it->second )
+                it->second->OnTemporalHistoryReset();
+        }
+        LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
+                  m_ViewResources.GetName(), m_RenderSystemOrder.size() );
+    }
+
     namespace
     {
         // A view's name: what kind of surface it is and a serial that is never reused, so two log lines
@@ -752,7 +764,8 @@ namespace Desert::Graphic
         // so the freshly-integrated particle buffer is ready + visible to the vertex stage.
         {
             DESERT_PROFILE_PASS( "Particles: SimulateInFrame" );
-            UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->SimulateInFrame();
+            UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )
+                 ->SimulateInFrame( sceneRenderInfo.Timestep.GetSeconds() );
         }
 
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of

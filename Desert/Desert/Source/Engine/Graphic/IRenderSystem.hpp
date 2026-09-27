@@ -46,5 +46,27 @@ namespace Desert::Graphic
         virtual void OnSceneReplaced()
         {
         }
+
+        /**
+         * @brief THE VIEW'S TEMPORAL HISTORY IS CUT: THE NEXT FRAME IS THE FIRST ONE OF A NEW SEQUENCE.
+         *
+         * The camera-cut hook (UE: FSceneViewState / bCameraCut). The world is the SAME one — nothing is
+         * released and the device is not idled — but nothing this system integrated over earlier frames may
+         * reach the next one: the frame index that drives jitter, noise seeds and history ping-pong starts
+         * again from zero, reprojected histories are invalidated, adaptations snap, simulations restart from
+         * their authored state.
+         *
+         * Called from SceneRenderer::ResetTemporalHistory, between frames. Callers are anyone who needs a
+         * frame sequence that does not depend on what was rendered before it — a capture that has to be the
+         * same picture on every run is the first one; a camera cut or a teleport is the same request.
+         *
+         * WHAT IS RESET IS STATE, NEVER PASSES. When histories become render-graph external resources, this
+         * zeroes their state (history-valid flags, counters); it does not register a pass or touch the graph.
+         *
+         * Default: nothing. Desert/Tests/Engine/RendererSceneLifetime names every override.
+         */
+        virtual void OnTemporalHistoryReset()
+        {
+        }
     };
 } // namespace Desert::Graphic

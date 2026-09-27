@@ -252,9 +252,17 @@ namespace Desert::Editor
         // instead of argued: under `--play` the answer does not depend on the clock AT ALL — that is what
         // makes two runs of one command the same frame — and otherwise it is the measured value returned on
         // the exact float, which is what makes every capture taken before this flag existed still valid.
-        float FrameSeconds( float wallClockSeconds ) const
+        //
+        // @p counting: whether the capture's frame count has started (EditorLayer arms it once the window is
+        // revealed, content has settled and the image size held for a frame). Under `--play`, time STANDS
+        // STILL until then: how many frames the start-up takes depends on the machine and on asynchronous
+        // loads, and a world advanced by that many steps is a different world on every run. Outside `--play`
+        // the flag changes nothing - the editor's own time is never held.
+        float FrameSeconds( float wallClockSeconds, bool counting ) const
         {
-            return PlayActive() ? PlayStepSeconds : wallClockSeconds;
+            if ( !PlayActive() )
+                return wallClockSeconds;
+            return counting ? PlayStepSeconds : 0.0f;
         }
 
         // Whether the camera MOVES. False is the whole of the existing behaviour: the pose is placed once

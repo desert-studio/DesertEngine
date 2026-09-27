@@ -103,6 +103,15 @@ namespace Desert::Graphic::System
             m_HistoryValid = false;
         }
 
+        // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
+        // and the history ping-pong parity, so it restarts with the history rather than carrying the count
+        // of whatever frames came before the cut.
+        void OnTemporalHistoryReset() override
+        {
+            m_FrameIndex   = 0;
+            m_HistoryValid = false;
+        }
+
         /**
          * @brief This frame's cloud layer, from ECS::VolumetricCloudECSSystem.
          *

@@ -15,27 +15,16 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 
 namespace Desert::Graphic::System
 {
-    namespace
-    {
-        double NowSeconds()
-        {
-            static const auto start = std::chrono::steady_clock::now();
-            return std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
-        }
-    } // namespace
-
     ParticleRenderer::~ParticleRenderer() = default;
 
     Common::BoolResultStr ParticleRenderer::Initialize()
     {
         if ( !CreatePipelines() )
             return Common::MakeError( "ParticleRenderer: failed to create pipelines (missing shaders?)" );
-        m_LastTime = NowSeconds();
         return BOOLSUCCESS;
     }
 
@@ -174,13 +163,6 @@ namespace Desert::Graphic::System
     {
         m_FrameEmitters.clear();
 
-        const double now = NowSeconds();
-        float        dt  = static_cast<float>( now - m_LastTime );
-        m_LastTime       = now;
-        dt               = std::clamp( dt, 0.0f, 0.1f ); // guard against pauses / first frame
-
-        const float time = static_cast<float>( now );
-
         auto& reg  = const_cast<entt::registry&>( scene.GetRegistry() );
         auto  view = reg.view<ECS::ParticleEmitterComponent, ECS::TransformComponent>();
         view.each(
@@ -197,19 +179,15 @@ namespace Desert::Graphic::System
                      const auto it          = m_Emitters.find( static_cast<uint32_t>( entity ) );
                      if ( it != m_Emitters.end() && it->second.Particles )
                      {
-                         const std::vector<uint8_t> zeros(
-                              static_cast<size_t>( it->second.MaxParticles ) * kParticleStride, 0 );
                          // A Restart that wrote nothing left the emitter running with the OLD state
                          // while the editor's transport reported it restarted. The report is the log
                          // here: the transport flag has already been consumed and there is no second
                          // place to put a failure, but "the button did nothing" must at least be
                          // findable.
-                         const auto restarted =
-                              it->second.Particles->SetData( zeros.data(), static_cast<uint32_t>( zeros.size() ) );
+                         const auto restarted = ClearEmitterState( it->second );
                          if ( !restarted.IsSuccess() )
                              LOG_ERROR( "[Particles] Restart on emitter {} did not clear the state: {}",
                                         static_cast<uint32_t>( entity ), restarted.GetError() );
-                         it->second.SpawnAccum = 0.0f;
                      }
                  }
 
@@ -223,13 +201,6 @@ namespace Desert::Graphic::System
                  // frame, and the next frame tries to create it again.
                  if ( !gpu.Particles || !gpu.Counter )
                      return;
-
-                 // Spawn budget for this frame (fractional carry so low rates still emit).
-                 gpu.SpawnAccum += d.SpawnRate * dt;
-                 uint32_t budget = static_cast<uint32_t>( gpu.SpawnAccum );
-                 gpu.SpawnAccum -= static_cast<float>( budget );
-                 if ( !d.Looping )
-                     budget = 0; // one-shot bursts are a follow-up; looping emits continuously
 
                  // Zero the spawn counter for this frame. A counter that did not reset holds LAST
                  // frame's atomic total, so the compute pass would spawn from an index past the end of
@@ -253,8 +224,11 @@ namespace Desert::Graphic::System
                  FrameEmitter fe;
                  fe.Gpu             = &gpu;
                  fe.Additive        = ( d.Blend == ECS::ParticleBlendMode::Additive );
-                 fe.Push.EmitterPos = glm::vec4( worldPos, dt );
-                 fe.Push.Gravity    = glm::vec4( d.Gravity, time );
+                 fe.SpawnRate       = d.SpawnRate;
+                 fe.Looping         = d.Looping;
+                 // .w of both (dt, simulated time) and the spawn budget are the frame's time: SimulateInFrame.
+                 fe.Push.EmitterPos = glm::vec4( worldPos, 0.0f );
+                 fe.Push.Gravity    = glm::vec4( d.Gravity, 0.0f );
                  fe.Push.Direction  = glm::vec4( dir, glm::radians( d.ConeAngle ) );
                  fe.Push.Params     = glm::vec4( d.StartSpeed, d.SpeedVariance, d.Lifetime, d.LifetimeVariance );
                  fe.Push.StartColor = glm::vec4( d.StartColor, d.StartAlpha );
@@ -267,16 +241,58 @@ namespace Desert::Graphic::System
                  // uniform and does not change. (Only the TRANSLATION rides; the emitter's rotation is not
                  // applied to the cloud.)
                  fe.Push.Counts =
-                      glm::uvec4( static_cast<uint32_t>( gpu.MaxParticles ), budget, 1u, d.WorldSpace ? 0u : 1u );
+                      glm::uvec4( static_cast<uint32_t>( gpu.MaxParticles ), 0u, 1u, d.WorldSpace ? 0u : 1u );
 
                  m_FrameEmitters.push_back( fe );
              } );
     }
 
-    void ParticleRenderer::SimulateInFrame()
+    Common::BoolResultStr ParticleRenderer::ClearEmitterState( EmitterGpu& gpu )
     {
+        gpu.SpawnAccum = 0.0f;
+        const std::vector<uint8_t> zeros( static_cast<size_t>( gpu.MaxParticles ) * kParticleStride, 0 );
+        return gpu.Particles->SetData( zeros.data(), static_cast<uint32_t>( zeros.size() ) );
+    }
+
+    void ParticleRenderer::OnTemporalHistoryReset()
+    {
+        m_SimSeconds = 0.0;
+        for ( auto& [entityId, gpu] : m_Emitters )
+        {
+            if ( !gpu.Particles )
+                continue;
+            // An emitter that kept its state carries the frames before the cut into the ones after it -
+            // exactly what the caller asked to be rid of - so the failure is reported, not swallowed.
+            if ( const auto cleared = ClearEmitterState( gpu ); !cleared.IsSuccess() )
+                LOG_ERROR( "[Particles] temporal reset: emitter {} kept its state: {}", entityId,
+                           cleared.GetError() );
+        }
+    }
+
+    void ParticleRenderer::SimulateInFrame( const float frameSeconds )
+    {
+        // The frame's step, clamped so a stall (a hitch, a breakpoint) is not one huge integration step.
+        // Advanced even on a frame with nothing to simulate, so the seed stays the simulated time and not
+        // "the time spent with emitters present".
+        const float dt = std::clamp( frameSeconds, 0.0f, 0.1f );
+        m_SimSeconds += dt;
+        const float time = static_cast<float>( m_SimSeconds );
+
         if ( !m_SimPipeline || m_FrameEmitters.empty() )
             return;
+
+        for ( auto& fe : m_FrameEmitters )
+        {
+            // Spawn budget for this frame (fractional carry so low rates still emit).
+            fe.Gpu->SpawnAccum += fe.SpawnRate * dt;
+            uint32_t budget = static_cast<uint32_t>( fe.Gpu->SpawnAccum );
+            fe.Gpu->SpawnAccum -= static_cast<float>( budget );
+            if ( !fe.Looping )
+                budget = 0; // one-shot bursts are a follow-up; looping emits continuously
+            fe.Push.Counts.y     = budget;
+            fe.Push.EmitterPos.w = dt;
+            fe.Push.Gravity.w    = time;
+        }
 
         auto& renderer = Renderer::GetInstance();
         for ( auto& fe : m_FrameEmitters )

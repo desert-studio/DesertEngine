@@ -162,6 +162,14 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr EndScene();
 
         void Resize( const uint32_t width, const uint32_t height );
+
+        // CAMERA CUT: the next frame this view renders starts a new temporal sequence in the SAME world.
+        // Every render system gets IRenderSystem::OnTemporalHistoryReset (frame indices to zero, histories
+        // invalid, exposure snaps, particle simulation restarts). Nothing is released and no pass is added,
+        // so it is legal between any two frames. Not tied to any one caller: the headless capture calls it
+        // when its frame count starts, a camera cut or a teleport asks for the same thing.
+        void ResetTemporalHistory();
+
         [[nodiscard]] const ViewExtent& GetViewExtent() const
         {
             return m_ViewExtent;
