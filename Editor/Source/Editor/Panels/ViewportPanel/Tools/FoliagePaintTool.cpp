@@ -307,7 +307,9 @@ namespace Desert::Editor::Tools
             if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
             {
                 if ( auto ref = LayerInfoRefOf( std::string( static_cast<const char*>( p->Data ) ) ); !ref )
+                {
                     LOG_ERROR( "[Foliage] {}", ref.GetError() );
+                }
                 else if ( std::ranges::none_of( f.LandscapeLayers, [&]( const Assets::AssetGuidRef& r )
                                                 { return r.Guid == ref.GetValue().Guid; } ) )
                 {
