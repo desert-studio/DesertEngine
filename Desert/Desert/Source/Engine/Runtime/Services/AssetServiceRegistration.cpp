@@ -75,12 +75,9 @@ namespace Desert::Runtime
             if ( handle )
                 handles.push_back( handle );
         };
-        for ( const auto& [entity, mesh] : scene.view<const ECS::StaticMeshComponent>().each() )
-            note( mesh.MeshHandle );
-        for ( const auto& [entity, mesh] : scene.view<const ECS::SkinnedMeshComponent>().each() )
-            note( mesh.MeshHandle );
-        for ( const auto& [entity, mesh] : scene.view<const ECS::InstancedStaticMeshComponent>().each() )
-            note( mesh.MeshHandle );
+        scene.view<const ECS::StaticMeshComponent>().each( [&note]( const ECS::StaticMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
+        scene.view<const ECS::SkinnedMeshComponent>().each( [&note]( const ECS::SkinnedMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
+        scene.view<const ECS::InstancedStaticMeshComponent>().each( [&note]( const ECS::InstancedStaticMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
         std::sort( handles.begin(), handles.end() );
         handles.erase( std::unique( handles.begin(), handles.end() ), handles.end() );
         return service->AwaitResident( handles );
