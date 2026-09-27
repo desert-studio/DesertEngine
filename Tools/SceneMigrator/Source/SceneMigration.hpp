@@ -216,7 +216,8 @@ namespace Desert::Migration
 
         bool Changed() const
         {
-            return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised || ExternalEntitiesRaised;
+            return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
+                   ExternalEntitiesRaised;
         }
     };
 

@@ -473,7 +473,7 @@ namespace Desert::WorldGen
         spec.Name       = nameOverride.empty() ? preset->SceneName : nameOverride;
         spec.Cells      = cells.value_or( preset->Cells );
         spec.PerCell    = perCell.value_or( preset->PerCell );
-        spec.CellSizeCm = cellSize.value_or( preset->CellSizeCm );
+        spec.CellSizeCm    = cellSize.value_or( preset->CellSizeCm );
         spec.DistrictCells = preset->DistrictCells;
         spec.Seed       = static_cast<uint64_t>( seed.value_or( 1 ) );
 

@@ -111,8 +111,8 @@ namespace Desert::WorldGen
         int     Cells       = 0;
         int     Buildings   = 0;
         int     GroundTiles = 0;
-        int     Props        = 0; // corpus props (themes non-empty), skinned ones included
-        int     SkinnedProps = 0;
+        int     Props            = 0; // corpus props (themes non-empty), skinned ones included
+        int     SkinnedProps     = 0;
         int     PropsOverhanging = 0; // corpus props whose footprint is wider than their slot (the tool refuses)
         int64_t ExtentCm    = 0; // edge of the square world
     };
