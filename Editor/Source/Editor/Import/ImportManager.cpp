@@ -13,6 +13,7 @@
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
+#include <Engine/Assets/MeshDerivedData.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -78,9 +79,12 @@ namespace Desert::Editor
         // current. A source produces either a static mesh envelope in the DDC (fresh by its IMPT content
         // hash - AF4h moved that envelope out from beside the source) or a skinned cook under Cooked/
         // (fresh by mtime until AF4f moves it), so accept either. `force` (Rebuild Cooked Assets)
-        // bypasses this.
+        // bypasses this. A mesh EDITED in the editor (P9b) is up to date whatever its source's bytes say: only
+        // an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
+        // re-imported behind the user's back), and that re-import says so (RemoveBesideSourceFile).
         if ( !force &&
-             ( ImportedMeshAssetIsFresh( path ) || CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
+             ( ImportedMeshAssetIsFresh( path ) || Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) ||
+               CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
             return CookVerdict::UpToDate;
 
         auto result = m_Importers[ext]->Import( path, *this );

@@ -83,6 +83,15 @@ namespace Desert::Assets
     // function of the file's own bytes, so the file's hash is the whole input.
     uint64_t MeshSourceDerivedDataKey( uint64_t sourceFileHash );
 
+    // P9b: AN IMPORTED MESH EDITED IN THE EDITOR (UE: a modeling tool commits into the UStaticMesh itself, and the
+    // .fbx stays as it was until a re-import overwrites the edit). The edited source is written at the asset
+    // path, `<stem>.stmesh` beside the raw source, and states the SAME GUID as the source's import record - so
+    // every scene and foliage type that names the mesh by GUID keeps naming it. True exactly when @p assetPath
+    // is such a file: a raw source beside it, its import record, and the file's header GUID equal to the
+    // record's. A leftover from a build before AF4h carries the GUID that import minted, never the record's
+    // (FIX8 minted the records fresh), so it is still never read in the DDC envelope's place.
+    [[nodiscard]] bool IsEditedImportedMesh( const std::filesystem::path& assetPath );
+
     // Resolves the MeshSourceAsset an asset PATH names (e.g. `Meshes/Props/base.stmesh`).
     //
     // A companion raw source beside it (today: `base.fbx`, same stem) means this .stmesh is DERIVED: its
@@ -91,6 +100,8 @@ namespace Desert::Assets
     // write) is therefore never read in its place, whether or not it happens to exist. A DDC miss is a
     // refusal naming the source and the key: nothing here silently falls back to reading the stale file, and
     // nothing here re-imports (that is the editor's job, on request).
+    //
+    // An edited import (IsEditedImportedMesh) is the exception: that file IS the asset, read from disk.
     //
     // No companion source (e.g. `StaticProbe.stmesh`, MeshSourceProvenance::Recovered) means @p assetPath IS
     // the source, exactly as before: read directly from disk.
