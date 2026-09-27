@@ -4,6 +4,8 @@
 
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -173,31 +175,58 @@ namespace Desert::World::Landscape
 
         using Complex = std::complex<double>;
 
-        /// In-place DFT of @p count values spaced @p stride apart; @p sign -1 forward, +1 inverse (unnormalised,
-        /// as kiss_fft). Separable rows-then-columns passes compute exactly the 2-D DFT kiss_fftnd computes.
-        void Dft( std::vector<Complex>& data, size_t first, size_t stride, size_t count, double sign,
-                  std::vector<Complex>& scratch )
+        /// e^(sign·2πi·m/count) for m in [0, count): the factor the DFT multiplies sample n of output k by is entry
+        /// (k·n) mod count. Computed by the same expression the loop used to evaluate per product, so the table
+        /// changes no bit of any result — it removes count² cos/sin calls per row.
+        std::vector<Complex> Twiddles( size_t count, double sign )
         {
-            const double kTwoPi = 6.283185307179586476925;
+            const double         kTwoPi = 6.283185307179586476925;
+            std::vector<Complex> table( count );
+            for ( size_t m = 0; m < count; ++m )
+            {
+                const double angle = sign * kTwoPi * static_cast<double>( m ) / static_cast<double>( count );
+                table[m]           = Complex( std::cos( angle ), std::sin( angle ) );
+            }
+            return table;
+        }
+
+        /// In-place DFT of @p count values spaced @p stride apart, with @p twiddles from Twiddles(count, sign);
+        /// sign -1 forward, +1 inverse (unnormalised, as kiss_fft). Separable rows-then-columns passes compute
+        /// exactly the 2-D DFT kiss_fftnd computes.
+        void Dft( std::vector<Complex>& data, size_t first, size_t stride, size_t count,
+                  const std::vector<Complex>& twiddles, std::vector<Complex>& scratch )
+        {
             scratch.assign( count, Complex( 0.0, 0.0 ) );
             for ( size_t k = 0; k < count; ++k )
                 for ( size_t n = 0; n < count; ++n )
-                {
-                    const double angle =
-                         sign * kTwoPi * static_cast<double>( ( k * n ) % count ) / static_cast<double>( count );
-                    scratch[k] += data[first + n * stride] * Complex( std::cos( angle ), std::sin( angle ) );
-                }
+                    scratch[k] += data[first + n * stride] * twiddles[( k * n ) % count];
             for ( size_t k = 0; k < count; ++k )
                 data[first + k * stride] = scratch[k];
         }
 
+        /// Rows, then columns. Each row (column) is its own transform writing only its own samples, in a fixed
+        /// order, so running them on the JobSystem gives the same bits as running them in turn — which is what
+        /// keeps a whole-map Hydro Erosion (LandscapeGenerator) deterministic and not seconds long.
         void Dft2D( std::vector<Complex>& data, size_t width, size_t height, double sign )
         {
-            std::vector<Complex> scratch;
-            for ( size_t y = 0; y < height; ++y )
-                Dft( data, y * width, 1u, width, sign, scratch );
-            for ( size_t x = 0; x < width; ++x )
-                Dft( data, x, width, height, sign, scratch );
+            const std::vector<Complex> rowTwiddles    = Twiddles( width, sign );
+            const std::vector<Complex> columnTwiddles = Twiddles( height, sign );
+            auto&                      jobs           = Common::JobSystem::Get();
+            constexpr size_t           kGrain         = 8u;
+            jobs.ParallelRanges( height, kGrain,
+                                 [&]( size_t begin, size_t end )
+                                 {
+                                     std::vector<Complex> scratch;
+                                     for ( size_t y = begin; y < end; ++y )
+                                         Dft( data, y * width, 1u, width, rowTwiddles, scratch );
+                                 } );
+            jobs.ParallelRanges( width, kGrain,
+                                 [&]( size_t begin, size_t end )
+                                 {
+                                     std::vector<Complex> scratch;
+                                     for ( size_t x = begin; x < end; ++x )
+                                         Dft( data, x, width, height, columnTwiddles, scratch );
+                                 } );
         }
 
         /// UE's BrushValue at every sample of @p inner, row-major, X fastest.
