@@ -16,9 +16,13 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -43,7 +47,9 @@ namespace
     {
         std::vector<fs::path> out;
         std::error_code       ec;
-        for ( const fs::path& sub : { fs::path( "Desert" ), fs::path( "Editor" ), fs::path( "Runtime" ) } )
+        // Tools too: DesertCtl, DomeSheet and the crash reporter are built by the same Windows jobs.
+        for ( const fs::path& sub :
+              { fs::path( "Desert" ), fs::path( "Editor" ), fs::path( "Runtime" ), fs::path( "Tools" ) } )
         {
             for ( const auto& e : fs::recursive_directory_iterator( root / sub, ec ) )
             {
@@ -218,7 +224,8 @@ TEST( ReservedIdentifiers, NoPathFilterUsesTheNativeSpelling )
             {
                 continue;
             }
-            if ( std::regex_search( line, nativeFilter ) )
+            // Cheap reject first: std::regex over every line costs seconds per census in a debug build.
+            if ( line.find( ".string()" ) != std::string::npos && std::regex_search( line, nativeFilter ) )
             {
                 offenders.push_back( fs::relative( file, root ).generic_string() + ":" +
                                      std::to_string( number ) );
@@ -287,7 +294,9 @@ TEST( ReservedIdentifiers, EveryPosixProcessPipeHasItsWindowsSpellingBesideIt )
             {
                 hasWindowsSpelling = true;
             }
-            if ( firstUse == 0 && std::regex_search( line, posixPipe ) )
+            if ( firstUse == 0 &&
+                 ( line.find( "popen" ) != std::string::npos || line.find( "pclose" ) != std::string::npos ) &&
+                 std::regex_search( line, posixPipe ) )
             {
                 firstUse = number;
             }
@@ -312,4 +321,371 @@ TEST( ReservedIdentifiers, EveryPosixProcessPipeHasItsWindowsSpellingBesideIt )
         }
         return all;
     }();
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// THE REST OF THE MSVC-ONLY CLASSES, ADDED 2026-09-27 (CIW5) AFTER WINDOWS WAS RED FOR TWO DAYS.
+//
+// Every census below reads the text the compiler will see: comments and string literals are blanked
+// first (newlines kept, so line numbers stay true), because this file and many others have to NAME
+// what they forbid. Each one asserts a RELATION where the defect has a Windows counterpart — "the
+// file that uses the POSIX spelling has thought about Windows" — and an absence only where no
+// counterpart exists at all.
+// ---------------------------------------------------------------------------------------------------------
+namespace
+{
+    std::string ReadAll( const fs::path& file )
+    {
+        std::ifstream in( file, std::ios::binary );
+        return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+    }
+
+    bool IsWordChar( char c )
+    {
+        return std::isalnum( static_cast<unsigned char>( c ) ) != 0 || c == '_';
+    }
+
+    // Comments, string literals (raw ones included) and character literals become spaces; newlines stay.
+    std::string CodeOnly( const std::string& text )
+    {
+        std::string out   = text;
+        auto        blank = [&out]( std::size_t from, std::size_t to )
+        {
+            for ( std::size_t k = from; k < to && k < out.size(); ++k )
+            {
+                if ( out[k] != '\n' )
+                    out[k] = ' ';
+            }
+        };
+        std::size_t i = 0;
+        while ( i < text.size() )
+        {
+            if ( text.compare( i, 2, "//" ) == 0 )
+            {
+                const std::size_t end = text.find( '\n', i );
+                const std::size_t to  = end == std::string::npos ? text.size() : end;
+                blank( i, to );
+                i = to;
+            }
+            else if ( text.compare( i, 2, "/*" ) == 0 )
+            {
+                const std::size_t end = text.find( "*/", i + 2 );
+                const std::size_t to  = end == std::string::npos ? text.size() : end + 2;
+                blank( i, to );
+                i = to;
+            }
+            else if ( text.compare( i, 2, "R\"" ) == 0 && ( i == 0 || !IsWordChar( text[i - 1] ) ) )
+            {
+                const std::size_t open = text.find( '(', i + 2 );
+                if ( open == std::string::npos )
+                    break;
+                const std::string close = ")" + text.substr( i + 2, open - i - 2 ) + "\"";
+                const std::size_t end   = text.find( close, open );
+                const std::size_t to    = end == std::string::npos ? text.size() : end + close.size();
+                blank( i + 1, to );
+                i = to;
+            }
+            else if ( text[i] == '"' || ( text[i] == '\'' && ( i == 0 || !IsWordChar( text[i - 1] ) ) ) )
+            {
+                // A quote preceded by a word character is a digit separator (1'000), not a literal.
+                const char  quote = text[i];
+                std::size_t j     = i + 1;
+                while ( j < text.size() && text[j] != quote && text[j] != '\n' )
+                    j += text[j] == '\\' ? 2 : 1;
+                blank( i + 1, j );
+                i = j + 1;
+            }
+            else
+            {
+                ++i;
+            }
+        }
+        return out;
+    }
+
+    int LineOf( const std::string& text, std::size_t offset )
+    {
+        return 1 + static_cast<int>(
+                        std::count( text.begin(), text.begin() + static_cast<std::ptrdiff_t>( offset ), '\n' ) );
+    }
+
+    struct Source
+    {
+        std::string Name; // repository-relative, forward-slashed
+        std::string Text; // as on disk
+        std::string Code; // CodeOnly( Text )
+    };
+
+    const std::vector<Source>& Sources()
+    {
+        static const std::vector<Source> all = []
+        {
+            std::vector<Source> out;
+            const fs::path      root = RepoRoot();
+            for ( const fs::path& file : SourceFiles( root ) )
+            {
+                Source s;
+                s.Name = fs::relative( file, root ).generic_string();
+                s.Text = ReadAll( file );
+                s.Code = CodeOnly( s.Text );
+                out.push_back( std::move( s ) );
+            }
+            return out;
+        }();
+        return all;
+    }
+
+    std::string Listed( const std::vector<std::string>& offenders )
+    {
+        std::string all;
+        for ( const std::string& o : offenders )
+            all += "\n  " + o;
+        return all;
+    }
+
+    // A platform conditional: some `#if` on the stack names a platform. The `#else` of `#if _WIN32` counts
+    // — whoever wrote it split the platforms, which is the relation these censuses assert.
+    const std::regex& PlatformCondition()
+    {
+        static const std::regex re(
+             R"(_WIN32|_WIN64|WINDOWS|_MSC_VER|__APPLE__|__MACH__|__linux__|__unix__|POSIX|PLATFORM_MACOS|PLATFORM_LINUX)" );
+        return re;
+    }
+
+    // For every line of `code`, whether it sits inside a platform conditional.
+    std::vector<bool> PlatformGuardedLines( const std::string& code )
+    {
+        std::vector<bool> guarded;
+        // Per open `#if`: whether it or anything enclosing it names a platform.
+        std::vector<bool>  platformDepth;
+        std::istringstream in( code );
+        std::string        line;
+        const std::regex   directive( R"(^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*))" );
+        while ( std::getline( in, line ) )
+        {
+            std::smatch m;
+            if ( line.find( '#' ) != std::string::npos && std::regex_search( line, m, directive ) )
+            {
+                const std::string kind     = m[1];
+                const bool        platform = std::regex_search( std::string( m[2] ), PlatformCondition() );
+                const bool        outer    = !platformDepth.empty() && platformDepth.back();
+                if ( kind == "if" || kind == "ifdef" || kind == "ifndef" )
+                    platformDepth.push_back( outer || platform );
+                else if ( kind == "elif" && !platformDepth.empty() )
+                    platformDepth.back() = platformDepth.back() || platform;
+                else if ( kind == "endif" && !platformDepth.empty() )
+                    platformDepth.pop_back();
+            }
+            guarded.push_back( !platformDepth.empty() && platformDepth.back() );
+        }
+        return guarded;
+    }
+
+    std::vector<std::string> EachMatch( const Source& s, const std::regex& re )
+    {
+        std::vector<std::string> out;
+        for ( auto it = std::sregex_iterator( s.Code.begin(), s.Code.end(), re ); it != std::sregex_iterator();
+              ++it )
+        {
+            out.push_back( s.Name + ":" +
+                           std::to_string( LineOf( s.Code, static_cast<std::size_t>( it->position() ) ) ) + "  " +
+                           it->str() );
+        }
+        return out;
+    }
+} // namespace
+
+// Found on Windows CI 2026-09-26 (B19 gate, run 36277577121) in TWO suites at once: MSVC's
+// preprocessor mis-lexes a raw string literal followed by an escaped quote when both sit inside ONE
+// macro argument, and reports C2017 "illegal escape sequence" at a line that is valid C++. Clang
+// and GCC accept it, so no macOS sweep can see it. The remedy is to name the expectation first
+// (`const std::string expected = ...;`) and pass the variable to the macro.
+TEST( ReservedIdentifiers, NoMacroArgumentMixesARawStringWithAnEscapedQuote )
+{
+    const std::regex         macroCall( R"(\b[A-Z][A-Z0-9_]{2,}\s*\()" );
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        const std::string& t = s.Text;
+        // Cheap reject first: only a file holding both a raw string and an escaped quote can offend.
+        if ( t.find( "R\"(" ) == std::string::npos || t.find( "\\\"" ) == std::string::npos )
+            continue;
+        for ( auto it = std::sregex_iterator( s.Code.begin(), s.Code.end(), macroCall );
+              it != std::sregex_iterator(); ++it )
+        {
+            // Walk the ORIGINAL text to the matching parenthesis, stepping over literals so a ')' inside
+            // one does not end the argument list.
+            const std::size_t start       = static_cast<std::size_t>( it->position() );
+            std::size_t       j           = start + static_cast<std::size_t>( it->length() );
+            int               depth       = 1;
+            bool              sawRaw      = false;
+            bool              sawEscQuote = false;
+            while ( j < t.size() && depth > 0 )
+            {
+                if ( t.compare( j, 3, "R\"(" ) == 0 )
+                {
+                    const std::size_t end = t.find( ")\"", j + 3 );
+                    sawRaw                = true;
+                    j                     = end == std::string::npos ? t.size() : end + 2;
+                    continue;
+                }
+                if ( t[j] == '"' )
+                {
+                    ++j;
+                    while ( j < t.size() && t[j] != '"' && t[j] != '\n' )
+                    {
+                        if ( t[j] == '\\' && j + 1 < t.size() && t[j + 1] == '"' )
+                            sawEscQuote = true;
+                        j += t[j] == '\\' ? 2 : 1;
+                    }
+                    ++j;
+                    continue;
+                }
+                if ( t[j] == '\'' && !IsWordChar( t[j - 1] ) )
+                {
+                    ++j;
+                    while ( j < t.size() && t[j] != '\'' && t[j] != '\n' )
+                        j += t[j] == '\\' ? 2 : 1;
+                    ++j;
+                    continue;
+                }
+                depth += t[j] == '(' ? 1 : t[j] == ')' ? -1 : 0;
+                ++j;
+            }
+            if ( sawRaw && sawEscQuote )
+                offenders.push_back( s.Name + ":" + std::to_string( LineOf( t, start ) ) );
+        }
+    }
+    EXPECT_TRUE( offenders.empty() )
+         << "A macro argument holds both a raw string literal and an escaped quote: MSVC reports C2017 "
+            "there. Name the expected text in a variable first and pass the variable to the macro:"
+         << Listed( offenders );
+}
+
+// `path::native()` is `std::wstring` on Windows. Code that treats it as `std::string` compiles on
+// macOS and fails on MSVC; code that genuinely needs the native form has to say which platform it is
+// on. So a file using it must either be platform-split or spell the wide type out.
+TEST( ReservedIdentifiers, EveryNativePathSpellingNamesItsWideForm )
+{
+    const std::regex         wideAware( R"(wstring|wchar_t|string_type|_WIN32|DESERT_PLATFORM_WINDOWS)" );
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        const std::size_t at = s.Code.find( ".native()" );
+        if ( at != std::string::npos && !std::regex_search( s.Code, wideAware ) )
+            offenders.push_back( s.Name + ":" + std::to_string( LineOf( s.Code, at ) ) );
+    }
+    EXPECT_TRUE( offenders.empty() )
+         << "`path::native()` is a WIDE string on Windows. Use `string()`/`generic_string()`, or split the "
+            "platforms and name the wide type:"
+         << Listed( offenders );
+}
+
+// `M_PI` and its family are not standard; MSVC declares them only after `_USE_MATH_DEFINES`, which this
+// workspace does not set (and a per-file define loses to the precompiled header). There is no Windows
+// spelling to pair it with, so this one IS an absence: use `std::numbers` or `glm::pi`.
+TEST( ReservedIdentifiers, NoSourceUsesThePosixMathConstants )
+{
+    const std::regex posixConstant(
+         R"(\bM_(PI|PI_2|PI_4|1_PI|2_PI|2_SQRTPI|E|LOG2E|LOG10E|LN2|LN10|SQRT2|SQRT1_2)\b)" );
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        if ( s.Code.find( "M_" ) == std::string::npos )
+            continue;
+        for ( const std::string& o : EachMatch( s, posixConstant ) )
+            offenders.push_back( o );
+    }
+    EXPECT_TRUE( offenders.empty() ) << "POSIX math constants do not exist on MSVC here; use std::numbers:"
+                                     << Listed( offenders );
+}
+
+// `T name[] = { /* nothing yet */ };` is a zero-length array: clang accepts it as an extension, MSVC
+// rejects it (C2466). The comment is what hides it from a reader, which is why the scan runs on code
+// with comments blanked. `std::array<T, 0>` is the legal spelling.
+TEST( ReservedIdentifiers, NoArrayIsInitialisedEmpty )
+{
+    const std::regex         emptyArray( R"(\[\s*\]\s*=\s*\{\s*\})" );
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        if ( s.Code.find( "[]" ) == std::string::npos && s.Code.find( "[ ]" ) == std::string::npos )
+            continue;
+        for ( const std::string& o : EachMatch( s, emptyArray ) )
+            offenders.push_back( o );
+    }
+    EXPECT_TRUE( offenders.empty() ) << "Zero-length C array (MSVC C2466); use std::array<T, 0>:"
+                                     << Listed( offenders );
+}
+
+// `long` is 32 bits on Windows (LLP64). `1L << 40` is therefore undefined there and silently a
+// different number than on macOS. Spell 64-bit shifts with `1ull` or `std::uint64_t{ 1 }`.
+TEST( ReservedIdentifiers, NoShiftIsSpelledInLong )
+{
+    const std::regex         longShift( R"(\b1[uU]?[lL]\s*<<)" );
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        if ( s.Code.find( "<<" ) == std::string::npos ||
+             ( s.Code.find( "1L" ) == std::string::npos && s.Code.find( "1l" ) == std::string::npos &&
+               s.Code.find( "1UL" ) == std::string::npos && s.Code.find( "1ul" ) == std::string::npos &&
+               s.Code.find( "1uL" ) == std::string::npos && s.Code.find( "1Ul" ) == std::string::npos ) )
+            continue;
+        for ( const std::string& o : EachMatch( s, longShift ) )
+            offenders.push_back( o );
+    }
+    EXPECT_TRUE( offenders.empty() ) << "`1L <<` is a 32-bit shift on Windows; use 1ull / std::uint64_t:"
+                                     << Listed( offenders );
+}
+
+// POSIX-only headers and calls. The popen census above asserts one pair by name; this is the same
+// relation for the rest of the family, stated as "the use sits inside a platform conditional" — which
+// is what every correct instance in this tree already does (LocalSocket, CrashHandler, EntryPoint,
+// Photogrammetry). It cannot see a conditional wired to the wrong branch; the compiler sees that.
+TEST( ReservedIdentifiers, EveryPosixOnlyUseSitsInsideAPlatformConditional )
+{
+    const std::regex posixHeader(
+         R"(^\s*#\s*include\s*<(unistd\.h|dlfcn\.h|pthread\.h|dirent\.h|spawn\.h|execinfo\.h|cxxabi\.h|libgen\.h|glob\.h|fnmatch\.h|termios\.h|poll\.h|pwd\.h|strings\.h|ucontext\.h|semaphore\.h|netdb\.h|mach/[^>]+|netinet/[^>]+|arpa/[^>]+|sys/(socket|un|wait|mman|time|resource|ioctl|select|utsname|ucontext|sysctl|param|file|uio|event)\.h)>)" );
+    const std::regex posixCall(
+         R"((^|[^A-Za-z0-9_.>:]|[^A-Za-z0-9_]::)(setenv|unsetenv|strcasecmp|strncasecmp|realpath|mkstemp|mkdtemp|usleep|nanosleep|fork|waitpid|execvp|execv|posix_spawn|posix_spawnp|dlopen|dlsym|dlclose|localtime_r|gmtime_r|strtok_r)\s*\()" );
+    // Not listed: `getpid`, which MSVC's <process.h> still declares under its POSIX name, and `kill`,
+    // which is a member name far more often than the syscall (Assimp::DefaultLogger::kill).
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        // Compiled only on its own platform (BuildScripts/Platform*.lua).
+        if ( s.Name.find( "/Platform/MacOS/" ) != std::string::npos ||
+             s.Name.find( "/Platform/Linux/" ) != std::string::npos )
+            continue;
+        static const char* const kNames[] = { "#include", "setenv",  "strcasecmp",  "strncasecmp", "realpath",
+                                              "mkstemp",  "mkdtemp", "usleep",      "nanosleep",   "fork",
+                                              "waitpid",  "execv",   "posix_spawn", "dlopen",      "dlsym",
+                                              "dlclose",  "_r(",     "_r (" };
+        std::vector<bool>        guarded;
+        std::istringstream       in( s.Code );
+        std::string              line;
+        std::size_t              number = 0;
+        while ( std::getline( in, line ) )
+        {
+            ++number;
+            // Cheap reject first, and the conditional stack only for a file that has a candidate at all.
+            bool candidate = false;
+            for ( const char* name : kNames )
+                candidate = candidate || line.find( name ) != std::string::npos;
+            if ( !candidate )
+                continue;
+            std::smatch m;
+            const bool  posix =
+                 std::regex_search( line, m, posixHeader ) || std::regex_search( line, m, posixCall );
+            if ( posix && guarded.empty() )
+                guarded = PlatformGuardedLines( s.Code );
+            if ( posix && !guarded[number - 1] )
+                offenders.push_back( s.Name + ":" + std::to_string( number ) + "  " + m.str() );
+        }
+    }
+    EXPECT_TRUE( offenders.empty() )
+         << "A POSIX-only header or call outside any platform conditional: it does not exist on MSVC. "
+            "Put it under `#if !defined( _WIN32 )` (or DESERT_PLATFORM_*) and give Windows its own spelling "
+            "(_putenv_s, _stricmp, CreateProcess, LoadLibrary, localtime_s, ...):"
+         << Listed( offenders );
 }
