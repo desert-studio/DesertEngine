@@ -8,7 +8,10 @@
 
 #include <Engine/World/Landscape/LandscapeGenerator.hpp>
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 
@@ -33,6 +36,44 @@ namespace Desert::World::Landscape
             v                         = v ^ ( v >> 31u );
             constexpr uint64_t kRange = 1ull << 15u;
             return { static_cast<int32_t>( v % kRange ), static_cast<int32_t>( ( v >> 32u ) % kRange ) };
+        }
+
+        /// The progress side of a run: counts steps and answers "go on?". A run without a watcher counts nothing
+        /// and always goes on, so the unwatched run is the same code path as the watched one.
+        struct Steps
+        {
+            LandscapeGenerateProgress* Progress = nullptr;
+
+            /// Before a step: false once Cancel is set.
+            bool Go() const
+            {
+                return !Progress || !Progress->Cancel.load( std::memory_order_relaxed );
+            }
+            void Advance( uint32_t n = 1u ) const
+            {
+                if ( Progress )
+                    Progress->Done.fetch_add( n, std::memory_order_relaxed );
+            }
+            /// A loop that settled early: the rest of its budget is done too.
+            void AdvanceTo( uint32_t done ) const
+            {
+                if ( Progress )
+                    Progress->Done.store( done, std::memory_order_relaxed );
+            }
+            uint32_t Now() const
+            {
+                return Progress ? Progress->Done.load( std::memory_order_relaxed ) : 0u;
+            }
+        };
+
+        uint32_t TotalSteps( const LandscapeGenerateSettings& s, uint32_t samplesZ )
+        {
+            uint32_t total = s.Fill == LandscapeGenerateFill::Noise ? samplesZ : 0u;
+            if ( s.Erosion )
+                total += static_cast<uint32_t>( s.ErosionSettings.Iterations ) + 1u; // + its noise pass
+            if ( s.HydroErosion )
+                total += static_cast<uint32_t>( s.HydroSettings.Iterations );
+            return total + static_cast<uint32_t>( s.TilesX ) * static_cast<uint32_t>( s.TilesZ );
         }
 
         bool PositiveFinite( float v )
@@ -94,7 +135,16 @@ namespace Desert::World::Landscape
         return Common::MakeSuccess( true );
     }
 
-    Common::ResultStr<LandscapeGeneratedMap> GenerateLandscapeMap( const LandscapeGenerateSettings& s )
+    float LandscapeGenerateProgress::Fraction() const
+    {
+        const uint32_t total = Total.load( std::memory_order_relaxed );
+        return total == 0u ? 0.0f
+                           : std::min( 1.0f, static_cast<float>( Done.load( std::memory_order_relaxed ) ) /
+                                                  static_cast<float>( total ) );
+    }
+
+    Common::ResultStr<LandscapeGeneratedMap> GenerateLandscapeMap( const LandscapeGenerateSettings& s,
+                                                                   LandscapeGenerateProgress*       progress )
     {
         auto valid = ValidateLandscapeGenerate( s );
         if ( !valid.IsSuccess() )
@@ -105,20 +155,30 @@ namespace Desert::World::Landscape
         map.SamplesZ = static_cast<uint32_t>( s.TilesZ ) * s.QuadsPerTile + 1u;
         map.Samples.assign( static_cast<size_t>( map.SamplesX ) * map.SamplesZ, kLandscapeMidSample );
 
+        const Steps steps{ progress };
+        if ( progress )
+            progress->Total.store( TotalSteps( s, map.SamplesZ ), std::memory_order_relaxed );
+        const auto cancelled = [] { return Common::MakeError<LandscapeGeneratedMap>( kLandscapeGenerateCancelled ); };
+
         const NoiseOffset offset = SeedOffset( s.Seed );
         if ( s.Fill == LandscapeGenerateFill::Noise )
         {
             // LandscapeSampleFromHeightCm's scale: one height step is ZScale / 128 cm.
-            const float steps = s.NoiseHeightCm * 128.0f / s.ZScale;
+            const float heightSteps = s.NoiseHeightCm * 128.0f / s.ZScale;
             for ( uint32_t z = 0; z < map.SamplesZ; ++z )
+            {
+                if ( !steps.Go() )
+                    return cancelled();
                 for ( uint32_t x = 0; x < map.SamplesX; ++x )
                 {
                     const float n = LandscapeNoiseSample( offset.X + static_cast<int32_t>( x ),
                                                           offset.Z + static_cast<int32_t>( z ), s.NoiseScale );
-                    const float v = std::round( static_cast<float>( kLandscapeMidSample ) + n * steps );
+                    const float v = std::round( static_cast<float>( kLandscapeMidSample ) + n * heightSteps );
                     map.Samples[static_cast<size_t>( z ) * map.SamplesX + x] =
                          static_cast<uint16_t>( std::clamp( v, 0.0f, 65535.0f ) );
                 }
+                steps.Advance();
+            }
         }
 
         if ( s.Erosion || s.HydroErosion )
@@ -132,23 +192,44 @@ namespace Desert::World::Landscape
             field.Inner = { field.Rect.X1 + 1, field.Rect.Z1 + 1, field.Rect.X2 - 1, field.Rect.Z2 - 1 };
             field.Brush.assign( static_cast<size_t>( map.SamplesX - 2u ) * ( map.SamplesZ - 2u ), 1.0f );
             field.Heights = std::move( map.Samples );
+            const LandscapeErosionIterationHook iteration = [&steps]
+            {
+                if ( !steps.Go() )
+                    return false;
+                steps.Advance();
+                return true;
+            };
             if ( s.Erosion )
             {
-                map.ErosionIterations = LandscapeThermalErosion( field, s.ErosionSettings, s.ErosionStrength );
+                const uint32_t end = steps.Now() + static_cast<uint32_t>( s.ErosionSettings.Iterations );
+                map.ErosionIterations =
+                     LandscapeThermalErosion( field, s.ErosionSettings, s.ErosionStrength, iteration );
+                if ( !steps.Go() )
+                    return cancelled();
+                steps.AdvanceTo( end );
                 LandscapeErosionNoise( field, s.ErosionSettings, s.ErosionStrength,
                                        kLandscapeNoiseMaximumValueRadiusCm );
+                steps.Advance();
             }
             if ( s.HydroErosion )
+            {
+                const uint32_t end = steps.Now() + static_cast<uint32_t>( s.HydroSettings.Iterations );
                 map.HydroErosionIterations =
-                     LandscapeHydraulicErosion( field, s.HydroSettings, s.ErosionStrength );
+                     LandscapeHydraulicErosion( field, s.HydroSettings, s.ErosionStrength, iteration );
+                if ( !steps.Go() )
+                    return cancelled();
+                steps.AdvanceTo( end );
+            }
             map.Samples = std::move( field.Heights );
         }
         return Common::MakeSuccess( std::move( map ) );
     }
 
-    Common::ResultStr<LandscapeGenerated> GenerateLandscape( const LandscapeGenerateSettings& s )
+    Common::ResultStr<LandscapeGenerated> GenerateLandscape( const LandscapeGenerateSettings& s,
+                                                             LandscapeGenerateProgress*       progress )
     {
-        auto made = GenerateLandscapeMap( s );
+        const Steps steps{ progress };
+        auto        made = GenerateLandscapeMap( s, progress );
         if ( !made.IsSuccess() )
             return Common::MakeError<LandscapeGenerated>( made.GetError() );
         const LandscapeGeneratedMap map = made.ExtractValue();
@@ -171,6 +252,8 @@ namespace Desert::World::Landscape
         for ( int32_t tz = 0; tz < s.TilesZ; ++tz )
             for ( int32_t tx = 0; tx < s.TilesX; ++tx )
             {
+                if ( !steps.Go() )
+                    return Common::MakeError<LandscapeGenerated>( kLandscapeGenerateCancelled );
                 std::vector<uint16_t> values( static_cast<size_t>( samples ) * samples );
                 for ( uint32_t z = 0; z < samples; ++z )
                 {
@@ -186,7 +269,64 @@ namespace Desert::World::Landscape
                                                                   ", " + std::to_string( tz ) +
                                                                   "): " + tile.GetError() );
                 out.Tiles.push_back( { tx, tz, tile.ExtractValue() } );
+                steps.Advance();
             }
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    LandscapeGenerateJob::~LandscapeGenerateJob()
+    {
+        Cancel();
+        Wait();
+    }
+
+    Common::BoolResultStr LandscapeGenerateJob::Start( const LandscapeGenerateSettings& settings )
+    {
+        if ( Running() )
+            return Common::MakeError( "new landscape: a landscape is already being generated (" +
+                                      std::to_string( static_cast<int>( Fraction() * 100.0f ) ) +
+                                      " %); wait for it or cancel it" );
+        auto valid = ValidateLandscapeGenerate( settings );
+        if ( !valid.IsSuccess() )
+            return valid;
+        m_Progress = std::make_shared<LandscapeGenerateProgress>();
+        m_Run      = Common::JobSystem::Get().Async( [settings, progress = m_Progress]
+                                                     { return GenerateLandscape( settings, progress.get() ); } );
+        return Common::MakeSuccess( true );
+    }
+
+    bool LandscapeGenerateJob::Running() const
+    {
+        return m_Run.valid();
+    }
+
+    float LandscapeGenerateJob::Fraction() const
+    {
+        return m_Progress ? m_Progress->Fraction() : 0.0f;
+    }
+
+    uint32_t LandscapeGenerateJob::StepsDone() const
+    {
+        return m_Progress ? m_Progress->Done.load( std::memory_order_relaxed ) : 0u;
+    }
+
+    void LandscapeGenerateJob::Cancel()
+    {
+        if ( m_Progress )
+            m_Progress->Cancel.store( true, std::memory_order_relaxed );
+    }
+
+    std::optional<Common::ResultStr<LandscapeGenerated>> LandscapeGenerateJob::TakeFinished()
+    {
+        if ( !m_Run.valid() || m_Run.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+            return std::nullopt;
+        m_Progress.reset();
+        return m_Run.get();
+    }
+
+    void LandscapeGenerateJob::Wait()
+    {
+        if ( m_Run.valid() )
+            m_Run.wait();
     }
 } // namespace Desert::World::Landscape

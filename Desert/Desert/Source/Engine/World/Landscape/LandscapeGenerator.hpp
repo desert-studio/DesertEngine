@@ -8,7 +8,11 @@
 
 #include <glm/vec3.hpp>
 
+#include <atomic>
 #include <cstdint>
+#include <future>
+#include <memory>
+#include <optional>
 #include <vector>
 
 namespace Desert::World::Landscape
@@ -120,8 +124,68 @@ namespace Desert::World::Landscape
         int32_t HydroErosionIterations = 0;
     };
 
-    Common::ResultStr<LandscapeGeneratedMap> GenerateLandscapeMap( const LandscapeGenerateSettings& settings );
+    /// The refusal of a run whose Cancel was set; a caller tells a cancel from a failure by this text.
+    inline constexpr const char* kLandscapeGenerateCancelled = "new landscape: cancelled";
+
+    /**
+     * @brief How far one run is, and its cancel switch; shared between the run and whoever watches it.
+     *
+     * The units are the run's own steps: a row of the noise fill, an iteration of each erosion loop as budgeted
+     * (a loop that settles early jumps to its end), the erosion's noise pass, and a tile cut. Total is set once,
+     * before the first step. Cancel is read before every step; a set Cancel ends the run at the next one with
+     * kLandscapeGenerateCancelled. Watching changes nothing in the map: the steps and their order are the same.
+     */
+    struct LandscapeGenerateProgress
+    {
+        std::atomic<uint32_t> Done{ 0u };
+        std::atomic<uint32_t> Total{ 0u };
+        std::atomic<bool>     Cancel{ false };
+
+        /// Done / Total, 0 before Total is known.
+        float Fraction() const;
+    };
+
+    Common::ResultStr<LandscapeGeneratedMap> GenerateLandscapeMap( const LandscapeGenerateSettings& settings,
+                                                                   LandscapeGenerateProgress* progress = nullptr );
 
     /// The frame and the tiles of GenerateLandscapeMap's map. Refuses what ValidateLandscapeGenerate refuses.
-    Common::ResultStr<LandscapeGenerated> GenerateLandscape( const LandscapeGenerateSettings& settings );
+    Common::ResultStr<LandscapeGenerated> GenerateLandscape( const LandscapeGenerateSettings& settings,
+                                                             LandscapeGenerateProgress* progress = nullptr );
+
+    /**
+     * @brief One GenerateLandscape run on the JobSystem, for a caller that must keep drawing meanwhile (the
+     * editor's Create froze the window for seconds in Debug).
+     *
+     * One run at a time: Start refuses while one is in flight, naming how far it is. The result is handed over
+     * once, by TakeFinished on the caller's thread, which is where it is applied. The run owns its settings and
+     * its progress (shared), so dropping the job mid-run leaves nothing dangling; the destructor cancels and
+     * waits, so a run never outlives its owner's interest in it.
+     */
+    class LandscapeGenerateJob
+    {
+    public:
+        LandscapeGenerateJob() = default;
+        ~LandscapeGenerateJob();
+        LandscapeGenerateJob( const LandscapeGenerateJob& )            = delete;
+        LandscapeGenerateJob& operator=( const LandscapeGenerateJob& ) = delete;
+
+        /// Validates on the calling thread (a refusal is immediate), then submits the run.
+        Common::BoolResultStr Start( const LandscapeGenerateSettings& settings );
+        /// Started and not yet taken.
+        bool Running() const;
+        /// The run's progress, 0 when idle.
+        float Fraction() const;
+        /// The run's steps done so far (LandscapeGenerateProgress's units), 0 when idle.
+        uint32_t StepsDone() const;
+        /// Asks the run to stop at its next step; TakeFinished then hands over kLandscapeGenerateCancelled.
+        void Cancel();
+        /// The finished run's result, exactly once; nullopt while idle or still running.
+        std::optional<Common::ResultStr<LandscapeGenerated>> TakeFinished();
+        /// Blocks until the run in flight (if any) has finished; the result stays for TakeFinished.
+        void Wait();
+
+    private:
+        std::shared_ptr<LandscapeGenerateProgress>         m_Progress;
+        std::future<Common::ResultStr<LandscapeGenerated>> m_Run;
+    };
 } // namespace Desert::World::Landscape

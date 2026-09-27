@@ -7,6 +7,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <string>
+#include <thread>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
@@ -201,6 +203,89 @@ TEST( LandscapeGenerator, TypicalMapTime )
               << " it) + hydro (" << made.GetValue().HydroErosionIterations << " it): " << ms << " ms\n";
     RecordProperty( "typical_map_ms", static_cast<int>( ms ) );
     EXPECT_LT( ms, 60000.0 );
+}
+
+// LS-10b: the run can be watched and cancelled, and watching changes nothing. The watched run is the unwatched
+// run byte for byte, and its count of steps lands exactly on the total it announced.
+TEST( LandscapeGenerator, WatchedRunIsTheSameMapAndCountsToItsTotal )
+{
+    LandscapeGenerateProgress progress;
+    auto                      watched = GenerateLandscape( Eroded( 7u ), &progress );
+    ASSERT_TRUE( watched.IsSuccess() ) << watched.GetError();
+    auto plain = GenerateLandscape( Eroded( 7u ) );
+    ASSERT_TRUE( plain.IsSuccess() ) << plain.GetError();
+    ASSERT_EQ( watched.GetValue().Tiles.size(), plain.GetValue().Tiles.size() );
+    for ( size_t i = 0; i < plain.GetValue().Tiles.size(); ++i )
+        EXPECT_EQ( watched.GetValue().Tiles[i].Heights.Samples(), plain.GetValue().Tiles[i].Heights.Samples() )
+             << "tile " << i;
+    EXPECT_GT( progress.Total.load(), 0u );
+    EXPECT_EQ( progress.Done.load(), progress.Total.load() );
+    EXPECT_FLOAT_EQ( progress.Fraction(), 1.0f );
+}
+
+TEST( LandscapeGenerator, SetCancelRefusesAsCancelled )
+{
+    LandscapeGenerateProgress progress;
+    progress.Cancel = true;
+    auto made       = GenerateLandscape( Eroded( 3u ), &progress );
+    ASSERT_FALSE( made.IsSuccess() );
+    EXPECT_EQ( made.GetError(), kLandscapeGenerateCancelled );
+    EXPECT_EQ( progress.Done.load(), 0u ) << "a cancelled run stops before its first step";
+}
+
+// The job: the run is on the JobSystem, a second Start while it runs is refused, a cancel mid-erosion hands over
+// the cancel, and the next run hands over the very map the synchronous call makes.
+TEST( LandscapeGenerator, JobRefusesASecondStartAndCancelsMidErosion )
+{
+    // UE's default New Landscape with both passes: seconds, so the cancel lands while it is inside the erosion.
+    LandscapeGenerateSettings big;
+    big.Fill                = LandscapeGenerateFill::Noise;
+    big.Erosion             = true;
+    big.HydroErosion        = true;
+    const uint32_t fillRows = static_cast<uint32_t>( big.TilesZ ) * big.QuadsPerTile + 1u;
+
+    LandscapeGenerateJob job;
+    ASSERT_TRUE( job.Start( big ).IsSuccess() );
+    EXPECT_TRUE( job.Running() );
+    auto second = job.Start( Eroded( 1u ) );
+    ASSERT_FALSE( second.IsSuccess() );
+    EXPECT_NE( second.GetError().find( "already being generated" ), std::string::npos ) << second.GetError();
+
+    // Past the fill (every row counted), so inside the erosion loops; then cancel.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 60 );
+    while ( job.StepsDone() <= fillRows )
+    {
+        ASSERT_LT( std::chrono::steady_clock::now(), deadline ) << "the run never got past its fill";
+        std::this_thread::sleep_for( std::chrono::microseconds( 200 ) );
+    }
+    job.Cancel();
+    job.Wait();
+    auto finished = job.TakeFinished();
+    ASSERT_TRUE( finished.has_value() );
+    ASSERT_FALSE( finished->IsSuccess() ) << "the run finished before the cancel reached it";
+    EXPECT_EQ( finished->GetError(), kLandscapeGenerateCancelled );
+    EXPECT_FALSE( job.Running() );
+    EXPECT_FALSE( job.TakeFinished().has_value() ) << "handed over once";
+
+    ASSERT_TRUE( job.Start( Eroded( 5u ) ).IsSuccess() );
+    job.Wait();
+    auto again = job.TakeFinished();
+    ASSERT_TRUE( again.has_value() && again->IsSuccess() );
+    auto plain = GenerateLandscape( Eroded( 5u ) );
+    ASSERT_TRUE( plain.IsSuccess() );
+    ASSERT_EQ( again->GetValue().Tiles.size(), plain.GetValue().Tiles.size() );
+    for ( size_t i = 0; i < plain.GetValue().Tiles.size(); ++i )
+        EXPECT_EQ( again->GetValue().Tiles[i].Heights.Samples(), plain.GetValue().Tiles[i].Heights.Samples() );
+}
+
+TEST( LandscapeGenerator, JobRefusesInvalidSettingsAtOnce )
+{
+    LandscapeGenerateJob      job;
+    LandscapeGenerateSettings s;
+    s.SpacingCm  = 0.0f;
+    auto started = job.Start( s );
+    EXPECT_FALSE( started.IsSuccess() );
+    EXPECT_FALSE( job.Running() );
 }
 
 int main( int argc, char** argv )

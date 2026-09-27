@@ -1088,7 +1088,7 @@ namespace Desert::World::Landscape
     } // namespace
 
     int32_t LandscapeThermalErosion( LandscapeErosionField& field, const LandscapeErosionSettings& s,
-                                     float strength )
+                                     float strength, const LandscapeErosionIterationHook& beforeIteration )
     {
         // UE's slider stops at 1 (ToolStrength UIMax). Above it every shed hands a neighbour more than the slope
         // it came from, the pair swaps with a larger step each iteration and the stroke grows spikes up to the
@@ -1100,6 +1100,8 @@ namespace Desert::World::Landscape
         int32_t                ran    = 0;
         for ( int32_t i = 0; i < s.Iterations; ++i )
         {
+            if ( beforeIteration && !beforeIteration() )
+                return ran;
             ++ran;
             bool changed = false;
             for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
@@ -1176,7 +1178,7 @@ namespace Desert::World::Landscape
     }
 
     int32_t LandscapeHydraulicErosion( LandscapeErosionField& field, const LandscapeHydroErosionSettings& s,
-                                       float strength )
+                                       float strength, const LandscapeErosionIterationHook& beforeIteration )
     {
         const FieldIndex       ix{ field };
         std::vector<uint16_t>& height = field.Heights;
@@ -1203,6 +1205,8 @@ namespace Desert::World::Landscape
         int32_t ran = 0;
         for ( int32_t i = 0; i < s.Iterations; ++i )
         {
+            if ( beforeIteration && !beforeIteration() )
+                return ran;
             ++ran;
             bool waterExists = false;
             for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
@@ -1372,5 +1376,97 @@ namespace Desert::World::Landscape
         if ( !cached.IsSuccess() )
             return cached;
         return cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, values );
+    }
+    // FLandscapeToolRamp's point handling (LandscapeEdModeRampTool.cpp:139-247).
+    void LandscapeRampReset( LandscapeRampPoints& ramp )
+    {
+        ramp = LandscapeRampPoints{};
+    }
+
+    bool LandscapeRampPress( LandscapeRampPoints& ramp, int32_t picked, const std::optional<glm::vec3>& hit )
+    {
+        if ( picked >= 0 && picked < ramp.NumPoints )
+        {
+            ramp.SelectedPoint = picked;
+            ramp.Moving        = true;
+            return true;
+        }
+        if ( !hit )
+            return false;
+        if ( ramp.NumPoints < 2 )
+        {
+            ramp.Points[static_cast<size_t>( ramp.NumPoints )] = *hit;
+            ramp.SelectedPoint                                  = ramp.NumPoints;
+            ++ramp.NumPoints;
+            ramp.Moving = true;
+            return true;
+        }
+        if ( ramp.SelectedPoint < 0 )
+            return false;
+        ramp.Points[static_cast<size_t>( ramp.SelectedPoint )] = *hit;
+        ramp.Moving                                            = true;
+        return true;
+    }
+
+    bool LandscapeRampMove( LandscapeRampPoints& ramp, const std::optional<glm::vec3>& hit )
+    {
+        if ( !ramp.Moving || !hit )
+            return false;
+        // UE: a drag that starts by laying the first point lays the second under the cursor.
+        if ( ramp.NumPoints == 1 )
+        {
+            ramp.SelectedPoint = 1;
+            ramp.NumPoints     = 2;
+        }
+        ramp.Points[static_cast<size_t>( ramp.SelectedPoint )] = *hit;
+        return true;
+    }
+
+    void LandscapeRampRelease( LandscapeRampPoints& ramp )
+    {
+        ramp.Moving = false;
+    }
+
+    int32_t PickLandscapeRampPoint( const LandscapeRampPoints& ramp, glm::vec3 rayOrigin, glm::vec3 rayDirection,
+                                    float toleranceRadians )
+    {
+        int32_t best      = -1;
+        float   bestAngle = toleranceRadians;
+        for ( int32_t i = 0; i < ramp.NumPoints; ++i )
+        {
+            const glm::vec3 to       = ramp.Points[static_cast<size_t>( i )] - rayOrigin;
+            const float     distance = glm::length( to );
+            if ( !( distance > 0.0f ) )
+                continue;
+            const float angle = std::acos( std::clamp( glm::dot( to / distance, rayDirection ), -1.0f, 1.0f ) );
+            if ( angle <= bestAngle )
+            {
+                best      = i;
+                bestAngle = angle;
+            }
+        }
+        return best;
+    }
+
+    std::optional<LandscapeRampOutline> LandscapeRampOutlineOf( const LandscapeRampPoints&   ramp,
+                                                                const LandscapeRampSettings& settings )
+    {
+        if ( ramp.NumPoints < 2 )
+            return std::nullopt;
+        // UE: CrossProduct(Points[1] - Points[0], Up).GetSafeNormal2D() — the side in plan; Y is our up.
+        const glm::vec3 along = ramp.Points[1] - ramp.Points[0];
+        glm::vec3       side  = glm::cross( along, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        side.y                = 0.0f;
+        const float length    = glm::length( side );
+        if ( !( length > 0.0f ) )
+            return std::nullopt;
+        side /= length;
+        const glm::vec3 inner = side * ( settings.WidthCm * 0.5f * ( 1.0f - settings.SideFalloff ) );
+        const glm::vec3 outer = side * ( settings.WidthCm * 0.5f );
+        const auto      quad  = [&]( const glm::vec3& half ) -> std::array<glm::vec3, 4>
+        {
+            return { ramp.Points[0] - half, ramp.Points[0] + half, ramp.Points[1] + half, ramp.Points[1] - half };
+        };
+        return LandscapeRampOutline{ quad( inner ), quad( outer ) };
     }
 } // namespace Desert::World::Landscape
