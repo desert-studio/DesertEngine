@@ -9,7 +9,7 @@
 
 namespace Desert::Graphic
 {
-    Texture2D::~Texture2D()
+    void Texture2D::ReleaseImage()
     {
         if ( m_Service != nullptr )
             m_Service->Unregister( m_Handle );

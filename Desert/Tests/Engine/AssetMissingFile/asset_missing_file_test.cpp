@@ -404,8 +404,6 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
     const fs::path source = repo / "Editor/Resources/Assets/Clouds/Layouts/PTP_Channels_Green.dclayout";
     ASSERT_TRUE( fs::exists( source ) );
 
-    // A snapshot, not a reference: the test repoints the live root and restores this copy afterwards.
-    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     // A SNAPSHOT, not a reference: the root is changed below and put back from this copy.
     // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const Path::ProjectRootState saved   = Path::CurrentProjectRoot();
@@ -451,7 +449,7 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
         const auto missing = Desert::Assets::CreateFromRegistryRow<Desert::Assets::CloudLayoutAsset>(
              manager, handle, ContentKind::CloudLayout );
         ASSERT_FALSE( missing.IsSuccess() ) << "a row whose file is gone produced a shell";
-        EXPECT_NE( missing.GetError().find( file.string() ), std::string::npos ) << missing.GetError();
+        EXPECT_NE( missing.GetError().find( file.generic_string() ), std::string::npos ) << missing.GetError();
         EXPECT_NE( missing.GetError().find( guid ), std::string::npos ) << missing.GetError();
     }
 

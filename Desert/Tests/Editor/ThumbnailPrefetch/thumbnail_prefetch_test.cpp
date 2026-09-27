@@ -43,7 +43,11 @@ namespace
             return {};
         std::ostringstream ss;
         ss << in.rdbuf();
-        return ss.str();
+        // A Windows checkout translates line endings and a binary read keeps the '\r'; the census below
+        // searches for a statement that spans two lines.
+        std::string text = ss.str();
+        std::erase( text, '\r' );
+        return text;
     }
 
     constexpr std::array<unsigned char, 70> kOnePixelPng = {

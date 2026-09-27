@@ -23,6 +23,9 @@ namespace Desert::Assets
     // Every failure is an error carrying what the caller needs to fix the content: the handle when there is
     // no row, the path and the GUID when the row names a file that is not on disk. A missing file used to
     // produce a sky with no clouds and one generic line; that is the silent fallback this refuses.
+    // The path is printed forward-slashed: the row's spelling is whatever the directory scan joined, which
+    // on Windows mixes both separators, and a message that is searched for (by a person or a test) needs
+    // one spelling on every platform.
     template <typename AssetType>
     Common::ResultStr<Asset<AssetType>> CreateFromRegistryRow( const std::weak_ptr<AssetManager>& assets,
                                                                const AssetHandle&                 handle,
@@ -50,21 +53,22 @@ namespace Desert::Assets
         if ( !std::filesystem::exists( row->Path, ec ) )
             return Common::MakeFormattedError<Asset<AssetType>>(
                  "{} '{}' (GUID {}, handle {}) is in the content registry but the file is not on disk",
-                 Common::Content::KindName( kind ), row->Path.string(), guid, static_cast<uint64_t>( handle ) );
+                 Common::Content::KindName( kind ), row->Path.generic_string(), guid,
+                 static_cast<uint64_t>( handle ) );
 
         auto created = manager->CreateAsset<AssetType>( AssetPriority::Medium, row->Path,
                                                         /*loadAfterCreate=*/false );
         if ( !created )
             return Common::MakeFormattedError<Asset<AssetType>>( "{} '{}' (GUID {}) could not be created",
                                                                  Common::Content::KindName( kind ),
-                                                                 row->Path.string(), guid );
+                                                                 row->Path.generic_string(), guid );
 
         // The service keys its entry by the number it was asked for; a shell that adopted a DIFFERENT number
         // (a header whose GUID disagrees with the registry's) would be announced under it and never answer.
         if ( created->GetMetadata().Handle != handle )
             return Common::MakeFormattedError<Asset<AssetType>>(
                  "{} '{}' was asked for as {} but its header names {} (registry GUID {}); re-cook the registry",
-                 Common::Content::KindName( kind ), row->Path.string(), static_cast<uint64_t>( handle ),
+                 Common::Content::KindName( kind ), row->Path.generic_string(), static_cast<uint64_t>( handle ),
                  static_cast<uint64_t>( created->GetMetadata().Handle ), guid );
 
         return Common::MakeSuccess( std::move( created ) );
