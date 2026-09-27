@@ -258,7 +258,9 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
     {
         const std::string text = ReadFile( RepoRoot() + scene );
         ASSERT_FALSE( text.empty() ) << "could not read " << scene;
-        EXPECT_NE( text.find( R"("MeshGuid": ")" + meshGuidText + "\"" ), std::string::npos )
+        // Named outside the macro: MSVC mis-lexes a raw string followed by \" inside a macro argument (C2017).
+        const std::string meshGuidField = R"("MeshGuid": ")" + meshGuidText + "\"";
+        EXPECT_NE( text.find( meshGuidField ), std::string::npos )
              << scene << " does not name the probe mesh by its header GUID " << meshGuidText
              << ", so the scene that places the rig would resolve to no mesh at all.";
     }
@@ -355,7 +357,8 @@ TEST( IKProbeRig, TheScenesGoalIsThePostBonesPositionAndItIsInsideTheReach )
     ASSERT_FALSE( scene.empty() );
     EXPECT_NE( scene.find( R"("Goal": [90.0, 150.0, 0.0])" ), std::string::npos )
          << "the witness scene's authored goal is not the post bone's position any more.";
-    EXPECT_NE( scene.find( std::string( R"("EndBone": ")" ) + kHand + "\"" ), std::string::npos );
+    const std::string endBoneField = std::string( R"("EndBone": ")" ) + kHand + "\"";
+    EXPECT_NE( scene.find( endBoneField ), std::string::npos );
     EXPECT_NEAR( glm::length( post - glm::vec3( 90.0F, 150.0F, 0.0F ) ), 0.0F, 1e-3F );
 
     // "REACHED, NOT CLAMPED": strictly inside the shell, with room either side, so the shots show the
