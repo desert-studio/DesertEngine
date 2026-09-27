@@ -22,6 +22,18 @@ namespace Desert::Assets
     SurfaceMaterialAsset::SurfaceMaterialAsset( AssetPriority priority, const Common::Filepath& filepath )
          : MaterialAsset( priority, filepath, AssetTypeID::Material )
     {
+        // THE IDENTITY IS ADOPTED HERE, NOT IN LOAD, as TextureAsset does. A shell created from a content
+        // registry row (Assets::CreateFromRegistryRow) is never loaded before its handle is compared with
+        // the row's, so a handle adopted only by Load left every unloaded material wearing the path-derived
+        // number and the registry refused it. The header read is a prefix of the file, not the parse.
+        // A file that does not exist yet (the editor names a new material before saving it) states no
+        // GUID, and the path-derived handle AssetBase installed stands.
+        if ( const auto guid = ReadTextHeaderGuid( filepath ); !guid.IsNull() )
+        {
+            AdoptHandleFromFile( MaterialData::HandleOf( guid ),
+                                 Common::AssetHandle::StableKeyForPath( filepath ) );
+            m_MaterialUUID = m_Metadata.Handle;
+        }
     }
 
     std::shared_ptr<SurfaceMaterialAsset>

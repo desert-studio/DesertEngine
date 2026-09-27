@@ -18,6 +18,7 @@
 
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
+#include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
 
 #include <gtest/gtest.h>
 
@@ -25,6 +26,7 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <vector>
 
 using Desert::Assets::AssetBase;
 using Desert::Assets::AssetPriority;
@@ -427,6 +429,152 @@ TEST_F( AsyncAssetLoad, AWorkerReadIsCountedAsyncAndNeverAsAnInFrameHitch )
          << "a blocking load on the main thread after boot was NOT counted in-frame, so the async "
             "exemption above is exempting everything.";
     EXPECT_EQ( SyncLoadLedger::AsyncLoads(), 1u );
+}
+
+// ── FlushOne: THE ONE SYNCHRONOUS DOOR (AL1-4, plan §2.4(c)) ─────────────────────────────────────
+
+namespace
+{
+    // Every worker parked inside a held read, so a request queued after them is certainly not started.
+    struct ParkedWorkers
+    {
+        std::vector<std::shared_ptr<ProbeAsset>> Assets;
+        std::vector<LoadRequest>                 Requests;
+
+        ParkedWorkers()
+        {
+            for ( size_t i = 0; i < 64; ++i )
+            {
+                auto asset = std::make_shared<ProbeAsset>( "parked" + std::to_string( i ) + ".probe" );
+                asset->HoldInsideRead.store( true );
+                Requests.push_back( AsyncAssetLoader::Get().Request(
+                     asset, []( const auto&, LoadOutcome, const std::string& ) {}, [] {} ) );
+                Assets.push_back( std::move( asset ) );
+            }
+        }
+
+        void Free()
+        {
+            for ( auto& asset : Assets )
+                asset->HoldInsideRead.store( false );
+            for ( auto& request : Requests )
+                request.Release();
+        }
+    };
+} // namespace
+
+TEST_F( AsyncAssetLoad, FlushOneReadsOnTheCallingThreadAndTheLedgerCountsItAsSynchronous )
+{
+    SyncLoadLedger::NoteBootFinished();
+    ParkedWorkers parked;
+
+    auto victim    = std::make_shared<ProbeAsset>( "flushed.probe" );
+    int  completed = 0;
+    auto request   = AsyncAssetLoader::Get().Request(
+         victim, [&completed]( const auto&, LoadOutcome outcome, const std::string& )
+         { completed += outcome == LoadOutcome::Loaded ? 1 : 100; }, [] {} );
+
+    const uint64_t inFrameBefore = SyncLoadLedger::InFrameLoads();
+    EXPECT_TRUE( AsyncAssetLoader::Get().FlushOne( victim->GetMetadata().Handle ) );
+
+    EXPECT_TRUE( victim->IsReadyForUse() ) << "FlushOne returned before the asset was read";
+    EXPECT_EQ( completed, 1 ) << "FlushOne must fire the completion itself, once, before it returns";
+    EXPECT_EQ( SyncLoadLedger::InFrameLoads(), inFrameBefore + 1 )
+         << "a flush is a synchronous load the caller asked for; the ledger has to see it as one, or "
+            "moving a read onto FlushOne hides a hitch instead of naming it";
+
+    parked.Free();
+    ASSERT_TRUE( PumpUntilQuiet() );
+    EXPECT_EQ( victim->Reads.load(), 1 ) << "the worker read the file again after FlushOne had read it";
+    EXPECT_EQ( completed, 1 ) << "Pump delivered a completion FlushOne had already delivered";
+}
+
+TEST_F( AsyncAssetLoad, FlushOneDeliversOnlyItsOwnHandleAndLeavesTheRestForPump )
+{
+    auto mine       = std::make_shared<ProbeAsset>( "mine.probe" );
+    auto theirs     = std::make_shared<ProbeAsset>( "theirs.probe" );
+    int  mineDone   = 0;
+    int  theirsDone = 0;
+    auto a          = AsyncAssetLoader::Get().Request(
+         mine, [&mineDone]( const auto&, LoadOutcome, const std::string& ) { ++mineDone; }, [] {} );
+    auto b = AsyncAssetLoader::Get().Request(
+         theirs, [&theirsDone]( const auto&, LoadOutcome, const std::string& ) { ++theirsDone; }, [] {} );
+
+    // Let theirs land (settled, not pumped) so FlushOne has a foreign completion to leave alone.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 5 );
+    while ( !theirs->IsReadyForUse() && std::chrono::steady_clock::now() < deadline )
+        std::this_thread::yield();
+
+    EXPECT_TRUE( AsyncAssetLoader::Get().FlushOne( mine->GetMetadata().Handle ) );
+    EXPECT_EQ( mineDone, 1 );
+    EXPECT_EQ( theirsDone, 0 ) << "FlushOne fired another handle's completion; that one belongs to Pump";
+
+    ASSERT_TRUE( PumpUntilQuiet() );
+    EXPECT_EQ( theirsDone, 1 );
+    EXPECT_EQ( mineDone, 1 );
+}
+
+TEST_F( AsyncAssetLoad, FlushOneWaitsForAWorkerAlreadyInsideTheReadInsteadOfReadingTwice )
+{
+    auto asset = std::make_shared<ProbeAsset>( "busy.probe" );
+    asset->HoldInsideRead.store( true );
+    int  completed = 0;
+    auto request   = AsyncAssetLoader::Get().Request(
+         asset, [&completed]( const auto&, LoadOutcome, const std::string& ) { ++completed; }, [] {} );
+    WaitUntilInsideRead( *asset );
+    ASSERT_TRUE( asset->InsideRead.load() );
+
+    std::thread release(
+         [&asset]
+         {
+             std::this_thread::sleep_for( std::chrono::milliseconds( 20 ) );
+             asset->HoldInsideRead.store( false );
+         } );
+    EXPECT_TRUE( AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle ) );
+    release.join();
+
+    EXPECT_EQ( asset->Reads.load(), 1 ) << "FlushOne read a file a worker was already reading";
+    EXPECT_EQ( completed, 1 );
+}
+
+TEST_F( AsyncAssetLoad, FlushOneWithNothingRequestedDoesNothing )
+{
+    EXPECT_FALSE( AsyncAssetLoader::Get().FlushOne( Desert::Assets::AssetHandle{ 12345 } ) );
+}
+
+// ── PENDING -> READY: a material that drew a default is rebuilt when its texture lands ───────────
+
+TEST( TextureWaiters, ATextureLandingInvalidatesEveryMaterialThatWaitedOnItExactlyOnce )
+{
+    Desert::Runtime::TextureWaiters   waiters;
+    const Desert::Assets::AssetHandle texture{ 1 };
+    const Desert::Assets::AssetHandle other{ 2 };
+    const Desert::Assets::AssetHandle matA{ 10 };
+    const Desert::Assets::AssetHandle matB{ 11 };
+
+    // matA binds the texture in two slots (albedo + normal): still ONE rebuild.
+    waiters.Add( texture, matA );
+    waiters.Add( texture, matA );
+    waiters.Add( texture, matB );
+    waiters.Add( other, matB );
+
+    uint32_t                                 generation = 0; // MaterialService::Invalidate's ++version
+    std::vector<Desert::Assets::AssetHandle> rebuilt;
+    const auto                               invalidate = [&]( const Desert::Assets::AssetHandle& material )
+    {
+        rebuilt.push_back( material );
+        ++generation;
+    };
+
+    waiters.Settle( texture, invalidate );
+    EXPECT_EQ( generation, 2u ) << "each material waiting on the texture is invalidated once";
+    EXPECT_EQ( rebuilt, ( std::vector<Desert::Assets::AssetHandle>{ matA, matB } ) );
+
+    waiters.Settle( texture, invalidate );
+    EXPECT_EQ( generation, 2u ) << "a second settle of the same texture rebuilt materials again";
+
+    waiters.Settle( other, invalidate );
+    EXPECT_EQ( generation, 3u ) << "the other texture's waiter was lost when the first one settled";
 }
 
 int main( int argc, char** argv )

@@ -483,6 +483,46 @@ TEST( AssetPreloadCensus, BothSceneSkyboxResolversBuildTheEnvironment )
     }
 }
 
+// AL1-4: textures and materials are discovered by their services on first use, so the boot creates no
+// shell of either kind — and that is also what makes hot reload see ONLY the materials something asked
+// for, because AssetHotReload::PollMaterials walks the manager's SurfaceMaterialAssets and nothing else
+// puts one there at boot.
+TEST( AssetPreloadCensus, TexturesAndMaterialsAreNotCreatedAtBootSoHotReloadSeesOnlyRequestedMaterials )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
+    ASSERT_FALSE( preloader.empty() );
+    constexpr const char* kGone[] = {
+         "ProcessAssetKind<TextureAsset>",
+         "ProcessAssetKind<SurfaceMaterialAsset>",
+         "FindAllByType<Assets::TextureAsset>",
+         "FindAllByType<Assets::MaterialAsset>",
+         "ContentKind::Texture",
+         "ContentKind::Material",
+         "GetTextureService()->RegisterAsset",
+         "GetMaterialService()->RegisterAsset",
+    };
+    for ( const char* token : kGone )
+        EXPECT_EQ( preloader.find( token ), std::string::npos )
+             << kPreloaderSource << " names " << token
+             << " again; textures and materials are discovered on demand since AL1-4, and a boot scan "
+                "would hand hot reload every material in the project instead of the requested ones.";
+
+    // The other half of the relation: the hot-reload walk is over the MANAGER's materials, so what it sees
+    // is exactly what was created — by MaterialService's discovery.
+    const std::string hotReload =
+         WithoutComments( ReadFile( root + "Desert/Desert/Source/Engine/Runtime/AssetHotReload.cpp" ) );
+    ASSERT_FALSE( hotReload.empty() );
+    EXPECT_NE( hotReload.find( "FindAllByType<Assets::SurfaceMaterialAsset>" ), std::string::npos )
+         << "PollMaterials no longer walks the manager's materials; this census no longer describes it.";
+    const std::string service = WithoutComments(
+         ReadFile( root + "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp" ) );
+    EXPECT_NE( service.find( "CreateFromRegistryRow<Assets::SurfaceMaterialAsset>" ), std::string::npos )
+         << "MaterialService no longer discovers materials from the registry row";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

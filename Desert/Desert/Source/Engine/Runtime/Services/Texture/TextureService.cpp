@@ -1,7 +1,10 @@
 #include "TextureService.hpp"
 
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Graphic/TextureFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+
+#include <Common/Core/Logger.hpp>
 
 namespace Desert::Runtime
 {
@@ -21,55 +24,152 @@ namespace Desert::Runtime
         }
     } // namespace
 
+    void TextureService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
+    }
+
     void TextureService::Register( const std::shared_ptr<Assets::TextureAsset>& texture )
     {
-        m_Textures[texture->GetHandle()]      = Graphic::TextureFactory::Create2D( texture );
-        m_TextureAssets[texture->GetHandle()] = texture; // keep the shell too
-        ClaimTextureImage( m_Textures[texture->GetHandle()], texture->GetHandle() );
+        Entry& entry = m_Entries[texture->GetHandle()];
+        entry.Source = texture;
+        entry.Built  = Graphic::TextureFactory::Create2D( texture );
+        entry.Failed = false;
+        ClaimTextureImage( entry.Built, texture->GetHandle() );
     }
 
     void TextureService::RegisterAsset( const std::shared_ptr<Assets::TextureAsset>& texture )
     {
         if ( texture )
-            m_TextureAssets[texture->GetHandle()] = texture; // GPU build deferred to the first Get
+            m_Entries[texture->GetHandle()].Source = texture; // read and built on the first Require
     }
 
-    Desert::Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& handle ) const
+    TextureService::Entry* TextureService::FindOrDiscover( const Assets::AssetHandle& handle ) const
     {
-        if ( auto it = m_Textures.find( handle ); it != m_Textures.end() )
-            return it->second.get();
+        if ( static_cast<uint64_t>( handle ) == 0 )
+            return nullptr;
+        if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
+            return &it->second;
+        if ( m_ReportedMissing.contains( handle ) )
+            return nullptr;
 
-        // Lazy build: a shell was registered but the GPU texture isn't built yet — build + cache it now.
-        if ( auto ait = m_TextureAssets.find( handle ); ait != m_TextureAssets.end() )
+        auto created = Assets::CreateFromRegistryRow<Assets::TextureAsset>(
+             m_Assets, handle, Common::Content::ContentKind::Texture );
+        if ( !created )
         {
-            if ( !ait->second->IsReadyForUse() )
-                ait->second->Load(); // cheap: reads the .tex metadata (source path), not pixels
-            auto  tex = Graphic::TextureFactory::Create2D( ait->second );
-            auto* raw = tex.get();
-            m_Textures[handle] = std::move( tex );
-            ClaimTextureImage( m_Textures[handle], handle );
-            return raw;
+            // Once per handle, not once per frame: the caller falls back to the slot default and says so.
+            m_ReportedMissing.insert( handle );
+            LOG_ERROR( "[TextureService] {}", created.GetError() );
+            return nullptr;
         }
-        return nullptr;
+        Entry& entry = m_Entries[handle];
+        entry.Source = created.GetValue();
+        return &entry;
+    }
+
+    void TextureService::Build( const Assets::AssetHandle& handle, Entry& entry )
+    {
+        entry.Built = Graphic::TextureFactory::Create2D( entry.Source );
+        if ( !entry.Built )
+        {
+            entry.Failed = true;
+            LOG_ERROR( "[TextureService] '{}' was read but no GPU texture could be built from it",
+                       entry.Source->GetMetadata().Filepath.string() );
+            return;
+        }
+        ClaimTextureImage( entry.Built, handle );
+    }
+
+    void TextureService::BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const
+    {
+        // BOTH DELEGATES (T2.3): a Clear() that drops the request must not leave the entry answering
+        // Pending at a worker that is never coming back.
+        entry.Request = Assets::AsyncAssetLoader::Get().Request(
+             entry.Source,
+             [this, handle]( const Assets::Asset<Assets::AssetBase>&, const Assets::LoadOutcome outcome,
+                             const std::string& error )
+             {
+                 const auto it = m_Entries.find( handle );
+                 if ( it == m_Entries.end() )
+                     return; // cleared while the read ran
+                 // Released first, so nothing answers Pending for a texture whose read has settled.
+                 it->second.Request.Release();
+                 if ( outcome != Assets::LoadOutcome::Loaded )
+                 {
+                     it->second.Failed = true;
+                     LOG_ERROR( "[TextureService] '{}' could not be read: {}. Materials naming it sample the "
+                                "slot's schema default; it is not retried.",
+                                it->second.Source->GetMetadata().Filepath.string(), error );
+                 }
+                 else
+                     Build( handle, it->second );
+
+                 m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
+                                   { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
+             },
+             [this, handle]
+             {
+                 // Back to "not asked for", not to "failed": the next Require starts a fresh read.
+                 if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
+                     it->second.Request.Release();
+             } );
+    }
+
+    Assets::AssetRef<Graphic::Texture2D> TextureService::Require( const Assets::AssetHandle& handle ) const
+    {
+        Entry* entry = FindOrDiscover( handle );
+        if ( entry == nullptr )
+            return Assets::AssetRef<Graphic::Texture2D>::Null();
+        if ( entry->Built )
+            return Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry->Built );
+        if ( entry->Failed || !entry->Source )
+            return Assets::AssetRef<Graphic::Texture2D>::Null();
+        if ( entry->Request.IsValid() )
+            return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
+
+        // Already read (an importer handed over a loaded asset): build now, no request needed.
+        if ( entry->Source->IsReadyForUse() )
+        {
+            Build( handle, *entry );
+            return entry->Built ? Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry->Built )
+                                : Assets::AssetRef<Graphic::Texture2D>::Null();
+        }
+
+        BeginRead( handle, *entry );
+        return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
+    }
+
+    Graphic::Texture2D* TextureService::Get( const Assets::AssetHandle& handle ) const
+    {
+        const auto ref = Require( handle );
+        return ref.Get();
+    }
+
+    void TextureService::RebuildWhenReady( const Assets::AssetHandle& texture,
+                                           const Assets::AssetHandle& material ) const
+    {
+        if ( const auto it = m_Entries.find( texture ); it != m_Entries.end() && it->second.Request.IsValid() )
+            m_Waiters.Add( texture, material );
     }
 
     std::string TextureService::GetSourcePath( const Assets::AssetHandle& handle ) const
     {
-        if ( auto it = m_TextureAssets.find( handle ); it != m_TextureAssets.end() )
-        {
-            if ( !it->second->IsReadyForUse() )
-                it->second->Load(); // reads the .tex metadata (source path), not pixels
-            return it->second->GetSourcePath();
-        }
-        return {};
+        (void)Require( handle );
+        const auto it = m_Entries.find( handle );
+        if ( it == m_Entries.end() || !it->second.Source )
+            return {};
+        if ( !it->second.Source->IsReadyForUse() && it->second.Request.IsValid() )
+            Assets::AsyncAssetLoader::Get().FlushOne( handle );
+        const auto again = m_Entries.find( handle );
+        return again != m_Entries.end() && again->second.Source && again->second.Source->IsReadyForUse()
+                    ? again->second.Source->GetSourcePath()
+                    : std::string{};
     }
 
     void TextureService::Clear()
     {
-        // Was an empty body. Every other service's Clear() drops its maps, and this one is the service
-        // that holds the built GPU Texture2Ds — so the one that had to work is the one that did nothing.
-        m_Textures.clear();
-        m_TextureAssets.clear();
+        m_Entries.clear();
+        m_ReportedMissing.clear();
+        m_Waiters.Clear();
     }
-
 } // namespace Desert::Runtime

@@ -153,6 +153,17 @@ namespace Desert::Assets
          */
         void Pump();
 
+        /**
+         * @brief Finish the request for @p handle NOW, on the calling thread, and fire its delegates.
+         *
+         * The one synchronous door (plan §2.4(c)): an editor that must show an asset in the frame it was
+         * opened. If no worker has started the read it runs here, outside any AsyncLoadMarker, so
+         * SyncLoadLedger counts it; if a worker is inside it, this waits for that read rather than doing a
+         * second one. Only @p handle's completions are delivered; the rest keep their place for `Pump()`.
+         * Returns whether any delegate ran; false means nothing was requested for @p handle.
+         */
+        bool FlushOne( const AssetHandle& handle );
+
         /// How many requests are still live — in flight, or finished but not yet pumped. A host waits on
         /// this to know its content has settled; a test waits on it to know the loader is quiet.
         [[nodiscard]] size_t Outstanding() const;

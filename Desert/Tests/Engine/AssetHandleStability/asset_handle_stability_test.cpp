@@ -566,6 +566,34 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
     EXPECT_FALSE( material.GetMaterialUUID().IsNull() );
 }
 
+TEST( AssetHandleStability, AnUnloadedMaterialShellAlreadyWearsItsHeaderGuidHandle )
+{
+    // AL1-4: MaterialService creates a `.demat` shell from its content-registry row and CreateFromRegistryRow
+    // compares the shell's handle with the row's BEFORE anything loads it. The GUID handle used to be adopted
+    // only by Load, so every unloaded material wore the path-derived number and the registry refused it.
+    const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_guid.demat";
+    {
+        std::ofstream out( scratch );
+        ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
+        out << R"({"Header":{"Kind":"Material","Guid":"df51ca6ed9cb71779a9b5634db0863bc","Versions":{"MATL":4},)"
+            << R"("Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})";
+    }
+    const auto guid = Desert::Assets::ReadTextHeaderGuid( Common::Filepath( scratch ) );
+    ASSERT_FALSE( guid.IsNull() ) << "the fixture's header GUID did not parse";
+
+    const Desert::Assets::SurfaceMaterialAsset shell( AssetPriority::Medium, Common::Filepath( scratch ) );
+    std::filesystem::remove( scratch );
+
+    EXPECT_FALSE( shell.IsReadyForUse() ) << "the shell was loaded; this test is about one that was not";
+    EXPECT_EQ( static_cast<uint64_t>( shell.GetMetadata().Handle ),
+               static_cast<uint64_t>( Desert::Assets::MaterialData::HandleOf( guid ) ) )
+         << "an unloaded material carries a handle other than its header GUID's; the registry row names the "
+            "GUID handle, so on-demand discovery refuses every material";
+    EXPECT_EQ( static_cast<uint64_t>( shell.GetMaterialUUID() ),
+               static_cast<uint64_t>( shell.GetMetadata().Handle ) )
+         << "the external id must equal the handle before load too: the mesh->material link resolves by it";
+}
+
 // The defect as a USER meets it: save a reference, restart, dereference it.
 //
 // This is the scenario spelled out literally rather than argued about. Process A registers a skybox and
