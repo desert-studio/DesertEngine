@@ -726,7 +726,6 @@ namespace
          "Desert Desert::Geometry::WriteOverlay",   // DynamicMeshSerialization.cpp, EditMeshSerialization.cpp
          "Editor Desert::Editor::Lower",            // AssetReferencesScan.cpp, FuzzyMatch.cpp
          "Editor Desert::Editor::RelativeToAssets", // EditorPreferences.cpp, CloudTypePanel.cpp
-         "Editor Desert::Editor::SanitizeName",     // GamePackager.cpp, CollectionsPanel.cpp
          "Editor Desert::Editor::ToU32",            // SkyAtmosphereComponent.cpp, WorldPartitionPanel.cpp
     };
 

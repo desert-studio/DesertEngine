@@ -51,6 +51,13 @@ namespace Desert::Graphic::API::Vulkan
             return m_SupportedExtensions.find( extensionName ) != m_SupportedExtensions.end();
         }
 
+        /// The families the device advertised, read once at construction; callers that need a family's
+        /// flags read them here instead of enumerating the device a second time.
+        [[nodiscard]] const std::vector<VkQueueFamilyProperties>& GetQueueFamilyProperties() const
+        {
+            return m_QueueFamilyProperties;
+        }
+
         [[nodiscard]] uint32_t GetGraphicsFamily() const
         {
             DESERT_VERIFY( m_QueueFamiliesResolved, "queue families read before CreateDevice() settled them" );

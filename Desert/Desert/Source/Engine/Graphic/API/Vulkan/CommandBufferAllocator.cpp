@@ -281,7 +281,7 @@ namespace Desert::Graphic::API::Vulkan
                                           .pCommandBuffers      = &commandBuffer,
                                           .signalSemaphoreCount = 0,
                                           .pSignalSemaphores    = nullptr };
-        if ( const VkResult result = vkQueueSubmit( m_GraphicsQueue, 1, &submitInfo, submitted.Fence );
+        if ( const VkResult result = m_Device->SubmitToQueue( m_GraphicsQueue, 1, &submitInfo, submitted.Fence );
              result != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( result ) ) );
         return Common::MakeSuccess( submitted );

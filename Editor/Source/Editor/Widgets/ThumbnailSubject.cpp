@@ -238,9 +238,7 @@ namespace Desert::Editor::ThumbnailSubject
         // still has no picture, meets it resident.
         if ( !asset->IsReadyForUse() )
         {
-            Runtime::EnsureMeshRegistered( asset, manager );
-            if ( auto* meshes = Runtime::ResourceRegistry::GetMeshService() )
-                (void)meshes->Get( asset->GetMetadata().Handle );
+            Runtime::RequestMeshRead( asset, manager );
             return Common::MakeFormattedError<Mesh>( "'{}' is being read on a worker; its picture follows on a "
                                                      "later pass",
                                                      cooked );

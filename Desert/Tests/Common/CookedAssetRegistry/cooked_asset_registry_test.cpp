@@ -724,13 +724,13 @@ TEST( CookedAssetRegistry, APrefabRowCarriesTheBoxItsFileStates )
     };
 
     const auto boxed =
-         describe( "\"Bounds\": { \"Min\": [-50.25, 0.0, -1e-3], \"Max\": [50.25, 180.5, 3.0000001] },\n    " );
+         describe( R"("Bounds": { "Min": [-50.25, 0.0, -1e-3], "Max": [50.25, 180.5, 3.0000001] },)" "\n    " );
     ASSERT_TRUE( boxed ) << boxed.GetError();
     const std::optional<Common::Math::AABB> expected =
          Common::Math::AABB{ { -50.25f, 0.0f, -1e-3f }, { 50.25f, 180.5f, 3.0000001f } };
     EXPECT_TRUE( Common::Utils::SameBounds( boxed.GetValue().Bounds, expected ) ) << "the stated box, bit for bit";
 
-    const auto broken = describe( "\"Bounds\": { \"Min\": \"wide\", \"Max\": [1, 2, 3] },\n    " );
+    const auto broken = describe( R"("Bounds": { "Min": "wide", "Max": [1, 2, 3] },)" "\n    " );
     EXPECT_FALSE( broken ) << "a Bounds member that cannot be read was taken as 'no extent'";
 
     std::error_code ec;

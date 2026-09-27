@@ -372,13 +372,13 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
 
     for ( const Case& c : cases )
     {
-        std::string json = std::string_view( c.json ).starts_with( "{\"Entries\"" ) ? Headed( c.json ) : c.json;
+        std::string json = std::string_view( c.json ).starts_with( R"({"Entries")" ) ? Headed( c.json ) : c.json;
         if ( std::string_view( c.json ) == "STRT2" )
         {
             json                 = Headed( R"({"Entries":[{"Key":"a","Forms":{"other":"x"}}]})" );
-            const std::size_t at = json.find( "\"STRT\":3" );
+            const std::size_t at = json.find( R"("STRT":3)" );
             ASSERT_NE( at, std::string::npos ) << json;
-            json.replace( at, 8, "\"STRT\":2" );
+            json.replace( at, 8, R"("STRT":2)" );
         }
         const auto parsed = ParseStringTable( json );
         ASSERT_FALSE( parsed ) << "accepted: " << c.json;

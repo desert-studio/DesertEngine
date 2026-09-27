@@ -35,6 +35,12 @@ namespace Desert::Runtime
         {
             return ResourceRegistry::GetMaterialService();
         }
+
+        // And for textures: registration and the closure's batch read.
+        TextureService* Textures()
+        {
+            return ResourceRegistry::GetTextureService();
+        }
     } // namespace
 
     void EnsureMaterialRegistered( const Assets::Asset<Assets::MaterialAsset>& material )
@@ -65,6 +71,14 @@ namespace Desert::Runtime
             LOG_ERROR( "[Mesh] '{}' could not be registered: {}", mesh->GetMetadata().Filepath.string(),
                        registered.GetError() );
         }
+    }
+
+    void RequestMeshRead( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry )
+    {
+        EnsureMeshRegistered( mesh, registry );
+        // Get answers pending for a cold mesh and starts its worker read; nothing is parsed on this thread.
+        if ( auto* service = Meshes(); service != nullptr && mesh )
+            (void)service->Get( mesh->GetMetadata().Handle );
     }
 
     bool DiscoverMesh( const Assets::AssetHandle& handle )
@@ -129,7 +143,7 @@ namespace Desert::Runtime
             using Common::Content::KindName;
             auto*                            meshes    = Meshes();
             auto*                            materials = Materials();
-            auto*                            textures  = ResourceRegistry::GetTextureService();
+            auto*                            textures  = Textures();
             std::vector<Assets::AssetHandle> awaited;
             for ( const auto& row : rows )
             {
@@ -209,7 +223,7 @@ namespace Desert::Runtime
 
     void EnsureTextureRegistered( const Assets::AssetManager& registry, uint64_t handle )
     {
-        auto* service = ResourceRegistry::GetTextureService();
+        auto* service = Textures();
         if ( !service || handle == 0 )
             return;
         if ( auto texture = registry.FindByHandle<Assets::TextureAsset>( Common::UUID( handle ) ) )

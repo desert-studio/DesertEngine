@@ -87,6 +87,11 @@ namespace Desert::Runtime
     /// nothing and prints "needs a deferred load but no AssetManager is bound" once per frame.
     void EnsureMeshRegistered( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry );
 
+    /// Register @p mesh (as EnsureMeshRegistered) and ASK for it without waiting: a cold mesh is handed to
+    /// AsyncAssetLoader and becomes resident on a later frame. The non-blocking twin of EnsureMeshDrawable,
+    /// for a caller inside a frame that can come back (the thumbnail sweep).
+    void RequestMeshRead( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry );
+
     /// What waiting for a closure did: its rows, the worker reads it waited for (0 when everything was
     /// resident already) and how many of its meshes are drawable afterwards.
     struct ClosureResidency

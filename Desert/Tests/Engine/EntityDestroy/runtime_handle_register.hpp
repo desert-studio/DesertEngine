@@ -57,7 +57,7 @@ namespace Desert::Tests::RuntimeHandles
         std::string_view Why;
     };
 
-    inline constexpr std::array<EntityTableRow, 14> kEntityTables{ {
+    inline constexpr std::array<EntityTableRow, 15> kEntityTables{ {
          { "Desert/Desert/Source/Engine/Core/SceneEntityIndex.hpp", "m_SlotOf", Release::Destroyer,
            "Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp", "index.Remove( doomedEntity )",
            "the scene's own entity index; the destroy path removes the row before registry.destroy" },
@@ -82,6 +82,9 @@ namespace Desert::Tests::RuntimeHandles
          { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "TweenSeen", Release::OwnerRetired,
            "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
            "per-element counter inside a canvas's context; goes when the canvas does" },
+         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "ListBindings", Release::OwnerRetired,
+           "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp", "m_Canvases.erase( it )",
+           "UIL1: per-list collection serial inside a canvas's context; goes when the canvas does" },
          { "Desert/Desert/Source/Engine/Graphic/Render2D/UIRenderTextureCache.hpp", "m_Captures", Release::Sweep,
            "Desert/Desert/Source/Engine/Graphic/Render2D/UIRenderTextureCache.cpp", "m_Captures.erase( element )",
            "capture not demanded this frame is released after one device idle for the batch" },

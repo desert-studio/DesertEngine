@@ -120,6 +120,9 @@ namespace
                "probe fixture: the same list scrolled — the negative "
                "control of the one above" },
              { "UI_ListViewSlots", "", "probe fixture (40 render-texture rows in a virtualized list)" },
+             // UIL1's bound lists: every row label is a template overwritten by its UIBinding, and the
+             // title names the probe for the frame it is shot in.
+             { "UI_ListProbe", "", "probe fixture (UIListView bound to a UIDataStore collection)" },
              { "UI_ListViewSlots_ScrollView", "",
                "probe fixture: the same 40 rows in a scroll view — the "
                "renderer-slot negative control" },

@@ -394,6 +394,21 @@ namespace Desert::Tests::PointerCensus
           "The table has static storage duration, so Q2 is closed by the language; Q1 does not arise "
           "because nobody allocated it. Never null after Get() — the constructor resolves the source "
           "language and says so loudly if that row has been deleted" },
+        { "Desert/Desert/Source/Engine/Localization/LocalizationService.hpp",
+          "Localization", "m_Requested", Guard::StaticStorage,
+          "the language asked for and not yet committed (its table may still be loading): a row of the same "
+          "static `constexpr std::array` in LocaleFormat.cpp, taken from FindLocale exactly as m_Language is; "
+          "nullptr once committed or refused" },
+        { "Desert/Desert/Source/Engine/Assets/StringTableAsset.hpp",
+          "StringTableAsset", "m_Language", Guard::StaticStorage,
+          "the language the table's file states, from Localization::StringTableLanguageOf, which returns a row "
+          "of the static language table in LocaleFormat.cpp (FindLocale) or an error; nullptr until loaded "
+          "and again after Unload" },
+        { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp",
+          "CommandBufferAllocator", "m_Device", Guard::HostOutlivesUs,
+          "VK1: the logical device that owns the queues and their lock (SubmitToQueue). Set in Init from the "
+          "device that creates the allocator; VulkanLogicalDevice::Destroy calls "
+          "CommandBufferAllocator::Destroy before the VkDevice goes, so the allocator never outlives it" },
         { "Desert/Desert/Source/Engine/Graphic/GpuTimestampLayout.hpp",
           "GpuScopeRecorder", "m_Stacks", Guard::IdentityOnly,
           "the owner key of a per-view scope stack (the view that opened the scopes), compared and never dereferenced; Reset clears m_Stacks at every frame's start, so a key lives one frame, inside which the view it names is still recording and its address cannot be recycled" },

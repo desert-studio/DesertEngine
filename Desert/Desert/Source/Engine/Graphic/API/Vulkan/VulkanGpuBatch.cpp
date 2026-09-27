@@ -13,11 +13,8 @@ namespace Desert::Graphic::API::Vulkan
         const auto&    physical = device->GetPhysicalDevice();
         const uint32_t family   = physical->GetGraphicsFamily();
 
-        uint32_t familyCount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties( physical->GetVulkanPhysicalDevice(), &familyCount, nullptr );
-        std::vector<VkQueueFamilyProperties> families( familyCount );
-        vkGetPhysicalDeviceQueueFamilyProperties( physical->GetVulkanPhysicalDevice(), &familyCount,
-                                                  families.data() );
+        const auto&    families    = physical->GetQueueFamilyProperties();
+        const uint32_t familyCount = static_cast<uint32_t>( families.size() );
         if ( family >= familyCount || ( families[family].queueFlags & VK_QUEUE_COMPUTE_BIT ) == 0 )
             return Common::MakeFormattedError<std::unique_ptr<GpuBatch>>(
                  "the graphics queue family {} (of {}) does not advertise compute, and a GPU batch records "

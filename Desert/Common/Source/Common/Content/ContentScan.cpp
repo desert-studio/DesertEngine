@@ -240,6 +240,8 @@ namespace Common::Content
         {
             std::optional<StatedBox> Bounds;
         };
+        DESERT_JSON_LENIENT( StatedPrefabBounds, "reads the one Bounds member of a whole prefab document; every "
+                                                 "other key is the rest of that prefab, not damage" )
     } // namespace StatedMembers
 
     namespace
@@ -253,14 +255,16 @@ namespace Common::Content
         {
             uint64_t Signature = 0;
         };
+        DESERT_JSON_LENIENT( StatedRig, "reads the one Signature member of a whole skeleton document; every other "
+                                        "key is the rest of that skeleton, and a document stating none reads 0" )
         uint64_t StatedRigSignature( const std::filesystem::path& file )
         {
             const auto text =
                  Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
             if ( !text )
                 return 0;
-            const auto document = rfl::json::read<StatedRig>( text.GetValue() );
-            return document ? document.value().Signature : 0;
+            const auto document = Json::Read<StatedRig>( text.GetValue() );
+            return document ? document.GetValue().Signature : 0;
         }
 
         ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
@@ -269,12 +273,12 @@ namespace Common::Content
                  Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
             if ( !text )
                 return MakeFormattedError<MeshHeaderBounds>( "the prefab could not be read: {}", text.GetError() );
-            const auto document = rfl::json::read<StatedMembers::StatedPrefabBounds>( text.GetValue() );
+            const auto document = Json::Read<StatedMembers::StatedPrefabBounds>( text.GetValue() );
             if ( !document )
                 return MakeFormattedError<MeshHeaderBounds>( "its Bounds member is unreadable: {}",
-                                                             document.error().what() );
+                                                             document.GetError() );
             MeshHeaderBounds stated{ true, std::nullopt };
-            if ( const auto& box = document.value().Bounds )
+            if ( const auto& box = document.GetValue().Bounds )
                 stated.Bounds = Math::AABB{ { box->Min[0], box->Min[1], box->Min[2] },
                                             { box->Max[0], box->Max[1], box->Max[2] } };
             return MakeSuccess( stated );
