@@ -165,8 +165,10 @@ TEST( SkinnedShadowFlag, TheRendererCopiesTheFlagOntoTheSkinnedQueueAndTheCascad
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
+    // The copy is in SubmitMesh (MeshRenderer.cpp), the read in the cascade pass (MeshRendererShadow.cpp).
     const std::string src =
-         Normalized( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+         Normalized( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" ) +
+         Normalized( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp" );
     ASSERT_FALSE( src.empty() );
 
     // The copy in MeshRenderer::SubmitMesh's Skinned case...

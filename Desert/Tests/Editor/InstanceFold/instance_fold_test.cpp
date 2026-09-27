@@ -227,7 +227,7 @@ TEST( InstanceFold, TheStaticMeshPassDoesNotReturnBeforeItReachesTheInstancedQue
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) ) << "tree not found -- this census saw nothing";
 
     const fs::path renderer = root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
-                              "Mesh" / "MeshRenderer.cpp";
+                              "Mesh" / "MeshRendererForward.cpp";
     std::ifstream in( renderer );
     ASSERT_TRUE( in.is_open() ) << renderer.string();
 

@@ -302,7 +302,8 @@ namespace
     constexpr const char* kMaterial  = "Desert/Desert/Source/Engine/Graphic/Materials/Material.cpp";
     constexpr const char* kDDM       = "Desert/Desert/Source/Engine/Graphic/Materials/DataDrivenMaterial.hpp";
     constexpr const char* kPipeline  = "Desert/Desert/Source/Engine/Graphic/PipelineCache.hpp";
-    constexpr const char* kMeshRend  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp";
+    constexpr const char* kMeshRend =
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp";
     constexpr const char* kShaderSvc = "Desert/Desert/Source/Engine/Runtime/Services/Shader/ShaderService.cpp";
     constexpr const char* kPreproc =
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp";

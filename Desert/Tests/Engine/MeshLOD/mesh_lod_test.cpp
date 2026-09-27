@@ -430,10 +430,14 @@ TEST( MeshLOD, EveryInstancedDrawCallNamesItsLODLevel )
     }
     ASSERT_TRUE( fs::exists( root / "Desert" / "Common" ) );
 
-    const std::ifstream in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
-                            "Mesh" / "MeshRenderer.cpp" );
-    std::stringstream   buffer;
-    buffer << in.rdbuf();
+    // The opaque instanced batch is recorded in MeshRendererForward.cpp, the cascade's in MeshRendererShadow.cpp.
+    std::stringstream buffer;
+    for ( const char* part : { "MeshRendererForward.cpp", "MeshRendererShadow.cpp" } )
+    {
+        const std::ifstream in( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" /
+                                "Scene" / "Mesh" / part );
+        buffer << in.rdbuf();
+    }
     const std::string source = buffer.str();
     ASSERT_FALSE( source.empty() );
 
