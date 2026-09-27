@@ -82,7 +82,7 @@ namespace Desert::Editor::Tools
     {
         std::function<std::optional<FoliageTraceHit>( const glm::vec3& start, const glm::vec3& end,
                                                       const FoliageSurfaceFilter& filter )>
-             Trace;
+                                                                      Trace;
         std::function<std::optional<float>( const glm::vec3& point )> LayerWeightAt;
     };
 

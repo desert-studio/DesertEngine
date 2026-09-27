@@ -239,8 +239,8 @@ namespace Desert::Editor::Tools
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr FoliagePaintTool::AddTypeFile( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
-                                                         const std::string& path )
+    Common::BoolResultStr FoliagePaintTool::AddTypeFile( ::Desert::Core::Scene& scene,
+                                                         Assets::AssetManager& manager, const std::string& path )
     {
         const auto type = OpenTypeFile( manager, path );
         if ( !type )

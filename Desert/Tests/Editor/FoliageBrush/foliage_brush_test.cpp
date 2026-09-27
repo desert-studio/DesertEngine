@@ -176,7 +176,7 @@ TEST( FoliageBrush, ALandscapeOnlyBrushReachesTheGroundUnderAMeshSheet )
         }
         return std::nullopt;
     };
-    auto dab             = DabAt( { 0.0f, 100.0f, 0.0f }, 500.0f );
+    auto dab              = DabAt( { 0.0f, 100.0f, 0.0f }, 500.0f );
     dab.Filter.StaticMesh = false;
     FoliageRandom rng( 12u );
     const auto    placed = FoliageBrushAdd( Grass(), dab, {}, rng, world );
