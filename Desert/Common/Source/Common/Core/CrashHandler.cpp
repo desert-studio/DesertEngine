@@ -31,15 +31,16 @@
 #include <intrin.h>
 #else
 #include <dlfcn.h>
-#include <execinfo.h>
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 #if defined( __APPLE__ )
+#include <pthread.h>
 #include <sys/ucontext.h>
 #else
+#include <execinfo.h>
 #include <ucontext.h>
 #endif
 extern char** environ;
@@ -993,22 +994,93 @@ namespace Common::Crash::Detail
         }
     }
 
-    // Frame 0 is the interrupted PC, then the handler's own backtrace (handler, trampoline, and the
-    // callers of the faulting function). Every POSIX report is therefore `synthesized`: the skip rule
-    // picks the innermost frame outside Common::Crash::Detail in the host image.
+#if defined( __APPLE__ )
+    // A return address that arm64e system code saved carries its pointer-authentication signature in the
+    // bits above the 47-bit user address space; dladdr resolves only the bare address.
+    constexpr std::uint64_t kCodeAddressMask = ( std::uint64_t{ 1 } << 47 ) - 1;
+
+    const void* SymbolStart( const std::uint64_t inAddress )
+    {
+        Dl_info info = {};
+        return ::dladdr( reinterpret_cast<const void*>( inAddress ), &info ) != 0 ? info.dli_saddr : nullptr;
+    }
+
+    // The callers come from the INTERRUPTED thread's frame-pointer chain, read out of the context, and not
+    // from backtrace() called inside the handler: that walk starts on the alternate signal stack, and the
+    // macOS 14 Libc walker stops at the first frame outside the thread's own stack. An abort's report then
+    // held nothing past __pthread_kill (run 36297409433) while a segv, whose PC is the faulting function
+    // itself, still named it. The Darwin ABI keeps frame pointers on arm64 and x86_64, so the chain is
+    // always there. Every read is proven inside the thread's stack first: a second fault here would lose
+    // the whole report.
+    void CaptureCallerFrames( const ucontext_t& inContext, const std::uint64_t inPc )
+    {
+        const pthread_t         self   = ::pthread_self();
+        const auto              top    = reinterpret_cast<std::uint64_t>( ::pthread_get_stackaddr_np( self ) );
+        const std::uint64_t     bottom = top - ::pthread_get_stacksize_np( self );
+        constexpr std::uint64_t kRecordSize = 2 * sizeof( std::uint64_t );
+        const auto              isRecord    = [&]( const std::uint64_t inFp )
+        { return inFp >= bottom && inFp <= top - kRecordSize && inFp % kRecordSize == 0; };
+
+#if defined( __aarch64__ )
+        std::uint64_t fp = inContext.uc_mcontext->__ss.__fp;
+        // A frameless leaf (__pthread_kill, memcpy) has not saved its return address: its caller is only
+        // in lr. In a function WITH a frame lr is either its own saved return address (a duplicate of the
+        // first record) or stale from a call it made since, and then points back into that function.
+        const std::uint64_t link = inContext.uc_mcontext->__ss.__lr & kCodeAddressMask;
+        const std::uint64_t firstReturn =
+             isRecord( fp ) ? reinterpret_cast<const std::uint64_t*>( fp )[1] & kCodeAddressMask : 0;
+        if ( link != 0 && link != firstReturn && SymbolStart( link - 1 ) != SymbolStart( inPc ) )
+        {
+            ResolveFrame( link, true, g_Frames[g_FrameCount++] );
+        }
+#elif defined( __x86_64__ )
+        std::uint64_t fp = inContext.uc_mcontext->__ss.__rbp;
+#endif
+        while ( g_FrameCount < kMaxStackFrames && isRecord( fp ) )
+        {
+            const auto*         record     = reinterpret_cast<const std::uint64_t*>( fp );
+            const std::uint64_t returnAddr = record[1] & kCodeAddressMask;
+            if ( returnAddr == 0 )
+            {
+                break;
+            }
+            ResolveFrame( returnAddr, true, g_Frames[g_FrameCount++] );
+            // The chain only grows toward the stack top; anything else is a corrupt record.
+            if ( record[0] <= fp )
+            {
+                break;
+            }
+            fp = record[0];
+        }
+    }
+#endif
+
+    // Frame 0 is the interrupted PC, then its callers: on macOS from the interrupted frame-pointer chain,
+    // elsewhere from the handler's own backtrace (handler, trampoline, then the callers; glibc unwinds
+    // through the signal trampoline by its CFI, and Linux code need not keep frame pointers). Every POSIX
+    // report is therefore `synthesized`: the skip rule picks the innermost frame outside
+    // Common::Crash::Detail in the host image.
     void CaptureFrames( const void* inContext )
     {
-        g_FrameCount = 0;
-        if ( const std::uint64_t pc = InterruptedPc( inContext ); pc != 0 )
+        g_FrameCount           = 0;
+        const std::uint64_t pc = InterruptedPc( inContext );
+        if ( pc != 0 )
         {
             ResolveFrame( pc, false, g_Frames[g_FrameCount++] );
         }
+#if defined( __APPLE__ )
+        if ( inContext != nullptr )
+        {
+            CaptureCallerFrames( *static_cast<const ucontext_t*>( inContext ), pc );
+        }
+#else
         void*     addresses[kMaxStackFrames];
         const int count = ::backtrace( addresses, static_cast<int>( kMaxStackFrames ) );
         for ( int i = 0; i < count && g_FrameCount < kMaxStackFrames; ++i )
         {
             ResolveFrame( reinterpret_cast<std::uint64_t>( addresses[i] ), true, g_Frames[g_FrameCount++] );
         }
+#endif
     }
 
     void SignalHandler( int inSignal, siginfo_t* inInfo, void* inContext )
@@ -1020,8 +1092,9 @@ namespace Common::Crash::Detail
 
         RawCreateDirectory();
 
-        // NOTHING BELOW MAY ALLOCATE: backtrace() fills a caller-supplied array, dladdr reads the
-        // loader's list, and the frames land in the fixed g_Frames, so the shared writer emits [stack].
+        // NOTHING BELOW MAY ALLOCATE: the frame walk reads the stack (backtrace() fills a caller-supplied
+        // array), dladdr reads the loader's list, and the frames land in the fixed g_Frames, so the shared
+        // writer emits [stack].
         CaptureFrames( inContext );
 
         FaultDescription fault;
