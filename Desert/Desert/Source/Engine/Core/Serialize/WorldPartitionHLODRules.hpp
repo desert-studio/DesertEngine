@@ -69,6 +69,8 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kVisibleField         = "Visible";
     inline constexpr std::string_view kSkinnedMeshComponent = "SkinnedMesh";
 
+    // Written into the index by name (rfl spells an enum by its enumerator), so the list is closed: a reader
+    // refuses a reason it does not know.
     enum class HLODExclusion
     {
         EditorMesh,
@@ -77,24 +79,6 @@ namespace Desert::Core::Rules
         PrefabInstance,
         Unreadable,
     };
-
-    [[nodiscard]] inline std::string_view HLODExclusionName( HLODExclusion reason )
-    {
-        switch ( reason )
-        {
-            case HLODExclusion::EditorMesh:
-                return "EditorMesh";
-            case HLODExclusion::HiddenSubmeshes:
-                return "HiddenSubmeshes";
-            case HLODExclusion::SkinnedMesh:
-                return "SkinnedMesh";
-            case HLODExclusion::PrefabInstance:
-                return "PrefabInstance";
-            case HLODExclusion::Unreadable:
-                return "Unreadable";
-        }
-        return "Unknown";
-    }
 
     struct HLODNotInstanced
     {
