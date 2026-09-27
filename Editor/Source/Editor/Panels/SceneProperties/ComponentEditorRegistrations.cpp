@@ -1777,11 +1777,11 @@ namespace Desert::Editor
         e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
         e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
         e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
-        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& context )
+        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& context )
         {
-            using Tool   = ::Desert::Editor::Tools::FoliagePaintTool;
-            auto& f      = en.GetComponent<C>();
-            auto manager = context.AssetManager.lock();
+            using Tool    = ::Desert::Editor::Tools::FoliagePaintTool;
+            auto& f       = en.GetComponent<C>();
+            auto  manager = context.AssetManager.lock();
             if ( !manager )
                 return;
 
@@ -1791,7 +1791,8 @@ namespace Desert::Editor
                            ImVec2( -1, 0 ) );
             if ( ImGui::BeginDragDropTarget() )
             {
-                if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                if ( const ImGuiPayload* p =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
                 {
                     const std::string path( static_cast<const char*>( p->Data ) );
                     if ( std::filesystem::path( path ).extension() ==

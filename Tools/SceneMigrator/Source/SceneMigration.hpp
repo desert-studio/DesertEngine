@@ -143,9 +143,9 @@ namespace Desert::Migration
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport
     {
-        int                                                         Rewritten = 0; // Foliage blocks now naming a type
-        std::vector<std::pair<std::filesystem::path, std::string>> NewTypes;      // absolute path, canonical text
-        std::vector<std::string>                                    UnknownNames;
+        int Rewritten = 0;                                                   // Foliage blocks now naming a type
+        std::vector<std::pair<std::filesystem::path, std::string>> NewTypes; // absolute path, canonical text
+        std::vector<std::string>                                   UnknownNames;
     };
 
     FoliageTypesMigrationReport MigrateInlineFoliageV32ToV33( std::vector<Assets::EntityData>& entities,

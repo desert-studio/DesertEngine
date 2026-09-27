@@ -111,8 +111,8 @@ namespace
     // both {Guid, Path} against the `.shader` comment header the registry reads (ShaderCommentHeaderFormat).
     // Every other kind's referrer writes the path alone.
     constexpr std::array kGuidReferrers = {
-         ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture,     ContentKind::Material,
-         ContentKind::Skybox,     ContentKind::CloudType,   ContentKind::CloudLayout, ContentKind::Shader,
+         ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
+         ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
          // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
          ContentKind::FoliageType };
 

@@ -1733,7 +1733,7 @@ namespace Desert::Core::Serialize
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
-                const auto& foliage = entity.GetComponent<ECS::FoliageComponent>();
+                const auto&                 foliage = entity.GetComponent<ECS::FoliageComponent>();
                 Common::Json::ObjectBuilder out;
                 if ( const auto type = assetManager.FindByHandle<Assets::FoliageTypeAsset>( foliage.FoliageType ) )
                 {
@@ -1768,8 +1768,8 @@ namespace Desert::Core::Serialize
                 if ( guidText.empty() && path.empty() )
                     return; // A field whose type was never chosen: authored so, saved so.
 
-                const auto guid = Common::Content::AssetGuidFromText( guidText );
-                auto& manager = const_cast<Assets::AssetManager&>( assetManager );
+                const auto guid    = Common::Content::AssetGuidFromText( guidText );
+                auto&      manager = const_cast<Assets::AssetManager&>( assetManager );
                 Assets::Asset<Assets::FoliageTypeAsset> type;
                 if ( guid )
                 {
@@ -1783,12 +1783,13 @@ namespace Desert::Core::Serialize
                 {
                     // REFUSED, NOT SUBSTITUTED: a field painted with defaults would look like the scene's grass
                     // while being nobody's.
-                    issues.push_back( Common::Json::Issue{
-                         "Foliage.FoliageTypeGuid", "a .defoliage the content registry knows",
-                         "GUID '" + guidText + "', path '" + path + "'" } );
-                    LOG_ERROR( "[Foliage] Entity '{}': foliage type GUID '{}' (path '{}') is not a .defoliage this "
-                               "project has scanned; the field keeps no type",
-                               entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
+                    issues.push_back( Common::Json::Issue{ "Foliage.FoliageTypeGuid",
+                                                           "a .defoliage the content registry knows",
+                                                           "GUID '" + guidText + "', path '" + path + "'" } );
+                    LOG_ERROR(
+                         "[Foliage] Entity '{}': foliage type GUID '{}' (path '{}') is not a .defoliage this "
+                         "project has scanned; the field keeps no type",
+                         entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
                     return;
                 }
                 foliage.FoliageType = type->GetMetadata().Handle;

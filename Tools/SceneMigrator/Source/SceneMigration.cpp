@@ -292,13 +292,15 @@ namespace Desert::Migration
                 const auto& f = fields.value();
 
                 Assets::Serialization::FoliageTypeData data;
-                float scaleMin = 0.8f, scaleMax = 1.3f, zMin = 0.0f, zMax = 0.0f, slopeMin = 0.0f, slopeMax = 90.0f;
+                float scaleMin = 0.8f, scaleMax = 1.3f, zMin = 0.0f, zMax = 0.0f, slopeMin = 0.0f,
+                      slopeMax = 90.0f;
                 for ( const auto& check :
                       { ReadInlineFloat( f, "Density", data.Density ), ReadInlineFloat( f, "ScaleMin", scaleMin ),
                         ReadInlineFloat( f, "ScaleMax", scaleMax ), ReadInlineFloat( f, "ZOffsetMin", zMin ),
                         ReadInlineFloat( f, "ZOffsetMax", zMax ),
                         ReadInlineFloat( f, "MaxPitchDeg", data.RandomPitchAngle ),
-                        ReadInlineFloat( f, "SlopeMinDeg", slopeMin ), ReadInlineFloat( f, "SlopeMaxDeg", slopeMax ),
+                        ReadInlineFloat( f, "SlopeMinDeg", slopeMin ),
+                        ReadInlineFloat( f, "SlopeMaxDeg", slopeMax ),
                         ReadInlineBool( f, "AlignToNormal", data.AlignToNormal ),
                         ReadInlineBool( f, "RandomYaw", data.RandomYaw ) } )
                 {
@@ -335,8 +337,8 @@ namespace Desert::Migration
                 // One file per distinct set of numbers and mesh within this scene.
                 std::string dataKey = std::to_string( data.Density ) + "|" + std::to_string( scaleMin ) + "|" +
                                       std::to_string( scaleMax ) + "|" + std::to_string( zMin ) + "|" +
-                                      std::to_string( zMax ) + "|" + std::to_string( data.RandomPitchAngle ) + "|" +
-                                      std::to_string( slopeMin ) + "|" + std::to_string( slopeMax ) + "|" +
+                                      std::to_string( zMax ) + "|" + std::to_string( data.RandomPitchAngle ) +
+                                      "|" + std::to_string( slopeMin ) + "|" + std::to_string( slopeMax ) + "|" +
                                       ( data.AlignToNormal ? "1" : "0" ) + ( data.RandomYaw ? "1" : "0" ) + "|" +
                                       data.Mesh.Guid;
                 if ( const auto it = Minted.find( dataKey ); it != Minted.end() )
@@ -419,9 +421,9 @@ namespace Desert::Migration
                     std::string names;
                     for ( const auto& unknown : report.FoliageTypes.UnknownNames )
                         names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused = "'" + name + "': " + std::to_string( report.FoliageTypes.UnknownNames.size() ) +
-                                     " Foliage block(s) cannot become a foliage type: " + names +
-                                     ". Nothing was written.";
+                    report.Refused =
+                         "'" + name + "': " + std::to_string( report.FoliageTypes.UnknownNames.size() ) +
+                         " Foliage block(s) cannot become a foliage type: " + names + ". Nothing was written.";
                     return;
                 }
             }

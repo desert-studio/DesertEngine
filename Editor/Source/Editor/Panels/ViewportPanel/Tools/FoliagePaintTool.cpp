@@ -111,7 +111,7 @@ namespace Desert::Editor::Tools
         }
 
         auto& e = scene.CreateNewEntity( "Foliage_" + type->GetDisplayName() );
-        e.AddComponent<ECS::FoliageComponent>().FoliageType             = type->GetMetadata().Handle;
+        e.AddComponent<ECS::FoliageComponent>().FoliageType            = type->GetMetadata().Handle;
         e.AddComponent<ECS::InstancedStaticMeshComponent>().MeshHandle = meshHandle;
         const auto newUuid = e.GetComponent<ECS::UUIDComponent>().UUID;
         Core::FoliagePaint::SetActiveOnly( newUuid );
@@ -138,7 +138,7 @@ namespace Desert::Editor::Tools
                               .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
                               .generic_string();
 
-        const std::string    stem = std::filesystem::path( meshSourcePath ).stem().string();
+        const std::string     stem = std::filesystem::path( meshSourcePath ).stem().string();
         std::filesystem::path file =
              Common::Constants::Path::FOLIAGE_TYPE_PATH / ( stem + Assets::Serialization::kFoliageTypeExtension );
         for ( int n = 1; std::filesystem::exists( file ); ++n )
@@ -159,18 +159,18 @@ namespace Desert::Editor::Tools
     {
         // The widgets edit a COPY that lives across frames while a drag is in flight; the file is written
         // once when an edit ends, then read back, so the asset stays the one source of the numbers.
-        static Assets::AssetHandle            s_EditHandle;
+        static Assets::AssetHandle                    s_EditHandle;
         static Assets::Serialization::FoliageTypeData s_Edit;
-        static bool                           s_Editing = false;
+        static bool                                   s_Editing = false;
         if ( !s_Editing || s_EditHandle != type->GetMetadata().Handle )
         {
             s_EditHandle = type->GetMetadata().Handle;
             s_Edit       = type->GetData();
         }
-        auto& f      = s_Edit;
-        bool  commit = false;
-        bool  active = false;
-        const auto track = [&]()
+        auto&      f      = s_Edit;
+        bool       commit = false;
+        bool       active = false;
+        const auto track  = [&]()
         {
             active = active || ImGui::IsItemActive();
             commit = commit || ImGui::IsItemDeactivatedAfterEdit();
@@ -181,7 +181,8 @@ namespace Desert::Editor::Tools
         ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 80.0f, "Density:  %.0f / dab" );
         track();
         ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloatRange2( "##Scale", &f.ScaleX.Min, &f.ScaleX.Max, 0.01f, 0.02f, 10.0f, "Scale %.2f", "%.2f" );
+        ImGui::DragFloatRange2( "##Scale", &f.ScaleX.Min, &f.ScaleX.Max, 0.01f, 0.02f, 10.0f, "Scale %.2f",
+                                "%.2f" );
         track();
         ImGui::SetNextItemWidth( -1 );
         ImGui::DragFloatRange2( "##ZOffset", &f.ZOffset.Min, &f.ZOffset.Max, 0.5f, -500.0f, 500.0f, "Z Off %.0f",
@@ -196,7 +197,7 @@ namespace Desert::Editor::Tools
         track();
         commit = ImGui::Checkbox( "Align to Normal", &f.AlignToNormal ) || commit;
         ImGui::SameLine();
-        commit = ImGui::Checkbox( "Random Yaw", &f.RandomYaw ) || commit;
+        commit    = ImGui::Checkbox( "Random Yaw", &f.RandomYaw ) || commit;
         s_Editing = active;
 
         if ( commit && !( f == type->GetData() ) )
@@ -342,7 +343,8 @@ namespace Desert::Editor::Tools
             auto& manager = const_cast<Assets::AssetManager&>( *assetManager );
             if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::MeshAsset ) )
                 CreateTypeFromMesh( scene, manager, std::string( static_cast<const char*>( p->Data ) ) );
-            if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+            if ( const ImGuiPayload* p =
+                      ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
             {
                 const std::string path( static_cast<const char*>( p->Data ) );
                 if ( std::filesystem::path( path ).extension() == Assets::Serialization::kFoliageTypeExtension )
@@ -414,9 +416,10 @@ namespace Desert::Editor::Tools
             {
                 ImGui::Dummy( ImVec2( 0, 2 ) );
                 ImGui::TextDisabled( "TYPE SETTINGS" );
-                auto type = assetManager ? ResolveType( const_cast<Assets::AssetManager&>( *assetManager ),
-                                                        ref->get().GetComponent<ECS::FoliageComponent>().FoliageType )
-                                         : nullptr;
+                auto type = assetManager
+                                 ? ResolveType( const_cast<Assets::AssetManager&>( *assetManager ),
+                                                ref->get().GetComponent<ECS::FoliageComponent>().FoliageType )
+                                 : nullptr;
                 if ( type )
                     DrawTypeSettings( const_cast<Assets::AssetManager&>( *assetManager ), type );
                 else

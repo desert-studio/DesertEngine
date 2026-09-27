@@ -108,7 +108,8 @@ namespace Desert::Core
         // nothing can bring either back.
         // A foliage entity names its type; the paint brush reads the numbers from it.
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
-            roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType, "a foliage field is painted with it" );
+            roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,
+                        "a foliage field is painted with it" );
 
         for ( const auto entity : registry.view<ECS::RetargetComponent>() )
         {
