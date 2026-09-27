@@ -31,6 +31,15 @@ namespace Desert::Graphic::Render2D
     class Render2D
     {
     public:
+        Render2D() = default;
+        // Releases the white texture's image from the ImageService (see the definition for why).
+        ~Render2D();
+        // One owner of the white texture's registration: a copy would release it twice.
+        Render2D( const Render2D& )            = delete;
+        Render2D& operator=( const Render2D& ) = delete;
+        Render2D( Render2D&& )                 = delete;
+        Render2D& operator=( Render2D&& )      = delete;
+
         // (Re)creates the pipeline against @p target (the scene HDR framebuffer, composited via a load pass).
         // Call after every Scene::Init — the framebuffers are recreated there. Idempotent.
         Common::BoolResultStr Init( const std::shared_ptr<Framebuffer>& target );

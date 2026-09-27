@@ -97,31 +97,24 @@ TEST( ViewBudget, TheCommandLineCeilingReplacesTheDriversAndIsNamed )
     EXPECT_NE( VB::DescribeCeiling( reading ).find( "--view-budget-mib" ), std::string::npos );
 }
 
-// A resize that would go over is refused with the growth as its request; a shrink is never refused, even
-// with nothing free, because it releases more than it takes; and the refusal names the view and the numbers.
-TEST( ViewBudget, AResizeOnlyNeedsItsGrowthAndIsRefusedByNameWithTheNumbers )
+// A LIVE VIEW'S RESIZE IS NEVER REFUSED (RT2l). The inputs are the editor's own at `--view-budget-mib 250`:
+// the main view built at its 64x64 placeholder and resized to its 996x504 panel with 328 MiB already in use.
+// The resize gets its size and only reports how far past the ceiling it went -- the growth minus what was
+// free, not the whole growth and not the whole new size; a shrink never overruns even on a full device. At
+// the same reading a NEW document is still refused: admission is where the budget says no.
+TEST( ViewBudget, ALiveViewsResizeIsNeverRefusedAndReportsOnlyItsOverrun )
 {
-    using namespace Desert::Engine::ViewBudget;
-    constexpr uint64_t kMiB = 1024ull * 1024ull;
-    Reading            reading;
-    reading.CeilingBytes = 100 * kMiB;
-    reading.UsageBytes   = 90 * kMiB;
-    reading.UsageKnown   = true;
-    reading.Source       = CeilingSource::DriverBudget;
+    const VB::Reading full = Known( 250 * kMiB, 328 * kMiB );
+    EXPECT_EQ( VB::ResizeOverrunBytes( 1 * kMiB, 139 * kMiB, full ), 138 * kMiB )
+         << "nothing was free, so the whole growth is the overrun";
+    EXPECT_EQ( VB::ResizeOverrunBytes( 139 * kMiB, 1 * kMiB, full ), 0u ) << "a shrink overran a full device";
+    EXPECT_FALSE( VB::MayCreate( VB::Demand::UserSurface, 74 * kMiB, 0, full ).Ok )
+         << "a new document must still be refused where a live view's resize is not";
 
-    EXPECT_TRUE( MayResize( 40 * kMiB, 50 * kMiB, reading ).Ok ) << "growth of exactly what is free was refused";
-    const Verdict over = MayResize( 40 * kMiB, 51 * kMiB, reading );
-    EXPECT_FALSE( over.Ok );
-    EXPECT_EQ( over.RequestBytes, 11 * kMiB ) << "the refusal must state the growth, not the whole new size";
-    EXPECT_EQ( over.FreeBytes, 10 * kMiB );
-
-    reading.UsageBytes = 100 * kMiB;
-    EXPECT_TRUE( MayResize( 40 * kMiB, 30 * kMiB, reading ).Ok ) << "a shrink was refused on a full device";
-
-    const std::string text = DescribeRefusal( "Scene View", over, reading, { { "Scene View", 40 * kMiB } } );
-    EXPECT_NE( text.find( "Scene View" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( "11.0 MiB" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( "100.0 MiB" ), std::string::npos ) << text;
+    const VB::Reading roomy = Known( 100 * kMiB, 90 * kMiB );
+    EXPECT_EQ( VB::ResizeOverrunBytes( 40 * kMiB, 50 * kMiB, roomy ), 0u ) << "growth of exactly what is free";
+    EXPECT_EQ( VB::ResizeOverrunBytes( 40 * kMiB, 51 * kMiB, roomy ), 1 * kMiB )
+         << "the overrun is the growth minus what was free";
 }
 
 int main( int argc, char** argv )

@@ -272,7 +272,8 @@ namespace Desert::Editor
         // first frame the window draws, and the pane is inside the window, so the default size is the
         // largest the first build can be before the user drags anything. A document with no default size
         // (0,0) is laid out by ImGui and its first build is at kUnsizedViewExtent. Growth past either is
-        // not this forecast's job: every resize of a live view is checked by Graphic::MayResizeView.
+        // not this forecast's job: a live view's resize is never refused, only reported when it goes past
+        // the budget (Graphic::DescribeResizeOverrun).
         // The same census the view's build is checked against (ViewTargetCensus), not a second table.
         [[nodiscard]] virtual uint64_t ViewForecastBytes() const
         {

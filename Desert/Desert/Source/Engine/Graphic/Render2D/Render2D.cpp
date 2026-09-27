@@ -23,6 +23,20 @@
 
 namespace Desert::Graphic::Render2D
 {
+    Render2D::~Render2D()
+    {
+        // THE WHITE TEXTURE'S IMAGE IS REGISTERED IN THE PROCESS-WIDE ImageService, which holds it until someone
+        // unregisters -- and dropping the Texture2D does not (its destructor is the default). Every viewport's
+        // EditorUIPass owns a Render2D, so each open-close of a view left one Render2D_White image resident for
+        // the session: RT2l measured +1 allocation of 128 B per cycle in the allocator's tag ledger. What a view
+        // creates, the view releases (OwnedEnvironment is the same rule); the image's destructor hands the
+        // VkImage to the allocator's deferred deletion queue, so this is safe mid-frame.
+        m_WhiteImage = nullptr;
+        if ( m_WhiteTexture )
+            if ( auto* imgService = Runtime::ResourceRegistry::GetImageService() )
+                imgService->Unregister( m_WhiteTexture->GetImageHandle() );
+    }
+
     Common::BoolResultStr Render2D::Init( const std::shared_ptr<Framebuffer>& target )
     {
         // The three pipelines, the two buffers and the 1x1 white texture below belong to the UI backend
