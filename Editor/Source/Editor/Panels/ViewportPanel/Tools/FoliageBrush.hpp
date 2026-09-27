@@ -57,16 +57,26 @@ namespace Desert::Editor::Tools
         StaticMesh,
     };
 
+    struct FoliageTraceHit;
+
     /// UE FFoliageUISettings' bFilterLandscape / bFilterStaticMesh: the surfaces the brush may place on.
     struct FoliageSurfaceFilter
     {
         bool Landscape  = true;
         bool StaticMesh = true;
+        /// FO-UI1, beyond UE (which filters by layer only through the TYPE's LandscapeLayers): the BRUSH may be
+        /// held to ground painted with chosen landscape layers, for every checked type at once. On, a landscape
+        /// hit places only where the brush layers' largest weight reaches MinimumLayerWeight; a hit that is not
+        /// a landscape is not filtered by layer, as with the type's rule.
+        bool  LayerFiltered      = false;
+        float MinimumLayerWeight = 0.5f;
 
         [[nodiscard]] bool Allows( FoliageSurface surface ) const
         {
             return surface == FoliageSurface::Landscape ? Landscape : StaticMesh;
         }
+        /// Allows(surface) and the brush's layer rule on one traced hit.
+        [[nodiscard]] bool AllowsHit( const FoliageTraceHit& hit ) const;
     };
 
     struct FoliageTraceHit
@@ -77,6 +87,9 @@ namespace Desert::Editor::Tools
         /// The largest weight, 0..1, any of the type's LandscapeLayers has at Point (UE GetMaxHitWeight);
         /// nullopt when the hit is not a landscape or the type lists no layer.
         std::optional<float> LayerWeight;
+        /// The largest weight, 0..1, of the BRUSH's landscape layers at Point (FoliageSurfaceFilter::
+        /// LayerFiltered); nullopt when the hit is not a landscape or the brush filters no layer.
+        std::optional<float> BrushLayerWeight;
     };
 
     /// The world the brush reads: the nearest surface on a segment THAT THE DAB'S FILTER ALLOWS (a refused

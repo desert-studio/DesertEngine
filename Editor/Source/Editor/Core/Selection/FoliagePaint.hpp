@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -124,6 +125,51 @@ namespace Desert::Editor::Core
             return s_FilterStaticMesh;
         }
 
+        // FO-UI1: the brush held to landscape layers (FoliageSurfaceFilter::LayerFiltered): the weight-plane
+        // names the brush reads, and the weight they must reach. Empty = the filter is off.
+        static std::vector<std::string>& BrushLayers()
+        {
+            return s_BrushLayers;
+        }
+        static float& BrushLayerMinWeight()
+        {
+            return s_BrushLayerMinWeight;
+        }
+        static Tools::FoliageSurfaceFilter SurfaceFilter()
+        {
+            Tools::FoliageSurfaceFilter filter;
+            filter.Landscape          = s_FilterLandscape;
+            filter.StaticMesh         = s_FilterStaticMesh;
+            filter.LayerFiltered      = !s_BrushLayers.empty();
+            filter.MinimumLayerWeight = s_BrushLayerMinWeight;
+            return filter;
+        }
+
+        // --- the palette's view (FO-UI1) ---------------------------------------------------------------
+        static std::string& Search()
+        {
+            return s_Search;
+        }
+        static bool& GridView()
+        {
+            return s_GridView;
+        }
+        static std::string& PresetName()
+        {
+            return s_PresetName;
+        }
+        // Where the brush would land now (the tool's hover trace), for the footprint preview; nullopt when the
+        // cursor is off every surface or off the viewport.
+        static std::optional<glm::vec3>& HoverPoint()
+        {
+            return s_Hover;
+        }
+        // The view the cost column is measured from (the viewport camera, set each frame in Foliage mode).
+        static glm::vec3& ViewPosition()
+        {
+            return s_View;
+        }
+
         // The seed of the next stroke: a stroke draws every random number from one stream seeded here, so a
         // stroke replayed with its seed places the same instances. SplitMix64 of a per-session counter, so
         // consecutive strokes do not share a stream.
@@ -147,5 +193,12 @@ namespace Desert::Editor::Core
         static inline bool                                                      s_FilterLandscape  = true;
         static inline bool                                                      s_FilterStaticMesh = true;
         static inline uint64_t                                                  s_StrokeCounter    = 0u;
+        static inline std::vector<std::string>                                  s_BrushLayers;
+        static inline float                                                     s_BrushLayerMinWeight = 0.5f;
+        static inline std::string                                               s_Search;
+        static inline bool                                                      s_GridView   = false;
+        static inline std::string                                               s_PresetName = "Palette";
+        static inline std::optional<glm::vec3>                                  s_Hover;
+        static inline glm::vec3                                                 s_View = glm::vec3( 0.0f );
     };
 } // namespace Desert::Editor::Core

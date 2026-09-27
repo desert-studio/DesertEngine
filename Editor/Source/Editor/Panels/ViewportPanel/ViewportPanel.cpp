@@ -196,6 +196,30 @@ namespace Desert::Editor
         return viewport->StrokeFoliageAtCentre();
     }
 
+    Common::BoolResultStr ViewportPanel::PreviewFoliageInActiveViewport()
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport )
+            return Common::MakeError( "foliage preview: no viewport is open" );
+        return viewport->PreviewFoliageAtCentre();
+    }
+
+    Common::BoolResultStr ViewportPanel::PreviewFoliageAtCentre()
+    {
+        const auto camera = ViewCamera();
+        if ( !m_Scene || !camera || m_ViewportData.Size.x < 1.0f || m_ViewportData.Size.y < 1.0f )
+            return Common::MakeError( "foliage preview: the viewport has no scene, camera or size yet" );
+        const auto ray = Common::Math::Ray::FromScreenPosition(
+             { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
+             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+        ::Desert::Core::RaycastHit hit;
+        if ( !m_Scene->Raycast( ray, hit ) )
+            return Common::MakeError( "foliage preview: the viewport centre meets no surface" );
+        Core::FoliagePaint::HoverPoint() = hit.Point;
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ViewportPanel::StrokeFoliageAtCentre()
     {
         if ( !m_Scene || !m_AssetManager )
@@ -1598,7 +1622,7 @@ namespace Desert::Editor
         // --- Foliage mode: type panel + LMB for the chosen tool (FoliagePaintTool) ---
         if ( foliageMode )
         {
-            m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos );
+            m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos, m_UIHelper.get() );
             // A stroke starts on a press over the viewport and runs until release (one undo step); leaving the
             // viewport mid-drag does not split it.
             const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive() &&
@@ -1610,9 +1634,20 @@ namespace Desert::Editor
                      { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
+                // The footprint preview follows the cursor while it is over the viewport; off it, the last
+                // point stays (a palette command may have aimed it at the centre).
+                Core::FoliagePaint::ViewPosition() = camera->GetPosition();
+                if ( m_ViewportData.IsHovered && !pressing )
+                {
+                    ::Desert::Core::RaycastHit hover;
+                    Core::FoliagePaint::HoverPoint() =
+                         m_Scene->Raycast( ray, hover ) ? std::optional<glm::vec3>( hover.Point ) : std::nullopt;
+                }
                 m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing, ImGui::GetIO().KeyShift );
-                Tools::FoliagePaintTool::DrawSelection( *m_Scene,
-                                                        camera->GetProjectionMatrix() * camera->GetViewMatrix(),
+                const glm::mat4 viewProjection = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+                Tools::FoliagePaintTool::DrawSelection( *m_Scene, viewProjection, m_ViewportData.ViewportPos,
+                                                        m_ViewportData.Size );
+                Tools::FoliagePaintTool::DrawFootprint( *m_Scene, m_AssetManager, viewProjection,
                                                         m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }

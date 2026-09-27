@@ -135,6 +135,16 @@ namespace Desert::Editor::Tools
         return static_cast<float>( NextU32() >> 8u ) * ( 1.0f / 16777216.0f );
     }
 
+    bool FoliageSurfaceFilter::AllowsHit( const FoliageTraceHit& hit ) const
+    {
+        if ( !Allows( hit.Surface ) )
+            return false;
+        if ( !LayerFiltered || hit.Surface != FoliageSurface::Landscape )
+            return true;
+        // A landscape without the brush's layers weighs nothing there: filtered out, not waved through.
+        return hit.BrushLayerWeight.value_or( 0.0f ) >= MinimumLayerWeight;
+    }
+
     float FoliageBrushDesiredCount( float density, float radius, float paintDensity )
     {
         return kPi * radius * radius * density * paintDensity / ( 1000.0f * 1000.0f );
@@ -203,7 +213,7 @@ namespace Desert::Editor::Tools
             stageAt        = Clock::now();
             const auto hit = world.Trace( start, end, dab.Filter );
             st.TraceMs += MsSince( stageAt );
-            if ( !hit || !dab.Filter.Allows( hit->Surface ) )
+            if ( !hit || !dab.Filter.AllowsHit( *hit ) )
                 continue;
             ++st.Hits;
             stageAt = Clock::now();
@@ -328,7 +338,7 @@ namespace Desert::Editor::Tools
         // location" - BrushLocation +- BrushNormal.
         const glm::vec3 n   = glm::normalize( dab.Normal );
         const auto      hit = world.Trace( dab.Center + n, dab.Center - n, dab.Filter );
-        if ( !hit || !dab.Filter.Allows( hit->Surface ) )
+        if ( !hit || !dab.Filter.AllowsHit( *hit ) )
             return std::nullopt;
         if ( !PassesTypeRules( type, *hit, !type.LandscapeLayers.empty(), rng ) )
             return std::nullopt;
