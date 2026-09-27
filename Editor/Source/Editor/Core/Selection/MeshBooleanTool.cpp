@@ -42,6 +42,8 @@ namespace Desert::Editor::Core
             Common::UUID   Id;
             ECS::Entity    Entity;
             OperandMeshPtr Mesh;
+            // What the component holds now (ToolTargetMesh::Committed): kept when the input is only hidden.
+            OperandMeshPtr Committed;
             std::string    Name;
         };
 
@@ -76,7 +78,7 @@ namespace Desert::Editor::Core
                 if ( !target.IsSuccess() )
                     return Common::MakeFormattedError<Out>( "{}: entity {}: {}", name, static_cast<uint64_t>( id ),
                                                             target.GetError() );
-                out[i] = { id, e, target.GetValue().Mesh,
+                out[i] = { id, e, target.GetValue().Mesh, target.GetValue().Committed,
                            e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
                                                                : std::string( "Mesh" ) };
             }
@@ -240,8 +242,7 @@ namespace Desert::Editor::Core
             {
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 // The entity's own mesh, not the tool target: a lifted asset keeps drawing its asset.
-                changes.push_back( { in.Id, in.Entity.GetComponent<ECS::StaticMeshComponent>().EditableMesh,
-                                     itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
+                changes.push_back( { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
             }
         }
 

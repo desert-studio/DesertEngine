@@ -225,8 +225,11 @@ namespace Desert::Editor
             for ( const std::string& key : keys )
             {
                 named += named.empty() ? key : ", " + key;
-                const std::filesystem::path file  = Common::AssetHandle::PathForStableKey( key );
-                const auto                  bytes = Common::Utils::FileSystem::ReadFileContent( file );
+                const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
+                // The render-form bytes through the DDC, not the file at the key: an imported mesh has no
+                // `.stmesh` of its own since AF4h (its row comes from the import record, FIX8), and the
+                // DDC answers for it and for an authored `.stmesh` alike.
+                const auto bytes = Assets::LoadMeshPlatformData( file );
                 if ( !bytes )
                 {
                     LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
