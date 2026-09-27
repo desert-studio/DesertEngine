@@ -886,10 +886,10 @@ TEST( CloudAuthored, TheUnionIsAMaxAndDoesNotDependOnTheOrDER )
     // The second is scaled down and given different material numbers, so "which one won" is visible in
     // the sample rather than having to be inferred.
     Graphic::CloudAuthoredInstanceGpu big   = MakeInstance( centre );
-    Graphic::CloudAuthoredInstanceGpu small = MakeInstance( centre + glm::vec3( 0.35f, 0.0f, 0.0f ), 0.5f );
-    small.Row0.w                            = 2.0f; // DetailFactor
-    small.Row1.w                            = 3.0f; // DensityFactor
-    small.Row2.w                            = 4.0f; // ExtinctionFactor
+    Graphic::CloudAuthoredInstanceGpu smallOne = MakeInstance( centre + glm::vec3( 0.35f, 0.0f, 0.0f ), 0.5f );
+    smallOne.Row0.w                            = 2.0f; // DetailFactor
+    smallOne.Row1.w                            = 3.0f; // DensityFactor
+    smallOne.Row2.w                            = 4.0f; // ExtinctionFactor
 
     size_t compared = 0;
     for ( int ix = -12; ix <= 12; ++ix )
@@ -902,11 +902,11 @@ TEST( CloudAuthored, TheUnionIsAMaxAndDoesNotDependOnTheOrDER )
 
             ClearInstances();
             AddInstance( big );
-            AddInstance( small );
+            AddInstance( smallOne );
             const CloudFieldSample forwards = SampleCloudField( params, fraction, point );
 
             ClearInstances();
-            AddInstance( small );
+            AddInstance( smallOne );
             AddInstance( big );
             const CloudFieldSample backwards = SampleCloudField( params, fraction, point );
 
@@ -922,7 +922,7 @@ TEST( CloudAuthored, TheUnionIsAMaxAndDoesNotDependOnTheOrDER )
             const float onlyBig = SampleCloudField( params, fraction, point ).Profile;
 
             ClearInstances();
-            AddInstance( small );
+            AddInstance( smallOne );
             const float onlySmall = SampleCloudField( params, fraction, point ).Profile;
 
             ASSERT_FLOAT_EQ( forwards.Profile, std::max( onlyBig, onlySmall ) );

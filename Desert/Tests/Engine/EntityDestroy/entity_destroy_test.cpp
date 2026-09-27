@@ -289,16 +289,16 @@ TEST( EntityDestroy, CostPerDestroyDoesNotGrowWithTheWorld )
 {
     // Best of three per size: the question is the algorithm's shape, and the minimum is the run least
     // disturbed by whatever else the machine was doing.
-    double small = 1e300;
+    double smallOne = 1e300;
     double large = 1e300;
     for ( int run = 0; run < 3; ++run )
     {
-        small = std::min( small, NanosecondsPerDestroy( 1500 ) );
+        smallOne = std::min( smallOne, NanosecondsPerDestroy( 1500 ) );
         large = std::min( large, NanosecondsPerDestroy( 50179 ) );
     }
     std::printf( "[   COST   ] destroy 1000: world 1500 -> %.0f ns each (%.3f ms total); world 50179 -> %.0f ns "
                  "each (%.3f ms total); ratio %.2f\n",
-                 small, small * 1000.0 / 1e6, large, large * 1000.0 / 1e6, large / small );
+                 smallOne, smallOne * 1000.0 / 1e6, large, large * 1000.0 / 1e6, large / smallOne );
 
     // Measured on the WP6 machine (M-series, best of three): the pre-WP6 algorithm — linear find, erase from
     // the middle, shift every stored index — gave ratios of 59-70 in Release and ~150 in Debug; the swap-remove
@@ -306,7 +306,7 @@ TEST( EntityDestroy, CostPerDestroyDoesNotGrowWithTheWorld )
     // at 184 ns a destroy in the small world runs out of L2, and the 50 179-entity world's hash tables and
     // component pools do not fit, so every lookup is a miss. The bound sits between the two populations with
     // a factor of two either side.
-    EXPECT_LT( large / small, 15.0 ) << "destroy cost grows with the size of the world again";
+    EXPECT_LT( large / smallOne, 15.0 ) << "destroy cost grows with the size of the world again";
 }
 
 int main( int argc, char** argv )

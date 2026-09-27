@@ -13,7 +13,7 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        Common::ResultStr<VkSemaphore> CreateSemaphore( VkDevice device )
+        Common::ResultStr<VkSemaphore> MakeSemaphore( VkDevice device )
         {
             VkSemaphoreCreateInfo createInfo{
                  .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = VK_NULL_HANDLE, .flags = 0 };
@@ -190,13 +190,13 @@ namespace Desert::Graphic::API::Vulkan
             // frame afterwards submitted against a null semaphore — the failure was indistinguishable
             // from success at the assignment, and the validation layer complained somewhere else
             // entirely. Init returns a result, so it can refuse instead.
-            auto present = CreateSemaphore( device );
+            auto present = MakeSemaphore( device );
             if ( !present )
             {
                 return Common::MakeFormattedError<VkResult>( "frame {} present semaphore: {}", i,
                                                              present.GetError() );
             }
-            auto render = CreateSemaphore( device );
+            auto render = MakeSemaphore( device );
             if ( !render )
             {
                 return Common::MakeFormattedError<VkResult>( "frame {} render semaphore: {}", i,

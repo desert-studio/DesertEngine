@@ -83,7 +83,7 @@ namespace Common
             {
             }
 
-            const std::string& GetMessage() const
+            const std::string& GetErrorMessage() const
             {
                 return m_ErrorMessage;
             }
@@ -163,7 +163,7 @@ namespace Common
             {
                 return s_NoError;
             }
-            return std::get<Error>( m_Outcome ).GetMessage();
+            return std::get<Error>( m_Outcome ).GetErrorMessage();
         }
 
         const std::vector<ErrorCodeType>& GetErrorCodes() const

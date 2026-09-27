@@ -244,12 +244,12 @@ TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
 // a 32-cell one. Growing the world regenerated all of it.
 TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
 {
-    std::string small;
+    std::string smallOne;
     std::string large;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "grow_2.desce", small, { "--cells", "2" } ), 0 ) << small;
+    ASSERT_EQ( GenerateSmoke( Scratch() / "grow_2.desce", smallOne, { "--cells", "2" } ), 0 ) << smallOne;
     ASSERT_EQ( GenerateSmoke( Scratch() / "grow_4.desce", large, { "--cells", "4" } ), 0 ) << large;
 
-    const auto smallScene = rfl::json::read<SceneSerialized>( small );
+    const auto smallScene = rfl::json::read<SceneSerialized>( smallOne );
     const auto largeScene = rfl::json::read<SceneSerialized>( large );
     ASSERT_TRUE( smallScene.has_value() );
     ASSERT_TRUE( largeScene.has_value() );

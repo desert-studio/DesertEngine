@@ -5,20 +5,9 @@
 
 #if defined( DESERT_PLATFORM_WINDOWS )
 #include <windows.h>
-
-// NOTE: This is a workaround for Microsoft macros so that
-// we can use names like CreateDirectory, etc
-#ifdef CreateDirectory
-#undef CreateDirectory
-#undef DeleteFile
-#undef MoveFile
-#undef CopyFile
-#undef CreateFile
-#undef SetEnvironmentVariable
-#undef GetEnvironmentVariable
-#endif
 #endif // DESERT_PLATFORM_WINDOWS
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <filesystem>
@@ -30,6 +19,24 @@
 
 namespace Common::Utils
 {
+    // A WRITE TIME IS ONLY AS FINE AS THE FILE SYSTEM'S CLOCK: NTFS stamps from the kernel tick (~15.6 ms), FAT
+    // at 2 s, HFS+ at 1 s. Two same-size writes inside one tick leave (write time, size) unchanged, so a cache
+    // keyed on them serves the old content — Windows CI caught it twice (a shader include, a thumbnail
+    // record). The rule is git's "racy index" rule: an entry read while its file was still fresh — written
+    // within this window of the moment the read began — is never trusted by stat and is re-read (and its
+    // CONTENT compared) on the next lookup. Once a re-read lands after the window, the stamp settles.
+    // ReservedIdentifiers.EveryWriteTimeReaderStatesItsRule holds each reader of a write time to this rule
+    // or to a register row that says why it does not need it.
+    inline constexpr std::chrono::seconds kRacyWriteWindow{ 2 };
+
+    // `readBegan` is sampled BEFORE the stat and the read: a write that lands after it carries a write time at
+    // or past it, so the entry it produces is racy by construction.
+    [[nodiscard]] inline bool IsRacyWriteTime( std::filesystem::file_time_type writeTime,
+                                               std::filesystem::file_time_type readBegan )
+    {
+        return writeTime + kRacyWriteWindow >= readBegan;
+    }
+
     class FileSystem
     {
     public:
@@ -169,10 +176,6 @@ namespace Common::Utils
         [[nodiscard]] static const std::filesystem::path GetParentPath( const std::filesystem::path& filepath );
         [[nodiscard]] static const std::string           GetFileExtension( const std::filesystem::path& filepath );
         [[nodiscard]] static uint32_t                    GetFileSize( const std::filesystem::path& filepath );
-        static bool                                      CreateDirectory( const std::filesystem::path& directory );
-        static bool                                      CreateDirectory( const std::string& directory );
-        static void                                      CreateFile( const std::string& path );
-        static void                                      CreateFile( const std::filesystem::path& path );
         static bool                                      Exists( const std::filesystem::path& filepath );
         static bool                                      Exists( const std::string& filepath );
         static std::string           GetFileDirectoryString( const std::filesystem::path& filepath );
@@ -185,10 +188,5 @@ namespace Common::Utils
         static std::filesystem::path OpenFileDialog( const char* filter = "All\0*.*\0" );
         static std::filesystem::path OpenFolderDialog( const char* initialFolder = "" );
         static std::filesystem::path SaveFileDialog( const char* filter = "All\0*.*\0" );
-
-    public:
-        static bool        HasEnvironmentVariable( const std::string& key );
-        static bool        SetEnvironmentVariable( const std::string& key, const std::string& value );
-        static std::string GetEnvironmentVariable( const std::string& key );
     };
 } // namespace Common::Utils

@@ -13,9 +13,9 @@ TEST( SplashProgress, AStageWeighsItsWorkNotItsPlaceInTheList )
     // Two stages, the second ten times the work. Finishing the FIRST must show 1/11 of the bar, not
     // one half — a step counter would say 50 % here and then crawl through the long stage.
     Splash::ProgressModel model;
-    const std::size_t     small = model.AddStage( "Small", 1.0, 10 );
+    const std::size_t     smallOne = model.AddStage( "Small", 1.0, 10 );
     const std::size_t     large = model.AddStage( "Large", 1.0, 100 );
-    model.BeginStage( small, 0.0 );
+    model.BeginStage( smallOne, 0.0 );
     model.BeginStage( large, 1.0 );
     EXPECT_NEAR( model.Fraction(), 10.0 / 110.0, 1e-9 );
 

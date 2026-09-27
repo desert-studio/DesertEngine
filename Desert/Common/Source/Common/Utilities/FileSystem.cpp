@@ -26,37 +26,6 @@ namespace fs = std::filesystem;
 namespace Common::Utils
 {
     class WindowsFileSystem;
-    bool FileSystem::CreateDirectory( const std::filesystem::path& directory )
-    {
-        return fs::create_directory( directory );
-    }
-
-    bool FileSystem::CreateDirectory( const std::string& directory )
-    {
-        return CreateDirectory( fs::path( directory ) );
-    }
-
-    void FileSystem::CreateFile( const std::string& path )
-    {
-        CreateFile( fs::path( path ) );
-    }
-
-    void FileSystem::CreateFile( const std::filesystem::path& path )
-    {
-        std::ofstream file( path );
-
-        if ( file.is_open() )
-        {
-            LOG_INFO( "Created File {}", path.string() );
-            file.close();
-        }
-        else
-        {
-            // Same soft contract as the read primitives: name the failure, let the caller decide.
-            LOG_ERROR( "[FileSystem] Could not create file: {}", path.string() );
-        }
-    }
-
     bool FileSystem::Exists( const std::filesystem::path& filepath )
     {
         return fs::exists( filepath ) || VFS::Exists( filepath );

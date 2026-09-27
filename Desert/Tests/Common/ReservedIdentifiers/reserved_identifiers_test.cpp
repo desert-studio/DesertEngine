@@ -933,3 +933,264 @@ TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
          << Listed( unregistered );
     EXPECT_TRUE( stale.empty() ) << "Register rows that are no longer duplicates; delete them:" << Listed( stale );
 }
+
+// THE NAMES windows.h TURNS INTO OTHER NAMES (class (b), CIW6).
+//
+// Every Win32 call with a string argument is a macro that picks its A or W form: `CreateDirectory` is
+// `CreateDirectoryW` in any translation unit that has seen windows.h. A method of ours with that name is
+// renamed in exactly the TUs that include windows.h before it, so its declaration and its call disagree
+// across TUs (link error), or a header fights the macro with `#undef` that holds only while nobody includes
+// windows.h after it. A handful more are plain object-like macros: `ERROR` (wingdi.h), `DELETE` (winnt.h),
+// `IN`/`OUT`/`OPTIONAL` (minwindef.h, empty), `interface` (combaseapi.h, `struct`), `small` (rpcndr.h, `char`).
+// All of it compiles on macOS and Linux; the name is the defect, so the name is what is refused - in code
+// only, wherever it appears, because `::CreateFileW` is how a Windows source calls the API by its real name.
+TEST( ReservedIdentifiers, NoIdentifierIsANameWindowsHDefinesAway )
+{
+    // A token set, not one regex: an alternation of sixty words over every byte of the tree is what made this
+    // suite take minutes once (CIW5), and the question is only "is this identifier one of these".
+    static const std::set<std::string> kMacroNames = { "LoadImage",
+                                                       "GetMessage",
+                                                       "SendMessage",
+                                                       "PostMessage",
+                                                       "CreateWindow",
+                                                       "CreateWindowEx",
+                                                       "DrawText",
+                                                       "GetObject",
+                                                       "CreateFile",
+                                                       "DeleteFile",
+                                                       "CopyFile",
+                                                       "MoveFile",
+                                                       "CreateDirectory",
+                                                       "RemoveDirectory",
+                                                       "LoadLibrary",
+                                                       "GetModuleFileName",
+                                                       "CreateEvent",
+                                                       "CreateMutex",
+                                                       "CreateSemaphore",
+                                                       "GetCurrentDirectory",
+                                                       "SetCurrentDirectory",
+                                                       "GetTempPath",
+                                                       "FindFirstFile",
+                                                       "FindNextFile",
+                                                       "GetFileAttributes",
+                                                       "GetUserName",
+                                                       "GetComputerName",
+                                                       "FormatMessage",
+                                                       "OutputDebugString",
+                                                       "MessageBox",
+                                                       "GetClassName",
+                                                       "RegisterClass",
+                                                       "GetCommandLine",
+                                                       "GetEnvironmentVariable",
+                                                       "SetEnvironmentVariable",
+                                                       "CreateProcess",
+                                                       "CreateFont",
+                                                       "GetTextMetrics",
+                                                       "TextOut",
+                                                       "LoadIcon",
+                                                       "LoadCursor",
+                                                       "LoadBitmap",
+                                                       "LoadString",
+                                                       "GetWindowText",
+                                                       "SetWindowText",
+                                                       "DispatchMessage",
+                                                       "PeekMessage",
+                                                       "PlaySound",
+                                                       "ChooseColor",
+                                                       "ChooseFont",
+                                                       "ERROR",
+                                                       "DELETE",
+                                                       "IN",
+                                                       "OUT",
+                                                       "OPTIONAL",
+                                                       "interface",
+                                                       "small" };
+    std::vector<std::string>           offenders;
+    for ( const Source& s : Sources() )
+    {
+        const std::string& code = s.Code;
+        for ( std::size_t i = 0; i < code.size(); )
+        {
+            if ( !IsWordChar( code[i] ) )
+            {
+                ++i;
+                continue;
+            }
+            std::size_t end = i;
+            while ( end < code.size() && IsWordChar( code[end] ) )
+                ++end;
+            if ( kMacroNames.count( code.substr( i, end - i ) ) != 0 )
+                offenders.push_back( s.Name + ":" + std::to_string( LineOf( code, i ) ) + "  " +
+                                     code.substr( i, end - i ) );
+            i = end;
+        }
+    }
+    EXPECT_TRUE( offenders.empty() ) << offenders.size()
+                                     << " identifier(s) that windows.h #defines to another name. Rename them "
+                                        "(MakeSemaphore, DrawLabel, smallOne...); a Windows source calls the "
+                                        "API by its W name:"
+                                     << Listed( offenders );
+}
+
+// THE WRITE TIME IS NOT AN IDENTITY (class (k), CIW6).
+//
+// A file's write time moves in the file system's ticks - ~15.6 ms on NTFS - so two same-size writes inside
+// one tick are indistinguishable by (write time, size). FIX2 met it in the thumbnail memo, the shader include
+// cache met it before that, and ModelingToolTarget keyed a lift on it. Every reader of a write time therefore
+// either applies the racy rule (Common::Utils::IsRacyWriteTime, in the same file) or has a row here that says
+// why an equal stamp cannot serve stale content. A row that stops matching fails as well.
+namespace
+{
+    struct WriteTimeRow
+    {
+        const char* File;
+        const char* Why;
+    };
+    constexpr WriteTimeRow kWriteTimeRegister[] = {
+         { "Desert/Desert/Source/Engine/Runtime/AssetHotReload.cpp",
+           "a watcher, not a memo: OPEN - a second same-size write inside one tick is picked up only at the "
+           "file's next write" },
+         { "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp",
+           "a watcher, not a memo: OPEN - as AssetHotReload, for Lua sources" },
+         { "Editor/Source/Editor/Panels/Logs/LogsPanel.cpp",
+           "a tail follower: the log only grows, so a missed tick is read with the next append" },
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", "display and sort order only" },
+         { "Editor/Source/Editor/Core/CrashRecovery.cpp", "picks the newest autosave: ordering, not identity" },
+         { "Editor/Source/Editor/Import/ImportManager.cpp", "source-newer-than-cook ordering, not identity" },
+         { "Editor/Source/Editor/Import/Blend/BlendImporter.hpp", "blend-newer-than-fbx ordering, not identity" },
+         { "Editor/Source/Editor/Widgets/ThumbnailCache.cpp",
+           "decoded-PNG memo: OPEN - FIX2's class; a PNG rewritten inside one tick keeps the old image until "
+           "its next write" },
+         { "Editor/Source/Editor/Widgets/ThumbnailFreshness.hpp",
+           "FIX2: the record's writer tells the memo what it wrote, so the stamp is never the only witness" },
+    };
+} // namespace
+
+TEST( ReservedIdentifiers, EveryWriteTimeReaderStatesItsRule )
+{
+    const std::regex      reads( R"(\blast_write_time\s*\()" );
+    const std::regex      racyRule( R"(\bIsRacyWriteTime\s*\()" );
+    std::set<std::string> registered;
+    for ( const WriteTimeRow& row : kWriteTimeRegister )
+        registered.insert( row.File );
+
+    std::vector<std::string> offenders;
+    std::set<std::string>    matched;
+    for ( const Source& s : Sources() )
+    {
+        // Tests pin write times on purpose: that is how FIX2's class is reproduced on one machine.
+        if ( s.Name.rfind( "Desert/Tests/", 0 ) == 0 || s.Code.find( "last_write_time" ) == std::string::npos ||
+             !std::regex_search( s.Code, reads ) )
+            continue;
+        if ( std::regex_search( s.Code, racyRule ) )
+            continue;
+        if ( registered.count( s.Name ) != 0 )
+            matched.insert( s.Name );
+        else
+            offenders.push_back( s.Name );
+    }
+    std::vector<std::string> stale;
+    for ( const std::string& name : registered )
+    {
+        if ( matched.count( name ) == 0 )
+            stale.push_back( name );
+    }
+    EXPECT_TRUE( offenders.empty() )
+         << "Sources that read a write time with neither Common::Utils::IsRacyWriteTime nor a register row "
+            "saying why an equal stamp cannot serve stale content:"
+         << Listed( offenders );
+    EXPECT_TRUE( stale.empty() ) << "Register rows that no longer read a write time without the racy rule; "
+                                    "delete them:"
+                                 << Listed( stale );
+}
+
+// A PATH OR A COMMAND SPELLED FOR ONE PLATFORM (class (l), CIW6).
+//
+// Three spellings reach a Windows runner intact and mean something else there: a `path::string()` compared
+// with a forward-slashed literal (the native separator is `\`), a single-quoted argument in a command handed
+// to `_popen` (cmd.exe does not treat `'` as a quote, so the path splits at its first space), and a home
+// directory read from HOME alone (Windows sets USERPROFILE; HOME exists there only if someone put it).
+TEST( ReservedIdentifiers, NoPathOrCommandIsSpelledForOnePlatform )
+{
+    const std::regex nativeVsSlashed(
+         R"((EXPECT|ASSERT)_(EQ|NE)\(\s*[^;]*\.string\(\)\s*,\s*"[^"\n]*/[^"\n]*"\s*\))"
+         R"(|(EXPECT|ASSERT)_(EQ|NE)\(\s*"[^"\n]*/[^"\n]*"\s*,\s*[^;,]*\.string\(\)\s*\))" );
+    const std::regex         windowsPipe( R"(\b_popen\s*\()" );
+    const std::regex         singleQuoteInLiteral( R"("[^"\n]*'[^"\n]*")" );
+    const std::regex         homeOnly( R"(getenv\(\s*"HOME"\s*\))" );
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        // The literal and the command live in string literals, which Code blanks: match the text, but only on
+        // lines Code says carry code.
+        std::istringstream       text( s.Text );
+        std::istringstream       code( s.Code );
+        std::string              textLine;
+        std::string              codeLine;
+        std::vector<std::string> recent;
+        int                      number = 0;
+        while ( std::getline( text, textLine ) && std::getline( code, codeLine ) )
+        {
+            ++number;
+            const std::string where  = s.Name + ":" + std::to_string( number );
+            const bool        isCode = codeLine.find_first_not_of( " \t\r" ) != std::string::npos;
+            if ( isCode && textLine.find( ".string()" ) != std::string::npos &&
+                 std::regex_search( textLine, nativeVsSlashed ) )
+                offenders.push_back( where + "  a native path string compared with a '/' literal" );
+            recent.push_back( isCode ? textLine : std::string() );
+            if ( recent.size() > 4 )
+                recent.erase( recent.begin() );
+            if ( codeLine.find( "_popen" ) == std::string::npos || !std::regex_search( codeLine, windowsPipe ) )
+                continue;
+            for ( const std::string& previous : recent )
+            {
+                if ( std::regex_search( previous, singleQuoteInLiteral ) )
+                    offenders.push_back( where + "  a single quote in a command cmd.exe will run" );
+            }
+        }
+        // Tests SET HOME to keep the product out of the real user config, which works because the product
+        // honours HOME before USERPROFILE; the product itself must know both.
+        if ( s.Name.rfind( "Desert/Tests/", 0 ) != 0 && std::regex_search( s.Code, homeOnly ) &&
+             s.Text.find( "USERPROFILE" ) == std::string::npos )
+            offenders.push_back( s.Name + "  reads HOME with no USERPROFILE beside it" );
+    }
+    EXPECT_TRUE( offenders.empty() ) << offenders.size()
+                                     << " spelling(s) that mean something else on Windows:" << Listed( offenders );
+}
+
+// TWO EMITS IN ONE FULL EXPRESSION (class (m), CIW6).
+//
+// The order in which a call's arguments are evaluated is unspecified; clang goes left to right and MSVC right
+// to left, both conforming. An emitter hands out temporaries as it goes, so
+// `std::format( "{} * {}", EmitInput( a ), EmitInput( b ) )` numbers them differently per compiler: the
+// shader graph produced different GLSL on the two platforms and moved the SPIR-V cache key with it. One emit
+// per full expression - named locals first, then the expression that joins them - sequences it.
+TEST( ReservedIdentifiers, NoFullExpressionEmitsTwice )
+{
+    const std::regex         emit( R"(\bEmit\w*\s*\()" );
+    std::vector<std::string> offenders;
+    for ( const Source& s : Sources() )
+    {
+        // Cheap reject: std::regex over every statement of every file is what made this suite slow once.
+        if ( s.Code.find( "Emit" ) == std::string::npos )
+            continue;
+        std::size_t begin = 0;
+        for ( std::size_t i = 0; i <= s.Code.size(); ++i )
+        {
+            if ( i < s.Code.size() && s.Code[i] != ';' && s.Code[i] != '{' && s.Code[i] != '}' )
+                continue;
+            const std::string statement = s.Code.substr( begin, i - begin );
+            begin                       = i + 1;
+            if ( statement.find( "Emit" ) == statement.rfind( "Emit" ) )
+                continue;
+            const auto count = std::distance( std::sregex_iterator( statement.begin(), statement.end(), emit ),
+                                              std::sregex_iterator() );
+            if ( count > 1 )
+                offenders.push_back( s.Name + ":" + std::to_string( LineOf( s.Code, i ) ) );
+        }
+    }
+    EXPECT_TRUE( offenders.empty() ) << offenders.size()
+                                     << " full expression(s) with two Emit calls, whose order MSVC and clang "
+                                        "evaluate differently; hoist each into a named local:"
+                                     << Listed( offenders );
+}

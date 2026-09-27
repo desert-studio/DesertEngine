@@ -35,9 +35,9 @@ using MeshPtr = std::shared_ptr<const Geometry::DynamicMesh3>;
 
 namespace
 {
-    MeshPtr Box( int subdivisions )
+    MeshPtr Box( int subdivisions, glm::vec3 size = glm::vec3( 200.0f, 100.0f, 50.0f ) )
     {
-        auto shape = Geometry::MakeBox( glm::vec3( 200.0f, 100.0f, 50.0f ), glm::ivec3( subdivisions, 1, 1 ) );
+        auto shape = Geometry::MakeBox( size, glm::ivec3( subdivisions, 1, 1 ) );
         auto edit  = Geometry::ShapeToEditMesh( shape );
         EXPECT_TRUE( edit.IsSuccess() );
         auto dyn = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( edit.GetValue() ), "box" );
@@ -176,6 +176,37 @@ TEST_F( ToolTarget, TheLiftIsTheSameObjectUntilTheFileIsRewritten )
     EXPECT_NE( third.GetValue().Mesh, first.GetValue().Mesh );
     EXPECT_NE( third.GetValue().Mesh->TriangleCount(), first.GetValue().Mesh->TriangleCount() )
          << "a rewritten .stmesh must lift again, not serve the old mesh";
+}
+
+// FIX2's class, reproduced here on every platform: a rewrite that keeps the size and lands inside one
+// file-system tick leaves the write time exactly where it was (NTFS stamps at ~15.6 ms). Pinning the stamp
+// back is that tick; a lift keyed on (file, write time) served the first mesh after it.
+TEST_F( ToolTarget, ASameSizeRewriteInsideOneWriteTimeTickLiftsTheNewContent )
+{
+    const auto box = Box( 2 );
+    WriteFile( m_File, Bytes( box ) );
+    const auto stamp = fs::last_write_time( m_File );
+    const auto size  = fs::file_size( m_File );
+    auto       first = Editor::GetToolTargetMeshAt( nullptr, m_File );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+
+    WriteFile( m_File, Bytes( Box( 2, glm::vec3( 300.0f, 100.0f, 50.0f ) ) ) );
+    ASSERT_EQ( fs::file_size( m_File ), size )
+         << "the fixture must keep the size, or the stamp is not the only key";
+    fs::last_write_time( m_File, stamp );
+
+    auto second = Editor::GetToolTargetMeshAt( nullptr, m_File );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    ASSERT_NE( second.GetValue().Mesh, first.GetValue().Mesh ) << "the rewrite served the old lift";
+    const auto before = Geometry::ToRenderMesh( *first.GetValue().Mesh );
+    const auto after  = Geometry::ToRenderMesh( *second.GetValue().Mesh );
+    ASSERT_TRUE( before.IsSuccess() && after.IsSuccess() );
+    EXPECT_NE( before.GetValue().Vertices[0].Position, after.GetValue().Vertices[0].Position );
+
+    // The content did not change between these two: the re-read keeps the object, and identity holds.
+    auto third = Editor::GetToolTargetMeshAt( nullptr, m_File );
+    ASSERT_TRUE( third.IsSuccess() ) << third.GetError();
+    EXPECT_EQ( third.GetValue().Mesh, second.GetValue().Mesh ) << "the element selection tracks by identity";
 }
 
 // The undo plan, walked through the states an edit leaves: commit, undo, redo. EditMeshCommand, XformCommand

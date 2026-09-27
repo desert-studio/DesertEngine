@@ -95,7 +95,7 @@ namespace
         return 0;
     }
 
-    bool LoadImage( const char* path, Image& out )
+    bool LoadSheetImage( const char* path, Image& out )
     {
         int            width    = 0;
         int            height   = 0;
@@ -206,7 +206,7 @@ static int RunTool( int argc, char** argv )
     for ( const std::string& path : tilePaths )
     {
         Image loaded;
-        if ( !LoadImage( path.c_str(), loaded ) )
+        if ( !LoadSheetImage( path.c_str(), loaded ) )
         {
             std::fprintf( stderr, "DomeSheet: failed to load '%s'\n", path.c_str() );
             return 1;
@@ -229,7 +229,7 @@ static int RunTool( int argc, char** argv )
     Image sheet = MakeImage( geometry.SheetWidth(), geometry.SheetHeight(), 24 );
 
     if ( !title.empty() )
-        DrawText( sheet, title, gap, 2 * labelScale, labelScale, 235, 235, 235 );
+        DrawLabel( sheet, title, gap, 2 * labelScale, labelScale, 235, 235, 235 );
 
     for ( std::size_t i = 0; i < tiles.size(); ++i )
     {
