@@ -24,6 +24,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <optional>
 #include <initializer_list>
 #include <map>
 #include <string>
@@ -684,4 +688,58 @@ TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )
     onDisk.begin()->second.HeaderError = "text header: null GUID";
     EXPECT_TRUE( Reports( Common::Content::Compare( registry, onDisk, "on disk" ),
                           Common::Content::RegistryDisagreement::Kind::BadHeader, "assets:Materials/M.demat" ) );
+}
+
+// AL1-8a: A PREFAB'S ROW CARRIES THE BOX ITS FILE STATES, read beside the header and never by loading it.
+// Checked on the corpus prefab (a UI card: no extent, so no box) and on that same file given a box, which
+// must come back bit for bit; a box that is there and unreadable keeps the file out as a bad header does.
+TEST( CookedAssetRegistry, APrefabRowCarriesTheBoxItsFileStates )
+{
+    namespace fs          = std::filesystem;
+    const fs::path corpus = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+    ASSERT_TRUE( fs::exists( corpus ) ) << "run from the repository root: " << fs::absolute( corpus ).string();
+
+    const auto plain = Common::Content::RegistryRowFor(
+         "assets:Prefabs/UI_Card.deprefab",
+         Common::Content::DescribeContentFile( corpus, Common::Content::ContentKind::Prefab ) );
+    ASSERT_TRUE( plain ) << plain.GetError();
+    EXPECT_FALSE( plain.GetValue().Bounds.has_value() ) << "a UI prefab has no extent, so its row states no box";
+
+    std::ifstream     in( corpus );
+    const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    const std::string::size_type name = text.find( "\"Name\"" );
+    ASSERT_NE( name, std::string::npos );
+
+    const fs::path dir = fs::temp_directory_path() / "al1_8a_prefab_bounds";
+    fs::create_directories( dir );
+    const auto describe = [&]( const std::string& member )
+    {
+        std::string edited = text;
+        edited.insert( name, member );
+        const fs::path file = dir / "Boxed.deprefab";
+        std::ofstream( file, std::ios::binary | std::ios::trunc ) << edited;
+        return Common::Content::RegistryRowFor(
+             "assets:Prefabs/Boxed.deprefab",
+             Common::Content::DescribeContentFile( file, Common::Content::ContentKind::Prefab ) );
+    };
+
+    const auto boxed =
+         describe( "\"Bounds\": { \"Min\": [-50.25, 0.0, -1e-3], \"Max\": [50.25, 180.5, 3.0000001] },\n    " );
+    ASSERT_TRUE( boxed ) << boxed.GetError();
+    const std::optional<Common::Math::AABB> expected =
+         Common::Math::AABB{ { -50.25f, 0.0f, -1e-3f }, { 50.25f, 180.5f, 3.0000001f } };
+    EXPECT_TRUE( Common::Utils::SameBounds( boxed.GetValue().Bounds, expected ) ) << "the stated box, bit for bit";
+
+    const auto broken = describe( "\"Bounds\": { \"Min\": \"wide\", \"Max\": [1, 2, 3] },\n    " );
+    EXPECT_FALSE( broken ) << "a Bounds member that cannot be read was taken as 'no extent'";
+
+    std::error_code ec;
+    fs::remove_all( dir, ec );
+}
+
+TEST( CookedAssetRegistry, AVersionFiveCacheIsRefusedBecauseItsPrefabRowsHaveNoBox )
+{
+    const auto old = Common::Content::ParseRegistryCache(
+         "DesertAssetRegistryCache 5\nDesertAssetRegistry 5\n229 Material - - - - - assets:M.demat\n" );
+    EXPECT_FALSE( old ) << "a version-5 registry cache was read";
 }
