@@ -26,6 +26,7 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -138,6 +139,21 @@ namespace Desert::Editor::Tools
             }
             const auto image = s_Thumbnails.Get( png );
             return image ? uiHelper->GetTextureID( image ) : nullptr;
+        }
+
+        // A count in at most five characters for the narrow cost column: 950, 12.4K, 99.0M.
+        std::string Compact( uint64_t n )
+        {
+            char text[16];
+            if ( n < 1000u )
+                std::snprintf( text, sizeof( text ), "%llu", static_cast<unsigned long long>( n ) );
+            else if ( n < 1000000u )
+                std::snprintf( text, sizeof( text ), "%.1fK", static_cast<double>( n ) / 1e3 );
+            else if ( n < 1000000000u )
+                std::snprintf( text, sizeof( text ), "%.1fM", static_cast<double>( n ) / 1e6 );
+            else
+                std::snprintf( text, sizeof( text ), "%.1fG", static_cast<double>( n ) / 1e9 );
+            return text;
         }
 
         std::string Thousands( uint64_t n )
@@ -316,7 +332,10 @@ namespace Desert::Editor::Tools
                     sum.Existing += one.Existing;
                     sum.Expected += one.Expected;
                 }
-                ImGui::Text( "~%.0f new  (%.0f wanted, %zu there)", sum.Expected, sum.Desired, sum.Existing );
+                ImGui::Text( "~%.0f new per dab", sum.Expected );
+                Row::Tooltip( ( "The checked types want " + std::to_string( static_cast<long>( sum.Desired + 0.5f ) ) +
+                                " under the brush and " + std::to_string( sum.Existing ) + " are there" )
+                                   .c_str() );
             }
             else
                 ImGui::TextDisabled( "hover the ground" );
@@ -527,7 +546,7 @@ namespace Desert::Editor::Tools
                     ImGui::TableNextColumn();
                     ImGui::TextUnformatted( Thousands( cost.Instances ).c_str() );
                     ImGui::TableNextColumn();
-                    ImGui::TextDisabled( "%s tri", Thousands( cost.Triangles ).c_str() );
+                    ImGui::TextDisabled( "%s tri", Compact( cost.Triangles ).c_str() );
                     Row::Tooltip( ( Thousands( cost.InCullRange ) + " of " + Thousands( cost.Instances ) +
                                     " instances within the cull distance of the camera, " +
                                     Thousands( cost.TrianglesPerInstance ) + " triangles each" )
