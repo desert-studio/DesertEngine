@@ -1250,6 +1250,7 @@ namespace Desert::Graphic::System
 
         if ( instancingOn )
         {
+            m_IsmInstancesDrawn = 0;
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( !ism.Mesh || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
@@ -1283,17 +1284,9 @@ namespace Desert::Graphic::System
                 // of a single ISM are not the same object to a renderer.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                visible.clear();
-                levels.clear();
-                for ( const auto& instanceTransform : *ism.Transforms )
-                {
-                    if ( !IsVisibleInView( frustum, instanceTransform, localBounds ) )
-                        continue;
-                    visible.push_back( instanceTransform );
-                    levels.push_back( std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
-                                                                               camera->GetPosition(), -1, 0 ),
-                                                maxLevel ) );
-                }
+                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance,
+                                     camera->GetPosition(), camera->GetPosition(), maxLevel, visible, levels );
+                m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;
 
@@ -2300,20 +2293,12 @@ namespace Desert::Graphic::System
                                   Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
                              const uint32_t maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
+                             // The cull distance from the MAIN camera, as the geometry pass measures it:
+                             // an instance faded out of the view casts no shadow either.
                              auto& visible = m_ScratchIsmVisible;
                              auto& levels  = m_ScratchLodLevels;
-                             visible.clear();
-                             levels.clear();
-                             for ( const auto& instanceTransform : *ism.Transforms )
-                             {
-                                 if ( !IsVisibleInView( cascadeFrustum, instanceTransform, localBounds ) )
-                                     continue;
-                                 visible.push_back( instanceTransform );
-                                 levels.push_back(
-                                      std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
-                                                                               lodViewPosition, -1, 0 ),
-                                                maxLevel ) );
-                             }
+                             CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance,
+                                                  lodViewPosition, lodViewPosition, maxLevel, visible, levels );
                              if ( visible.empty() )
                                  continue;
 

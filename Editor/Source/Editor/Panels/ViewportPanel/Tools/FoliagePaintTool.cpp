@@ -295,6 +295,11 @@ namespace Desert::Editor::Tools
         ImGui::DragFloatRange2( "##Height", &f.Height.Min, &f.Height.Max, 10.0f, -262144.0f, 262144.0f,
                                 "Height %.0f", "%.0f cm" );
         track();
+        // UE CullDistance: fade from Min, gone from Max; Max 0 = never culled.
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloatRange2( "##CullDistance", &f.CullDistance.Min, &f.CullDistance.Max, 50.0f, 0.0f,
+                                1000000.0f, "Cull %.0f", "%.0f cm" );
+        track();
 
         // UE LandscapeLayers: a `.delayerinfo` dropped here restricts the type to ground painted with it.
         ImGui::TextDisabled( "LANDSCAPE LAYERS%s", f.LandscapeLayers.empty() ? " (any)" : "" );

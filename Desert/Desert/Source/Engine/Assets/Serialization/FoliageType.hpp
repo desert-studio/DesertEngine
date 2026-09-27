@@ -35,7 +35,9 @@ namespace Desert::Assets::Serialization
      *   2 - UE's units and filters (FO-3): Density is instances per 1000x1000 cm (UFoliageType::Density), not
      *       per brush dab; Height, LandscapeLayers (layer info assets by {Guid, Path}) and MinimumLayerWeight
      *       join. The header's Dependencies are the mesh's GUID, then each layer info's, in list order.
-     *       SceneMigrator raises a v1 file (MigrateFoliageTypeV1ToV2); the engine reads v2 only.
+     *       SceneMigrator raises a v1 file (MigrateFoliageTypeV1ToV2).
+     *   3 - CullDistance joins (FO-5, UE UFoliageType::CullDistance). SceneMigrator raises a v2 file
+     *       (MigrateFoliageTypeV2ToV3) with {0, 0}, UE's default: never culled. The engine reads v3 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -95,9 +97,17 @@ namespace Desert::Assets::Serialization
         /// The weight, 0..1, a listed layer must reach; above it an instance survives with probability equal
         /// to the weight (UE MinimumLayerWeight and IsFilteredByWeight).
         float MinimumLayerWeight = 0.0f;
+        /// Distance from the camera, cm, over which the instances fade out (UE CullDistance): all are drawn
+        /// nearer than Min, none from Max on, and between the two a share growing linearly from 0 to 1 is
+        /// dropped (Graphic::KeepsInstanceAtDistance). Max = 0 is UE's "never culled".
+        FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
     };
+
+    /// The FOLT generation a `.defoliage` text states, read from its header alone (so a file of another
+    /// generation is named as such, not by the fields it lacks); nullopt when it states none.
+    std::optional<uint32_t> StatedFoliageTypeGeneration( const std::string& text );
 
     /// Rejects numbers the brush cannot honour, naming the field and the values.
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data );

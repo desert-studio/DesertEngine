@@ -167,6 +167,11 @@ namespace Desert::Migration
     // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
 
+    // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
+    // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.
+    // PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV2ToV3( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

@@ -1,6 +1,7 @@
-// FO-3: FOLT 1 -> 2. A v1 `.defoliage` stated Density per brush dab; v2 states it per 1000x1000 cm (UE). The
-// step converts through the v1 brush's default radius, so one reference dab places the same count under
-// both, keeps every other number and the GUID, and the engine reads the result while refusing v1.
+// FO-3: FOLT 1 -> 2; FO-5: FOLT 2 -> 3 (CullDistance joins at UE's never-culled default). A v1 `.defoliage` stated
+// Density per brush dab; v2 states it per 1000x1000 cm (UE). The step converts through the v1 brush's default
+// radius, so one reference dab places the same count under both, keeps every other number and the GUID, and the
+// engine reads the result while refusing v1.
 
 #include <SceneMigration.hpp>
 
@@ -41,7 +42,7 @@ namespace
     }
 } // namespace
 
-TEST( FoliageTypeMigration, TheEngineReadsVersionTwoOnlyAndRefusesVersionOne )
+TEST( FoliageTypeMigration, TheEngineReadsVersionThreeOnlyAndRefusesVersionOne )
 {
     const auto v1 = Assets::Serialization::ParseFoliageType( kV1 );
     ASSERT_FALSE( v1 );
@@ -53,7 +54,9 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
     // 23 per dab of a 300 cm brush: 23 / (pi * 300^2) * 1000^2 = 81.35 per 1000x1000 cm.
     EXPECT_NEAR( Migration::FoliageDensityFromPerDab( 23.0f ), 81.345f, 1e-2f );
 
-    const auto raised = Migration::MigrateFoliageTypeV1ToV2( kV1 );
+    const auto toV2 = Migration::MigrateFoliageTypeV1ToV2( kV1 );
+    ASSERT_TRUE( toV2 ) << toV2.GetError();
+    const auto raised = Migration::MigrateFoliageTypeV2ToV3( toV2.GetValue() );
     ASSERT_TRUE( raised ) << raised.GetError();
     const auto parsed = Assets::Serialization::ParseFoliageType( raised.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
@@ -65,7 +68,7 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 
     // Everything else crosses as it was; the new fields take UE's defaults; the identity is kept.
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 2u );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 3u );
     EXPECT_EQ( data.Mesh.Guid, "11112222333344445555666677778888" );
     EXPECT_EQ( data.Mesh.Path, "Cooked/Meshes/Grass.stmesh" );
     EXPECT_FLOAT_EQ( data.ScaleX.Min, 0.11f );
@@ -81,6 +84,8 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
     EXPECT_FLOAT_EQ( data.MinimumLayerWeight, 0.0f );
     EXPECT_FLOAT_EQ( data.Height.Min, -262144.0f );
     EXPECT_FLOAT_EQ( data.Height.Max, 262144.0f );
+    EXPECT_FLOAT_EQ( data.CullDistance.Min, 0.0f );
+    EXPECT_FLOAT_EQ( data.CullDistance.Max, 0.0f );
 }
 
 TEST( FoliageTypeMigration, OnlyVersionOneIsRaised )
@@ -93,9 +98,29 @@ TEST( FoliageTypeMigration, OnlyVersionOneIsRaised )
     EXPECT_FALSE( zero );
 }
 
+TEST( FoliageTypeMigration, OnlyVersionTwoIsRaisedToThree )
+{
+    const auto toV2 = Migration::MigrateFoliageTypeV1ToV2( kV1 );
+    ASSERT_TRUE( toV2 ) << toV2.GetError();
+    // The v1 step writes v2 and not the engine's generation: the engine refuses it until the next step.
+    EXPECT_FALSE( Assets::Serialization::ParseFoliageType( toV2.GetValue() ) );
+
+    const auto one = Migration::MigrateFoliageTypeV2ToV3( kV1 );
+    ASSERT_FALSE( one );
+    EXPECT_NE( one.GetError().find( "FOLT 1" ), std::string::npos ) << one.GetError();
+
+    const auto toV3 = Migration::MigrateFoliageTypeV2ToV3( toV2.GetValue() );
+    ASSERT_TRUE( toV3 ) << toV3.GetError();
+    const auto three = Migration::MigrateFoliageTypeV2ToV3( toV3.GetValue() );
+    ASSERT_FALSE( three );
+    EXPECT_NE( three.GetError().find( "FOLT 3" ), std::string::npos ) << three.GetError();
+}
+
 TEST( FoliageTypeMigration, ARaisedFileIsAFixedPoint )
 {
-    const auto raised = Migration::MigrateFoliageTypeV1ToV2( kV1 );
+    const auto toV2 = Migration::MigrateFoliageTypeV1ToV2( kV1 );
+    ASSERT_TRUE( toV2 );
+    const auto raised = Migration::MigrateFoliageTypeV2ToV3( toV2.GetValue() );
     ASSERT_TRUE( raised );
     const auto parsed = Assets::Serialization::ParseFoliageType( raised.GetValue() );
     ASSERT_TRUE( parsed );

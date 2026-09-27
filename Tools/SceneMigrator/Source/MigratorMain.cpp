@@ -951,16 +951,31 @@ namespace Desert::Migration
                     ++failed;
                     continue;
                 }
-                if ( stated.GetValue() == 1u )
+                if ( stated.GetValue() == 1u || stated.GetValue() == 2u )
                 {
-                    const auto raised = Desert::Migration::MigrateFoliageTypeV1ToV2( text );
+                    // The chain: a v1 file takes both steps, a v2 file the last one.
+                    std::string v2Text = text;
+                    if ( stated.GetValue() == 1u )
+                    {
+                        const auto toV2 = Desert::Migration::MigrateFoliageTypeV1ToV2( text );
+                        if ( !toV2 )
+                        {
+                            err << "FAIL   " << path.string() << " — FOLT 1 -> 2: " << toV2.GetError() << "\n";
+                            ++failed;
+                            continue;
+                        }
+                        v2Text = toV2.GetValue();
+                    }
+                    const auto raised = Desert::Migration::MigrateFoliageTypeV2ToV3( v2Text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — FOLT 1 -> 2: " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — FOLT " << stated.GetValue()
+                            << " -> 3: " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " FOLT 1 -> 2\n";
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " FOLT " << stated.GetValue()
+                        << " -> 3\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                     {
                         ++failed;
@@ -972,8 +987,8 @@ namespace Desert::Migration
                 if ( stated.GetValue() != Desert::Assets::kFoliageTypeSchemaVersion )
                 {
                     err << "FAIL   " << path.string() << " — states FOLT v" << stated.GetValue()
-                        << ", and this tool reads v1 (raised) and v" << Desert::Assets::kFoliageTypeSchemaVersion
-                        << " only\n";
+                        << ", and this tool reads v1 and v2 (raised) and v"
+                        << Desert::Assets::kFoliageTypeSchemaVersion << " only\n";
                     ++failed;
                     continue;
                 }

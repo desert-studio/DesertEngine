@@ -419,7 +419,24 @@ namespace Desert::Migration
 
     namespace
     {
-        // FOLT 1's body, member for member: the engine's struct is v2 and cannot read what v1 meant.
+        // FOLT 2's body, member for member: the engine's struct is v3 and refuses a file without CullDistance.
+        struct FoliageTypeDataV2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+        };
+
+        // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
         struct FoliageTypeDataV1
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -449,21 +466,58 @@ namespace Desert::Migration
                  stated == old.Header->Versions.end() ? std::string( "nothing" )
                                                       : std::to_string( stated->second ) );
 
+        // v2 text, not the engine's struct: the engine is v3, and the chain raises v2 -> v3 as its own step.
+        // v1 names no landscape layer, so its Dependencies (the mesh's GUID) are v2's as they stand.
+        FoliageTypeDataV2 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 2u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = FoliageDensityFromPerDab( old.Density );
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        std::string written           = Common::Json::Write( data );
+        // What the step writes, the next step must read: a v1 number v2 refuses fails HERE, naming the field.
+        if ( auto next = MigrateFoliageTypeV2ToV3( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 2: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV2ToV3( const std::string& text )
+    {
+        // The generation first: a v1 or v3 body would otherwise be named by its fields, not by what it is.
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 2 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v2 = Common::Json::Read<FoliageTypeDataV2>( text );
+        if ( !v2 )
+            return Common::MakeFormattedError<std::string>( "FOLT 2 body does not read: {}", v2.GetError() );
+        const FoliageTypeDataV2& old = v2.GetValue();
+
         Assets::Serialization::FoliageTypeData data;
-        data.Header           = old.Header;
-        data.Mesh             = old.Mesh;
-        data.Density          = FoliageDensityFromPerDab( old.Density );
-        data.ScaleX           = old.ScaleX;
-        data.ZOffset          = old.ZOffset;
-        data.AlignToNormal    = old.AlignToNormal;
-        data.RandomYaw        = old.RandomYaw;
-        data.RandomPitchAngle = old.RandomPitchAngle;
-        data.GroundSlopeAngle = old.GroundSlopeAngle;
+        data.Header             = old.Header;
+        data.Mesh               = old.Mesh;
+        data.Density            = old.Density;
+        data.ScaleX             = old.ScaleX;
+        data.ZOffset            = old.ZOffset;
+        data.AlignToNormal      = old.AlignToNormal;
+        data.RandomYaw          = old.RandomYaw;
+        data.RandomPitchAngle   = old.RandomPitchAngle;
+        data.GroundSlopeAngle   = old.GroundSlopeAngle;
+        data.Height             = old.Height;
+        data.LandscapeLayers    = old.LandscapeLayers;
+        data.MinimumLayerWeight = old.MinimumLayerWeight;
+        // UE's default CullDistance {0, 0}: never culled, which is what every v2 field drew.
+        data.CullDistance = { 0.0f, 0.0f };
 
         std::string written = Assets::Serialization::WriteFoliageType( data );
-        // What the step writes, the engine must read: a v1 number v2 refuses fails HERE, naming the field.
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 2: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 3: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

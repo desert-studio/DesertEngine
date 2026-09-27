@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 2
+            "FOLT": 3
         },
         "Dependencies": []
     },
@@ -32,5 +32,9 @@
         "Max": 262144.0
     },
     "LandscapeLayers": [],
-    "MinimumLayerWeight": 0.0
+    "MinimumLayerWeight": 0.0,
+    "CullDistance": {
+        "Min": 0.0,
+        "Max": 0.0
+    }
 }

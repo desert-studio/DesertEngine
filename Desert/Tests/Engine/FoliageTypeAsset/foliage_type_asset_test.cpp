@@ -29,6 +29,7 @@ namespace
         data.RandomYaw        = false;
         data.RandomPitchAngle = 18.5f;
         data.GroundSlopeAngle = { 7.0f, 62.5f };
+        data.CullDistance     = { 1500.0f, 4000.0f };
         return data;
     }
 
@@ -85,12 +86,26 @@ TEST( FoliageTypeAsset, AFileWithoutAHeaderIsRefusedByName )
     EXPECT_NE( parsed.GetError().find( "states no header" ), std::string::npos ) << parsed.GetError();
 }
 
+TEST( FoliageTypeAsset, CullDistanceIsAForwardRangeOfNonNegativeCentimetres )
+{
+    FoliageTypeData data = OffDefaults();
+    EXPECT_TRUE( ValidateFoliageTypeData( data ) );
+    data.CullDistance = { 0.0f, 0.0f }; // UE's never-culled default
+    EXPECT_TRUE( ValidateFoliageTypeData( data ) );
+    data.CullDistance = { 4000.0f, 1500.0f };
+    EXPECT_FALSE( ValidateFoliageTypeData( data ) );
+    data.CullDistance   = { -10.0f, 1500.0f };
+    const auto negative = ValidateFoliageTypeData( data );
+    ASSERT_FALSE( negative );
+    EXPECT_NE( negative.GetError().find( "CullDistance" ), std::string::npos ) << negative.GetError();
+}
+
 TEST( FoliageTypeAsset, AnotherVersionIsRefused )
 {
-    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":2", "\"FOLT\":3" );
+    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":3", "\"FOLT\":4" );
     const auto        parsed = ParseFoliageType( text );
     ASSERT_FALSE( parsed );
-    EXPECT_NE( parsed.GetError().find( "FOLT 3" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "FOLT 4" ), std::string::npos ) << parsed.GetError();
 }
 
 TEST( FoliageTypeAsset, AnotherKindIsRefused )

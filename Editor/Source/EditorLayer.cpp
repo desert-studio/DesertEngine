@@ -2665,6 +2665,7 @@ namespace Desert::Editor
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
             snapshot.BudgetBytes                      = reading.CeilingBytes;
             snapshot.UsageBytes                       = reading.UsageBytes;
+            snapshot.IsmInstancesDrawn = m_SceneRenderer ? m_SceneRenderer->GetIsmInstancesDrawn() : 0u;
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

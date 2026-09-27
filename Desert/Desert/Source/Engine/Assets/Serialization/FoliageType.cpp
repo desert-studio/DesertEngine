@@ -22,27 +22,6 @@ namespace Desert::Assets::Serialization
             return BOOLSUCCESS;
         }
 
-        // The FOLT generation the header states, read as an untyped tree (TextAssetHeaderCheck.hpp: a struct
-        // would impose this build's layout on a file whose problem may be that it is another generation).
-        std::optional<uint32_t> StatedGeneration( const std::string& text )
-        {
-            const auto members = Common::Json::ObjectMembers( text );
-            if ( !members )
-                return std::nullopt;
-            for ( const auto& [name, value] : members.GetValue() )
-                if ( name == Common::Content::kTextHeaderMember )
-                {
-                    const auto header = Common::Json::Read<Common::Content::TextAssetHeaderSerialized>( value );
-                    if ( !header )
-                        return std::nullopt;
-                    const auto stated = header.GetValue().Versions.find( "FOLT" );
-                    if ( stated == header.GetValue().Versions.end() )
-                        return std::nullopt;
-                    return stated->second;
-                }
-            return std::nullopt;
-        }
-
         std::vector<std::string> DependenciesOf( const FoliageTypeData& data )
         {
             std::vector<std::string> out;
@@ -53,6 +32,27 @@ namespace Desert::Assets::Serialization
             return out;
         }
     } // namespace
+
+    // The FOLT generation the header states, read as an untyped tree (TextAssetHeaderCheck.hpp: a struct
+    // would impose this build's layout on a file whose problem may be that it is another generation).
+    std::optional<uint32_t> StatedFoliageTypeGeneration( const std::string& text )
+    {
+        const auto members = Common::Json::ObjectMembers( text );
+        if ( !members )
+            return std::nullopt;
+        for ( const auto& [name, value] : members.GetValue() )
+            if ( name == Common::Content::kTextHeaderMember )
+            {
+                const auto header = Common::Json::Read<Common::Content::TextAssetHeaderSerialized>( value );
+                if ( !header )
+                    return std::nullopt;
+                const auto stated = header.GetValue().Versions.find( "FOLT" );
+                if ( stated == header.GetValue().Versions.end() )
+                    return std::nullopt;
+                return stated->second;
+            }
+        return std::nullopt;
+    }
 
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data )
     {
@@ -81,6 +81,12 @@ namespace Desert::Assets::Serialization
              data.MinimumLayerWeight > 1.0f )
             return Common::MakeFormattedError<bool>( "MinimumLayerWeight {} must lie within [0, 1]",
                                                      data.MinimumLayerWeight );
+        if ( auto ok = CheckInterval( "CullDistance", data.CullDistance ); !ok )
+            return ok;
+        if ( data.CullDistance.Min < 0.0f )
+            return Common::MakeFormattedError<bool>( "CullDistance.Min {} must not be negative (it is a distance "
+                                                     "from the camera, cm)",
+                                                     data.CullDistance.Min );
         for ( size_t i = 0; i < data.LandscapeLayers.size(); ++i )
         {
             const auto& layer = data.LandscapeLayers[i];
@@ -109,7 +115,7 @@ namespace Desert::Assets::Serialization
 
         // THE GENERATION BEFORE THE BODY: a v1 file lacks v2's fields, and the typed read would name those
         // missing fields instead of the one fact that matters — the file is an older generation.
-        if ( const auto stated = StatedGeneration( text );
+        if ( const auto stated = StatedFoliageTypeGeneration( text );
              stated && *stated != static_cast<uint32_t>( kFoliageTypeVersion ) )
             return Common::MakeFormattedError<FoliageTypeData>(
                  "foliage type states FOLT {}, and this build reads FOLT {} only{}", *stated, kFoliageTypeVersion,
