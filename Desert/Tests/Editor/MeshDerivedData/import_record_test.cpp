@@ -137,6 +137,42 @@ TEST( ImportRecord, TheRegistryRowOfAMeshWithNoFileIsItsRecord )
     EXPECT_EQ( after->EffectiveHandle(), byGuid );
 }
 
+// DIMP 2: THE RECORD STATES THE IMPORTED MESH'S BOX, and the registry takes it from there - nothing is built and
+// the DDC is not asked, so a machine that never imported the source (a cold DDC) still knows the box.
+TEST( ImportRecord, TheRecordStatesTheImportedBoxAndTheRegistryReadsItWithoutTheDdc )
+{
+    const Project project( "box" );
+    const auto    expected = Ser::MeshDataBounds( Quad() );
+    ASSERT_TRUE( expected.has_value() );
+    // A cold DDC: only the record exists - no envelope was ever cached for this source.
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *expected ) );
+    ASSERT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "the DDC is not cold";
+
+    const auto described =
+         Common::Content::DescribeContentFile( project.Asset(), Common::Content::ContentKind::StaticMesh );
+    ASSERT_TRUE( described.HeaderError.empty() ) << described.HeaderError;
+    ASSERT_TRUE( described.HeaderBounds.has_value() && described.HeaderBounds->Stated );
+    ASSERT_TRUE( described.HeaderBounds->Bounds.has_value() ) << "the record states no box";
+    const Common::Math::AABB box = *described.HeaderBounds->Bounds;
+    EXPECT_EQ( box.Min, expected->Min );
+    EXPECT_EQ( box.Max, expected->Max );
+    const auto row = RowOf( project.Asset() );
+    ASSERT_TRUE( row.has_value() && row->Bounds.has_value() ) << "the registry row carries no box";
+    EXPECT_EQ( row->Bounds->Max, expected->Max );
+}
+
+// No legacy: a version-1 record (no box) is refused, naming the record, and is re-imported - never read.
+TEST( ImportRecord, AVersionOneRecordIsRefusedByItsPath )
+{
+    const Project  project( "v1" );
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    std::ofstream( record ) << R"({ "Header": { "Kind": "StaticMesh", "Guid": "56916479183d19ac580f5e8f62a520c4",
+        "Versions": { "DIMP": 1 }, "Dependencies": [] }, "Source": "Rock.fbx" })";
+    const auto guid = Ser::ReadImportRecordGuid( project.Source );
+    ASSERT_FALSE( guid );
+    EXPECT_NE( guid.GetError().find( record.string() ), std::string::npos ) << guid.GetError();
+}
+
 TEST( ImportRecord, ASourceWithoutARecordHasNoIdentityAndSaysWhichFileIsMissing )
 {
     const Project project( "none" );
@@ -155,7 +191,7 @@ TEST( ImportRecord, ASourceWithoutARecordHasNoIdentityAndSaysWhichFileIsMissing 
 TEST( ImportRecord, ARecordCopiedBesideAnotherSourceIsRefusedByName )
 {
     const Project project( "copied" );
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source ) );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *Ser::MeshDataBounds( Quad() ) ) );
     const fs::path other = project.Source.parent_path() / "Tree.fbx";
     std::ofstream( other ) << "tree";
     fs::copy_file( Common::Content::ImportRecordPathFor( project.Source ),

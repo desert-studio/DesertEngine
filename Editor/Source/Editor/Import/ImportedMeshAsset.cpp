@@ -182,7 +182,13 @@ namespace Desert::Editor
 
         // THE IDENTITY FIRST (FIX8): the record beside the source is written by the first import and read by
         // every later one, so a re-import of changed bytes keeps the GUID every reference holds.
-        const auto identity = Assets::Serialization::EnsureImportRecord( source );
+        // The record also states the mesh's box (DIMP 2), rewritten by every re-import that changes it: the
+        // registry reads it there without the DDC.
+        const auto bounds = Ser::MeshDataBounds( imported );
+        if ( !bounds )
+            return Common::MakeFormattedError<MeshAssetWrite>( "'{}': the import has no submesh, so no box",
+                                                               source.string() );
+        const auto identity = Assets::Serialization::EnsureImportRecord( source, *bounds );
         if ( !identity )
             return Common::MakeError<MeshAssetWrite>( identity.GetError() );
 

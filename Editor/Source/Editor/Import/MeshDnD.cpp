@@ -127,9 +127,12 @@ namespace Desert::Editor::MeshDnD
             return Common::UUID::Null(); // cook failed / produced a skinned mesh (.skmesh) instead
 
         // THE SOURCE'S IDENTITY (FIX8): a source cooked before its record existed (the DDC already held its
-        // envelope, so no import ran) gets its record now - the import's first step, taken here because this
-        // is the import entry for a drop. The asset below reads its GUID from it.
-        if ( const auto identity = Assets::Serialization::EnsureImportRecord( sourcePath ); !identity )
+        // envelope, so no import ran) is imported now - the import writes the record with the mesh's box
+        // (DIMP 2), which only the imported mesh knows. The asset below reads its GUID from it.
+        if ( std::error_code ec;
+             !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( sourcePath ), ec ) )
+            Importer().Import( sourcePath );
+        if ( const auto identity = Assets::Serialization::ReadImportRecordGuid( sourcePath ); !identity )
         {
             LOG_ERROR( "[MeshDnD] {}", identity.GetError() );
             return Common::UUID::Null();
