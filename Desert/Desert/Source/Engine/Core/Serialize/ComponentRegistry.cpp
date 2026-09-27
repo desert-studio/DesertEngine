@@ -352,16 +352,12 @@ namespace Desert::Core::Serialize
                          }
                          if ( !layer )
                          {
-                             // DROPPED WITH A REPORT, NOT SUBSTITUTED: a default layer under this slot would
-                             // re-key the tiles' weight planes to a name nobody authored. The rest of the list
-                             // is kept; the tiles keep the dropped layer's weights (they are reported as
-                             // unknown and not drawn until a layer of that name is added back).
-                             issues.push_back( { element.Where().ToString(),
-                                                 "a .delayerinfo the content registry knows",
-                                                 "GUID '" + guidText + "', path '" + path + "'" } );
-                             LOG_ERROR( "[Landscape] Entity '{}': layer info GUID '{}' (path '{}') is not a "
-                                        ".delayerinfo this project has scanned; the layer is dropped",
-                                        e.GetComponent<ECS::TagComponent>().Tag, guidText, path );
+                             // REFUSED, NOT SUBSTITUTED (FO-1's rule for a foliage type): neither a default layer
+                             // nor a shorter list — either would re-key the tiles' weight planes to a list nobody
+                             // authored. The whole list is refused with the GUID and the path.
+                             refusal = std::format( "layer {}: GUID '{}' (path '{}') is not a .delayerinfo this "
+                                                    "project has scanned",
+                                                    index, guidText, path );
                              return;
                          }
                          const Assets::AssetHandle handle = layer->GetMetadata().Handle;
@@ -374,9 +370,12 @@ namespace Desert::Core::Serialize
                      } );
                 if ( refusal )
                 {
-                    // Refused whole and kept as it is: the same report line as a wrong-typed field, because it
-                    // is the same kind of wrong — a file this build did not write.
-                    issues.push_back( { value->Where().ToString(), "a valid layer list", *refusal } );
+                    // Refused whole: the entity keeps no layers, the tiles keep their weights (reported as
+                    // unknown layers and not drawn), and the load reports the GUID and path.
+                    issues.push_back( { value->Where().ToString(), "a list of .delayerinfo the content registry knows",
+                                        *refusal } );
+                    LOG_ERROR( "[Landscape] Entity '{}': the target layer list is refused: {}",
+                               e.GetComponent<ECS::TagComponent>().Tag, *refusal );
                     return;
                 }
                 landscape.Layers = std::move( read );

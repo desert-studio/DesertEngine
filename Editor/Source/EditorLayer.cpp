@@ -4862,7 +4862,7 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
-        commands.push_back( { "Landscape", "Add layer", [this]
+        commands.push_back( { "Landscape", "Create Layer Info", [this]
                               {
                                   auto added = Commands::AddLandscapeLayer( m_MainScene );
                                   if ( !added.IsSuccess() )
@@ -4880,9 +4880,15 @@ namespace Desert::Editor
                  landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
             if ( root != entt::null )
             {
-                for ( const auto& layer : registry.get<ECS::LandscapeComponent>( root ).Layers )
+                // A layer whose `.delayerinfo` is not read yet has no name to offer; it appears once it is.
+                auto& layers = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                for ( const Assets::AssetHandle& handle : registry.get<ECS::LandscapeComponent>( root ).Layers )
                 {
-                    commands.push_back( { "Landscape", "Target layer: " + layer.Name, [this, name = layer.Name]
+                    const auto* info = layers.Get( handle );
+                    if ( !info )
+                        continue;
+                    commands.push_back( { "Landscape", "Target layer: " + info->LayerName,
+                                          [this, handle, name = info->LayerName]
                                           {
                                               auto&      reg   = m_MainScene->GetRegistry();
                                               const auto id    = ECS::FirstLandscape( reg );
@@ -4890,9 +4896,8 @@ namespace Desert::Editor
                                                                     : entt::entity( entt::null );
                                               bool       found = false;
                                               if ( r != entt::null )
-                                                  for ( const auto& l :
-                                                        reg.get<ECS::LandscapeComponent>( r ).Layers )
-                                                      found = found || l.Name == name;
+                                                  for ( const auto& l : reg.get<ECS::LandscapeComponent>( r ).Layers )
+                                                      found = found || l == handle;
                                               if ( !found )
                                                   return PaletteCommandOutcome( false, "landscape layer '" + name +
                                                                                             "' no longer exists" );
