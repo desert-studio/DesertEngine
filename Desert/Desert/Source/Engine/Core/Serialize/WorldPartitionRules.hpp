@@ -61,7 +61,7 @@
 // A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's are
 // not stored anywhere (see UnplacedPrefabInstances). So a footprint is the XZ rectangle around a set of
 // world-space POINTS, and `Detail::AppendFootprint` is the one place that decides which points a record
-// contributes. It knows five things, each stated where it is read, and a sixth is handled beside it
+// contributes. It knows six things, each stated where it is read, and a seventh is handled beside it
 // because it needs another record (a LANDSCAPE TILE: the rectangle its root's frame gives it, see
 // kLandscapeTileComponent — the tile's own position is read by nothing and is not a point):
 //
@@ -70,6 +70,9 @@
 //     `Geometry::PrimitiveBounds`, the same statement the factory stamps on the submesh and the
 //     ShapeGenerators suite holds to the generated vertices. Terrain and LightCube are never a mesh
 //     block's primitive and have no box, so such a record's position is its whole extent;
+//   * the eight corners of the box around the vertices of a mesh the StaticMesh block CARRIES (EditMesh,
+//     built in the editor and saved in the scene, no asset behind it), through the world matrix — UE's
+//     GetStreamingBounds: an actor whose geometry is its own component's is bounded by that geometry;
 //   * every instance of an InstancedStaticMesh, whose matrices are WORLD-space (MeshECSSystem.hpp submits
 //     the snapshot without the entity's transform) — a kilometre of grass is one record;
 //   * the eight corners of a mesh ASSET's stored bounds (StaticMesh or SkinnedMesh naming a file) — the
@@ -561,6 +564,10 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kInstancePointsField     = "InstanceTransforms";
     inline constexpr std::string_view kPrimitiveComponent      = "StaticMesh";
     inline constexpr std::string_view kPrimitiveField          = "Primitive";
+    // A mesh built in the editor lives IN the StaticMesh block (StaticMeshComponentSer::EditMesh, the
+    // saved form of SavedMeshForm.hpp): its vertex positions, xyz per vertex in the entity's own frame.
+    inline constexpr std::string_view kEditMeshField          = "EditMesh";
+    inline constexpr std::string_view kEditMeshPositionsField = "Positions";
     // A landscape tile's footprint is a RECTANGLE computed from its coordinate and its root's frame. The
     // root is not a part of the tile (see the register row): it is read, never joined.
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
@@ -796,7 +803,47 @@ namespace Desert::Core::Rules
             return guid.GetValue();
         }
 
+        // THE BOX AROUND A SCENE-HELD MESH (the StaticMesh block's EditMesh), in the record's own frame, or
+        // nullopt when the block holds none. UE's GetStreamingBounds pattern: an actor whose geometry is its
+        // own component's, not an asset's, is bounded by that geometry - so the extent is read from the
+        // vertices the block carries, needing no registry. A Positions array that is not whole xyz triples,
+        // or holds no vertex, is an Issue on its path (Entities[id=..].StaticMesh.EditMesh.Positions) and
+        // gives no box: the loader's FromSerialized refuses the same block, so the mesh is never drawn.
+        [[nodiscard]] inline std::optional<Common::Math::AABB> EditMeshBox( const Common::Json::Node& block,
+                                                                            Common::Json::Issues&     issues )
+        {
+            const auto editMesh = block.Find( kEditMeshField );
+            if ( !editMesh.has_value() || !editMesh->ExpectKind( Common::Json::Kind::Object, issues ) )
+                return std::nullopt;
+            const auto field = editMesh->Find( kEditMeshPositionsField );
+            if ( !field.has_value() )
+            {
+                editMesh->Report( issues, "an EditMesh with a Positions array" );
+                return std::nullopt;
+            }
+            const std::size_t  before = issues.size();
+            std::vector<float> positions;
+            field->ReadValue( positions, issues );
+            if ( issues.size() != before )
+                return std::nullopt;
+            if ( positions.empty() || positions.size() % 3 != 0 )
+            {
+                field->Report( issues, "a non-empty array of xyz triples" );
+                return std::nullopt;
+            }
+            Common::Math::AABB box{ glm::vec3( positions[0], positions[1], positions[2] ),
+                                    glm::vec3( positions[0], positions[1], positions[2] ) };
+            for ( std::size_t vertex = 3; vertex < positions.size(); vertex += 3 )
+            {
+                const glm::vec3 point( positions[vertex], positions[vertex + 1], positions[vertex + 2] );
+                box.Min = glm::min( box.Min, point );
+                box.Max = glm::max( box.Max, point );
+            }
+            return box;
+        }
+
         // THE BOXES ONE RECORD OCCUPIES IN ITS OWN FRAME, each handed to @p onBox: a primitive's unit box,
+        // the box around the vertices of a mesh the StaticMesh block itself carries (EditMesh, WP15c),
         // the box of each mesh asset its mesh blocks name, and - for a prefab instance - the box the prefab's
         // registry row states around its root (AL1-8a). The last two are asked of @p bounds and are skipped
         // when there is none. One rule for both askers: the partitioner flattens these to a footprint, and
@@ -820,6 +867,8 @@ namespace Desert::Core::Rules
                             onBox( box.value() );
                     }
                 }
+                if ( const auto box = EditMeshBox( *mesh, issues ); box.has_value() )
+                    onBox( box.value() );
             }
 
             if ( !bounds )
