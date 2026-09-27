@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "e22d46a4ad83c345a360dc9886614c9a",
         "Versions": {
-            "SCNE": 32,
+            "SCNE": 33,
             "UNIT": 1
         },
         "Dependencies": []
@@ -56,16 +56,8 @@
                 "Primitive": "Cube"
             },
             "Foliage": {
-                "Density": 23.0,
-                "ScaleMin": 0.11,
-                "ScaleMax": 4.75,
-                "ZOffsetMin": -12.5,
-                "ZOffsetMax": 37.25,
-                "MaxPitchDeg": 18.5,
-                "SlopeMinDeg": 7.0,
-                "SlopeMaxDeg": 62.5,
-                "AlignToNormal": false,
-                "RandomYaw": false
+                "FoliageTypeGuid": "40d85d14a33a791506ec8583ba5ecbb8",
+                "FoliageTypePath": "Foliage/U13_Authored_Components_Probe_Ground.defoliage"
             }
         },
         {
@@ -129,16 +121,8 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Foliage": {
-                "Density": 23.0,
-                "ScaleMin": 0.11,
-                "ScaleMax": 4.75,
-                "ZOffsetMin": -12.5,
-                "ZOffsetMax": 37.25,
-                "MaxPitchDeg": 18.5,
-                "SlopeMinDeg": 7.0,
-                "SlopeMaxDeg": 62.5,
-                "AlignToNormal": false,
-                "RandomYaw": false
+                "FoliageTypeGuid": "40d85d14a33a791506ec8583ba5ecbb8",
+                "FoliageTypePath": "Foliage/U13_Authored_Components_Probe_Ground.defoliage"
             }
         },
         {

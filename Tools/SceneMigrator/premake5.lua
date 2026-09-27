@@ -34,6 +34,9 @@ project "SceneMigrator"
         -- serialized, so reading it with a hand-written parser here would be a second statement of the
         -- format — the fork this tool's own header forbids.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        -- THE FOLIAGE TYPE FORMAT, for the v32 -> v33 step: the `.defoliage` it writes is the engine's own
+        -- WriteFoliageType output, not a second statement of the format.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
         -- THE EDITMESH AND ITS SAVED FORM, for the v21 -> v22 step: the step welds the v21 render arrays with
         -- the editor's own Geometry::FromRenderMesh and writes Geometry::ToSerialized, so the block it stores
         -- is the one the loader reads - not a second statement of either format.
