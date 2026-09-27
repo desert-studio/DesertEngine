@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 24> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 32> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.CurrentBlockSize", "Current Block Size", "CubeGrid", 1, false, ModelingState::MinCellSize,
@@ -65,6 +65,22 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.CreateShape.Stacks; } },
          { "CreateShape.Steps",         "Steps",              "Create Shape", 1, true, 1.0f, 64.0f, nullptr,
            []( ModelingState& s ) { return &s.CreateShape.Steps; } },
+         { "CreateShape.InnerRadius",   "Inner Radius",       "Create Shape", 1, false, 1.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.InnerRadius; }, nullptr },
+         { "CreateShape.CurveAngle",    "Curve Angle",        "Create Shape", 1, false, -360000.0f, 360000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.CurveAngle; }, nullptr },
+         { "CreateShape.TubeDiameter",  "Tube Diameter",      "Create Shape", 1, false, 1.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.TubeDiameter; }, nullptr },
+         { "CreateShape.TubeSlices",    "Tube Slices",        "Create Shape", 1, true, 3.0f, 128.0f, nullptr,
+           []( ModelingState& s ) { return &s.CreateShape.TubeSlices; } },
+         { "CreateShape.HoleDiameter",  "Hole Diameter",      "Create Shape", 1, false, 0.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.HoleDiameter; }, nullptr },
+         { "CreateShape.ShaftDiameter", "Shaft Diameter",     "Create Shape", 1, false, 1.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.ShaftDiameter; }, nullptr },
+         { "CreateShape.ShaftLength",   "Shaft Length",       "Create Shape", 1, false, 1.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.ShaftLength; }, nullptr },
+         { "CreateShape.HeadLength",    "Head Length",        "Create Shape", 1, false, 1.0f, 100000.0f,
+           []( ModelingState& s ) { return &s.CreateShape.HeadLength; }, nullptr },
          { "Element.Distance",          "Distance",           "Select Elements", 1, false, -10000.0f, 10000.0f,
            []( ModelingState& s ) { return &s.ElementOpDistance; }, nullptr },
          { "Element.LoopPosition",      "Loop at",            "Select Elements", 1, false, 0.01f, 0.99f,

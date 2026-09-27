@@ -23,7 +23,8 @@ namespace Desert::Geometry
     // THE ONE SOURCE OF PRIMITIVE GEOMETRY. Every shape the engine draws without an asset comes from here:
     // the scene's `Primitive` meshes (PrimitiveMeshFactory is a GPU cache over MakePrimitive), and the
     // Modeling Create tool's shapes (ShapeToEditMesh). The pattern is UE's UAddPrimitiveTool: Box, Sphere,
-    // Cylinder, Cone, Capsule, Pyramid, Stairs, each with a polygroup mode and a pivot.
+    // Cylinder, Cone, Capsule, Pyramid, Stairs (Linear / Floating / Curved / Spiral), Torus, Arrow, Disc and
+    // Rectangle, each with a polygroup mode and a pivot.
     //
     // Pure CPU: vertices + triangles + one polygroup per triangle, nothing GPU, nothing ECS.
     //
@@ -527,69 +528,361 @@ namespace Desert::Geometry
         return m;
     }
 
-    // A straight flight climbing along +Z, `steps` treads, footprint width x (steps * stepDepth) centred
-    // on X and Z. ONE closed shell: each side is a staircase of cells whose edges meet the risers, treads,
-    // back and bottom exactly, so there is no interior face and no T-junction.
-    // Logical faces: 4 + 2 * steps (two sides, back, bottom, every riser, every tread).
-    inline ShapeMesh MakeStairs( float width, float stepDepth, float stepHeight, int steps = 8,
-                                 const ShapeOptions& options = {} )
+    // ── STAIRS: UE's four stair generators on one lattice ──────────────────────────────────────────
+    //
+    // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/Generators/StairGenerator.cpp:30-780,
+    // 866-1262 (FStairGenerator::GenerateSolidStairs / GenerateFloatingStairs and the GenerateVertex of
+    // FLinear-, FFloating-, FCurved- and FSpiralStairGenerator), adapted: UE's column/row vertex layout is kept
+    // as a lattice of (column, row) points - column = step index along the flight, row = step-height units -
+    // and each stair type is only a map from (side, column, row) to a position, as in UE. UE's FaceDesc /
+    // NormalDesc / UVDesc tables are replaced by emitting each quad through this file's AddQuad, so a flat
+    // face gets its hard normal from its own winding and the weld in ShapeToEditMesh joins the shell; +Y is up
+    // and the flight climbs along +Z (UE: +Z up, +X forward); the side wall of a curved flight is smooth-shaded
+    // with the radial normal, as UE's FCurvedStairGenerator::GenerateNormal gives it.
+
+    // UE's EProceduralStairsType.
+    enum class StairsType
+    {
+        Linear,   // solid flight, every step standing on the floor
+        Floating, // each step rests only on the one below it (UE's EStairStyle::Floating)
+        Curved,   // Linear bent around a vertical axis
+        Spiral,   // Floating bent around a vertical axis
+    };
+
+    constexpr const char* ToString( StairsType type )
+    {
+        switch ( type )
+        {
+            case StairsType::Linear:
+                return "Linear";
+            case StairsType::Floating:
+                return "Floating";
+            case StairsType::Curved:
+                return "Curved";
+            case StairsType::Spiral:
+                return "Spiral";
+        }
+        return "Linear";
+    }
+
+    // UE's UProceduralStairsToolProperties, in centimetres. StepDepth is read by Linear and Floating only,
+    // InnerRadius and CurveAngle by Curved and Spiral only (UE's EditConditions): a curved tread's depth is
+    // what the angle and the radii make it.
+    struct StairsShape
+    {
+        StairsType Type        = StairsType::Linear;
+        int        Steps       = 8;
+        float      StepWidth   = 150.0f;
+        float      StepHeight  = 20.0f;
+        float      StepDepth   = 30.0f;
+        float      InnerRadius = 150.0f;
+        float      CurveAngle  = 90.0f; // degrees the whole flight turns; the sign picks the direction
+    };
+
+    namespace Detail
+    {
+        // A curved flight is one solid block, so its first riser and its back must not meet: at 360 degrees
+        // they coincide and the weld would fold the shell onto itself (UE's generator never welds, so its
+        // clamp is 360). A spiral is floating, and two turns only touch when fewer than four steps make a
+        // turn, so it may wind as far as 90 degrees per step.
+        inline constexpr float kMinStairsDegrees        = 1.0f;
+        inline constexpr float kMaxCurvedStairsDegrees  = 359.0f;
+        inline constexpr float kMaxSpiralDegreesPerStep = 90.0f;
+
+        // The side profile of a flight on the (column, row) lattice. Strip s is the column span [s, s+1];
+        // it is solid from row Bottom(s) to row Top(s). UE's diagrams, StairGenerator.cpp:30-49 and 374-392.
+        struct StairProfile
+        {
+            bool Floating = false;
+
+            [[nodiscard]] int Bottom( int strip ) const
+            {
+                return Floating ? std::max( strip - 1, 0 ) : 0;
+            }
+            [[nodiscard]] static int Top( int strip )
+            {
+                return strip + 1;
+            }
+        };
+
+        // One flat quad whose corners carry their own normals (a curved stair wall).
+        inline void AddSmoothQuad( ShapeMesh& m, int group, const std::array<glm::vec3, 4>& p,
+                                   const std::array<glm::vec3, 4>& n, const std::array<glm::vec2, 4>& uv )
+        {
+            const glm::vec3 t    = glm::normalize( p[1] - p[0] );
+            const auto      base = static_cast<uint32_t>( m.Vertices.size() );
+            for ( int i = 0; i < 4; ++i )
+                PushVertex( m, p[i], n[i], t, uv[i] );
+            m.Indices.push_back( { base + 0, base + 1, base + 2 } );
+            m.Indices.push_back( { base + 2, base + 3, base + 0 } );
+            m.Groups.push_back( group );
+            m.Groups.push_back( group );
+        }
+
+        inline void CentreOnXZ( ShapeMesh& m )
+        {
+            const Common::Math::AABB box = m.Bounds();
+            const glm::vec3          mid = 0.5f * ( box.Min + box.Max );
+            for ( Vertex& v : m.Vertices )
+            {
+                v.Position.x -= mid.x;
+                v.Position.z -= mid.z;
+            }
+        }
+    } // namespace Detail
+
+    // A flight of `Steps` steps. ONE closed shell: each side wall is split into one cell per lattice square,
+    // and every lattice edge on the profile's outline carries one quad across the width (a tread, a riser, the
+    // back or a piece of the bottom), so edges meet exactly and there is no T-junction. Centred on X and Z.
+    // Logical faces: 4 + 2 * Steps (two sides, back, bottom, every riser, every tread). Quads: Linear/Curved
+    // Steps*(Steps+1) side cells + 4*Steps across; Floating/Spiral 2*(2*Steps-1) + 4*Steps (UE's counts).
+    inline ShapeMesh MakeStairs( const StairsShape& stairs, const ShapeOptions& options = {} )
     {
         ShapeMesh             m;
         Detail::GroupAssigner groups( options.Groups );
-        const float           w  = Detail::Extent( width );
-        const float           sd = Detail::Extent( stepDepth );
-        const float           sh = Detail::Extent( stepHeight );
-        steps                    = std::max( steps, 1 );
-        const auto  n            = static_cast<float>( steps );
-        const float z0           = -0.5f * n * sd;
-        const float hx           = 0.5f * w;
-        int         face         = 0;
+        const int             n        = std::max( stairs.Steps, 1 );
+        const auto            nf       = static_cast<float>( n );
+        const bool            floating = stairs.Type == StairsType::Floating || stairs.Type == StairsType::Spiral;
+        const bool            curved   = stairs.Type == StairsType::Curved || stairs.Type == StairsType::Spiral;
+        const float           w        = Detail::Extent( stairs.StepWidth );
+        const float           sh       = Detail::Extent( stairs.StepHeight );
+        const float           sd       = Detail::Extent( stairs.StepDepth );
+        const float           inner    = Detail::Extent( stairs.InnerRadius );
+        const float           turn     = stairs.Type == StairsType::Curved ? Detail::kMaxCurvedStairsDegrees
+                                                                           : Detail::kMaxSpiralDegreesPerStep * nf;
+        const float degrees = std::clamp( std::abs( stairs.CurveAngle ), Detail::kMinStairsDegrees, turn );
+        const float perStep = glm::radians( stairs.CurveAngle < 0.0f ? -degrees : degrees ) / nf;
+        const Detail::StairProfile profile{ floating };
 
-        // Sides: cell (column i along Z, row j up) exists for j <= i. UV is the side's own 0..1 square.
-        for ( const float side : { hx, -hx } )
+        // Side 0 is -X on a straight flight and the inner radius on a curved one; side 1 is +X / the outer
+        // radius. A negative angle turns the flight the other way, which mirrors it: every quad is then wound
+        // the other way round so the shell still faces out.
+        const bool mirrored = curved && perStep < 0.0f;
+        const auto at       = [&]( int side, int column, int row ) -> glm::vec3
         {
-            const int sideFace = face++;
-            for ( int i = 0; i < steps; ++i )
-            {
-                for ( int j = 0; j <= i; ++j )
+            const float y = sh * static_cast<float>( row );
+            if ( !curved )
+                return { side == 1 ? 0.5f * w : -0.5f * w, y, ( static_cast<float>( column ) - 0.5f * nf ) * sd };
+            const float r = side == 1 ? inner + w : inner;
+            const float a = perStep * static_cast<float>( column );
+            return { r * std::cos( a ), y, r * std::sin( a ) };
+        };
+        const auto wind = [mirrored]( auto corners )
+        {
+            if ( mirrored )
+                std::swap( corners[1], corners[3] );
+            return corners;
+        };
+
+        int face = 0;
+        // Side walls: one cell per lattice square, UV the wall's own (column, row) / Steps.
+        for ( const int side : { 0, 1 } )
+        {
+            const int wallFace = face++;
+            for ( int s = 0; s < n; ++s )
+                for ( int j = profile.Bottom( s ); j < Detail::StairProfile::Top( s ); ++j )
                 {
-                    const float     za = z0 + sd * static_cast<float>( i );
-                    const float     zb = za + sd;
-                    const float     ya = sh * static_cast<float>( j );
-                    const float     yb = ya + sh;
-                    const glm::vec2 ua( static_cast<float>( i ) / n, static_cast<float>( j ) / n );
-                    const glm::vec2 ub( static_cast<float>( i + 1 ) / n, static_cast<float>( j + 1 ) / n );
-                    // +X: first edge up then along +Z, cross(+Y, +Z) = +X; -X: the other way round.
-                    if ( side > 0.0f )
-                        Detail::AddQuad( m, groups.Next( sideFace ),
-                                         { glm::vec3( side, ya, za ), glm::vec3( side, yb, za ),
-                                           glm::vec3( side, yb, zb ), glm::vec3( side, ya, zb ) },
-                                         { glm::vec2( ua.x, ua.y ), glm::vec2( ua.x, ub.y ),
-                                           glm::vec2( ub.x, ub.y ), glm::vec2( ub.x, ua.y ) } );
+                    // Side 1 goes up first then along the flight, cross(+Y, +Z) = +X; side 0 the other way.
+                    std::array<glm::ivec2, 4> cell = { glm::ivec2( s, j ), glm::ivec2( s + 1, j ),
+                                                       glm::ivec2( s + 1, j + 1 ), glm::ivec2( s, j + 1 ) };
+                    if ( side == 1 )
+                        std::swap( cell[1], cell[3] );
+                    cell = wind( cell );
+                    std::array<glm::vec3, 4> p{};
+                    std::array<glm::vec3, 4> nrm{};
+                    std::array<glm::vec2, 4> uv{};
+                    for ( int k = 0; k < 4; ++k )
+                    {
+                        p[k]  = at( side, cell[k].x, cell[k].y );
+                        uv[k] = glm::vec2( cell[k] ) / nf;
+                        // UE's curved wall normal: straight out from the axis, into it on the inner wall.
+                        nrm[k] =
+                             glm::normalize( glm::vec3( p[k].x, 0.0f, p[k].z ) ) * ( side == 1 ? 1.0f : -1.0f );
+                    }
+                    if ( curved )
+                        Detail::AddSmoothQuad( m, groups.Next( wallFace ), p, nrm, uv );
                     else
-                        Detail::AddQuad( m, groups.Next( sideFace ),
-                                         { glm::vec3( side, ya, za ), glm::vec3( side, ya, zb ),
-                                           glm::vec3( side, yb, zb ), glm::vec3( side, yb, za ) },
-                                         { glm::vec2( ua.x, ua.y ), glm::vec2( ub.x, ua.y ),
-                                           glm::vec2( ub.x, ub.y ), glm::vec2( ua.x, ub.y ) } );
+                        Detail::AddQuad( m, groups.Next( wallFace ), p, uv );
                 }
-            }
         }
-        // Back (+Z) and bottom (-Y), each split into one strip per step so its edges meet the side cells.
-        Detail::AddFaceGrid( m, groups, face++, glm::vec3( -hx, 0.0f, -z0 ), glm::vec3( w, 0.0f, 0.0f ),
-                             glm::vec3( 0.0f, n * sh, 0.0f ), 1, steps );
-        Detail::AddFaceGrid( m, groups, face++, glm::vec3( -hx, 0.0f, z0 ), glm::vec3( w, 0.0f, 0.0f ),
-                             glm::vec3( 0.0f, 0.0f, n * sd ), 1, steps );
-        for ( int i = 0; i < steps; ++i )
+
+        // One quad across the width on the outline edge p0 -> p1. The edge runs so that the quad
+        // side0(p0), side0(p1), side1(p1), side1(p0) faces out: cross(p1 - p0, +X) is the outward normal.
+        const auto across = [&]( int group, glm::ivec2 p0, glm::ivec2 p1, float v0, float v1 )
         {
-            const float za = z0 + sd * static_cast<float>( i );
-            const float ya = sh * static_cast<float>( i );
-            // Riser facing -Z: cross(-X, +Y) = -Z. Tread facing +Y: cross(+Z, +X) = +Y.
-            Detail::AddFaceGrid( m, groups, face++, glm::vec3( hx, ya, za ), glm::vec3( -w, 0.0f, 0.0f ),
-                                 glm::vec3( 0.0f, sh, 0.0f ), 1, 1 );
-            Detail::AddFaceGrid( m, groups, face++, glm::vec3( -hx, ya + sh, za ), glm::vec3( 0.0f, 0.0f, sd ),
-                                 glm::vec3( w, 0.0f, 0.0f ), 1, 1 );
+            const std::array<glm::vec3, 4> p  = wind( std::array<glm::vec3, 4>{
+                 at( 0, p0.x, p0.y ), at( 0, p1.x, p1.y ), at( 1, p1.x, p1.y ), at( 1, p0.x, p0.y ) } );
+            const std::array<glm::vec2, 4> uv = wind( std::array<glm::vec2, 4>{
+                 glm::vec2( 0.0f, v0 ), glm::vec2( 0.0f, v1 ), glm::vec2( 1.0f, v1 ), glm::vec2( 1.0f, v0 ) } );
+            Detail::AddQuad( m, group, p, uv );
+        };
+
+        // Back: the last column, top to bottom.
+        const int backFace = face++;
+        {
+            const int lowest = profile.Bottom( n - 1 );
+            const int rows   = n - lowest;
+            for ( int j = n - 1; j >= lowest; --j )
+                across( groups.Next( backFace ), { n, j + 1 }, { n, j },
+                        static_cast<float>( n - 1 - j ) / static_cast<float>( rows ),
+                        static_cast<float>( n - j ) / static_cast<float>( rows ) );
         }
+        // Bottom, back to front: each strip's underside, and on a floating flight the short upright piece
+        // between two undersides (it faces the back, UE's ESide::Bottom).
+        const int bottomFace = face++;
+        {
+            std::vector<std::pair<glm::ivec2, glm::ivec2>> run;
+            for ( int s = n - 1; s >= 0; --s )
+            {
+                const int b = profile.Bottom( s );
+                run.emplace_back( glm::ivec2( s + 1, b ), glm::ivec2( s, b ) );
+                if ( s > 0 && profile.Bottom( s - 1 ) < b )
+                    run.emplace_back( glm::ivec2( s, b ), glm::ivec2( s, profile.Bottom( s - 1 ) ) );
+            }
+            const auto count = static_cast<float>( run.size() );
+            for ( size_t k = 0; k < run.size(); ++k )
+                across( groups.Next( bottomFace ), run[k].first, run[k].second, static_cast<float>( k ) / count,
+                        static_cast<float>( k + 1 ) / count );
+        }
+        // Every step: its riser (facing down the flight) and its tread (facing up).
+        for ( int s = 0; s < n; ++s )
+        {
+            across( groups.Next( face++ ), { s, s }, { s, s + 1 }, 0.0f, 1.0f );
+            across( groups.Next( face++ ), { s, s + 1 }, { s + 1, s + 1 }, 0.0f, 1.0f );
+        }
+        Detail::CentreOnXZ( m );
+        Detail::ApplyPivot( m, options.Pivot );
+        return m;
+    }
+
+    // ── THE OTHER SHAPES OF UE'S PALETTE ──────────────────────────────────────────────────────────
+
+    // Torus: a tube of `tubeDiameter` swept around the vertical axis; `diameter` is the FULL outer extent.
+    // UE builds it as FGeneralizedCylinderGenerator (a circle swept along a circle, AddPrimitiveTool.cpp:
+    // 668-690); here it is the same circle revolved by the Lathe. The tube is clamped so the hole stays open.
+    // Logical faces: 1. Quads: slices * tubeSlices. A genus-1 shell: V - E + F = 0.
+    inline ShapeMesh MakeTorus( float diameter, float tubeDiameter, int slices = 24, int tubeSlices = 16,
+                                const ShapeOptions& options = {} )
+    {
+        ShapeMesh             m;
+        Detail::GroupAssigner groups( options.Groups );
+        const float           outer = Detail::Extent( diameter ) * 0.5f;
+        const float           r     = std::min( Detail::Extent( tubeDiameter ) * 0.5f, 0.45f * outer );
+        const float           ring  = outer - r; // the tube's centre line
+        slices                      = std::max( slices, 3 );
+        tubeSlices                  = std::max( tubeSlices, 3 );
+        // Around the tube from its lowest point, outward first: the outer half climbs, as a cylinder's side.
+        const auto around = [&]( int k )
+        {
+            const float phi =
+                 glm::two_pi<float>() * static_cast<float>( k % tubeSlices ) / static_cast<float>( tubeSlices );
+            return glm::vec2( std::sin( phi ), -std::cos( phi ) );
+        };
+        std::vector<Detail::LatheSegment> profile;
+        for ( int k = 0; k < tubeSlices; ++k )
+        {
+            Detail::LatheSegment s;
+            s.N0 = around( k );
+            s.N1 = around( k + 1 );
+            s.P0 = glm::vec2( ring, r ) + s.N0 * r;
+            s.P1 = glm::vec2( ring, r ) + s.N1 * r;
+            s.V0 = static_cast<float>( k ) / static_cast<float>( tubeSlices );
+            s.V1 = static_cast<float>( k + 1 ) / static_cast<float>( tubeSlices );
+            profile.push_back( s );
+        }
+        Detail::Lathe( m, groups, profile, slices, outer );
+        Detail::ApplyPivot( m, options.Pivot );
+        return m;
+    }
+
+    // Arrow along +Y: a capped shaft and a cone head (UE's FArrowGenerator, SweepGenerator.h, as set up by
+    // UAddArrowPrimitiveTool). UE leaves a 0.01 cm tip ring open-ended into a cap; here the head closes on
+    // its apex. Logical faces: 4 (base, shaft, the head's underside, head), 3 when head and shaft are equally
+    // wide and there is no underside.
+    inline ShapeMesh MakeArrow( float shaftDiameter, float shaftLength, float headDiameter, float headLength,
+                                int slices = 24, const ShapeOptions& options = {} )
+    {
+        ShapeMesh             m;
+        Detail::GroupAssigner groups( options.Groups );
+        const float           rs = Detail::Extent( shaftDiameter ) * 0.5f;
+        const float           ls = Detail::Extent( shaftLength );
+        const float           rh = Detail::Extent( headDiameter ) * 0.5f;
+        const float           lh = Detail::Extent( headLength );
+        slices                   = std::max( slices, 3 );
+        using Seg                = Detail::LatheSegment;
+        std::vector<Seg> profile = {
+             Seg{ { 0.0f, 0.0f },
+                  { rs, 0.0f },
+                  { 0.0f, -1.0f },
+                  { 0.0f, -1.0f },
+                  0.0f,
+                  0.0f,
+                  Detail::LatheUV::Planar,
+                  0 },
+             Seg{ { rs, 0.0f }, { rs, ls }, { 1.0f, 0.0f }, { 1.0f, 0.0f }, 1.0f, 0.0f, Detail::LatheUV::Wrap, 1 },
+        };
+        int face = 2;
+        if ( std::abs( rh - rs ) >= Detail::kMinExtent )
+        {
+            // The ring where the head meets the shaft faces down under a wider head, up over a narrower one.
+            const glm::vec2 down( 0.0f, rh > rs ? -1.0f : 1.0f );
+            profile.push_back(
+                 Seg{ { rs, ls }, { rh, ls }, down, down, 0.0f, 0.0f, Detail::LatheUV::Planar, face++ } );
+        }
+        const glm::vec2 slant = glm::normalize( glm::vec2( lh, rh ) ); // perpendicular to the head's side
+        profile.push_back(
+             Seg{ { rh, ls }, { 0.0f, ls + lh }, slant, slant, 1.0f, 0.0f, Detail::LatheUV::Wrap, face } );
+        Detail::Lathe( m, groups, profile, slices, std::max( rs, rh ) );
+        Detail::ApplyPivot( m, options.Pivot );
+        return m;
+    }
+
+    // Flat disc lying on Y = 0 and facing +Y, `rings` segments from the rim inward (UE's FDiscMeshGenerator);
+    // a `holeDiameter` of at least 1 mm punches a hole (FPuncturedDiscMeshGenerator), clamped inside the rim.
+    // Open, like the Plane. Logical faces: 1. Quads: slices * rings.
+    inline ShapeMesh MakeDisc( float diameter, float holeDiameter = 0.0f, int slices = 24, int rings = 1,
+                               const ShapeOptions& options = {} )
+    {
+        ShapeMesh             m;
+        Detail::GroupAssigner groups( options.Groups );
+        const float           r = Detail::Extent( diameter ) * 0.5f;
+        const float hole = holeDiameter < Detail::kMinExtent ? 0.0f : std::min( holeDiameter * 0.5f, 0.95f * r );
+        slices           = std::max( slices, 3 );
+        rings            = std::max( rings, 1 );
+        std::vector<Detail::LatheSegment> profile;
+        for ( int k = 0; k < rings; ++k )
+        {
+            // Inward, like a cylinder's top cap: that winds the disc to face up.
+            const float a = r - ( r - hole ) * static_cast<float>( k ) / static_cast<float>( rings );
+            const float b = k + 1 == rings
+                                 ? hole
+                                 : r - ( r - hole ) * static_cast<float>( k + 1 ) / static_cast<float>( rings );
+            profile.push_back( { { a, 0.0f },
+                                 { b, 0.0f },
+                                 { 0.0f, 1.0f },
+                                 { 0.0f, 1.0f },
+                                 0.0f,
+                                 0.0f,
+                                 Detail::LatheUV::Planar,
+                                 0 } );
+        }
+        Detail::Lathe( m, groups, profile, slices, r );
+        Detail::ApplyPivot( m, options.Pivot );
+        return m;
+    }
+
+    // Flat rectangle lying on Y = 0 and facing +Y, width along X and depth along Z, subdivided nx x nz (UE's
+    // FRectangleMeshGenerator). Open. Logical faces: 1. Quads: nx * nz.
+    inline ShapeMesh MakeRectangle( const glm::vec2& size, const glm::ivec2& subdivisions = glm::ivec2( 1 ),
+                                    const ShapeOptions& options = {} )
+    {
+        ShapeMesh             m;
+        Detail::GroupAssigner groups( options.Groups );
+        const glm::vec2       s( Detail::Extent( size.x ), Detail::Extent( size.y ) );
+        const glm::ivec2      n = glm::max( subdivisions, glm::ivec2( 1 ) );
+        // cross(+X, -Z) = +Y.
+        Detail::AddFaceGrid( m, groups, 0, glm::vec3( -s.x * 0.5f, 0.0f, s.y * 0.5f ),
+                             glm::vec3( s.x, 0.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -s.y ), n.x, n.y );
         Detail::ApplyPivot( m, options.Pivot );
         return m;
     }

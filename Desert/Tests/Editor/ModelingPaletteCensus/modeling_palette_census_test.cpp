@@ -75,9 +75,14 @@ namespace
         // Create Shape: `cm( label, ... )` and `count( label, ... )` draw every dimension.
         { "DragFloat", "label", Reach::Set,
           { "CreateShape.Width", "CreateShape.Depth", "CreateShape.Height", "CreateShape.StepDepth",
-            "CreateShape.StepHeight" } },
+            "CreateShape.StepHeight", "CreateShape.InnerRadius", "CreateShape.TubeDiameter",
+            "CreateShape.ShaftDiameter", "CreateShape.ShaftLength", "CreateShape.HeadLength" } },
         { "SliderInt", "label", Reach::Set,
-          { "CreateShape.Subdivisions", "CreateShape.Slices", "CreateShape.Stacks", "CreateShape.Steps" } },
+          { "CreateShape.Subdivisions", "CreateShape.Slices", "CreateShape.Stacks", "CreateShape.Steps",
+            "CreateShape.TubeSlices" } },
+        { "BeginCombo", "\"Stairs Type\"", Reach::Palette, { "\"Create shape stairs: \"" } },
+        { "DragFloat", "\"Hole Diameter\"", Reach::Set, { "CreateShape.HoleDiameter" } },
+        { "DragFloat", "\"Curve Angle\"", Reach::Set, { "CreateShape.CurveAngle" } },
         { "BeginCombo", "\"Polygroups\"", Reach::Palette, { "\"Create shape polygroups: \"" } },
         { "BeginCombo", "\"Pivot\"", Reach::Palette, { "\"Create shape pivot: \"" } },
         { "Checkbox", "\"Place on Scene\"", Reach::Palette, { "\"Create shape: Place on Scene\"" } },
@@ -220,6 +225,7 @@ namespace
     constexpr const char* kLayer             = "Editor/Source/EditorLayer.cpp";
     const std::string     kSelectableInCombo = "Selectable|Geometry::ToString( mode )";
     const std::string     kSelectablePivot   = "Selectable|Geometry::ToString( pivot )";
+    const std::string     kSelectableStairs  = "Selectable|Geometry::ToString( type )";
 
     bool IsSubjectRow( const std::string& name )
     {
@@ -248,7 +254,7 @@ TEST( ModelingPaletteCensus, EveryPanelWidgetHasARow )
     for ( const std::string& widget : PanelWidgets( ReadFile( RepoRoot() + kPanel ) ) )
     {
         // The combos' own entries are the combo's values, reached through the combo's row.
-        if ( widget == kSelectableInCombo || widget == kSelectablePivot )
+        if ( widget == kSelectableInCombo || widget == kSelectablePivot || widget == kSelectableStairs )
             continue;
         EXPECT_TRUE( registered.count( widget ) )
              << "ModelingPanel draws '" << widget

@@ -5174,6 +5174,14 @@ namespace Desert::Editor
                                       MS::Get().CreateShape.Groups = mode;
                                       return PaletteCommandDone();
                                   } } );
+        for ( const Geometry::StairsType type : { Geometry::StairsType::Linear, Geometry::StairsType::Floating,
+                                                  Geometry::StairsType::Curved, Geometry::StairsType::Spiral } )
+            commands.push_back( { "Modeling", std::string( "Create shape stairs: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().CreateShape.StairsKind = type;
+                                      return PaletteCommandDone();
+                                  } } );
         for ( const Geometry::ShapePivot pivot :
               { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre, Geometry::ShapePivot::Top } )
             commands.push_back( { "Modeling", std::string( "Create shape pivot: " ) + Geometry::ToString( pivot ),

@@ -19,6 +19,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <functional>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -39,7 +40,30 @@ namespace
         bool                                            Closed          = true;
         float                                           Volume          = 0.0f; // analytic, of the smooth shape
         float                                           VolumeTolerance = 0.0f; // relative
+        int                                             Euler           = 2;    // V - E + F of the welded mesh
+        int                                             Boundary        = 0;    // open edges (0 when Closed)
     };
+
+    // A curved flight's floor plan per step: the annular sector between the chords of the two radii.
+    float CurvedStepArea( float inner, float width, float degrees, int steps )
+    {
+        const float outer = inner + width;
+        return 0.5f * std::sin( glm::radians( std::abs( degrees ) ) / static_cast<float>( steps ) ) *
+               ( outer * outer - inner * inner );
+    }
+
+    StairsShape Stairs( StairsType type, float curveAngle = 90.0f )
+    {
+        StairsShape s;
+        s.Type        = type;
+        s.Steps       = 6;
+        s.StepWidth   = 200.0f;
+        s.StepHeight  = 20.0f;
+        s.StepDepth   = 30.0f;
+        s.InnerRadius = 150.0f;
+        s.CurveAngle  = curveAngle;
+        return s;
+    }
 
     std::vector<ShapeCase> Cases()
     {
@@ -48,7 +72,7 @@ namespace
              { "Box", []( const ShapeOptions& o ) { return MakeBox( { 200.0f, 100.0f, 50.0f }, { 2, 3, 1 }, o ); },
                6, 2 * ( 2 * 3 + 3 * 1 + 1 * 2 ), true, 200.0f * 100.0f * 50.0f, 1e-4f },
              { "Plane", []( const ShapeOptions& o ) { return MakePlane( { 100.0f, 60.0f }, { 3, 2 }, o ); }, 1, 6,
-               false, 0.0f, 0.0f },
+               false, 0.0f, 0.0f, 1, 2 * ( 3 + 2 ) },
              { "Sphere", []( const ShapeOptions& o ) { return MakeSphere( 120.0f, 16, 12, o ); }, 1, 16 * 12, true,
                4.0f / 3.0f * pi * 60.0f * 60.0f * 60.0f, 0.1f },
              { "Cylinder", []( const ShapeOptions& o ) { return MakeCylinder( 80.0f, 150.0f, 12, o ); }, 3, 3 * 12,
@@ -61,8 +85,44 @@ namespace
              { "Pyramid", []( const ShapeOptions& o ) { return MakePyramid( { 100.0f, 150.0f, 80.0f }, o ); }, 5,
                5, true, 100.0f * 80.0f * 150.0f / 3.0f, 1e-4f },
              // 6 steps: two sides, back, bottom, 6 risers, 6 treads; per quad the sides are 6*7/2 cells each.
-             { "Stairs", []( const ShapeOptions& o ) { return MakeStairs( 200.0f, 30.0f, 20.0f, 6, o ); },
-               4 + 2 * 6, 6 * 7 + 4 * 6, true, 200.0f * 30.0f * 20.0f * 21.0f, 1e-4f },
+             { "Stairs Linear",
+               []( const ShapeOptions& o ) { return MakeStairs( Stairs( StairsType::Linear ), o ); }, 4 + 2 * 6,
+               6 * 7 + 4 * 6, true, 200.0f * 30.0f * 20.0f * 21.0f, 1e-4f },
+             // Floating: each step is two rows tall except the first, 2*6-1 side cells per wall (UE's
+             // NumQuadsPerSide) and 4*6 quads across (UE's NumConnectQuads).
+             { "Stairs Floating",
+               []( const ShapeOptions& o ) { return MakeStairs( Stairs( StairsType::Floating ), o ); }, 4 + 2 * 6,
+               2 * 11 + 4 * 6, true, 200.0f * 30.0f * 20.0f * 11.0f, 1e-4f },
+             { "Stairs Curved",
+               []( const ShapeOptions& o ) { return MakeStairs( Stairs( StairsType::Curved ), o ); }, 4 + 2 * 6,
+               6 * 7 + 4 * 6, true, CurvedStepArea( 150.0f, 200.0f, 90.0f, 6 ) * 20.0f * 21.0f, 1e-4f },
+             // A negative angle turns the other way: the mirrored flight must still face out.
+             { "Stairs Curved CCW", []( const ShapeOptions& o )
+               { return MakeStairs( Stairs( StairsType::Curved, -120.0f ), o ); }, 4 + 2 * 6, 6 * 7 + 4 * 6, true,
+               CurvedStepArea( 150.0f, 200.0f, 120.0f, 6 ) * 20.0f * 21.0f, 1e-4f },
+             { "Stairs Spiral", []( const ShapeOptions& o )
+               { return MakeStairs( Stairs( StairsType::Spiral, 400.0f ), o ); }, 4 + 2 * 6, 2 * 11 + 4 * 6, true,
+               CurvedStepArea( 150.0f, 200.0f, 400.0f, 6 ) * 20.0f * 11.0f, 1e-4f },
+             // Genus one: V - E + F = 0. Pappus on the faceted solid: a 12-gon of circumradius 15 at R = 45,
+             // revolved as a 16-gon ring, is exactly 16 sin(2pi/16) x (12/2 sin(2pi/12) 15^2) x 45.
+             { "Torus", []( const ShapeOptions& o ) { return MakeTorus( 120.0f, 30.0f, 16, 12, o ); }, 1, 16 * 12,
+               true,
+               16.0f * std::sin( 2.0f * pi / 16.0f ) * 6.0f * std::sin( 2.0f * pi / 12.0f ) * 15.0f * 15.0f *
+                    45.0f,
+               1e-4f, 0 },
+             { "Arrow", []( const ShapeOptions& o ) { return MakeArrow( 40.0f, 200.0f, 120.0f, 120.0f, 12, o ); },
+               4, 4 * 12, true, pi * 20.0f * 20.0f * 200.0f + pi * 60.0f * 60.0f * 120.0f / 3.0f, 0.06f },
+             // Head as wide as the shaft: no underside ring, one face fewer.
+             { "Arrow flush",
+               []( const ShapeOptions& o ) { return MakeArrow( 40.0f, 200.0f, 40.0f, 60.0f, 12, o ); }, 3, 3 * 12,
+               true, pi * 20.0f * 20.0f * 200.0f + pi * 20.0f * 20.0f * 60.0f / 3.0f, 0.06f },
+             { "Disc", []( const ShapeOptions& o ) { return MakeDisc( 100.0f, 0.0f, 16, 3, o ); }, 1, 16 * 3,
+               false, 0.0f, 0.0f, 1, 16 },
+             { "Punctured Disc", []( const ShapeOptions& o ) { return MakeDisc( 100.0f, 40.0f, 16, 2, o ); }, 1,
+               16 * 2, false, 0.0f, 0.0f, 0, 2 * 16 },
+             { "Rectangle",
+               []( const ShapeOptions& o ) { return MakeRectangle( { 100.0f, 60.0f }, { 3, 2 }, o ); }, 1, 6,
+               false, 0.0f, 0.0f, 1, 2 * ( 3 + 2 ) },
         };
     }
 
@@ -125,18 +185,14 @@ TEST( ShapeGenerators, EveryShapeInEveryModeIsOneOutwardShell )
             for ( int e = 0; e < mesh.MaxEdgeId(); ++e )
                 if ( mesh.IsEdge( e ) && mesh.IsBoundaryEdge( e ) )
                     ++boundary;
+            EXPECT_EQ( boundary, c.Boundary ) << "open edges: the rim of an open shape, none on a closed one";
+            EXPECT_EQ( mesh.VertexCount() - mesh.EdgeCount() + mesh.TriangleCount(), c.Euler )
+                 << "not one shell of the expected genus";
             if ( c.Closed )
             {
-                EXPECT_EQ( boundary, 0 ) << "a closed shape has an open edge";
-                EXPECT_EQ( mesh.VertexCount() - mesh.EdgeCount() + mesh.TriangleCount(), 2 )
-                     << "not one sphere-like shell";
                 const double volume = SignedVolume( m );
                 EXPECT_GT( volume, 0.0 ) << "wound inward";
                 EXPECT_NEAR( volume / c.Volume, 1.0, c.VolumeTolerance );
-            }
-            else
-            {
-                EXPECT_EQ( boundary, 2 * ( 3 + 2 ) ) << "the plane's rim, one edge per grid step";
             }
 
             // Each triangle's vertex normals lean the way its winding faces.
@@ -262,7 +318,7 @@ TEST( ShapeGenerators, SizesAreFullExtents )
     EXPECT_NEAR( box.Max.y - box.Min.y, 100.0f, 1e-3f );
     EXPECT_NEAR( box.Max.z - box.Min.z, 50.0f, 1e-3f );
 
-    const auto stairs = MakeStairs( 200.0f, 30.0f, 20.0f, 6 ).Bounds();
+    const auto stairs = MakeStairs( Stairs( StairsType::Linear ) ).Bounds();
     EXPECT_NEAR( stairs.Max.z - stairs.Min.z, 6 * 30.0f, 1e-3f ) << "footprint is steps x depth";
     EXPECT_NEAR( stairs.Max.y, 6 * 20.0f, 1e-3f ) << "climbs steps x height";
 
@@ -283,13 +339,18 @@ TEST( ShapeGenerators, SizesAreFullExtents )
 // A zero or negative size and silly segment counts still give a closed, outward shell.
 TEST( ShapeGenerators, DegenerateInputsAreClampedIntoAShell )
 {
-    const std::vector<ShapeMesh> shapes = { MakeBox( { 0.0f, -5.0f, 0.0f }, { 0, -1, 0 } ),
-                                            MakeSphere( 0.0f, 1, 1 ),
-                                            MakeCylinder( -1.0f, 0.0f, 0 ),
-                                            MakeCone( 0.0f, -1.0f, 2 ),
-                                            MakeCapsule( 0.0f, 0.0f, 0, 0 ),
-                                            MakePyramid( glm::vec3( 0.0f ) ),
-                                            MakeStairs( 0.0f, 0.0f, 0.0f, 0 ) };
+    const std::vector<ShapeMesh> shapes = {
+         MakeBox( { 0.0f, -5.0f, 0.0f }, { 0, -1, 0 } ),
+         MakeSphere( 0.0f, 1, 1 ),
+         MakeCylinder( -1.0f, 0.0f, 0 ),
+         MakeCone( 0.0f, -1.0f, 2 ),
+         MakeCapsule( 0.0f, 0.0f, 0, 0 ),
+         MakePyramid( glm::vec3( 0.0f ) ),
+         MakeStairs( { StairsType::Linear, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f } ),
+         MakeStairs( { StairsType::Floating, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f } ),
+         MakeStairs( { StairsType::Curved, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f } ),
+         MakeStairs( { StairsType::Spiral, -1, -5.0f, 0.0f, 0.0f, -1.0f, 1.0e6f } ),
+         MakeArrow( 0.0f, 0.0f, 0.0f, 0.0f, 0 ) };
     for ( const ShapeMesh& m : shapes )
     {
         auto converted = ShapeToEditMesh( m );
@@ -298,6 +359,117 @@ TEST( ShapeGenerators, DegenerateInputsAreClampedIntoAShell )
                         converted.GetValue().TriangleCount(),
                    2 );
         EXPECT_GT( SignedVolume( m ), 0.0 );
+    }
+}
+
+// A torus clamped from silly inputs is still one genus-one shell with its hole open.
+TEST( ShapeGenerators, ADegenerateTorusKeepsItsHole )
+{
+    for ( const ShapeMesh& m : { MakeTorus( 0.0f, 0.0f, 0, 0 ), MakeTorus( 10.0f, 1000.0f, 3, 3 ) } )
+    {
+        auto converted = ShapeToEditMesh( m );
+        ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
+        const EditMesh& mesh = converted.GetValue();
+        EXPECT_EQ( mesh.VertexCount() - mesh.EdgeCount() + mesh.TriangleCount(), 0 );
+        EXPECT_GT( SignedVolume( m ), 0.0 );
+    }
+}
+
+// Each stair type reads only its own fields, as UE's EditConditions show them: a curved tread is as deep as
+// the angle makes it, and a straight flight has no radius.
+TEST( ShapeGenerators, EachStairTypeReadsOnlyItsOwnFields )
+{
+    const auto same = []( const ShapeMesh& a, const ShapeMesh& b )
+    {
+        if ( a.Vertices.size() != b.Vertices.size() )
+            return false;
+        for ( size_t i = 0; i < a.Vertices.size(); ++i )
+            if ( glm::length( a.Vertices[i].Position - b.Vertices[i].Position ) > 1e-4f )
+                return false;
+        return true;
+    };
+    for ( const StairsType type : { StairsType::Curved, StairsType::Spiral } )
+    {
+        StairsShape deeper = Stairs( type );
+        deeper.StepDepth *= 3.0f;
+        EXPECT_TRUE( same( MakeStairs( Stairs( type ) ), MakeStairs( deeper ) ) ) << ToString( type );
+        StairsShape wider = Stairs( type );
+        wider.InnerRadius *= 2.0f;
+        EXPECT_FALSE( same( MakeStairs( Stairs( type ) ), MakeStairs( wider ) ) ) << ToString( type );
+    }
+    for ( const StairsType type : { StairsType::Linear, StairsType::Floating } )
+    {
+        StairsShape curvier = Stairs( type, 270.0f );
+        curvier.InnerRadius *= 2.0f;
+        EXPECT_TRUE( same( MakeStairs( Stairs( type ) ), MakeStairs( curvier ) ) ) << ToString( type );
+    }
+}
+
+// The side profile is UE's: a solid flight stands on the floor to its back, a floating one's underside climbs
+// with it, two steps below the top (StairGenerator.cpp FFloatingStairGenerator::GenerateVertex). Both climb
+// Steps x StepHeight.
+TEST( ShapeGenerators, AFloatingFlightsUndersideClimbsWithIt )
+{
+    for ( const StairsType type : { StairsType::Linear, StairsType::Floating } )
+    {
+        SCOPED_TRACE( ToString( type ) );
+        const ShapeMesh m   = MakeStairs( Stairs( type ) );
+        const auto      box = m.Bounds();
+        EXPECT_NEAR( box.Max.y - box.Min.y, 6 * 20.0f, 1e-3f );
+        float backLowest = 1.0e30f;
+        for ( const Vertex& v : m.Vertices )
+            if ( v.Position.z > box.Max.z - 1e-3f )
+                backLowest = std::min( backLowest, v.Position.y );
+        EXPECT_NEAR( backLowest, type == StairsType::Floating ? 4 * 20.0f : 0.0f, 1e-3f );
+    }
+}
+
+// A curved flight is an annulus sector: every wall vertex is at the inner or the outer radius from ONE
+// vertical axis, and the smooth wall normal is horizontal and radial.
+TEST( ShapeGenerators, ACurvedFlightStaysBetweenItsRadii )
+{
+    for ( const float angle : { 90.0f, -120.0f } )
+    {
+        SCOPED_TRACE( angle );
+        const ShapeMesh m = MakeStairs( Stairs( StairsType::Curved, angle ) );
+        // The axis: a wall vertex's normal is radial, so the normal lines of two wall vertices cross on the
+        // axis. Riser and back corners share the foot and have tangential normals, so take the crossing most
+        // pairs agree on (rounded to 0.01 cm).
+        std::vector<std::pair<glm::vec2, glm::vec2>> lines;
+        for ( const Vertex& v : m.Vertices )
+            if ( std::abs( v.Position.y ) < 1e-3f && std::abs( v.Normal.y ) < 1e-3f )
+                lines.emplace_back( glm::vec2( v.Position.x, v.Position.z ),
+                                    glm::normalize( glm::vec2( v.Normal.x, v.Normal.z ) ) );
+        std::map<std::pair<long, long>, int> votes;
+        for ( size_t i = 0; i < lines.size(); ++i )
+            for ( size_t j = i + 1; j < lines.size(); ++j )
+            {
+                const auto& [p, d] = lines[i];
+                const auto& [q, e] = lines[j];
+                const float cross  = d.x * e.y - d.y * e.x;
+                if ( std::abs( cross ) < 0.05f )
+                    continue;
+                const float     t = ( ( q.x - p.x ) * e.y - ( q.y - p.y ) * e.x ) / cross;
+                const glm::vec2 x = p + d * t;
+                ++votes[{ std::lround( x.x * 100.0f ), std::lround( x.y * 100.0f ) }];
+            }
+        ASSERT_FALSE( votes.empty() );
+        auto best = votes.begin();
+        for ( auto it = votes.begin(); it != votes.end(); ++it )
+            if ( it->second > best->second )
+                best = it;
+        const glm::vec2 centre( static_cast<float>( best->first.first ) / 100.0f,
+                                static_cast<float>( best->first.second ) / 100.0f );
+        float           lo = 1.0e30f;
+        float           hi = 0.0f;
+        for ( const Vertex& v : m.Vertices )
+        {
+            const float r = glm::length( glm::vec2( v.Position.x, v.Position.z ) - centre );
+            lo            = std::min( lo, r );
+            hi            = std::max( hi, r );
+        }
+        EXPECT_NEAR( lo, 150.0f, 1e-2f ) << "inner radius";
+        EXPECT_NEAR( hi, 350.0f, 1e-2f ) << "inner radius + step width";
     }
 }
 

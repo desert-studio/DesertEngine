@@ -40,6 +40,14 @@ namespace Desert::Editor
                     return ICON_MDI_TRIANGLE_OUTLINE;
                 case S::Stairs:
                     return ICON_MDI_STAIRS;
+                case S::Torus:
+                    return ICON_MDI_RING;
+                case S::Arrow:
+                    return ICON_MDI_ARROW_UP_BOLD;
+                case S::Disc:
+                    return ICON_MDI_CIRCLE_OUTLINE;
+                case S::Rectangle:
+                    return ICON_MDI_RECTANGLE_OUTLINE;
             }
             return ICON_MDI_SHAPE_PLUS;
         }
@@ -636,25 +644,84 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Shape" ) )
         {
             // Only the fields the chosen shape reads: a field shown here always moves the shape.
-            const bool round = s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Cylinder ||
-                               s.Kind == MS::Shape::Cone || s.Kind == MS::Shape::Capsule;
-            cm( round ? "Diameter" : "Width", &s.Width, round ? "Full width across the axis." : "X extent." );
-            if ( s.Kind == MS::Shape::Box || s.Kind == MS::Shape::Pyramid )
+            using Shape       = MS::Shape;
+            const bool stairs = s.Kind == Shape::Stairs;
+            const bool curved = stairs && ( s.StairsKind == Geometry::StairsType::Curved ||
+                                            s.StairsKind == Geometry::StairsType::Spiral );
+            const bool round  = s.Kind == Shape::Sphere || s.Kind == Shape::Cylinder || s.Kind == Shape::Cone ||
+                               s.Kind == Shape::Capsule || s.Kind == Shape::Torus || s.Kind == Shape::Disc;
+            if ( stairs )
+            {
+                constexpr Geometry::StairsType types[] = {
+                     Geometry::StairsType::Linear, Geometry::StairsType::Floating, Geometry::StairsType::Curved,
+                     Geometry::StairsType::Spiral };
+                ImGui::SetNextItemWidth( 110.0f );
+                if ( ImGui::BeginCombo( "Stairs Type", Geometry::ToString( s.StairsKind ) ) )
+                {
+                    for ( const auto type : types )
+                        if ( ImGui::Selectable( Geometry::ToString( type ), type == s.StairsKind ) )
+                            s.StairsKind = type;
+                    ImGui::EndCombo();
+                }
+            }
+            if ( s.Kind == Shape::Arrow )
+                cm( "Head Diameter", &s.Width, "Full width of the head across the axis." );
+            else if ( stairs )
+                cm( "Step Width", &s.Width, curved ? "Outer radius minus inner radius." : "X extent." );
+            else
+                cm( round ? "Diameter" : "Width", &s.Width,
+                    s.Kind == Shape::Torus ? "Full outer width across the axis."
+                                           : ( round ? "Full width across the axis." : "X extent." ) );
+            if ( s.Kind == Shape::Box || s.Kind == Shape::Pyramid || s.Kind == Shape::Rectangle )
                 cm( "Depth", &s.Depth, "Z extent." );
-            if ( s.Kind != MS::Shape::Sphere && s.Kind != MS::Shape::Stairs )
+            if ( s.Kind == Shape::Box || s.Kind == Shape::Pyramid || s.Kind == Shape::Cylinder ||
+                 s.Kind == Shape::Cone || s.Kind == Shape::Capsule )
                 cm( "Height", &s.Height,
-                    s.Kind == MS::Shape::Capsule ? "End to end, never less than the diameter." : "Y extent." );
-            if ( s.Kind == MS::Shape::Box )
+                    s.Kind == Shape::Capsule ? "End to end, never less than the diameter." : "Y extent." );
+            if ( s.Kind == Shape::Torus )
+            {
+                cm( "Tube Diameter", &s.TubeDiameter, "Thickness of the ring; kept under half the diameter." );
+                count( "Tube Slices", &s.TubeSlices, 3, 128, 500 );
+            }
+            if ( s.Kind == Shape::Arrow )
+            {
+                cm( "Shaft Diameter", &s.ShaftDiameter, "Full width of the shaft." );
+                cm( "Shaft Length", &s.ShaftLength, "From the base to the head." );
+                cm( "Head Length", &s.HeadLength, "From the head's base to its tip." );
+            }
+            if ( s.Kind == Shape::Disc )
+            {
+                ImGui::SetNextItemWidth( 110.0f );
+                if ( ImGui::DragFloat( "Hole Diameter", &s.HoleDiameter, 1.0f, 0.0f, 1000.0f, "%.1f cm" ) )
+                    s.HoleDiameter = std::clamp( s.HoleDiameter, 0.0f, 1000000.0f );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "0 for a full disc; from 1 mm a punctured one, kept inside the rim." );
+            }
+            if ( s.Kind == Shape::Box || s.Kind == Shape::Rectangle || s.Kind == Shape::Disc )
                 count( "Subdivisions", &s.Subdivisions, 1, 100, 500 );
-            if ( round )
+            if ( round || s.Kind == Shape::Arrow )
                 count( "Slices", &s.Slices, 3, 128, 500 );
-            if ( s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Capsule )
+            if ( s.Kind == Shape::Sphere || s.Kind == Shape::Capsule )
                 count( "Stacks", &s.Stacks, 4, 100, 500 );
-            if ( s.Kind == MS::Shape::Stairs )
+            if ( stairs )
             {
                 count( "Steps", &s.Steps, 2, 100, 1000000 );
-                cm( "Step Depth", &s.StepDepth, "Tread depth, along +Z." );
+                if ( !curved )
+                    cm( "Step Depth", &s.StepDepth, "Tread depth, along +Z." );
                 cm( "Step Height", &s.StepHeight, "Riser height." );
+                if ( curved )
+                {
+                    cm( "Inner Radius", &s.InnerRadius, "From the axis to the inner wall." );
+                    // UE's ranges: a curve turns up to 360 degrees, a spiral as many turns as it likes.
+                    const bool  spiral = s.StairsKind == Geometry::StairsType::Spiral;
+                    const float span   = spiral ? 720.0f : 360.0f;
+                    ImGui::SetNextItemWidth( 110.0f );
+                    if ( ImGui::DragFloat( "Curve Angle", &s.CurveAngle, 1.0f, -span, span, "%.1f deg" ) )
+                        s.CurveAngle = std::clamp( s.CurveAngle, spiral ? -360000.0f : -360.0f,
+                                                   spiral ? 360000.0f : 360.0f );
+                    if ( ImGui::IsItemHovered() )
+                        ImGui::SetTooltip( "Degrees the whole flight turns; negative turns the other way." );
+                }
             }
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Polygroups and Pivot" ) )

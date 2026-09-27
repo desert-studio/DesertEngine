@@ -62,7 +62,18 @@ namespace Desert::Editor::Tools
             case MS::Shape::Pyramid:
                 return Geometry::MakePyramid( { s.Width, s.Height, s.Depth }, options );
             case MS::Shape::Stairs:
-                return Geometry::MakeStairs( s.Width, s.StepDepth, s.StepHeight, s.Steps, options );
+                return Geometry::MakeStairs(
+                     { s.StairsKind, s.Steps, s.Width, s.StepHeight, s.StepDepth, s.InnerRadius, s.CurveAngle },
+                     options );
+            case MS::Shape::Torus:
+                return Geometry::MakeTorus( s.Width, s.TubeDiameter, s.Slices, s.TubeSlices, options );
+            case MS::Shape::Arrow:
+                return Geometry::MakeArrow( s.ShaftDiameter, s.ShaftLength, s.Width, s.HeadLength, s.Slices,
+                                            options );
+            case MS::Shape::Disc:
+                return Geometry::MakeDisc( s.Width, s.HoleDiameter, s.Slices, s.Subdivisions, options );
+            case MS::Shape::Rectangle:
+                return Geometry::MakeRectangle( { s.Width, s.Depth }, glm::ivec2( s.Subdivisions ), options );
         }
         return Geometry::MakeBox( { s.Width, s.Height, s.Depth }, glm::ivec3( s.Subdivisions ), options );
     }
