@@ -12,6 +12,7 @@ project "Desert"
     dependson { "DesertHeaderTool" }
     prebuildcommands {
         DesertPlatform.BuiltToolPath("DesertHeaderTool")
+            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
             .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
             .. ' "Engine"'
