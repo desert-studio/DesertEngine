@@ -347,13 +347,16 @@ TEST( LandscapeRaycast, ARefusedTileIsTracedThroughAndTheHitNamesItsIndexInTheWh
 
     const auto all = RaycastLandscape( tiles, origin, down, 1e4f, {} );
     ASSERT_TRUE( all.has_value() );
-    EXPECT_EQ( all.value().Tile, 0u );
-    EXPECT_NEAR( all.value().Point.y, 300.0f, 1e-3f );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_EQ( all->Tile, 0u );
+    EXPECT_NEAR( all->Point.y, 300.0f, 1e-3f );
 
     const auto through = RaycastLandscape( tiles, origin, down, 1e4f, []( size_t i ) { return i != 0u; } );
     ASSERT_TRUE( through.has_value() );
-    EXPECT_EQ( through.value().Tile, 1u ) << "the index in the whole set, not in the kept subset";
-    EXPECT_NEAR( through.value().Point.y, 0.0f, 1e-3f );
+    EXPECT_EQ( through->Tile, 1u ) << "the index in the whole set, not in the kept subset";
+    EXPECT_NEAR( through->Point.y, 0.0f, 1e-3f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     EXPECT_FALSE( RaycastLandscape( tiles, origin, down, 1e4f, []( size_t ) { return false; } ) )
          << "every tile refused is a miss";

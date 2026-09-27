@@ -72,7 +72,7 @@ namespace
             return Common::MakeSuccess( true );
         }
 
-        ClothSimulationOutput GetOutput() const override
+        [[nodiscard]] ClothSimulationOutput GetOutput() const override
         {
             return { m_Positions, m_Asset.Mesh.Normals };
         }
@@ -98,12 +98,12 @@ namespace
         {
         }
 
-        std::string_view GetName() const override
+        [[nodiscard]] std::string_view GetName() const override
         {
             return "FakeCloth";
         }
 
-        Common::BoolResultStr SupportsAsset( const ClothingAsset& asset ) const override
+        [[nodiscard]] Common::BoolResultStr SupportsAsset( const ClothingAsset& asset ) const override
         {
             if ( asset.Maps.MaxDistance.size() != asset.Mesh.Positions.size() )
                 return Common::MakeError<bool>( "max-distance map does not cover the mesh" );
@@ -134,7 +134,7 @@ namespace
         asset.Maps.BackstopDistance = { 0.0f, 0.0f };
         asset.Maps.BackstopRadius   = { 0.0f, 0.0f };
         asset.UsedBoneNames         = { "root", "spine", "head" };
-        asset.Colliders.push_back(
+        asset.Colliders.emplace_back(
              Physics::Cloth::ClothCapsuleCollider{ "spine", {}, { 0, 40, 0 }, 15.0f, 12.0f } );
         return asset;
     }
@@ -238,11 +238,11 @@ namespace
             return Common::MakeSuccess( true );
         }
 
-        bool IsSectionVisible( uint32_t section ) const
+        [[nodiscard]] bool IsSectionVisible( uint32_t section ) const
         {
             return m_SectionVisible[section];
         }
-        size_t FollowerCount() const
+        [[nodiscard]] size_t FollowerCount() const
         {
             return m_Followers.size();
         }
@@ -405,7 +405,8 @@ TEST( ClothHairEquipmentApi, AClothStepIsAPureFunctionOfItsInputs )
     EXPECT_NE( a->GetOutput().Positions[1], b->GetOutput().Positions[1] );
     half.FixedDeltaSeconds = 0.0f;
     EXPECT_FALSE( a->Step( half ).IsSuccess() );
-    ClothStepContext noBones{ 1.0f / 60.0f };
+    ClothStepContext noBones;
+    noBones.FixedDeltaSeconds = 1.0f / 60.0f;
     EXPECT_FALSE( a->Step( noBones ).IsSuccess() );
 
     a->Teleport( glm::mat4( 1.0f ), ClothTeleportMode::Reset );
@@ -416,7 +417,8 @@ TEST( ClothHairEquipmentApi, ThePoseContractStepsWornClothWithTheLeadersPose )
 {
     Fixture f;
     PutOnVest( f.Character );
-    const std::vector<glm::mat4> threeBones( 3, glm::mat4( 1.0f ) ), twoBones( 2, glm::mat4( 1.0f ) );
+    const std::vector<glm::mat4> threeBones( 3, glm::mat4( 1.0f ) );
+    const std::vector<glm::mat4> twoBones( 2, glm::mat4( 1.0f ) );
     EXPECT_TRUE( f.Character.ApplyLeaderPose( { threeBones }, 1.0f / 60.0f ).IsSuccess() );
     EXPECT_FALSE( f.Character.ApplyLeaderPose( { twoBones }, 1.0f / 60.0f ).IsSuccess() );
 }
@@ -443,7 +445,7 @@ namespace
             return Common::MakeSuccess( true );
         }
 
-        std::span<const glm::vec3> GetGuidePositions( uint32_t group ) const override
+        [[nodiscard]] std::span<const glm::vec3> GetGuidePositions( uint32_t group ) const override
         {
             return m_Guides[group];
         }
@@ -454,7 +456,7 @@ namespace
             m_Strands = m_Asset.Groups[0].Strands.Points;
         }
 
-        Hair::HairRenderFrame GetRenderFrame() const override
+        [[nodiscard]] Hair::HairRenderFrame GetRenderFrame() const override
         {
             const auto& strands = m_Asset.Groups[0].Strands;
             return { m_Revision,
@@ -472,7 +474,7 @@ namespace
     class FakeGroomFactory final : public Hair::IGroomSimulationFactory
     {
     public:
-        std::string_view GetName() const override
+        [[nodiscard]] std::string_view GetName() const override
         {
             return "FakeGroom";
         }
@@ -499,7 +501,7 @@ TEST( ClothHairEquipmentApi, TheGroomRenderFrameCarriesTheAssetsCurveLayout )
     group.Guides.Points            = { { 0.5f, 170, 0 }, { 0.5f, 165, 0 } };
     group.Guides.CurvePointOffset  = { 0 };
     group.Guides.CurvePointCount   = { 2 };
-    Hair::GroomAsset asset{ "Buzzcut", { group } };
+    const Hair::GroomAsset asset{ "Buzzcut", { group } };
 
     FakeGroomFactory factory;
     EXPECT_FALSE( factory.CreateSimulation( asset, Hair::GroomBinding{} ).IsSuccess() );
@@ -509,7 +511,9 @@ TEST( ClothHairEquipmentApi, TheGroomRenderFrameCarriesTheAssetsCurveLayout )
     auto made = factory.CreateSimulation( asset, binding );
     ASSERT_TRUE( made.IsSuccess() ) << made.GetError();
     auto simulation = made.ExtractValue();
-    ASSERT_TRUE( simulation->Step( { 1.0f / 60.0f } ).IsSuccess() );
+    Hair::GroomStepContext step;
+    step.FixedDeltaSeconds = 1.0f / 60.0f;
+    ASSERT_TRUE( simulation->Step( step ).IsSuccess() );
     EXPECT_LT( simulation->GetGuidePositions( 0 )[1].y, 165.0f );
 
     const auto&                 source = dynamic_cast<const Hair::IGroomRenderDataSource&>( *simulation );
