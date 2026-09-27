@@ -93,9 +93,7 @@ namespace Desert::Engine
         uint32_t MSAASampleMask = 1;
 
         // --- Feature flags the renderer branches on -------------------------------------------------
-        bool SupportsGeometryShaders     = false;
         bool SupportsTessellation        = false;
-        bool SupportsMultiDrawIndirect   = false;
         bool SupportsTimestampQueries    = false; ///< GPU-side profiling; the profiler is CPU-only without it.
         /// Nanoseconds per timestamp tick — the factor that turns a query delta into real time. Read by
         /// the GPU profiler and by nothing else; it is 1.0 on MoltenVK (Metal counts in nanoseconds
@@ -248,7 +246,9 @@ namespace Desert::Engine
          */
         [[nodiscard]] virtual Common::BoolResultStr PersistPipelineCache() = 0;
 
-        static std::shared_ptr<Device> Create();
+        // Fallible by design: a device without the engine's required feature set is REFUSED here, and the
+        // error names what it lacks (Vulkan: DeviceCaps::CheckRequired). The caller decides how to stop.
+        [[nodiscard]] static Common::ResultStr<std::shared_ptr<Device>> Create();
     };
 
 } // namespace Desert::Engine

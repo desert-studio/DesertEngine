@@ -47,8 +47,17 @@ namespace Desert::Engine
         EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
 
         // 3. Create Device
-        m_Device = Device::Create();
-        
+        // A REFUSED DEVICE IS AN ERROR WITH A LIST, NOT A CRASH. DeviceCaps names every required capability
+        // the GPU lacks; the process stops with that message and a failing exit code, before a window full
+        // of undefined behaviour could say something else.
+        auto device = Device::Create();
+        if ( !device )
+        {
+            LOG_ERROR( "[Device] cannot start: {}", device.GetError() );
+            std::exit( EXIT_FAILURE );
+        }
+        m_Device = device.ExtractValue();
+
         // 4. Register Device
         EngineContext::GetInstance().SetDevice( m_Device );
 

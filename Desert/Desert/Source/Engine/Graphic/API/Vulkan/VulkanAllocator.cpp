@@ -31,7 +31,9 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         VmaAllocatorCreateInfo allocatorInfo = {};
-        allocatorInfo.vulkanApiVersion       = VK_API_VERSION_1_3;
+        // VMA's contract: never above the DEVICE's version (it calls core entry points of the version it is
+        // told). min(device, 1.3) is DeviceCaps' used version — the same one routing planned against.
+        allocatorInfo.vulkanApiVersion       = device->GetPhysicalDevice()->GetDeviceCaps().UsedApiVersion;
         allocatorInfo.physicalDevice         = device->GetPhysicalDevice()->GetVulkanPhysicalDevice();
         allocatorInfo.device                 = device->GetVulkanLogicalDevice();
         allocatorInfo.instance               = instance;
