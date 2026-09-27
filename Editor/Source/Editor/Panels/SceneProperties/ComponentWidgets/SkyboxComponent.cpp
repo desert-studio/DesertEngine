@@ -59,25 +59,21 @@ namespace Desert::Editor
                       return;
                   auto& skybox = entity.GetComponent<ECS::SkyboxComponent>();
 
+                  // The row is required (created from the content registry and requested) before the handle is
+                  // bound; a handle the registry has no skybox under is refused with its number in the log.
                   auto bindSkybox = [&]( const Assets::AssetHandle& handle )
                   {
                       if ( handle == skybox.SkyboxHandle )
                           return;
-                      auto& svc = *Runtime::ResourceRegistry::GetSkyboxService();
-                      if ( !svc.Get( handle ) )
-                      {
-                          if ( auto a = assetManager->FindByHandle<Assets::SkyboxAsset>( handle ) )
-                          {
-                              Runtime::EnsureSkyboxRegistered( a );
-                          }
-                      }
-                      skybox.SkyboxHandle = handle;
+                      if ( Runtime::RequireSkybox( handle ) )
+                          skybox.SkyboxHandle = handle;
                   };
 
-                  const auto  current = assetManager->FindByHandle<Assets::SkyboxAsset>( skybox.SkyboxHandle );
+                  // Named from the registry row, not a loaded shell: the name is known before anything is read.
+                  const auto current = Assets::ContentRegistry::RowOf(
+                       Common::Content::ContentKind::Skybox, static_cast<uint64_t>( skybox.SkyboxHandle ) );
                   std::string currentName =
-                       current ? Common::Utils::FileSystem::GetFileName( current->GetMetadata().Filepath )
-                               : "None";
+                       current ? ::Desert::Editor::PickerDisplayName( *current ) : std::string( "None" );
 
                   // ── THE PREVIEW ON A BALL, beside the picker ───────────────────────────────────────
                   //
@@ -130,8 +126,8 @@ namespace Desert::Editor
                           if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( t ) )
                           {
                               const std::string path( static_cast<const char*>( p->Data ) );
-                              if ( auto a = assetManager->FindByPath<Assets::SkyboxAsset>( path ) )
-                                  bindSkybox( a->GetMetadata().Handle );
+                              if ( const auto handle = Runtime::SkyboxHandleAtPath( path ); handle != 0 )
+                                  bindSkybox( handle );
                               break;
                           }
                       }

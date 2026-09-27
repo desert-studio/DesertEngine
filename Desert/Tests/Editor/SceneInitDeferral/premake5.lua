@@ -2,7 +2,7 @@
 -- load is what guarantees the scene ends up initialised anyway."
 --
 -- Nothing of the editor is compiled or linked: the relation is between two statements 300 lines apart
--- in one .cpp that no header includes, so it is read out of the source, as AssetPreloadCensus does.
+-- in one .cpp that no header includes, so it is read out of the source, as BootContentCensus does.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)

@@ -123,6 +123,7 @@ namespace Desert::Runtime
         GetMeshService()->BindAssetManager( assets );
         GetCloudTypeService()->BindAssetManager( assets );
         GetUIThemeService()->BindAssetManager( assets );
+        GetSkyboxService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()

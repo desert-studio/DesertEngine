@@ -1527,19 +1527,10 @@ namespace Desert::Tests::PointerCensus
           "-- each is a local in the body of an AssetBase::Load() that a load one level up is inside -- so "
           "the parent's lifetime strictly encloses the child's by the shape of the call stack. Two things "
           "make that hold rather than merely look true: the stack of open scopes is THREAD-LOCAL, so a load "
-          "on the preloader's thread can never take the address of a scope on the hot-reload watcher's; and "
+          "on the boot's thread can never take the address of a scope on the hot-reload watcher's; and "
           "the type is neither copyable nor movable (all four operators deleted), because a copy would give "
           "two scopes one parent and a move would leave a live pointer to a husk. Dereferenced exactly once, "
           "in the destructor, to add this scope's duration to the parent's child-time" },
-        { "Desert/Desert/Source/Engine/Assets/AssetPreloader.cpp",
-          "RowProgress", "Report", Guard::CallScoped,
-          "SPL2: an argument pack built on the stack inside PreloadCookedAssetsAndMaterials -- rows{ &progress, ... } -- and passed down by pointer to each synchronous ProcessAssetKind call in the same function; the pointee is the caller's ItemProgress argument, which outlives the whole synchronous call" },
-        { "Desert/Desert/Source/Engine/Assets/AssetPreloader.hpp",
-          "AssetPreloader", "m_AnimationLibrary", Guard::HostOutlivesUs,
-          "the library the scan publishes clips to. Taken as a REFERENCE by the constructor, so it can never "
-          "be null, and both hosts that own one declare it BEFORE their preloader -- EditorLayer.hpp and "
-          "RuntimeLayer.hpp both say so at the declaration, because members are destroyed in reverse "
-          "declaration order and that order is the whole guarantee" },
         { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
           "ClipPlayback", "Clip", Guard::HostOutlivesUs,
           "an AnimationClip inside an AnimationLibrary entry; the library outlives the animator that plays it" },

@@ -517,7 +517,6 @@ namespace Desert::Editor
         // BEFORE the preloader, which holds a non-owning reference to it and must therefore not outlive
         // it: members are destroyed in reverse declaration order.
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
-        std::unique_ptr<Assets::AssetPreloader>      m_AssetPreloader;
         std::unique_ptr<ImportManager>               m_ImportManager;
         // The startup mesh cook, run after the reveal (AL1-11); see Editor/Import/BackgroundCook.hpp.
         std::unique_ptr<BackgroundCookQueue>         m_BackgroundCook;

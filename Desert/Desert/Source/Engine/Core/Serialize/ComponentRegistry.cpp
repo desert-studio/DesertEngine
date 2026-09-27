@@ -533,15 +533,20 @@ namespace Desert::Core::Serialize
 
             if ( type == "SkyboxAsset" )
             {
-                auto a = mgr.FindByPath<Assets::SkyboxAsset>( path );
-                if ( !a )
-                    a = m.CreateAsset<Assets::SkyboxAsset>( Assets::AssetPriority::Medium, path );
-                if ( a )
+                // The path names a registry ROW, and the row is what is required — the same route as the GUID
+                // spelling below, so a skybox is created and requested one way whichever spelling a scene uses.
+                const Assets::AssetHandle handle = Runtime::SkyboxHandleAtPath( path );
+                if ( static_cast<uint64_t>( handle ) == 0 )
                 {
-                    Runtime::EnsureSkyboxRegistered( a );
-                    return static_cast<uint64_t>( a->GetMetadata().Handle );
+                    LOG_ERROR(
+                         "[Skybox] Skybox path '{0}' named by a component is no skybox row of the content "
+                         "registry, so the scene has NO environment: the sky draws black and the lit "
+                         "materials get no ambient. Skyboxes are the Skybox-kind `.detex` files under '{1}'; "
+                         "re-point the Skybox component.",
+                         path, Common::Constants::Path::ASSETS_PATH.string() );
+                    return 0;
                 }
-                return 0;
+                return Runtime::RequireSkybox( handle ) ? static_cast<uint64_t>( handle ) : 0;
             }
             if ( type == "MaterialAsset" )
             {
@@ -876,21 +881,9 @@ namespace Desert::Core::Serialize
             }
             if ( type == "SkyboxAsset" )
             {
-                auto a = mgr.FindByHandle<Assets::SkyboxAsset>( handle );
-                if ( !a )
-                {
-                    LOG_ERROR( "[Skybox] Skybox GUID handle {0} named by a component resolves to no scanned "
-                               "skybox, so the scene has NO environment: the sky draws black and the lit "
-                               "materials get no ambient. Skyboxes are scanned from '{1}' and keyed by their "
-                               ".detex header GUID; re-point the Skybox component.",
-                               guid, Common::Constants::Path::ASSETS_PATH.string() );
-                    return 0;
-                }
-                // The SAME registration the path branch performs. It was absent here: the branch found the
-                // record the boot had scanned and returned its handle, and since the boot no longer bakes
-                // skyboxes, nothing did — every scene saved after SCNE 31 (skybox by GUID) lost its sky.
-                Runtime::EnsureSkyboxRegistered( a );
-                return guid;
+                // Created from its content-registry row and requested (AL1-9): no boot stage has created the
+                // shell, and RequireSkybox's error names the handle when the registry has no skybox under it.
+                return Runtime::RequireSkybox( handle ) ? guid : 0;
             }
             return 0;
         };

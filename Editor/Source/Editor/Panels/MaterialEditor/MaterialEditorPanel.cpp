@@ -434,18 +434,12 @@ namespace Desert::Editor
                        "ball appears.";
 
             auto* skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
-            // The boot only SCANS .hdr files; a skybox is baked when something registers it. A material
-            // opened with its slot already bound never went through the drop that registers (below), so
-            // the lookup came back empty for a file that is on disk. Registering is idempotent.
+            // No boot stage creates skybox shells (AL1-9): a material opened with its slot already bound never
+            // went through the drop that requires it (below), so the slot's skybox is required here, from its
+            // registry row. Idempotent, and it only declares: the preview shows once the loader delivers.
             if ( skyboxService != nullptr && !skyboxService->Get( Assets::AssetHandle( bound ) ) &&
-                 m_AssetManager )
-            {
-                if ( auto sky = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( Assets::AssetHandle( bound ) ) )
-                {
-                    Graphic::Renderer::GetInstance().WaitDeviceIdle();
-                    Runtime::EnsureSkyboxRegistered( sky );
-                }
-            }
+                 !skyboxService->IsPending( Assets::AssetHandle( bound ) ) )
+                (void)Runtime::RequireSkybox( Assets::AssetHandle( bound ) );
             const auto skybox = skyboxService ? skyboxService->Get( Assets::AssetHandle( bound ) ) : nullptr;
             if ( !skybox || !skybox->GetEnvironment() )
                 return "No preview: the skybox bound to '" + cubeParam->DisplayName +
@@ -1443,29 +1437,21 @@ namespace Desert::Editor
                     std::string disp = "<drop or pick HDR skybox>";
                     if ( const uint64_t h = data.GetTexture( p.Name ); h != 0 && m_AssetManager )
                     {
-                        if ( auto sky = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( Common::UUID( h ) ) )
-                            disp = sky->GetMetadata().Filepath.filename().string();
+                        if ( const auto row =
+                                  Assets::ContentRegistry::RowOf( Common::Content::ContentKind::Skybox, h ) )
+                            disp = row->Path.filename().string();
                         else
                             disp = "<missing skybox>";
                     }
 
                     auto bindSkybox = [&]( const Assets::AssetHandle& handle )
                     {
-                        // The service caches the baked environment per asset; everything preloaded is
-                        // already registered, so this only fires for a skybox created mid-session.
-                        auto* svc = Runtime::ResourceRegistry::GetSkyboxService();
-                        if ( svc && !svc->Get( handle ) && m_AssetManager )
-                        {
-                            if ( auto a = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( handle ) )
-                            {
-                                Runtime::EnsureSkyboxRegistered( a );
-                            }
-                        }
-                        // By the panorama's header GUID (MATL 3): a skybox that states none cannot be named.
-                        const auto sky = m_AssetManager
-                                              ? m_AssetManager->FindByHandle<Assets::SkyboxAsset>( handle )
-                                              : nullptr;
-                        if ( !sky || sky->Guid().IsNull() )
+                        // Required from its registry row (created unread, then requested): the slot names the
+                        // skybox by the panorama's header GUID (MATL 3), which the shell adopts on creation.
+                        const auto sky = Runtime::RequireSkybox( handle );
+                        if ( !sky )
+                            return; // RequireSkybox logged the handle and the registry's answer
+                        if ( sky->Guid().IsNull() )
                         {
                             LOG_ERROR( "[MaterialEditor] skybox {} states no header GUID, so the '{}' slot cannot "
                                        "name it and is left as it was",
@@ -1488,11 +1474,8 @@ namespace Desert::Editor
                             if ( const ImGuiPayload* pl = ImGui::AcceptDragDropPayload( t ) )
                             {
                                 const std::string path( static_cast<const char*>( pl->Data ) );
-                                if ( m_AssetManager )
-                                {
-                                    if ( auto a = m_AssetManager->FindByPath<Assets::SkyboxAsset>( path ) )
-                                        bindSkybox( a->GetMetadata().Handle );
-                                }
+                                if ( const auto handle = Runtime::SkyboxHandleAtPath( path ); handle != 0 )
+                                    bindSkybox( handle );
                                 break;
                             }
                         }
@@ -2183,13 +2166,13 @@ namespace Desert::Editor
                     if ( const ImGuiPayload* pl = ImGui::AcceptDragDropPayload( t ) )
                     {
                         const std::string path( static_cast<const char*>( pl->Data ) );
-                        if ( m_AssetManager )
+                        // The registry row (AL1-5: no mesh shell exists until something names the mesh);
+                        // MeshService discovers it from that row when the preview first draws it.
+                        if ( const auto row = Assets::ContentRegistry::RowAtPath(
+                                  Common::Content::ContentKind::StaticMesh, path ) )
                         {
-                            if ( auto mesh = m_AssetManager->FindByPath<Assets::StaticMeshAsset>( path ) )
-                            {
-                                m_PreviewMesh     = mesh->GetMetadata().Handle;
-                                m_PreviewMeshName = mesh->GetMetadata().Filepath.filename().string();
-                            }
+                            m_PreviewMesh     = row->Handle;
+                            m_PreviewMeshName = row->Path.filename().string();
                         }
                         break;
                     }

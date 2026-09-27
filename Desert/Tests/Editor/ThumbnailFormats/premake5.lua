@@ -1,7 +1,7 @@
 -- "Every format the Content Browser can show either has a thumbnail producer or a named reason why not."
 --
 -- The census half is READ FROM THE SOURCES (the browser's own s_FileTypes literal), the way
--- ThumbnailRequesters and AssetPreloadCensus next door are. The other half is not a reading at all: every
+-- ThumbnailRequesters and BootContentCensus next door are. The other half is not a reading at all: every
 -- Producer::Painted row is PAINTED HERE against the shipped asset library, which is why the four cloud
 -- containers' decoders are compiled in. They are listed rather than linked because libDesert pulls in
 -- Vulkan and the whole renderer, and not one of these four translation units needs a device — which is

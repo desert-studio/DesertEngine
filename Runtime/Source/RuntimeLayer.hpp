@@ -70,7 +70,6 @@ namespace Desert::Player
         Core::BootTimeline m_Boot{ "Runtime" };
 
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
-        std::unique_ptr<Assets::AssetPreloader>      m_AssetPreloader;
         std::unique_ptr<Graphic::SceneRenderer>      m_SceneRenderer;
         std::shared_ptr<Core::Scene>                 m_Scene;
         // A partitioned world keeps only the camera's neighbourhood in the ECS (WorldStreamer.hpp); null for a

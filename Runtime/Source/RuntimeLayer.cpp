@@ -22,7 +22,7 @@
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/AssetPreloader.hpp>
+#include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -128,13 +128,10 @@ namespace Desert::Player
            m_Application( application )
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
-        // BEFORE the preloader, which now takes it: the preloader is what fills it, at the tail of the
-        // scan that finds the clips. This layer used to build a library, hand it to AnimationECSSystem and
-        // never put a single clip in it — `AnimationLibrary` appeared exactly twice in this whole file and
-        // neither occurrence was a Register — so every skinned character in a packaged game stood in its
-        // bind pose, and no editor session could reproduce it.
+        // Filled by the "Indexing animation clips" stage of the boot, the same call the editor makes. This
+        // layer once built a library, handed it to AnimationECSSystem and never put a clip in it, so every
+        // skinned character in a packaged game stood in its bind pose (BootContentCensus holds both hosts).
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
-        m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
         Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The game's view IS the window, so here — and only here — the window's size is the view's.
         const auto window = EngineContext::GetInstance().GetWindow();
@@ -187,13 +184,13 @@ namespace Desert::Player
         LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
                   Assets::ContentRegistry::Get().Count(), registry.GetValue() );
 
-        m_Boot.Run( "Preloading shaders", [this] { m_AssetPreloader->PreloadShaders(); } );
-        m_Boot.Run( "Preloading meshes, textures and materials",
-                    [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
-        m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
+        // The whole content boot (AL1-9): every other kind is created from its registry row when named.
+        m_Boot.Run( "Compiling engine shaders", [this] { Assets::CompileEngineShaders( m_AssetManager ); } );
+        m_Boot.Run( "Indexing animation clips",
+                    [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
-        m_Boot.Run( "Preloading string tables", [this] { m_AssetPreloader->PreloadStringTables(); } );
+        m_Boot.Run( "Requesting string tables", [this] { Assets::RequestStringTables( m_AssetManager ); } );
 
         // Same system set + order as the editor's Play mode — and it is the SAME LIST, not a copy of it
         // (Engine/Core/SceneRenderCollectors.hpp). "Same as the editor" was a comment above a hand-copied
