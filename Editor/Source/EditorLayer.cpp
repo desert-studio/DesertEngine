@@ -4363,6 +4363,12 @@ namespace Desert::Editor
                                           Core::SelectionManager::SetSelected( uuid );
                                           return PaletteCommandDone();
                                       } } );
+                // Ctrl+click: a two-input tool (Boolean, Trim) reads A and B in selection order.
+                commands.push_back( { "Entity", "Add to selection " + name, [uuid]
+                                      {
+                                          Core::SelectionManager::AddToSelection( uuid );
+                                          return PaletteCommandDone();
+                                      } } );
 
                 // AND ITS EDITORS, because until now there was NO WAY TO OPEN ONE without a mouse. A
                 // subject document — the Sequencer, the AnimGraph — is opened by a button in the Details
