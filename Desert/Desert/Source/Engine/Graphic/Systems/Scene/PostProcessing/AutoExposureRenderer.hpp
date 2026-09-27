@@ -43,6 +43,13 @@ namespace Desert::Graphic::System
             m_SnapNextAdaptation = true;
         }
 
+        // The world's step this frame (Core::WorldTime::GetDeltaSeconds): the eye adapts in game time, so
+        // it holds on pause and follows dilation, as UE's eye adaptation does.
+        void SetDeltaSeconds( float seconds )
+        {
+            m_DeltaSeconds = seconds;
+        }
+
         void SetParams( float adaptSpeed, float minLuma, float maxLuma )
         {
             m_AdaptSpeed = adaptSpeed;
@@ -70,6 +77,7 @@ namespace Desert::Graphic::System
         // Set by OnSceneReplaced, consumed and cleared by the next Execute — see that override.
         bool  m_SnapNextAdaptation = false;
         float m_AdaptSpeed         = 1.5f;
+        float m_DeltaSeconds       = 0.0f;
         float m_MinLuma    = 0.02f;
         float m_MaxLuma    = 8.0f;
     };

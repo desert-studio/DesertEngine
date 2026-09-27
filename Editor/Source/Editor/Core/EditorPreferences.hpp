@@ -103,6 +103,11 @@ namespace Desert::Editor
         float     OutlineSmoothness = 2.0f;
         bool      EnableOutline     = true;
 
+        // The viewport's Realtime toggle (UE's viewport "Realtime"): while editing, the world's preview
+        // time moves (Core::WorldTime) — on by default, as in UE's level viewport. Pushed into every scene
+        // each frame by EditorLayer::UpdateSceneFrame.
+        bool ViewportRealtime = true;
+
         // Viewport Show flags + View Mode — grid, colliders, bounding boxes, wireframe, buffer views.
         // Edited by the viewport toolbar's "Show" popup and its View Mode dropdown, pushed to every scene's
         // renderer each frame via SceneRenderer::SetDebugView, and persisted here because it is the USER's

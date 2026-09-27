@@ -143,6 +143,13 @@ namespace Desert::Graphic::System
         // payload and not this renderer's private business.
         PBRSceneFrame CaptureFrameState( const Core::Camera* camera ) const;
 
+        // The scene's game time this frame (Core::WorldTime), handed over by SceneRenderer::BeginScene and
+        // published to materials through CaptureFrameState.
+        void SetWorldTimeSeconds( float seconds )
+        {
+            m_WorldTimeSeconds = seconds;
+        }
+
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
         // this renderer can fit and the cascades a shader can read are one number and cannot drift apart.
@@ -694,5 +701,6 @@ namespace Desert::Graphic::System
         std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
         std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
+        float                                                     m_WorldTimeSeconds = 0.0f;
     };
 } // namespace Desert::Graphic::System

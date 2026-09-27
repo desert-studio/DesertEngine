@@ -56,8 +56,13 @@ namespace Desert::ECS
             return false;
         }
 
+        void SetWorldTime( const Core::WorldTime& time ) override
+        {
+            m_WorldDeltaSeconds = time.GetDeltaSeconds();
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                     const Common::Timestep& ts ) override
+                     const Common::Timestep& /*ts*/ ) override
         {
             std::vector<entt::entity> entities;
             auto                      view = registry.view<ECS::VolumetricCloudComponent>();
@@ -112,7 +117,9 @@ namespace Desert::ECS
             const ECS::VolumetricCloudData data =
                  registry.get<ECS::VolumetricCloudComponent>( entities[chosen] ).Data;
 
-            AdvanceWind( data, ts.GetSeconds() );
+            // THE WORLD'S STEP, not the gameplay timestep: the wind is part of how the world looks, so it
+            // moves in the editor while the viewport is Realtime, stops on pause, and follows dilation.
+            AdvanceWind( data, m_WorldDeltaSeconds );
 
             std::vector<Graphic::HeroCloudInstance> heroClouds = CollectHeroClouds( registry );
 
@@ -244,6 +251,7 @@ namespace Desert::ECS
         }
 
         glm::vec3 m_WindOffset{ 0.0f };
+        float     m_WorldDeltaSeconds = 0.0f; // this frame's WorldTime::GetDeltaSeconds (SetWorldTime)
 
         // Describe the SCENE, not the frame, so each is said once.
         bool m_DuplicateLogged    = false;

@@ -3,8 +3,6 @@
 #include <Engine/Graphic/Clouds/CloudShadowBinding.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
-#include <chrono>
-
 namespace Desert::Graphic
 {
     void PBRSceneFrame::ApplyTo( Material* material ) const
@@ -14,16 +12,9 @@ namespace Desert::Graphic
 
         SceneCameraBind( material, Camera );
 
-        // Engine time, for any shader declaring TimeUB — the shader graph's Time node. It belongs in the
-        // snapshot for the same reason everything else here does: it is per-frame scene state, and while
-        // it was filled only inside MeshRenderer::DrawGenericMeshes it was the shape of the problem
-        // rather than an exception to it.
-        {
-            static const auto s_TimeOrigin = std::chrono::steady_clock::now();
-            SceneTimeBind(
-                 material,
-                 std::chrono::duration<float>( std::chrono::steady_clock::now() - s_TimeOrigin ).count() );
-        }
+        // World time, for any shader declaring TimeUB — the shader graph's Time node. It belongs in the
+        // snapshot for the same reason everything else here does: it is per-frame scene state.
+        SceneTimeBind( material, TimeSeconds );
 
         if ( PointLights && SpotLights && DirectionLights )
             SceneLightsBind( material, *PointLights, *SpotLights, *DirectionLights );

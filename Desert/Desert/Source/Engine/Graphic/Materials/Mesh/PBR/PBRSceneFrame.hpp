@@ -80,6 +80,11 @@ namespace Desert::Graphic
         // were the ones a deferred composite happened to shade.
         CloudShadowInput CloudShadow;
 
+        // The world's game time in seconds (Core::WorldTime::GetGameTimeSeconds) for any shader declaring
+        // TimeUB — the shader graph's Time node. The scene's clock, so a paused world's materials hold
+        // still and two headless captures of one scene see the same material at the same frame.
+        float TimeSeconds = 0.0f;
+
         // Writes the whole snapshot onto @p material. One call, so a new piece of frame state can never
         // be applied at four of the five sites and forgotten at the fifth.
         //

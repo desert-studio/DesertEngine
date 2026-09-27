@@ -419,14 +419,24 @@ namespace Desert::Core
         // viewport must not silently cost the others theirs.
         std::string firstError;
 
-        Graphic::SceneRenderer::UpdateInfo sceneRendererInfo;
-        sceneRendererInfo.Timestep = ts;
+        // THE WORLD'S CLOCK TICKS FIRST, once, before anything reads it: the systems below, and every
+        // view's renderer after them, see the same Delta and GameTime this frame.
+        m_WorldTime.Tick( ts.GetSeconds(),
+                          WorldTime::ClockModeFor( m_State == SceneState::Play, m_State == SceneState::Paused,
+                                                   m_PreviewRealtime ) );
 
-        // Gameplay time only advances in Play (Edit/Paused freeze it -> animation/physics/scripts hold).
-        // Systems still RUN every frame (they collect render data); they just see a zero timestep when not
-        // playing. The editor camera below uses the real ts so you can fly around while paused/editing.
-        const Common::Timestep gameplayTs =
-             ( m_State == SceneState::Play ) ? ts : Common::Timestep( 0.0f );
+        // The renderers step by the world's Delta; the wall-clock step goes beside it for what is about
+        // the machine rather than the world (the sky's re-bake debounce).
+        Graphic::SceneRenderer::UpdateInfo sceneRendererInfo;
+        sceneRendererInfo.Timestep     = Common::Timestep( m_WorldTime.GetDeltaSeconds() );
+        sceneRendererInfo.RealTimestep = ts;
+
+        // Gameplay systems (animation, physics, scripts) advance only in Play, by the world's Delta — so a
+        // pause or a time dilation reaches them from the same clock as the picture. Systems still RUN every
+        // frame (they collect render data); they see a zero step while editing. The preview time that moves
+        // the look of an edited world reaches its consumers through SetWorldTime below, not through this.
+        const Common::Timestep gameplayTs( ( m_State == SceneState::Play ) ? m_WorldTime.GetDeltaSeconds()
+                                                                           : 0.0f );
 
         // Push the active-camera snapshot to systems that lay out camera-relative geometry (billboarded
         // text). Done on the main thread before ExecuteSystems so the parallel system group reads it
@@ -444,6 +454,8 @@ namespace Desert::Core
             for ( auto& system : m_Systems )
                 system->SetCameraSnapshot( camView, camPos );
         }
+        for ( auto& system : m_Systems )
+            system->SetWorldTime( m_WorldTime );
 
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
