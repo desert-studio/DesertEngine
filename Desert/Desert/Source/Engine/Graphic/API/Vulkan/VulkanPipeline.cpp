@@ -466,7 +466,7 @@ namespace Desert::Graphic::API::Vulkan
         // The device-wide, disk-persisted cache: the driver reuses binaries across runs. VkPipelineCache is
         // internally synchronized (the spec requires no external lock for vkCreate*Pipelines), so workers
         // share the one cache — no per-thread caches to merge.
-        const VkPipelineCache pipelineCache =
+        VkPipelineCache pipelineCache =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
         if ( where == CompileOn::CallingThread )
         {

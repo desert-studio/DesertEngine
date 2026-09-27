@@ -257,6 +257,7 @@ namespace Desert::Graphic::System
                      .Data       = {},
                      .Usage      = Core::Formats::Image2DUsage::Image2D,
                      .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                     .MipLevels  = {},
                 };
                 return Image2D::Create( spec );
             };
