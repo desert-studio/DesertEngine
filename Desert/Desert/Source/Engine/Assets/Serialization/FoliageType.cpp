@@ -3,7 +3,9 @@
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Json/Json.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -22,11 +24,35 @@ namespace Desert::Assets::Serialization
 
         std::vector<std::string> DependenciesOf( const FoliageTypeData& data )
         {
-            if ( data.Mesh.Guid.empty() )
-                return {};
-            return { data.Mesh.Guid };
+            std::vector<std::string> out;
+            if ( !data.Mesh.Guid.empty() )
+                out.push_back( data.Mesh.Guid );
+            for ( const auto& layer : data.LandscapeLayers )
+                out.push_back( layer.Guid );
+            return out;
         }
     } // namespace
+
+    // The FOLT generation the header states, read as an untyped tree (TextAssetHeaderCheck.hpp: a struct
+    // would impose this build's layout on a file whose problem may be that it is another generation).
+    std::optional<uint32_t> StatedFoliageTypeGeneration( const std::string& text )
+    {
+        const auto members = Common::Json::ObjectMembers( text );
+        if ( !members )
+            return std::nullopt;
+        for ( const auto& [name, value] : members.GetValue() )
+            if ( name == Common::Content::kTextHeaderMember )
+            {
+                const auto header = Common::Json::Read<Common::Content::TextAssetHeaderSerialized>( value );
+                if ( !header )
+                    return std::nullopt;
+                const auto stated = header.GetValue().Versions.find( "FOLT" );
+                if ( stated == header.GetValue().Versions.end() )
+                    return std::nullopt;
+                return stated->second;
+            }
+        return std::nullopt;
+    }
 
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data )
     {
@@ -49,6 +75,29 @@ namespace Desert::Assets::Serialization
              data.RandomPitchAngle > 180.0f )
             return Common::MakeFormattedError<bool>( "RandomPitchAngle {} must lie within [0, 180] degrees",
                                                      data.RandomPitchAngle );
+        if ( auto ok = CheckInterval( "Height", data.Height ); !ok )
+            return ok;
+        if ( !std::isfinite( data.MinimumLayerWeight ) || data.MinimumLayerWeight < 0.0f ||
+             data.MinimumLayerWeight > 1.0f )
+            return Common::MakeFormattedError<bool>( "MinimumLayerWeight {} must lie within [0, 1]",
+                                                     data.MinimumLayerWeight );
+        if ( auto ok = CheckInterval( "CullDistance", data.CullDistance ); !ok )
+            return ok;
+        if ( data.CullDistance.Min < 0.0f )
+            return Common::MakeFormattedError<bool>( "CullDistance.Min {} must not be negative (it is a distance "
+                                                     "from the camera, cm)",
+                                                     data.CullDistance.Min );
+        for ( size_t i = 0; i < data.LandscapeLayers.size(); ++i )
+        {
+            const auto& layer = data.LandscapeLayers[i];
+            if ( layer.Guid.empty() || layer.Path.empty() )
+                return Common::MakeFormattedError<bool>(
+                     "LandscapeLayers[{}] must name a GUID and a path ('{}' / '{}')", i, layer.Guid, layer.Path );
+            for ( size_t j = 0; j < i; ++j )
+                if ( data.LandscapeLayers[j].Guid == layer.Guid )
+                    return Common::MakeFormattedError<bool>(
+                         "LandscapeLayers[{}] repeats LandscapeLayers[{}] ('{}')", i, j, layer.Path );
+        }
         if ( data.Mesh.Guid.empty() != data.Mesh.Path.empty() )
             return Common::MakeFormattedError<bool>(
                  "Mesh names {} without {} ('{}' / '{}')", data.Mesh.Guid.empty() ? "a path" : "a GUID",
@@ -63,6 +112,16 @@ namespace Desert::Assets::Serialization
 
         if ( auto headed = Assets::RefuseTextWithoutHeader( text, kFoliageTypeVersion, std::nullopt ); !headed )
             return Common::MakeFormattedError<FoliageTypeData>( "foliage type {}", headed.GetError() );
+
+        // THE GENERATION BEFORE THE BODY: a v1 file lacks v2's fields, and the typed read would name those
+        // missing fields instead of the one fact that matters — the file is an older generation.
+        if ( const auto stated = StatedFoliageTypeGeneration( text );
+             stated && *stated != static_cast<uint32_t>( kFoliageTypeVersion ) )
+            return Common::MakeFormattedError<FoliageTypeData>(
+                 "foliage type states FOLT {}, and this build reads FOLT {} only{}", *stated, kFoliageTypeVersion,
+                 *stated < static_cast<uint32_t>( kFoliageTypeVersion )
+                      ? " (scripts/Dev/migrate.sh --write raises it)"
+                      : "" );
 
         const auto parsed = Common::Json::Read<FoliageTypeData>( text );
         if ( !parsed )
@@ -82,8 +141,9 @@ namespace Desert::Assets::Serialization
         // Mesh. A file where they disagree would have the two sides load different meshes.
         if ( data.Header->Dependencies != DependenciesOf( data ) )
             return Common::MakeFormattedError<FoliageTypeData>(
-                 "the header's Dependencies ({} entries) do not state exactly the mesh's GUID '{}'",
-                 data.Header->Dependencies.size(), data.Mesh.Guid );
+                 "the header's Dependencies ({} entries) do not state exactly the mesh's GUID '{}' and the {} "
+                 "landscape layer GUID(s), in that order",
+                 data.Header->Dependencies.size(), data.Mesh.Guid, data.LandscapeLayers.size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }
@@ -106,5 +166,63 @@ namespace Desert::Assets::Serialization
         if ( path.has_parent_path() )
             std::filesystem::create_directories( path.parent_path(), ec );
         return Common::Content::WriteCanonicalJsonFileAtomic( path, WriteFoliageType( data ) );
+    }
+
+    Common::ResultStr<FoliageTypeFile> FindOrCreateFoliageTypeFile( const std::filesystem::path& dir,
+                                                                    const FoliageTypeData&       wanted,
+                                                                    const std::string&           stem )
+    {
+        if ( stem.empty() )
+            return Common::MakeFormattedError<FoliageTypeFile>( "a new foliage type under '{}' needs a name",
+                                                                dir.string() );
+        FoliageTypeData key = wanted;
+        key.Header.reset();
+
+        std::error_code                    ec;
+        std::vector<std::filesystem::path> files;
+        if ( std::filesystem::exists( dir, ec ) )
+        {
+            for ( auto it = std::filesystem::recursive_directory_iterator( dir, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+                if ( it->is_regular_file() && it->path().extension() == kFoliageTypeExtension )
+                    files.push_back( it->path() );
+            if ( ec )
+                return Common::MakeFormattedError<FoliageTypeFile>( "cannot list foliage types under '{}': {}",
+                                                                    dir.string(), ec.message() );
+        }
+        std::sort( files.begin(), files.end() );
+
+        for ( const auto& file : files )
+        {
+            const auto text = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !text )
+                return Common::MakeFormattedError<FoliageTypeFile>( "{}", text.GetError() );
+            auto parsed = ParseFoliageType( text.GetValue() );
+            if ( !parsed )
+                return Common::MakeFormattedError<FoliageTypeFile>(
+                     "foliage type '{}' does not parse, so it cannot be ruled out as the one to reuse: {}",
+                     file.string(), parsed.GetError() );
+            FoliageTypeData   held = parsed.GetValue();
+            const std::string guid = held.Header->Guid;
+            held.Header.reset();
+            if ( held == key )
+                return Common::MakeSuccess( FoliageTypeFile{ file, guid, false } );
+        }
+
+        std::filesystem::path file = dir / ( stem + kFoliageTypeExtension );
+        for ( int n = 1; std::filesystem::exists( file, ec ); ++n )
+            file = dir / ( stem + "_" + std::to_string( n ) + kFoliageTypeExtension );
+        if ( auto saved = SaveFoliageTypeFile( file, key ); !saved )
+            return Common::MakeFormattedError<FoliageTypeFile>( "{}", saved.GetError() );
+        // Read back: the GUID is minted by the writer, and the caller records it.
+        const auto text = Common::Utils::FileSystem::ReadFileContent( file );
+        if ( !text )
+            return Common::MakeFormattedError<FoliageTypeFile>( "{}", text.GetError() );
+        const auto parsed = ParseFoliageType( text.GetValue() );
+        if ( !parsed )
+            return Common::MakeFormattedError<FoliageTypeFile>( "foliage type '{}' just written does not read "
+                                                                "back: {}",
+                                                                file.string(), parsed.GetError() );
+        return Common::MakeSuccess( FoliageTypeFile{ file, parsed.GetValue().Header->Guid, true } );
     }
 } // namespace Desert::Assets::Serialization

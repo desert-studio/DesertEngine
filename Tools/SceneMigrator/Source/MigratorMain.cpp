@@ -45,6 +45,7 @@
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
@@ -111,8 +112,10 @@ namespace
     // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (IsCloudLayout).
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
-                                                ".detheme",    ".derig",  ".retarget",    ".skeleton" };
+    // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype",
+                                                ".destrings",  ".detheme",  ".derig",
+                                                ".retarget",   ".skeleton", ".defoliage" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -976,9 +979,61 @@ namespace Desert::Migration
             ++prefabsChanged;
         }
 
+        int foliageRaised = 0;
         for ( const auto& path : texts )
         {
             const std::string text = ReadAll( path );
+            if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "FOLT" );
+                if ( !stated )
+                {
+                    err << "FAIL   " << stated.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                if ( stated.GetValue() == 1u || stated.GetValue() == 2u )
+                {
+                    // The chain: a v1 file takes both steps, a v2 file the last one.
+                    std::string v2Text = text;
+                    if ( stated.GetValue() == 1u )
+                    {
+                        const auto toV2 = Desert::Migration::MigrateFoliageTypeV1ToV2( text );
+                        if ( !toV2 )
+                        {
+                            err << "FAIL   " << path.string() << " — FOLT 1 -> 2: " << toV2.GetError() << "\n";
+                            ++failed;
+                            continue;
+                        }
+                        v2Text = toV2.GetValue();
+                    }
+                    const auto raised = Desert::Migration::MigrateFoliageTypeV2ToV3( v2Text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — FOLT " << stated.GetValue()
+                            << " -> 3: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " FOLT " << stated.GetValue()
+                        << " -> 3\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++foliageRaised;
+                    continue;
+                }
+                if ( stated.GetValue() != Desert::Assets::kFoliageTypeSchemaVersion )
+                {
+                    err << "FAIL   " << path.string() << " — states FOLT v" << stated.GetValue()
+                        << ", and this tool reads v1 and v2 (raised) and v"
+                        << Desert::Assets::kFoliageTypeSchemaVersion << " only\n";
+                    ++failed;
+                    continue;
+                }
+            }
             if ( const TextHeaderGate* row = TextHeaderGateFor( path );
                  row != nullptr && !PassesTextHeaderGate( *row, path, text, err ) )
             {
@@ -994,13 +1049,14 @@ namespace Desert::Migration
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
-            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << tiles.size() << " landscape tile(s), "
-            << failed << " failed\n";
+            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << tiles.size()
+            << " landscape tile(s), " << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 ) ) ? 1 : 0;
+        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ) ) ? 1 : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over

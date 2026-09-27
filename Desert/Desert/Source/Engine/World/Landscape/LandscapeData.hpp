@@ -253,6 +253,18 @@ namespace Desert::World::Landscape
             return m_Samples;
         }
 
+        /// The lowest and the highest sample of the tile, kept by every write. A ray's vertical slab reads
+        /// them per tile per ray (LandscapeRaycast); re-scanning the samples there cost the foliage brush 20 s
+        /// a dab on Terrain_Grass (848 rays x 25 tiles x 65,536 samples, FO-3b).
+        [[nodiscard]] uint16_t LowestSample() const
+        {
+            return m_LowestSample;
+        }
+        [[nodiscard]] uint16_t HighestSample() const
+        {
+            return m_HighestSample;
+        }
+
         /// The whole tile as a rectangle.
         [[nodiscard]] LandscapeRect Bounds() const
         {
@@ -335,9 +347,14 @@ namespace Desert::World::Landscape
         /// Marks @p rect dirty for every consumer in @p consumers (a bit per LandscapeDirtyConsumer).
         void MarkDirty( LandscapeRect rect, uint32_t consumers );
 
+        /// Re-derives the lowest and highest sample from every sample.
+        void RescanSampleRange();
+
         uint32_t                   m_SamplesX = 0u;
         uint32_t                   m_SamplesZ = 0u;
         std::vector<uint16_t>      m_Samples;
+        uint16_t                                                             m_LowestSample  = 0u;
+        uint16_t                                                             m_HighestSample = 0u;
         std::array<std::vector<LandscapeRect>, kLandscapeDirtyConsumerCount> m_Dirty;
         std::vector<LandscapeWeightLayer>                                    m_WeightLayers;
     };

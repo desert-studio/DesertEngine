@@ -446,8 +446,18 @@ namespace Desert::ECS
                              ism.RuntimeInstanceSnapshot =
                                   std::make_shared<const std::vector<glm::mat4>>( ism.InstanceTransforms );
 
+                         // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
+                         // (one source: the paint panel's edit re-reads into the same asset). A type still being
+                         // read culls nothing for those frames; one that failed says why once, in the service.
+                         Graphic::InstanceCullDistance cullDistance;
+                         if ( const auto* foliage = registry.try_get<FoliageComponent>( entity );
+                              foliage != nullptr && foliage->FoliageType )
+                             if ( const auto* type = Runtime::ResourceRegistry::GetFoliageTypeService()->Get(
+                                       foliage->FoliageType ) )
+                                 cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows );
+                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
+                              cullDistance );
                      } );
             }
 

@@ -24,6 +24,7 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <array>
 
@@ -151,6 +152,26 @@ namespace Desert::Migration
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
     // `.deprefab` is raised by the same chain.
+    // FOLT 1 -> 2 (FO-3): A `.defoliage` STATES DENSITY IN UE's UNITS. v1's Density was "instances per paint
+    // dab"; the brush it was painted with scattered that many in its disk, whose radius was the brush's
+    // default of kFoliageV1ReferenceBrushRadiusCm unless the painter moved the slider. v2's Density is
+    // instances per 1000x1000 cm (UFoliageType::Density), so one dab of the reference brush places the same
+    // count under both. Instances already painted live in the scene's InstancedStaticMesh and are not touched.
+    inline constexpr float kFoliageV1ReferenceBrushRadiusCm = 300.0f;
+
+    // v1's per-dab count as v2's areal density: perDab / (pi r^2) * 1000^2, r = the reference radius.
+    float FoliageDensityFromPerDab( float perDab );
+
+    // The v2 text of a v1 `.defoliage`: Density converted, the v2 fields (Height, LandscapeLayers,
+    // MinimumLayerWeight) at UE's defaults, the header's GUID kept. A file that does not state FOLT 1, or
+    // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
+
+    // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
+    // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.
+    // PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV2ToV3( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

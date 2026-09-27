@@ -127,6 +127,12 @@ namespace Desert::Core
 
     bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit ) const
     {
+        return Raycast( ray, outHit, {} );
+    }
+
+    bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
+                         const std::function<bool( const Common::UUID& )>& accept ) const
+    {
         float              closest = std::numeric_limits<float>::max();
         glm::mat4          bestXf( 1.0f );
         Common::Math::AABB bestAABB;
@@ -149,6 +155,8 @@ namespace Desert::Core
                 skinned = true;
             }
             if ( !mesh )
+                continue;
+            if ( accept && !accept( entity.GetComponent<ECS::UUIDComponent>().UUID ) )
                 continue;
 
             const glm::mat4 xf       = entity.GetWorldTransform();
@@ -208,7 +216,9 @@ namespace Desert::Core
 
         // The landscape after the meshes, against the nearest mesh distance: a rock standing on a hill is
         // picked when the ray meets the rock first, the hill otherwise.
-        const auto landscape = PickableLandscapeTiles( *this );
+        auto landscape = PickableLandscapeTiles( *this );
+        if ( accept )
+            std::erase_if( landscape, [&]( const PickableTile& tile ) { return !accept( tile.Entity ); } );
         if ( !landscape.empty() )
         {
             std::vector<World::Landscape::LandscapeRayTile> rayTiles;

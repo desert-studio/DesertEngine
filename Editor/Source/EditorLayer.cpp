@@ -185,6 +185,7 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/FoliagePaint.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
@@ -2641,6 +2642,7 @@ namespace Desert::Editor
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
             snapshot.BudgetBytes                      = reading.CeilingBytes;
             snapshot.UsageBytes                       = reading.UsageBytes;
+            snapshot.IsmInstancesDrawn = m_SceneRenderer ? m_SceneRenderer->GetIsmInstancesDrawn() : 0u;
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
@@ -5440,6 +5442,101 @@ namespace Desert::Editor
                    } } );
             // NOLINTEND(bugprone-exception-escape)
         }
+        // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
+        // collection drop (FO-2), so a frame can show types that came from a collection unattended.
+        commands.push_back( { "Foliage", "Foliage mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                                  return PaletteCommandDone();
+                              } } );
+        {
+            std::error_code ec;
+            for ( const auto& dir :
+                  std::filesystem::directory_iterator( Common::Constants::Path::COLLECTIONS_PATH, ec ) )
+            {
+                const std::filesystem::path manifest = dir.path() / "collection.json";
+                if ( !dir.is_directory() || !std::filesystem::exists( manifest, ec ) )
+                    continue;
+                const std::string path = manifest.generic_string();
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Foliage", "Add collection to the palette: " + dir.path().filename().string(), [this, path]
+                       {
+                           if ( !m_MainScene || !m_AssetManager )
+                               return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                           Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                           return Tools::FoliagePaintTool::AddCollection( *m_MainScene, *m_AssetManager, path );
+                       } } );
+                // NOLINTEND(bugprone-exception-escape)
+            }
+        }
+        // FOLIAGE (FO-3): a type file into the palette, and the stroke a hand gives at the viewport centre.
+        {
+            std::error_code ec;
+            for ( auto it =
+                       std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( !it->is_regular_file() ||
+                     it->path().extension() != Assets::Serialization::kFoliageTypeExtension )
+                    continue;
+                const std::string path = it->path().generic_string();
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Foliage", "Add type to the palette: " + it->path().stem().string(), [this, path]
+                       {
+                           if ( !m_MainScene || !m_AssetManager )
+                               return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                           Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                           return Tools::FoliagePaintTool::AddTypeFile( *m_MainScene, *m_AssetManager, path );
+                       } } );
+                // NOLINTEND(bugprone-exception-escape)
+            }
+        }
+        commands.push_back( { "Foliage", "Stroke at viewport centre",
+                              [] { return ViewportPanel::StrokeFoliageInActiveViewport(); } } );
+        // FOLIAGE (FO-4): the tool the stroke above uses, and what UE does to the selected instances.
+        // NOLINTBEGIN(bugprone-exception-escape)
+        for ( const auto tool : { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
+                                  Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply,
+                                  Core::FoliageTool::Fill } )
+            commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
+                                  [tool]() -> Common::BoolResultStr
+                                  {
+                                      Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                                      Core::FoliagePaint::Tool() = tool;
+                                      return BOOLSUCCESS;
+                                  } } );
+        commands.push_back( { "Foliage", "Delete selected instances", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::RemoveSelected( *m_MainScene );
+                              } } );
+        commands.push_back(
+             { "Foliage", "Move selected instances by the panel offset", [this]() -> Common::BoolResultStr
+               {
+                   if ( !m_MainScene )
+                       return PaletteCommandOutcome( false, "no scene" );
+                   return Tools::FoliagePaintTool::MoveSelected( *m_MainScene, Core::FoliagePaint::MoveOffset() );
+               } } );
+        commands.push_back( { "Foliage", "Fill the selected mesh", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene || !m_AssetManager )
+                                      return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                                  const auto& selected = Core::SelectionManager::GetSelected();
+                                  if ( !selected )
+                                      return PaletteCommandOutcome( false, "no entity is selected" );
+                                  return Tools::FoliagePaintTool::FillEntity( *m_MainScene, *m_AssetManager,
+                                                                              *selected );
+                              } } );
+        commands.push_back( { "Foliage", "Select no instances", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::SelectNone( *m_MainScene );
+                              } } );
+        // NOLINTEND(bugprone-exception-escape)
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {

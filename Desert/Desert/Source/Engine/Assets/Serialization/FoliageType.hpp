@@ -19,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Desert::Assets::Serialization
 {
@@ -31,6 +32,12 @@ namespace Desert::Assets::Serialization
      *   1 - the text asset header (Kind "FoliageType", the GUID that IS the type's identity and handle, this
      *       number under `FOLT`), the mesh by {Guid, Path}, and UFoliageType's painting fields (FO-1). The
      *       mesh's GUID is the header's one Dependency when a mesh is named.
+     *   2 - UE's units and filters (FO-3): Density is instances per 1000x1000 cm (UFoliageType::Density), not
+     *       per brush dab; Height, LandscapeLayers (layer info assets by {Guid, Path}) and MinimumLayerWeight
+     *       join. The header's Dependencies are the mesh's GUID, then each layer info's, in list order.
+     *       SceneMigrator raises a v1 file (MigrateFoliageTypeV1ToV2).
+     *   3 - CullDistance joins (FO-5, UE UFoliageType::CullDistance). SceneMigrator raises a v2 file
+     *       (MigrateFoliageTypeV2ToV3) with {0, 0}, UE's default: never culled. The engine reads v3 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -66,10 +73,9 @@ namespace Desert::Assets::Serialization
         /// The static mesh the instances draw. Empty = a type that can be authored but not painted yet.
         AssetGuidRef Mesh;
 
-        /// Instances scattered per paint dab inside the brush disk. UE's Density is per 1000x1000 cm; this
-        /// brush is dab-based until FO-3 ports UE's area-density brush, and the number keeps the brush's
-        /// meaning so every painted field reads back the same.
-        float Density = 6.0f;
+        /// Instances per 1000x1000 cm of brushed area (UE UFoliageType::Density, default 100). The brush tops
+        /// the area under it up to this count and no further, so repeated dabs do not pile instances up.
+        float Density = 100.0f;
         /// Uniform scale range (UE ScaleX under EFoliageScaling::Uniform).
         FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
         /// Offset along the placement up axis, cm, drawn per instance.
@@ -82,9 +88,26 @@ namespace Desert::Assets::Serialization
         float RandomPitchAngle = 0.0f;
         /// Paint only where the surface slope lies in [Min, Max] degrees.
         FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+        /// Paint only where the surface's world height (Y, cm) lies in [Min, Max] (UE Height).
+        FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+        /// Paint on a landscape only where one of these layers has weight (UE LandscapeLayers, named here by
+        /// their `.delayerinfo` as every reference in a text asset is). Empty = every layer. A surface that is
+        /// not a landscape is not filtered by layer, as in UE.
+        std::vector<AssetGuidRef> LandscapeLayers;
+        /// The weight, 0..1, a listed layer must reach; above it an instance survives with probability equal
+        /// to the weight (UE MinimumLayerWeight and IsFilteredByWeight).
+        float MinimumLayerWeight = 0.0f;
+        /// Distance from the camera, cm, over which the instances fade out (UE CullDistance): all are drawn
+        /// nearer than Min, none from Max on, and between the two a share growing linearly from 0 to 1 is
+        /// dropped (Graphic::KeepsInstanceAtDistance). Max = 0 is UE's "never culled".
+        FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
     };
+
+    /// The FOLT generation a `.defoliage` text states, read from its header alone (so a file of another
+    /// generation is named as such, not by the fields it lacks); nullopt when it states none.
+    std::optional<uint32_t> StatedFoliageTypeGeneration( const std::string& text );
 
     /// Rejects numbers the brush cannot honour, naming the field and the values.
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data );
@@ -97,4 +120,25 @@ namespace Desert::Assets::Serialization
     std::string WriteFoliageType( const FoliageTypeData& data );
 
     Common::BoolResultStr SaveFoliageTypeFile( const std::filesystem::path& path, const FoliageTypeData& data );
+
+    /// A `.defoliage` on disk, as a palette or a collection names it.
+    struct FoliageTypeFile
+    {
+        std::filesystem::path Path;
+        std::string           Guid;            ///< the header GUID: the type's identity
+        bool                  Created = false; ///< false = an existing file already held these numbers
+    };
+
+    /**
+     * @brief The `.defoliage` under @p dir (recursively) whose content equals @p wanted apart from the header;
+     *        a new `<stem>.defoliage` (or `<stem>_N`) when none does.
+     *
+     * UE: dropping a mesh on the foliage palette twice finds the FoliageType the first drop made instead of
+     * minting a second asset for the same mesh and numbers (FO-2). The walk is in path order, so the same
+     * folder always answers with the same file. A `.defoliage` under @p dir that does not parse refuses the
+     * lookup and names the file: skipping it could mint a duplicate of the very type it holds.
+     */
+    Common::ResultStr<FoliageTypeFile> FindOrCreateFoliageTypeFile( const std::filesystem::path& dir,
+                                                                    const FoliageTypeData&       wanted,
+                                                                    const std::string&           stem );
 } // namespace Desert::Assets::Serialization

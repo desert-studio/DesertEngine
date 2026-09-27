@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Common/Core/Units.hpp>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -102,6 +103,8 @@ namespace Desert::Graphic::System
             MaterialInstancePtr                           Material;   // slot 0 (PBR)
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
+            // The field's foliage type's CullDistance (FO-5); {0, 0} for an ISM that is not foliage.
+            InstanceCullDistance CullDistance;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -223,6 +226,13 @@ namespace Desert::Graphic::System
         void SubmitMesh( const MeshRenderData& data );
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
+
+        /// ISM instances the last geometry pass drew, after the frustum and the cull distance: what a
+        /// foliage type's CullDistance is measured by (FO-5). The shadow cascades are not counted.
+        [[nodiscard]] uint32_t GetIsmInstancesDrawn() const
+        {
+            return m_IsmInstancesDrawn;
+        }
         void ClearQueues();
 
         // THE BOUNDARY IS DRAWN INSIDE THIS HEADER, not at the call sites, and Common/Core/Profiler.hpp
@@ -673,6 +683,7 @@ namespace Desert::Graphic::System
         // 49 000 instances out of 49 152 allocates nothing.
         std::vector<uint32_t>                    m_ScratchLodLevels;
         std::vector<glm::mat4>                   m_ScratchIsmVisible;
+        uint32_t                                 m_IsmInstancesDrawn = 0; // see GetIsmInstancesDrawn
         // The instanced batches of ONE geometry pass, one entry per recording material. Reused BY INDEX
         // rather than cleared, so the inner vectors keep their capacity across frames — clearing the
         // outer vector would destroy them and hand the steady state an allocation per material per frame.
