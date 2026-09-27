@@ -49,14 +49,18 @@ namespace Desert::Editor
         if ( !asset )
             return Common::MakeFormattedError<Assets::Asset<Assets::SurfaceMaterialAsset>>(
                  "material {:016x} is not in the asset database", static_cast<uint64_t>( handle ) );
-        if ( !asset->IsReadyForUse() )
-        {
-            const auto loaded = asset->Load();
-            if ( !loaded.IsSuccess() )
-                return Common::MakeFormattedError<Assets::Asset<Assets::SurfaceMaterialAsset>>(
-                     "material {:016x} ('{}') did not load: {}", static_cast<uint64_t>( handle ),
-                     asset->GetMetadata().Filepath.generic_string(), loaded.GetError() );
-        }
+        // `EnsureLoaded`, NOT a bare `Load()` (MS1). `Load()` re-parses the file, but
+        // `SurfaceMaterialAsset::LoadFromFile`'s resolve step is handed no AssetManager - `Load()` takes
+        // none - so the shader GUID is never looked up and `m_ShaderName` stays empty. The Material Editor
+        // then reads that empty name and reports "the shader '' is not loaded" for a material whose shader
+        // exists. The thumbnail sweep hides this whenever it resolved the same shared asset object first,
+        // which is exactly why it must not be relied on here: a material the sweep never touched opens
+        // unresolved. `EnsureLoaded` already returns success for an asset that is ready, so the readiness
+        // check that used to guard this call is its job now.
+        if ( const auto loaded = asset->EnsureLoaded( assetManager ); !loaded )
+            return Common::MakeFormattedError<Assets::Asset<Assets::SurfaceMaterialAsset>>(
+                 "material {:016x} ('{}') did not load: {}", static_cast<uint64_t>( handle ),
+                 asset->GetMetadata().Filepath.generic_string(), loaded.GetError() );
         return Common::MakeSuccess( asset );
     }
 
