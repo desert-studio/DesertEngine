@@ -28,8 +28,8 @@ namespace Desert::Editor::Core
             CreateShape,   // place a parametric shape (CreateShapeTool, UE's Add Primitive tools)
         };
 
-        // The shapes the Create tool places. Plane is not here: it is a card for the scene's Add menu, not
-        // a solid anyone models from.
+        // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
+        // is not here: it is an upright card for the scene's Add menu; the palette's flat card is Rectangle.
         enum class Shape
         {
             Box,
@@ -39,9 +39,14 @@ namespace Desert::Editor::Core
             Capsule,
             Pyramid,
             Stairs,
+            Torus,
+            Arrow,
+            Disc,
+            Rectangle,
         };
         static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder, Shape::Cone,
-                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs };
+                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs,   Shape::Torus,
+                                             Shape::Arrow,   Shape::Disc,    Shape::Rectangle };
 
         static constexpr const char* ShapeName( Shape shape )
         {
@@ -61,6 +66,14 @@ namespace Desert::Editor::Core
                     return "Pyramid";
                 case Shape::Stairs:
                     return "Stairs";
+                case Shape::Torus:
+                    return "Torus";
+                case Shape::Arrow:
+                    return "Arrow";
+                case Shape::Disc:
+                    return "Disc";
+                case Shape::Rectangle:
+                    return "Rectangle";
             }
             return "Box";
         }
@@ -89,22 +102,35 @@ namespace Desert::Editor::Core
             OnScene,
         };
 
-        // Every field moves the shape it is shown for (ModelingPanel shows only those). Centimetres.
+        // The Pyramid is not in UE's palette, so it has no UE property set; its three extents, in centimetres.
+        struct PyramidSettings
+        {
+            float Width  = 100.0f; // X
+            float Depth  = 100.0f; // Z
+            float Height = 100.0f; // Y
+
+            bool operator==( const PyramidSettings& ) const = default;
+        };
+
+        // One property set per shape, as UE keeps one UProcedural*ToolProperties per Add Primitive tool: each
+        // shape remembers its own values, with UE's names and defaults. ModelingPanel shows the chosen one's.
         struct ShapeSettings
         {
-            Shape                        Kind         = Shape::Box;
-            float                        Width        = 100.0f; // X extent; the diameter of a round shape
-            float                        Depth        = 100.0f; // Z extent (Box, Pyramid)
-            float                        Height       = 100.0f; // Y extent (all but Sphere and Stairs)
-            int                          Subdivisions = 1;      // Box: quads along each edge
-            int                          Slices       = 24;     // round shapes: segments around the axis
-            int                          Stacks       = 16;     // Sphere, Capsule: segments pole to pole
-            int                          Steps        = 8;      // Stairs
-            float                        StepDepth    = 30.0f;  // Stairs
-            float                        StepHeight   = 20.0f;  // Stairs
-            Geometry::ShapePolygroupMode Groups       = Geometry::ShapePolygroupMode::PerFace;
-            Geometry::ShapePivot         Pivot        = Geometry::ShapePivot::Base;
-            Placement                    Place        = Placement::OnScene;
+            Shape                        Kind = Shape::Box;
+            Geometry::BoxShape           Box;
+            Geometry::SphereShape        Sphere;
+            Geometry::CylinderShape      Cylinder;
+            Geometry::ConeShape          Cone;
+            Geometry::CapsuleShape       Capsule;
+            PyramidSettings              Pyramid;
+            Geometry::StairsShape        Stairs;
+            Geometry::TorusShape         Torus;
+            Geometry::ArrowShape         Arrow;
+            Geometry::DiscShape          Disc;
+            Geometry::RectangleShape     Rectangle;
+            Geometry::ShapePolygroupMode Groups = Geometry::ShapePolygroupMode::PerFace;
+            Geometry::ShapePivot         Pivot  = Geometry::ShapePivot::Base;
+            Placement                    Place  = Placement::OnScene;
 
             bool operator==( const ShapeSettings& ) const = default;
         };

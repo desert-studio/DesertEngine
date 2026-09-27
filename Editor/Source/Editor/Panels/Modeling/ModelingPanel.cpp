@@ -16,6 +16,8 @@
 
 #include <algorithm>
 #include <array>
+#include <initializer_list>
+#include <type_traits>
 
 namespace Desert::Editor
 {
@@ -40,6 +42,14 @@ namespace Desert::Editor
                     return ICON_MDI_TRIANGLE_OUTLINE;
                 case S::Stairs:
                     return ICON_MDI_STAIRS;
+                case S::Torus:
+                    return ICON_MDI_RING;
+                case S::Arrow:
+                    return ICON_MDI_ARROW_UP_BOLD;
+                case S::Disc:
+                    return ICON_MDI_CIRCLE_OUTLINE;
+                case S::Rectangle:
+                    return ICON_MDI_RECTANGLE_OUTLINE;
             }
             return ICON_MDI_SHAPE_PLUS;
         }
@@ -643,13 +653,14 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "%s\nDrag 1..1000 cm; Ctrl+click to type up to 1000000.", tip );
         };
-        const auto count = []( const char* label, int* value, int uiLowest, int uiHighest, int clampHighest )
+        const auto count =
+             []( const char* label, int* value, int uiLowest, int uiHighest, int clampLowest, int clampHighest )
         {
             ImGui::SetNextItemWidth( 110.0f );
             if ( ImGui::SliderInt( label, value, uiLowest, uiHighest ) )
-                *value = std::clamp( *value, uiLowest, clampHighest );
+                *value = std::clamp( *value, clampLowest, clampHighest );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Drag %d..%d; Ctrl+click to type up to %d.", uiLowest, uiHighest,
+                ImGui::SetTooltip( "Drag %d..%d; Ctrl+click to type %d..%d.", uiLowest, uiHighest, clampLowest,
                                    clampHighest );
         };
 
@@ -657,33 +668,143 @@ namespace Desert::Editor
         ImGui::Spacing();
         if ( Utils::ImGuiUtilities::SectionHeader( "Shape" ) )
         {
-            // Only the fields the chosen shape reads: a field shown here always moves the shape.
-            const bool round = s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Cylinder ||
-                               s.Kind == MS::Shape::Cone || s.Kind == MS::Shape::Capsule;
-            cm( round ? "Diameter" : "Width", &s.Width, round ? "Full width across the axis." : "X extent." );
-            if ( s.Kind == MS::Shape::Box || s.Kind == MS::Shape::Pyramid )
-                cm( "Depth", &s.Depth, "Z extent." );
-            if ( s.Kind != MS::Shape::Sphere && s.Kind != MS::Shape::Stairs )
-                cm( "Height", &s.Height,
-                    s.Kind == MS::Shape::Capsule ? "End to end, never less than the diameter." : "Y extent." );
-            if ( s.Kind == MS::Shape::Box )
-                count( "Subdivisions", &s.Subdivisions, 1, 100, 500 );
-            if ( round )
-                count( "Slices", &s.Slices, 3, 128, 500 );
-            if ( s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Capsule )
-                count( "Stacks", &s.Stacks, 4, 100, 500 );
-            if ( s.Kind == MS::Shape::Stairs )
+            // Only the chosen shape's own property set, with UE's names, UI ranges and clamps
+            // (AddPrimitiveTool.h): every field shown here moves the shape.
+            using Shape      = MS::Shape;
+            const auto combo = []( const char* label, auto& current,
+                                   std::initializer_list<std::decay_t<decltype( current )>> values )
             {
-                count( "Steps", &s.Steps, 2, 100, 1000000 );
-                cm( "Step Depth", &s.StepDepth, "Tread depth, along +Z." );
-                cm( "Step Height", &s.StepHeight, "Riser height." );
+                ImGui::SetNextItemWidth( 110.0f );
+                if ( ImGui::BeginCombo( label, Geometry::ToString( current ) ) )
+                {
+                    for ( const auto type : values )
+                        if ( ImGui::Selectable( Geometry::ToString( type ), type == current ) )
+                            current = type;
+                    ImGui::EndCombo();
+                }
+            };
+            switch ( s.Kind )
+            {
+                case Shape::Box:
+                    cm( "Width", &s.Box.Width, "Width of the box (X)." );
+                    cm( "Depth", &s.Box.Depth, "Depth of the box (Z)." );
+                    cm( "Height", &s.Box.Height, "Height of the box (Y)." );
+                    count( "Width Subdivisions", &s.Box.WidthSubdivisions, 1, 100, 1, 500 );
+                    count( "Depth Subdivisions", &s.Box.DepthSubdivisions, 1, 100, 1, 500 );
+                    count( "Height Subdivisions", &s.Box.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Sphere:
+                    cm( "Radius", &s.Sphere.Radius, "Radius of the sphere." );
+                    combo( "Subdivision Type", s.Sphere.SubdivisionType,
+                           { Geometry::SphereType::LatLong, Geometry::SphereType::Box } );
+                    if ( s.Sphere.SubdivisionType == Geometry::SphereType::Box )
+                        count( "Subdivisions", &s.Sphere.Subdivisions, 1, 100, 1, 500 );
+                    else
+                    {
+                        count( "Horizontal Slices", &s.Sphere.HorizontalSlices, 3, 100, 4, 500 );
+                        count( "Vertical Slices", &s.Sphere.VerticalSlices, 3, 100, 4, 500 );
+                    }
+                    break;
+                case Shape::Cylinder:
+                    cm( "Radius", &s.Cylinder.Radius, "Radius of the cylinder." );
+                    cm( "Height", &s.Cylinder.Height, "Height of the cylinder." );
+                    count( "Radial Slices", &s.Cylinder.RadialSlices, 3, 128, 3, 500 );
+                    count( "Height Subdivisions", &s.Cylinder.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Cone:
+                    cm( "Radius", &s.Cone.Radius, "Radius of the cone's base." );
+                    cm( "Height", &s.Cone.Height, "Height of the cone." );
+                    count( "Radial Slices", &s.Cone.RadialSlices, 3, 128, 3, 500 );
+                    count( "Height Subdivisions", &s.Cone.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Capsule:
+                    cm( "Radius", &s.Capsule.Radius, "Radius of the capsule." );
+                    cm( "Cylinder Length", &s.Capsule.CylinderLength,
+                        "Length of the middle; the capsule is this plus two radii." );
+                    count( "Hemisphere Slices", &s.Capsule.HemisphereSlices, 2, 100, 2, 500 );
+                    count( "Cylinder Slices", &s.Capsule.CylinderSlices, 3, 100, 3, 500 );
+                    count( "Cylinder Subdivisions", &s.Capsule.CylinderSubdivisions, 0, 100, 0, 500 );
+                    break;
+                case Shape::Pyramid:
+                    cm( "Width", &s.Pyramid.Width, "X extent (not a UE shape: this engine's own)." );
+                    cm( "Depth", &s.Pyramid.Depth, "Z extent." );
+                    cm( "Height", &s.Pyramid.Height, "Y extent." );
+                    break;
+                case Shape::Stairs:
+                {
+                    auto&      st = s.Stairs;
+                    const bool curved =
+                         st.Type == Geometry::StairsType::Curved || st.Type == Geometry::StairsType::Spiral;
+                    combo( "Stairs Type", st.Type,
+                           { Geometry::StairsType::Linear, Geometry::StairsType::Floating,
+                             Geometry::StairsType::Curved, Geometry::StairsType::Spiral } );
+                    count( "Num Steps", &st.Steps, 2, 100, 2, 1000000 );
+                    cm( "Step Width", &st.StepWidth, curved ? "Outer radius minus inner radius." : "X extent." );
+                    cm( "Step Height", &st.StepHeight, "Riser height." );
+                    if ( !curved )
+                        cm( "Step Depth", &st.StepDepth, "Tread depth, along +Z." );
+                    if ( curved )
+                    {
+                        cm( "Inner Radius", &st.InnerRadius, "From the axis to the inner wall." );
+                        // UE's ranges: a curve turns up to 360 degrees, a spiral as many turns as it likes.
+                        const bool  spiral = st.Type == Geometry::StairsType::Spiral;
+                        const float span   = spiral ? 720.0f : 360.0f;
+                        ImGui::SetNextItemWidth( 110.0f );
+                        if ( ImGui::DragFloat( "Curve Angle", &st.CurveAngle, 1.0f, -span, span, "%.1f deg" ) )
+                            st.CurveAngle = std::clamp( st.CurveAngle, spiral ? -360000.0f : -360.0f,
+                                                        spiral ? 360000.0f : 360.0f );
+                        if ( ImGui::IsItemHovered() )
+                            ImGui::SetTooltip( "Degrees the whole flight turns; negative turns the other way." );
+                    }
+                    break;
+                }
+                case Shape::Torus:
+                    cm( "Major Radius", &s.Torus.MajorRadius, "From the axis to the middle of the tube." );
+                    cm( "Minor Radius", &s.Torus.MinorRadius, "Radius of the tube." );
+                    count( "Major Slices", &s.Torus.MajorSlices, 3, 128, 3, 500 );
+                    count( "Minor Slices", &s.Torus.MinorSlices, 3, 128, 3, 500 );
+                    break;
+                case Shape::Arrow:
+                    cm( "Shaft Radius", &s.Arrow.ShaftRadius, "Radius of the shaft." );
+                    cm( "Shaft Height", &s.Arrow.ShaftHeight, "Height of the shaft." );
+                    cm( "Head Radius", &s.Arrow.HeadRadius, "Radius of the head's base." );
+                    cm( "Head Height", &s.Arrow.HeadHeight, "Height of the head." );
+                    count( "Radial Slices", &s.Arrow.RadialSlices, 3, 100, 3, 500 );
+                    count( "Height Subdivisions", &s.Arrow.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Disc:
+                    combo( "Disc Type", s.Disc.Type,
+                           { Geometry::DiscType::Disc, Geometry::DiscType::PuncturedDisc } );
+                    cm( "Radius", &s.Disc.Radius, "Radius of the disc." );
+                    count( "Radial Slices", &s.Disc.RadialSlices, 3, 128, 3, 500 );
+                    count( "Radial Subdivisions", &s.Disc.RadialSubdivisions, 1, 100, 1, 500 );
+                    if ( s.Disc.Type == Geometry::DiscType::PuncturedDisc )
+                        cm( "Hole Radius", &s.Disc.HoleRadius, "Radius of the hole; kept inside the rim." );
+                    break;
+                case Shape::Rectangle:
+                    combo( "Rectangle Type", s.Rectangle.Type,
+                           { Geometry::RectangleType::Rectangle, Geometry::RectangleType::RoundedRectangle } );
+                    cm( "Width", &s.Rectangle.Width, "Width of the rectangle (X)." );
+                    cm( "Depth", &s.Rectangle.Depth, "Depth of the rectangle (Z)." );
+                    count( "Width Subdivisions", &s.Rectangle.WidthSubdivisions, 1, 100, 1, 500 );
+                    count( "Depth Subdivisions", &s.Rectangle.DepthSubdivisions, 1, 100, 1, 500 );
+                    if ( s.Rectangle.Type == Geometry::RectangleType::RoundedRectangle )
+                    {
+                        ImGui::Checkbox( "Maintain Dimension", &s.Rectangle.MaintainDimension );
+                        if ( ImGui::IsItemHovered() )
+                            ImGui::SetTooltip(
+                                 "Width and Depth stay the outer size; the corners come out of them." );
+                        cm( "Corner Radius", &s.Rectangle.CornerRadius, "Radius of the rounded corners." );
+                        count( "Corner Slices", &s.Rectangle.CornerSlices, 3, 128, 3, 500 );
+                    }
+                    break;
             }
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Polygroups and Pivot" ) )
         {
-            constexpr Geometry::ShapePolygroupMode modes[] = { Geometry::ShapePolygroupMode::PerFace,
-                                                               Geometry::ShapePolygroupMode::PerQuad,
-                                                               Geometry::ShapePolygroupMode::Single };
+            constexpr Geometry::ShapePolygroupMode modes[] = { Geometry::ShapePolygroupMode::PerShape,
+                                                               Geometry::ShapePolygroupMode::PerFace,
+                                                               Geometry::ShapePolygroupMode::PerQuad };
             ImGui::SetNextItemWidth( 110.0f );
             if ( ImGui::BeginCombo( "Polygroups", Geometry::ToString( s.Groups ) ) )
             {

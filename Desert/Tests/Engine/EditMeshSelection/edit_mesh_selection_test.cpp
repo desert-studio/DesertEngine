@@ -45,7 +45,7 @@ namespace
     // 12 slices: wall + two caps = three polygroups.
     EditMesh MakeCylinder12()
     {
-        EditMesh mesh = Import( MakeCylinder( 200.0f, 200.0f, 12 ) );
+        EditMesh mesh = Import( MakeCylinder( { 100.0f, 200.0f, 12, 1 } ) );
         EXPECT_EQ( GeneratePolyGroupsByAngle( mesh, 45.0f ), 3 );
         return mesh;
     }
@@ -441,6 +441,9 @@ TEST( ElementSelectionEdits, RemovedTrianglesDropOutAndAreCounted )
         const int c = mesh.AppendVertex( { 500.0f + i * 100.0f, 50, 0 } );
         int       added = 0;
         ASSERT_EQ( mesh.AppendTriangle( a, b, c, added ), EditResult::Ok );
+        // A group no cube face has: a fresh triangle starts in group 0, which is a face's own (the front one
+        // since the box is UE's FGridBoxMeshGenerator, whose first face is -X_UE = +Z).
+        mesh.Attributes().SetPolyGroup( added, 100 );
     }
     ASSERT_TRUE( mesh.IsTriangle( kept ) );
     report = stale.Prune( mesh );

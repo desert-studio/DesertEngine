@@ -72,12 +72,36 @@ namespace
         { "SliderInt", "\"Blocks / Step\"", Reach::Set, { "CubeGrid.BlocksPerStep" } },
         // Two panel buttons read "Clear": CubeGrid's and the element selection's.
         { "Button", "\"Clear\"", Reach::Palette, { "{ \"Clear\", &MS::ReqClear }", "SelectionOp::Clear" } },
-        // Create Shape: `cm( label, ... )` and `count( label, ... )` draw every dimension.
+        // Create Shape: `cm( label, ... )` and `count( label, ... )` draw every dimension of the chosen shape,
+        // and `combo( label, ... )` its closed choices.
         { "DragFloat", "label", Reach::Set,
-          { "CreateShape.Width", "CreateShape.Depth", "CreateShape.Height", "CreateShape.StepDepth",
-            "CreateShape.StepHeight" } },
+          { "CreateShape.Box.Width", "CreateShape.Box.Depth", "CreateShape.Box.Height",
+            "CreateShape.Sphere.Radius", "CreateShape.Cylinder.Radius", "CreateShape.Cylinder.Height",
+            "CreateShape.Cone.Radius", "CreateShape.Cone.Height", "CreateShape.Capsule.Radius",
+            "CreateShape.Capsule.CylinderLength", "CreateShape.Pyramid.Width", "CreateShape.Pyramid.Depth",
+            "CreateShape.Pyramid.Height", "CreateShape.Stairs.StepWidth", "CreateShape.Stairs.StepHeight",
+            "CreateShape.Stairs.StepDepth", "CreateShape.Stairs.InnerRadius", "CreateShape.Torus.MajorRadius",
+            "CreateShape.Torus.MinorRadius", "CreateShape.Arrow.ShaftRadius", "CreateShape.Arrow.ShaftHeight",
+            "CreateShape.Arrow.HeadRadius", "CreateShape.Arrow.HeadHeight", "CreateShape.Disc.Radius",
+            "CreateShape.Disc.HoleRadius", "CreateShape.Rectangle.Width", "CreateShape.Rectangle.Depth",
+            "CreateShape.Rectangle.CornerRadius" } },
         { "SliderInt", "label", Reach::Set,
-          { "CreateShape.Subdivisions", "CreateShape.Slices", "CreateShape.Stacks", "CreateShape.Steps" } },
+          { "CreateShape.Box.WidthSubdivisions", "CreateShape.Box.DepthSubdivisions",
+            "CreateShape.Box.HeightSubdivisions", "CreateShape.Sphere.Subdivisions",
+            "CreateShape.Sphere.HorizontalSlices", "CreateShape.Sphere.VerticalSlices",
+            "CreateShape.Cylinder.RadialSlices", "CreateShape.Cylinder.HeightSubdivisions",
+            "CreateShape.Cone.RadialSlices", "CreateShape.Cone.HeightSubdivisions",
+            "CreateShape.Capsule.HemisphereSlices", "CreateShape.Capsule.CylinderSlices",
+            "CreateShape.Capsule.CylinderSubdivisions", "CreateShape.Stairs.Steps",
+            "CreateShape.Torus.MajorSlices", "CreateShape.Torus.MinorSlices", "CreateShape.Arrow.RadialSlices",
+            "CreateShape.Arrow.HeightSubdivisions", "CreateShape.Disc.RadialSlices",
+            "CreateShape.Disc.RadialSubdivisions", "CreateShape.Rectangle.WidthSubdivisions",
+            "CreateShape.Rectangle.DepthSubdivisions", "CreateShape.Rectangle.CornerSlices" } },
+        { "BeginCombo", "label", Reach::Palette,
+          { "\"Create shape stairs: \"", "\"Create shape sphere: \"", "\"Create shape disc: \"",
+            "\"Create shape rectangle: \"" } },
+        { "DragFloat", "\"Curve Angle\"", Reach::Set, { "CreateShape.Stairs.CurveAngle" } },
+        { "Checkbox", "\"Maintain Dimension\"", Reach::Palette, { "\"Create shape: Maintain Dimension\"" } },
         { "BeginCombo", "\"Polygroups\"", Reach::Palette, { "\"Create shape polygroups: \"" } },
         { "BeginCombo", "\"Pivot\"", Reach::Palette, { "\"Create shape pivot: \"" } },
         { "Checkbox", "\"Place on Scene\"", Reach::Palette, { "\"Create shape: Place on Scene\"" } },
@@ -223,6 +247,7 @@ namespace
     constexpr const char* kLayer             = "Editor/Source/EditorLayer.cpp";
     const std::string     kSelectableInCombo = "Selectable|Geometry::ToString( mode )";
     const std::string     kSelectablePivot   = "Selectable|Geometry::ToString( pivot )";
+    const std::string     kSelectableStairs  = "Selectable|Geometry::ToString( type )";
 
     bool IsSubjectRow( const std::string& name )
     {
@@ -251,7 +276,7 @@ TEST( ModelingPaletteCensus, EveryPanelWidgetHasARow )
     for ( const std::string& widget : PanelWidgets( ReadFile( RepoRoot() + kPanel ) ) )
     {
         // The combos' own entries are the combo's values, reached through the combo's row.
-        if ( widget == kSelectableInCombo || widget == kSelectablePivot )
+        if ( widget == kSelectableInCombo || widget == kSelectablePivot || widget == kSelectableStairs )
             continue;
         EXPECT_TRUE( registered.count( widget ) )
              << "ModelingPanel draws '" << widget
