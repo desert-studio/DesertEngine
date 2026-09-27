@@ -5,6 +5,7 @@
 // registered function (the editor's) instead of IMeshBuilderModule, so a packaged game carries no builder.
 #include <Engine/Assets/MeshDerivedData.hpp>
 
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -27,27 +28,6 @@ namespace Desert::Assets
         std::mutex              s_BuilderMutex;
         MeshPlatformDataBuilder s_Builder;
 
-        // Every raw format ImportManager recognises for a mesh (Editor/Import/ImportManager's registered
-        // importers; the same set GamePackager::IsRawMeshSource excludes from a package, since the runtime
-        // never reads these directly either). Kept as its own list rather than shared with that one: this
-        // is Engine code and cannot depend on Editor's.
-        constexpr std::string_view kRawMeshSourceExtensions[] = { ".fbx", ".obj",   ".gltf",
-                                                                  ".glb", ".blend", ".dae" };
-
-        // The raw source beside @p assetPath, if one exists under a recognised extension - same stem, same
-        // folder (CookPaths::MeshAsset's own mapping, inverted).
-        std::optional<std::filesystem::path> CompanionSourceFile( const std::filesystem::path& assetPath )
-        {
-            for ( const std::string_view ext : kRawMeshSourceExtensions )
-            {
-                std::filesystem::path candidate = assetPath;
-                candidate.replace_extension( ext );
-                std::error_code ec;
-                if ( std::filesystem::exists( candidate, ec ) )
-                    return candidate;
-            }
-            return std::nullopt;
-        }
     } // namespace
 
     std::vector<std::byte> SerializeMeshSettingsForKey( const MeshBuildSettings& settings )
@@ -126,7 +106,7 @@ namespace Desert::Assets
 
     Common::ResultStr<MeshSourceAsset> LoadMeshSourceAsset( const std::filesystem::path& assetPath )
     {
-        const auto companion = CompanionSourceFile( assetPath );
+        const auto companion = Common::Content::MeshSourceBeside( assetPath );
         if ( !companion.has_value() )
             return ReadMeshSourceAssetFile( assetPath ); // hand-authored: unchanged (AF4h c)
 

@@ -51,6 +51,10 @@ namespace Desert::Assets
     // A .delayerinfo: the landscape layer info file layout, stated in the header from its first version (LS-12b).
     inline constexpr uint32_t kLandscapeLayerInfoSchemaTag     = Common::Content::FourCC( "LLYI" );
     inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 1;
+    // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
+    // (FIX8; Serialization/ImportRecord.hpp).
+    inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );
+    inline constexpr uint32_t kImportRecordSchemaVersion = 1;
     // A .danimgraph: the anim graph file layout, stated in the header since v1 (T7d). The files before it
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
