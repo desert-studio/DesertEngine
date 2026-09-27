@@ -32,7 +32,7 @@ namespace Desert::Editor
             return;
         }
 
-        Core::SceneSettings& s = m_Scene->GetSettings();
+        ::Desert::Core::SceneSettings& s = m_Scene->GetSettings();
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Rendering" ) )
         {
@@ -43,7 +43,7 @@ namespace Desert::Editor
             const char* paths[] = { "Forward", "Deferred" };
             int         cur     = static_cast<int>( s.RenderingPath );
             if ( ImGui::Combo( "Render Path (scene)", &cur, paths, IM_ARRAYSIZE( paths ) ) )
-                s.RenderingPath = static_cast<Core::RenderPath>( cur );
+                s.RenderingPath = static_cast<::Desert::Core::RenderPath>( cur );
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Physics" ) )
