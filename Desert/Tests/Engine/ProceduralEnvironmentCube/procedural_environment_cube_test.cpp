@@ -454,8 +454,10 @@ TEST( ProceduralEnvironmentCube, AMissIsHandedOutOnlyAfterItsConvolutionFence )
     const std::size_t convolving = request.find( "if ( !material->IsConvolving() )" );
     const std::size_t await      = request.find( "AsyncAssetLoader::Get().Await(" );
     const std::size_t published  = request.find( "m_Skyboxes[handle] = material;" );
-    ASSERT_NE( convolving, std::string::npos ) << "SkyboxService no longer asks whether the GPU is still convolving";
-    ASSERT_NE( await, std::string::npos ) << "a convolving skybox is not held outstanding in the loader (ContentGate)";
+    ASSERT_NE( convolving, std::string::npos )
+         << "SkyboxService no longer asks whether the GPU is still convolving";
+    ASSERT_NE( await, std::string::npos )
+         << "a convolving skybox is not held outstanding in the loader (ContentGate)";
     ASSERT_NE( published, std::string::npos );
     EXPECT_GT( published, await ) << "the convolving material is published outside the await's completion";
     EXPECT_LT( convolving, request.find( "m_Skyboxes[handle]" ) )
