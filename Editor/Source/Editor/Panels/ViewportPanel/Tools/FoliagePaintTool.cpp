@@ -659,6 +659,8 @@ namespace Desert::Editor::Tools
         dab.Filter.Landscape  = Core::FoliagePaint::FilterLandscape();
         dab.Filter.StaticMesh = Core::FoliagePaint::FilterStaticMesh();
         const LandscapeTileIndex tiles( scene );
+        // One landscape set for every ray of the dab: gathering it per ray was 81 of the dab's 98 ms (FO-3b).
+        const auto landscapeSet = scene.GatherRaycastLandscape();
 
         for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
         {
@@ -720,7 +722,7 @@ namespace Desert::Editor::Tools
                     return std::nullopt;
                 ::Desert::Core::RaycastHit hit;
                 const auto                 rayAt = Clock::now();
-                const bool found = scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept );
+                const bool found = scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept, landscapeSet );
                 raycastMs += msSince( rayAt );
                 if ( !found || hit.Distance > len )
                     return std::nullopt;

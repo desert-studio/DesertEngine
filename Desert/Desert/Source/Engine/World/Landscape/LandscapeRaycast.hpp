@@ -14,6 +14,7 @@
 #include <glm/vec3.hpp>
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <span>
 
@@ -47,4 +48,12 @@ namespace Desert::World::Landscape
     std::optional<LandscapeRayHit> RaycastLandscape( std::span<const LandscapeRayTile> tiles,
                                                      const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance );
+
+    /// The same, over only the tiles @p accept keeps (by index into @p tiles): a trace that passes through a
+    /// refused surface (Scene::Raycast's accept filter). The hit's Tile still indexes @p tiles, so one tile
+    /// set gathered for many rays serves every filter without being copied per ray.
+    std::optional<LandscapeRayHit> RaycastLandscape( std::span<const LandscapeRayTile> tiles,
+                                                     const glm::vec3& origin, const glm::vec3& direction,
+                                                     float                                maxDistance,
+                                                     const std::function<bool( size_t )>& accept );
 } // namespace Desert::World::Landscape
