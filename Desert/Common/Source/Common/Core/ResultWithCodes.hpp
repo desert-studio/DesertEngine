@@ -83,7 +83,7 @@ namespace Common
             {
             }
 
-            const std::string& GetErrorMessage() const
+            [[nodiscard]] const std::string& GetErrorMessage() const
             {
                 return m_ErrorMessage;
             }
