@@ -200,6 +200,11 @@ namespace Desert::Assets
         /// Every refusal, in full. They are the only outcome a person has to act on.
         std::vector<std::string> Refusals;
 
+        /// Every reachable TEXTURE, with the root chain that kept it (AssetRootSet::WhyKept). Textures are the
+        /// bulk of asset GPU memory, so "why is this one still resident" is the question a memory graph that
+        /// does not fall raises first (WP14b) - answered in the sweep's own line instead of by a debugger.
+        std::vector<std::string> KeptTextures;
+
         [[nodiscard]] std::string Describe() const;
     };
 

@@ -26,6 +26,8 @@ namespace Desert::Assets
 
         for ( const std::string& refusal : Refusals )
             text += "\n  refused: " + refusal;
+        for ( const std::string& kept : KeptTextures )
+            text += "\n  kept texture: " + kept;
 
         return text;
     }
@@ -149,7 +151,12 @@ namespace Desert::Assets
             if ( !asset || !metadata.IsValid() )
                 continue;
             if ( closure.Contains( metadata.Handle ) )
+            {
+                if ( metadata.AssetType == AssetTypeID::Texture2D )
+                    outcome.KeptTextures.push_back( "'" + metadata.Filepath.string() + "' <- " +
+                                                    closure.WhyKept( metadata.Handle ) );
                 continue;
+            }
             // NOT EVERY ASSET BELONGS TO A WORLD. A project-scoped type is named by no component, so the
             // root walk can never reach one and "unreachable" says nothing about whether it is in use —
             // see Assets::IsProjectScopedAsset for the measurement that put this line here.

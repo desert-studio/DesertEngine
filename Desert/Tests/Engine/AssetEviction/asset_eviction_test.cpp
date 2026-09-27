@@ -595,6 +595,11 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
     EXPECT_EQ( outcome.TexturesDropped, 0u );
     EXPECT_TRUE( sink.DroppedTextures.empty() )
          << "the built image of a texture a rooted material names was dropped";
+    // And the sweep says which texture it kept and why: the reason chain names the material's root.
+    ASSERT_EQ( outcome.KeptTextures.size(), 1u ) << outcome.Describe();
+    EXPECT_NE( outcome.KeptTextures.front().find( "probe_texture.detex" ), std::string::npos )
+         << outcome.Describe();
+    EXPECT_NE( outcome.Describe().find( "kept texture: " ), std::string::npos ) << outcome.Describe();
 
     // Once nothing names the material, both go - the image with them.
     RecordingSink orphaned;
