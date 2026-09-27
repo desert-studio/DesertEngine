@@ -94,7 +94,8 @@ namespace Desert::Editor::ThumbnailSubject
             // service, so an unread service shell was parsed inside the capture's frame (M_HDR_Chrome,
             // CB_Red, … on Starter). Waited for here on a worker (AwaitOne: not an in-frame load), which is
             // free when the service's asset is the one just read.
-            (void)Runtime::AwaitAssetClosure( asset->GetMetadata().Handle, Common::Content::ContentKind::Material );
+            (void)Runtime::AwaitAssetClosure( asset->GetMetadata().Handle,
+                                              Common::Content::ContentKind::Material );
 
             Material out;
             out.Handle = asset->GetMetadata().Handle;

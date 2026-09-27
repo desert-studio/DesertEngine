@@ -108,7 +108,8 @@ namespace Desert::Runtime
                  slots( mesh.MaterialSlots );
              } );
         scene.view<const ECS::VolumetricCloudComponent>().each(
-             [&note]( const ECS::VolumetricCloudComponent& cloud ) { note( cloud.Data.Material, ContentKind::Material ); } );
+             [&note]( const ECS::VolumetricCloudComponent& cloud )
+             { note( cloud.Data.Material, ContentKind::Material ); } );
         return Assets::ContentRegistry::Closure( roots );
     }
 

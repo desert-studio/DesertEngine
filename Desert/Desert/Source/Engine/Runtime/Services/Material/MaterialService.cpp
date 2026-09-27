@@ -73,7 +73,7 @@ namespace Desert::Runtime
         m_Assets = assets;
     }
 
-    void MaterialService::StartRead( const Assets::AssetHandle&         handle,
+    void MaterialService::StartRead( const Assets::AssetHandle&        handle,
                                      std::vector<Assets::AssetHandle>& awaited ) const
     {
         if ( handle.IsNull() )

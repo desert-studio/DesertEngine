@@ -275,7 +275,8 @@ namespace Desert::Runtime
         return entry->Asset.get();
     }
 
-    void MeshService::StartRead( const Assets::AssetHandle& handle, std::vector<Assets::AssetHandle>& awaited ) const
+    void MeshService::StartRead( const Assets::AssetHandle&        handle,
+                                 std::vector<Assets::AssetHandle>& awaited ) const
     {
         Entry* entry = FindOrDiscover( handle );
         if ( !entry || Arrived( handle, *entry ) )

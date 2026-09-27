@@ -256,7 +256,8 @@ TEST_F( MeshServiceResidency, AnEvictedMeshReleasesItsBuffersAndRebuildsWithoutA
 TEST( SceneClosure, TheDepsColumnIsWalkedTransitivelyOnceEachAndRootsKeepTheirKind )
 {
     Common::Utils::AssetRegistry registry;
-    const auto row = [&registry]( const char* key, const char* kind, uint64_t identity, std::vector<uint64_t> deps )
+    const auto                   row =
+         [&registry]( const char* key, const char* kind, uint64_t identity, std::vector<uint64_t> deps )
     {
         Common::Utils::AssetRegistryEntry entry;
         entry.Key          = key;
@@ -273,16 +274,20 @@ TEST( SceneClosure, TheDepsColumnIsWalkedTransitivelyOnceEachAndRootsKeepTheirKi
     row( "assets:Materials/other.demat", "Material", 0x40, {} );
     (void)Assets::ContentRegistry::Detail::Publish( std::move( registry ) );
 
-    auto closure = Assets::ContentRegistry::Closure( { { Assets::AssetHandle( static_cast<uint64_t>( 0x10 ) ), "StaticMesh" },
-                                                       { Assets::AssetHandle( static_cast<uint64_t>( 0x55 ) ), "StaticMesh" } } );
+    auto closure = Assets::ContentRegistry::Closure(
+         { { Assets::AssetHandle( static_cast<uint64_t>( 0x10 ) ), "StaticMesh" },
+           { Assets::AssetHandle( static_cast<uint64_t>( 0x55 ) ), "StaticMesh" } } );
     Assets::ContentRegistry::ResetForTest();
 
     std::vector<std::pair<uint64_t, std::string>> got;
     for ( const auto& entry : closure )
         got.emplace_back( static_cast<uint64_t>( entry.Handle ), entry.Kind );
     std::sort( got.begin(), got.end() );
-    const std::vector<std::pair<uint64_t, std::string>> expected{
-         { 0x10, "StaticMesh" }, { 0x20, "Material" }, { 0x21, "Material" }, { 0x30, "Texture" }, { 0x55, "StaticMesh" } };
+    const std::vector<std::pair<uint64_t, std::string>> expected{ { 0x10, "StaticMesh" },
+                                                                  { 0x20, "Material" },
+                                                                  { 0x21, "Material" },
+                                                                  { 0x30, "Texture" },
+                                                                  { 0x55, "StaticMesh" } };
     EXPECT_EQ( got, expected );
 }
 

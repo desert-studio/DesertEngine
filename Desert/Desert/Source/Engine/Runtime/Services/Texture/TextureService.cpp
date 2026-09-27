@@ -145,7 +145,7 @@ namespace Desert::Runtime
         return ref.Get();
     }
 
-    void TextureService::StartRead( const Assets::AssetHandle&         handle,
+    void TextureService::StartRead( const Assets::AssetHandle&        handle,
                                     std::vector<Assets::AssetHandle>& awaited ) const
     {
         (void)Require( handle );

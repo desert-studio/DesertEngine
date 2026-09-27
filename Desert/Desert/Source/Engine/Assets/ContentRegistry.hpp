@@ -593,7 +593,8 @@ namespace Desert::Assets
                 {
                     if ( dependency == 0 || !firstTime( dependency ) )
                         continue;
-                    if ( const Common::Utils::AssetRegistryEntry* next = state.Registry.FindByHandle( dependency ) )
+                    if ( const Common::Utils::AssetRegistryEntry* next =
+                              state.Registry.FindByHandle( dependency ) )
                     {
                         closure.push_back( { Common::AssetHandle( dependency ), next->Kind } );
                         pending.push_back( dependency );
