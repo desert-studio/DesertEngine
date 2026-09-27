@@ -97,4 +97,25 @@ namespace Desert::Assets::Serialization
     std::string WriteFoliageType( const FoliageTypeData& data );
 
     Common::BoolResultStr SaveFoliageTypeFile( const std::filesystem::path& path, const FoliageTypeData& data );
+
+    /// A `.defoliage` on disk, as a palette or a collection names it.
+    struct FoliageTypeFile
+    {
+        std::filesystem::path Path;
+        std::string           Guid;            ///< the header GUID: the type's identity
+        bool                  Created = false; ///< false = an existing file already held these numbers
+    };
+
+    /**
+     * @brief The `.defoliage` under @p dir (recursively) whose content equals @p wanted apart from the header;
+     *        a new `<stem>.defoliage` (or `<stem>_N`) when none does.
+     *
+     * UE: dropping a mesh on the foliage palette twice finds the FoliageType the first drop made instead of
+     * minting a second asset for the same mesh and numbers (FO-2). The walk is in path order, so the same
+     * folder always answers with the same file. A `.defoliage` under @p dir that does not parse refuses the
+     * lookup and names the file: skipping it could mint a duplicate of the very type it holds.
+     */
+    Common::ResultStr<FoliageTypeFile> FindOrCreateFoliageTypeFile( const std::filesystem::path& dir,
+                                                                    const FoliageTypeData&       wanted,
+                                                                    const std::string&           stem );
 } // namespace Desert::Assets::Serialization

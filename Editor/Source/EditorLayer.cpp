@@ -5375,6 +5375,34 @@ namespace Desert::Editor
                    } } );
             // NOLINTEND(bugprone-exception-escape)
         }
+        // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
+        // collection drop (FO-2), so a frame can show types that came from a collection unattended.
+        commands.push_back( { "Foliage", "Foliage mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                                  return PaletteCommandDone();
+                              } } );
+        {
+            std::error_code ec;
+            for ( const auto& dir :
+                  std::filesystem::directory_iterator( Common::Constants::Path::COLLECTIONS_PATH, ec ) )
+            {
+                const std::filesystem::path manifest = dir.path() / "collection.json";
+                if ( !dir.is_directory() || !std::filesystem::exists( manifest, ec ) )
+                    continue;
+                const std::string path = manifest.generic_string();
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Foliage", "Add collection to the palette: " + dir.path().filename().string(), [this, path]
+                       {
+                           if ( !m_MainScene || !m_AssetManager )
+                               return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                           Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                           return Tools::FoliagePaintTool::AddCollection( *m_MainScene, *m_AssetManager, path );
+                       } } );
+                // NOLINTEND(bugprone-exception-escape)
+            }
+        }
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {

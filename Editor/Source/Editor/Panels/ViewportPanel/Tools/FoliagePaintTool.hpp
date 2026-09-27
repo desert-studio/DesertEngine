@@ -40,13 +40,19 @@ namespace Desert::Editor::Tools
         static void DrawTypeSettings( Assets::AssetManager&                          manager,
                                       const Assets::Asset<Assets::FoliageTypeAsset>& type );
 
+        // A collection dropped on the palette (UE: a folder of FoliageTypes): each item's recorded type, or
+        // the one found or made for its mesh (recorded into the collection.json), each listed once.
+        static Common::BoolResultStr AddCollection( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                    const std::string& manifestPath );
+
     private:
-        // A dropped mesh becomes a new `.defoliage` beside the others (UE: dropping a mesh on the foliage
-        // palette creates a FoliageType asset), then a field painted with it.
-        void CreateTypeFromMesh( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
-                                 const std::string& meshSourcePath );
-        // A new foliage entity painted with @p type: FoliageComponent naming it, an ISM drawing its mesh.
-        void AddField( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
-                       const Assets::Asset<Assets::FoliageTypeAsset>& type );
+        // A dropped mesh finds the `.defoliage` already holding it with default numbers, or becomes a new one
+        // (UE: dropping a mesh on the foliage palette creates a FoliageType asset), then lists it.
+        static void CreateTypeFromMesh( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                        const std::string& meshSourcePath );
+        // Lists @p type in the palette: the foliage entity already painting it, or a new one (FoliageComponent
+        // naming it, an ISM drawing its mesh). A type is listed once, as in UE's palette.
+        static void AddField( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                              const Assets::Asset<Assets::FoliageTypeAsset>& type );
     };
 } // namespace Desert::Editor::Tools

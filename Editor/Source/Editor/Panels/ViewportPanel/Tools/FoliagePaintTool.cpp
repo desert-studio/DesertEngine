@@ -4,12 +4,14 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Panels/Collections/CollectionFoliageTypes.hpp>
 
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -51,6 +53,27 @@ namespace Desert::Editor::Tools
             if ( d < -0.9999f )
                 return glm::angleAxis( 3.14159265f, glm::vec3( 1.0f, 0.0f, 0.0f ) );
             return glm::angleAxis( std::acos( d ), glm::normalize( glm::cross( up, n ) ) );
+        }
+
+        // The cooked mesh a source path names, as a `.defoliage` names it; cooks the source on first use.
+        Common::ResultStr<Assets::AssetGuidRef> MeshRefOf( Assets::AssetManager& manager,
+                                                           const std::string&    meshSourcePath )
+        {
+            const auto handle = MeshDnD::ResolveOrImport( manager, meshSourcePath );
+            if ( !handle )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "mesh '{}' did not cook to a static mesh (a skinned source or an import failure)",
+                     meshSourcePath );
+            const auto mesh = manager.FindByHandle<Assets::MeshAsset>( handle );
+            if ( !mesh || mesh->Guid().IsNull() )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "mesh '{}' has no header GUID, so no foliage type can name it", meshSourcePath );
+            return Common::MakeSuccess( Assets::AssetGuidRef{
+                 Common::Content::AssetGuidToText( mesh->Guid() ),
+                 mesh->GetMetadata()
+                      .Filepath.lexically_normal()
+                      .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
+                      .generic_string() } );
         }
     } // namespace
 
@@ -110,6 +133,16 @@ namespace Desert::Editor::Tools
                            type->GetData().Mesh.Path );
         }
 
+        for ( auto& listed : scene.GetAllEntities() )
+            if ( listed.HasComponent<ECS::FoliageComponent>() &&
+                 listed.GetComponent<ECS::FoliageComponent>().FoliageType == type->GetMetadata().Handle )
+            {
+                const auto uuid = listed.GetComponent<ECS::UUIDComponent>().UUID;
+                Core::FoliagePaint::SetActiveOnly( uuid );
+                Core::FoliagePaint::SetEditingType( uuid );
+                return;
+            }
+
         auto& e = scene.CreateNewEntity( "Foliage_" + type->GetDisplayName() );
         e.AddComponent<ECS::FoliageComponent>().FoliageType            = type->GetMetadata().Handle;
         e.AddComponent<ECS::InstancedStaticMeshComponent>().MeshHandle = meshHandle;
@@ -121,37 +154,54 @@ namespace Desert::Editor::Tools
     void FoliagePaintTool::CreateTypeFromMesh( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
                                                const std::string& meshSourcePath )
     {
-        const auto handle = MeshDnD::ResolveOrImport( manager, meshSourcePath );
-        if ( !handle ) // skinned source / cook failure
-            return;
-        const auto mesh = manager.FindByHandle<Assets::MeshAsset>( handle );
-        if ( !mesh || mesh->Guid().IsNull() )
+        const auto mesh = MeshRefOf( manager, meshSourcePath );
+        if ( !mesh )
         {
-            LOG_ERROR( "[Foliage] Mesh '{}' has no header GUID, so no foliage type can name it", meshSourcePath );
+            LOG_ERROR( "[Foliage] {}", mesh.GetError() );
             return;
         }
-
-        Assets::Serialization::FoliageTypeData data;
-        data.Mesh.Guid = Common::Content::AssetGuidToText( mesh->Guid() );
-        data.Mesh.Path = mesh->GetMetadata()
-                              .Filepath.lexically_normal()
-                              .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
-                              .generic_string();
-
-        const std::string     stem = std::filesystem::path( meshSourcePath ).stem().string();
-        std::filesystem::path file =
-             Common::Constants::Path::FOLIAGE_TYPE_PATH / ( stem + Assets::Serialization::kFoliageTypeExtension );
-        for ( int n = 1; std::filesystem::exists( file ); ++n )
-            file = Common::Constants::Path::FOLIAGE_TYPE_PATH /
-                   ( stem + "_" + std::to_string( n ) + Assets::Serialization::kFoliageTypeExtension );
-
-        if ( const auto saved = Assets::FoliageTypeAsset::Save( file, data ); !saved )
+        Assets::Serialization::FoliageTypeData wanted;
+        wanted.Mesh     = mesh.GetValue();
+        const auto file = Assets::Serialization::FindOrCreateFoliageTypeFile(
+             Common::Constants::Path::FOLIAGE_TYPE_PATH, wanted,
+             std::filesystem::path( meshSourcePath ).stem().string() );
+        if ( !file )
         {
-            LOG_ERROR( "[Foliage] {}", saved.GetError() );
+            LOG_ERROR( "[Foliage] {}", file.GetError() );
             return;
         }
-        if ( auto type = OpenTypeFile( manager, file.string() ) )
+        if ( auto type = OpenTypeFile( manager, file.GetValue().Path.string() ) )
             AddField( scene, manager, type );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::AddCollection( ::Desert::Core::Scene& scene,
+                                                           Assets::AssetManager&  manager,
+                                                           const std::string&     manifestPath )
+    {
+        const auto text = Common::Utils::FileSystem::ReadFileContent( manifestPath );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "{}", text.GetError() );
+        auto manifest = ReadCollectionManifest( text.GetValue() );
+        if ( !manifest )
+            return Common::MakeFormattedError<bool>( "'{}': {}", manifestPath, manifest.GetError() );
+        CollectionManifest m     = manifest.GetValue();
+        const auto         types = ResolveCollectionFoliageTypes(
+             m, Common::Constants::Path::FOLIAGE_TYPE_PATH, Common::Constants::Path::ASSETS_PATH,
+             [&manager]( const CollectionManifestItem& item ) { return MeshRefOf( manager, item.Mesh ); } );
+        if ( !types )
+            return Common::MakeFormattedError<bool>( "collection '{}': {}", manifestPath, types.GetError() );
+        if ( types.GetValue().ManifestChanged )
+            if ( auto saved = SaveCollectionManifest( manifestPath, m ); !saved )
+                return saved;
+        for ( const auto& file : types.GetValue().Types )
+        {
+            auto type = OpenTypeFile( manager, file.Path.string() );
+            if ( !type )
+                return Common::MakeFormattedError<bool>( "foliage type '{}' of collection '{}' did not load",
+                                                         file.Path.string(), manifestPath );
+            AddField( scene, manager, type );
+        }
+        return Common::MakeSuccess( true );
     }
 
     void FoliagePaintTool::DrawTypeSettings( Assets::AssetManager&                          manager,
@@ -337,12 +387,18 @@ namespace Desert::Editor::Tools
         ImGui::Dummy( ImVec2( 0, 2 ) );
         ImGui::TextDisabled( "FOLIAGE TYPES" );
 
-        ImGui::Button( ICON_MDI_PLUS " Add Foliage Type  (drop a mesh or .defoliage)", ImVec2( -1, 0 ) );
+        ImGui::Button( ICON_MDI_PLUS " Add Foliage Type (mesh, collection, .defoliage)", ImVec2( -1, 0 ) );
         if ( assetManager && ImGui::BeginDragDropTarget() )
         {
             auto& manager = const_cast<Assets::AssetManager&>( *assetManager );
             if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::MeshAsset ) )
                 CreateTypeFromMesh( scene, manager, std::string( static_cast<const char*>( p->Data ) ) );
+            if ( const ImGuiPayload* p =
+                      ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::Collection ) )
+                if ( auto added =
+                          AddCollection( scene, manager, std::string( static_cast<const char*>( p->Data ) ) );
+                     !added )
+                    LOG_ERROR( "[Foliage] {}", added.GetError() );
             if ( const ImGuiPayload* p =
                       ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
             {
@@ -363,7 +419,7 @@ namespace Desert::Editor::Tools
 
         if ( types.empty() )
         {
-            ImGui::TextDisabled( "Drag a mesh or a .defoliage here." );
+            ImGui::TextDisabled( "Drag a mesh, a collection or a .defoliage here." );
         }
         else
         {

@@ -86,21 +86,26 @@ namespace
                .AO          = std::nullopt,
                .AlphaCutoff = 0.5f,
                .TwoSided    = true } };
-        manifest.Items = { { .Name      = "trunk",
-                             .Category  = R"(Oak "Grove")",
-                             .Mesh      = "Resources/Mesh/Oak/trunk.obj",
-                             .Thumbnail = std::nullopt,
-                             .Material  = 0 },
-                           { .Name      = "leaves",
-                             .Category  = "Oak",
-                             .Mesh      = R"(Resources/Mesh/Oak\leaves.obj)",
-                             .Thumbnail = std::nullopt,
-                             .Material  = 1 },
-                           { .Name      = "stump",
-                             .Category  = std::nullopt,
-                             .Mesh      = "Resources/Mesh/Oak/stump.obj",
-                             .Thumbnail = std::nullopt,
-                             .Material  = std::nullopt } };
+        manifest.Items = {
+             { .Name        = "trunk",
+               .Category    = R"(Oak "Grove")",
+               .Mesh        = "Resources/Mesh/Oak/trunk.obj",
+               .Thumbnail   = std::nullopt,
+               .Material    = 0,
+               .FoliageType = std::nullopt },
+             { .Name        = "leaves",
+               .Category    = "Oak",
+               .Mesh        = R"(Resources/Mesh/Oak\leaves.obj)",
+               .Thumbnail   = std::nullopt,
+               .Material    = 1,
+               .FoliageType = std::nullopt },
+             { .Name        = "stump",
+               .Category    = std::nullopt,
+               .Mesh        = "Resources/Mesh/Oak/stump.obj",
+               .Thumbnail   = std::nullopt,
+               .Material    = std::nullopt,
+               .FoliageType = Desert::Editor::CollectionManifestAssetRef{
+                    .Guid = "0123456789abcdef0123456789abcdef", .Path = "Foliage/stump.defoliage" } } };
         return manifest;
     }
 
@@ -113,6 +118,7 @@ namespace
     };
     struct WrongTypeManifest
     {
+        int                        Version = Desert::Editor::kCollectionManifestVersion;
         std::string                Name;
         std::vector<WrongTypeItem> Items;
     };
@@ -126,6 +132,7 @@ namespace
     };
     struct ExtraKeyManifest
     {
+        int                       Version = Desert::Editor::kCollectionManifestVersion;
         std::string               Name;
         std::vector<ExtraKeyItem> Items;
     };
@@ -165,7 +172,31 @@ TEST_F( CollectionManifestFile, WhatTheSplitterWritesThePanelReadsBackUnchanged 
         EXPECT_EQ( back.Items[i].Category, written.Items[i].Category ) << i;
         EXPECT_EQ( back.Items[i].Mesh, written.Items[i].Mesh ) << i;
         EXPECT_EQ( back.Items[i].Material, written.Items[i].Material ) << i;
+        EXPECT_EQ( back.Items[i].FoliageType.has_value(), written.Items[i].FoliageType.has_value() ) << i;
     }
+    EXPECT_EQ( back.Version, Desert::Editor::kCollectionManifestVersion );
+    if ( !back.Items[2].FoliageType.has_value() )
+        FAIL() << "the stump's foliage type record did not come back";
+    EXPECT_EQ( back.Items[2].FoliageType->Guid, "0123456789abcdef0123456789abcdef" );
+    EXPECT_EQ( back.Items[2].FoliageType->Path, "Foliage/stump.defoliage" );
+}
+
+// FO-2: the manifest is versioned and there is no reader for the unversioned shape.
+TEST_F( CollectionManifestFile, AManifestWithoutAVersionIsRefused )
+{
+    const auto read = Load( Save( R"({"Name":"Oak","Items":[{"Name":"trunk","Mesh":"m.obj"}]})" ) );
+    ASSERT_FALSE( read ) << "an unversioned manifest was accepted";
+    EXPECT_NE( read.GetError().find( "Version" ), std::string::npos ) << read.GetError();
+}
+
+TEST_F( CollectionManifestFile, AnotherVersionIsRefusedNamingBoth )
+{
+    const auto read = Load( Save( R"({"Version":1,"Name":"Oak","Items":[{"Name":"trunk","Mesh":"m.obj"}]})" ) );
+    ASSERT_FALSE( read ) << "Version 1 was accepted";
+    EXPECT_NE( read.GetError().find( "Version 1" ), std::string::npos ) << read.GetError();
+    EXPECT_NE( read.GetError().find( std::to_string( Desert::Editor::kCollectionManifestVersion ) ),
+               std::string::npos )
+         << read.GetError();
 }
 
 TEST_F( CollectionManifestFile, AMemberOfTheWrongTypeIsRefusedAndNamed )

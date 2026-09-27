@@ -3,7 +3,9 @@
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Json/Json.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -106,5 +108,63 @@ namespace Desert::Assets::Serialization
         if ( path.has_parent_path() )
             std::filesystem::create_directories( path.parent_path(), ec );
         return Common::Content::WriteCanonicalJsonFileAtomic( path, WriteFoliageType( data ) );
+    }
+
+    Common::ResultStr<FoliageTypeFile> FindOrCreateFoliageTypeFile( const std::filesystem::path& dir,
+                                                                    const FoliageTypeData&       wanted,
+                                                                    const std::string&           stem )
+    {
+        if ( stem.empty() )
+            return Common::MakeFormattedError<FoliageTypeFile>( "a new foliage type under '{}' needs a name",
+                                                                dir.string() );
+        FoliageTypeData key = wanted;
+        key.Header.reset();
+
+        std::error_code                    ec;
+        std::vector<std::filesystem::path> files;
+        if ( std::filesystem::exists( dir, ec ) )
+        {
+            for ( auto it = std::filesystem::recursive_directory_iterator( dir, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+                if ( it->is_regular_file() && it->path().extension() == kFoliageTypeExtension )
+                    files.push_back( it->path() );
+            if ( ec )
+                return Common::MakeFormattedError<FoliageTypeFile>( "cannot list foliage types under '{}': {}",
+                                                                    dir.string(), ec.message() );
+        }
+        std::sort( files.begin(), files.end() );
+
+        for ( const auto& file : files )
+        {
+            const auto text = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !text )
+                return Common::MakeFormattedError<FoliageTypeFile>( "{}", text.GetError() );
+            auto parsed = ParseFoliageType( text.GetValue() );
+            if ( !parsed )
+                return Common::MakeFormattedError<FoliageTypeFile>(
+                     "foliage type '{}' does not parse, so it cannot be ruled out as the one to reuse: {}",
+                     file.string(), parsed.GetError() );
+            FoliageTypeData   held = parsed.GetValue();
+            const std::string guid = held.Header->Guid;
+            held.Header.reset();
+            if ( held == key )
+                return Common::MakeSuccess( FoliageTypeFile{ file, guid, false } );
+        }
+
+        std::filesystem::path file = dir / ( stem + kFoliageTypeExtension );
+        for ( int n = 1; std::filesystem::exists( file, ec ); ++n )
+            file = dir / ( stem + "_" + std::to_string( n ) + kFoliageTypeExtension );
+        if ( auto saved = SaveFoliageTypeFile( file, key ); !saved )
+            return Common::MakeFormattedError<FoliageTypeFile>( "{}", saved.GetError() );
+        // Read back: the GUID is minted by the writer, and the caller records it.
+        const auto text = Common::Utils::FileSystem::ReadFileContent( file );
+        if ( !text )
+            return Common::MakeFormattedError<FoliageTypeFile>( "{}", text.GetError() );
+        const auto parsed = ParseFoliageType( text.GetValue() );
+        if ( !parsed )
+            return Common::MakeFormattedError<FoliageTypeFile>( "foliage type '{}' just written does not read "
+                                                                "back: {}",
+                                                                file.string(), parsed.GetError() );
+        return Common::MakeSuccess( FoliageTypeFile{ file, parsed.GetValue().Header->Guid, true } );
     }
 } // namespace Desert::Assets::Serialization
