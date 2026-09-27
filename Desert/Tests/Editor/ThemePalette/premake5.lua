@@ -5,25 +5,25 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- ThemeManager.cpp is compiled by no other suite and needs a live ImGui context to write into, so
     -- the four ImGui translation units come along (not the ImGui static library: its Windows runtime
     -- flags differ from the test runtime).
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Core/ThemeManager.cpp",
-        "%{wks.location}/ThirdParty/ImGui/imgui.cpp",
-        "%{wks.location}/ThirdParty/ImGui/imgui_draw.cpp",
-        "%{wks.location}/ThirdParty/ImGui/imgui_tables.cpp",
-        "%{wks.location}/ThirdParty/ImGui/imgui_widgets.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/ThemeManager.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui/imgui.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui/imgui_draw.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui/imgui_tables.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui/imgui_widgets.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Editor/Source",
-        "%{wks.location}/ThirdParty",         -- <ImGui/imgui.h>
-        "%{wks.location}/ThirdParty/ImGui",   -- ThemeManager.cpp includes "imgui_internal.h" unqualified
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty",         -- <ImGui/imgui.h>
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui",   -- ThemeManager.cpp includes "imgui_internal.h" unqualified
     }
 
     for name, path in pairs(deps.TestSpecific.IncludeDir) do

@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- MESHSERVICE WITHOUT A DEVICE (AL1-5c). Pending, arrival, parse-before-build and the in-frame read
     -- count are bookkeeping over assets and the async loader; the GPU half is IMeshUploader, faked here.
@@ -15,28 +15,28 @@ project(test_name)
         test_files,
         -- THE UNIT UNDER TEST, compiled without libDesert: its device half is behind IMeshUploader
         -- (MeshUploader.hpp) and the suite passes a fake, so MeshGpuUploader.cpp is deliberately absent.
-        "%{wks.location}/Desert/Desert/Source/Engine/Runtime/Services/Mesh/MeshService.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Runtime/Services/Mesh/MeshService.cpp",
         -- Pending/arrival IS the async loader.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp",
         -- MeshService discovers registry rows as Static/Skinned mesh shells and a skinned mesh's rig, so
         -- the three asset types link; their loaders bring the mesh DDC and the skeleton with them.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

@@ -11,29 +11,29 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
         -- The two files the ownership lives in. The GPU half is the one stubbed: Image2D::Create returns a
         -- counted fake, and the registry getter hands out this suite's own ImageService.
-        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/Texture.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Runtime/Services/Image/ImageService.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/Texture.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Runtime/Services/Image/ImageService.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",       -- the walk takes an entt registry
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- Components.hpp -> ReflectionTypes.hpp -> rfl
-        "%{wks.location}/ThirdParty/stb/include",          -- Engine/Text -> stb_truetype
-        "%{wks.location}/ThirdParty/JoltPhysics",          -- Components.hpp -> PhysicsWorld -> Jolt
-        "%{wks.location}/ThirdParty/lua",                  -- ... -> ScriptProperty -> sol2 -> lua
-        "%{wks.location}/ThirdParty/sol2/include",
-        "%{wks.location}/ThirdParty/meshoptimizer/src",    -- ... -> Geometry/Mesh
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- the walk takes an entt registry
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- Components.hpp -> ReflectionTypes.hpp -> rfl
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",          -- Engine/Text -> stb_truetype
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/JoltPhysics",          -- Components.hpp -> PhysicsWorld -> Jolt
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/lua",                  -- ... -> ScriptProperty -> sol2 -> lua
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/sol2/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/meshoptimizer/src",    -- ... -> Geometry/Mesh
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
