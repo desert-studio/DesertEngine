@@ -412,7 +412,7 @@ namespace Desert::Geometry::VoxelBlockout
             if ( !lf.SameAxes( m_Frame ) )
                 return;
             const glm::vec3 lo  = m_Frame.ToFramePoint( lf.Origin );
-            const float eps = 1e-3f * std::min( lu, m_Unit );
+            const float     eps = 1e-3f * std::min( lu, m_Unit );
             for ( auto& [key, cell] : cells )
             {
                 const glm::ivec3 c     = Unpack( key );

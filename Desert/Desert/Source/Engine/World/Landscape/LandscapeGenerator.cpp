@@ -192,7 +192,7 @@ namespace Desert::World::Landscape
                             offset.Z + static_cast<int32_t>( map.SamplesZ ) - 1 };
             field.Inner = { field.Rect.X1 + 1, field.Rect.Z1 + 1, field.Rect.X2 - 1, field.Rect.Z2 - 1 };
             field.Brush.assign( static_cast<size_t>( map.SamplesX - 2u ) * ( map.SamplesZ - 2u ), 1.0f );
-            field.Heights = std::move( map.Samples );
+            field.Heights                                 = std::move( map.Samples );
             const LandscapeErosionIterationHook iteration = [&steps]
             {
                 if ( !steps.Go() )

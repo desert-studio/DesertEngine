@@ -58,7 +58,7 @@ namespace Desert::Editor::Core
         bool                      PlaneCutWorld        = false;
         bool                      PlaneCutKeepNegative = false;
         bool                      PlaneCutFill         = true;
-        Geometry::PlaneCutMode    PlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
+        Geometry::PlaneCutMode      PlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
         // Cut only: the plane in the MESH's space (the knife maps its screen line through the entity's
         // transform). Absent, Cut is refused - it has no line to cut along.
         std::optional<Geometry::CutPlane> CutPlane;
