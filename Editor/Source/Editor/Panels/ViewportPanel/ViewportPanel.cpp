@@ -254,7 +254,7 @@ namespace Desert::Editor
 
     Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, std::optional<glm::vec3> at )
     {
-        if ( !m_Scene || !m_AssetManager || !m_AsyncLoader )
+        if ( !m_Scene || m_AssetManager == nullptr || !m_AsyncLoader )
             return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
                                                      path );
 

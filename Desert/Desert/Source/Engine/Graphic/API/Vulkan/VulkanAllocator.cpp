@@ -12,6 +12,14 @@ namespace Desert::Graphic::API::Vulkan
     namespace
     {
         static VmaAllocator s_VmaAllocator = VK_NULL_HANDLE;
+
+        // The ledger keys a row by the allocation's address: VmaAllocation is an opaque pointer and its
+        // value is the identity, never dereferenced through the integer.
+        uint64_t LedgerKey( VmaAllocation allocation )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            return reinterpret_cast<uint64_t>( allocation );
+        }
     }
 
     void VulkanAllocator::Init( const std::shared_ptr<VulkanLogicalDevice>& device, VkInstance instance )
@@ -109,7 +117,7 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
-        m_Ledger.Record( reinterpret_cast<uint64_t>( allocation ), tag, AllocationSize( allocation ) );
+        m_Ledger.Record( LedgerKey( allocation ), tag, AllocationSize( allocation ) );
         return Common::MakeSuccess( allocation );
     }
 
@@ -153,7 +161,7 @@ namespace Desert::Graphic::API::Vulkan
                  VkResultToString( res ) );
         }
 
-        m_Ledger.Record( reinterpret_cast<uint64_t>( allocation ), tag, AllocationSize( allocation ) );
+        m_Ledger.Record( LedgerKey( allocation ), tag, AllocationSize( allocation ) );
         return Common::MakeSuccess( allocation );
     }
 
@@ -304,7 +312,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( takeFrame( it->FrameIndex ) )
             {
                 vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
-                m_Ledger.Release( reinterpret_cast<uint64_t>( it->Allocation ) );
+                m_Ledger.Release( LedgerKey( it->Allocation ) );
                 it = m_BufferDeletionQueue.erase( it );
                 ++destroyed;
             }
@@ -320,7 +328,7 @@ namespace Desert::Graphic::API::Vulkan
                 for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
 
                 vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
-                m_Ledger.Release( reinterpret_cast<uint64_t>( it->Allocation ) );
+                m_Ledger.Release( LedgerKey( it->Allocation ) );
                 it = m_ImageDeletionQueue.erase( it );
                 ++destroyed;
             }

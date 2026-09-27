@@ -57,8 +57,11 @@ namespace Desert::Assets
                                file.generic_string(), tag );
                     continue;
                 }
-                const std::string id      = file.generic_string();
-                LoadRequest       request = AsyncAssetLoader::Get().Request(
+                const std::string id = file.generic_string();
+                // clang-tidy's bugprone-exception-escape blames the closures' implicit copies, which
+                // std::function needs; the bodies log and erase and throw nothing.
+                // NOLINTBEGIN(bugprone-exception-escape)
+                LoadRequest request = AsyncAssetLoader::Get().Request(
                      shell,
                      [id, tag]( const Asset<AssetBase>& loaded, const LoadOutcome outcome,
                                 const std::string& error )
@@ -68,7 +71,7 @@ namespace Desert::Assets
                          {
                              LOG_ERROR(
                                   "[Localization] String table '{}' ({}) could not be read; its keys resolve "
-                                        "as missing: {}",
+                                  "as missing: {}",
                                   id, tag, error );
                          }
                          else if ( const auto published =
@@ -85,6 +88,7 @@ namespace Desert::Assets
                          Localization::Localization::Get().TableSettled( tag );
                          Source().Requests.erase( id );
                      } );
+                // NOLINTEND(bugprone-exception-escape)
                 if ( !request.IsValid() )
                     continue;
                 Localization::Localization::Get().TableRequested( tag );
@@ -113,6 +117,7 @@ namespace Desert::Assets
         }
 
         std::vector<std::string> languages;
+        languages.reserve( source.FilesByLanguage.size() );
         for ( const auto& [tag, files] : source.FilesByLanguage )
             languages.push_back( tag );
         auto& localization = Localization::Localization::Get();

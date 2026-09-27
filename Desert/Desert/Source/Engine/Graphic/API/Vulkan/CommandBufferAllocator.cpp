@@ -31,7 +31,7 @@ namespace Desert::Graphic::API::Vulkan
                      "the device is lost; the one-off command buffer is dropped rather than submitted." );
             }
 
-            const VkDevice device = owner.GetVulkanLogicalDevice();
+            VkDevice device = owner.GetVulkanLogicalDevice();
             VK_RETURN_RESULT_IF_FALSE_TYPE( VkResult, vkEndCommandBuffer( commandBuffer ) )
 
             VkSubmitInfo submitInfo       = {};
@@ -67,6 +67,7 @@ namespace Desert::Graphic::API::Vulkan
     } // namespace
 
     CommandBufferAllocator::CommandBufferAllocator( const std::shared_ptr<VulkanLogicalDevice>& device )
+         : m_Device( device.get() )
     {
         const uint32_t frames = k_MaxCommandPoolFrames;
 
@@ -120,7 +121,6 @@ namespace Desert::Graphic::API::Vulkan
         m_TransferOpsQueue = device->m_TransferQueue;
 
         m_LogicalDevice = device->m_LogicalDevice;
-        m_Device        = device.get();
     }
 
     Common::ResultStr<VkCommandBuffer> CommandBufferAllocator::RT_GetCommandBufferCompute( bool begin /*= false */ )

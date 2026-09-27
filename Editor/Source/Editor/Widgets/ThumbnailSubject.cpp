@@ -104,8 +104,9 @@ namespace Desert::Editor::ThumbnailSubject
         }
     } // namespace
 
-    Common::ResultStr<std::optional<Material>>
-    ResolveMaterial( Assets::AssetManager& manager, const std::string& assetPath, OnMaterialArrived onArrived )
+    Common::ResultStr<std::optional<Material>> ResolveMaterial( Assets::AssetManager&    manager,
+                                                                const std::string&       assetPath,
+                                                                const OnMaterialArrived& onArrived )
     {
         using Answer = std::optional<Material>;
         if ( !onArrived )
@@ -157,6 +158,9 @@ namespace Desert::Editor::ThumbnailSubject
         if ( reads.contains( assetPath ) )
             return Common::MakeSuccess( Answer() );
 
+        // clang-tidy 18 blames the closures' implicit copies (std::string, std::function, weak_ptr), which
+        // the loader's std::function needs; the same finding EditorLayer's palette entries carry.
+        // NOLINTBEGIN(bugprone-exception-escape)
         Assets::LoadRequest request = Assets::AsyncAssetLoader::Get().Request(
              asset,
              [assetPath, onArrived,
@@ -188,6 +192,7 @@ namespace Desert::Editor::ThumbnailSubject
                                  std::static_pointer_cast<Assets::SurfaceMaterialAsset>( loaded ), assetPath ) );
              },
              [assetPath]() { MaterialReadsInFlight().erase( assetPath ); } );
+        // NOLINTEND(bugprone-exception-escape)
         if ( !request.IsValid() )
             return Common::MakeFormattedError<Answer>( "'{}': the async loader refused the read", assetPath );
         reads.emplace( assetPath, std::move( request ) );

@@ -12,10 +12,7 @@ namespace Common::Settings
             const auto byte = static_cast<unsigned char>( c );
             if ( byte < 0x20 || byte == 0x7F )
                 return true;
-            for ( const char bad : std::string_view( "<>:\"/\\|?*" ) )
-                if ( c == bad )
-                    return true;
-            return false;
+            return std::string_view( "<>:\"/\\|?*" ).find( c ) != std::string_view::npos;
         }
 
         bool EqualsIgnoringCase( std::string_view inA, std::string_view inB )

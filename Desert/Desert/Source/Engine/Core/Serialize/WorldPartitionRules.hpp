@@ -1406,8 +1406,9 @@ namespace Desert::Core::Rules
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            if ( records[record].id.has_value() && !records[record].id->IsNull() )
-                byId.emplace( *records[record].id, record );
+            const auto& id = records[record].id;
+            if ( id.has_value() && !id->IsNull() )
+                byId.emplace( *id, record );
         }
         const std::vector<glm::mat4> world = Detail::ComposeWorld( records, byId );
 

@@ -106,7 +106,7 @@ namespace Desert::Runtime
     /// material — and the rest is the registry's `deps` column walked transitively
     /// (Assets::ContentRegistry::Closure): a mesh's own materials, an instance's parent, textures, shaders,
     /// cloud assets. Nothing is read to learn it.
-    std::vector<Assets::ContentRegistry::ClosureRow> SceneDependencies( const Core::Scene& scene );
+    std::vector<Assets::ContentRegistry::ClosureRow> SceneDependencies( const Core::Scene& owner );
 
     /// THE ONE WAIT FOR A CLOSURE: every row's read is started on the loader's WORKERS first (meshes and their
     /// rigs, materials, textures — the kinds whose services read on demand; shaders and cloud assets have

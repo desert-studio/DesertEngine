@@ -16,6 +16,7 @@ project(test_name)
         -- The unit under test is the Lua side of the bridge: the ui.* table and the store it writes.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Scripting/UIBindings.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UIDataStore.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UICollectionClone.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
         -- ui.toast reaches UIOverlayRequests, whose file also places overlays through the canvas layout.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",

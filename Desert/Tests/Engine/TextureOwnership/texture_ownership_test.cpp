@@ -34,15 +34,15 @@ namespace
             --s_LiveImages;
         }
 
-        uint32_t GetWidth() const override
+        [[nodiscard]] uint32_t GetWidth() const override
         {
             return m_Spec.Width;
         }
-        uint32_t GetHeight() const override
+        [[nodiscard]] uint32_t GetHeight() const override
         {
             return m_Spec.Height;
         }
-        uint32_t GetMipmapLevels() const override
+        [[nodiscard]] uint32_t GetMipmapLevels() const override
         {
             return 1;
         }

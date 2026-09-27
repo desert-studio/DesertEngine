@@ -204,7 +204,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanPipelineCompute::Record( GpuBatch& batch, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ )
     {
-        const VkCommandBuffer cmd = RecordingBuffer( batch );
+        VkCommandBuffer cmd = RecordingBuffer( batch );
         if ( !m_VulkanMaterialBackend || cmd == VK_NULL_HANDLE )
         {
             LOG_ERROR( "ComputePipeline '{}': {} -- the dispatch is not recorded.", m_Specification.DebugName,

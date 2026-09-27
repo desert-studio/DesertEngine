@@ -117,7 +117,7 @@ namespace Desert::Localization
                 // Refusing here rather than at the draw is the whole point: the author is looking at the
                 // file, and the alternative is a label that is fine for 99 counts and blank for the
                 // hundredth.
-                if ( entry.Forms.count( std::string( PluralCategoryName( PluralCategory::Other ) ) ) == 0 )
+                if ( !entry.Forms.contains( std::string( PluralCategoryName( PluralCategory::Other ) ) ) )
                     return Common::MakeFormattedError<bool>(
                          "key '{}' has no 'other' form. Every language has that category and the form ladder "
                          "ends there, so a row without one resolves to nothing for some count or some gender",

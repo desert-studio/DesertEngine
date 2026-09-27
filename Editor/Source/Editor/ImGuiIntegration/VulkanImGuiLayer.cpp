@@ -139,8 +139,8 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( m_ImguiPool != VK_NULL_HANDLE )
         {
-            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                         ->GetVulkanLogicalDevice();
+            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                   ->GetVulkanLogicalDevice();
             vkDestroyDescriptorPool( device, m_ImguiPool, nullptr );
             m_ImguiPool = VK_NULL_HANDLE;
         }

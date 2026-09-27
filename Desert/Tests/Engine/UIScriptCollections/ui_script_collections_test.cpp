@@ -12,11 +12,6 @@
 
 #include <string>
 
-namespace Desert::Scripting
-{
-    void RegisterUIBindings( ScriptEngine::Impl& implRef );
-}
-
 namespace
 {
     namespace UI = Desert::UI;

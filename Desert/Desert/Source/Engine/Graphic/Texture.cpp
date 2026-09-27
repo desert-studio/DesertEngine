@@ -11,7 +11,7 @@ namespace Desert::Graphic
 {
     Texture2D::~Texture2D()
     {
-        if ( m_Service )
+        if ( m_Service != nullptr )
             m_Service->Unregister( m_Handle );
     }
 

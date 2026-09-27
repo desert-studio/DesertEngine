@@ -72,7 +72,7 @@ namespace Desert::Runtime
         /// THE SCENE-OPEN DOOR (plan §2.4(b)): request every mesh in @p handles and its rig, block until the
         /// WORKERS have read them (AsyncAssetLoader::AwaitOne, so no in-frame load is counted), and build
         /// them, so the scene's first frame is complete. Returns how many are drawable.
-        std::size_t AwaitResident( std::span<const Assets::AssetHandle> handles );
+        std::size_t AwaitResident( std::span<const Assets::AssetHandle> handles ) const;
 
         /// ONE ROW OF A CLOSURE (AL1-8b): start the worker reads of the mesh @p handle names and of its rig,
         /// appending the loader handles to wait on to @p awaited. Never reads on this thread; builds nothing.

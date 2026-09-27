@@ -19,7 +19,8 @@ namespace Desert::Editor
     // all four channels leaves no second convention to mix up. Asserted by the ThemePalette suite.
     static constexpr ImVec4 C( int r, int g, int b, int a = 255 )
     {
-        return ImVec4( r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f );
+        return { static_cast<float>( r ) / 255.0f, static_cast<float>( g ) / 255.0f,
+                 static_cast<float>( b ) / 255.0f, static_cast<float>( a ) / 255.0f };
     }
 
     void ThemeManager::SetDarkTheme()

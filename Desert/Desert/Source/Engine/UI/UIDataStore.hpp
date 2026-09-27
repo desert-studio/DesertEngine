@@ -67,9 +67,9 @@ namespace Desert::UI
         // Lives in the same store because it has the same lifetime question (Clear() on scene change) and
         // the same writer (gameplay via ui.list_*), and a second singleton would be a second place to
         // forget to clear.
-        UICollection&       Collection( const std::string& key ); // created empty on first use
-        const UICollection* FindCollection( const std::string& key ) const;
-        void                EraseCollection( const std::string& key );
+        UICollection&                     Collection( const std::string& key ); // created empty on first use
+        [[nodiscard]] const UICollection* FindCollection( const std::string& key ) const;
+        void                              EraseCollection( const std::string& key );
 
     private:
         std::unordered_map<std::string, Value> m_Values;
@@ -91,6 +91,12 @@ namespace Desert::UI
     class UICollection
     {
     public:
+        // A deep copy, records and their nested collections included (UIDataStore's copy calls it). Defined
+        // in UICollectionClone.cpp: the store's copy and the collection's are mutually recursive by the
+        // data's shape, and one translation unit holding both halves is a call-graph cycle that
+        // misc-no-recursion reports inside the standard library's own headers, where no NOLINT can reach.
+        [[nodiscard]] std::unique_ptr<UICollection> Clone() const;
+
         // One mutation, as a RANGE of indices [First, First + Count) — the shape UE's list views and every
         // retained list model notify in, and the one a list needs to keep its scroll anchored: an insert
         // above the window moves the window, one below it does not.

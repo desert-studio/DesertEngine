@@ -5355,6 +5355,9 @@ namespace Desert::Editor
             const std::string label =
                  "Drop into the viewport: " +
                  file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+            // The same clang-tidy 18 finding as the folder entries below: the closure's implicit copy of
+            // `path`, which std::function needs.
+            // NOLINTBEGIN(bugprone-exception-escape)
             commands.push_back(
                  { "Assets", label, [this, path]
                    {
@@ -5370,6 +5373,7 @@ namespace Desert::Editor
                            return Common::MakeError<bool>( dropped.GetError() );
                        return PaletteCommandDone();
                    } } );
+            // NOLINTEND(bugprone-exception-escape)
         }
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )

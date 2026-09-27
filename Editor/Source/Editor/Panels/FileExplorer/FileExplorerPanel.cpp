@@ -1708,7 +1708,10 @@ namespace Desert::Editor
                      ThumbnailService::Get().RequestMaterial( resolved.GetValue().Handle, assetPath,
                                                               resolved.GetValue().How );
              } );
-        if ( !subject || !subject.GetValue() )
+        if ( !subject )
+            return drew;
+        const auto& material = subject.GetValue();
+        if ( !material )
             return drew;
 
         auto a = m_AssetManager->FindByPath<Assets::SurfaceMaterialAsset>( entry->AssetPath );
@@ -1717,8 +1720,7 @@ namespace Desert::Editor
 
         // Queue through the editor-wide service: it owns the one renderer, deduplicates against what other
         // panels already asked for, skips anything already on disk and never retries an asset that failed.
-        ThumbnailService::Get().RequestMaterial( subject.GetValue()->Handle, entry->AssetPath,
-                                                 subject.GetValue()->How );
+        ThumbnailService::Get().RequestMaterial( material->Handle, entry->AssetPath, material->How );
         if ( drew )
             return true;
 

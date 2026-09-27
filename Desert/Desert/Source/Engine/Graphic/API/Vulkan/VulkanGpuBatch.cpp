@@ -13,8 +13,8 @@ namespace Desert::Graphic::API::Vulkan
         const auto&    physical = device->GetPhysicalDevice();
         const uint32_t family   = physical->GetGraphicsFamily();
 
-        const auto&    families    = physical->GetQueueFamilyProperties();
-        const uint32_t familyCount = static_cast<uint32_t>( families.size() );
+        const auto& families    = physical->GetQueueFamilyProperties();
+        const auto  familyCount = static_cast<uint32_t>( families.size() );
         if ( family >= familyCount || ( families[family].queueFlags & VK_QUEUE_COMPUTE_BIT ) == 0 )
             return Common::MakeFormattedError<std::unique_ptr<GpuBatch>>(
                  "the graphics queue family {} (of {}) does not advertise compute, and a GPU batch records "
@@ -42,8 +42,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_Recording == VK_NULL_HANDLE )
             return Common::MakeError( "the GPU batch was already submitted." );
-        const VkCommandBuffer recording = m_Recording;
-        m_Recording                     = VK_NULL_HANDLE;
+        VkCommandBuffer recording = m_Recording;
+        m_Recording               = VK_NULL_HANDLE;
         auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitCommandBufferGraphic( recording );
         if ( !submitted )
             return Common::MakeError( submitted.GetError() );
@@ -66,6 +66,8 @@ namespace Desert::Graphic::API::Vulkan
 
     VkCommandBuffer RecordingBuffer( GpuBatch& batch )
     {
+        // Every GpuBatch is made by VulkanGpuBatch::Begin (the one backend), so the downcast cannot miss.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         return static_cast<VulkanGpuBatch&>( batch ).Commands();
     }
 } // namespace Desert::Graphic::API::Vulkan

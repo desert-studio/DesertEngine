@@ -683,12 +683,15 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
     ASSERT_TRUE( stated.has_value() ) << "a body holding a cube and a mesh states no box";
     // By hand, in the root's frame: the cube is 200 +- 100 on x and z, +-100 on y; the crate, turned a
     // quarter, is -150 +- 40 on x, 50..70 on y, +-10 on z.
+    // gtest's ASSERT above returns on the empty case; the analysis does not follow the macro's return.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( stated->Min.x, -190.0f, 1e-3f );
     EXPECT_NEAR( stated->Max.x, 300.0f, 1e-3f );
     EXPECT_NEAR( stated->Min.y, -100.0f, 1e-3f );
     EXPECT_NEAR( stated->Max.y, 100.0f, 1e-3f );
     EXPECT_NEAR( stated->Min.z, -100.0f, 1e-3f );
     EXPECT_NEAR( stated->Max.z, 100.0f, 1e-3f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     const std::string                 prefabPath = "Prefabs/Boxed.deprefab";
     Common::Utils::AssetRegistryEntry prefab;
@@ -700,7 +703,9 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 
     const glm::vec3 where( 4200.0f, 0.0f, 2600.0f );
     const glm::vec3 scale( 1.5f );
-    const auto      settings = *World().WorldPartition;
+    // World() states its partition settings, as every fixture here does.
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    const auto settings = *World().WorldPartition;
 
     std::vector<EntityData> named;
     EntityData              instance = Record( 1, "Instance", where );
@@ -728,11 +733,14 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
     const auto* b        = CompositeHolding( fromBody, 0 );
     ASSERT_TRUE( a != nullptr && b != nullptr && a->Footprint && b->Footprint );
     EXPECT_EQ( fromRow.PointOnlyRecords, 0u ) << "the instance was planned as a point: its row's box was not read";
+    // gtest's ASSERT above returns on the empty case; the analysis does not follow the macro's return.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( a->Footprint->MinX, b->Footprint->MinX, 1e-2f );
     EXPECT_NEAR( a->Footprint->MaxX, b->Footprint->MaxX, 1e-2f );
     EXPECT_NEAR( a->Footprint->MinZ, b->Footprint->MinZ, 1e-2f );
     EXPECT_NEAR( a->Footprint->MaxZ, b->Footprint->MaxZ, 1e-2f );
     EXPECT_NEAR( a->Footprint->MaxX - a->Footprint->MinX, 490.0f * 1.5f, 1e-2f ) << "the instance's scale";
+    // NOLINTEND(bugprone-unchecked-optional-access)
 }
 
 // THE CORPUS PREFAB: a UI card has no extent, so its body states no box, and its row - read by the scan

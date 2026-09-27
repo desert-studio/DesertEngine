@@ -1992,10 +1992,9 @@ namespace Desert::UI
                     // gives, the authored state until gameplay says otherwise.
                     boundRows =
                          lv.Collection.empty() ? nullptr : UIDataStore::Get().FindCollection( lv.Collection );
-                    const std::size_t rowCount =
-                         !lv.Collection.empty()
-                              ? static_cast<std::size_t>( boundRows != nullptr ? boundRows->Size() : 0 )
-                              : reg.get<ECS::RelationshipComponent>( e ).Children.size();
+                    std::size_t rowCount = reg.get<ECS::RelationshipComponent>( e ).Children.size();
+                    if ( !lv.Collection.empty() )
+                        rowCount = boundRows != nullptr ? static_cast<std::size_t>( boundRows->Size() ) : 0;
                     if ( boundRows != nullptr )
                     {
                         // Follow the records, not the indices: see AnchorListScroll. Done BEFORE the wheel

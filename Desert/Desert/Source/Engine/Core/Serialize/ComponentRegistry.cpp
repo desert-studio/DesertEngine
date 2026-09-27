@@ -866,6 +866,9 @@ namespace Desert::Core::Serialize
                 // open waits for the scene's meshes afterwards (MeshService::AwaitResident).
                 if ( auto a = mgr.FindByHandle<Assets::MeshAsset>( handle ) )
                 {
+                    // The same const_cast `FromPath` makes at its head, for the same reason: a resolver is
+                    // handed the registry as const, and registering against it is a write.
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
                     Runtime::EnsureMeshRegistered( a, const_cast<Assets::AssetManager&>( mgr ) );
                     return guid;
                 }

@@ -320,6 +320,8 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
     const fs::path source = repo / "Editor/Resources/Assets/Clouds/Types/Cirrus.decloudtype";
     ASSERT_TRUE( fs::exists( source ) );
 
+    // A SNAPSHOT, not a reference: the root is changed below and put back from this copy.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const Path::ProjectRootState saved   = Path::CurrentProjectRoot();
     const fs::path               project = fs::temp_directory_path() / "al17_on_demand_cloud_type_project";
     fs::remove_all( project );
@@ -403,6 +405,8 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
     ASSERT_TRUE( fs::exists( source ) );
 
     // A snapshot, not a reference: the test repoints the live root and restores this copy afterwards.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+    // A SNAPSHOT, not a reference: the root is changed below and put back from this copy.
     // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const Path::ProjectRootState saved   = Path::CurrentProjectRoot();
     const fs::path               project = fs::temp_directory_path() / "al1_on_demand_cloud_project";

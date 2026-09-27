@@ -138,7 +138,7 @@ namespace Desert::Editor
         {
             std::string id = inFolderName;
             for ( char& c : id )
-                if ( !std::isalnum( static_cast<unsigned char>( c ) ) && c != '-' && c != '.' )
+                if ( std::isalnum( static_cast<unsigned char>( c ) ) == 0 && c != '-' && c != '.' )
                     c = '-';
             return id;
         }

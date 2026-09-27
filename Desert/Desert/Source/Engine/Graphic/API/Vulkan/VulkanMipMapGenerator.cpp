@@ -133,7 +133,7 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr
     VulkanMipMapCubeGeneratorTO::RecordMips( GpuBatch& batch, const std::shared_ptr<ImageCube>& imageCube ) const
     {
-        const VkCommandBuffer commandBuffer = RecordingBuffer( batch );
+        VkCommandBuffer commandBuffer = RecordingBuffer( batch );
         if ( commandBuffer == VK_NULL_HANDLE )
             return Common::MakeError( "the GPU batch was already submitted; the mip chain cannot join it." );
         RecordCubeChain( commandBuffer, *SP_CAST( VulkanImageCube, imageCube ) );

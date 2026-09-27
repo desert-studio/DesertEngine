@@ -92,7 +92,7 @@ namespace
         {
             --g_LiveMeshes;
         }
-        MeshType GetType() const override
+        [[nodiscard]] MeshType GetType() const override
         {
             return MeshType::Static;
         }
@@ -280,6 +280,7 @@ TEST( SceneClosure, TheDepsColumnIsWalkedTransitivelyOnceEachAndRootsKeepTheirKi
     Assets::ContentRegistry::ResetForTest();
 
     std::vector<std::pair<uint64_t, std::string>> got;
+    got.reserve( closure.size() );
     for ( const auto& entry : closure )
         got.emplace_back( static_cast<uint64_t>( entry.Handle ), entry.Kind );
     std::sort( got.begin(), got.end() );

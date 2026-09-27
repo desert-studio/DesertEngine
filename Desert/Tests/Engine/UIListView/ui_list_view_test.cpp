@@ -756,7 +756,7 @@ TEST( UICollection, ACopiedStoreOwnsItsOwnCollections )
 {
     UI::UIDataStore a;
     a.Collection( "inv" ).Add( UI::UIDataStore{} );
-    UI::UIDataStore b = a;
+    const UI::UIDataStore b = a;
     a.Collection( "inv" ).Add( UI::UIDataStore{} );
     ASSERT_NE( b.FindCollection( "inv" ), nullptr );
     EXPECT_EQ( b.FindCollection( "inv" )->Size(), 1 );
@@ -772,7 +772,7 @@ namespace
 
     glm::vec3 TintOf( int i )
     {
-        return glm::vec3( static_cast<float>( i % 7 ) / 7.0f, 0.5f, static_cast<float>( i % 3 ) / 3.0f );
+        return { static_cast<float>( i % 7 ) / 7.0f, 0.5f, static_cast<float>( i % 3 ) / 3.0f };
     }
 
     ListScene MakeBoundList( int records )
@@ -877,7 +877,8 @@ TEST( ListViewBound, RemovingARecordInTheWindowMovesTheRecordsBelowItUpOneRow )
     const auto rowColour = []( const R2D::DrawList2D& list, int row ) -> std::optional<glm::vec4>
     {
         for ( const R2D::Vertex2D& v : list.GetVertices() )
-            if ( v.Position.y > row * kRowHeight && v.Position.y < ( row + 1 ) * kRowHeight )
+            if ( v.Position.y > static_cast<float>( row ) * kRowHeight &&
+                 v.Position.y < static_cast<float>( row + 1 ) * kRowHeight )
                 return v.Color;
         return std::nullopt;
     };

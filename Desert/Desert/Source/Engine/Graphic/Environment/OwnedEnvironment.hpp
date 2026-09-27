@@ -46,7 +46,7 @@ namespace Desert::Graphic
         /// Unregisters every cube this object owns and leaves it empty. Idempotent.
         void Release()
         {
-            if ( m_Service )
+            if ( m_Service != nullptr )
             {
                 m_Service->Unregister( m_Environment.RadianceMap );
                 m_Service->Unregister( m_Environment.IrradianceMap );

@@ -84,7 +84,7 @@ namespace Desert::Runtime
     bool DiscoverMesh( const Assets::AssetHandle& handle )
     {
         const auto* service = Meshes();
-        return service && service->Discover( handle );
+        return service != nullptr && service->Discover( handle );
     }
 
     std::vector<Assets::ContentRegistry::ClosureRow> SceneDependencies( const Core::Scene& owner )
@@ -95,7 +95,7 @@ namespace Desert::Runtime
         std::vector<Assets::ContentRegistry::ClosureRow> roots;
         const auto note = [&roots]( const Assets::AssetHandle& handle, ContentKind kind )
         {
-            if ( handle )
+            if ( handle != 0 )
                 roots.push_back( { handle, std::string( KindName( kind ) ) } );
         };
         const auto slots = [&note]( const std::vector<Assets::AssetHandle>& materials )
@@ -147,11 +147,11 @@ namespace Desert::Runtime
             std::vector<Assets::AssetHandle> awaited;
             for ( const auto& row : rows )
             {
-                if ( IsMeshKind( row.Kind ) && meshes )
+                if ( IsMeshKind( row.Kind ) && meshes != nullptr )
                     meshes->StartRead( row.Handle, awaited );
-                else if ( row.Kind == KindName( ContentKind::Material ) && materials )
+                else if ( row.Kind == KindName( ContentKind::Material ) && materials != nullptr )
                     materials->StartRead( row.Handle, awaited );
-                else if ( row.Kind == KindName( ContentKind::Texture ) && textures )
+                else if ( row.Kind == KindName( ContentKind::Texture ) && textures != nullptr )
                     textures->StartRead( row.Handle, awaited );
             }
             std::sort( awaited.begin(), awaited.end() );
@@ -179,7 +179,7 @@ namespace Desert::Runtime
         // their own closure are the second, and last, batch; for a mesh with a row they are already in the
         // closure and the batch is empty.
         std::vector<Assets::ContentRegistry::ClosureRow> all = closure;
-        if ( meshes && materials )
+        if ( meshes != nullptr && materials != nullptr )
         {
             std::vector<Assets::ContentRegistry::ClosureRow> roots;
             for ( const auto& row : closure )
@@ -190,7 +190,7 @@ namespace Desert::Runtime
                             const Assets::AssetHandle material = materials->GetAssetHandleByExternal( external );
                             const bool known = std::any_of( all.begin(), all.end(), [&material]( const auto& in )
                                                             { return in.Handle == material; } );
-                            if ( material && !known )
+                            if ( material != 0 && !known )
                                 roots.push_back( { material, std::string( KindName( ContentKind::Material ) ) } );
                         }
             if ( !roots.empty() )
@@ -203,7 +203,7 @@ namespace Desert::Runtime
         outcome.Rows = all.size();
 
         // A rig arrives with its mesh, so the skinned ones may have become buildable only now.
-        if ( meshes )
+        if ( meshes != nullptr )
             for ( const auto& row : closure )
                 if ( IsMeshKind( row.Kind ) )
                     outcome.DrawableMeshes += meshes->Get( row.Handle ) != nullptr ? 1 : 0;

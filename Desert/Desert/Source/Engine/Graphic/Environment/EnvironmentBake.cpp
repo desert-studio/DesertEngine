@@ -51,8 +51,12 @@ namespace Desert::Graphic
         using Clock        = std::chrono::steady_clock;
         const auto msSince = []( Clock::time_point from )
         { return std::chrono::duration<double, std::milli>( Clock::now() - from ).count(); };
-        auto   stageStart = Clock::now();
-        double tableMs = 0.0, censusMs = 0.0, blocksMs = 0.0, blockTableMs = 0.0, containerMs = 0.0;
+        auto   stageStart   = Clock::now();
+        double tableMs      = 0.0;
+        double censusMs     = 0.0;
+        double blocksMs     = 0.0;
+        double blockTableMs = 0.0;
+        double containerMs  = 0.0;
 
         Ser::TextureAssetData data;
         data.SourcePath        = sourceKey;
@@ -114,7 +118,9 @@ namespace Desert::Graphic
                      for ( std::size_t row = first; row < end; ++row )
                      {
                          const Ser::TextureLevel& image = data.Levels[row];
-                         faces[row]                     = Core::Formats::CensusBC6HCeiling(
+                         // The level's RGBA32F texels, kept as bytes in the cooked container; read in place.
+                         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                         faces[row] = Core::Formats::CensusBC6HCeiling(
                               reinterpret_cast<const float*>( data.Pixels.data() + image.ByteOffset ),
                               static_cast<std::size_t>( image.ByteSize / ( 4u * sizeof( float ) ) ) );
                      }

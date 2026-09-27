@@ -142,8 +142,8 @@ namespace Desert::Runtime
             return &it->second;
 
         using Common::Content::ContentKind;
-        const uint64_t id      = static_cast<uint64_t>( handle );
-        const bool     skinned = Assets::ContentRegistry::RowOf( ContentKind::SkinnedMesh, id ).has_value();
+        const auto id      = static_cast<uint64_t>( handle );
+        const bool skinned = Assets::ContentRegistry::RowOf( ContentKind::SkinnedMesh, id ).has_value();
         if ( !skinned && !Assets::ContentRegistry::RowOf( ContentKind::StaticMesh, id ) )
             return nullptr; // a procedural handle, or no mesh at all: nothing to discover
 
@@ -235,6 +235,8 @@ namespace Desert::Runtime
         if ( !ready )
             return false;
 
+        // IsSkinned() held above, and only SkinnedMeshAsset answers it true.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         auto& skinned = static_cast<Assets::SkinnedMeshAsset&>( *entry.Asset );
         if ( !skinned.GetSkeletonDependency().IsValid() )
         {
@@ -259,7 +261,7 @@ namespace Desert::Runtime
             return it->second.get();
 
         Entry* entry = FindOrDiscover( handle );
-        if ( !entry || !Arrived( handle, *entry ) )
+        if ( entry == nullptr || !Arrived( handle, *entry ) )
             return nullptr;
 
         if ( const auto built = BuildAndCache( entry->Asset ); !built )
@@ -273,7 +275,7 @@ namespace Desert::Runtime
     Assets::MeshAsset* MeshService::GetAsset( const Assets::AssetHandle& handle ) const
     {
         Entry* entry = FindOrDiscover( handle );
-        if ( !entry || !Arrived( handle, *entry ) )
+        if ( entry == nullptr || !Arrived( handle, *entry ) )
             return nullptr;
         return entry->Asset.get();
     }
@@ -282,15 +284,15 @@ namespace Desert::Runtime
                                  std::vector<Assets::AssetHandle>& awaited ) const
     {
         Entry* entry = FindOrDiscover( handle );
-        if ( !entry || Arrived( handle, *entry ) )
+        if ( entry == nullptr || Arrived( handle, *entry ) )
             return;
         if ( entry->Asset && !entry->Asset->IsReadyForUse() )
-            awaited.push_back( entry->Asset->GetMetadata().Handle );
+            awaited.emplace_back( entry->Asset->GetMetadata().Handle );
         if ( entry->Rig && !entry->Rig->IsReadyForUse() )
-            awaited.push_back( entry->Rig->GetMetadata().Handle );
+            awaited.emplace_back( entry->Rig->GetMetadata().Handle );
     }
 
-    std::size_t MeshService::AwaitResident( std::span<const Assets::AssetHandle> handles )
+    std::size_t MeshService::AwaitResident( std::span<const Assets::AssetHandle> handles ) const
     {
         std::vector<Assets::AssetHandle> awaited;
         for ( const auto& handle : handles )
@@ -307,7 +309,7 @@ namespace Desert::Runtime
     Desert::Mesh* MeshService::LoadNow( const Assets::AssetHandle& handle )
     {
         Entry* entry = FindOrDiscover( handle );
-        if ( !entry )
+        if ( entry == nullptr )
             return nullptr;
         (void)Arrived( handle, *entry );
         if ( entry->Asset )

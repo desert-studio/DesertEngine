@@ -506,8 +506,10 @@ TEST( ProceduralEnvironmentCube, ARebakeReleasesThePreviousEnvironmentAndKeepsTh
     owned.Replace( service, Bake( service, 0x2000 ) );
 
     EXPECT_EQ( service.Resolve( first.PreFilteredMap ), nullptr ) << "a rebake kept the previous cubes";
-    EXPECT_EQ( service.Resolve( owned.Get().PreFilteredMap ),
-               reinterpret_cast<Desert::Graphic::Image*>( 0x2100 ) );
+    // The fake service answers a handle with its own value as an address; it is compared, never followed.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
+    const auto* expected = reinterpret_cast<Desert::Graphic::Image*>( 0x2100 );
+    EXPECT_EQ( service.Resolve( owned.Get().PreFilteredMap ), expected );
 }
 
 TEST( ProceduralEnvironmentCube, TheSkyboxRendererOwnsItsEnvironmentRatherThanCopyingHandles )

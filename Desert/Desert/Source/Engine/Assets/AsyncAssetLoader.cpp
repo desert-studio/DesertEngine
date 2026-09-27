@@ -468,7 +468,7 @@ namespace Desert::Assets
         const std::lock_guard<std::mutex> guard( state.Lock );
         record->Id             = state.NextId++;
         state.Live[record->Id] = record;
-        return LoadRequest( record->Id, handle );
+        return { record->Id, handle };
     }
 
     size_t AsyncAssetLoader::Outstanding() const

@@ -18,10 +18,13 @@ namespace Desert::UI
     UIDataStore& UIDataStore::operator=( UIDataStore&& other ) noexcept = default;
     UIDataStore::~UIDataStore()                                         = default;
 
+    // A record of a collection is itself a store (a bound list inside a row of another), so a deep copy
+    // recurses as deep as the data nests; that depth is the authored UI's, not an input's. The collection's
+    // half is UICollection::Clone, in its own translation unit (UICollectionClone.cpp).
     UIDataStore::UIDataStore( const UIDataStore& other ) : m_Values( other.m_Values )
     {
         for ( const auto& [key, c] : other.m_Collections )
-            m_Collections.emplace( key, std::make_unique<UICollection>( *c ) );
+            m_Collections.emplace( key, c->Clone() );
     }
 
     UIDataStore& UIDataStore::operator=( const UIDataStore& other )

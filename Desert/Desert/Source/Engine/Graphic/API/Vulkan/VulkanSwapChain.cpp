@@ -489,10 +489,14 @@ namespace Desert::Graphic::API::Vulkan
             // on creation and drops the rows only when the deferred queue really destroys them, so a window
             // resize leaves no dead rows and no untracked bytes behind.
             const auto& vulkanAllocator = SP_CAST( VulkanContext, ctx )->GetVulkanAllocator();
+            // The header keeps the two allocations as `const void*` so it need not include vk_mem_alloc.h
+            // (see m_VmaAllocation); this is where the opaque handle is given its type back.
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
             vulkanAllocator->RT_DestroyImage( m_ColorImages.Image, (VmaAllocation)m_VmaAllocation[0],
                                               m_ColorImages.ImageView );
             vulkanAllocator->RT_DestroyImage( m_DepthStencilImages.Image, (VmaAllocation)m_VmaAllocation[1],
                                               m_DepthStencilImages.ImageView );
+            // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
 
             m_VmaAllocation[0] = m_VmaAllocation[1] = nullptr;
             m_ColorImages = {}; m_DepthStencilImages = {};

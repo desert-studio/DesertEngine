@@ -84,7 +84,7 @@ namespace Desert::Runtime
             return;
         const std::shared_ptr<Assets::MaterialAsset> shell = it->second;
         if ( !RequestIfUnread( shell ) )
-            awaited.push_back( shell->GetMetadata().Handle );
+            awaited.emplace_back( shell->GetMetadata().Handle );
     }
 
     std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator

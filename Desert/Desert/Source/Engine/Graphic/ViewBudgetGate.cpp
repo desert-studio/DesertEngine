@@ -89,9 +89,9 @@ namespace Desert::Graphic
         const uint64_t overrun = Engine::ViewBudget::ResizeOverrunBytes( current, resized, reading );
         if ( overrun == 0 )
             return std::nullopt;
-        std::vector<Engine::ViewBudget::HeldView> held      = SceneRenderer::LiveHoldings();
-        uint64_t                                  heldTotal = 0;
-        std::string                               views;
+        const std::vector<Engine::ViewBudget::HeldView> held      = SceneRenderer::LiveHoldings();
+        uint64_t                                        heldTotal = 0;
+        std::string                                     views;
         for ( const Engine::ViewBudget::HeldView& view : held )
         {
             heldTotal += view.Bytes;

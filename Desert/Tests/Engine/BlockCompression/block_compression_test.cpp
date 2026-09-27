@@ -1001,6 +1001,8 @@ TEST( BlockCompression, EveryBlockOfAParallelEncodeIsTheBlockEncodedAlone )
         }
     }
 
+    // The encoder takes the RGBA32F image as bytes, as the cook hands it over.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     const auto*  bytes     = reinterpret_cast<const unsigned char*>( texels.data() );
     const size_t byteCount = texels.size() * sizeof( float );
     auto         whole     = Fmt::BlockCompressImage( kWidth, kHeight, Fmt::ImageFormat::RGBA32F,
@@ -1020,21 +1022,23 @@ TEST( BlockCompression, EveryBlockOfAParallelEncodeIsTheBlockEncodedAlone )
     {
         for ( uint32_t bx = 0; bx < blocksX; ++bx )
         {
-            std::vector<float> block( 16u * 4u );
+            std::vector<float> block( std::size_t{ 16 } * 4u );
             for ( uint32_t y = 0; y < 4; ++y )
             {
                 for ( uint32_t x = 0; x < 4; ++x )
                 {
                     const uint32_t sx = std::min( bx * 4 + x, kWidth - 1 );
                     const uint32_t sy = std::min( by * 4 + y, kHeight - 1 );
-                    std::memcpy( block.data() + ( y * 4 + x ) * 4u,
+                    std::memcpy( block.data() + ( static_cast<std::size_t>( y ) * 4 + x ) * 4u,
                                  texels.data() + ( static_cast<size_t>( sy ) * kWidth + sx ) * 4u,
                                  4u * sizeof( float ) );
                 }
             }
+            // As above: the one block's texels, as bytes.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            const auto* blockBytes = reinterpret_cast<const unsigned char*>( block.data() );
             auto alone = Fmt::BlockCompressImage( 4, 4, Fmt::ImageFormat::RGBA32F, Fmt::ImageFormat::BC6H_UFLOAT,
-                                                  reinterpret_cast<const unsigned char*>( block.data() ),
-                                                  block.size() * sizeof( float ) );
+                                                  blockBytes, block.size() * sizeof( float ) );
             ASSERT_TRUE( alone.IsSuccess() ) << alone.GetError();
             const unsigned char* got =
                  whole.GetValue().data() + ( static_cast<size_t>( by ) * blocksX + bx ) * 16u;

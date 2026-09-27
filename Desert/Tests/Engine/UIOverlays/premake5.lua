@@ -27,6 +27,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UIOverlay.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UIDataStore.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/UI/UICollectionClone.cpp",
         -- Ю15: after the merge the walk resolves every authored label through Localization, so this
         -- suite links the resolver for the same reason UICanvasContext does. The overlay tests author
         -- literals, so the resolver returns them unchanged -- which is the negative control, not a gap.

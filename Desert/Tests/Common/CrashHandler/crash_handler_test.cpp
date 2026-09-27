@@ -281,6 +281,8 @@ int main( int argc, char** argv )
 #if defined( _WIN32 )
             ::_putenv_s( "LOCALAPPDATA", argv[3] );
 #else
+            // The child process, before any thread starts: nothing else can be reading the environment.
+            // NOLINTNEXTLINE(concurrency-mt-unsafe)
             ::setenv( "HOME", argv[3], 1 );
 #endif
         }
