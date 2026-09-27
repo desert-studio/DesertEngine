@@ -97,8 +97,8 @@ namespace Desert::Editor::Commands
     {
         struct RootRef
         {
-            Common::UUID                      Landscape;
-            std::vector<Assets::AssetHandle>* Layers = nullptr;
+            Common::UUID Landscape;
+            entt::entity Root = entt::null; // re-read through the registry at each use: the pool may move
         };
 
         Common::ResultStr<RootRef> RootOf( const std::shared_ptr<::Desert::Core::Scene>& scene )
@@ -112,8 +112,7 @@ namespace Desert::Editor::Commands
             const auto root = ECS::FindLandscapeRootEntity( registry, *landscape );
             if ( root == entt::null )
                 return Common::MakeFormattedError<RootRef>( "landscape layers: the landscape root is not loaded" );
-            return Common::MakeSuccess(
-                 RootRef{ *landscape, &registry.get<ECS::LandscapeComponent>( root ).Layers } );
+            return Common::MakeSuccess( RootRef{ *landscape, root } );
         }
     } // namespace
 
@@ -122,7 +121,7 @@ namespace Desert::Editor::Commands
         auto root = RootOf( scene );
         if ( !root )
             return Common::MakeError<std::string>( root.GetError() );
-        auto&       layers = *root.GetValue().Layers;
+        auto&       layers = scene->GetRegistry().get<ECS::LandscapeComponent>( root.GetValue().Root ).Layers;
         const auto  before = layers;
         const auto& dir    = Common::Constants::Path::LANDSCAPE_LAYER_INFO_PATH;
         std::string name;
@@ -156,7 +155,7 @@ namespace Desert::Editor::Commands
         auto root = RootOf( scene );
         if ( !root )
             return Common::MakeError<bool>( root.GetError() );
-        auto& layers = *root.GetValue().Layers;
+        auto& layers = scene->GetRegistry().get<ECS::LandscapeComponent>( root.GetValue().Root ).Layers;
         if ( slot >= layers.size() )
             return Common::MakeFormattedError<bool>( "landscape layers: slot {} of {}", slot, layers.size() );
         if ( std::find( layers.begin(), layers.end(), handle ) != layers.end() )
@@ -172,7 +171,7 @@ namespace Desert::Editor::Commands
         auto root = RootOf( scene );
         if ( !root )
             return Common::MakeError<bool>( root.GetError() );
-        auto& layers = *root.GetValue().Layers;
+        auto& layers = scene->GetRegistry().get<ECS::LandscapeComponent>( root.GetValue().Root ).Layers;
         if ( slot >= layers.size() )
             return Common::MakeFormattedError<bool>( "landscape layers: slot {} of {}", slot, layers.size() );
         const auto before = layers;

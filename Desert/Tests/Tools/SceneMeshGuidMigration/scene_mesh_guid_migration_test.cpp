@@ -180,7 +180,44 @@ TEST( ScenePathOnlyMeshGuidMigration, AMeshStatingNoGuidRefuses )
 TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration )
 {
     EXPECT_LT( Migration::kSceneVersionPathOnlyMeshGuids, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionFoliageTypes );
+    EXPECT_LT( Migration::kSceneVersionFoliageTypes, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionLandscapeLayerRefs );
+}
+
+namespace
+{
+    std::string V33LandscapeScene( const std::string& layers )
+    {
+        return std::string( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000005",)" ) +
+               R"("Versions":{"SCNE":33,"UNIT":1},"Dependencies":[]},"SceneName":"S","Entities":[
+        {"id":1,"Tag":"Land","Landscape":{"QuadsPerTile":63,"Layers":)" +
+               layers + R"(}}]})";
+    }
+} // namespace
+
+// LS-12b (v33 -> v34): the corpus has no inline landscape layer, so the step only restamps; a file that does
+// carry one is REFUSED with the layer named, not turned into invented `.delayerinfo` files.
+TEST( SceneLandscapeLayerRefsMigration, AnEmptyOrReferencedLayerListIsRestamped )
+{
+    const Project project( "layers_ok" );
+    for ( const char* layers :
+          { "[]", R"([{"Guid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","Path":"Landscape/Layers/G.delayerinfo"}])" } )
+    {
+        auto       scene  = Parse( V33LandscapeScene( layers ) );
+        const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
+        EXPECT_TRUE( report.Refused.empty() ) << report.Refused;
+        EXPECT_TRUE( report.LandscapeLayerRefsRaised );
+    }
+}
+
+TEST( SceneLandscapeLayerRefsMigration, AnInlineLayerRefusesTheFile )
+{
+    const Project project( "layers_inline" );
+    auto          scene  = Parse( V33LandscapeScene( R"([{"Name":"Grass","Hardness":0.5}])" ) );
+    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
+    ASSERT_FALSE( report.Refused.empty() );
+    EXPECT_NE( report.Refused.find( "Land > Landscape.Layers[0] = 'Grass'" ), std::string::npos )
+         << report.Refused;
 }
 
 namespace
