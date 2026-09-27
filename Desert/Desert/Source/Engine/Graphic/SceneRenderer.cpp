@@ -881,12 +881,12 @@ namespace Desert::Graphic
 
         // Particle simulation compute (outside any render pass) BEFORE the graph records the billboard draw,
         // so the freshly-integrated particle buffer is ready + visible to the vertex stage.
-        const float simulateSeconds = sceneRenderInfo.Timestep.GetSeconds();
+        // The graph executes before OnUpdate returns, so the frame's UpdateInfo outlives this pass.
         AddLegacy( graph, "Particles: SimulateInFrame", {}, {},
-                   [this, simulateSeconds]()
+                   [this, &sceneRenderInfo]()
                    {
                        UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )
-                            ->SimulateInFrame( simulateSeconds );
+                            ->SimulateInFrame( sceneRenderInfo.Timestep.GetSeconds() );
                    } );
 
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of

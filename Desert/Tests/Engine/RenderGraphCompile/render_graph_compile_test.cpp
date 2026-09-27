@@ -1180,7 +1180,7 @@ TEST( RenderGraphCompile, LegacyPassesRunInTheOrderAddedAndNoneIsCulled )
     graph.AddLegacyPass( "Tonemap", { scene }, {}, body( "Tonemap" ) );
     graph.AddLegacyPass( "Composite", {}, { scene }, body( "Composite" ) );
     graph.AddLegacyPass( "Particles", {}, {}, body( "Particles" ) );
-    graph.AddLegacyPass( "Bloom", { scene }, { scene }, body( "Bloom" ) );
+    graph.AddLegacyPass( "Bloom", {}, { scene }, body( "Bloom" ) );
 
     const std::vector<std::string> added  = { "Clear", "Tonemap", "Composite", "Particles", "Bloom" };
     const CompileResult            result = CompileOrFail( graph );
