@@ -33,28 +33,28 @@ namespace Desert::Geometry
         return "Unknown";
     }
 
+    // UE rebuilds tangents after every edit (they are derived data); the per-triangle path is exact on the
+    // flat faces the region operations create.
+    Common::BoolResultStr RecomputeTangentSpace( DynamicMesh3& mesh, const char* name )
+    {
+        DynamicMeshAttributeSet* attributes = mesh.Attributes();
+        if ( attributes == nullptr || !attributes->HasTangentSpace() )
+            return Common::MakeSuccess( true );
+        const DynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
+        if ( uvs == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );
+        MeshTangentsd tangents( &mesh );
+        tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), uvs );
+        if ( !tangents.CopyToOverlays( mesh ) )
+            return Common::MakeFormattedError<bool>(
+                 "Mesh {}: tangents could not be written - {} normal layers, 3 expected", name,
+                 attributes->NumNormalLayers() );
+        return Common::MakeSuccess( true );
+    }
+
     namespace
     {
-        // UE rebuilds tangents after every edit (they are derived data); the per-triangle path is exact on the
-        // flat faces the region operations create.
-        Common::BoolResultStr RecomputeTangents( DynamicMesh3& mesh, const char* name )
-        {
-            DynamicMeshAttributeSet* attributes = mesh.Attributes();
-            if ( attributes == nullptr || !attributes->HasTangentSpace() )
-                return Common::MakeSuccess( true );
-            const DynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
-            if ( uvs == nullptr )
-                return Common::MakeFormattedError<bool>(
-                     "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );
-            MeshTangentsd tangents( &mesh );
-            tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), uvs );
-            if ( !tangents.CopyToOverlays( mesh ) )
-                return Common::MakeFormattedError<bool>(
-                     "Mesh {}: tangents could not be written - {} normal layers, 3 expected", name,
-                     attributes->NumNormalLayers() );
-            return Common::MakeSuccess( true );
-        }
-
         // Ported from UE 5.8 GeometryCore/Private/CompGeom/PolygonTriangulation.cpp:170-192
         // (ComputePolygonPlane, Newell's method), adapted: the loop's vertex IDs in, no area returned.
         void ComputeLoopPlane( const DynamicMesh3& mesh, const std::vector<int>& loopVertices, glm::dvec3& normal,
@@ -146,7 +146,7 @@ namespace Desert::Geometry
             for ( const int t : filler.m_NewTriangles )
                 newTriangles.push_back( t );
         }
-        if ( auto tangents = RecomputeTangents( *mesh, "Fill Hole" ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Fill Hole" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Triangle );
@@ -207,7 +207,7 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Insert Edge Loop: the loop across group edge {} failed ({} problem group edges)", groupEdge,
                  static_cast<int32_t>( problemGroupEdges.size() ) );
-        if ( auto tangents = RecomputeTangents( *mesh, "Insert Edge Loop" ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Insert Edge Loop" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Edge );
@@ -241,7 +241,7 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Weld Edges: no coincident edge pair within tolerance {} cm among the {} boundary edges",
                  merger.m_MergeVertexTolerance, merger.m_InitialNumBoundaryEdges );
-        if ( auto tangents = RecomputeTangents( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
     }
@@ -313,7 +313,7 @@ namespace Desert::Geometry
                 for ( const int32_t t : region.InitialTriangles )
                     resultTriangles.push_back( t );
         }
-        if ( auto tangents = RecomputeTangents( *mesh, name ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, name ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Triangle );

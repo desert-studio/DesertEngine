@@ -69,4 +69,9 @@ namespace Desert::Geometry
     // attributes welded along merged edges, the settings of test WeldClosesACubeCutAlongEverySeam. Mesh-wide;
     // leaves an empty selection in @p mode. Refused when there is no boundary edge to weld.
     [[nodiscard]] Common::ResultStr<RegionOutcome> WeldEdges( const DynamicMesh3& before, ElementMode mode );
+
+    // The tangent space of @p mesh rebuilt from its normals and UV layer 0 (MeshTangents, per triangle), as UE treats
+    // tangents as derived data after an edit (see TANGENTS above). A mesh without a tangent space is left as it is.
+    // Refused, naming @p name, when the mesh has tangents but no UV layer 0, or the tangents cannot be written.
+    [[nodiscard]] Common::BoolResultStr RecomputeTangentSpace( DynamicMesh3& mesh, const char* name );
 } // namespace Desert::Geometry
