@@ -822,7 +822,7 @@ namespace Desert::Migration
                 continue;
             }
             const auto shadowKey = std::find_if( kShadowKeys.begin(), kShadowKeys.end(),
-                                                  [&key]( const auto& pair ) { return pair.first == key; } );
+                                                 [&key]( const auto& pair ) { return pair.first == key; } );
             if ( shadowKey != kShadowKeys.end() )
             {
                 shadow[std::string( shadowKey->second )] = field;
