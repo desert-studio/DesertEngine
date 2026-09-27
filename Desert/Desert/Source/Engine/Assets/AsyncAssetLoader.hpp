@@ -221,9 +221,9 @@ namespace Desert::Assets
          */
         [[nodiscard]] bool IsRequested( const AssetHandle& handle ) const;
 
-        /// Drops every live request WITHOUT firing a delegate, and waits for any worker still inside a
-        /// read to leave. For teardown and for tests; a scene close uses `Cancel()` on its own handles
-        /// so the owners hear about it.
+        /// Drops every live request WITHOUT firing a delegate, and waits for every submitted read job,
+        /// running or still queued, to return. For teardown and for tests; a scene close uses `Cancel()` on its
+        /// own handles so the owners hear about it.
         void ShutdownAndDrain();
 
         /// Counters and live set back to the starting state. Tests only.

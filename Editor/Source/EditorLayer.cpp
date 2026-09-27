@@ -9873,6 +9873,38 @@ namespace Desert::Editor
             LOG_ERROR( "[EditorLayer] ImGui layer failed to detach: {}", detached.GetError() );
         m_ImGuiLayer.reset();
 
+        // A SCENE NAMES ITS VIEWS' RENDERERS BY RAW POINTER (Scene::m_Views) AND OWNS NONE OF THEM, so a
+        // renderer may only die after its scene has let go of it. ~EditorLayer, left to itself, does it
+        // the other way round: members die in reverse declaration order, so m_SceneRenderer and every
+        // SceneViewport::Renderer went first, and m_RenderRegistry after them -- whose EditorUIPass,
+        // grid and collider passes call Scene::UnregisterExternalPass, which walks every view and
+        // dereferences each freed renderer. Every editor exit ended in an access violation (FIX6). The
+        // teardown is therefore explicit and in ownership order, each step the one its close site uses:
+        //
+        // Extra viewports first, as CloseSceneViewport does it: take the renderer off the scene it looks
+        // at, THEN destroy it. They are views of the documents below and must not outlive their removal.
+        for ( auto& view : m_ExtraViewports )
+        {
+            view->Viewport = nullptr; // the panel went with m_Panels above
+            if ( const auto scene = view->Scene.lock() )
+            {
+                if ( !scene->RemoveView( view->Renderer.get() ) )
+                    LOG_WARN( "[Editor] viewport '{}' was not a view of '{}' at shutdown.", view->Name,
+                              scene->GetSceneName() );
+            }
+            view->Renderer.reset();
+        }
+        m_ExtraViewports.clear();
+
+        // The primary document, in the order CloseSceneView uses for an extra one: the pass registry while
+        // the scene and its renderer are both alive (its passes unregister themselves from the scene),
+        // then the scene -- both handles, m_MainScene may alias m_PrimaryScene or an extra document's --
+        // and only then the renderer the scene was pointing at.
+        m_RenderRegistry.reset();
+        m_MainScene.reset();
+        m_PrimaryScene.reset();
+        m_SceneRenderer.reset();
+
         // Extra documents in the same order CloseSceneView uses (their panels went with m_Panels above):
         // registry, then scene, then renderer. Explicit rather than left to ~EditorLayer, which runs after
         // the layer stack has moved on and would destroy renderers at an unspecified point relative to it.

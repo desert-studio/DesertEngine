@@ -542,6 +542,75 @@ TEST( TeardownOrder, EveryVulkanObjectTheEngineCreatesHasADestroyCall )
     }
 }
 
+// ── A SCENE NAMES ITS RENDERERS AND OWNS NONE OF THEM ─────────────────────────────────────────────────
+//
+// WHAT THIS COST BEFORE IT EXISTED (FIX6). Scene keeps its views' renderers as raw pointers (Scene::m_Views);
+// EditorLayer owns them. OnDetach tore the EXTRA documents down in order and left the primary one, and every
+// extra viewport, to ~EditorLayer -- where members die in reverse declaration order. m_SceneRenderer is
+// declared after m_RenderRegistry, so the renderer died first; ~RenderRegistry then ran ~EditorUIPass, whose
+// Scene::UnregisterExternalPass walks every view and dereferences the freed renderer. Every editor exit,
+// `--shot` included and after the PNG was on disk, ended in an access violation and exit 3.
+//
+// Every renderer EditorLayer owns is one these rows know the teardown of: a fourth owner is a fourth
+// renderer some scene may point at, so it fails the count until its teardown is added to OnDetach and here.
+TEST( TeardownOrder, EditorLayerOwnsExactlyTheSceneRenderersOnDetachReleases )
+{
+    const std::string header = StripLineComments( ReadFile( RepoRoot() / "Editor/Source/EditorLayer.hpp" ) );
+    ASSERT_FALSE( header.empty() ) << "Editor/Source/EditorLayer.hpp not found or empty";
+
+    const std::string owner = "std::unique_ptr<Graphic::SceneRenderer>";
+    size_t            count = 0;
+    for ( size_t at = header.find( owner ); at != std::string::npos; at = header.find( owner, at + 1 ) )
+        ++count;
+    EXPECT_EQ( count, 3u ) << "EditorLayer.hpp owns SceneRenderers in " << count
+                           << " places; the rows below cover m_SceneRenderer, SceneDocument::Renderer and "
+                              "SceneViewport::Renderer";
+}
+
+TEST( TeardownOrder, OnDetachReleasesEverySceneRendererAfterTheSceneLetsGoOfIt )
+{
+    const std::string source = StripLineComments( ReadFile( RepoRoot() / "Editor/Source/EditorLayer.cpp" ) );
+    const std::string body   = FunctionBody( source, "EditorLayer::OnDetach" );
+    ASSERT_FALSE( body.empty() ) << "EditorLayer::OnDetach is not in Editor/Source/EditorLayer.cpp any more";
+
+    // Extra viewports: off their scene, then destroyed -- the order CloseSceneViewport uses -- and all of
+    // them gone before the primary registry walks the scene's views.
+    const size_t viewRemove = body.find( "RemoveView( view->Renderer.get() )" );
+    const size_t viewReset  = body.find( "view->Renderer.reset()" );
+    const size_t viewsClear = body.find( "m_ExtraViewports.clear()" );
+    // The primary document: its pass registry while scene and renderer both live, then both scene
+    // handles, then the renderer.
+    const size_t registry  = body.find( "m_RenderRegistry.reset()" );
+    const size_t mainScene = body.find( "m_MainScene.reset()" );
+    const size_t primary   = body.find( "m_PrimaryScene.reset()" );
+    const size_t renderer  = body.find( "m_SceneRenderer.reset()" );
+    // The extra documents, which were already right: registry, scene, renderer.
+    const size_t docRegistry = body.find( "doc->Registry.reset()" );
+    const size_t docScene    = body.find( "doc->Scene.reset()" );
+    const size_t docRenderer = body.find( "doc->Renderer.reset()" );
+
+    ASSERT_NE( registry, std::string::npos )
+         << "OnDetach leaves m_RenderRegistry to ~EditorLayer, which destroys it AFTER m_SceneRenderer: "
+            "~EditorUIPass -> Scene::UnregisterExternalPass then dereferences the freed renderer";
+    ASSERT_NE( renderer, std::string::npos ) << "OnDetach leaves m_SceneRenderer to ~EditorLayer";
+    ASSERT_NE( mainScene, std::string::npos ) << "OnDetach never drops m_MainScene";
+    ASSERT_NE( primary, std::string::npos ) << "OnDetach never drops m_PrimaryScene";
+    ASSERT_NE( viewRemove, std::string::npos ) << "OnDetach never takes an extra viewport off its scene";
+    ASSERT_NE( viewReset, std::string::npos ) << "OnDetach never releases an extra viewport's renderer";
+    ASSERT_NE( viewsClear, std::string::npos ) << "OnDetach leaves m_ExtraViewports to ~EditorLayer";
+    ASSERT_NE( docRegistry, std::string::npos );
+    ASSERT_NE( docScene, std::string::npos );
+    ASSERT_NE( docRenderer, std::string::npos );
+
+    EXPECT_LT( viewRemove, viewReset ) << "a viewport's renderer dies while its scene still points at it";
+    EXPECT_LT( viewsClear, registry ) << "the primary registry walks views the extra viewports are still on";
+    EXPECT_LT( registry, mainScene ) << "the pass registry must go while its scene is alive";
+    EXPECT_LT( mainScene, renderer ) << "the scene must let go of its renderer before the renderer dies";
+    EXPECT_LT( primary, renderer ) << "the scene must let go of its renderer before the renderer dies";
+    EXPECT_LT( docRegistry, docScene );
+    EXPECT_LT( docScene, docRenderer );
+}
+
 // Only gtest is linked, not gtest_main — every suite in this tree brings its own entry point.
 // RELATION: a Texture2D unregisters its image from the ImageService in its destructor (RT2n), and three
 // registry services hold Texture2Ds in function-local statics. Statics die in the reverse order their
