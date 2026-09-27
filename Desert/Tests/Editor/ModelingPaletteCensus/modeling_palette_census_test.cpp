@@ -59,7 +59,12 @@ namespace
         { "Button", "\"Accept and Start New\"", Reach::Palette, { "{ \"Accept and Start New\", &MS::ReqAccept }" } },
         { "Button", "\"Reset Grid from Actor\"", Reach::Palette, { "{ \"Reset Grid from Actor\", &MS::ReqResetFromActor }" } },
         { "DragFloat3", "\"Grid Frame Origin\"", Reach::Set, { "CubeGrid.GridFrameOrigin" } },
+        { "DragFloat3", "\"Grid Frame Orientation\"", Reach::Set, { "CubeGrid.GridFrameOrientation" } },
         { "Checkbox", "\"Show Gizmo\"", Reach::Palette, { "\"Show Gizmo\"" } },
+        { "BeginCombo", "\"Quick Material\"", Reach::Palette, { "\"Quick Material: next project material\"" } },
+        { "Selectable", "\"Engine default\"", Reach::Palette, { "\"Quick Material: engine default\"" } },
+        { "Selectable", "( name + \"##\" + row.Key ).c_str()", Reach::Palette,
+          { "\"Quick Material: next project material\"" } },
         { "SliderInt", "\"Grid Power\"", Reach::Palette, { "\"Grid Power \"" } },
         { "Button", "ms.CornerMode ? \"Corner Mode: ON (Z)\" : \"Corner Mode: OFF (Z)\"", Reach::Palette,
           { "{ \"Corner Mode (Z)\", &MS::ReqCornerMode }", "\"Corner posts: U+ edge\"", "ReqCornerPosts = posts" } },
@@ -340,6 +345,10 @@ TEST( ModelingPaletteCensus, ASetWritesTheWidgetsFieldAndRefusesWhatTheWidgetCan
     EXPECT_EQ( state.XformPattern.Count, 6 );
     ASSERT_TRUE( SetModelingStateProperty( state, "CubeGrid.GridFrameOrigin", { 1.0f, 2.0f, 3.0f } ) );
     EXPECT_FLOAT_EQ( state.GridOrigin.z, 3.0f );
+    ASSERT_TRUE( SetModelingStateProperty( state, "CubeGrid.GridFrameOrientation", { 0.0f, 30.0f, 0.0f } ) );
+    EXPECT_FLOAT_EQ( state.GridRotation.y, 30.0f );
+    EXPECT_FALSE( SetModelingStateProperty( state, "CubeGrid.GridFrameOrientation", { 0.0f, 270.0f, 0.0f } ) )
+         << "the widget holds -180..180";
 
     EXPECT_FALSE( SetModelingStateProperty( state, "Pattern.Count", { 2.5f } ) );
     EXPECT_FALSE( SetModelingStateProperty( state, "Element.LoopPosition", { 1.5f } ) );

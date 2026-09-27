@@ -2,6 +2,7 @@
 
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/CubeGridBlockoutComponent.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
@@ -87,9 +89,190 @@ namespace Desert::Editor::Tools
     {
         if ( !m_HasSel )
             return;
+        const auto material = OpMaterialId();
+        if ( !material )
+            return;
         const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
-        m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps ); // one block = K base cells tall; x Blocks Per Step
+        // One block = K base cells tall; x Blocks Per Step.
+        m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps, *material );
         RegenMesh( scene );
+    }
+
+    void CubeGridTool::SlideSelection( int dir, int K )
+    {
+        // Corner Mode's posts are heights above THIS plane; sliding it would silently re-base them.
+        if ( !m_HasSel || m_CornerMode )
+            return;
+        const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
+        Geometry::VoxelBlockout::SlideSelection( m_Plane, dir * K * steps );
+    }
+
+    void CubeGridTool::PaintSelection( ::Desert::Core::Scene& scene )
+    {
+        if ( !m_HasSel )
+            return;
+        const auto material = OpMaterialId();
+        if ( !material )
+            return;
+        if ( m_Volume.PaintFaces( m_Plane, m_Sel, *material ) == 0 )
+        {
+            LOG_WARN( "[CubeGrid] Shift+B painted nothing: no exposed face lies on the selection's plane "
+                      "facing out of it (plane axis {}, sign {}, cell {})",
+                      m_Plane.Na, m_Plane.Sign, m_Plane.Cell );
+            return;
+        }
+        RegenMesh( scene );
+    }
+
+    std::optional<uint8_t> CubeGridTool::OpMaterialId()
+    {
+        // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:1249-1256 (UpdateOpMaterials),
+        // adapted: the set is the tool's own AssetHandle list, and a face stores its ID in a byte.
+        const Common::AssetHandle want = Core::ModelingState::Get().QuickMaterial;
+        const auto                it   = std::find( m_Materials.begin(), m_Materials.end(), want );
+        if ( it != m_Materials.end() )
+            return static_cast<uint8_t>( it - m_Materials.begin() );
+        constexpr size_t kMaxMaterials = 256;
+        if ( m_Materials.size() >= kMaxMaterials )
+        {
+            LOG_ERROR( "[CubeGrid] the blockout already uses {} materials (the most a face ID holds); material "
+                       "{} was not added",
+                       m_Materials.size(), static_cast<uint64_t>( want ) );
+            ToastManager::Push( "CubeGrid: this blockout already uses 256 materials", ToastLevel::Error, 6.0f );
+            return std::nullopt;
+        }
+        m_Materials.push_back( want );
+        return static_cast<uint8_t>( m_Materials.size() - 1 );
+    }
+
+    void CubeGridTool::ApplyMaterialSlots( ::Desert::Core::Scene&  scene,
+                                           const std::vector<int>& submeshMaterialIds )
+    {
+        auto ref = scene.FindEntityByID( m_Entity );
+        if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+            return;
+        auto& smc = ref->get().GetComponent<ECS::StaticMeshComponent>();
+        // The render mesh has one submesh per material ID in use, ascending (Bake and ToRenderMesh agree), so
+        // slot i is the material of the i-th ID the bake reports.
+        std::vector<Common::AssetHandle> slots;
+        slots.reserve( submeshMaterialIds.size() );
+        for ( const int id : submeshMaterialIds )
+            slots.push_back( m_Materials.at( static_cast<size_t>( id ) ) );
+        if ( slots == smc.MaterialSlots )
+            return;
+        smc.MaterialSlots = std::move( slots );
+        // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
+        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeSlots.reset();
+        smc.SeenMaterialsVersion = 0;
+    }
+
+    void CubeGridTool::ResetSession()
+    {
+        m_Volume.m_Cells.clear();
+        m_Volume.m_Frozen.clear();
+        m_HasSel = m_Selecting = m_CornerMode = m_DragExtrude = false;
+        m_Volume.m_Unit = m_BakedUnit = -1.0f;
+        m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
+        m_Materials.assign( 1, Common::AssetHandle{} );
+        m_Before.reset();
+        m_EntityFrame = GridFrame{};
+    }
+
+    Volume CubeGridTool::LocalVolume() const
+    {
+        return m_Before ? Reframed( m_Volume, m_EntityFrame.Inverse() ) : m_Volume;
+    }
+
+    void CubeGridTool::EditSelected( ::Desert::Core::Scene& scene )
+    {
+        auto refuse = []( const std::string& why )
+        {
+            LOG_WARN( "[CubeGrid] edit refused: {}", why );
+            ToastManager::Push( "CubeGrid: " + why, ToastLevel::Warning, 8.0f );
+        };
+        if ( m_Entity != Common::UUID::Null() )
+        {
+            refuse( "Accept or Cancel the blockout in progress before editing another" );
+            return;
+        }
+        const auto& sel = Core::SelectionManager::GetSelected();
+        auto        ref = sel.has_value() ? scene.FindEntityByID( *sel ) : std::nullopt;
+        if ( !ref )
+        {
+            refuse( "select the blockout to edit" );
+            return;
+        }
+        ECS::Entity       e = ref->get();
+        const std::string name =
+             e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag : sel->ToString();
+        Common::ResultStr<uint64_t> key = Common::MakeError<uint64_t>( "it has no StaticMeshComponent" );
+        if ( e.HasComponent<ECS::StaticMeshComponent>() )
+        {
+            auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
+            key         = target.IsSuccess() ? Common::MakeSuccess( MeshKeyOf( *target.GetValue().Mesh ) )
+                                             : Common::MakeError<uint64_t>( target.GetError() );
+        }
+        const auto* saved  = e.HasComponent<ECS::CubeGridBlockoutComponent>()
+                                  ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
+                                  : nullptr;
+        auto        opened = ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+        if ( !opened.IsSuccess() )
+        {
+            refuse( opened.GetError() );
+            return;
+        }
+        auto before = Commands::CaptureEntityState( *sel );
+        if ( !before )
+        {
+            refuse( "'" + name + "' could not be snapshotted for undo" );
+            return;
+        }
+        ResetSession();
+        m_Before      = std::move( before );
+        m_Entity      = *sel;
+        m_EntityFrame = opened.GetValue().EntityFrame;
+        m_Volume      = std::move( opened.ExtractValue().Volume );
+        // Accept stored the material IDs as the entity's slot indices (StoreVoxels), so the slots ARE the set.
+        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+        if ( !slots.empty() )
+            m_Materials = slots;
+
+        // The grid goes onto the last piece built, at its Block Size, so the next marquee lines up with it.
+        Core::ModelingState& ms   = Core::ModelingState::Get();
+        const Layer&         last = m_Volume.m_Frozen.back();
+        ms.GridOrigin             = last.Frame.Origin;
+        ms.GridRotation           = glm::degrees( glm::eulerAngles( last.Frame.Rotation ) );
+        ms.CellSize               = last.Unit;
+        m_Volume.m_Frame          = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
+        m_Volume.m_Unit = m_BakedUnit = -1.0f;
+        LOG_INFO( "[CubeGrid] editing '{}': {} layer(s)", name, m_Volume.m_Frozen.size() );
+    }
+
+    Common::BoolResultStr CubeGridTool::StoreVoxels( ::Desert::Core::Scene& scene )
+    {
+        // Renumber first: after it the i-th material in use is ID i, which is slot i of the entity.
+        const Geometry::RenderMeshData   quads = LocalVolume().Bake();
+        std::vector<Common::AssetHandle> used;
+        for ( const int id : quads.SubmeshMaterialIds )
+            used.push_back( m_Materials.at( static_cast<size_t>( id ) ) );
+        m_Volume.CompactMaterials( quads.SubmeshMaterialIds );
+        m_Materials = used.empty() ? std::vector<Common::AssetHandle>{ Common::AssetHandle{} } : used;
+        RegenMesh( scene );
+
+        auto ref = scene.FindEntityByID( m_Entity );
+        if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+            return Common::MakeError<bool>( "the blockout entity has no mesh to store voxels beside" );
+        ECS::Entity e      = ref->get();
+        auto        target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
+        if ( !target.IsSuccess() )
+            return Common::MakeError<bool>( "the blockout mesh cannot be read back: " + target.GetError() );
+        auto saved = Save( LocalVolume(), MeshKeyOf( *target.GetValue().Mesh ) );
+        if ( e.HasComponent<ECS::CubeGridBlockoutComponent>() )
+            e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved = std::move( saved );
+        else
+            e.AddComponent<ECS::CubeGridBlockoutComponent>( ECS::CubeGridBlockoutComponent{ std::move( saved ) } );
+        return Common::MakeSuccess( true );
     }
 
     void CubeGridTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
@@ -102,22 +285,44 @@ namespace Desert::Editor::Tools
 
         bool        changed = false;
         // Requested Block Size in world units (= centimetres, see Common::Units).
+        // UE: opening the tool with a mesh selected takes that mesh as the target - here, a blockout that
+        // carries its voxels. The palette's "Edit selected blockout" asks the same explicitly.
+        if ( toolActive && !m_WasActive && m_Entity == Common::UUID::Null() )
+            if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
+                if ( auto ref = scene.FindEntityByID( *sel );
+                     ref && ref->get().HasComponent<ECS::CubeGridBlockoutComponent>() )
+                    ms.ReqCubeGridEditSelected = true;
+        m_WasActive = toolActive;
+        if ( ms.ReqCubeGridEditSelected )
+        {
+            ms.ReqCubeGridEditSelected = false;
+            EditSelected( scene );
+        }
+
         const float gs = std::max( ms.CellSize, Core::ModelingState::MinCellSize );
 
-        // The whole tool works in GRID space: cell (0,0,0) sits at the origin of the grid frame, which the
-        // panel can move (Grid Frame Origin / Reset Grid from Actor) so the lattice lines up with an
-        // object's corner instead of tiling from the world origin. Only drawing and meshing add it back.
-        const glm::vec3         gridOrigin = ms.GridOrigin;
-        const Common::Math::Ray gray( ray.Origin - gridOrigin, ray.Direction );
-
-        // "Reset Grid from Actor": drop the grid frame onto the selected entity's own origin.
+        // "Reset Grid from Actor": drop the grid frame onto the selected entity's own origin AND orientation
+        // (UE 5.8 CubeGridTool.cpp:2560-2566: the actor's transform with its scale removed).
         if ( ms.ReqResetFromActor )
         {
             ms.ReqResetFromActor = false;
             if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
                 if ( auto ref = scene.FindEntityByID( *sel ) )
-                    ms.GridOrigin = glm::vec3( ref->get().GetWorldTransform()[3] );
+                {
+                    const glm::mat4 w = ref->get().GetWorldTransform();
+                    const glm::mat3 r( glm::normalize( glm::vec3( w[0] ) ), glm::normalize( glm::vec3( w[1] ) ),
+                                       glm::normalize( glm::vec3( w[2] ) ) );
+                    ms.GridOrigin   = glm::vec3( w[3] );
+                    ms.GridRotation = glm::degrees( glm::eulerAngles( glm::quat_cast( r ) ) );
+                }
         }
+
+        // The whole tool works in GRID space: cell (0,0,0) sits at the origin of the grid frame and the lattice
+        // runs along the frame's axes. The panel sets both (Grid Frame Origin / Orientation, Reset Grid from
+        // Actor, Ctrl+MMB) so the lattice lines up with an object's corner and faces instead of tiling from the
+        // world origin along the world axes. Only drawing, meshing and targeting cross into the world.
+        const GridFrame         frame = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
+        const Common::Math::Ray gray( frame.ToFramePoint( ray.Origin ), frame.ToFrameVector( ray.Direction ) );
 
         // Corner Mode toggle (Z, or the panel button). Only meaningful with a selection on a horizontal
         // work-plane: corners move along the grid's up axis.
@@ -141,21 +346,29 @@ namespace Desert::Editor::Tools
         // re-scales the new volume — the geometry built before never moves or re-subdivides again.
         // (m_HoverValid = last frame's targeting, so a click on empty sky doesn't commit anything.)
         // A palette selection (ReqCubeGridSelectBlocks) is a marquee too, and commits the same way.
-        const bool marqueeStarts = ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ) ||
-                                   ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
+        const bool marqueeStarts =
+             ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && !::ImGui::GetIO().KeyCtrl ) ||
+             ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
         if ( marqueeStarts && !m_CornerMode && m_HoverValid && !m_Volume.m_Cells.empty() )
             FreezeActive();
 
         // Re-initialising the grid frame commits the current piece too: cells are indices into a lattice,
         // so keeping them across a frame change would teleport built geometry. Frozen layers remember the
         // frame they were built in and stay exactly where they are.
-        if ( glm::any( glm::greaterThan( glm::abs( ms.GridOrigin - m_Volume.m_Origin ), glm::vec3( 1e-4f ) ) ) )
+        // The selection is in cell indices of the old frame, so it is dropped rather than teleported. The
+        // ground work-plane keeps its world point under the old frame's up axis - except after Ctrl+MMB, which
+        // puts it through the new pivot (UE: the grid plane is the frame's own).
+        if ( !frame.SameAs( m_Volume.m_Frame ) )
         {
-            const glm::vec3 prevOrigin = m_Volume.m_Origin;
+            const GridFrame prev = m_Volume.m_Frame;
             FreezeActive();
-            m_Volume.m_Origin = ms.GridOrigin;
-            m_GroundY += prevOrigin.y - m_Volume.m_Origin.y; // keep the work-plane at the same world height
+            m_Volume.m_Frame = frame;
+            m_GroundY        = frame.ToFramePoint( prev.ToWorldPoint( { 0.0f, m_GroundY, 0.0f } ) ).y;
+            m_HasSel = m_Selecting = m_CornerMode = false;
         }
+        if ( m_GroundToPivot )
+            m_GroundY = 0.0f;
+        m_GroundToPivot = false;
 
         // A finer Block Size subdivides the base — but splitting a DEFORMED cell would have to re-derive
         // every corner offset, so a piece that already has slopes is committed instead and the finer work
@@ -218,35 +431,57 @@ namespace Desert::Editor::Tools
         bool  tHas = false;
         int   tNa = 1, tSign = 1, tPlaneCell = 0, tU = 0, tV = 0;
         float bestT = FLT_MAX;
+        // The face under the cursor in its OWN layer (Ctrl+MMB puts the pivot on one of its corners): a frozen
+        // piece may be in a turned frame and another unit. Without a blockout hit it is the active lattice's
+        // cell under the targeted plane.
+        GridFrame  tFaceFrame = frame;
+        float      tFaceUnit  = u;
+        glm::ivec3 tFaceCell{ 0 };
+        glm::ivec3 tFaceN{ 0, 1, 0 };
         {
+            // Snap a surface point and normal (both in the ACTIVE frame) onto the active lattice: the normal's
+            // dominant axis is the work-plane's, the point's cell along it is the plane's cell.
+            auto snapToLattice = [&]( const glm::vec3& p, const glm::vec3& n )
+            {
+                const glm::vec3 a = glm::abs( n );
+                tNa               = ( a.x >= a.y && a.x >= a.z ) ? 0 : ( a.y >= a.z ) ? 1 : 2;
+                tSign             = n[tNa] >= 0.0f ? 1 : -1;
+                tPlaneCell        = static_cast<int>( std::lround( p[tNa] / u ) ) - ( tSign > 0 ? 0 : 1 );
+                tU                = static_cast<int>( std::floor( p[( tNa + 1 ) % 3] / u ) );
+                tV                = static_cast<int>( std::floor( p[( tNa + 2 ) % 3] / u ) );
+                tHas              = true;
+            };
+
             glm::ivec3 hitCell{ 0 };
             float      hitUnit = u;
-            glm::vec3  hitOff( 0.0f ); // frozen layer's frame, expressed in the ACTIVE grid space
+            GridFrame  hitFrame;
             bool       hit       = false;
-            auto       testLayer = [&]( const CellMap& cells, float lu, const glm::vec3& off )
+            auto       testLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
             {
+                // Box test in the layer's own frame; a rotation keeps lengths, so t is a world distance.
+                const Common::Math::Ray lray( lf.ToFramePoint( ray.Origin ), lf.ToFrameVector( ray.Direction ) );
                 for ( const auto& [key, cellData] : cells )
                 {
                     const glm::ivec3   c = Unpack( key );
                     // Targeting stays box-level even for a deformed cell: a slanted top still picks the
                     // cell you are pointing at, and the work-plane is a lattice plane either way.
                     Common::Math::AABB box;
-                    box.Min = glm::vec3( c ) * lu + off;
+                    box.Min = glm::vec3( c ) * lu;
                     box.Max = box.Min + lu;
                     float t;
-                    if ( gray.IntersectsAABB( box, t ) && t >= 0.0f && t < bestT )
+                    if ( lray.IntersectsAABB( box, t ) && t >= 0.0f && t < bestT )
                     {
-                        bestT   = t;
-                        hitCell = c;
-                        hitUnit = lu;
-                        hitOff  = off;
-                        hit     = true;
+                        bestT    = t;
+                        hitCell  = c;
+                        hitUnit  = lu;
+                        hitFrame = lf;
+                        hit      = true;
                     }
                 }
             };
-            testLayer( m_Volume.m_Cells, u, glm::vec3( 0.0f ) );
+            testLayer( m_Volume.m_Cells, u, frame );
             for ( const Layer& l : m_Volume.m_Frozen ) // you can keep building on a committed piece
-                testLayer( l.Cells, l.Unit, l.Origin - gridOrigin );
+                testLayer( l.Cells, l.Unit, l.Frame );
 
             // "Hit Unrelated Geometry": the rest of the scene is targetable too, so you can start a grid
             // on top of an imported prop. Bounding-box level (Scene::Raycast), which is all a work-plane
@@ -263,26 +498,18 @@ namespace Desert::Editor::Tools
                 {
                     sceneHit = true;
                     sceneT   = rh.Distance;
-
-                    const glm::vec3 a = glm::abs( rh.Normal );
-                    tNa               = ( a.x >= a.y && a.x >= a.z ) ? 0 : ( a.y >= a.z ) ? 1 : 2;
-                    tSign             = rh.Normal[tNa] >= 0.0f ? 1 : -1;
-
                     // Snap the hit surface onto the lattice, then work from there.
-                    const glm::vec3 p = rh.Point - gridOrigin;
-
-                    tPlaneCell = static_cast<int>( std::lround( p[tNa] / u ) ) - ( tSign > 0 ? 0 : 1 );
-                    tU         = static_cast<int>( std::floor( p[( tNa + 1 ) % 3] / u ) );
-                    tV         = static_cast<int>( std::floor( p[( tNa + 2 ) % 3] / u ) );
-                    tHas       = true;
+                    snapToLattice( frame.ToFramePoint( rh.Point ), frame.ToFrameVector( rh.Normal ) );
                 }
             }
 
             if ( hit && cellT <= sceneT )
             {
-                bestT              = cellT;
-                const glm::vec3 p  = gray.Origin + gray.Direction * bestT;
-                const glm::vec3 d  = p - ( ( glm::vec3( hitCell ) + 0.5f ) * hitUnit + hitOff );
+                bestT = cellT;
+                // The hit face in the LAYER's frame: the box side the hit point is furthest out on.
+                const glm::vec3 wp = ray.Origin + ray.Direction * bestT;
+                const glm::vec3 lp = hitFrame.ToFramePoint( wp );
+                const glm::vec3 d  = lp - ( glm::vec3( hitCell ) + 0.5f ) * hitUnit;
                 const glm::vec3 ad = glm::abs( d );
                 glm::ivec3      n{ 0 };
                 if ( ad.x >= ad.y && ad.x >= ad.z )
@@ -291,15 +518,14 @@ namespace Desert::Editor::Tools
                     n.y = d.y > 0 ? 1 : -1;
                 else
                     n.z = d.z > 0 ? 1 : -1;
-                tNa   = n.x ? 0 : n.y ? 1 : 2;
-                tSign = n[tNa];
-                // The hit face in ACTIVE grid units (a frozen layer may use another unit and frame).
-                const float faceW =
-                     static_cast<float>( hitCell[tNa] + ( tSign > 0 ? 1 : 0 ) ) * hitUnit + hitOff[tNa];
-                tPlaneCell = static_cast<int>( std::lround( faceW / u ) ) - ( tSign > 0 ? 0 : 1 );
-                tU         = static_cast<int>( std::floor( p[( tNa + 1 ) % 3] / u ) );
-                tV         = static_cast<int>( std::floor( p[( tNa + 2 ) % 3] / u ) );
-                tHas       = true;
+                tFaceFrame = hitFrame;
+                tFaceUnit  = hitUnit;
+                tFaceCell  = hitCell;
+                tFaceN     = n;
+                // Into the ACTIVE frame: a same-axes layer's face lands exactly on a lattice plane (a frozen
+                // layer may use another unit and origin); a turned one snaps to the nearest plane.
+                snapToLattice( frame.ToFramePoint( wp ),
+                               frame.ToFrameVector( hitFrame.ToWorldVector( glm::vec3( n ) ) ) );
             }
             else if ( sceneHit )
             {
@@ -311,6 +537,7 @@ namespace Desert::Editor::Tools
                 if ( t > 0.0f )
                 {
                     const glm::vec3 p = gray.Origin + gray.Direction * t;
+                    bestT             = t;
                     tNa               = 1;
                     tSign             = 1;
                     tPlaneCell        = static_cast<int>( std::lround( m_GroundY / u ) );
@@ -319,28 +546,37 @@ namespace Desert::Editor::Tools
                     tHas              = true;
                 }
             }
+            if ( tHas && !( hit && cellT <= sceneT ) )
+            {
+                // No blockout face: the active lattice's cell just behind the targeted plane.
+                tFaceCell[tNa]             = tPlaneCell + ( tSign > 0 ? -1 : 1 );
+                tFaceCell[( tNa + 1 ) % 3] = tU;
+                tFaceCell[( tNa + 2 ) % 3] = tV;
+                tFaceN                     = glm::ivec3( 0 );
+                tFaceN[tNa]                = tSign;
+            }
         }
         m_HoverValid = tHas;
 
         ImDrawList* dl = ::ImGui::GetWindowDrawList();
 
         auto drawCellSolid = [&]( const CellMap& cells, const glm::ivec3& c, const Cell& cell, float cu,
-                                  const glm::vec3& co, ImU32 fill, ImU32 outline )
+                                  const GridFrame& cf, ImU32 fill, ImU32 outline )
         {
-            const glm::vec3 mn = glm::vec3( c ) * cu + co;
+            const glm::vec3 mn = glm::vec3( c ) * cu;
             for ( int f = 0; f < 6; ++f )
             {
-                if ( m_Volume.FaceHidden( cells, c, cell, f, cu, co ) )
+                if ( m_Volume.FaceHidden( cells, c, cell, f, cu, cf ) )
                     continue;
-                const glm::vec3 fn = kFace[f][0].N;
-                const glm::vec3 fc = mn + 0.5f * cu + 0.5f * cu * fn;
-                if ( glm::dot( fn, ray.Origin - fc ) <= 0.0f ) // fc is world space here
+                const glm::vec3 fn = cf.ToWorldVector( kFace[f][0].N );
+                const glm::vec3 fc = cf.ToWorldPoint( mn + 0.5f * cu + 0.5f * cu * kFace[f][0].N );
+                if ( glm::dot( fn, ray.Origin - fc ) <= 0.0f ) // back-facing, in the world
                     continue;
                 glm::vec2 s[4];
                 bool      ok = true;
                 for ( int k = 0; k < 4; ++k )
-                    if ( !WorldToScreen( CornerPos( c, cell, kFaceCorner[f][k], cu, co ), viewProj, viewportPos,
-                                         viewportSize, s[k] ) )
+                    if ( !WorldToScreen( cf.ToWorldPoint( CornerPos( c, cell, kFaceCorner[f][k], cu ) ), viewProj,
+                                         viewportPos, viewportSize, s[k] ) )
                     {
                         ok = false;
                         break;
@@ -363,7 +599,7 @@ namespace Desert::Editor::Tools
             w[na] = planeW;
             w[ua] = fu * u;
             w[va] = fv * u;
-            return w + gridOrigin;
+            return frame.ToWorldPoint( w );
         };
         auto drawRect =
              [&]( int uMin, int uMax, int vMin, int vMax, int na, float planeW, ImU32 fill, ImU32 outline )
@@ -452,7 +688,7 @@ namespace Desert::Editor::Tools
                     c[na]             = cell - sign;
                     c[( na + 1 ) % 3] = corU[k];
                     c[( na + 2 ) % 3] = corV[k];
-                    while ( d < 4096 && m_Volume.SolidAt( c, u, gridOrigin ) )
+                    while ( d < 4096 && m_Volume.SolidAt( c, u, frame ) )
                     {
                         ++d;
                         c[na] -= sign;
@@ -482,18 +718,19 @@ namespace Desert::Editor::Tools
         if ( toolActive && ms.ShowGizmo )
         {
             const float     len     = static_cast<float>( K ) * u * 2.0f;
-            const glm::vec3 axes[3] = { { len, 0, 0 }, { 0, len, 0 }, { 0, 0, len } };
+            const glm::vec3 axes[3] = { frame.ToWorldVector( { len, 0, 0 } ), frame.ToWorldVector( { 0, len, 0 } ),
+                                        frame.ToWorldVector( { 0, 0, len } ) };
             // The theme's axis colours — the CubeGrid's handles point at the same X/Y/Z as the gizmo and
             // the transform fields, so they cannot have their own reds and greens.
             const ImU32     cols[3] = { ::ImGui::GetColorU32( ThemeManager::GetAxisColor( 0 ) ),
                                         ::ImGui::GetColorU32( ThemeManager::GetAxisColor( 1 ) ),
                                         ::ImGui::GetColorU32( ThemeManager::GetAxisColor( 2 ) ) };
             glm::vec2       o;
-            if ( WorldToScreen( gridOrigin, viewProj, viewportPos, viewportSize, o ) )
+            if ( WorldToScreen( frame.Origin, viewProj, viewportPos, viewportSize, o ) )
                 for ( int a = 0; a < 3; ++a )
                 {
                     glm::vec2 e;
-                    if ( WorldToScreen( gridOrigin + axes[a], viewProj, viewportPos, viewportSize, e ) )
+                    if ( WorldToScreen( frame.Origin + axes[a], viewProj, viewportPos, viewportSize, e ) )
                         dl->AddLine( ImVec2( o.x, o.y ), ImVec2( e.x, e.y ), cols[a], 2.0f );
                 }
         }
@@ -504,12 +741,12 @@ namespace Desert::Editor::Tools
         {
             for ( const Layer& l : m_Volume.m_Frozen )
                 for ( const auto& [k, cell] : l.Cells )
-                    drawCellSolid( l.Cells, Unpack( k ), cell, l.Unit, l.Origin, IM_COL32( 108, 112, 122, 200 ),
+                    drawCellSolid( l.Cells, Unpack( k ), cell, l.Unit, l.Frame, IM_COL32( 108, 112, 122, 200 ),
                                    IM_COL32( 78, 82, 92, 225 ) );
             for ( const auto& [k, cell] : m_Volume.m_Cells )
             {
                 const glm::ivec3 c = Unpack( k );
-                drawCellSolid( m_Volume.m_Cells, c, cell, u, gridOrigin,
+                drawCellSolid( m_Volume.m_Cells, c, cell, u, frame,
                                ( ( c.x + c.y + c.z ) & 1 ) ? IM_COL32( 120, 125, 135, 205 )
                                                            : IM_COL32( 150, 155, 165, 205 ),
                                IM_COL32( 90, 95, 105, 230 ) );
@@ -545,12 +782,15 @@ namespace Desert::Editor::Tools
 
         if ( interact && !::ImGui::IsMouseDown( ImGuiMouseButton_Right ) )
         {
-            const bool ctrl = ::ImGui::GetIO().KeyCtrl;
+            const bool ctrl  = ::ImGui::GetIO().KeyCtrl;
+            const bool shift = ::ImGui::GetIO().KeyShift;
 
             if ( ::ImGui::IsKeyPressed( ImGuiKey_E, false ) )
             {
                 if ( ctrl ) // Ctrl+E — coarser grid
                     ms.DoubleBlockSize();
+                else if ( shift ) // Shift+E — slide the selection back (out of the surface), UE SlideBack
+                    SlideSelection( +1, K );
                 else
                     step( +1 );
             }
@@ -558,9 +798,14 @@ namespace Desert::Editor::Tools
             {
                 if ( ctrl ) // Ctrl+Q — finer grid
                     ms.HalveBlockSize();
+                else if ( shift ) // Shift+Q — slide the selection forward (into the surface), UE SlideForward
+                    SlideSelection( -1, K );
                 else
                     step( -1 );
             }
+            // Shift+B — the Quick Material onto the selected faces; geometry stays as it is.
+            if ( shift && ::ImGui::IsKeyPressed( ImGuiKey_B, false ) )
+                PaintSelection( scene );
             // Z starts / completes Corner Mode (UE's binding). It needs a selection on a horizontal
             // work-plane — corners move along the grid's up axis.
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Z, false ) )
@@ -582,14 +827,9 @@ namespace Desert::Editor::Tools
                 if ( m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0 )
                     m_Plane.Cell += steps * K;
             }
-            // Ctrl + MMB drops the work-plane onto whatever surface was clicked (UE's grid realignment).
-            if ( ctrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Middle ) && tHas )
-            {
-                m_GroundY = planeWorldOf( tNa, tSign, tPlaneCell );
-                if ( tNa != 1 ) // clicked a vertical face: keep the ground plane, just move it to that height
-                    m_GroundY = gray.Origin.y + gray.Direction.y * bestT;
-                m_GroundY = std::round( m_GroundY / u ) * u;
-            }
+            // Ctrl + MMB: the grid pivot onto the face under the cursor (handled below with the palette's).
+            if ( ctrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Middle ) )
+                ms.ReqCubeGridPivot = true;
         }
 
         // --- The palette's E / Q and its N x N marquee: the step above, and the rectangle a drag from the
@@ -598,6 +838,30 @@ namespace Desert::Editor::Tools
         if ( ms.ReqCubeGridStep != 0 && toolActive )
             step( ms.ReqCubeGridStep > 0 ? +1 : -1 );
         ms.ReqCubeGridStep = 0;
+        if ( ms.ReqCubeGridSlide != 0 && toolActive )
+            SlideSelection( ms.ReqCubeGridSlide > 0 ? +1 : -1, K );
+        ms.ReqCubeGridSlide = 0;
+        // Ctrl+MMB / the palette's pivot: the grid pivot goes on the corner of the targeted face nearest the
+        // ray, and the ground work-plane through it (UE: the grid plane is the frame's). A face of a piece
+        // built in a turned frame hands its orientation over too - the grid aligns to what you aimed at. The
+        // frame change itself lands next frame, through the same re-frame path as the panel's fields.
+        if ( ms.ReqCubeGridPivot && toolActive && tHas )
+        {
+            ms.GridOrigin =
+                 NearestFaceCorner( tFaceFrame, tFaceCell, tFaceN, tFaceUnit, ray.Origin, ray.Direction );
+            if ( !tFaceFrame.SameAxes( frame ) )
+                ms.GridRotation = glm::degrees( glm::eulerAngles( tFaceFrame.Rotation ) );
+            m_GroundToPivot = true;
+        }
+        else if ( ms.ReqCubeGridPivot && toolActive )
+        {
+            LOG_WARN( "[CubeGrid] grid pivot refused: nothing under the aim (no blockout face, scene hit or "
+                      "ground work-plane)" );
+        }
+        ms.ReqCubeGridPivot = false;
+        if ( ms.ReqCubeGridPaint && toolActive )
+            PaintSelection( scene );
+        ms.ReqCubeGridPaint = false;
         if ( ms.ReqCubeGridSelectBlocks > 0 && toolActive )
         {
             if ( m_CornerMode )
@@ -640,9 +904,64 @@ namespace Desert::Editor::Tools
             ms.ReqCornerPosts = -1;
         }
 
+        // --- Ctrl + LMB drag: push/pull by dragging (UE), in Corner Mode too (then it moves the picked
+        //     posts). The press fixes the measuring line; every frame the cursor's distance along it, in whole
+        //     steps, is compared with what the drag already applied and only the difference is applied, so
+        //     dragging back undoes a pull block by block. ---
+        if ( interact && m_HasSel && ::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+        {
+            const int na     = m_Plane.Na;
+            const int ua     = ( na + 1 ) % 3;
+            const int va     = ( na + 2 ) % 3;
+            m_DragOrigin     = glm::vec3( 0.0f );
+            m_DragOrigin[na] = planeWorldOf( na, m_Plane.Sign, m_Plane.Cell );
+            m_DragOrigin[ua] = static_cast<float>( m_Sel.UMin + m_Sel.UMax + 1 ) * 0.5f * u;
+            m_DragOrigin[va] = static_cast<float>( m_Sel.VMin + m_Sel.VMax + 1 ) * 0.5f * u;
+            m_DragAxis       = glm::vec3( 0.0f );
+            m_DragAxis[na]   = static_cast<float>( m_Plane.Sign );
+            m_DragStart      = LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction );
+            m_DragApplied    = 0;
+            m_DragExtrude    = true;
+        }
+        if ( m_DragExtrude )
+        {
+            if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) || !m_HasSel )
+                m_DragExtrude = false;
+            else
+            {
+                const float delta =
+                     LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction ) -
+                     m_DragStart;
+                if ( m_CornerMode )
+                {
+                    // Corner posts move in snap steps: one step is cornerStep / CornerDen of a base cell.
+                    const int target = DragExtrudeBlocks(
+                         delta, static_cast<float>( cornerStep ) / static_cast<float>( CornerDen ) * u, 1 );
+                    for ( ; m_DragApplied < target; ++m_DragApplied )
+                        moveCorners( +1 );
+                    for ( ; m_DragApplied > target; --m_DragApplied )
+                        moveCorners( -1 );
+                }
+                else
+                {
+                    const int target = DragExtrudeBlocks( delta, static_cast<float>( K ) * u, ms.BlocksPerStep );
+                    if ( target != m_DragApplied )
+                        if ( const auto material = OpMaterialId() )
+                        {
+                            const int diff = target - m_DragApplied;
+                            m_Volume.PushPull( m_Plane, m_Sel, diff > 0 ? +1 : -1, std::abs( diff ) * K,
+                                               *material );
+                            m_DragApplied = target;
+                            RegenMesh( scene );
+                        }
+                }
+            }
+        }
+
         // --- Marquee selection (Block-aligned): LMB drag a rectangle; start requires hover, the drag is
         //     latched to the physical button and locked to the plane picked at the press. ---
-        if ( interact && !m_CornerMode && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && tHas )
+        if ( interact && !m_CornerMode && !::ImGui::GetIO().KeyCtrl &&
+             ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && tHas )
         {
             m_Selecting = true;
             m_HasSel    = false;
@@ -753,7 +1072,7 @@ namespace Desert::Editor::Tools
                     dl->AddCircleFilled( p, r, IM_COL32( 25, 27, 32, 200 ) );
                 dl->AddCircle( p, r, IM_COL32( 250, 250, 250, 235 ), 0, 2.0f );
             }
-            if ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            if ( interact && !::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
             {
                 const bool shift = ::ImGui::GetIO().KeyShift;
                 if ( !shift )
@@ -926,6 +1245,8 @@ namespace Desert::Editor::Tools
                  m_Entity, ms, endTool,
                  [&]( const Common::UUID& piece ) -> Common::BoolResultStr
                  {
+                     if ( auto stored = StoreVoxels( scene ); !stored.IsSuccess() )
+                         return stored;
                      if ( ms.Output.Type != Core::ModelingState::OutputType::StaticMesh )
                          return Common::MakeSuccess( true );
                      auto written = Commands::OutputStaticMesh( piece, ms.Output.Folder, ms.Output.Name );
@@ -933,9 +1254,13 @@ namespace Desert::Editor::Tools
                          return Common::MakeError<bool>( written.GetError() );
                      return Common::MakeSuccess( true );
                  },
-                 []( const Common::UUID& piece )
+                 [this]( const Common::UUID& piece )
                  {
-                     Commands::NotifyCreated( { piece } );
+                     // A reopened blockout was edited, not created: one step back to the entity as it was.
+                     if ( m_Before )
+                         Commands::CommitEntityState( m_Before );
+                     else
+                         Commands::NotifyCreated( { piece } );
                      Core::SelectionManager::SetSelected( piece );
                  } );
             if ( !accepted.IsSuccess() )
@@ -944,11 +1269,7 @@ namespace Desert::Editor::Tools
                 ToastManager::Push( "CubeGrid Accept refused: " + accepted.GetError(), ToastLevel::Error, 10.0f );
                 return;
             }
-            m_Volume.m_Cells.clear();
-            m_Volume.m_Frozen.clear();
-            m_HasSel = m_Selecting = m_CornerMode = false;
-            m_Volume.m_Unit = m_BakedUnit = -1.0f;
-            m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
+            ResetSession();
         }
         if ( ms.ReqCancel )
         {
@@ -962,11 +1283,15 @@ namespace Desert::Editor::Tools
         m_BakedUnit = m_Volume.m_Unit;
         if ( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() )
         {
+            if ( m_Before )
+                ToastManager::Push( "CubeGrid: the edit removed every block, so the blockout is back as it was; "
+                                    "delete the entity to remove it",
+                                    ToastLevel::Warning, 8.0f );
             Cancel( scene );
             return;
         }
 
-        const Geometry::RenderMeshData quads = m_Volume.Bake();
+        const Geometry::RenderMeshData quads = LocalVolume().Bake();
 
         if ( m_Entity == Common::UUID::Null() )
         {
@@ -999,7 +1324,11 @@ namespace Desert::Editor::Tools
         if ( auto set =
                   Geometry::Bridge::SetEditableMeshFromEditMesh( smc, std::move( imported.ExtractValue().Mesh ) );
              !set.IsSuccess() )
+        {
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
+            return;
+        }
+        ApplyMaterialSlots( scene, quads.SubmeshMaterialIds );
     }
 
     void CubeGridTool::Cancel( ::Desert::Core::Scene& scene )
@@ -1007,13 +1336,12 @@ namespace Desert::Editor::Tools
         CancelBlockout( m_Entity,
                         [&]( const Common::UUID& piece )
                         {
-                            if ( auto ref = scene.FindEntityByID( piece ) )
+                            // A reopened blockout goes back to what it was; only a new one is destroyed.
+                            if ( m_Before )
+                                Commands::RevertEntityState( m_Before );
+                            else if ( auto ref = scene.FindEntityByID( piece ) )
                                 scene.DestroyEntity( ref->get() );
                         } );
-        m_Volume.m_Cells.clear();
-        m_Volume.m_Frozen.clear();
-        m_HasSel = m_Selecting = m_CornerMode = false;
-        m_Volume.m_Unit = m_BakedUnit = -1.0f;
-        m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
+        ResetSession();
     }
 } // namespace Desert::Editor::Tools

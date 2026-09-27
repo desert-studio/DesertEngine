@@ -1,5 +1,6 @@
 #include "ModelingPanel.hpp"
 
+#include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
@@ -548,15 +549,19 @@ namespace Desert::Editor
             if ( ImGui::Button( "Reset Grid from Actor", ImVec2( -1.0f, 0.0f ) ) )
                 ms.ReqResetFromActor = true;
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Put the grid origin on the SELECTED object's origin, so every block\n"
-                                   "size stays flush with its corners instead of tiling from (0,0,0)." );
+                ImGui::SetTooltip( "Put the grid frame on the SELECTED object's origin and orientation, so every\n"
+                                   "block size stays flush with its corners and faces instead of tiling from\n"
+                                   "(0,0,0) along the world axes. Ctrl+MMB puts the pivot on the nearest corner\n"
+                                   "of the face under the cursor." );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Options" ) )
         {
             // Moving the frame commits the current piece (cells are lattice indices) and re-tiles from
-            // the new origin — already-built geometry keeps the frame it was made in and never moves.
+            // the new origin and axes — already-built geometry keeps the frame it was made in and never moves.
             ImGui::SetNextItemWidth( -1.0f );
             ImGui::DragFloat3( "Grid Frame Origin", &ms.GridOrigin.x, 1.0f, 0.0f, 0.0f, "%.0f" );
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::DragFloat3( "Grid Frame Orientation", &ms.GridRotation.x, 0.5f, -180.0f, 180.0f, "%.1f deg" );
             ImGui::Checkbox( "Show Gizmo", &ms.ShowGizmo );
 
             // Grid Power: block size = 1 m >> power (Power 2 = 25 cm), like UE's slider. Typing a free
@@ -597,6 +602,32 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Target other objects in the scene too, so you can start a grid on\n"
                                    "top of an existing mesh (bounding-box level)." );
+        }
+        // Quick Materials (UE's Material property on the Cube Grid Tool): what Push/Pull gives the faces it
+        // creates and Shift+B paints onto the selection. Picked from the project's materials.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Material" ) )
+        {
+            std::string current = "Engine default";
+            const auto  rows    = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material );
+            for ( const auto& row : rows )
+                if ( row.Handle == ms.QuickMaterial )
+                    current = ::Desert::Editor::PickerDisplayName( row );
+            ImGui::SetNextItemWidth( 200.0f );
+            if ( ImGui::BeginCombo( "Quick Material", current.c_str() ) )
+            {
+                if ( ImGui::Selectable( "Engine default", ms.QuickMaterial == Common::AssetHandle{} ) )
+                    ms.QuickMaterial = Common::AssetHandle{};
+                for ( const auto& row : rows )
+                {
+                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
+                    if ( ImGui::Selectable( ( name + "##" + row.Key ).c_str(), row.Handle == ms.QuickMaterial ) )
+                        ms.QuickMaterial = row.Handle;
+                }
+                ImGui::EndCombo();
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Push / Pull give every face they create this material;\n"
+                                   "Shift+B paints it onto the selected faces without changing the shape." );
         }
         // UE titles this section "Output Type"; ours has no type choice yet (Accept makes one kind of
         // mesh), so the section is named for what it does hold.
@@ -643,7 +674,9 @@ namespace Desert::Editor
                 const char* Keys;
             } shortcuts[] = {
                  { "Select blocks", "LMB drag on the surface" },
-                 { "Push / Pull", "E / Q" },
+                 { "Push / Pull", "E / Q, or Ctrl + LMB drag" },
+                 { "Slide selection", "Shift + E / Q" },
+                 { "Paint Quick Material", "Shift + B" },
                  { "Corner Mode", "Z (then E / Q on posts)" },
                  { "Resize Grid", "Ctrl + E / Q" },
                  { "Shift work-plane", "Ctrl + Mouse Wheel" },

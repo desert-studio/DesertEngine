@@ -501,7 +501,8 @@ namespace Desert::Core::Rules
          { "CharacterController", ComponentLoading::Spatial },
          { "Collider", ComponentLoading::Spatial },
          { "ControlRig", ComponentLoading::Spatial },
-         { "Folder", ComponentLoading::Spatial }, // an outliner grouping: its children decide
+         { "CubeGridBlockout", ComponentLoading::Spatial }, // the voxels its own mesh was baked from
+         { "Folder", ComponentLoading::Spatial },           // an outliner grouping: its children decide
          { "Foliage", ComponentLoading::Spatial },
          { "InstancedStaticMesh", ComponentLoading::Spatial }, // its instances are its footprint
          { "Lock", ComponentLoading::Spatial },

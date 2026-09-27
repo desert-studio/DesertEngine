@@ -210,6 +210,15 @@ namespace Desert::Editor::Commands
     [[nodiscard]] Common::ResultStr<std::filesystem::path>
     OutputStaticMesh( const Common::UUID& uuid, std::string_view folder, std::string_view name );
 
+    // An edit that spans a whole tool session (Cube Grid reopened on an entity): the entity subtree as it was
+    // when the session began. CommitEntityState makes "then -> now" ONE undo step (the same swap
+    // MutateEntityUndoable records); RevertEntityState puts the entity back as it was and records nothing (the
+    // session's Cancel). Null when there is no scene or no such entity.
+    struct EntityStateSnapshot;
+    [[nodiscard]] std::shared_ptr<const EntityStateSnapshot> CaptureEntityState( const Common::UUID& uuid );
+    void CommitEntityState( const std::shared_ptr<const EntityStateSnapshot>& before );
+    void RevertEntityState( const std::shared_ptr<const EntityStateSnapshot>& before );
+
     // Runs `mutate` (a component add/remove from the Details panel) undoably: the entity subtree is
     // snapshotted before and after, and undo/redo swap between the two serialized states (delete +
     // recreate with preserved UUIDs — so selection and later history entries stay valid).
