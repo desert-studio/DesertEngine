@@ -547,7 +547,7 @@ namespace Desert::Graphic
         // the directional light's shadow fields are taken from the light the scene shades with; everything
         // below reads `post` and `shadows`, and no system reads a volume or the light's shadow fields itself.
         const std::optional<glm::vec3> viewPosition =
-             camera ? std::optional<glm::vec3>( camera->GetPosition() ) : std::nullopt;
+             camera != nullptr ? std::optional<glm::vec3>( camera->GetPosition() ) : std::nullopt;
         const FinalViewSettings          viewSettings = ResolveViewSettings( scene.GetRegistry(), viewPosition );
         const Core::PostProcessSettings& post         = viewSettings.Post;
         const ViewShadowSettings&        shadows      = viewSettings.Shadows;

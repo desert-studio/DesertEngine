@@ -94,7 +94,7 @@ namespace
         if ( const auto* sun = FindTag( scene, "Sun" ) )
         {
             const entt::entity e                                  = reg.create();
-            reg.emplace<ECS::TransformComponent>( e ).Translation = *sun->Translation;
+            reg.emplace<ECS::TransformComponent>( e ).Translation = sun->Translation.value_or( glm::vec3( 0.0f ) );
             reg.emplace<ECS::DirectionLightComponent>(
                  e, ECS::DirectionLightComponent{
                          Read<ECS::DirectionalLightData>( *sun, "DirectionLight", "DirectionalLightData" ) } );
@@ -136,6 +136,8 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     EXPECT_EQ( report.SceneSettingsHomes.LightsStamped, 1 );
 
     // What stays is what SceneSettings still declares — and the loader reads nothing else.
+    // value() throws when Settings is absent, and gtest fails the test on it: that IS the check.
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     const auto settings = scene.Settings.value().to_object().value();
     EXPECT_EQ( settings.size(), 2u );
     EXPECT_TRUE( settings.get( "RenderingPath" ).has_value() );
@@ -188,6 +190,8 @@ TEST( SceneSettingsHomesMigration, ABlockStatingNoGradeKeyGetsNoVolume )
     EXPECT_FALSE( report.SceneSettingsHomes.VolumeCreated );
     EXPECT_TRUE( scene.Entities.empty() );
     EXPECT_EQ( report.SceneSettingsHomes.LightsStamped, 0 ) << "no light: the shadow key has nowhere to go";
+    // value() throws when Settings is absent, and gtest fails the test on it: that IS the check.
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     EXPECT_FALSE( scene.Settings.value().to_object().value().get( "EnableShadows" ).has_value() );
 }
 
