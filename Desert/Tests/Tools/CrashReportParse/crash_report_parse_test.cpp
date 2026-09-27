@@ -122,48 +122,48 @@ TEST( CrashReportParse, AnEndMarkerThatIsNotCompleteIsNotAWholeReport )
 {
     // [end] is present but its value is not the one word that means "finished": a writer that died
     // mid-token, or a future writer's other state. Only written=complete may read as whole.
-    for ( const std::string written : {
-        "written=partial
-        ", " written = compl ", " written = " } )
-        {
-            const std::string           text = kHead + kTail.substr( 0, kTail.find( "written=" ) ) + written;
-            const CrashReporter::Report r    = CrashReporter::ParseCrashText( text, "crash.txt" );
-            ASSERT_TRUE( r.valid ) << r.error;
-            EXPECT_FALSE( r.complete ) << "'" << written << "' was read as a complete report";
-            EXPECT_EQ( r.frames.size(), 2u );
-        }
+    for ( const std::string value : { "partial", "compl", "" } )
+    {
+        const std::string text = kHead + kTail.substr( 0, kTail.find( "written=" ) ) + "written=" + value +
+                                 "
+                                 ";
+                                 const CrashReporter::Report r =
+                                      CrashReporter::ParseCrashText( text, "crash.txt" );
+        ASSERT_TRUE( r.valid ) << r.error;
+        EXPECT_FALSE( r.complete ) << "written=" << value << " was read as a complete report";
+        EXPECT_EQ( r.frames.size(), 2u );
+    }
 }
 
 TEST( CrashReportParse, AGarbledStackLineIsDroppedAndNamed )
 {
-        const std::string text =
-             kHead + "[stack]\nframe=0|0x1|Runtime.exe\nframe=1|0x2|m|f|\n[end]\nwritten=complete\n";
-        const CrashReporter::Report r = CrashReporter::ParseCrashText( text, "crash.txt" );
-        ASSERT_TRUE( r.valid );
-        ASSERT_EQ( r.frames.size(), 1u );
-        EXPECT_EQ( r.frames[0].index, "1" );
-        EXPECT_NE( r.error.find( "1 [stack] line(s)" ), std::string::npos ) << r.error;
+    const std::string text =
+         kHead + "[stack]\nframe=0|0x1|Runtime.exe\nframe=1|0x2|m|f|\n[end]\nwritten=complete\n";
+    const CrashReporter::Report r = CrashReporter::ParseCrashText( text, "crash.txt" );
+    ASSERT_TRUE( r.valid );
+    ASSERT_EQ( r.frames.size(), 1u );
+    EXPECT_EQ( r.frames[0].index, "1" );
+    EXPECT_NE( r.error.find( "1 [stack] line(s)" ), std::string::npos ) << r.error;
 }
 
 TEST( CrashReportParse, NotAReportIsRefusedWithThePath )
 {
-        const CrashReporter::Report empty = CrashReporter::ParseCrashText( "", "a/crash.txt" );
-        EXPECT_FALSE( empty.valid );
-        EXPECT_NE( empty.error.find( "a/crash.txt" ), std::string::npos );
+    const CrashReporter::Report empty = CrashReporter::ParseCrashText( "", "a/crash.txt" );
+    EXPECT_FALSE( empty.valid );
+    EXPECT_NE( empty.error.find( "a/crash.txt" ), std::string::npos );
 
-        const CrashReporter::Report foreign =
-             CrashReporter::ParseCrashText( "PK\x03\x04garbage\n", "b/crash.txt" );
-        EXPECT_FALSE( foreign.valid );
-        EXPECT_NE( foreign.error.find( "not a DESERTCRASH report" ), std::string::npos ) << foreign.error;
+    const CrashReporter::Report foreign = CrashReporter::ParseCrashText( "PK\x03\x04garbage\n", "b/crash.txt" );
+    EXPECT_FALSE( foreign.valid );
+    EXPECT_NE( foreign.error.find( "not a DESERTCRASH report" ), std::string::npos ) << foreign.error;
 
-        const CrashReporter::Report future =
-             CrashReporter::ParseCrashText( "DESERTCRASH 2\n[report]\n", "c/crash.txt" );
-        EXPECT_FALSE( future.valid );
-        EXPECT_NE( future.error.find( "version 2" ), std::string::npos ) << future.error;
+    const CrashReporter::Report future =
+         CrashReporter::ParseCrashText( "DESERTCRASH 2\n[report]\n", "c/crash.txt" );
+    EXPECT_FALSE( future.valid );
+    EXPECT_NE( future.error.find( "version 2" ), std::string::npos ) << future.error;
 }
 
 int main( int argc, char** argv )
 {
-        ::testing::InitGoogleTest( &argc, argv );
-        return RUN_ALL_TESTS();
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
