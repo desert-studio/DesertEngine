@@ -6,6 +6,7 @@
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 #include <array>
@@ -231,10 +232,18 @@ namespace Desert::Runtime
         // reason: a frame in flight may still be executing against their descriptor pools.
         void Release( const Assets::AssetHandle& handle );
 
-        // Destroys invalidated materials. Call at the START of a frame (before any command
-        // recording); waits for the device to go idle first, so no in-flight frame can still
-        // reference the dying descriptor pools. No-op (and free) when the graveyard is empty.
+        // Destroys the invalidated materials no frame in flight can still reference. Call at the START of a
+        // frame (before any command recording). It does NOT idle the device: a material waits in the
+        // graveyard until enough frames have begun that every frame recorded against its descriptor pools
+        // has had its fence waited on (Assets::FrameRetireQueue states the margin). A device idle here was
+        // affordable once per scene change and is not once per world cell that leaves during a flight (WP13).
         void CollectGarbage();
+
+        // Invalidated materials still waiting for their frames to finish.
+        [[nodiscard]] std::size_t GraveyardCount() const noexcept
+        {
+            return m_Graveyard.Size();
+        }
 
         // Monotonic stamp, bumped on every Invalidate(). Consumers that cache raw Material* /
         // instances (the mesh components' RuntimeMaterialInstances) compare their stored stamp
@@ -296,6 +305,6 @@ namespace Desert::Runtime
         mutable std::unordered_map<const Graphic::Material*, Assets::AssetHandle> m_BuiltToAsset;
 
         // Invalidated materials awaiting safe destruction (see Invalidate/CollectGarbage).
-        std::vector<std::shared_ptr<Graphic::Material>> m_Graveyard;
+        Assets::FrameRetireQueue<std::shared_ptr<Graphic::Material>> m_Graveyard;
     };
 } // namespace Desert::Runtime

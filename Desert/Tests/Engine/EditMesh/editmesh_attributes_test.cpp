@@ -247,7 +247,7 @@ TEST( EditMeshAttributes, EditMeshRenderEditMeshKeepsTopologyAndSeams )
     // A sphere: smooth normals (shared across every edge), one UV seam meridian whose column of render
     // vertices is duplicated, and two poles whose ring of render vertices (half of them at x = -0.0) must
     // weld onto ONE corner - so the weld and the seams are both exercised.
-    const RenderMeshData   source = FromShape( MakeSphere( 100.0f, 12, 8 ) );
+    const RenderMeshData   source = FromShape( MakeSphere( { 50.0f, SphereType::LatLong, 1, 8, 12 } ) );
     const ImportedEditMesh first  = Import( source );
     ASSERT_TRUE( Valid( first.Mesh ) );
     EXPECT_EQ( first.DroppedDegenerate + first.DroppedDuplicate + first.DetachedTriangles, 0 );
@@ -597,7 +597,7 @@ TEST( EditMeshAttributes, AngleFollowsNeighboursCoplanarFollowsTheSeed )
     // A smooth sphere: neighbouring facets differ by ~30 degrees at 12 slices, so a 40-degree crease
     // threshold keeps the whole ball one group - but no two facets of a ball are coplanar with a seed a
     // quarter-turn away, so the planar mode must split it into many.
-    ImportedEditMesh import = Import( FromShape( MakeSphere( 200.0f, 12, 8 ) ) );
+    ImportedEditMesh import = Import( FromShape( MakeSphere( { 100.0f, SphereType::LatLong, 1, 8, 12 } ) ) );
     EditMesh&        mesh   = import.Mesh;
     EXPECT_EQ( GeneratePolyGroupsByAngle( mesh, 40.0f ), 1 );
     const int planar = GeneratePolyGroupsCoplanar( mesh, 40.0f, 1.0f );

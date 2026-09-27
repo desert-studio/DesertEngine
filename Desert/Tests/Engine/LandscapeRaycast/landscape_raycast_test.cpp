@@ -327,6 +327,37 @@ TEST( LandscapeRaycast, TheNearerOfTwoCrossingsInOneCellIsTheHit )
     EXPECT_NEAR( *SampleLandscapeHeight( tile, frame, hit->Point.x, hit->Point.z ), 50.0f, 1e-3f );
 }
 
+// FO-3b: Scene::Raycast gathers the tiles once per foliage dab and filters them per ray through this overload.
+// A refused tile is traced THROUGH (the one beneath answers), and the hit's Tile indexes the whole set, not
+// the kept subset, or the hit would name the wrong tile entity.
+TEST( LandscapeRaycast, ARefusedTileIsTracedThroughAndTheHitNamesItsIndexInTheWholeSet )
+{
+    auto low  = LandscapeTileData::Create( 8u, 8u );
+    auto high = LandscapeTileData::Create( 8u, 8u );
+    ASSERT_TRUE( low.IsSuccess() && high.IsSuccess() );
+    const LandscapeTileData lowTile  = low.ExtractValue();
+    const LandscapeTileData highTile = high.ExtractValue();
+    LandscapeFrame          lowFrame, highFrame;
+    highFrame.BaseY = 300.0f; // the same rectangle, 3 m higher: a surface over the ground
+    const std::vector<LandscapeRayTile> tiles{ { &highTile, highFrame }, { &lowTile, lowFrame } };
+
+    const glm::vec3 origin( 3.5f * kSpacing, 5000.0f, 3.5f * kSpacing );
+    const glm::vec3 down( 0.0f, -1.0f, 0.0f );
+
+    const auto all = RaycastLandscape( tiles, origin, down, 1e4f, {} );
+    ASSERT_TRUE( all.has_value() );
+    EXPECT_EQ( all->Tile, 0u );
+    EXPECT_NEAR( all->Point.y, 300.0f, 1e-3f );
+
+    const auto through = RaycastLandscape( tiles, origin, down, 1e4f, []( size_t i ) { return i != 0u; } );
+    ASSERT_TRUE( through.has_value() );
+    EXPECT_EQ( through->Tile, 1u ) << "the index in the whole set, not in the kept subset";
+    EXPECT_NEAR( through->Point.y, 0.0f, 1e-3f );
+
+    EXPECT_FALSE( RaycastLandscape( tiles, origin, down, 1e4f, []( size_t ) { return false; } ) )
+         << "every tile refused is a miss";
+}
+
 TEST( LandscapeRaycast, OutsideTheTilesIsAMiss )
 {
     const Landscape2x2 land( Hills );

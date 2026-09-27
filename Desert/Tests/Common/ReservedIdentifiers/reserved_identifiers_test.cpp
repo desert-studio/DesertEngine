@@ -590,11 +590,31 @@ TEST( ReservedIdentifiers, NoSourceUsesThePosixMathConstants )
 {
     const std::regex posixConstant(
          R"(\bM_(PI|PI_2|PI_4|1_PI|2_PI|2_SQRTPI|E|LOG2E|LOG10E|LN2|LN10|SQRT2|SQRT1_2)\b)" );
+    // The one file that DEFINES M_PI rather than using it: OpenSubdiv's scheme headers need it, so
+    // SubdividePoly.cpp defines it around their include only and undefines it after. Only its preprocessor
+    // lines are excused; a use of M_PI in its code is an offender like anywhere else.
+    const std::string kDefinesForOpenSubdiv =
+         "Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/SubdividePoly.cpp";
     std::vector<std::string> offenders;
     for ( const Source& s : Sources() )
     {
         if ( s.Code.find( "M_" ) == std::string::npos )
             continue;
+        if ( s.Name == kDefinesForOpenSubdiv )
+        {
+            for ( auto it = std::sregex_iterator( s.Code.begin(), s.Code.end(), posixConstant );
+                  it != std::sregex_iterator(); ++it )
+            {
+                const auto        at = static_cast<std::size_t>( it->position() );
+                const std::size_t lineStart =
+                     s.Code.rfind( '\n', at ) == std::string::npos ? 0 : s.Code.rfind( '\n', at ) + 1;
+                const std::size_t first = s.Code.find_first_not_of( " \t", lineStart );
+                if ( first == std::string::npos || s.Code[first] != '#' )
+                    offenders.push_back( s.Name + ":" + std::to_string( LineOf( s.Code, at ) ) + "  " +
+                                         it->str() );
+            }
+            continue;
+        }
         for ( const std::string& o : EachMatch( s, posixConstant ) )
             offenders.push_back( o );
     }
@@ -722,7 +742,6 @@ namespace
          "Desert Desert::Assets::s_BuilderMutex",     // MeshDerivedData.cpp, TextureSourceAsset.cpp
          "Desert Desert::ECS::Landscape",             // LandscapeCollision.cpp, LandscapeECSSystem.cpp
          "Desert Desert::Geometry::CopyLayer",      // EditMeshTopologyOperations.cpp, EditMeshXformOperations.cpp
-         "Desert Desert::Geometry::Outcome",        // EditMeshModelOperations.cpp, EditMeshTopologyOperations.cpp
          "Desert Desert::Geometry::WriteOverlay",   // DynamicMeshSerialization.cpp, EditMeshSerialization.cpp
          "Editor Desert::Editor::Lower",            // AssetReferencesScan.cpp, FuzzyMatch.cpp
          "Editor Desert::Editor::RelativeToAssets", // EditorPreferences.cpp, CloudTypePanel.cpp

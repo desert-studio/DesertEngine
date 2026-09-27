@@ -85,14 +85,15 @@ namespace Desert::Graphic::System
 
         for ( const auto& g : m_GenericQueue )
         {
-            // CULLED ON THE AUTHORED BOX, and that is only sound because no vertex stage in this tree
-            // moves a vertex off it. A data-driven material whose vertex stage displaced geometry — a
-            // world-position offset, the thing UE hands a "bounds scale" knob for — would be culled on
-            // a box it is allowed to leave, and would pop out of existence for reasons invisible in the
-            // scene. The shader graph emits a FRAGMENT body only; its vertex stage is one shared
-            // generated include (Common/GraphVertex.glslh) that transforms a_Position and nothing else,
-            // and Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in
-            // the tree. The day a vertex-offset node exists, that census goes red before this does.
+            // CULLED ON THE AUTHORED BOX, and that is only sound because no vertex stage of this queue
+            // moves a vertex off it. (The instanced stages do since FO-7 - foliage wind - and the ISM loops
+            // cull on the wind-widened box for exactly this reason: CollectIsmInstances.) A data-driven material
+            // whose vertex stage displaced geometry — a world-position offset, the thing UE hands a "bounds scale"
+            // knob for — would be culled on a box it is allowed to leave, and would pop out of existence for
+            // reasons invisible in the scene. The shader graph emits a FRAGMENT body only; its vertex stage is one
+            // shared generated include (Common/GraphVertex.glslh) that transforms a_Position and nothing else, and
+            // Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in the tree. The
+            // day a vertex-offset node exists, that census goes red before this does.
             if ( g.Mesh != nullptr &&
                  !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
@@ -873,6 +874,7 @@ namespace Desert::Graphic::System
 
         if ( instancingOn )
         {
+            m_IsmInstancesDrawn = 0;
             for ( const auto& ism : m_InstancedQueue )
             {
                 if ( !ism.Mesh || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
@@ -906,17 +908,9 @@ namespace Desert::Graphic::System
                 // of a single ISM are not the same object to a renderer.
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                visible.clear();
-                levels.clear();
-                for ( const auto& instanceTransform : *ism.Transforms )
-                {
-                    if ( !IsVisibleInView( frustum, instanceTransform, localBounds ) )
-                        continue;
-                    visible.push_back( instanceTransform );
-                    levels.push_back( std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
-                                                                               camera->GetPosition(), -1, 0 ),
-                                                maxLevel ) );
-                }
+                CollectIsmInstances( *ism.Transforms, localBounds, frustum, ism.CullDistance, ism.Wind,
+                                     camera->GetPosition(), camera->GetPosition(), maxLevel, visible, levels );
+                m_IsmInstancesDrawn += static_cast<uint32_t>( visible.size() );
                 if ( visible.empty() )
                     continue;
 
@@ -932,6 +926,7 @@ namespace Desert::Graphic::System
                     d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
                     d.MaterialIndex = materialIndex;
                     d.LodLevel      = level;
+                    d.Wind          = PackInstanceWind( ism.Wind );
                     for ( std::size_t i = 0; i < visible.size(); ++i )
                         if ( levels[i] == level )
                             ismSet->Transforms.push_back( visible[i] );
@@ -976,6 +971,7 @@ namespace Desert::Graphic::System
                 for ( const auto& d : set.Draws )
                 {
                     set.Mat->SetMaterialIndex( d.MaterialIndex );
+                    set.Mat->SetInstancedWind( d.Wind );
                     set.Mat->Bind( set.Inst );
                     renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
                                          set.Mat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,

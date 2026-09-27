@@ -63,9 +63,10 @@ namespace Desert::Graphic::System
             TerrainInstance instance;
             instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
                                                  256.0f * l.ZScale, std::floor( lod.Center ) );
-            instance.Params2        = glm::vec4( 1.0f / std::max( 0.01f, kLandscapeLodBlendRange ),
-                                                 static_cast<float>( t.Weights.LayerCount ), 0.0f,
-                                                 static_cast<float>( l.NeighbourMask ) );
+            instance.Params2        = glm::vec4(
+                 1.0f / std::max( 0.01f, kLandscapeLodBlendRange ), static_cast<float>( t.Weights.LayerCount ),
+                 static_cast<float>( World::Landscape::LandscapeWeightmapPageCount( t.Weights.LayerCount ) ),
+                 static_cast<float>( l.NeighbourMask ) );
             instance.LayerModes     = glm::vec4( t.LayerModes, 0.0f );
             instance.LandscapeFrame = glm::vec4( l.OriginX, l.BaseY, l.OriginZ, l.SpacingCm );
             instance.LandscapeTile =

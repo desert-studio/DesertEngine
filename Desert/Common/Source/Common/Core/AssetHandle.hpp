@@ -71,7 +71,7 @@ namespace Common
         // asset and a content asset that happen to sit at mirrored offsets would share one handle. The
         // tag is part of the hashed key, never of any path on disk.
         //
-        // Why THESE three: they are exactly the roots AssetPreloader scans. Content and cooked assets
+        // Why THESE three: they are exactly the roots the content registry gathers. Content and cooked assets
         // move with the project (Constants::Path::SetProjectRoot rewrites them); engine resources never
         // do. Longest match wins, which is what makes the default sandbox layout — where ASSETS_PATH
         // (`Resources/Assets/`) is NESTED INSIDE RESOURCE_PATH (`Resources/`) — resolve to `assets`

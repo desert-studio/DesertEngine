@@ -130,10 +130,10 @@ namespace Desert::Editor::ThumbnailSubject
 
         // PARSED BEFORE IT IS ASKED ANYTHING, ON BOTH ROUTES, AND THAT MOVE IS THE WHOLE DEFECT. The Load
         // used to sit inside the create branch above, so a material the PRELOADER had already registered
-        // never got one — and `AssetPreloader::PreloadCookedAssetsAndMaterials` registers every `.demat`
-        // under MATERIAL_PATH with `loadAfterCreate=false`, i.e. as an unparsed shell. A shell states no
-        // ShaderName, `SurfaceMaterialAsset::GetShaderName()` answers "StaticMeshPBR", and every question
-        // below was then answered about a material that does not exist.
+        // never got one — and the boot scanner of the time registered every `.demat` under MATERIAL_PATH
+        // with `loadAfterCreate=false`, i.e. as an unparsed shell; on-demand shells are created the same way. A
+        // shell states no ShaderName, `SurfaceMaterialAsset::GetShaderName()` answers "StaticMeshPBR", and every
+        // question below was then answered about a material that does not exist.
         //
         // MEASURED, because this is what it cost: on a clean start of this repository the sweep resolved
         // 52 cloud materials as Surface-domain, queued them as mesh draws, and the capture — running
@@ -228,7 +228,7 @@ namespace Desert::Editor::ThumbnailSubject
         }
 
         // REGISTER AND BUILD, ON BOTH ROUTES. The registration used to live inside the `if` above, so a
-        // cooked mesh the manager ALREADY held — which is every mesh, once AssetPreloader has run — reached
+        // cooked mesh the manager ALREADY held — which was every mesh while a boot scanner created them — reached
         // the line below having never been offered to the mesh service at all.
         //
         // AND THE REFUSAL NAMES THE CONDITION THAT HELD. What stood here was one message for three

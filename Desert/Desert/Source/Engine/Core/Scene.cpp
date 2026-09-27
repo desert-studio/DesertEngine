@@ -84,48 +84,54 @@ namespace Desert::Core
             }
             return { mn, mx };
         }
-        // Every landscape tile that is drawn: loaded heights, under a loaded root they match. A tile the
-        // renderer refuses (LandscapeECSSystem warns why) is not on screen, so it is not pickable either.
-        struct PickableTile
-        {
-            Common::UUID                       Entity;
-            World::Landscape::LandscapeRayTile Ray;
-        };
-
-        std::vector<PickableTile> PickableLandscapeTiles( const Scene& scene )
-        {
-            std::vector<PickableTile> tiles;
-            for ( const auto& entity : scene.GetAllEntities() )
-            {
-                if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
-                    continue;
-                const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
-                if ( !tile.Heights.has_value() )
-                    continue;
-                const auto rootEntity = scene.FindEntityByID( tile.Landscape );
-                if ( !rootEntity.has_value() || !rootEntity->get().HasComponent<ECS::LandscapeComponent>() )
-                    continue;
-                const auto root = ECS::LandscapeRootOf( rootEntity->get() );
-                // The renderer refuses the same tile (and says so once); a pick is an explicit request, so
-                // it is told why the tile under the cursor cannot answer.
-                const auto fits = World::Landscape::CheckTileMatchesRoot( *tile.Heights, root );
-                if ( !fits.IsSuccess() )
-                {
-                    LOG_WARN( "[Landscape] tile ({}, {}) is not pickable: {}", tile.TileX, tile.TileZ,
-                              fits.GetError() );
-                    continue;
-                }
-                PickableTile pick;
-                pick.Entity      = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                pick.Ray.Heights = &*tile.Heights;
-                pick.Ray.Frame   = World::Landscape::LandscapeTileFrame( root, tile.TileX, tile.TileZ );
-                tiles.push_back( pick );
-            }
-            return tiles;
-        }
     } // namespace
 
     bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit ) const
+    {
+        return Raycast( ray, outHit, {} );
+    }
+
+    // Every landscape tile that is drawn: loaded heights, under a loaded root they match. A tile the
+    // renderer refuses (LandscapeECSSystem warns why) is not on screen, so it is not pickable either.
+    Scene::RaycastLandscapeSet Scene::GatherRaycastLandscape() const
+    {
+        RaycastLandscapeSet set;
+        for ( const auto& entity : GetAllEntities() )
+        {
+            if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
+                continue;
+            const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
+            if ( !tile.Heights.has_value() )
+                continue;
+            const auto rootEntity = FindEntityByID( tile.Landscape );
+            if ( !rootEntity.has_value() || !rootEntity->get().HasComponent<ECS::LandscapeComponent>() )
+                continue;
+            const auto root = ECS::LandscapeRootOf( rootEntity->get() );
+            // The renderer refuses the same tile (and says so once); a pick is an explicit request, so
+            // it is told why the tile under the cursor cannot answer.
+            const auto fits = World::Landscape::CheckTileMatchesRoot( *tile.Heights, root );
+            if ( !fits.IsSuccess() )
+            {
+                LOG_WARN( "[Landscape] tile ({}, {}) is not pickable: {}", tile.TileX, tile.TileZ,
+                          fits.GetError() );
+                continue;
+            }
+            set.Entities.push_back( entity.GetComponent<ECS::UUIDComponent>().UUID );
+            set.Tiles.push_back(
+                 { &*tile.Heights, World::Landscape::LandscapeTileFrame( root, tile.TileX, tile.TileZ ) } );
+        }
+        return set;
+    }
+
+    bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
+                         const std::function<bool( const Common::UUID& )>& accept ) const
+    {
+        return Raycast( ray, outHit, accept, GatherRaycastLandscape() );
+    }
+
+    bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
+                         const std::function<bool( const Common::UUID& )>& accept,
+                         const RaycastLandscapeSet&                        landscape ) const
     {
         float              closest = std::numeric_limits<float>::max();
         glm::mat4          bestXf( 1.0f );
@@ -149,6 +155,8 @@ namespace Desert::Core
                 skinned = true;
             }
             if ( !mesh )
+                continue;
+            if ( accept && !accept( entity.GetComponent<ECS::UUIDComponent>().UUID ) )
                 continue;
 
             const glm::mat4 xf       = entity.GetWorldTransform();
@@ -208,20 +216,16 @@ namespace Desert::Core
 
         // The landscape after the meshes, against the nearest mesh distance: a rock standing on a hill is
         // picked when the ray meets the rock first, the hill otherwise.
-        const auto landscape = PickableLandscapeTiles( *this );
-        if ( !landscape.empty() )
+        if ( !landscape.Tiles.empty() )
         {
-            std::vector<World::Landscape::LandscapeRayTile> rayTiles;
-            rayTiles.reserve( landscape.size() );
-            for ( const auto& tile : landscape )
-                rayTiles.push_back( tile.Ray );
             const float limit = hit ? closest : std::numeric_limits<float>::max();
-            if ( const auto terrain =
-                      World::Landscape::RaycastLandscape( rayTiles, ray.Origin, ray.Direction, limit );
+            const auto  keep  = [&]( size_t i ) { return !accept || accept( landscape.Entities[i] ); };
+            if ( const auto terrain = World::Landscape::RaycastLandscape( landscape.Tiles, ray.Origin,
+                                                                          ray.Direction, limit, keep );
                  terrain && terrain->Distance < limit )
             {
                 outHit.Hit      = true;
-                outHit.Entity   = landscape[terrain->Tile].Entity;
+                outHit.Entity   = landscape.Entities[terrain->Tile];
                 outHit.Point    = terrain->Point;
                 outHit.Normal   = terrain->Normal;
                 outHit.Distance = terrain->Distance;

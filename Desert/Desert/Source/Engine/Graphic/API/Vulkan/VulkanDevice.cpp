@@ -16,6 +16,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/CrashHandler.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp> // ReadShaderPhaseTimes — pipelines built so far
 
@@ -214,6 +215,16 @@ namespace Desert::Graphic::API::Vulkan
         auto device = std::make_shared<VulkanLogicalDevice>( physical.ExtractValue() );
         if ( const auto created = device->CreateDevice(); !created )
             return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( created.GetError() );
+
+        // CR1c: a crash report names the GPU this process renders on, from the device just created (not a
+        // DXGI adapter guess). Before this line a report says gpu=unknown, which is then the truth.
+        // vk-bootstrap already queried the properties when it selected the device (VKF1); no second query.
+        const VkPhysicalDeviceProperties& props = device->m_PhysicalDevice->GetBootstrapDevice().properties;
+        Common::Crash::SetGpu( { .name          = props.deviceName,
+                                 .vendorId      = props.vendorID,
+                                 .deviceId      = props.deviceID,
+                                 .driverVersion = props.driverVersion,
+                                 .apiVersion    = props.apiVersion } );
         return Common::MakeSuccess( std::move( device ) );
     }
 

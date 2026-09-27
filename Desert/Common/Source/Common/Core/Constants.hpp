@@ -68,6 +68,8 @@ namespace Common::Constants
             ShaderGraph,
             AnimGraph,
             Retarget,
+            FoliageType,
+            LandscapeLayerInfo,
             Cooked,
             MeshCooked,
             COUNT
@@ -143,6 +145,12 @@ namespace Common::Constants
              // because it is the same kind of thing one level up — a `.derig` is a statement about one rig,
              // a `.retarget` is a statement about a PAIR of them.
              /* Retarget      */ { "Retargets/", DirRoot::Assets },
+             // Foliage types (`.defoliage`) get their own folder for the retarget's reason: the paint
+             // panel's type slot offers only what is scanned from here.
+             /* FoliageType   */ { "Foliage/", DirRoot::Assets },
+             // Landscape layer infos (`.delayerinfo`) get their own folder because UE keeps them beside the
+             // landscape, and the panel's layer slot offers only what is scanned from here.
+             /* LandscapeLayerInfo */ { "Landscape/Layers/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
         } };
@@ -362,6 +370,8 @@ namespace Common::Constants
         inline const std::filesystem::path& SHADER_GRAPH_PATH   = Dir( ContentDir::ShaderGraph );
         inline const std::filesystem::path& ANIM_GRAPH_PATH     = Dir( ContentDir::AnimGraph );
         inline const std::filesystem::path& RETARGET_PATH       = Dir( ContentDir::Retarget );
+        inline const std::filesystem::path& FOLIAGE_TYPE_PATH         = Dir( ContentDir::FoliageType );
+        inline const std::filesystem::path& LANDSCAPE_LAYER_INFO_PATH = Dir( ContentDir::LandscapeLayerInfo );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
     } // namespace Path
@@ -377,11 +387,11 @@ namespace Common::Constants
         constexpr std::string_view MATERIAL_EXTENSION = ".demat";
         constexpr std::string_view PREFAB_EXTENSION   = ".deprefab";
         // st = STatic, sk = SKinned. These two were SWAPPED from the day they were written, and nothing
-        // caught it because nothing read them: AssetPreloader carried its own literal arrays and was
+        // caught it because nothing read them: the boot scanner of the time carried its own literal arrays and was
         // right, so the cooker, the loaders and the tests all agreed with each other and disagreed with
         // this file in silence. The bug could only surface the moment someone trusted these names — i.e.
         // it was a trap armed for a future reader, not a defect anyone could observe.
-        // AssetPreloader now consumes these, so the two spellings are one value again.
+        // The content-kind table now consumes these, so the two spellings are one value again.
         //
         // They are `constexpr string_view` and not `const std::string` so the agreement between the NAME
         // and the LETTERS can be asserted by the compiler below. A runtime test would only fail once

@@ -230,21 +230,14 @@ namespace Desert::ECS
         std::shared_ptr<const std::vector<glm::mat4>> RuntimeInstanceSnapshot;
     };
 
-    // A FOLIAGE type (UE5-style). Sits alongside an InstancedStaticMeshComponent (the mesh + per-instance
-    // WORLD transforms, drawn instanced). The Foliage paint tool scatters instances of this type onto surfaces
-    // (raycast brush). These are the per-type scatter params.
+    // A FOLIAGE FIELD (UE: one FFoliageInfo of an AInstancedFoliageActor). Sits beside an
+    // InstancedStaticMeshComponent that holds the painted instances; WHAT is painted — the mesh and the scatter
+    // numbers — is the `.defoliage` named here (Assets::FoliageTypeAsset), shared by every field painted with
+    // the same type. Saved as {FoliageTypeGuid, FoliageTypePath}; a type the project does not have refuses the
+    // scene's load with both (ComponentRegistry.cpp) instead of painting with defaults.
     struct FoliageComponent
     {
-        float Density       = 6.0f; // instances scattered per paint dab (in the brush disk)
-        float ScaleMin      = 0.8f;
-        float ScaleMax      = 1.3f;
-        float ZOffsetMin    = 0.0f; // sink(-)/raise(+) along world up, randomized per instance
-        float ZOffsetMax    = 0.0f;
-        float MaxPitchDeg   = 0.0f; // random tilt off the up/normal axis (0 = upright)
-        float SlopeMinDeg   = 0.0f; // only paint where the surface slope is within [min,max] degrees
-        float SlopeMaxDeg   = 90.0f;
-        bool  AlignToNormal = true; // tilt instances to the surface normal
-        bool  RandomYaw     = true; // random rotation about the up axis
+        Assets::AssetHandle FoliageType;
     };
 
     // A landscape surface layer's switch. Auto = weighted by the Terrain program's height/slope rules;
@@ -302,25 +295,15 @@ namespace Desert::ECS
     // Rotation and scale of the root entity are not part of the frame: LandscapeFrame has no rotation, as
     // the TES sampling it feeds has none. That is stated here rather than hidden behind a transform the
     // tiles would silently ignore; a landscape that must turn is a new frame field, not a gizmo.
-    // ONE PAINTABLE LAYER OF A LANDSCAPE (UE: a target layer's ULandscapeLayerInfoObject). The root owns the
-    // list because UE's target layers belong to the landscape, not to a component: every tile's weight plane
-    // is keyed by one of these names (LandscapeWeightLayer::Name), and Hardness/NoWeightBlend are what the
-    // paint stroke's normalisation reads (World/Landscape/LandscapePaint.hpp, LandscapeLayerRule).
-    // `Color` is UE's LayerUsageDebugColor: the swatch the panel shows, and what a debug view would tint by.
-    struct LandscapeLayerInfo
-    {
-        std::string Name;
-        float       Hardness      = 0.5f;
-        bool        NoWeightBlend = false;
-        glm::vec3   Color         = glm::vec3( 1.0f );
-    };
-
     struct LandscapeComponent
     {
         uint32_t QuadsPerTile = World::Landscape::kLandscapeDefaultTileQuads; // UE section size, 7..255
         float    SpacingCm    = World::Landscape::kLandscapeDefaultSpacingCm; // cm between neighbouring samples
         float    ZScale       = World::Landscape::kLandscapeDefaultZScale;    // cm per local height unit
-        std::vector<LandscapeLayerInfo> Layers;                               // UE target layers, in panel order
+        // UE target layers, in panel order: each names a `.delayerinfo` (UE: ALandscape's target layer ->
+        // ULandscapeLayerInfoObject). Every tile's weight plane is keyed by the asset's LayerName, and the
+        // paint stroke reads its Hardness/NoWeightBlend (Runtime::LandscapeLayerInfoService resolves them).
+        std::vector<Assets::AssetHandle> Layers;
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).

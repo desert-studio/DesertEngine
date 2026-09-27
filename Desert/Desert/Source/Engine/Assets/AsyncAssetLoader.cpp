@@ -71,8 +71,11 @@ namespace Desert::Assets
         uint64_t              NextId = 1;
         std::atomic<uint64_t> Started{ 0 };
         std::atomic<uint64_t> Cancels{ 0 };
-        /// Workers currently inside `AssetBase::Load()`. `ShutdownAndDrain` waits on it, so tearing
-        /// the process down cannot free an asset a worker is still reading into.
+        /// Jobs SUBMITTED and not yet returned: counted at `Submit`, not when a worker picks the job up.
+        /// `ShutdownAndDrain` waits on it, so no job of a drained generation survives the drain. One still
+        /// queued would otherwise start later, meet the ticket of a NEW request that reused its id after
+        /// `ResetForTest`, read the OLD asset and settle the new request as loaded with its asset never
+        /// read (FIX7: MeshServiceResidency failed about 4 % of Release runs exactly this way).
         std::atomic<int> InFlight{ 0 };
     };
 
@@ -232,11 +235,10 @@ namespace Desert::Assets
             // function-local static, so the only way a worker could outlive it is a job still running at
             // exit -- which `ShutdownAndDrain` is there to make impossible.
             State* inner = m_State.get();
+            inner->InFlight.fetch_add( 1, std::memory_order_relaxed );
             Common::JobSystem::Get().Submit(
                  [record, handle, ticket, inner]
                  {
-                     inner->InFlight.fetch_add( 1, std::memory_order_relaxed );
-
                      LoadOutcome outcome = LoadOutcome::Loaded;
                      std::string error;
 
@@ -251,7 +253,7 @@ namespace Desert::Assets
                               owner == inner->Tickets.end() || owner->second != ticket )
                          {
                              // FlushOne took this read onto the caller's thread and settled it there.
-                             inner->InFlight.fetch_sub( 1, std::memory_order_relaxed );
+                             inner->InFlight.fetch_sub( 1, std::memory_order_release );
                              return;
                          }
                          inner->WorkerReading.insert( handle );
@@ -279,7 +281,7 @@ namespace Desert::Assets
                          SettleWaitingLocked( *inner, handle, outcome, error );
                      }
 
-                     inner->InFlight.fetch_sub( 1, std::memory_order_relaxed );
+                     inner->InFlight.fetch_sub( 1, std::memory_order_release );
                  } );
         }
 
@@ -540,9 +542,10 @@ namespace Desert::Assets
         }
 
         // SPIN RATHER THAN CONDITION-VARIABLE, and it is a deliberate trade for a path that runs twice in
-        // a process. A worker inside a read holds the asset alive through its own `shared_ptr`, so the
-        // only thing this wait buys is that nobody is inside `LoadFromFile` when the allocator goes away.
-        while ( state.InFlight.load( std::memory_order_relaxed ) > 0 )
+        // a process. It waits for QUEUED jobs as well as running ones: a queued job of this generation
+        // that started after the drain would act on the next generation's tickets (see `InFlight`), and
+        // nobody may be inside `LoadFromFile` when the allocator goes away.
+        while ( state.InFlight.load( std::memory_order_acquire ) > 0 )
             std::this_thread::yield();
     }
 

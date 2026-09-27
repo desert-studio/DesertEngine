@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <unordered_set>
 
 namespace Desert::Geometry
@@ -33,28 +34,28 @@ namespace Desert::Geometry
         return "Unknown";
     }
 
+    // UE rebuilds tangents after every edit (they are derived data); the per-triangle path is exact on the
+    // flat faces the region operations create.
+    Common::BoolResultStr RecomputeTangentSpace( DynamicMesh3& mesh, const char* name )
+    {
+        DynamicMeshAttributeSet* attributes = mesh.Attributes();
+        if ( attributes == nullptr || !attributes->HasTangentSpace() )
+            return Common::MakeSuccess( true );
+        const DynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
+        if ( uvs == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );
+        MeshTangentsd tangents( &mesh );
+        tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), uvs );
+        if ( !tangents.CopyToOverlays( mesh ) )
+            return Common::MakeFormattedError<bool>(
+                 "Mesh {}: tangents could not be written - {} normal layers, 3 expected", name,
+                 attributes->NumNormalLayers() );
+        return Common::MakeSuccess( true );
+    }
+
     namespace
     {
-        // UE rebuilds tangents after every edit (they are derived data); the per-triangle path is exact on the
-        // flat faces the region operations create.
-        Common::BoolResultStr RecomputeTangents( DynamicMesh3& mesh, const char* name )
-        {
-            DynamicMeshAttributeSet* attributes = mesh.Attributes();
-            if ( attributes == nullptr || !attributes->HasTangentSpace() )
-                return Common::MakeSuccess( true );
-            const DynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
-            if ( uvs == nullptr )
-                return Common::MakeFormattedError<bool>(
-                     "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );
-            MeshTangentsd tangents( &mesh );
-            tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), uvs );
-            if ( !tangents.CopyToOverlays( mesh ) )
-                return Common::MakeFormattedError<bool>(
-                     "Mesh {}: tangents could not be written - {} normal layers, 3 expected", name,
-                     attributes->NumNormalLayers() );
-            return Common::MakeSuccess( true );
-        }
-
         // Ported from UE 5.8 GeometryCore/Private/CompGeom/PolygonTriangulation.cpp:170-192
         // (ComputePolygonPlane, Newell's method), adapted: the loop's vertex IDs in, no area returned.
         void ComputeLoopPlane( const DynamicMesh3& mesh, const std::vector<int>& loopVertices, glm::dvec3& normal,
@@ -146,7 +147,7 @@ namespace Desert::Geometry
             for ( const int t : filler.m_NewTriangles )
                 newTriangles.push_back( t );
         }
-        if ( auto tangents = RecomputeTangents( *mesh, "Fill Hole" ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Fill Hole" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Triangle );
@@ -207,7 +208,7 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Insert Edge Loop: the loop across group edge {} failed ({} problem group edges)", groupEdge,
                  static_cast<int32_t>( problemGroupEdges.size() ) );
-        if ( auto tangents = RecomputeTangents( *mesh, "Insert Edge Loop" ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Insert Edge Loop" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Edge );
@@ -241,7 +242,7 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Weld Edges: no coincident edge pair within tolerance {} cm among the {} boundary edges",
                  merger.m_MergeVertexTolerance, merger.m_InitialNumBoundaryEdges );
-        if ( auto tangents = RecomputeTangents( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
     }
@@ -313,7 +314,7 @@ namespace Desert::Geometry
                 for ( const int32_t t : region.InitialTriangles )
                     resultTriangles.push_back( t );
         }
-        if ( auto tangents = RecomputeTangents( *mesh, name ); !tangents.IsSuccess() )
+        if ( auto tangents = RecomputeTangentSpace( *mesh, name ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Triangle );
@@ -327,5 +328,56 @@ namespace Desert::Geometry
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+    }
+    int MaxSubdivisionLevel( int faces )
+    {
+        return static_cast<int>(
+             std::floor( std::log2( static_cast<double>( kMaxSubdividedFaces / ( faces + 1 ) ) ) / 2.0 ) );
+    }
+
+    Common::ResultStr<RegionOutcome> SubdivideMesh( const DynamicMesh3& before, const SubdivideSettings& settings,
+                                                    ElementMode mode )
+    {
+        if ( before.TriangleCount() == 0 )
+            return Common::MakeError<RegionOutcome>( "Mesh Subdivide: the mesh has no triangles" );
+        if ( settings.Level < 1 )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Subdivide: the level must be at least 1, not {}", settings.Level );
+        const bool    bLoop = settings.Scheme == SubdivisionScheme::Loop;
+        GroupTopology topology( &before, false );
+        if ( !bLoop )
+        {
+            if ( !topology.RebuildTopology() )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh Subdivide: the polygroup topology: {}",
+                                                                  topology.Failure() );
+            const SubdividePoly                      probe( topology, before, 1 );
+            const SubdividePoly::TopologyCheckResult check = probe.ValidateTopology();
+            if ( check != SubdividePoly::TopologyCheckResult::Ok )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Subdivide: {} runs on the polygroups as polygons and {}; Loop runs on the triangles",
+                     ToString( settings.Scheme ), ToString( check ) );
+        }
+        const int faces    = bLoop ? before.TriangleCount() : static_cast<int>( topology.m_Groups.size() );
+        const int maxLevel = MaxSubdivisionLevel( faces );
+        if ( settings.Level > maxLevel )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Subdivide: level {} exceeds the maximum {} for {} {} faces (at most {} after subdividing)",
+                 settings.Level, maxLevel, faces, ToString( settings.Scheme ), kMaxSubdividedFaces );
+
+        SubdividePoly subd( topology, before, settings.Level );
+        subd.m_SubdivisionScheme       = settings.Scheme;
+        subd.m_BoundaryScheme          = settings.Boundary;
+        subd.m_NormalComputationMethod = settings.Normals;
+        subd.m_bNewPolyGroups          = settings.NewPolyGroups;
+        auto mesh                      = std::make_shared<DynamicMesh3>();
+        if ( !subd.ComputeTopologySubdivision() || !subd.ComputeSubdividedMesh( *mesh ) )
+            return Common::MakeFormattedError<RegionOutcome>( "Mesh Subdivide: {}", subd.Failure() );
+        // The result is built fresh; a tangent space the source carried is derived again (see
+        // RecomputeTangentSpace).
+        if ( before.Attributes() != nullptr && before.Attributes()->HasTangentSpace() )
+            mesh->Attributes()->EnableTangents();
+        if ( auto tangents = RecomputeTangentSpace( *mesh, "Subdivide" ); !tangents.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( tangents.GetError() );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
     }
 } // namespace Desert::Geometry

@@ -68,6 +68,9 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::LandscapeMaterialComponent>() )
             roots.Mark( registry.get<ECS::LandscapeMaterialComponent>( entity ).Data.Material,
                         "a landscape is surfaced with it" );
+        for ( const auto entity : registry.view<ECS::LandscapeComponent>() )
+            for ( const Assets::AssetHandle& layer : registry.get<ECS::LandscapeComponent>( entity ).Layers )
+                roots.Mark( layer, "a landscape paints with it" );
 
         // A generic shader material's texture overrides. `uint64_t` rather than AssetHandle in the
         // component, which is why this loop cannot be folded into the others.
@@ -106,6 +109,11 @@ namespace Desert::Core
         // reachable only through `RetargetAsset`'s own dependency, exactly as a `.skeleton` is reachable
         // only through the `.skmesh` that names it, so dropping the retarget drops the rig behind it and
         // nothing can bring either back.
+        // A foliage entity names its type; the paint brush reads the numbers from it.
+        for ( const auto entity : registry.view<ECS::FoliageComponent>() )
+            roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,
+                        "a foliage field is painted with it" );
+
         for ( const auto entity : registry.view<ECS::RetargetComponent>() )
         {
             roots.Mark( registry.get<ECS::RetargetComponent>( entity ).Data.Retarget,

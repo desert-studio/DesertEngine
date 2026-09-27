@@ -33,7 +33,7 @@ namespace Desert::Editor
 
     namespace
     {
-        // The same enumeration + extension filter AssetPreloader::PreloadShaders uses (lowercased
+        // The same enumeration + extension filter the engine shader boot used (lowercased
         // extension over ListFilesRecursive of the live SHADERDIR_PATH): the cook must see exactly
         // the set of shaders the runtime will register, or a shader the runtime compiles at startup
         // is one the cook silently skipped.

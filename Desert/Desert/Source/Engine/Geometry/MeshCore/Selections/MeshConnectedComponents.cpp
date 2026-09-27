@@ -1,7 +1,10 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/Selections/MeshConnectedComponents.cpp:8-22,
-// 94-111, 245-347, adapted: UE Core as std/glm, namespace Desert::Geometry, components are built by value and
-// appended (UE news an Component into a TIndirectArray), no CPU profiler scopes.
+// 70-89, 94-111, 245-347, adapted: UE Core as std/glm, namespace Desert::Geometry, components are built by value
+// and appended (UE news an Component into a TIndirectArray), no CPU profiler scopes; FindConnectedTriangles(ROI)
+// seeds with the ROI sorted ascending in place of UE's FInterval1i index range (the same visiting order).
 #include "Engine/Geometry/MeshCore/Selections/MeshConnectedComponents.hpp"
+
+#include <algorithm>
 
 using namespace Desert::Geometry;
 
@@ -33,6 +36,24 @@ void MeshConnectedComponents::FindTrianglesConnectedToSeeds(
     }
 
     FindTriComponents( SeedTriangles, ActiveSet, TrisConnectedPredicate );
+}
+
+void MeshConnectedComponents::FindConnectedTriangles(
+     const std::vector<int>& TriangleROI, const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate )
+{
+    std::vector<uint8_t> ActiveSet;
+    ActiveSet.assign( m_Mesh->MaxTriangleID(), static_cast<uint8_t>( ProcessingState::Invalid ) );
+    std::vector<int32_t> Seeds;
+    for ( int const tid : TriangleROI )
+    {
+        if ( m_Mesh->IsTriangle( tid ) )
+        {
+            ActiveSet[tid] = static_cast<uint8_t>( ProcessingState::Unprocessed );
+            Seeds.push_back( tid );
+        }
+    }
+    std::sort( Seeds.begin(), Seeds.end() );
+    FindTriComponents( Seeds, ActiveSet, TrisConnectedPredicate );
 }
 
 void MeshConnectedComponents::FindTriComponents(

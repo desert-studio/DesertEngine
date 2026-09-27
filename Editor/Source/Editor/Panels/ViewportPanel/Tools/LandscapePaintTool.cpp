@@ -8,7 +8,9 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
+#include <Engine/ECS/LandscapeLayerRules.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
 #include <ImGui/imgui.h>
@@ -100,12 +102,15 @@ namespace Desert::Editor::Tools
         const auto rootEntity = ECS::FindLandscapeRootEntity( registry, *landscape );
         if ( rootEntity == entt::null )
             return Common::MakeError( "landscape paint: the landscape root is not loaded" );
-        auto rules  = ECS::LandscapeLayerRulesOf( registry.get<ECS::LandscapeComponent>( rootEntity ) );
+        auto rules = ECS::LandscapeLayerRulesOf( registry.get<ECS::LandscapeComponent>( rootEntity ),
+                                                 *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+        if ( !rules )
+            return Common::MakeError( "landscape paint: " + rules.GetError() );
         auto target = ECS::FindLandscapeEditTarget( registry, *landscape );
         if ( !target.IsSuccess() )
             return Common::MakeError( target.GetError() );
         m_Target = target.GetValue();
-        m_Stroke.emplace( m_Target->Root, m_Target->Lookup, std::move( rules ) );
+        m_Stroke.emplace( m_Target->Root, m_Target->Lookup, rules.ExtractValue() );
         m_Failed = false;
         return Common::MakeSuccess( true );
     }

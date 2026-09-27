@@ -49,6 +49,8 @@ project(test_name)
         -- table of numbers and its one device-bound referent (a font atlas) is bound by the service, a
         -- layer up — which is why both compile straight into a suite that links no renderer.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/LandscapeLayerInfoAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/LandscapeLayerInfo.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp",
         -- The shader graph: the asset wrapper and the FORMAT it parses. The node catalogue and the GLSL
@@ -69,6 +71,8 @@ project(test_name)
         -- census cannot ask its question about it.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/FoliageTypeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",

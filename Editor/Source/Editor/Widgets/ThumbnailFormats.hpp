@@ -166,6 +166,9 @@ namespace Desert::Editor::ThumbnailFormats
            "a script is text. The browser's preview pane already shows its opening lines, which tells a "
            "reader what it does; no 64-pixel square can" },
          { "cs", Producer::None, "same as .lua" },
+         { "delayerinfo", Producer::None,
+           "a landscape layer info is a name, two blend numbers and a debug colour; the colour alone would "
+           "be a swatch indistinguishable from any other asset's tint, so the typed icon says more" },
 
          { "shader", Producer::None,
            "a shader is a PROGRAM, and a program has no appearance until something supplies its "

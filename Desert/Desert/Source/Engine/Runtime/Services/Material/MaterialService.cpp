@@ -1,4 +1,5 @@
 #include "MaterialService.hpp"
+#include <Engine/Core/FrameManager.hpp>
 
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
@@ -433,7 +434,7 @@ namespace Desert::Runtime
         m_Requests.clear();
         m_ReportedMissing.clear();
         m_ExternalToInternal.clear();
-        m_Graveyard.clear();
+        m_Graveyard.Clear();
     }
 
     void MaterialService::Invalidate( const Assets::AssetHandle& handle )
@@ -457,7 +458,8 @@ namespace Desert::Runtime
             if ( variant )
             {
                 m_BuiltToAsset.erase( variant.get() );
-                m_Graveyard.push_back( std::move( variant ) );
+                m_Graveyard.Park( std::move( variant ),
+                                  Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
             }
         m_Materials.erase( it );
         ++m_InvalidationVersion; // cached instance sets rebuild on their next system tick
@@ -486,12 +488,10 @@ namespace Desert::Runtime
 
     void MaterialService::CollectGarbage()
     {
-        if ( m_Graveyard.empty() )
-            return;
-        // Safe point: no frame is being recorded (caller guarantees frame start) and idle-wait
-        // retires every in-flight frame that could reference the dying descriptor pools.
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        m_Graveyard.clear();
+        // Safe point: no frame is being recorded (caller guarantees frame start). Only the materials whose
+        // last possible frame has retired are destroyed; the rest wait for a later frame start.
+        const auto& frames = Engine::FrameManager::GetInstance();
+        m_Graveyard.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
     }
 
     Graphic::Material* MaterialService::GetByExternalHandle( const Common::UUID& handle ) const

@@ -116,6 +116,9 @@ namespace Desert::Editor::Control
         uint64_t PendingViewBytes = 0;
         uint64_t BudgetBytes      = 0;
         uint64_t UsageBytes       = 0;
+        // ISM instances the main view's last geometry pass drew, after the frustum and the foliage cull
+        // distance (FO-5): what a CullDistance edit is measured by.
+        uint32_t IsmInstancesDrawn = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -306,6 +309,7 @@ namespace Desert::Editor::Control
             views["pendingBytes"] = Num( static_cast<double>( snapshot.PendingViewBytes ) );
             views["budgetBytes"]  = Num( static_cast<double>( snapshot.BudgetBytes ) );
             views["usageBytes"]   = Num( static_cast<double>( snapshot.UsageBytes ) );
+            views["ismInstancesDrawn"] = Num( snapshot.IsmInstancesDrawn );
             root["views"]         = Common::Json::Value( views );
         }
 
@@ -330,6 +334,9 @@ namespace Desert::Editor::Control
             // What is outstanding, in the same words a settle timeout uses. One vocabulary, so a client
             // that read "asset documents are waiting to be opened" here recognises it in a refusal.
             quiescence["outstanding"] = Str( snapshot.Quiescence.Describe() );
+            // Background runs a command started and did not wait for; poll until "idle" before using their result.
+            quiescence["background"]  = Str( snapshot.Quiescence.DescribeBackground() );
+            quiescence["idle"]        = Common::Json::Value( snapshot.Quiescence.Idle() );
             root["quiescence"]        = Common::Json::Value( quiescence );
         }
 

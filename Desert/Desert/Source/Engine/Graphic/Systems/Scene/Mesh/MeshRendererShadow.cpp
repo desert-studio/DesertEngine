@@ -444,7 +444,7 @@ namespace Desert::Graphic::System
                                              singles.push_back( bucket[i] );
                                      continue;
                                  }
-                                 batches.push_back( ShadowBatch{ mesh, count, first, level } );
+                                 batches.push_back( ShadowBatch{ mesh, count, first, level, InstanceWindPush{} } );
                              }
                          }
                          else
@@ -476,20 +476,13 @@ namespace Desert::Graphic::System
                                   Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
                              const uint32_t maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
 
+                             // The cull distance from the MAIN camera, as the geometry pass measures it:
+                             // an instance faded out of the view casts no shadow either.
                              auto& visible = m_ScratchIsmVisible;
                              auto& levels  = m_ScratchLodLevels;
-                             visible.clear();
-                             levels.clear();
-                             for ( const auto& instanceTransform : *ism.Transforms )
-                             {
-                                 if ( !IsVisibleInView( cascadeFrustum, instanceTransform, localBounds ) )
-                                     continue;
-                                 visible.push_back( instanceTransform );
-                                 levels.push_back(
-                                      std::min( Geometry::SelectLODFromBounds( instanceTransform, localBounds,
-                                                                               lodViewPosition, -1, 0 ),
-                                                maxLevel ) );
-                             }
+                             CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance,
+                                                  ism.Wind, lodViewPosition, lodViewPosition, maxLevel, visible,
+                                                  levels );
                              if ( visible.empty() )
                                  continue;
 
@@ -501,7 +494,7 @@ namespace Desert::Graphic::System
                                          instTransforms.push_back( visible[i] );
                                  batches.push_back( ShadowBatch{
                                       ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first,
-                                      level } );
+                                      level, PackInstanceWind( ism.Wind ) } );
                              }
                          }
                      }
@@ -582,9 +575,14 @@ namespace Desert::Graphic::System
                              sb->SetRawData( instTransforms.data(), static_cast<uint32_t>( instTransforms.size() *
                                                                                            sizeof( glm::mat4 ) ) );
                          for ( const auto& b : batches )
+                         {
+                             // The same wind the surface pass pushed for these instances, so the shadow
+                             // sways with the plant (Common/FoliageWind.glslh is the one formula).
+                             instMat->SetInstancedWind( b.Wind );
                              renderer.RenderMesh( m_ShadowInstancedPipeline.get(), b.Mesh, glm::mat4( 1.0f ),
                                                   instMat->GetMaterialExecutor(), b.Count, b.First,
                                                   /*hiddenSubmeshMask*/ 0, b.LodLevel );
+                         }
                      }
 
                      // Casters that are not meshes (the tessellated terrain), recorded into THIS pass so the
