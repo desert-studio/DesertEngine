@@ -165,7 +165,7 @@ namespace Desert::Editor::Render
                            UI::Rect{ 0.0f, 0.0f, w, h } );
             // World streaming waiting for the cell under the camera (WP12): the overlay a game shows, drawn into
             // the same list as the level's canvases, so a viewport capture sees what a player would.
-            if ( const auto* wait = scene->GetRegistry().try_ctx<Core::WorldStreamingWait>();
+            if ( const auto* wait = scene->GetRegistry().try_ctx<::Desert::Core::WorldStreamingWait>();
                  wait != nullptr && wait->Assessment.Blocks() )
                 UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
             m_Render2D.Flush();

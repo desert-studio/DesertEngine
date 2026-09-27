@@ -251,10 +251,14 @@ namespace Desert::Core
         const bool wasWaiting = m_FramesWaiting > 0;
         m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
         if ( m_FramesWaiting == 1 )
+        {
             LOG_INFO( "[WorldPartition] '{0}': the cell under the camera ({1}) is not resident; play waits for it",
                       m_SceneName, Rules::DescribeResidencyUnit( Executor().Plan(), m_LastTick.Streaming.UnderSource ) );
+        }
         else if ( wasWaiting && m_FramesWaiting == 0 )
+        {
             LOG_INFO( "[WorldPartition] '{0}': the cell under the camera is resident; play resumes", m_SceneName );
+        }
         m_Scene->GetRegistry().set<WorldStreamingWait>( WorldStreamingWait{ m_LastTick.Streaming, m_FramesWaiting } );
         // A reference across a cell boundary is legal and its reader handles the absence — but it is SAID.
         if ( done.DeferredReferences > 0 || done.UnboundReferences > 0 )
