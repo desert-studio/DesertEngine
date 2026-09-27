@@ -125,7 +125,17 @@ namespace Desert::World::Landscape
     LandscapeTileData::LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples )
          : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
     {
+        RescanSampleRange();
         MarkDirty( Bounds(), kAllConsumers );
+    }
+
+    void LandscapeTileData::RescanSampleRange()
+    {
+        if ( m_Samples.empty() )
+            return;
+        const auto [lowest, highest] = std::minmax_element( m_Samples.begin(), m_Samples.end() );
+        m_LowestSample               = *lowest;
+        m_HighestSample              = *highest;
     }
 
     Common::ResultStr<LandscapeTileData> LandscapeTileData::Create( uint32_t samplesX, uint32_t samplesZ )
@@ -163,7 +173,17 @@ namespace Desert::World::Landscape
         uint16_t& slot = m_Samples[static_cast<size_t>( z ) * m_SamplesX + x];
         if ( slot == value )
             return;
-        slot = value;
+        // Overwriting the lowest or highest sample may narrow the range, which only a scan can tell; any other
+        // write can only widen it.
+        const bool heldABound = slot == m_LowestSample || slot == m_HighestSample;
+        slot                  = value;
+        if ( heldABound )
+            RescanSampleRange();
+        else
+        {
+            m_LowestSample  = std::min( m_LowestSample, value );
+            m_HighestSample = std::max( m_HighestSample, value );
+        }
         MarkDirty( { x, z, x + 1u, z + 1u }, kHeightConsumers );
     }
 
@@ -189,19 +209,35 @@ namespace Desert::World::Landscape
         if ( values.size() != rect.Area() )
             return Common::MakeFormattedError<bool>( "Landscape region {} x {} needs {} values, got {}",
                                                      rect.Width(), rect.Depth(), rect.Area(), values.size() );
-        bool changed = false;
+        bool     changed    = false;
+        bool     lostABound = false; // a changed sample held the lowest or highest value (SetSample)
+        uint16_t lowest     = m_LowestSample;
+        uint16_t highest    = m_HighestSample;
         for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
         {
             uint16_t*       row = m_Samples.data() + static_cast<size_t>( z ) * m_SamplesX + rect.X0;
             const uint16_t* src = values.data() + static_cast<size_t>( z - rect.Z0 ) * rect.Width();
             for ( uint32_t i = 0; i < rect.Width(); ++i )
             {
-                changed = changed || row[i] != src[i];
-                row[i]  = src[i];
+                if ( row[i] == src[i] )
+                    continue;
+                changed    = true;
+                lostABound = lostABound || row[i] == m_LowestSample || row[i] == m_HighestSample;
+                lowest     = std::min( lowest, src[i] );
+                highest    = std::max( highest, src[i] );
+                row[i]     = src[i];
             }
         }
-        if ( changed )
-            MarkDirty( rect, kHeightConsumers );
+        if ( !changed )
+            return Common::MakeSuccess( true );
+        if ( lostABound )
+            RescanSampleRange();
+        else
+        {
+            m_LowestSample  = lowest;
+            m_HighestSample = highest;
+        }
+        MarkDirty( rect, kHeightConsumers );
         return Common::MakeSuccess( true );
     }
 

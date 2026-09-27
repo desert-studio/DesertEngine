@@ -67,7 +67,8 @@ namespace Desert::Editor::Tools
                 return false;
             if ( !IsWithinSlopeAngle( hit.Normal.y, type.GroundSlopeAngle.Min, type.GroundSlopeAngle.Max ) )
                 return false;
-            return !( layered && hit.LayerWeight && IsFilteredByWeight( *hit.LayerWeight, type.MinimumLayerWeight, rng ) );
+            return !( layered && hit.LayerWeight &&
+                      IsFilteredByWeight( *hit.LayerWeight, type.MinimumLayerWeight, rng ) );
         }
 
         int BucketOf( float weight )

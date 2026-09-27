@@ -316,11 +316,12 @@ namespace
                             const float wx = frame.OriginX + kSpacing * static_cast<float>( x );
                             const float wz = frame.OriginZ + kSpacing * static_cast<float>( z );
                             const float h  = 900.0f * std::sin( wx * 0.0011f ) * std::cos( wz * 0.0007f );
-                            samples[z * ( kQuads + 1u ) + x] = static_cast<uint16_t>(
-                                 static_cast<float>( Landscape::kLandscapeMidSample ) + h * 128.0f / frame.ZScale );
+                            samples[z * ( kQuads + 1u ) + x] =
+                                 static_cast<uint16_t>( static_cast<float>( Landscape::kLandscapeMidSample ) +
+                                                        h * 128.0f / frame.ZScale );
                         }
-                    auto tile =
-                         Landscape::LandscapeTileData::FromSamples( kQuads + 1u, kQuads + 1u, std::move( samples ) );
+                    auto tile = Landscape::LandscapeTileData::FromSamples( kQuads + 1u, kQuads + 1u,
+                                                                           std::move( samples ) );
                     EXPECT_TRUE( tile.IsSuccess() );
                     Tiles.push_back( std::move( tile.GetValue() ) );
                     RayTiles.push_back( { nullptr, frame } );
@@ -344,7 +345,8 @@ namespace
                 return FoliageTraceHit{ hit->Point, hit->Normal, FoliageSurface::Landscape,
                                         hit->Point.x < 0.0f ? 1.0f : 0.3f };
             };
-            world.LayerWeightAt = []( const glm::vec3& p ) { return std::optional<float>( p.x < 0.0f ? 1.0f : 0.3f ); };
+            world.LayerWeightAt = []( const glm::vec3& p )
+            { return std::optional<float>( p.x < 0.0f ? 1.0f : 0.3f ); };
             return world;
         }
     };
@@ -384,8 +386,9 @@ TEST( FoliageBrush, ALandscapeStrokeFromOneSeedPlacesTheRecordedInstancesByteFor
         field.insert( field.end(), added.begin(), added.end() );
     }
     const double ms = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - at ).count();
-    std::printf( "[ landscape stroke ] 5 dabs: %d candidates, %d placed in %.1f ms (trace %.1f ms), hash %016llx\n",
-                 stats.Candidates, stats.Placed, ms, stats.TraceMs, static_cast<unsigned long long>( Fnv1a( field ) ) );
+    std::printf(
+         "[ landscape stroke ] 5 dabs: %d candidates, %d placed in %.1f ms (trace %.1f ms), hash %016llx\n",
+         stats.Candidates, stats.Placed, ms, stats.TraceMs, static_cast<unsigned long long>( Fnv1a( field ) ) );
 
     EXPECT_GT( stats.Placed, 100 );
     EXPECT_EQ( stats.Placed, static_cast<int>( field.size() ) );

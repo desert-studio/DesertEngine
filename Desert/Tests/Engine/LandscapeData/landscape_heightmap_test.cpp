@@ -548,3 +548,42 @@ TEST( LandscapeHeightmap, OnTheLandscapesOwnEdgeTheGradientIsOneSided )
         EXPECT_TRUE( SameBits( cpuN.value(), gpuN ) ) << g; // NOLINT(bugprone-unchecked-optional-access)
     }
 }
+
+// FO-3b: the tile keeps its lowest and highest sample for the ray's vertical slab. Every write path must keep them
+// equal to a scan of the samples - narrowing (a bound overwritten from inside) as well as widening - or a ray
+// misses ground that is really there.
+TEST( LandscapeHeightmap, TheKeptSampleRangeIsAScanOfTheSamplesAfterEveryWrite )
+{
+    auto made = LandscapeTileData::Create( 9u, 9u );
+    ASSERT_TRUE( made.IsSuccess() );
+    LandscapeTileData tile    = std::move( made.GetValue() );
+    const auto        scanned = [&]
+    {
+        const auto [lo, hi] = std::minmax_element( tile.Samples().begin(), tile.Samples().end() );
+        return std::pair<uint16_t, uint16_t>( *lo, *hi );
+    };
+    const auto expectKept = [&]( const char* step )
+    { EXPECT_EQ( std::pair( tile.LowestSample(), tile.HighestSample() ), scanned() ) << step; };
+    expectKept( "created flat" );
+
+    tile.SetSample( 4u, 4u, 50000u );
+    expectKept( "one peak widens the top" );
+    tile.SetSample( 1u, 7u, 1000u );
+    expectKept( "one pit widens the bottom" );
+    tile.SetSample( 4u, 4u, kLandscapeMidSample );
+    expectKept( "the peak flattened narrows the top" );
+    tile.SetSample( 1u, 7u, 40000u );
+    expectKept( "the pit raised above the rest narrows the bottom and widens the top" );
+
+    const LandscapeRect         rect{ 0u, 0u, 3u, 3u };
+    const std::vector<uint16_t> raised( rect.Area(), 60000u );
+    ASSERT_TRUE( tile.WriteRegion( rect, raised ).IsSuccess() );
+    expectKept( "a region raised widens the top" );
+    const std::vector<uint16_t> flat( rect.Area(), kLandscapeMidSample );
+    ASSERT_TRUE( tile.WriteRegion( rect, flat ).IsSuccess() );
+    expectKept( "the region flattened narrows the top back" );
+    std::vector<uint16_t> mixed( rect.Area(), kLandscapeMidSample );
+    mixed[4] = 7u;
+    ASSERT_TRUE( tile.WriteRegion( rect, mixed ).IsSuccess() );
+    expectKept( "one low sample inside a region widens the bottom" );
+}
