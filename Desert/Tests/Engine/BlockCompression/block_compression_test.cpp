@@ -972,6 +972,78 @@ TEST( BlockCompression, TheCeilingCensusCountsExactlyWhatTheBC6HEncoderDrops )
     EXPECT_EQ( after.NonFiniteChannels, 0u );
 }
 
+// ── THE PARALLEL ENCODE IS THE SERIAL ENCODE, BLOCK FOR BLOCK ────────────────────────────────────
+//
+// `BlockCompressImage` encodes rows of blocks on the JobSystem. The environment cache relies on the
+// bytes not depending on that: a cube re-baked on a machine with a different core count must write
+// the identical file. The reference here is independent of the row split: each block is encoded
+// ALONE, as a 4x4 image built from the texels the whole-image encoder reads for it (edge texels
+// clamped to the image, as the encoder does), so a range that skips a row, overlaps a neighbour or
+// lands at the wrong offset shows up as the first block that differs, with its coordinates.
+TEST( BlockCompression, EveryBlockOfAParallelEncodeIsTheBlockEncodedAlone )
+{
+    // 256 wide and 130 tall: 33 rows of blocks, the last one partial, so the split into ranges has a
+    // remainder and the clamped edge is inside the parallel loop.
+    constexpr uint32_t kWidth  = 256;
+    constexpr uint32_t kHeight = 130;
+
+    std::vector<float> texels( static_cast<size_t>( kWidth ) * kHeight * 4u );
+    for ( uint32_t y = 0; y < kHeight; ++y )
+    {
+        for ( uint32_t x = 0; x < kWidth; ++x )
+        {
+            float* t = texels.data() + ( static_cast<size_t>( y ) * kWidth + x ) * 4u;
+            // Smooth HDR content with one bright block, so blocks differ from each other and row to row.
+            t[0] = 0.5f + 0.45f * std::sin( 0.07f * static_cast<float>( x ) );
+            t[1] = 2.0f + 1.5f * std::cos( 0.11f * static_cast<float>( y ) );
+            t[2] = ( x / 4 == 20 && y / 4 == 17 ) ? 900.0f : 0.02f * static_cast<float>( ( x + 3 * y ) % 50 );
+            t[3] = 1.0f;
+        }
+    }
+
+    const auto*  bytes     = reinterpret_cast<const unsigned char*>( texels.data() );
+    const size_t byteCount = texels.size() * sizeof( float );
+    auto         whole     = Fmt::BlockCompressImage( kWidth, kHeight, Fmt::ImageFormat::RGBA32F,
+                                                      Fmt::ImageFormat::BC6H_UFLOAT, bytes, byteCount );
+    ASSERT_TRUE( whole.IsSuccess() ) << whole.GetError();
+    auto again = Fmt::BlockCompressImage( kWidth, kHeight, Fmt::ImageFormat::RGBA32F,
+                                          Fmt::ImageFormat::BC6H_UFLOAT, bytes, byteCount );
+    ASSERT_TRUE( again.IsSuccess() ) << again.GetError();
+    EXPECT_EQ( whole.GetValue(), again.GetValue() )
+         << "two encodes of one image differ: the row split reaches the bytes";
+
+    const uint32_t blocksX = ( kWidth + 3 ) / 4;
+    const uint32_t blocksY = ( kHeight + 3 ) / 4;
+    ASSERT_EQ( whole.GetValue().size(), static_cast<size_t>( blocksX ) * blocksY * 16u );
+
+    for ( uint32_t by = 0; by < blocksY; ++by )
+    {
+        for ( uint32_t bx = 0; bx < blocksX; ++bx )
+        {
+            std::vector<float> block( 16u * 4u );
+            for ( uint32_t y = 0; y < 4; ++y )
+            {
+                for ( uint32_t x = 0; x < 4; ++x )
+                {
+                    const uint32_t sx = std::min( bx * 4 + x, kWidth - 1 );
+                    const uint32_t sy = std::min( by * 4 + y, kHeight - 1 );
+                    std::memcpy( block.data() + ( y * 4 + x ) * 4u,
+                                 texels.data() + ( static_cast<size_t>( sy ) * kWidth + sx ) * 4u,
+                                 4u * sizeof( float ) );
+                }
+            }
+            auto alone = Fmt::BlockCompressImage( 4, 4, Fmt::ImageFormat::RGBA32F, Fmt::ImageFormat::BC6H_UFLOAT,
+                                                  reinterpret_cast<const unsigned char*>( block.data() ),
+                                                  block.size() * sizeof( float ) );
+            ASSERT_TRUE( alone.IsSuccess() ) << alone.GetError();
+            const unsigned char* got =
+                 whole.GetValue().data() + ( static_cast<size_t>( by ) * blocksX + bx ) * 16u;
+            ASSERT_EQ( 0, std::memcmp( got, alone.GetValue().data(), 16u ) )
+                 << "block (" << bx << ", " << by << ") of the whole-image encode is not that block encoded alone";
+        }
+    }
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

@@ -510,18 +510,22 @@ namespace Desert::Assets::Serialization
         }
 
         std::vector<TextureLevel> levels( static_cast<size_t>( levelCount ) * layerCount );
-        chainOut.clear();
 
         // SMALLEST LEVEL FIRST, LAYERS TOGETHER INSIDE IT — the file's physical order, and the same
         // order `EncodeTextureBinary` writes the payload in. The two are separate loops over the same
         // rule, so the suite asserts the RELATION between them rather than trusting either.
+        //
+        // THE LAYOUT IS DECIDED FIRST AND THE BYTES ARE PLACED ONCE. Growing `chainOut` level by level
+        // re-copied the whole chain on every reallocation: a 1024 radiance cube is 170 MiB of RGBA32F, and
+        // placing it that way was 1.9 s of the cache write's 4 (AL1-3b, timed). The padding between rows
+        // is the zero the old `push_back( 0 )` wrote, so the bytes are the same bytes.
+        uint64_t end = 0;
         for ( uint32_t i = 0; i < levelCount; ++i )
         {
             const uint32_t level = levelCount - 1 - i;
             for ( uint32_t layer = 0; layer < layerCount; ++layer )
             {
-                while ( ( chainOut.size() % kTextureLevelAlignment ) != 0 )
-                    chainOut.push_back( 0 );
+                end = ( end + kTextureLevelAlignment - 1 ) / kTextureLevelAlignment * kTextureLevelAlignment;
 
                 const size_t   row = TextureLevelIndex( level, layer, layerCount );
                 const uint64_t one =
@@ -529,14 +533,17 @@ namespace Desert::Assets::Serialization
 
                 levels[row].Width      = extents[level].first;
                 levels[row].Height     = extents[level].second;
-                levels[row].ByteOffset = chainOut.size();
+                levels[row].ByteOffset = end;
                 levels[row].ByteSize   = one;
                 levels[row].RowPitch   = Core::Formats::CalculateRowPitch( extents[level].first, format );
-
-                const unsigned char* src = images.data() + sourceOffset[row];
-                chainOut.insert( chainOut.end(), src, src + one );
+                end += one;
             }
         }
+
+        chainOut.assign( static_cast<size_t>( end ), 0 );
+        for ( size_t row = 0; row < levels.size(); ++row )
+            std::memcpy( chainOut.data() + levels[row].ByteOffset, images.data() + sourceOffset[row],
+                         static_cast<size_t>( levels[row].ByteSize ) );
 
         return Common::MakeSuccess( std::move( levels ) );
     }
