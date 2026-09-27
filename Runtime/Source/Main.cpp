@@ -30,10 +30,12 @@
 
 #include <Common/Utilities/VFS.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Version.hpp>
 
 #include <filesystem>
+#include <optional>
 
 #include "PackagedContent.hpp"
 #include "RuntimeLayer.hpp"
@@ -87,12 +89,15 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     namespace fs = std::filesystem;
 
     std::string projectArg;
+    std::string crashTestArg;
     for ( int i = 1; i + 1 < argc; ++i )
     {
         if ( std::strcmp( argv[i], "--project" ) == 0 )
             projectArg = argv[++i];
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
             Desert::Player::s_SceneOverride = argv[++i];
+        else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
+            crashTestArg = argv[++i];
     }
 
     // THE ONLY WAY TO PHOTOGRAPH THE PROCESS A PLAYER STARTS. Parsed from a vector rather than from
@@ -180,6 +185,34 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                   "  Dev:      pass --project <path/to/.deproj> [--scene <path/to/.desce>].",
                                   exePath.stem().string(), Desert::Project::kPackagedDescriptorName ),
                      1 );
+    }
+
+    // THE CRASH HANDLER, INSTALLED AS SOON AS THERE IS A PLACE TO PUT A REPORT: the game's own per-user
+    // directory, GameUserDirectory(<.deproj Name>)/Crashes (PKG1), beside machine.json and the pipeline
+    // cache. Not <install>/Saved/Crashes: a player's install folder is read-only (Program Files, a signed
+    // .app). The Name is known only once the descriptor is open, so this follows the archive mount; a
+    // damaged archive is a refusal with a message above, not a crash.
+    {
+        Common::Crash::InstallOptions crashOptions;
+        crashOptions.hostName = "Runtime";
+        crashOptions.gameUserDirectory =
+             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name );
+        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+             !installed.IsSuccess() )
+        {
+            FailStartup( "Crash handler: " + installed.GetError(), 1 );
+        }
+    }
+
+    if ( !crashTestArg.empty() )
+    {
+        const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( crashTestArg );
+        if ( !kind.has_value() )
+        {
+            FailStartup(
+                 "--crash-test '" + crashTestArg + "' is not a crash kind; it knows: segv, abort, purecall", 2 );
+        }
+        Common::Crash::TriggerTestCrash( *kind );
     }
 
     // Through the logger, so a support ticket's engine_log.txt says which BUILD and which content set

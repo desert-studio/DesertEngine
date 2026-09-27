@@ -212,6 +212,31 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         }
     }
 
+    // THE CRASH HANDLER, INSTALLED THE MOMENT THE REPORT CAN BE FILED SOMEWHERE USEFUL — after the
+    // project is open (so reports land in <project>/Saved/Crashes and travel with the project) and
+    // before a single engine subsystem exists. Earlier than this and every editor report would go to
+    // %LOCALAPPDATA% with no project named in it; later and the whole of startup — the riskiest code
+    // in the process, because it touches the driver first — would fault with nothing written.
+    {
+        Common::Crash::InstallOptions crashOptions;
+        crashOptions.hostName    = "Editor";
+        crashOptions.projectRoot = Desert::Project::ProjectContext::Directory();
+        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+             !installed.IsSuccess() )
+        {
+            // Refused rather than carried on: a run whose crashes leave nothing behind is exactly
+            // the run this task exists to end, and saying so at startup costs one line.
+            Desert::Editor::RefuseToStart( 1, "Crash handler: " + installed.GetError() );
+        }
+    }
+
+    // `--crash-test` is acted on HERE, one statement after the handler is installed, so that what it
+    // proves is the handler and not some later subsystem's idea of a fault.
+    if ( options.CrashTest.has_value() )
+    {
+        Common::Crash::TriggerTestCrash( *options.CrashTest );
+    }
+
     // Where this engine is, written down for the launcher — which after L3 has no DESERT_ROOT of
     // its own and no other way to find an engine. Skipped for the same runs the recent list skips:
     // an unattended run inside a worktree would otherwise register that worktree as an installed
