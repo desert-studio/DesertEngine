@@ -95,7 +95,7 @@ bool MeshBoundaryLoops::Compute()
 
             int       E0       = -1;
             int       E1       = 1;
-            int BdryNbrs = m_Mesh->GetVtxBoundaryEdges( CureB, E0, E1 );
+            int       BdryNbrs = m_Mesh->GetVtxBoundaryEdges( CureB, E0, E1 );
             // UE counts the filtered edges only for a two-edge vertex: a bowtie's list is filtered below.
             if ( EdgeFilterFunc && BdryNbrs <= 2 )
             {

@@ -46,9 +46,9 @@ namespace Desert::Geometry
     // on the plane welded (UE's bWeldAlongPlane, MirrorNormals, no bowtie creation): a vertex within the tolerance
     // is moved onto the plane and shared, so a closed half-model closes. The reflection's polygroups are new ones,
     // its UVs, colours and material copied, its normals mirrored. Mesh-wide: the result selects nothing, in
-    // @p selectionMode. Refused: a zero normal; a negative tolerance; nothing left to mirror (CutAndMirror: the plane
-    // leaves nothing on the kept side); a mirrored triangle that cannot join the mesh (an edge in the plane with a
-    // triangle on each side already), named with the triangle.
+    // @p selectionMode. Refused: a zero normal; a negative tolerance; nothing left to mirror (CutAndMirror: the
+    // plane leaves nothing on the kept side); a mirrored triangle that cannot join the mesh (an edge in the plane
+    // with a triangle on each side already), named with the triangle.
     [[nodiscard]] Common::ResultStr<RegionOutcome> MirrorMesh( const DynamicMesh3& before, const MeshPlane& plane,
                                                                MirrorMode mode, float weldTolerance,
                                                                ElementMode selectionMode );

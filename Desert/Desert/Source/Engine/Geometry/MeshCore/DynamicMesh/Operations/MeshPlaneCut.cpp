@@ -73,8 +73,8 @@ void MeshPlaneCut::SplitCrossingEdges( bool bDeleteTrisOnPlane, std::vector<doub
             continue; // no crossing
 
         DynamicMeshInfo::EdgeSplitInfo SplitInfo;
-        const double     Param       = DistA / ( DistA - DistB );
-        const MeshResult SplitResult = m_Mesh->SplitEdge( EID, SplitInfo, Param );
+        const double                   Param       = DistA / ( DistA - DistB );
+        const MeshResult               SplitResult = m_Mesh->SplitEdge( EID, SplitInfo, Param );
         // A split of a valid edge between two off-plane vertices of opposite signs cannot fail; UE ensure()s and
         // skips the edge, and so does this port (its loops then report the gap).
         if ( SplitResult != MeshResult::Ok )
