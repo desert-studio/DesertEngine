@@ -234,6 +234,9 @@ int main( int argc, char** argv )
     const bool gameChild = argc == 4 && std::string( argv[1] ) == "--crash-child-game";
     if ( argc == 4 && ( std::string( argv[1] ) == "--crash-child" || gameChild ) )
     {
+        // LogInit opens engine_log.txt in the WORKING directory, which is the checkout the suite runs
+        // from; a test writes nothing into the tree (TST1), so the child works inside its scratch root.
+        std::filesystem::current_path( argv[3] );
         Common::Logger::LogInit();
 
         Common::Crash::InstallOptions options;
