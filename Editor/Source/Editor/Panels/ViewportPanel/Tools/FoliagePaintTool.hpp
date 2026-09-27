@@ -105,7 +105,8 @@ namespace Desert::Editor::Tools
         // UE "Select All": every instance of every checked type.
         static Common::BoolResultStr SelectAllInstances( ::Desert::Core::Scene& scene );
         // The context menu's "Select all instances" of one field.
-        static Common::BoolResultStr SelectTypeInstances( ::Desert::Core::Scene& scene, const Common::UUID& field );
+        static Common::BoolResultStr SelectTypeInstances( ::Desert::Core::Scene& scene,
+                                                          const Common::UUID&    field );
         // The field and its instances leave the palette and the scene.
         static Common::BoolResultStr RemoveType( ::Desert::Core::Scene& scene, const Common::UUID& field );
         // UE "Replace": the field paints @p typePath from now on, its instances kept; when another field already

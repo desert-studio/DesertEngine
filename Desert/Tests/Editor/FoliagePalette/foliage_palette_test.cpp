@@ -138,8 +138,7 @@ TEST_F( FoliagePaletteFiles, SaveAsAssetWritesACopyUnderANewIdentity )
     data.Density        = 321.0f;
     const auto original = m_Root / "Fern.defoliage";
     ASSERT_TRUE( Desert::Assets::Serialization::SaveFoliageTypeFile( original, data ) );
-    const auto parsed = Desert::Assets::Serialization::ParseFoliageType(
-         TextOf( original ) );
+    const auto parsed = Desert::Assets::Serialization::ParseFoliageType( TextOf( original ) );
     ASSERT_TRUE( parsed );
 
     const auto copy = SaveFoliageTypeCopy( original, parsed.GetValue() );
@@ -149,8 +148,7 @@ TEST_F( FoliagePaletteFiles, SaveAsAssetWritesACopyUnderANewIdentity )
     ASSERT_TRUE( second );
     EXPECT_EQ( second.GetValue().filename(), "Fern_Copy_1.defoliage" );
 
-    const auto read = Desert::Assets::Serialization::ParseFoliageType(
-         TextOf( copy.GetValue() ) );
+    const auto read = Desert::Assets::Serialization::ParseFoliageType( TextOf( copy.GetValue() ) );
     ASSERT_TRUE( read );
     EXPECT_NE( read.GetValue().Header->Guid, parsed.GetValue().Header->Guid ) << "a copy stating the original's "
                                                                                  "GUID is one asset on two paths";
@@ -184,16 +182,15 @@ TEST_F( FoliagePaletteFiles, APresetIsACollectionWhoseRecordsResolveBackToItsTyp
     EXPECT_EQ( saved.GetValue(), collections / "Forest" / "collection.json" );
 
     // Applying = the collection dropped on the palette: each record resolves to its own file, no mesh lookup.
-    auto manifest = Desert::Editor::ReadCollectionManifest(
-         TextOf( saved.GetValue() ) );
+    auto manifest = Desert::Editor::ReadCollectionManifest( TextOf( saved.GetValue() ) );
     ASSERT_TRUE( manifest );
     auto       m        = manifest.GetValue();
     const auto resolved = Desert::Editor::ResolveCollectionFoliageTypes(
          m, types, assets,
          []( const Desert::Editor::CollectionManifestItem& item )
          {
-             return Common::MakeFormattedError<Desert::Assets::AssetGuidRef>(
-                  "no mesh lookup expected for '{}'", item.Name );
+             return Common::MakeFormattedError<Desert::Assets::AssetGuidRef>( "no mesh lookup expected for '{}'",
+                                                                              item.Name );
          } );
     ASSERT_TRUE( resolved ) << resolved.GetError();
     ASSERT_EQ( resolved.GetValue().Types.size(), 2u );

@@ -333,7 +333,8 @@ namespace Desert::Editor::Tools
                     sum.Expected += one.Expected;
                 }
                 ImGui::Text( "~%.0f new per dab", sum.Expected );
-                Row::Tooltip( ( "The checked types want " + std::to_string( static_cast<long>( sum.Desired + 0.5f ) ) +
+                Row::Tooltip( ( "The checked types want " +
+                                std::to_string( static_cast<long>( sum.Desired + 0.5f ) ) +
                                 " under the brush and " + std::to_string( sum.Existing ) + " are there" )
                                    .c_str() );
             }

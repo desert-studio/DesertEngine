@@ -5504,23 +5504,24 @@ namespace Desert::Editor
                               } } );
         // FOLIAGE PANEL (FO-UI1): every control of the panel (Editor/Panels/Foliage/FoliagePanel.cpp) without a
         // mouse; the FoliagePalette suite's census holds the two in step.
-        commands.push_back( { "Foliage", "Select all instances of the checked types", [this]() -> Common::BoolResultStr
+        commands.push_back( { "Foliage", "Select all instances of the checked types",
+                              [this]() -> Common::BoolResultStr
                               {
                                   if ( !m_MainScene )
                                       return PaletteCommandOutcome( false, "no scene" );
                                   return Tools::FoliagePaintTool::SelectAllInstances( *m_MainScene );
                               } } );
-        commands.push_back( { "Foliage", "Add the selected entity to the palette", [this]() -> Common::BoolResultStr
-                              {
-                                  if ( !m_MainScene || !m_AssetManager )
-                                      return PaletteCommandOutcome( false, "no scene or no asset manager" );
-                                  const auto& selected = Core::SelectionManager::GetSelected();
-                                  if ( !selected )
-                                      return PaletteCommandOutcome( false, "no entity is selected" );
-                                  Core::ViewportMode::Set( Core::EditorMode::Foliage );
-                                  return Tools::FoliagePaintTool::AddFromEntity( *m_MainScene, *m_AssetManager,
-                                                                                 *selected );
-                              } } );
+        commands.push_back(
+             { "Foliage", "Add the selected entity to the palette", [this]() -> Common::BoolResultStr
+               {
+                   if ( !m_MainScene || !m_AssetManager )
+                       return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                   const auto& selected = Core::SelectionManager::GetSelected();
+                   if ( !selected )
+                       return PaletteCommandOutcome( false, "no entity is selected" );
+                   Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                   return Tools::FoliagePaintTool::AddFromEntity( *m_MainScene, *m_AssetManager, *selected );
+               } } );
         commands.push_back( { "Foliage", "Palette: grid view", []() -> Common::BoolResultStr
                               {
                                   Core::FoliagePaint::GridView() = true;
@@ -5570,7 +5571,8 @@ namespace Desert::Editor
                           entity.GetComponent<ECS::LandscapeTileComponent>().Heights->WeightLayers() )
                         layerNames.insert( layer.Name );
             for ( const auto& name : layerNames )
-                commands.push_back( { "Foliage", "Brush layer filter: toggle " + name, [name]() -> Common::BoolResultStr
+                commands.push_back( { "Foliage", "Brush layer filter: toggle " + name,
+                                      [name]() -> Common::BoolResultStr
                                       {
                                           auto&      layers = Core::FoliagePaint::BrushLayers();
                                           const auto it     = std::ranges::find( layers, name );
@@ -5600,20 +5602,15 @@ namespace Desert::Editor
                    Core::FoliagePaint::ToggleActive( uuid );
                    return BOOLSUCCESS;
                } },
-             { "Edited type: toggle visibility",
-               [this]( const Common::UUID& uuid )
+             { "Edited type: toggle visibility", [this]( const Common::UUID& uuid )
                { return Tools::FoliagePaintTool::ToggleTypeVisible( *m_MainScene, uuid ); } },
-             { "Edited type: select all instances",
-               [this]( const Common::UUID& uuid )
+             { "Edited type: select all instances", [this]( const Common::UUID& uuid )
                { return Tools::FoliagePaintTool::SelectTypeInstances( *m_MainScene, uuid ); } },
-             { "Edited type: save as asset",
-               [this]( const Common::UUID& uuid )
+             { "Edited type: save as asset", [this]( const Common::UUID& uuid )
                { return Tools::FoliagePaintTool::SaveTypeCopy( *m_MainScene, *m_AssetManager, uuid ); } },
-             { "Edited type: show in Content Browser",
-               [this]( const Common::UUID& uuid )
+             { "Edited type: show in Content Browser", [this]( const Common::UUID& uuid )
                { return Tools::FoliagePaintTool::ShowTypeInBrowser( *m_MainScene, uuid ); } },
-             { "Edited type: remove from the palette",
-               [this]( const Common::UUID& uuid )
+             { "Edited type: remove from the palette", [this]( const Common::UUID& uuid )
                { return Tools::FoliagePaintTool::RemoveType( *m_MainScene, uuid ); } },
              { "Edited type: cast shadows on/off",
                [this]( const Common::UUID& uuid ) -> Common::BoolResultStr
@@ -5631,7 +5628,8 @@ namespace Desert::Editor
                                   {
                                       const auto editing = Core::FoliagePaint::EditingType();
                                       if ( !m_MainScene || !m_AssetManager || !editing )
-                                          return PaletteCommandOutcome( false, "no scene or no edited foliage type" );
+                                          return PaletteCommandOutcome( false,
+                                                                        "no scene or no edited foliage type" );
                                       return action( *editing );
                                   } } );
         // NOLINTEND(bugprone-exception-escape)
