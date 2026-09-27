@@ -15,14 +15,16 @@ namespace Desert::Editor
         // A material that was pending when the sweep reached it: its bytes arrived on a later frame, and
         // it goes to the service exactly as a resident one would have. A refusal is the same one warning a
         // resident material's would have been — once per material, because only one read is ever issued.
-        void HandOverArrivedMaterial( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
+        void HandOverArrivedMaterial( const std::string&                                   assetPath,
+                                      const Common::ResultStr<ThumbnailSubject::Material>& resolved )
         {
             if ( !resolved )
             {
                 LOG_WARN( "[Thumbnails] sweep skipped '{}': {}", assetPath, resolved.GetError() );
                 return;
             }
-            ThumbnailService::Get().RequestMaterial( resolved.GetValue().Handle, assetPath, resolved.GetValue().How );
+            ThumbnailService::Get().RequestMaterial( resolved.GetValue().Handle, assetPath,
+                                                     resolved.GetValue().How );
         }
     } // namespace
 
@@ -84,8 +86,8 @@ namespace Desert::Editor
                          {
                              if ( !manager )
                                  return;
-                             const auto subject = ThumbnailSubject::ResolveMaterial(
-                                  *manager, candidate.AssetPath, &HandOverArrivedMaterial );
+                             const auto subject = ThumbnailSubject::ResolveMaterial( *manager, candidate.AssetPath,
+                                                                                     &HandOverArrivedMaterial );
                              if ( !subject )
                              {
                                  // A background pass must not shout. This is the ONLY line a failed
@@ -101,9 +103,8 @@ namespace Desert::Editor
                              // over when they land, so nothing reads in this frame and nothing re-scans.
                              if ( !subject.GetValue() )
                                  return;
-                             ThumbnailService::Get().RequestMaterial( subject.GetValue()->Handle,
-                                                                      candidate.AssetPath,
-                                                                      subject.GetValue()->How );
+                             ThumbnailService::Get().RequestMaterial(
+                                  subject.GetValue()->Handle, candidate.AssetPath, subject.GetValue()->How );
                              return;
                          }
 

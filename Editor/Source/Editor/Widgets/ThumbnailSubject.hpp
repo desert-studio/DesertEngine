@@ -163,9 +163,8 @@ namespace Desert::Editor::ThumbnailSubject
      * manager will accept" and "this material is ready" have to be distinguishable by the caller, or the
      * browser draws a swatch for ever and the sweep re-queues the same doomed asset every scan.
      */
-    [[nodiscard]] Common::ResultStr<std::optional<Material>> ResolveMaterial( Assets::AssetManager& manager,
-                                                                              const std::string&    assetPath,
-                                                                              OnMaterialArrived     onArrived );
+    [[nodiscard]] Common::ResultStr<std::optional<Material>>
+    ResolveMaterial( Assets::AssetManager& manager, const std::string& assetPath, OnMaterialArrived onArrived );
 
     /**
      * @brief Map a browsed mesh source to its cooked form, build it, and refuse if there is nothing to

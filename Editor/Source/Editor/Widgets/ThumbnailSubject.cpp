@@ -75,8 +75,9 @@ namespace Desert::Editor::ThumbnailSubject
 
         // Everything after the bytes are in memory: route, register, answer. Shared by the resident case
         // (answered in the caller's frame) and the arrival (answered from the loader's Pump).
-        Common::ResultStr<Material> ResolveLoadedMaterial( const Asset<Assets::SurfaceMaterialAsset>& asset,
-                                                           const std::string&                         assetPath )
+        Common::ResultStr<Material>
+        ResolveLoadedMaterial( const Assets::Asset<Assets::SurfaceMaterialAsset>& asset,
+                               const std::string&                                 assetPath )
         {
             auto route = PreviewRouteFor( *asset );
             if ( !route )
@@ -95,9 +96,8 @@ namespace Desert::Editor::ThumbnailSubject
         }
     } // namespace
 
-    Common::ResultStr<std::optional<Material>> ResolveMaterial( Assets::AssetManager& manager,
-                                                                const std::string&    assetPath,
-                                                                OnMaterialArrived     onArrived )
+    Common::ResultStr<std::optional<Material>>
+    ResolveMaterial( Assets::AssetManager& manager, const std::string& assetPath, OnMaterialArrived onArrived )
     {
         using Answer = std::optional<Material>;
         if ( !onArrived )
@@ -151,7 +151,7 @@ namespace Desert::Editor::ThumbnailSubject
 
         Assets::LoadRequest request = Assets::AsyncAssetLoader::Get().Request(
              asset,
-             [assetPath, onArrived]( const Asset<Assets::AssetBase>& loaded, Assets::LoadOutcome outcome,
+             [assetPath, onArrived]( const Assets::Asset<Assets::AssetBase>& loaded, Assets::LoadOutcome outcome,
                                      const std::string& error )
              {
                  // The map's handle is released first: the result has arrived, and the resolution below may
@@ -159,13 +159,13 @@ namespace Desert::Editor::ThumbnailSubject
                  MaterialReadsInFlight().erase( assetPath );
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
-                     onArrived( assetPath, Common::MakeFormattedError<Material>(
-                                                "'{}' could not be read: {}", assetPath, error ) );
+                     onArrived( assetPath, Common::MakeFormattedError<Material>( "'{}' could not be read: {}",
+                                                                                 assetPath, error ) );
                      return;
                  }
-                 onArrived( assetPath, ResolveLoadedMaterial(
-                                            std::static_pointer_cast<Assets::SurfaceMaterialAsset>( loaded ),
-                                            assetPath ) );
+                 onArrived( assetPath,
+                            ResolveLoadedMaterial(
+                                 std::static_pointer_cast<Assets::SurfaceMaterialAsset>( loaded ), assetPath ) );
              },
              [assetPath]() { MaterialReadsInFlight().erase( assetPath ); } );
         if ( !request.IsValid() )
