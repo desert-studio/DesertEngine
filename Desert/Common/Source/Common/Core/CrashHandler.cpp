@@ -1451,14 +1451,17 @@ namespace Common::Crash
 
     std::string DescribeApiVersion( std::uint32_t inPacked )
     {
-        return fmt::format( "{}.{}.{}", ( inPacked >> 22 ) & 0x7Fu, ( inPacked >> 12 ) & 0x3FFu, inPacked & 0xFFFu );
+        return fmt::format( "{}.{}.{}", ( inPacked >> 22 ) & 0x7Fu, ( inPacked >> 12 ) & 0x3FFu,
+                            inPacked & 0xFFFu );
     }
 
     void SetGpu( const GpuIdentity& inGpu )
     {
         Detail::CopyIntoFixed( Detail::g_Gpu, Detail::kPathField, inGpu.name.empty() ? "unknown" : inGpu.name );
-        Detail::CopyIntoFixed( Detail::g_GpuVendor, Detail::kSmallField, fmt::format( "0x{:04X}", inGpu.vendorId ) );
-        Detail::CopyIntoFixed( Detail::g_GpuDevice, Detail::kSmallField, fmt::format( "0x{:04X}", inGpu.deviceId ) );
+        Detail::CopyIntoFixed( Detail::g_GpuVendor, Detail::kSmallField,
+                               fmt::format( "0x{:04X}", inGpu.vendorId ) );
+        Detail::CopyIntoFixed( Detail::g_GpuDevice, Detail::kSmallField,
+                               fmt::format( "0x{:04X}", inGpu.deviceId ) );
         Detail::CopyIntoFixed( Detail::g_GpuDriver, Detail::kSmallField,
                                DescribeDriverVersion( inGpu.vendorId, inGpu.driverVersion ) );
         Detail::CopyIntoFixed( Detail::g_GpuApi, Detail::kSmallField, DescribeApiVersion( inGpu.apiVersion ) );

@@ -363,8 +363,11 @@ int main( int argc, char** argv )
         // Both context setters are exercised, because a value that is never written is a field the
         // report would always show as "none" and nobody would notice.
         Common::Crash::SetScenePath( "Scenes/CrashHandlerSuite.desce" );
-        Common::Crash::SetGpu( { .name = "test harness, no device", .vendorId = 0x10DE, .deviceId = 0x2482,
-                                 .driverVersion = ( 591u << 22 ) | ( 86u << 14 ), .apiVersion = ( 1u << 22 ) | ( 4u << 12 ) | 303u } );
+        Common::Crash::SetGpu( { .name          = "test harness, no device",
+                                 .vendorId      = 0x10DE,
+                                 .deviceId      = 0x2482,
+                                 .driverVersion = ( 591u << 22 ) | ( 86u << 14 ),
+                                 .apiVersion    = ( 1u << 22 ) | ( 4u << 12 ) | 303u } );
         Common::Crash::SetGameName( "CrashHandlerSuiteGame" );
         LOG_INFO( "[CrashHandlerTestChild] about to crash on purpose: {}", argv[2] );
 

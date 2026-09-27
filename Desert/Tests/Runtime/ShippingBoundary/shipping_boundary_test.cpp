@@ -412,9 +412,9 @@ TEST( ShippingBoundary, TheRuntimeCrashTestFlagExistsOnlyInsideTheBoundary )
     size_t            start  = 0;
     while ( start <= text.size() )
     {
-        const size_t      end     = text.find( '\n', start );
-        const std::string line    = text.substr( start, end == std::string::npos ? std::string::npos : end - start );
-        const size_t      first   = line.find_first_not_of( " \t" );
+        const size_t      end   = text.find( '\n', start );
+        const std::string line  = text.substr( start, end == std::string::npos ? std::string::npos : end - start );
+        const size_t      first = line.find_first_not_of( " \t" );
         const std::string trimmed = first == std::string::npos ? std::string() : line.substr( first );
         ++lineNo;
         if ( trimmed.starts_with( "#if" ) )
@@ -432,7 +432,8 @@ TEST( ShippingBoundary, TheRuntimeCrashTestFlagExistsOnlyInsideTheBoundary )
             if ( !gate.empty() )
                 gate.pop_back();
         }
-        else if ( line.find( "--crash-test" ) != std::string::npos || line.find( "crashTest" ) != std::string::npos ||
+        else if ( line.find( "--crash-test" ) != std::string::npos ||
+                  line.find( "crashTest" ) != std::string::npos ||
                   line.find( "TriggerTestCrash" ) != std::string::npos )
         {
             ++sites;
