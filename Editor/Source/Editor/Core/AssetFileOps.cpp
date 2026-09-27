@@ -23,7 +23,8 @@ namespace Desert::Editor::AssetFileOps
             fs::rename( record, target, ec );
             if ( ec )
             {
-                error = "The source moved, but its import record '" + record.string() + "' did not: " + ec.message();
+                error =
+                     "The source moved, but its import record '" + record.string() + "' did not: " + ec.message();
                 return false;
             }
             return true;
@@ -34,7 +35,8 @@ namespace Desert::Editor::AssetFileOps
             std::error_code ec;
             if ( !fs::exists( Common::Content::ImportRecordPathFor( to ), ec ) )
                 return false;
-            error = "An import record '" + Common::Content::ImportRecordPathFor( to ).string() + "' already exists there.";
+            error = "An import record '" + Common::Content::ImportRecordPathFor( to ).string() +
+                    "' already exists there.";
             return true;
         }
     } // namespace

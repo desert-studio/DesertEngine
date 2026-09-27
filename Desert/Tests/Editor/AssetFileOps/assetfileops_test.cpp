@@ -46,7 +46,7 @@ namespace
 {
     std::filesystem::path Sandbox( const char* name )
     {
-        const auto      root = std::filesystem::temp_directory_path() / ( std::string( "desert_fileops_" ) + name );
+        const auto root = std::filesystem::temp_directory_path() / ( std::string( "desert_fileops_" ) + name );
         std::error_code ec;
         std::filesystem::remove_all( root, ec );
         std::filesystem::create_directories( root / "a" );
@@ -66,7 +66,8 @@ TEST( AssetFileOps, TheImportRecordMovesAndRenamesWithItsSource )
     EXPECT_TRUE( std::filesystem::exists( root / "b" / "Rock.fbx.deimport" ) );
     EXPECT_FALSE( std::filesystem::exists( root / "a" / "Rock.fbx.deimport" ) );
 
-    ASSERT_TRUE( AssetFileOps::Rename( ( root / "b" / "Rock.fbx" ).string(), "Boulder.fbx", out, error ) ) << error;
+    ASSERT_TRUE( AssetFileOps::Rename( ( root / "b" / "Rock.fbx" ).string(), "Boulder.fbx", out, error ) )
+         << error;
     EXPECT_TRUE( std::filesystem::exists( root / "b" / "Boulder.fbx.deimport" ) );
     EXPECT_FALSE( std::filesystem::exists( root / "b" / "Rock.fbx.deimport" ) );
 
