@@ -78,9 +78,34 @@ namespace Common::Crash
     // truncated rather than dropped, since a truncated scene path still identifies the crash.
     void SetScenePath( std::string_view inScenePath );
 
-    // The GPU half of the OS/GPU line. The OS half is filled by Install(); the GPU cannot be, because
-    // Common knows nothing of Vulkan — the host passes the adapter string once the device exists.
-    void SetGpuDescription( std::string_view inGpuDescription );
+    // THE GPU THE PROCESS ACTUALLY RENDERS ON, as the graphics API reported it for the device it created —
+    // not the first DXGI adapter, which on a laptop is the integrated one. The OS half of the context is
+    // filled by Install(); the GPU cannot be, because Common knows nothing of Vulkan: the host copies the
+    // numbers out of VkPhysicalDeviceProperties right after the device exists. Until then every gpu* key
+    // reads "unknown", which is therefore what a crash before device creation says. The packed values are
+    // decoded here (DescribeDriverVersion / DescribeApiVersion) so the report carries readable versions.
+    struct GpuIdentity
+    {
+        std::string_view name;              // deviceName
+        std::uint32_t    vendorId      = 0; // PCI vendor id (0x10DE NVIDIA, 0x1002 AMD, 0x8086 Intel)
+        std::uint32_t    deviceId      = 0;
+        std::uint32_t    driverVersion = 0; // packed, vendor-specific (see DescribeDriverVersion)
+        std::uint32_t    apiVersion    = 0; // packed as VK_MAKE_API_VERSION
+    };
+    void SetGpu( const GpuIdentity& inGpu );
+
+    // A driverVersion as the vendor prints it. NVIDIA packs 10/8/8/6 bits ("591.86"; the last two parts
+    // are appended only when non-zero), Intel on Windows 18/14 ("101.5186"); every other vendor, and
+    // Intel elsewhere, uses the API's own major.minor.patch packing.
+    std::string DescribeDriverVersion( std::uint32_t inVendorId, std::uint32_t inPacked );
+
+    // A VK_MAKE_API_VERSION value as "major.minor.patch".
+    std::string DescribeApiVersion( std::uint32_t inPacked );
+
+    // THE GAME THIS PROCESS RUNS, once the host has READ it (the Runtime: the packaged .deproj's Name).
+    // Until then the report says game=unread — which is how a crash while the descriptor is still being
+    // mounted and parsed is told apart from one inside a running game.
+    void SetGameName( std::string_view inGameName );
 
     // A DELIBERATE CRASH, FOR PROVING THE HANDLER RATHER THAN HOPING. Reached from the editor's
     // "Debug > Crash (test)" command and from `--crash-test <kind>` in every host (kinds: kKnownTestKinds).
