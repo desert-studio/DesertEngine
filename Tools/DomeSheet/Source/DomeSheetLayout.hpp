@@ -392,8 +392,8 @@ namespace Desert::DomeSheet
         }
     }
 
-    inline void DrawText( Image& image, const std::string& text, int x0, int y0, int scale, std::uint8_t r,
-                          std::uint8_t g, std::uint8_t b )
+    inline void DrawLabel( Image& image, const std::string& text, int x0, int y0, int scale, std::uint8_t r,
+                           std::uint8_t g, std::uint8_t b )
     {
         const int s   = std::max( scale, 1 );
         int       pen = x0;
@@ -433,6 +433,6 @@ namespace Desert::DomeSheet
         const int pad     = 2 * s;
         const int barHigh = kGlyphHeight * s + 2 * pad;
         DarkenRect( image, x0, y0, width, barHigh, 0.62f );
-        DrawText( image, text, x0 + pad, y0 + pad, s, 255, 255, 255 );
+        DrawLabel( image, text, x0 + pad, y0 + pad, s, 255, 255, 255 );
     }
 } // namespace Desert::DomeSheet

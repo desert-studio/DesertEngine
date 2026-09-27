@@ -288,8 +288,8 @@ TEST( LandscapeScene, ATileOfAnotherSizeThanItsRootIsRefusedByBothNumbers )
     LandscapeRoot root;
     root.QuadsPerTile = 63u;
 
-    const auto small   = Terrain( 32u, 0, 0 );
-    const auto refused = CheckTileMatchesRoot( small, root );
+    const auto smallOne = Terrain( 32u, 0, 0 );
+    const auto refused  = CheckTileMatchesRoot( smallOne, root );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "32 x 32" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "64 x 64" ), std::string::npos ) << refused.GetError();

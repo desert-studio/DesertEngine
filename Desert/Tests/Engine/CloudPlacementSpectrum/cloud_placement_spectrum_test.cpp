@@ -1875,7 +1875,7 @@ TEST( CloudPlacementSpectrum, ALumpsHeightAndItsWidthAreOneQuantity )
     // A 3.6 km band in a 3 km cell — the shipped congestus — against a 0.9 km band in a 1 km cell. Both the
     // cell and the band move, and by different factors.
     const double shipped = ratioFor( 3.0f, 2.20f, 5.80f );
-    const double small   = ratioFor( 1.0f, 2.20f, 3.10f );
+    const double smallOne = ratioFor( 1.0f, 2.20f, 3.10f );
     const double deep    = ratioFor( 3.0f, 2.20f, 9.40f );
 
     // AND ONE ARM WITH A FAT BASE RAMP, WHICH IS HERE BECAUSE A SABOTAGE STAYED GREEN WITHOUT IT.
@@ -1896,7 +1896,7 @@ TEST( CloudPlacementSpectrum, ALumpsHeightAndItsWidthAreOneQuantity )
 
     std::printf( "[CloudPlacementSpectrum] lump height over width: shipped %.4f, third the cell %.4f, "
                  "twice the band %.4f, fat base ramp %.4f\n",
-                 shipped, small, deep, fatRamp );
+                 shipped, smallOne, deep, fatRamp );
 
     EXPECT_NEAR( fatRamp, kCloudLumpVerticalOverHorizontal, 0.01 )
          << "with a Base Ramp Fraction of 0.25 the measured aspect is " << fatRamp << ", not the "
@@ -1905,7 +1905,7 @@ TEST( CloudPlacementSpectrum, ALumpsHeightAndItsWidthAreOneQuantity )
             "were an unreshaped one, which is what happens when the exclusion threshold below stops being "
             "the constant and becomes a stale spelling of an older value";
 
-    EXPECT_NEAR( shipped, small, 0.02 )
+    EXPECT_NEAR( shipped, smallOne, 0.02 )
          << "a third of the cell gave lumps of a different SHAPE, so the two radii are not one quantity — "
             "one of them has picked up the cell and the other has not";
     EXPECT_NEAR( shipped, deep, 0.02 )

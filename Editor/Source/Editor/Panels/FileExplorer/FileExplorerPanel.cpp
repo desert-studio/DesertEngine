@@ -98,7 +98,7 @@ namespace Desert::Editor
         }
 
         // A drag onto a folder: the file keeps its name in the destination DIRECTORY.
-        bool MoveFile( const std::string& filePath, const std::string& movePath )
+        bool MoveFileTo( const std::string& filePath, const std::string& movePath )
         {
             std::string error;
             const bool  moved = MoveOrRename(
@@ -724,7 +724,7 @@ namespace Desert::Editor
         ImGui::ProgressBar( m_CloudBakeProgress.load(), ImVec2( -1.0f, 0.0f ) );
     }
 
-    void FileExplorerPanel::RemoveDirectory( DirectoryInformation* directory, bool removeFromParent )
+    void FileExplorerPanel::RemoveDirectoryNode( DirectoryInformation* directory, bool removeFromParent )
     {
         if ( directory->Parent && removeFromParent )
         {
@@ -732,7 +732,7 @@ namespace Desert::Editor
         }
 
         for ( auto& subdir : directory->Children )
-            RemoveDirectory( subdir, false );
+            RemoveDirectoryNode( subdir, false );
 
         m_Directories.erase( directory->AssetPath );
     }
@@ -1059,7 +1059,7 @@ namespace Desert::Editor
                                                               ImGuiDragDropFlags_AcceptNoDrawDefaultRect ) )
                 {
                     std::string* file = (std::string*)data->Data;
-                    MoveFile( *file, m_MovePath );
+                    MoveFileTo( *file, m_MovePath );
                     m_IsDragging = false;
                 }
                 ImGui::EndDragDropTarget();
@@ -1530,7 +1530,7 @@ namespace Desert::Editor
                 if ( data )
                 {
                     std::string* a = (std::string*)data->Data;
-                    if ( MoveFile( *a, m_MovePath ) )
+                    if ( MoveFileTo( *a, m_MovePath ) )
                     {
                         // LINFO("Moved File: %s to %s", a->c_str(), m_MovePath.c_str());
                     }

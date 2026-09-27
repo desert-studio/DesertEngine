@@ -44,10 +44,9 @@ namespace Desert::Core
         // clock: NTFS stamps from the kernel tick (~15.6 ms), FAT at 2 s, HFS+ at 1 s. Two same-length
         // edits inside one tick leave both unchanged, and the cache would serve the old text - Windows CI
         // caught exactly that (EditingAnIncludedHeaderMovesTheKey, the header rewritten within 1 ms).
-        // The rule is git's "racy index" rule: an entry read while its file was still fresh - written
-        // within kRacyWindow of the moment the read began - is never trusted by stat and is re-read on
-        // the next lookup. Once a re-read lands after the window, the entry settles and stat serves it.
-        constexpr std::chrono::seconds kRacyWindow{ 2 };
+        // The rule is git's "racy index" rule (Common::Utils::IsRacyWriteTime): an entry read while its file
+        // was still fresh is never trusted by stat and is re-read on the next lookup. Once a re-read lands
+        // after the window, the entry settles and stat serves it.
 
         struct CachedShaderFile
         {
@@ -58,7 +57,7 @@ namespace Desert::Core
             bool                            OnDisk      = false;
             std::filesystem::file_time_type WriteTime{};
             uintmax_t                       Size = 0;
-            bool                            Racy = false; // read while its write time was inside kRacyWindow
+            bool                            Racy = false; // read while its write time was inside kRacyWriteWindow
         };
 
         std::mutex                                                               s_FileCacheMutex;
@@ -89,7 +88,7 @@ namespace Desert::Core
             entry->OnDisk    = onDisk;
             entry->WriteTime = writeTime;
             entry->Size      = onDisk ? size : 0;
-            entry->Racy      = onDisk && writeTime + kRacyWindow >= readBegan;
+            entry->Racy      = onDisk && Common::Utils::IsRacyWriteTime( writeTime, readBegan );
             entry->Exists    = Common::Utils::FileSystem::Exists( path );
             if ( entry->Exists )
             {

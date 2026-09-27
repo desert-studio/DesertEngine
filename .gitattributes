@@ -45,6 +45,10 @@
 *.cloudshape.json -text
 *.detex        -text
 *.dvol         -text
+# A partitioned world's cooked cells and index: derived, never committed today, and sized by the registry
+# like every other kind (PakChunks.EveryContentKindIsCheckedOutVerbatim holds ContentKinds to this file).
+*.dwcell       -text
+*.dwindex      -text
 
 # Canonical-text registers compared byte for byte by their tests (LegacyMaterialIds: Windows CI
 # 2026-09-24 read it back CRLF and the "re-writing changes no byte" check failed on every line).
@@ -62,3 +66,9 @@ Editor/Resources/LegacyMaterialIds.json -text
 
 # The cooked registry itself: its own sizes are compared against the files above.
 *.dreg     -text
+
+# EVERYTHING THE PACKAGER PACKS (CIW6). The pak walks the whole resource tree - scripts, glTF, SVG icons, the
+# licence texts beside them - and records a CRC per file, so a line-translated checkout packs different bytes
+# on Windows. The rules above name the content kinds; this one closes the tree they live in, and
+# PakChunks.EveryPackedTextFileIsCheckedOutVerbatim holds every text file the walk finds to one of them.
+Editor/Resources/** -text

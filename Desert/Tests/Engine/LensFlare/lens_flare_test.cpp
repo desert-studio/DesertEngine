@@ -205,9 +205,9 @@ TEST( LensFlareGhosts, ReadTheSunAtTheirOwnCentreAndScaleAwayFromIt )
 
     // Twice the scale reaches half as far into the source for the same screen offset.
     const glm::vec2 offset( 0.05f, 0.0f );
-    const glm::vec2 small = LensFlareGhostSourceUv( centre + offset, centre, 1.0f, sun );
+    const glm::vec2 smallOne = LensFlareGhostSourceUv( centre + offset, centre, 1.0f, sun );
     const glm::vec2 large = LensFlareGhostSourceUv( centre + offset, centre, 2.0f, sun );
-    EXPECT_NEAR( large.x - sun.x, ( small.x - sun.x ) * 0.5f, 1e-6f );
+    EXPECT_NEAR( large.x - sun.x, ( smallOne.x - sun.x ) * 0.5f, 1e-6f );
 }
 
 TEST( LensFlareGhosts, WeightIsZeroOutsideTheSourceFrame )

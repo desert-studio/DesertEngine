@@ -219,14 +219,14 @@ TEST_F( ViewResourcesTest, HeldBytesSumsEveryCopyOverEveryFrameAndDropsWithIt )
     ViewResources         other( "other" );
     const ViewResourceKey uniforms = ViewResourceKey::Allocate();
     const ViewResourceKey storage  = ViewResourceKey::Allocate();
-    CountingFactory       small;
-    small.CopyBytes = 256;
+    CountingFactory       smallOne;
+    smallOne.CopyBytes = 256;
     CountingFactory large;
     large.CopyBytes = 4096;
 
     EXPECT_EQ( view.HeldBytes(), 0u );
-    (void)view.Acquire( uniforms, 0, small );
-    (void)view.Acquire( uniforms, 1, small );
+    (void)view.Acquire( uniforms, 0, smallOne );
+    (void)view.Acquire( uniforms, 1, smallOne );
     (void)view.Acquire( storage, 1, large );
     (void)other.Acquire( uniforms, 0, large );
     EXPECT_EQ( view.HeldBytes(), 256u + 256u + 4096u ) << "a frame in flight or a second resource went uncounted";

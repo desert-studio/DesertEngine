@@ -197,12 +197,12 @@ TEST( DomeSheet, TheBoxFilterConservesTheMeanRatherThanDarkeningIt )
     // A truncating box filter loses half a level on every reduction, and this sheet is read beside
     // frames that were not reduced. A constant image must survive exactly.
     Image flat  = MakeImage( 16, 16, 133 );
-    Image small = BoxDownscale( flat, 4 );
-    ASSERT_EQ( small.Width, 4 );
-    ASSERT_EQ( small.Height, 4 );
-    for ( int y = 0; y < small.Height; ++y )
-        for ( int x = 0; x < small.Width; ++x )
-            EXPECT_EQ( small.At( x, y )[0], 133 );
+    Image smallOne = BoxDownscale( flat, 4 );
+    ASSERT_EQ( smallOne.Width, 4 );
+    ASSERT_EQ( smallOne.Height, 4 );
+    for ( int y = 0; y < smallOne.Height; ++y )
+        for ( int x = 0; x < smallOne.Width; ++x )
+            EXPECT_EQ( smallOne.At( x, y )[0], 133 );
 
     // And a single bright pixel in a 4x4 block must SURVIVE as a raised mean rather than being point
     // sampled away — the thin-cirrus case the sheet would otherwise report as empty sky.

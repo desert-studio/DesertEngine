@@ -566,7 +566,7 @@ TEST( ControlRigStageTest, ARigThatDrivesNothingIsRefusedRatherThanAttachedAsAnI
 TEST( ControlRigStageTest, ARigOverTheWrongSkeletonRefusesAndLeavesThePoseAsTheStageBeforeItProducedIt )
 {
     const Skeleton      big   = MakeArmRig();
-    const Skeleton      small = MakeStubRig();
+    const Skeleton      smallOne = MakeStubRig();
     const AnimationClip clip  = ArmClip();
 
     // Built and validated against the eight-bone rig: a control parented to bone 7, driving bone 0.
@@ -578,12 +578,12 @@ TEST( ControlRigStageTest, ARigOverTheWrongSkeletonRefusesAndLeavesThePoseAsTheS
     const auto drives = stage->SetDrives( big, { ControlBoneDrive{ control, kSpine } } );
     ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
 
-    Animator reference( small );
+    Animator reference( smallOne );
     reference.Play( clip, false );
     reference.SetTick( FrameTime{ FrameNumber{ 0 } } );
     const std::vector<glm::mat4> before = reference.GetPose().Matrices;
 
-    Animator animator( small );
+    Animator animator( smallOne );
     animator.Play( clip, false );
     const auto attached = animator.AttachRig( std::move( stage ) );
     ASSERT_TRUE( attached.IsSuccess() ) << attached.GetError();

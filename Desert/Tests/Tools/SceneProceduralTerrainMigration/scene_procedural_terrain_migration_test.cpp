@@ -259,9 +259,9 @@ TEST( SceneProceduralTerrainMigration, TheGridReproducesTheRenderersFinestSpacin
     EXPECT_EQ( g.TilesPerSide, 5u ); // 5 x 255 = 1275 is within 1/8 of 9 x 127 = 1143, the fewest
     EXPECT_EQ( g.QuadsPerTile, 255u );
     EXPECT_LE( g.SpacingCm, 30000.0f / 1024.0f );
-    const auto small = Migration::ProceduralTerrainGridFor( 5000.0f, 8 );
-    EXPECT_EQ( small.TilesPerSide, 9u ); // 128 quads: 9 x 15 = 135 is the only size within 1/8 of the fewest
-    EXPECT_EQ( small.QuadsPerTile, 15u );
+    const auto smallOne = Migration::ProceduralTerrainGridFor( 5000.0f, 8 );
+    EXPECT_EQ( smallOne.TilesPerSide, 9u ); // 128 quads: 9 x 15 = 135 is the only size within 1/8 of the fewest
+    EXPECT_EQ( smallOne.QuadsPerTile, 15u );
     for ( int resolution = 1; resolution <= 64; ++resolution )
     {
         const auto                              any = Migration::ProceduralTerrainGridFor( 1000.0f, resolution );

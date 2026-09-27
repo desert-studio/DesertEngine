@@ -183,20 +183,21 @@ TEST( LODSelection, CoarsensWithDistance )
 
 TEST( LODSelection, SizeAwareAndBiasShifts )
 {
-    const auto small = BoundedSubmesh( 50.0f );
+    const auto smallOne = BoundedSubmesh( 50.0f );
     const auto big   = BoundedSubmesh( 5000.0f );
     const auto eye   = glm::vec3( 0.0f, 0.0f, 5000.0f );
 
     // A bigger object keeps finer detail at the same distance...
-    EXPECT_LT( SelectLOD( AtOrigin(), big, eye, -1, 0 ), SelectLOD( AtOrigin(), small, eye, -1, 0 ) );
+    EXPECT_LT( SelectLOD( AtOrigin(), big, eye, -1, 0 ), SelectLOD( AtOrigin(), smallOne, eye, -1, 0 ) );
     // ...and so does the same object scaled up by its transform.
-    EXPECT_LT( SelectLOD( AtOrigin( 100.0f ), small, eye, -1, 0 ), SelectLOD( AtOrigin(), small, eye, -1, 0 ) );
+    EXPECT_LT( SelectLOD( AtOrigin( 100.0f ), smallOne, eye, -1, 0 ),
+               SelectLOD( AtOrigin(), smallOne, eye, -1, 0 ) );
 
     // The bias shifts the automatic pick and stays inside [0, kMaxAutoLOD].
-    const uint32_t base = SelectLOD( AtOrigin(), small, eye, -1, 0 );
-    EXPECT_EQ( SelectLOD( AtOrigin(), small, eye, -1, 1 ), std::min( base + 1u, 3u ) );
-    EXPECT_EQ( SelectLOD( AtOrigin(), small, eye, -1, -9 ), 0u );
-    EXPECT_EQ( SelectLOD( AtOrigin(), small, eye, -1, 9 ), 3u );
+    const uint32_t base = SelectLOD( AtOrigin(), smallOne, eye, -1, 0 );
+    EXPECT_EQ( SelectLOD( AtOrigin(), smallOne, eye, -1, 1 ), std::min( base + 1u, 3u ) );
+    EXPECT_EQ( SelectLOD( AtOrigin(), smallOne, eye, -1, -9 ), 0u );
+    EXPECT_EQ( SelectLOD( AtOrigin(), smallOne, eye, -1, 9 ), 3u );
 }
 
 TEST( LODSelection, EmptyMeshIsLODZero )
