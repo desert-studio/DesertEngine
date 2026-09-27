@@ -163,9 +163,10 @@ namespace
          "PopulateLibrary",
     };
 
-    // Every place a skybox handle is bound to something that draws with it.
+    // Every editor place a skybox handle is bound to something that draws with it. The scene parse
+    // (ComponentRegistry.cpp) is held per resolver branch below: its ToGuid legitimately asks a loaded
+    // shell for its GUID before falling back to the registry, so a file-wide shell ban cannot apply there.
     constexpr const char* kSkyboxBindSites[] = {
-         "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp",
          "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp",
          "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
          "Editor/Source/Editor/Panels/SkyboxViewer/SkyboxViewerDocument.cpp",
