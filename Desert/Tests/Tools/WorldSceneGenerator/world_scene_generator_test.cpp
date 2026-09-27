@@ -1100,8 +1100,9 @@ TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlways
     std::map<std::string, Common::Math::AABB>     boxes;
     // The corpus meshes (kCorpusProps); a mesh the world names outside this list is planned as a point and the
     // AlwaysLoaded / level assertions below would not see it - so the list is checked against the file too.
-    for ( const std::string path : { "Cooked/Meshes/SkinProbe.skmesh", "Cooked/Meshes/TwoBoneProbe.skmesh",
-                                     "Cooked/Meshes/IKProbe.skmesh", "Resources/Assets/Meshes/StaticProbe.stmesh" } )
+    for ( const std::string path :
+          { "Cooked/Meshes/SkinProbe.skmesh", "Cooked/Meshes/TwoBoneProbe.skmesh", "Cooked/Meshes/IKProbe.skmesh",
+            "Resources/Assets/Meshes/StaticProbe.stmesh" } )
     {
         const std::string raw = ReadAll( ProjectRoot() + "/" + path );
         if ( const auto cooked = Common::Content::ReadMeshHeaderBounds( raw ); cooked && cooked->Bounds )
@@ -1109,8 +1110,8 @@ TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlways
             boxes[path] = *cooked->Bounds;
             continue;
         }
-        const auto envelope =
-             Common::Content::ReadAssetEnvelope( std::as_bytes( std::span( raw.data(), raw.size() ) ), recordOnly );
+        const auto envelope = Common::Content::ReadAssetEnvelope(
+             std::as_bytes( std::span( raw.data(), raw.size() ) ), recordOnly );
         ASSERT_TRUE( envelope.IsSuccess() ) << path << ": " << envelope.GetError();
         for ( const auto& section : envelope.GetValue().Sections )
             if ( section.Tag == Common::Content::EnvelopeSection::Meta )
