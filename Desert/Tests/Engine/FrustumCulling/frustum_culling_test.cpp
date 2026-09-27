@@ -230,8 +230,12 @@ TEST( FrustumCulling, EveryPassCullsWithTheMatrixItDrawsWith )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string source = ReadFile( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" /
-                                         "Scene" / "Mesh" / "MeshRenderer.cpp" );
+    // MeshRenderer is defined across five files (RDG-S); the passes this pairs live in three of them.
+    std::string source;
+    for ( const char* part : { "MeshRenderer.cpp", "MeshRendererShadow.cpp", "MeshRendererDeferred.cpp",
+                               "MeshRendererForward.cpp", "MeshRendererDebug.cpp" } )
+        source += ReadFile( root / "Desert" / "Desert" / "Source" / "Engine" / "Graphic" / "Systems" / "Scene" /
+                            "Mesh" / part );
     ASSERT_FALSE( source.empty() );
 
     struct Row
