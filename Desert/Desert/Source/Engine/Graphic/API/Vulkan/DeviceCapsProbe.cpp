@@ -167,7 +167,8 @@ namespace Desert::Graphic::API::Vulkan
             VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
             VkPhysicalDeviceProperties2      properties{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
             vkGetPhysicalDeviceProperties2( device.physical_device, &properties );
-            return std::format( "{} {}", driver.driverName, driver.driverInfo );
+            // The fixed-size arrays hold NUL-terminated text; formatted as arrays they print all 256 bytes.
+            return std::format( "{} {}", std::string( driver.driverName ), std::string( driver.driverInfo ) );
         }
 
         ProbedDevice Probe( const vkb::PhysicalDevice& candidate )

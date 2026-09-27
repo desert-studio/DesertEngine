@@ -48,13 +48,16 @@ namespace Desert::Engine
 
         // 3. Create Device
         // A REFUSED DEVICE IS AN ERROR WITH A LIST, NOT A CRASH. DeviceCaps names every required capability
-        // the GPU lacks; the process stops with that message and a failing exit code, before a window full
-        // of undefined behaviour could say something else.
+        // the GPU lacks; construction stops here, EntryPoint sees StartupRefusal() and skips OnCreate/Run,
+        // and the process ends with that message and a failing exit code. Not std::exit: worker threads
+        // already exist (TeardownOrder.StdExitAppearsOnlyBeforeTheApplicationExists).
         auto device = Device::Create();
         if ( !device )
         {
-            LOG_ERROR( "[Device] cannot start: {}", device.GetError() );
-            std::exit( EXIT_FAILURE );
+            m_StartupRefusal = device.GetError();
+            LOG_ERROR( "[Device] cannot start: {}", m_StartupRefusal );
+            Close( EXIT_FAILURE );
+            return;
         }
         m_Device = device.ExtractValue();
 
@@ -94,6 +97,10 @@ namespace Desert::Engine
 
     Application::~Application()
     {
+        // A refused start built no device and no renderer, so there is nothing below to wait on or release.
+        if ( !m_StartupRefusal.empty() )
+            return;
+
         // Nothing below may be recorded into, or referenced by, a command buffer the GPU has not finished
         // with. Run() has already presented its last frame, but presentation only queues the work.
         if ( m_Device )

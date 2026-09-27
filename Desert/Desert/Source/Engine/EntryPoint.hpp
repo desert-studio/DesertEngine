@@ -142,9 +142,12 @@ int main( int argc, char** argv )
     int exitCode = 0;
     {
         auto app = CreateApplication( argc, argv );
-        app->OnCreate();
-        app->Run();
-        app->OnDestroy();
+        if ( app->StartupRefusal().empty() )
+        {
+            app->OnCreate();
+            app->Run();
+            app->OnDestroy();
+        }
 
         // Read before the application is destroyed at the closing brace.
         exitCode = app->ExitCode();
