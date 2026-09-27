@@ -417,7 +417,7 @@ namespace Common::Text
                 return MakeSuccess( std::string( Next().Text ) );
             }
 
-            BoolResultStr ExpectEnd() const
+            [[nodiscard]] BoolResultStr ExpectEnd() const
             {
                 if ( !AtEnd() )
                     return MakeError( ErrorAt( Peek(), "unexpected token" ) );
@@ -1432,9 +1432,9 @@ namespace Common::Text
                         if ( separator.GetValue().Kind() != Json::Kind::String )
                             return MakeError<Value>(
                                  Error( e.Operands[1]->Where, "join's separator must be a string" ) );
-                        const std::string& sep = std::get<std::string>( separator.GetValue().Get().variant() );
-                        std::string        text;
-                        const auto&        array = std::get<Json::Value::Array>( raw.variant() );
+                        const auto& sep = std::get<std::string>( separator.GetValue().Get().variant() );
+                        std::string text;
+                        const auto& array = std::get<Json::Value::Array>( raw.variant() );
                         for ( std::size_t i = 0; i < array.size(); ++i )
                         {
                             if ( i > 0 )
