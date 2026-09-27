@@ -88,8 +88,8 @@ namespace Desert::WorldGen
         // that gets remembered wrongly in the second place it is written.
         constexpr float kCubeEdgeCm = 100.0f;
 
-        // The draw index a corpus cell picks its theme with (see BuildWorld): negative, so no i * 8 + k collides.
-        constexpr int kThemeDraw = -1;
+        // Salts the seed for the corpus theme offset, so it is not the same number as any cell's first draw.
+        constexpr uint64_t kThemeSalt = 0x7E3A'5C1D'0B29'4F86ull;
 
         glm::vec3 BoxScale( int widthCm, int heightCm, int depthCm )
         {
@@ -219,11 +219,18 @@ namespace Desert::WorldGen
 
                 if ( !themes.empty() )
                 {
-                    // The theme is the cell's own draw, at an index no prop draw uses (props take i * 8 + k,
-                    // all non-negative), so adding a prop draw can never re-theme a cell.
-                    const auto& theme = themes[static_cast<size_t>(
-                         Range( CellDraw( spec.Seed, cx - half, cz - half, kThemeDraw ), 0,
-                                static_cast<int>( themes.size() ) - 1 ) )];
+                    // The district's theme: a stripe pattern over the district's SIGNED address (so growing the
+                    // world keeps every place's theme, as for the buildings), shifted by the seed. Not a random
+                    // draw per district: two neighbouring districts drawing the same theme would hold its assets
+                    // across the loading range and the flight would show a plateau where it should show a fall.
+                    const int  district = std::max( spec.DistrictCells, 1 );
+                    const auto floorDiv = [district]( int v )
+                    { return v >= 0 ? v / district : -( ( -v + district - 1 ) / district ); };
+                    const int   themeCount = static_cast<int>( themes.size() );
+                    const int   offset     = Range( Mix( spec.Seed ^ kThemeSalt ), 0, themeCount - 1 );
+                    const int   stripe     = floorDiv( cx - half ) + floorDiv( cz - half ) + offset;
+                    const auto& theme =
+                         themes[static_cast<size_t>( ( stripe % themeCount + themeCount ) % themeCount )];
                     for ( int i = 0; i < spec.PerCell; ++i )
                     {
                         const int      sx = i % slots;

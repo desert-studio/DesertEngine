@@ -58,6 +58,11 @@ namespace Desert::WorldGen
         int PerCell = 48;
 
         uint64_t Seed = 1;
+
+        // Corpus worlds only: cells per side of a DISTRICT, the square that shares one PropTheme. It has to be
+        // wider than the loading range, or every theme is resident everywhere and nothing a flight passes is
+        // ever released - which is what a per-cell theme measured (0 of 105 assets released on the first run).
+        int DistrictCells = 1;
     };
 
     // One mesh a generated world may name, spelled the way a scene spells it: the path relative to the PROJECT
@@ -84,9 +89,9 @@ namespace Desert::WorldGen
         int ScalePercent = 100;
     };
 
-    // A DISTRICT: the props one cell of a corpus world is furnished from. A cell draws ONE theme (from its own
-    // address, like everything else here), so neighbouring cells hold DIFFERENT asset sets - which is what makes
-    // resident asset memory rise and fall along a flight instead of saturating after the first cell.
+    // A THEME: the props one district of a corpus world is furnished from. Districts cycle through the themes
+    // along both axes (from an offset the seed picks), so any straight flight crosses every theme in turn and
+    // leaves each behind - which is what makes resident asset memory rise AND fall instead of saturating.
     struct PropTheme
     {
         std::string          Name;

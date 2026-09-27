@@ -44,6 +44,7 @@
 #include <fstream>
 #include <cctype>
 #include <cstring>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -1015,4 +1016,63 @@ TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothin
                std::string::npos )
          << refused.str();
     EXPECT_FALSE( std::filesystem::exists( out ) );
+}
+
+// 8d. NEIGHBOURING DISTRICTS HOLD DIFFERENT ASSETS. The shipped `corpus` world, along the row the flight takes:
+// the materials of two neighbouring districts share nothing, and the row crosses every theme. This is the property
+// the flight's fall rests on - the first version drew a theme per CELL, every theme sat inside every loading
+// range, and the flight released 0 of 105 assets.
+TEST( WorldSceneGenerator, NeighbouringCorpusDistrictsHoldDisjointMaterialsAndARowCrossesEveryTheme )
+{
+    std::string bytes;
+    ASSERT_EQ( Generate( Scratch() / "corpus_districts.desce",
+                         { "--preset", "corpus", "--project", ProjectRoot() }, bytes ),
+               0 )
+         << bytes;
+    const auto parsed = Common::Json::Parse( bytes );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto entities = Common::Json::Root( parsed.GetValue() ).Get( "Entities" );
+    ASSERT_TRUE( entities.IsSuccess() ) << entities.GetError();
+
+    // District column (4 cells) of each prop on the row C??_08, and the materials it names.
+    std::map<int, std::set<std::string>> byDistrict;
+    entities.GetValue().ForEachElement(
+         [&]( std::size_t, const Common::Json::Node& record )
+         {
+             const auto tagNode = record.Get( "Tag" );
+             if ( !tagNode.IsSuccess() )
+                 return;
+             const auto        tagText = tagNode.GetValue().AsString();
+             const std::string tag     = tagText.IsSuccess() ? tagText.GetValue() : std::string();
+             if ( tag.size() < 10 || tag[0] != 'C' || tag.substr( 3, 5 ) != "_08_P" )
+                 return;
+             const int  column = std::stoi( tag.substr( 1, 2 ) ) / 4;
+             const auto skin   = record.Find( "SkinnedMesh" );
+             const auto still  = record.Find( "StaticMesh" );
+             ASSERT_TRUE( skin || still ) << tag;
+             const auto paths = ( skin ? *skin : *still ).Get( "MaterialPaths" );
+             ASSERT_TRUE( paths.IsSuccess() ) << tag;
+             paths.GetValue().ForEachElement(
+                  [&]( std::size_t, const Common::Json::Node& path )
+                  {
+                      const auto value = path.AsString();
+                      ASSERT_TRUE( value.IsSuccess() ) << tag;
+                      byDistrict[column].insert( value.GetValue() );
+                  } );
+         } );
+    ASSERT_EQ( byDistrict.size(), 4u ) << "16 cells in districts of 4";
+
+    std::set<std::string> all;
+    for ( const auto& [district, materials] : byDistrict )
+    {
+        all.insert( materials.begin(), materials.end() );
+        const auto next = byDistrict.find( district + 1 );
+        if ( next == byDistrict.end() )
+            continue;
+        for ( const auto& material : materials )
+            EXPECT_EQ( next->second.count( material ), 0u )
+                 << material << " is in districts " << district << " and " << district + 1
+                 << ": its assets would stay resident across the border";
+    }
+    EXPECT_GE( all.size(), 5u ) << "the row does not cross every theme";
 }
