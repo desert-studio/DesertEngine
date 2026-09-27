@@ -126,8 +126,20 @@ namespace Desert::Editor::Tools
         // listed type; applying it is AddCollection.
         static Common::BoolResultStr SavePreset( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
                                                  const std::string& name );
-        // The palette's rows: every entity with a FoliageComponent beside an ISM, in scene order.
+        // The palette's rows: one per foliage type, the first entity (scene order) with a FoliageComponent of that
+        // type beside an ISM. A partitioned world keeps a field per type per cell (FO-6); the row stands for all.
         static std::vector<ECS::Entity> PaletteFields( ::Desert::Core::Scene& scene );
+
+        // FO-6: the instances of every field of @p row's type, or, with @p around, only of the fields whose cell a
+        // disc of @p radius (cm) around it reaches.
+        static std::vector<glm::mat4> RowInstances( ::Desert::Core::Scene& scene, const Common::UUID& row,
+                                                    const std::optional<glm::vec3>& around = std::nullopt,
+                                                    float                           radius = 0.0f );
+
+        // FO-6: every foliage instance filed under the field of the World Partition cell it stands in (UE: one
+        // partitioned InstancedFoliageActor per grid cell), ONE undo step. For a world just partitioned or whose
+        // grid changed; the brush and the instance edits file as they go. Not partitioned: one field per type.
+        static Common::BoolResultStr RepartitionFoliage( ::Desert::Core::Scene& scene );
 
         // The footprint preview on the viewport overlay: the brush ring at Core::FoliagePaint::HoverPoint and
         // how many instances one dab would add (Foliage::PreviewFoliageFootprint over the checked types). Drawn
