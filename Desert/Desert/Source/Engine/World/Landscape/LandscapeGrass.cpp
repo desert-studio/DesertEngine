@@ -48,9 +48,10 @@ namespace Desert::World::Landscape
                     scale = glm::vec3( Interpolate( v.ScaleX, random.Fraction() ) );
                     break;
                 case GrassScaling::Free:
+                    // UE's axes, Z up: ScaleY is this engine's Z, ScaleZ (the height) this engine's Y.
                     scale.x = Interpolate( v.ScaleX, random.Fraction() );
-                    scale.y = Interpolate( v.ScaleY, random.Fraction() );
-                    scale.z = Interpolate( v.ScaleZ, random.Fraction() );
+                    scale.z = Interpolate( v.ScaleY, random.Fraction() );
+                    scale.y = Interpolate( v.ScaleZ, random.Fraction() );
                     break;
                 case GrassScaling::LockXY:
                     scale.x = Interpolate( v.ScaleX, random.Fraction() );
