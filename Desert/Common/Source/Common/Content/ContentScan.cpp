@@ -13,8 +13,10 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <fstream>
+#include <optional>
 #include <span>
 #include <string>
 #include <cstdio>
@@ -226,6 +228,22 @@ namespace Common::Content
         }
     } // namespace
 
+    // A prefab's `Bounds` member (Engine PrefabData::Bounds / PrefabBoundsSer): two arrays of three,
+    // centimetres around the prefab's root. Only that member is read. Named, not anonymous: reflect-cpp
+    // counts the fields of a nested aggregate through a conversion that needs the type to have linkage.
+    namespace StatedMembers
+    {
+        struct StatedBox
+        {
+            std::array<float, 3> Min{};
+            std::array<float, 3> Max{};
+        };
+        struct StatedPrefabBounds
+        {
+            std::optional<StatedBox> Bounds;
+        };
+    } // namespace StatedMembers
+
     namespace
     {
         // The string a JSON document states under its top-level `member`, or empty. The document is parsed as a
@@ -245,6 +263,23 @@ namespace Common::Content
                 return 0;
             const auto document = rfl::json::read<StatedRig>( text.GetValue() );
             return document ? document.value().Signature : 0;
+        }
+
+        ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return MakeFormattedError<MeshHeaderBounds>( "the prefab could not be read: {}", text.GetError() );
+            const auto document = rfl::json::read<StatedMembers::StatedPrefabBounds>( text.GetValue() );
+            if ( !document )
+                return MakeFormattedError<MeshHeaderBounds>( "its Bounds member is unreadable: {}",
+                                                             document.error().what() );
+            MeshHeaderBounds stated{ true, std::nullopt };
+            if ( const auto& box = document.value().Bounds )
+                stated.Bounds = Math::AABB{ { box->Min[0], box->Min[1], box->Min[2] },
+                                            { box->Max[0], box->Max[1], box->Max[2] } };
+            return MakeSuccess( stated );
         }
 
         std::string StatedDisplayName( const std::filesystem::path& file, std::string_view member )
@@ -268,17 +303,17 @@ namespace Common::Content
     {
         ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
         if ( kind == ContentKind::StaticMesh )
-            described.MeshBounds = ReadMeshAssetMetaBounds( file );
+            described.HeaderBounds = ReadMeshAssetMetaBounds( file );
         else if ( kind == ContentKind::SkinnedMesh )
         {
             // The mesh's box, from its 64-byte header and not its body — the reason the box is in the header.
             const auto head = Utils::FileSystem::ReadFileContentPrefix( file, sizeof( MeshBinaryFileHeader ) );
             if ( head )
             {
-                described.MeshBounds = ReadMeshHeaderBounds( head.GetValue() );
+                described.HeaderBounds = ReadMeshHeaderBounds( head.GetValue() );
                 // The same header states the skeleton: a mesh the picker for skinned meshes must list, and the
                 // static one must not — known before the body is read, as the box is.
-                if ( described.MeshBounds )
+                if ( described.HeaderBounds )
                 {
                     MeshBinaryFileHeader header{};
                     std::memcpy( &header, head.GetValue().data(), sizeof( header ) );
@@ -299,6 +334,16 @@ namespace Common::Content
             described.HeaderError = stated.GetError();
         else
             described.Header = stated.GetValue();
+        // A PREFAB'S BOX IS STATED BESIDE ITS HEADER, and read with it: a member that is there and unreadable
+        // keeps the file out exactly as an unreadable header does.
+        if ( kind == ContentKind::Prefab && described.HeaderError.empty() )
+        {
+            auto box = ReadStatedPrefabBounds( file );
+            if ( !box )
+                described.HeaderError = box.GetError();
+            else
+                described.HeaderBounds = box.GetValue();
+        }
         // A REDIRECTOR'S OLD KEY IS IN ITS META SECTION, which the header read does not reach. The file is a
         // header and one small section, so reading it whole here costs what the header read did.
         if ( described.Header && described.Header->Kind == ContentKind::Redirector )
@@ -361,7 +406,9 @@ namespace Common::Content
         //    for as long as their files' size and stamp hold, so a version-2 cache is rebuilt once.
         // 4: rows carry the tags column (display name, skinned). A version-3 cache would hand back rows with
         //    both empty for as long as their files' size and stamp hold, so it is refused and rebuilt once.
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 5";
+        // 6: prefab rows carry the box their file states (AL1-8a). A version-5 cache holds every prefab row
+        //    without one for as long as its file's size and stamp hold, so it is refused and rebuilt once.
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 6";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()
@@ -423,8 +470,8 @@ namespace Common::Content
             std::sort( entry.Versions.begin(), entry.Versions.end(),
                        []( const SubsystemVersion& a, const SubsystemVersion& b ) { return a.Tag < b.Tag; } );
         }
-        if ( file.MeshBounds && file.MeshBounds->Stated )
-            entry.Bounds = file.MeshBounds->Bounds;
+        if ( file.HeaderBounds && file.HeaderBounds->Stated )
+            entry.Bounds = file.HeaderBounds->Bounds;
         entry.DisplayName = file.DisplayName;
         entry.Skinned     = file.Skinned;
         entry.RigSignature = file.RigSignature;
@@ -489,7 +536,7 @@ namespace Common::Content
                  }
                  ++gathered.Read;
                  if ( ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh ) &&
-                      !( described.MeshBounds && described.MeshBounds->Stated ) )
+                      !( described.HeaderBounds && described.HeaderBounds->Stated ) )
                      gathered.MeshesWithoutHeaderBounds.push_back( key );
              } );
         return gathered;

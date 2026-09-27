@@ -51,9 +51,11 @@ namespace Common::Content
         // For a redirector only: the stable key it was written for (AssetRedirector::OldKey), which
         // RegistryRowFor holds equal to the key it was found at. Empty for every other file.
         std::string RedirectedFrom;
-        // A cooked mesh's box as its 64-byte header states it (MeshBinaryHeader.hpp); std::nullopt for every
-        // other kind and for a mesh file whose header this host cannot read (the loader names that one).
-        std::optional<MeshHeaderBounds> MeshBounds;
+        // The box the file states about itself, read without the body: a cooked mesh's from its header
+        // (MeshBinaryHeader.hpp), a prefab's from its `Bounds` member beside its header (AL1-8a; always
+        // Stated, nullopt Bounds = no extent). std::nullopt for every other kind and for a mesh file whose
+        // header this host cannot read (the loader names that one).
+        std::optional<MeshHeaderBounds> HeaderBounds;
         // The registry's tags (AssetRegistryEntry::DisplayName / Skinned): the name the document states under
         // its kind's DisplayNameMember, and a cooked mesh header's skinned flag. A document that cannot be
         // parsed states no name here; the loader names that fault when the asset is used (UE lists such a

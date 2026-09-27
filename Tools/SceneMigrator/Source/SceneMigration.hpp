@@ -81,6 +81,7 @@ namespace Desert::Migration
     struct PrefabData
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::optional<Assets::PrefabBoundsSer>                    Bounds;
         std::string                                               Name;
         std::vector<Assets::EntityData>                           Entities;
         Common::UUID                                              Root;
@@ -95,7 +96,7 @@ namespace Desert::Migration
     // pre-v26 integers, which a migrated prefab no longer states.
     [[nodiscard]] inline Assets::PrefabData ToEnginePrefab( const PrefabData& prefab )
     {
-        return Assets::PrefabData{ prefab.Header, prefab.Name, prefab.Entities, prefab.Root };
+        return Assets::PrefabData{ prefab.Header, prefab.Bounds, prefab.Name, prefab.Entities, prefab.Root };
     }
 
     // Schema generation of a .desce file, and what each step of it means:
