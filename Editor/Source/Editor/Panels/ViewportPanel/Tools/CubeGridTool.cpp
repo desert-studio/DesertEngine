@@ -87,9 +87,91 @@ namespace Desert::Editor::Tools
     {
         if ( !m_HasSel )
             return;
+        const auto material = OpMaterialId();
+        if ( !material )
+            return;
         const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
-        m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps ); // one block = K base cells tall; x Blocks Per Step
+        // One block = K base cells tall; x Blocks Per Step.
+        m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps, *material );
         RegenMesh( scene );
+    }
+
+    void CubeGridTool::SlideSelection( int dir, int K )
+    {
+        // Corner Mode's posts are heights above THIS plane; sliding it would silently re-base them.
+        if ( !m_HasSel || m_CornerMode )
+            return;
+        const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
+        Geometry::VoxelBlockout::SlideSelection( m_Plane, dir * K * steps );
+    }
+
+    void CubeGridTool::PaintSelection( ::Desert::Core::Scene& scene )
+    {
+        if ( !m_HasSel )
+            return;
+        const auto material = OpMaterialId();
+        if ( !material )
+            return;
+        if ( m_Volume.PaintFaces( m_Plane, m_Sel, *material ) == 0 )
+        {
+            LOG_WARN( "[CubeGrid] Shift+B painted nothing: no exposed face lies on the selection's plane "
+                      "facing out of it (plane axis {}, sign {}, cell {})",
+                      m_Plane.Na, m_Plane.Sign, m_Plane.Cell );
+            return;
+        }
+        RegenMesh( scene );
+    }
+
+    std::optional<uint8_t> CubeGridTool::OpMaterialId()
+    {
+        // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:1249-1256 (UpdateOpMaterials),
+        // adapted: the set is the tool's own AssetHandle list, and a face stores its ID in a byte.
+        const Common::AssetHandle want = Core::ModelingState::Get().QuickMaterial;
+        const auto                it   = std::find( m_Materials.begin(), m_Materials.end(), want );
+        if ( it != m_Materials.end() )
+            return static_cast<uint8_t>( it - m_Materials.begin() );
+        constexpr size_t kMaxMaterials = 256;
+        if ( m_Materials.size() >= kMaxMaterials )
+        {
+            LOG_ERROR( "[CubeGrid] the blockout already uses {} materials (the most a face ID holds); material "
+                       "{} was not added",
+                       m_Materials.size(), static_cast<uint64_t>( want ) );
+            ToastManager::Push( "CubeGrid: this blockout already uses 256 materials", ToastLevel::Error, 6.0f );
+            return std::nullopt;
+        }
+        m_Materials.push_back( want );
+        return static_cast<uint8_t>( m_Materials.size() - 1 );
+    }
+
+    void CubeGridTool::ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds )
+    {
+        auto ref = scene.FindEntityByID( m_Entity );
+        if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+            return;
+        auto& smc = ref->get().GetComponent<ECS::StaticMeshComponent>();
+        // The render mesh has one submesh per material ID in use, ascending (Bake and ToRenderMesh agree), so
+        // slot i is the material of the i-th ID the bake reports.
+        std::vector<Common::AssetHandle> slots;
+        slots.reserve( submeshMaterialIds.size() );
+        for ( const int id : submeshMaterialIds )
+            slots.push_back( m_Materials.at( static_cast<size_t>( id ) ) );
+        if ( slots == smc.MaterialSlots )
+            return;
+        smc.MaterialSlots = std::move( slots );
+        // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
+        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeSlots.reset();
+        smc.SeenMaterialsVersion = 0;
+    }
+
+    void CubeGridTool::ResetSession()
+    {
+        m_Volume.m_Cells.clear();
+        m_Volume.m_Frozen.clear();
+        m_HasSel = m_Selecting = m_CornerMode = m_DragExtrude = false;
+        m_Volume.m_Unit = m_BakedUnit = -1.0f;
+        m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
+        m_Materials.assign( 1, Common::AssetHandle{} );
     }
 
     void CubeGridTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
@@ -141,7 +223,8 @@ namespace Desert::Editor::Tools
         // re-scales the new volume — the geometry built before never moves or re-subdivides again.
         // (m_HoverValid = last frame's targeting, so a click on empty sky doesn't commit anything.)
         // A palette selection (ReqCubeGridSelectBlocks) is a marquee too, and commits the same way.
-        const bool marqueeStarts = ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ) ||
+        const bool marqueeStarts = ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) &&
+                                     !::ImGui::GetIO().KeyCtrl ) ||
                                    ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
         if ( marqueeStarts && !m_CornerMode && m_HoverValid && !m_Volume.m_Cells.empty() )
             FreezeActive();
@@ -545,12 +628,15 @@ namespace Desert::Editor::Tools
 
         if ( interact && !::ImGui::IsMouseDown( ImGuiMouseButton_Right ) )
         {
-            const bool ctrl = ::ImGui::GetIO().KeyCtrl;
+            const bool ctrl  = ::ImGui::GetIO().KeyCtrl;
+            const bool shift = ::ImGui::GetIO().KeyShift;
 
             if ( ::ImGui::IsKeyPressed( ImGuiKey_E, false ) )
             {
                 if ( ctrl ) // Ctrl+E — coarser grid
                     ms.DoubleBlockSize();
+                else if ( shift ) // Shift+E — slide the selection back (out of the surface), UE SlideBack
+                    SlideSelection( +1, K );
                 else
                     step( +1 );
             }
@@ -558,9 +644,14 @@ namespace Desert::Editor::Tools
             {
                 if ( ctrl ) // Ctrl+Q — finer grid
                     ms.HalveBlockSize();
+                else if ( shift ) // Shift+Q — slide the selection forward (into the surface), UE SlideForward
+                    SlideSelection( -1, K );
                 else
                     step( -1 );
             }
+            // Shift+B — the Quick Material onto the selected faces; geometry stays as it is.
+            if ( shift && ::ImGui::IsKeyPressed( ImGuiKey_B, false ) )
+                PaintSelection( scene );
             // Z starts / completes Corner Mode (UE's binding). It needs a selection on a horizontal
             // work-plane — corners move along the grid's up axis.
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Z, false ) )
@@ -598,6 +689,12 @@ namespace Desert::Editor::Tools
         if ( ms.ReqCubeGridStep != 0 && toolActive )
             step( ms.ReqCubeGridStep > 0 ? +1 : -1 );
         ms.ReqCubeGridStep = 0;
+        if ( ms.ReqCubeGridSlide != 0 && toolActive )
+            SlideSelection( ms.ReqCubeGridSlide > 0 ? +1 : -1, K );
+        ms.ReqCubeGridSlide = 0;
+        if ( ms.ReqCubeGridPaint && toolActive )
+            PaintSelection( scene );
+        ms.ReqCubeGridPaint = false;
         if ( ms.ReqCubeGridSelectBlocks > 0 && toolActive )
         {
             if ( m_CornerMode )
@@ -640,9 +737,62 @@ namespace Desert::Editor::Tools
             ms.ReqCornerPosts = -1;
         }
 
+        // --- Ctrl + LMB drag: push/pull by dragging (UE), in Corner Mode too (then it moves the picked
+        //     posts). The press fixes the measuring line; every frame the cursor's distance along it, in whole
+        //     steps, is compared with what the drag already applied and only the difference is applied, so
+        //     dragging back undoes a pull block by block. ---
+        if ( interact && m_HasSel && ::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+        {
+            const int na = m_Plane.Na;
+            const int ua = ( na + 1 ) % 3;
+            const int va = ( na + 2 ) % 3;
+            m_DragOrigin = glm::vec3( 0.0f );
+            m_DragOrigin[na] = planeWorldOf( na, m_Plane.Sign, m_Plane.Cell );
+            m_DragOrigin[ua] = static_cast<float>( m_Sel.UMin + m_Sel.UMax + 1 ) * 0.5f * u;
+            m_DragOrigin[va] = static_cast<float>( m_Sel.VMin + m_Sel.VMax + 1 ) * 0.5f * u;
+            m_DragAxis       = glm::vec3( 0.0f );
+            m_DragAxis[na]   = static_cast<float>( m_Plane.Sign );
+            m_DragStart      = LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction );
+            m_DragApplied    = 0;
+            m_DragExtrude    = true;
+        }
+        if ( m_DragExtrude )
+        {
+            if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) || !m_HasSel )
+                m_DragExtrude = false;
+            else
+            {
+                const float delta =
+                     LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction ) - m_DragStart;
+                if ( m_CornerMode )
+                {
+                    // Corner posts move in snap steps: one step is cornerStep / CornerDen of a base cell.
+                    const int target = DragExtrudeBlocks(
+                         delta, static_cast<float>( cornerStep ) / static_cast<float>( CornerDen ) * u, 1 );
+                    for ( ; m_DragApplied < target; ++m_DragApplied )
+                        moveCorners( +1 );
+                    for ( ; m_DragApplied > target; --m_DragApplied )
+                        moveCorners( -1 );
+                }
+                else
+                {
+                    const int target = DragExtrudeBlocks( delta, static_cast<float>( K ) * u, ms.BlocksPerStep );
+                    if ( target != m_DragApplied )
+                        if ( const auto material = OpMaterialId() )
+                        {
+                            const int diff = target - m_DragApplied;
+                            m_Volume.PushPull( m_Plane, m_Sel, diff > 0 ? +1 : -1, std::abs( diff ) * K, *material );
+                            m_DragApplied = target;
+                            RegenMesh( scene );
+                        }
+                }
+            }
+        }
+
         // --- Marquee selection (Block-aligned): LMB drag a rectangle; start requires hover, the drag is
         //     latched to the physical button and locked to the plane picked at the press. ---
-        if ( interact && !m_CornerMode && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && tHas )
+        if ( interact && !m_CornerMode && !::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) &&
+             tHas )
         {
             m_Selecting = true;
             m_HasSel    = false;
@@ -753,7 +903,7 @@ namespace Desert::Editor::Tools
                     dl->AddCircleFilled( p, r, IM_COL32( 25, 27, 32, 200 ) );
                 dl->AddCircle( p, r, IM_COL32( 250, 250, 250, 235 ), 0, 2.0f );
             }
-            if ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            if ( interact && !::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
             {
                 const bool shift = ::ImGui::GetIO().KeyShift;
                 if ( !shift )
@@ -944,11 +1094,7 @@ namespace Desert::Editor::Tools
                 ToastManager::Push( "CubeGrid Accept refused: " + accepted.GetError(), ToastLevel::Error, 10.0f );
                 return;
             }
-            m_Volume.m_Cells.clear();
-            m_Volume.m_Frozen.clear();
-            m_HasSel = m_Selecting = m_CornerMode = false;
-            m_Volume.m_Unit = m_BakedUnit = -1.0f;
-            m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
+            ResetSession();
         }
         if ( ms.ReqCancel )
         {
@@ -999,7 +1145,11 @@ namespace Desert::Editor::Tools
         if ( auto set =
                   Geometry::Bridge::SetEditableMeshFromEditMesh( smc, std::move( imported.ExtractValue().Mesh ) );
              !set.IsSuccess() )
+        {
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
+            return;
+        }
+        ApplyMaterialSlots( scene, quads.SubmeshMaterialIds );
     }
 
     void CubeGridTool::Cancel( ::Desert::Core::Scene& scene )
@@ -1010,10 +1160,6 @@ namespace Desert::Editor::Tools
                             if ( auto ref = scene.FindEntityByID( piece ) )
                                 scene.DestroyEntity( ref->get() );
                         } );
-        m_Volume.m_Cells.clear();
-        m_Volume.m_Frozen.clear();
-        m_HasSel = m_Selecting = m_CornerMode = false;
-        m_Volume.m_Unit = m_BakedUnit = -1.0f;
-        m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
+        ResetSession();
     }
 } // namespace Desert::Editor::Tools

@@ -1,5 +1,6 @@
 #include "ModelingPanel.hpp"
 
+#include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
@@ -538,6 +539,32 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "Target other objects in the scene too, so you can start a grid on\n"
                                    "top of an existing mesh (bounding-box level)." );
         }
+        // Quick Materials (UE's Material property on the Cube Grid Tool): what Push/Pull gives the faces it
+        // creates and Shift+B paints onto the selection. Picked from the project's materials.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Material" ) )
+        {
+            std::string current = "Engine default";
+            const auto  rows    = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material );
+            for ( const auto& row : rows )
+                if ( row.Handle == ms.QuickMaterial )
+                    current = ::Desert::Editor::PickerDisplayName( row );
+            ImGui::SetNextItemWidth( 200.0f );
+            if ( ImGui::BeginCombo( "Quick Material", current.c_str() ) )
+            {
+                if ( ImGui::Selectable( "Engine default", ms.QuickMaterial == Common::AssetHandle{} ) )
+                    ms.QuickMaterial = Common::AssetHandle{};
+                for ( const auto& row : rows )
+                {
+                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
+                    if ( ImGui::Selectable( ( name + "##" + row.Key ).c_str(), row.Handle == ms.QuickMaterial ) )
+                        ms.QuickMaterial = row.Handle;
+                }
+                ImGui::EndCombo();
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Push / Pull give every face they create this material;\n"
+                                   "Shift+B paints it onto the selected faces without changing the shape." );
+        }
         // UE titles this section "Output Type"; ours has no type choice yet (Accept makes one kind of
         // mesh), so the section is named for what it does hold.
         if ( Utils::ImGuiUtilities::SectionHeader( "Collision" ) )
@@ -583,7 +610,9 @@ namespace Desert::Editor
                 const char* Keys;
             } shortcuts[] = {
                  { "Select blocks", "LMB drag on the surface" },
-                 { "Push / Pull", "E / Q" },
+                 { "Push / Pull", "E / Q, or Ctrl + LMB drag" },
+                 { "Slide selection", "Shift + E / Q" },
+                 { "Paint Quick Material", "Shift + B" },
                  { "Corner Mode", "Z (then E / Q on posts)" },
                  { "Resize Grid", "Ctrl + E / Q" },
                  { "Shift work-plane", "Ctrl + Mouse Wheel" },

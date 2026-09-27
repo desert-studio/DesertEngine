@@ -1,11 +1,16 @@
 #pragma once
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <glm/glm.hpp>
+
+#include <cstdint>
+#include <optional>
+#include <vector>
 
 namespace Desert::Core
 {
@@ -33,6 +38,16 @@ namespace Desert::Editor::Tools
         // Write the Corner Mode heights into the top layer of cells under the selection.
         void        ApplyCornerHeights( ::Desert::Core::Scene& scene );
         void        SyncCornerHeights(); // read the rectangle's corner heights back out of the cells
+        // Shift+E / Shift+Q: move the selection `dir` x Blocks Per Step blocks along its outward normal.
+        void SlideSelection( int dir, int K );
+        // Shift+B: the Quick Material onto the exposed faces under the selection, in every layer.
+        void PaintSelection( ::Desert::Core::Scene& scene );
+        // The Quick Material's ID in m_Materials, appended on first use (UE UpdateOpMaterials). Empty, with
+        // the reason logged, when the set is full (a face stores its ID in a byte).
+        std::optional<uint8_t> OpMaterialId();
+        // Point the entity's material slots at m_Materials in the order the bake's submeshes use them.
+        void ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
+        void ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
         static bool WorldToScreen( const glm::vec3& world, const glm::mat4& vp, const glm::vec2& pos,
                                    const glm::vec2& size, glm::vec2& out );
 
@@ -57,6 +72,19 @@ namespace Desert::Editor::Tools
         // 1/CornerDen base-cell units as Cell::V; index order is (uMin,vMin) (uMax,vMin) (uMin,vMax)
         // (uMax,vMax).
         bool m_CornerMode = false;
+
+        // The blockout's material set: a face's material ID indexes it. ID 0 is the engine default, so a
+        // blockout nobody picked a material for bakes to one submesh with an empty slot, as before.
+        std::vector<Common::AssetHandle> m_Materials{ Common::AssetHandle{} };
+
+        // Ctrl + LMB drag (UE): the cursor ray is projected onto the line through the selection's centre
+        // along its outward normal (grid space); the distance from the press, in whole Blocks Per Step,
+        // is how far the selection has been pulled out (or pushed in) so far.
+        bool      m_DragExtrude = false;
+        glm::vec3 m_DragOrigin{ 0.0f };
+        glm::vec3 m_DragAxis{ 0.0f, 1.0f, 0.0f };
+        float     m_DragStart   = 0.0f;
+        int       m_DragApplied = 0; // blocks (or corner snap steps) already applied by this drag
         bool m_CornerSel[4]{};
         Geometry::VoxelBlockout::CornerHeights m_CornerH{};
     };

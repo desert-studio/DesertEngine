@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
@@ -188,6 +189,13 @@ namespace Desert::Editor::Core
         bool CubeGridAimCentre       = false;
         int  ReqCubeGridSelectBlocks = 0; // one-shot: select an N x N block square starting at the aim
         int  ReqCubeGridStep         = 0; // one-shot: +1 = E, -1 = Q (Push/Pull, or the corner posts)
+        int  ReqCubeGridSlide        = 0; // one-shot: +1 = Shift+E (slide back / out), -1 = Shift+Q
+        bool ReqCubeGridPaint        = false; // one-shot: Shift+B (the Quick Material onto the selection)
+
+        // Quick Materials (UE CubeGrid's Material property): the material Push/Pull gives every face it
+        // creates and Shift+B paints onto the selected faces. Null = the engine default material. The tool
+        // turns it into a per-face material ID through the blockout's own material set.
+        Common::AssetHandle QuickMaterial; // default-constructed = null
         // One-shot: which of the selection's four corner posts Corner Mode picks, one bit per post in the
         // order of CubeGridTool's kPosts (bit k = post k); -1 = no request.
         int ReqCornerPosts = -1;

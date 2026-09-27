@@ -5147,6 +5147,44 @@ namespace Desert::Editor
                                       MS::Get().ReqCubeGridStep = dir;
                                       return PaletteCommandDone();
                                   } } );
+        for ( const auto& [label, dir] : std::initializer_list<std::pair<const char*, int>>{
+                   { "Slide selection back (Shift+E)", +1 }, { "Slide selection forward (Shift+Q)", -1 } } )
+            commands.push_back( { "CubeGrid", label, [dir, needCubeGrid]
+                                  {
+                                      if ( auto active = needCubeGrid(); !active )
+                                          return active;
+                                      MS::Get().ReqCubeGridSlide = dir;
+                                      return PaletteCommandDone();
+                                  } } );
+        commands.push_back( { "CubeGrid", "Paint the Quick Material onto the selection (Shift+B)", [needCubeGrid]
+                              {
+                                  if ( auto active = needCubeGrid(); !active )
+                                      return active;
+                                  MS::Get().ReqCubeGridPaint = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // Quick Material without the panel's list: the engine default, or the project's materials in the
+        // registry's order, one step per call.
+        commands.push_back( { "CubeGrid", "Quick Material: engine default", []
+                              {
+                                  MS::Get().QuickMaterial = Common::AssetHandle{};
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "CubeGrid", "Quick Material: next project material", []
+                              {
+                                  const auto rows =
+                                       Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material );
+                                  if ( rows.empty() )
+                                      return PaletteCommandOutcome( false, "the project has no material assets" );
+                                  auto&  current = MS::Get().QuickMaterial;
+                                  size_t next    = 0;
+                                  for ( size_t i = 0; i < rows.size(); ++i )
+                                      if ( rows[i].Handle == current )
+                                          next = ( i + 1 ) % rows.size();
+                                  current = rows[next].Handle;
+                                  LOG_INFO( "[CubeGrid] Quick Material: {}", rows[next].Key );
+                                  return PaletteCommandDone();
+                              } } );
         for ( const auto& [label, posts] :
               std::initializer_list<std::pair<const char*, int>>{ { "Corner posts: all", 0b1111 },
                                                                   { "Corner posts: none", 0b0000 },
