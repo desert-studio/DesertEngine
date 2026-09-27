@@ -414,6 +414,14 @@ namespace Desert::Editor::Tools
                                        "%.0f deg" );
                  } );
         }
+        // UE's Details put bIncludeInHLOD under HLOD (FO-6): out of the HLOD, a far cell draws none of the type
+        // and the type's mesh is released once no resident cell holds it.
+        if ( Row::SectionHeader( "HLOD" ) )
+        {
+            Row::BeginPropertyRow( "Include in HLOD", "Draw the instances in their cell's HLOD while it is far" );
+            commit = ImGui::Checkbox( "##IncludeInHLOD", &f.IncludeInHLOD ) || commit;
+            Row::EndPropertyRow();
+        }
         s_Editing = active;
 
         if ( commit && !( f == type->GetData() ) )
