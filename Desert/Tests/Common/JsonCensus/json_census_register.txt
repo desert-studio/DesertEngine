@@ -4,6 +4,7 @@
 Desert/Common/Source/Common/Content/CanonicalText.cpp | KEEP: the canonical-layout printer walks yyjson documents itself; it is the layout, not a protocol
 Desert/Tests/Common/CanonicalText/canonical_text_test.cpp | KEEP: proves the canonical printer against yyjson directly
 Desert/Tests/Engine/SettingConsumers/setting_consumers_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
+Desert/Tests/Engine/WorldCells/world_cells_hlod_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
