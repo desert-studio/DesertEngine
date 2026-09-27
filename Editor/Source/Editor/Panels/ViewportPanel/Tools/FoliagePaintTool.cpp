@@ -68,12 +68,21 @@ namespace Desert::Editor::Tools
             if ( !mesh || mesh->Guid().IsNull() )
                 return Common::MakeFormattedError<Assets::AssetGuidRef>(
                      "mesh '{}' has no header GUID, so no foliage type can name it", meshSourcePath );
-            return Common::MakeSuccess( Assets::AssetGuidRef{
-                 Common::Content::AssetGuidToText( mesh->Guid() ),
-                 mesh->GetMetadata()
-                      .Filepath.lexically_normal()
-                      .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
-                      .generic_string() } );
+            // BOTH SIDES ABSOLUTE: the metadata path can be working-dir-relative while ASSETS_PATH is absolute,
+            // and lexically_relative across the two answers an empty path (FO-1 wrote such a Mesh.Path).
+            std::error_code   ec;
+            const std::string path =
+                 std::filesystem::absolute( mesh->GetMetadata().Filepath, ec )
+                      .lexically_normal()
+                      .lexically_relative( std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec )
+                                                .lexically_normal() )
+                      .generic_string();
+            if ( path.empty() || path.starts_with( ".." ) )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "mesh '{}' cooked to '{}', which is not under the assets root '{}'", meshSourcePath,
+                     mesh->GetMetadata().Filepath.string(), Common::Constants::Path::ASSETS_PATH.string() );
+            return Common::MakeSuccess(
+                 Assets::AssetGuidRef{ Common::Content::AssetGuidToText( mesh->Guid() ), path } );
         }
     } // namespace
 
