@@ -1,5 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/VectorUtil.h:42-56,70-109,148-178,476-489,540-552,
-// 612-636, adapted: only the functions the DynamicMesh3 port and MeshTangents call; namespace
+// 381-397 (BarycentricCoords), 612-636, adapted: only the functions the DynamicMesh3 port, MeshTangents and
+// MeshMeshCut call; namespace
 // Desert::Geometry::VectorUtil.
 #pragma once
 
@@ -76,6 +77,26 @@ namespace Desert::Geometry::VectorUtil
     {
         return EpsilonEqual( V0.x, V1.x, Epsilon ) && EpsilonEqual( V0.y, V1.y, Epsilon ) &&
                EpsilonEqual( V0.z, V1.z, Epsilon );
+    }
+
+    template <typename RealType>
+    inline glm::vec<3, RealType>
+    BarycentricCoords( const glm::vec<3, RealType>& Point, const glm::vec<3, RealType>& V0,
+                       const glm::vec<3, RealType>& V1, const glm::vec<3, RealType>& V2 )
+    {
+        const glm::vec<3, RealType> kV02    = V0 - V2;
+        const glm::vec<3, RealType> kV12    = V1 - V2;
+        const glm::vec<3, RealType> kPV2    = Point - V2;
+        const RealType              fM00    = glm::dot( kV02, kV02 );
+        const RealType              fM01    = glm::dot( kV02, kV12 );
+        const RealType              fM11    = glm::dot( kV12, kV12 );
+        const RealType              fR0     = glm::dot( kV02, kPV2 );
+        const RealType              fR1     = glm::dot( kV12, kPV2 );
+        const RealType              fDet    = fM00 * fM11 - fM01 * fM01;
+        const RealType              fInvDet = RealType( 1 ) / fDet;
+        const RealType              fBary1  = ( fM11 * fR0 - fM01 * fR1 ) * fInvDet;
+        const RealType              fBary2  = ( fM00 * fR1 - fM01 * fR0 ) * fInvDet;
+        return glm::vec<3, RealType>( fBary1, fBary2, RealType( 1 ) - fBary1 - fBary2 );
     }
 
     template <typename RealType>

@@ -1,10 +1,11 @@
 // Ported from UE 5.8
 // Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/Operations/MergeCoincidentMeshEdges.cpp,
-// Public/Spatial/PointHashGrid3.h (FindPointsInBall, InsertPointUnsafe) and Public/Util/IndexPriorityQueue.h
+// Public/Util/IndexPriorityQueue.h
 // (Initialize, Insert, Dequeue); see the header for the adaptations.
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
 
 #include "Engine/Geometry/MeshCore/IndexPriorityQueue.hpp"
+#include "Engine/Geometry/MeshCore/Spatial/PointHashGrid3.hpp"
 
 #include <array>
 #include <cmath>
@@ -14,55 +15,6 @@
 
 namespace Desert::Geometry
 {
-    namespace
-    {
-        // TPointHashGrid3<int32_t, double> with FScaleGridIndexer3 at the origin.
-        class PointHashGrid3
-        {
-        public:
-            explicit PointHashGrid3( double CellSize ) : m_CellSize( CellSize )
-            {
-            }
-            void InsertPointUnsafe( int32_t Value, const glm::dvec3& Pos )
-            {
-                m_Hash[ToGrid( Pos )].push_back( Value );
-            }
-            template <typename DistanceSqFn>
-            void FindPointsInBall( const glm::dvec3& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
-                                   std::vector<int32_t>& ResultsOut ) const
-            {
-                const glm::dvec3 Lo( QueryPoint.x - Radius, QueryPoint.y - Radius, QueryPoint.z - Radius );
-                const glm::dvec3 Hi( QueryPoint.x + Radius, QueryPoint.y + Radius, QueryPoint.z + Radius );
-                const auto       MinIdx        = ToGrid( Lo );
-                const auto       MaxIdx        = ToGrid( Hi );
-                const double     RadiusSquared = Radius * Radius;
-                for ( int64_t zi = MinIdx[2]; zi <= MaxIdx[2]; zi++ )
-                    for ( int64_t yi = MinIdx[1]; yi <= MaxIdx[1]; yi++ )
-                        for ( int64_t xi = MinIdx[0]; xi <= MaxIdx[0]; xi++ )
-                        {
-                            const auto It = m_Hash.find( { xi, yi, zi } );
-                            if ( It == m_Hash.end() )
-                                continue;
-                            for ( int32_t const Value : It->second )
-                                if ( DistanceSqFunc( Value ) < RadiusSquared )
-                                    ResultsOut.push_back( Value );
-                        }
-            }
-
-        private:
-            using Key = std::array<int64_t, 3>;
-            [[nodiscard]] Key ToGrid( const glm::dvec3& P ) const
-            {
-                return { static_cast<int64_t>( std::floor( P.x / m_CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.y / m_CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.z / m_CellSize ) ) };
-            }
-            double                              m_CellSize;
-            std::map<Key, std::vector<int32_t>> m_Hash;
-        };
-
-    } // namespace
-
     const double MergeCoincidentMeshEdges::DEFAULT_TOLERANCE = ZeroTolerance<float>;
 
     bool MergeCoincidentMeshEdges::Apply()
