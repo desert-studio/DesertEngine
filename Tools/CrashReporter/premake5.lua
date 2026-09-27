@@ -84,7 +84,9 @@ project "DesertCrashReporter"
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
-        links { "OpenGL.framework" }
+        -- GLFW's Cocoa backend: windowing (Cocoa), joysticks (IOKit), CF containers and display links.
+        links { "OpenGL.framework", "Cocoa.framework", "IOKit.framework", "CoreFoundation.framework",
+                "CoreVideo.framework", "QuartzCore.framework", "Carbon.framework" }
 
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
