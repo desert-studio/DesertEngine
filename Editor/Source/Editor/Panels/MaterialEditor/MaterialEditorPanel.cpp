@@ -438,7 +438,8 @@ namespace Desert::Editor
             // The boot only SCANS .hdr files; a skybox is baked when something registers it. A material
             // opened with its slot already bound never went through the drop that registers (below), so
             // the lookup came back empty for a file that is on disk. Registering is idempotent.
-            if ( skyboxService != nullptr && !skyboxService->Get( Assets::AssetHandle( bound ) ) && m_AssetManager )
+            if ( skyboxService != nullptr && !skyboxService->Get( Assets::AssetHandle( bound ) ) &&
+                 m_AssetManager )
             {
                 if ( auto sky = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( Assets::AssetHandle( bound ) ) )
                 {

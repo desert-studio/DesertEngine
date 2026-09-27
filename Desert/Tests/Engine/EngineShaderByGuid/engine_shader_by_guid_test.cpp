@@ -47,8 +47,7 @@ namespace
     class WorkingDirectoryGuard
     {
     public:
-        WorkingDirectoryGuard( const std::filesystem::path& next )
-             : m_Previous( std::filesystem::current_path() )
+        WorkingDirectoryGuard( const std::filesystem::path& next ) : m_Previous( std::filesystem::current_path() )
         {
             std::filesystem::current_path( next );
         }
@@ -71,8 +70,7 @@ namespace
     {
         std::vector<std::filesystem::path> found;
         std::error_code                    ec;
-        for ( const auto& entry :
-              std::filesystem::recursive_directory_iterator( editorDir / "Resources", ec ) )
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( editorDir / "Resources", ec ) )
         {
             if ( entry.is_regular_file() && entry.path().extension() == ".demat" )
                 found.push_back( entry.path() );
@@ -109,7 +107,7 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
           Desert::Assets::ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ) )
     {
         if ( manager.CreateAsset<Desert::Assets::ShaderAsset>( Desert::Assets::AssetPriority::Medium,
-                                                                shaderPath ) )
+                                                               shaderPath ) )
             ++shaderCount;
     }
     ASSERT_GT( shaderCount, 0u ) << "no .shader file registered — the content roots did not resolve";
@@ -146,17 +144,16 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
 
         if ( shell->GetShaderName().empty() )
         {
-            unresolved.push_back( std::format(
-                 "{}: shader GUID {} ('{}') did not resolve to a name", materialPath.string(),
-                 data.Shader->Guid, data.Shader->Path ) );
+            unresolved.push_back( std::format( "{}: shader GUID {} ('{}') did not resolve to a name",
+                                               materialPath.string(), data.Shader->Guid, data.Shader->Path ) );
         }
     }
 
     std::string joined;
     for ( const std::string& line : unresolved )
         joined += "\n  " + line;
-    EXPECT_TRUE( unresolved.empty() )
-         << unresolved.size() << " material(s) did not resolve their shader:" << joined;
+    EXPECT_TRUE( unresolved.empty() ) << unresolved.size()
+                                      << " material(s) did not resolve their shader:" << joined;
 }
 
 int main( int argc, char** argv )

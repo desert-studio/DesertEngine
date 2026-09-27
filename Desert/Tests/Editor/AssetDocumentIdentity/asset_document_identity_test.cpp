@@ -556,9 +556,9 @@ TEST( PendingViewBytes, AnUndrawnClaimantCountsItsForecastAndNothingElseDoes )
 TEST( AdmitDocumentView, TheNewForecastPlusPendingDemandMustFitWhatIsFree )
 {
     const FakeDocument incoming( "Incoming", Asset( 211 ) );
-    const uint64_t forecast = incoming.ViewForecastBytes();
-    const uint64_t pending  = 3 * forecast;
-    const uint64_t usage    = 100ull * 1024 * 1024;
+    const uint64_t     forecast = incoming.ViewForecastBytes();
+    const uint64_t     pending  = 3 * forecast;
+    const uint64_t     usage    = 100ull * 1024 * 1024;
 
     Desert::Engine::ViewBudget::Reading reading;
     reading.UsageBytes   = usage;

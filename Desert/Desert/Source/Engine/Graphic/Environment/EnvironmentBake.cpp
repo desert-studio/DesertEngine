@@ -221,7 +221,7 @@ namespace Desert::Graphic
                 // the device thread (its destructor frees a command buffer from a pool), and ReadBytes alone
                 // may run elsewhere. The entry is not erased until the future below is ready.
                 const ImageReadback* readback = write.Readback.get();
-                write.Encoded = Common::JobSystem::Get().Async(
+                write.Encoded                 = Common::JobSystem::Get().Async(
                      [readback, entry = write.Entry]() -> Common::BoolResultStr
                      {
                          auto bytes = readback->ReadBytes();
@@ -253,9 +253,9 @@ namespace Desert::Graphic
             {
                 const ImageReadback* readback = write.Readback.get();
                 const auto&          entry    = write.Entry;
-                write.Encoded = std::async( std::launch::deferred,
-                                            [readback, &entry]() -> Common::BoolResultStr
-                                            {
+                write.Encoded                 = std::async( std::launch::deferred,
+                                                            [readback, &entry]() -> Common::BoolResultStr
+                                                            {
                                                 while ( !readback->IsComplete() )
                                                     std::this_thread::yield();
                                                 auto bytes = readback->ReadBytes();
@@ -274,7 +274,8 @@ namespace Desert::Graphic
     {
         const Common::BoolResultStr written = write.Encoded.get();
         const double                ms =
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.StartedAt ).count();
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.StartedAt )
+                  .count();
         if ( !written.IsSuccess() )
         {
             LOG_ERROR( "[EnvironmentBake] '{}' was baked but not cached to '{}' ({:.1f} ms after the bake): {}",

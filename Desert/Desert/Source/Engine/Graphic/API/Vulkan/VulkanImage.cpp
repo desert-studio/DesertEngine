@@ -692,12 +692,12 @@ namespace Desert::Graphic::API::Vulkan
                      .get();
             }
 
-            VkBuffer                          m_Staging;
-            VmaAllocation                     m_Allocation;
-            uint64_t                          m_Bytes;
-            std::size_t                       m_Pixels;
+            VkBuffer                                  m_Staging;
+            VmaAllocation                             m_Allocation;
+            uint64_t                                  m_Bytes;
+            std::size_t                               m_Pixels;
             std::optional<Graphic::PackedPixelSource> m_Source;
-            CommandBufferAllocator::Submitted m_Submitted;
+            CommandBufferAllocator::Submitted         m_Submitted;
         };
     } // namespace
 
@@ -1120,7 +1120,8 @@ namespace Desert::Graphic::API::Vulkan
         const VkImageLayout   restore = m_Resource.Layout;
         // Whole-queue dependencies instead of a device idle, exactly as BeginReadbackRGBA8 argues.
         TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT );
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+                          VK_ACCESS_TRANSFER_READ_BIT );
         vkCmdCopyImageToBuffer( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging,
                                 static_cast<uint32_t>( regions.size() ), regions.data() );
         // The fence alone does not make the copy visible to a host read on the worker.

@@ -1850,7 +1850,8 @@ TEST( PreferenceOwnershipFavourites, OnlyOnePlaceInTheEditorAndTheEngineComposes
 
     const std::vector<std::string> expected = { "EngineUserDirectory.hpp" };
     EXPECT_EQ( composers, expected )
-         << "the user config directory is composed somewhere other than Common::Settings::EngineUserDirectoryUnder. "
+         << "the user config directory is composed somewhere other than "
+            "Common::Settings::EngineUserDirectoryUnder. "
             "A second copy is a directory that is not created, or a directory that moves in one place and "
             "not the other; Tools/ProjectHub keeps its own only because it is a separate binary that links "
             "no engine code at all.";
