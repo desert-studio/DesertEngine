@@ -1601,6 +1601,43 @@ namespace Desert::Editor::Commands
         return Common::MakeSuccess( Common::UUID( folded ) );
     }
 
+    struct EntityStateSnapshot
+    {
+        Common::UUID                    Root;
+        std::vector<Assets::EntityData> State;
+    };
+
+    std::shared_ptr<const EntityStateSnapshot> CaptureEntityState( const Common::UUID& uuid )
+    {
+        if ( !Ready() )
+            return nullptr;
+        auto e = FindEntity( uuid );
+        if ( !e )
+            return nullptr;
+        return std::make_shared<const EntityStateSnapshot>( EntityStateSnapshot{ uuid, CaptureSubtree( *e ) } );
+    }
+
+    void CommitEntityState( const std::shared_ptr<const EntityStateSnapshot>& before )
+    {
+        if ( !Ready() || !before )
+            return;
+        auto e = FindEntity( before->Root );
+        if ( !e )
+            return;
+        auto state = before->State;
+        CommandHistory::Get().PushCommand(
+             std::make_unique<EntityStateCommand>( std::move( state ), CaptureSubtree( *e ) ) );
+    }
+
+    void RevertEntityState( const std::shared_ptr<const EntityStateSnapshot>& before )
+    {
+        if ( !Ready() || !before || before->State.empty() )
+            return;
+        DestroyByUUID( before->Root );
+        (void)RestoreSnapshot( before->State, /*preserveIds=*/true );
+        OnStructuralChange();
+    }
+
     void MutateEntityUndoable( const Common::UUID& uuid, const std::function<void()>& mutate )
     {
         if ( !Ready() || !mutate )

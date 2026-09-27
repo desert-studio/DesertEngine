@@ -38,6 +38,7 @@
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/ECS/CubeGridBlockoutComponent.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
@@ -1701,6 +1702,30 @@ namespace Desert::Core::Serialize
                                                                               &ECS::UIOverlayComponent::Data ) );
         Register( MakeReflected<ECS::UIOverlayTriggerComponent, ECS::UIOverlayTriggerData>(
              "UIOverlayTrigger", "UIOverlayTriggerData", &ECS::UIOverlayTriggerComponent::Data ) );
+
+        // The voxels a Cube Grid blockout was baked from, so the tool reopens on it (CubeGridBlockoutComponent.hpp).
+        // No version bump - an added key is what ForeignKeys is for.
+        {
+            ComponentSerializer s;
+            s.Key       = "CubeGridBlockout";
+            s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::CubeGridBlockoutComponent>(); };
+            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            { return ECS::WriteCubeGridBlockout( e.GetComponent<ECS::CubeGridBlockoutComponent>() ); };
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& block, const Assets::AssetManager&,
+                                Common::Json::Issues& issues )
+            {
+                if ( !block.ExpectKind( Common::Json::Kind::Object, issues ) )
+                    return;
+                if ( auto read = ECS::ReadCubeGridBlockout( block, issues ) )
+                {
+                    if ( e.HasComponent<ECS::CubeGridBlockoutComponent>() )
+                        e.GetComponent<ECS::CubeGridBlockoutComponent>() = std::move( *read );
+                    else
+                        e.AddComponent<ECS::CubeGridBlockoutComponent>( std::move( *read ) );
+                }
+            };
+            Register( std::move( s ) );
+        }
 
         // ---- Marker components (presence is the state) ----
         Register( MakeMarker<ECS::FolderComponent>( "Folder" ) );

@@ -5080,6 +5080,15 @@ namespace Desert::Editor
         };
         modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
         modelingTool( "CubeGrid", "CubeGrid tool", MS::Tool::CubeGrid );
+        // Reopen CubeGrid on the selected blockout (UE: the tool takes the selected mesh as its target); the
+        // tool refuses, with a toast naming why, anything that does not carry its voxels.
+        commands.push_back( { "CubeGrid", "Edit selected blockout", []
+                              {
+                                  MS::Get().ActiveTool              = MS::Tool::CubeGrid;
+                                  MS::Get().ReqCubeGridEditSelected = true;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
 
         // CubeGrid's panel buttons are the tool's own one-shot requests; Cancel also ends the tool, as the
         // viewport tool bar's Cancel does (Tools::RaiseToolRequest).

@@ -9,12 +9,18 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
 namespace Desert::Core
 {
     class Scene;
+}
+
+namespace Desert::Editor::Commands
+{
+    struct EntityStateSnapshot;
 }
 
 namespace Desert::Editor::Tools
@@ -48,6 +54,15 @@ namespace Desert::Editor::Tools
         // Point the entity's material slots at m_Materials in the order the bake's submeshes use them.
         void        ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
         void        ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
+        // Reopen on the selected entity (UE: the tool takes the selected mesh as its target): its voxels become
+        // the volume, the grid goes onto its last piece, and Accept / Cancel end in ONE undo step / the entity
+        // as it was. Refused with a toast, by reason (BlockoutSession.hpp, ReopenBlockout).
+        void        EditSelected( ::Desert::Core::Scene& scene );
+        // Accept's first step: renumber the materials to the entity's slots, re-bake, and store the voxels (in
+        // the entity's space) and the key of the mesh they baked to on the entity.
+        Common::BoolResultStr StoreVoxels( ::Desert::Core::Scene& scene );
+        // The volume in the entity's space, which is what the entity's mesh and saved voxels are in.
+        Geometry::VoxelBlockout::Volume LocalVolume() const;
         static bool WorldToScreen( const glm::vec3& world, const glm::mat4& vp, const glm::vec2& pos,
                                    const glm::vec2& size, glm::vec2& out );
 
@@ -55,6 +70,11 @@ namespace Desert::Editor::Tools
         Geometry::VoxelBlockout::Volume m_Volume;
         float        m_BakedUnit = -1.0f;                // base size the live mesh was last baked at
         Common::UUID m_Entity    = Common::UUID::Null(); // live blockout entity
+        // A reopened blockout: the entity as it was when the session began (null for a new blockout), and the
+        // entity's transform as a grid frame (identity for a new one, which is built in the world).
+        std::shared_ptr<const Commands::EntityStateSnapshot> m_Before;
+        Geometry::VoxelBlockout::GridFrame                   m_EntityFrame;
+        bool m_WasActive = false; // last frame's toolActive: opening the tool on a blockout reopens it
 
         float     m_GroundY    = 0.0f;    // ground work-plane height in the active grid frame (Level up/down)
         bool      m_GroundToPivot = false;   // Ctrl+MMB moved the pivot: next frame's ground goes through it

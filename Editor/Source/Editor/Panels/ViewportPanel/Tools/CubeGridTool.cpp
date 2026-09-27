@@ -2,6 +2,7 @@
 
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/CubeGridBlockoutComponent.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
@@ -173,6 +175,104 @@ namespace Desert::Editor::Tools
         m_Volume.m_Unit = m_BakedUnit = -1.0f;
         m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
         m_Materials.assign( 1, Common::AssetHandle{} );
+        m_Before.reset();
+        m_EntityFrame = GridFrame{};
+    }
+
+    Volume CubeGridTool::LocalVolume() const
+    {
+        return m_Before ? Reframed( m_Volume, m_EntityFrame.Inverse() ) : m_Volume;
+    }
+
+    void CubeGridTool::EditSelected( ::Desert::Core::Scene& scene )
+    {
+        auto refuse = []( const std::string& why )
+        {
+            LOG_WARN( "[CubeGrid] edit refused: {}", why );
+            ToastManager::Push( "CubeGrid: " + why, ToastLevel::Warning, 8.0f );
+        };
+        if ( m_Entity != Common::UUID::Null() )
+        {
+            refuse( "Accept or Cancel the blockout in progress before editing another" );
+            return;
+        }
+        const auto& sel = Core::SelectionManager::GetSelected();
+        auto        ref = sel.has_value() ? scene.FindEntityByID( *sel ) : std::nullopt;
+        if ( !ref )
+        {
+            refuse( "select the blockout to edit" );
+            return;
+        }
+        ECS::Entity       e    = ref->get();
+        const std::string name = e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
+                                                                     : sel->ToString();
+        Common::ResultStr<uint64_t> key = Common::MakeError<uint64_t>( "it has no StaticMeshComponent" );
+        if ( e.HasComponent<ECS::StaticMeshComponent>() )
+        {
+            auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
+            key         = target.IsSuccess() ? Common::MakeSuccess( MeshKeyOf( *target.GetValue().Mesh ) )
+                                             : Common::MakeError<uint64_t>( target.GetError() );
+        }
+        const auto* saved = e.HasComponent<ECS::CubeGridBlockoutComponent>()
+                                 ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
+                                 : nullptr;
+        auto opened = ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+        if ( !opened.IsSuccess() )
+        {
+            refuse( opened.GetError() );
+            return;
+        }
+        auto before = Commands::CaptureEntityState( *sel );
+        if ( !before )
+        {
+            refuse( "'" + name + "' could not be snapshotted for undo" );
+            return;
+        }
+        ResetSession();
+        m_Before      = std::move( before );
+        m_Entity      = *sel;
+        m_EntityFrame = opened.GetValue().EntityFrame;
+        m_Volume      = std::move( opened.ExtractValue().Volume );
+        // Accept stored the material IDs as the entity's slot indices (StoreVoxels), so the slots ARE the set.
+        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+        if ( !slots.empty() )
+            m_Materials = slots;
+
+        // The grid goes onto the last piece built, at its Block Size, so the next marquee lines up with it.
+        Core::ModelingState& ms   = Core::ModelingState::Get();
+        const Layer&         last = m_Volume.m_Frozen.back();
+        ms.GridOrigin             = last.Frame.Origin;
+        ms.GridRotation           = glm::degrees( glm::eulerAngles( last.Frame.Rotation ) );
+        ms.CellSize               = last.Unit;
+        m_Volume.m_Frame          = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
+        m_Volume.m_Unit = m_BakedUnit = -1.0f;
+        LOG_INFO( "[CubeGrid] editing '{}': {} layer(s)", name, m_Volume.m_Frozen.size() );
+    }
+
+    Common::BoolResultStr CubeGridTool::StoreVoxels( ::Desert::Core::Scene& scene )
+    {
+        // Renumber first: after it the i-th material in use is ID i, which is slot i of the entity.
+        const Geometry::RenderMeshData quads = LocalVolume().Bake();
+        std::vector<Common::AssetHandle> used;
+        for ( const int id : quads.SubmeshMaterialIds )
+            used.push_back( m_Materials.at( static_cast<size_t>( id ) ) );
+        m_Volume.CompactMaterials( quads.SubmeshMaterialIds );
+        m_Materials = used.empty() ? std::vector<Common::AssetHandle>{ Common::AssetHandle{} } : used;
+        RegenMesh( scene );
+
+        auto ref = scene.FindEntityByID( m_Entity );
+        if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+            return Common::MakeError<bool>( "the blockout entity has no mesh to store voxels beside" );
+        ECS::Entity e      = ref->get();
+        auto        target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
+        if ( !target.IsSuccess() )
+            return Common::MakeError<bool>( "the blockout mesh cannot be read back: " + target.GetError() );
+        auto saved = Save( LocalVolume(), MeshKeyOf( *target.GetValue().Mesh ) );
+        if ( e.HasComponent<ECS::CubeGridBlockoutComponent>() )
+            e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved = std::move( saved );
+        else
+            e.AddComponent<ECS::CubeGridBlockoutComponent>( ECS::CubeGridBlockoutComponent{ std::move( saved ) } );
+        return Common::MakeSuccess( true );
     }
 
     void CubeGridTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
@@ -185,6 +285,20 @@ namespace Desert::Editor::Tools
 
         bool        changed = false;
         // Requested Block Size in world units (= centimetres, see Common::Units).
+        // UE: opening the tool with a mesh selected takes that mesh as the target - here, a blockout that
+        // carries its voxels. The palette's "Edit selected blockout" asks the same explicitly.
+        if ( toolActive && !m_WasActive && m_Entity == Common::UUID::Null() )
+            if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
+                if ( auto ref = scene.FindEntityByID( *sel );
+                     ref && ref->get().HasComponent<ECS::CubeGridBlockoutComponent>() )
+                    ms.ReqCubeGridEditSelected = true;
+        m_WasActive = toolActive;
+        if ( ms.ReqCubeGridEditSelected )
+        {
+            ms.ReqCubeGridEditSelected = false;
+            EditSelected( scene );
+        }
+
         const float gs = std::max( ms.CellSize, Core::ModelingState::MinCellSize );
 
         // "Reset Grid from Actor": drop the grid frame onto the selected entity's own origin AND orientation
@@ -1131,6 +1245,8 @@ namespace Desert::Editor::Tools
                  m_Entity, ms, endTool,
                  [&]( const Common::UUID& piece ) -> Common::BoolResultStr
                  {
+                     if ( auto stored = StoreVoxels( scene ); !stored.IsSuccess() )
+                         return stored;
                      if ( ms.Output.Type != Core::ModelingState::OutputType::StaticMesh )
                          return Common::MakeSuccess( true );
                      auto written = Commands::OutputStaticMesh( piece, ms.Output.Folder, ms.Output.Name );
@@ -1138,9 +1254,13 @@ namespace Desert::Editor::Tools
                          return Common::MakeError<bool>( written.GetError() );
                      return Common::MakeSuccess( true );
                  },
-                 []( const Common::UUID& piece )
+                 [this]( const Common::UUID& piece )
                  {
-                     Commands::NotifyCreated( { piece } );
+                     // A reopened blockout was edited, not created: one step back to the entity as it was.
+                     if ( m_Before )
+                         Commands::CommitEntityState( m_Before );
+                     else
+                         Commands::NotifyCreated( { piece } );
                      Core::SelectionManager::SetSelected( piece );
                  } );
             if ( !accepted.IsSuccess() )
@@ -1163,11 +1283,15 @@ namespace Desert::Editor::Tools
         m_BakedUnit = m_Volume.m_Unit;
         if ( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() )
         {
+            if ( m_Before )
+                ToastManager::Push( "CubeGrid: the edit removed every block, so the blockout is back as it was; "
+                                    "delete the entity to remove it",
+                                    ToastLevel::Warning, 8.0f );
             Cancel( scene );
             return;
         }
 
-        const Geometry::RenderMeshData quads = m_Volume.Bake();
+        const Geometry::RenderMeshData quads = LocalVolume().Bake();
 
         if ( m_Entity == Common::UUID::Null() )
         {
@@ -1212,7 +1336,10 @@ namespace Desert::Editor::Tools
         CancelBlockout( m_Entity,
                         [&]( const Common::UUID& piece )
                         {
-                            if ( auto ref = scene.FindEntityByID( piece ) )
+                            // A reopened blockout goes back to what it was; only a new one is destroyed.
+                            if ( m_Before )
+                                Commands::RevertEntityState( m_Before );
+                            else if ( auto ref = scene.FindEntityByID( piece ) )
                                 scene.DestroyEntity( ref->get() );
                         } );
         ResetSession();

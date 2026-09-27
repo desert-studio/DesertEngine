@@ -2,11 +2,15 @@
 
 #include <Engine/Geometry/EditMeshConversion.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <array>
+#include <optional>
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -97,6 +101,19 @@ namespace Desert::Geometry::VoxelBlockout
         bool SameAxes( const GridFrame& o ) const;
         // Same axes AND same origin: the two lattices coincide cell for cell.
         bool SameAs( const GridFrame& o ) const;
+
+        // `child` (a frame expressed in this one) expressed in this frame's parent: the frame of a piece
+        // carried by an entity, in the world.
+        GridFrame Compose( const GridFrame& child ) const
+        {
+            return { ToWorldPoint( child.Origin ), glm::normalize( Rotation * child.Rotation ) };
+        }
+        // The frame that undoes this one: Inverse().Compose( Compose( f ) ) == f.
+        GridFrame Inverse() const
+        {
+            const glm::quat r = glm::conjugate( Rotation );
+            return { r * -Origin, r };
+        }
     };
     // The panel's frame: origin in centimetres, orientation as Euler degrees about X, Y, Z (glm's XYZ order,
     // the one the engine's transform rotation uses), UE's GridFrameOrigin + GridFrameOrientation.
@@ -207,7 +224,62 @@ namespace Desert::Geometry::VoxelBlockout
         // layer's own frame. One Submesh per material ID in use, ascending, with SubmeshMaterialIds naming it -
         // the layout FromRenderMesh reads into per-triangle MaterialIDs.
         RenderMeshData Bake() const;
+
+        // Push-in reaches committed pieces too (UE's Cube Grid cuts whatever mesh it targets, so nothing it
+        // built earlier is dead): a frozen layer on this lattice that holds a cell of `cells` (base cells of
+        // the active volume) is merged into the active volume first - as it is at this Block Size, split into
+        // base cells when coarser and flat - and a finer one loses its cells inside the cut. A coarser DEFORMED
+        // layer stays frozen (splitting would have to re-derive its corners), as does one in another frame.
+        void ThawUnder( const std::vector<glm::ivec3>& cells );
+
+        // Renumber face materials so the i-th ID of `usedAscending` (the bake's SubmeshMaterialIds) becomes
+        // i, in every layer: the saved blockout's material ID is then its entity's material slot.
+        void CompactMaterials( const std::vector<int>& usedAscending );
     };
+
+    // Every layer of `v` re-expressed through `parent` (parent.Compose on each frame); cells, units and
+    // materials are untouched. The tool edits in the world and the entity keeps its voxels in its own space.
+    Volume Reframed( const Volume& v, const GridFrame& parent );
+
+    // --- A blockout's voxels as the scene keeps them beside its mesh (ECS::CubeGridBlockoutComponent), so the
+    //     tool can be opened again on the entity and carry on (UE: the Cube Grid tool takes the selected mesh
+    //     as its target). Plain reflectable data: the scene file writes it as it is. ---
+    struct SavedLayer
+    {
+        float                Unit = 0.0f;
+        std::array<float, 3> Origin{};
+        std::array<float, 4> Rotation{ 1.0f, 0.0f, 0.0f, 0.0f }; // w, x, y, z
+        // Per flat cell: x, y, z, then the 6 face materials in kFace order.
+        std::vector<int32_t> Flat;
+        // Per deformed cell: x, y, z, the 6 face materials, then the 8 corner offsets (Cell::V).
+        std::vector<int32_t> Deformed;
+    };
+    constexpr size_t kSavedFlatStride     = 9;
+    constexpr size_t kSavedDeformedStride = 17;
+
+    struct SavedBlockout
+    {
+        // Every non-empty layer, the active one last. They come back all committed: push-in thaws what it
+        // reaches (Volume::ThawUnder), so a committed layer is as editable as the active one was.
+        std::vector<SavedLayer> Layers;
+        // MeshKey of the mesh these voxels baked to, in hex (a JSON integer is signed 64-bit). A mesh edited
+        // since by another tool no longer matches, and the voxels would overwrite that edit: refused, not
+        // re-baked (the tool's reopen).
+        std::string MeshKey;
+    };
+
+    SavedBlockout Save( const Volume& v, uint64_t meshKey );
+    // Refused, by layer, cell and value, when a unit is not positive, an array is not whole cells, a cell is
+    // outside the packable range or repeats, a material or offset does not fit its field, or a rotation is
+    // not a rotation.
+    Common::ResultStr<Volume> Load( const SavedBlockout& saved );
+    // Parse Save's MeshKey spelling back; nullopt when it is not 16 hex digits.
+    std::optional<uint64_t> ParseMeshKey( const std::string& text );
+
+    // Identity of a mesh's shape for the staleness check: its triangle count and its DISTINCT vertex positions
+    // (to 1/100 cm, order-free), so the same surface keys the same whether it is the EditMesh the bake welded
+    // or the .stmesh the Static Mesh output wrote and a tool lifts back (seams split vertices, never move them).
+    uint64_t MeshKey( std::vector<glm::vec3> positions, int triangleCount );
 
     // Shift+E / Shift+Q: move the selection `baseCells` along the work-plane's outward normal (negative =
     // back into the surface) without editing anything, so the next Push/Pull starts from there.

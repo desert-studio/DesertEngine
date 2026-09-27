@@ -184,6 +184,7 @@ namespace Desert::Editor::Core
         bool ReqCancel         = false; // one-shot: delete the in-progress blockout
         bool ReqClear          = false; // one-shot: clear the cells (keep editing)
         bool ReqResetFromActor = false; // one-shot: put the grid origin on the selected entity
+        bool ReqCubeGridEditSelected = false; // one-shot: reopen CubeGrid on the selected blockout
 
         // --- The mouse's part of CubeGrid, for the command palette and the control channel (which have no
         //     cursor). Each lands in the same code the mouse and E/Q reach inside CubeGridTool::Update. ---

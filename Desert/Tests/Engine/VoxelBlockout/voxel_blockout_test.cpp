@@ -7,7 +7,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <string>
 #include <map>
 #include <tuple>
 #include <vector>
@@ -610,4 +612,216 @@ TEST( VoxelBlockoutConforming, TheSameStepInOneLayerConformsToo )
     const auto mesh = v.Bake();
     EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "the same step without the commit";
     ExpectClosed( Measured( mesh ) );
+}
+
+// M11: the Cube Grid tool reopens on a blockout it built (UE: the selected mesh is the tool's target) and
+// Push / Pull carries on over the same pieces. The voxels travel in the entity's space; the pieces come back
+// committed, and push-in must still cut them.
+namespace
+{
+    // The editor's first session: a 4x4 floor, a new marquee commits it, a 2x2 block on top.
+    Volume FloorWithBlock()
+    {
+        Volume    v = Ground();
+        WorkPlane floor;
+        v.PushPull( floor, Rect{ 0, 3, 0, 3 }, +1, 1, 0 );
+        EXPECT_TRUE( v.Freeze() );
+        v.m_Unit = 100.0f;
+        WorkPlane top{ 1, 1, 1 };
+        v.PushPull( top, Rect{ 1, 2, 1, 2 }, +1, 1, 0 );
+        return v;
+    }
+} // namespace
+
+TEST( VoxelBlockoutReedit, AReopenedBlockoutOnAMovedEntityIsCutByPushInAndStaysConforming )
+{
+    const Volume        built  = FloorWithBlock();
+    const auto          first  = built.Bake();
+    const SavedBlockout saved  = Save( built, 0x1234u ); // Accept: the entity was created at identity
+    const GridFrame     entity = MakeGridFrame( { 250.0f, 0.0f, -40.0f }, { 0.0f, 30.0f, 0.0f } );
+
+    // Reopen after the entity was moved and turned: the volume comes into the world through the entity.
+    auto loaded = Load( saved );
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    Volume w = Reframed( loaded.GetValue(), entity );
+    ASSERT_EQ( w.m_Frozen.size(), 2u );
+    EXPECT_TRUE( w.m_Cells.empty() ) << "every piece comes back committed";
+    // Before any edit, the entity's-space bake is the mesh the first session left.
+    {
+        const auto again = Reframed( w, entity.Inverse() ).Bake();
+        EXPECT_EQ( again.Indices.size(), first.Indices.size() );
+        EXPECT_NEAR( Measured( again ).Volume, Measured( first ).Volume, 1.0 );
+    }
+    // The tool puts the grid on the last piece; Q pushes the block and the floor under it down two cells.
+    w.m_Frame = w.m_Frozen.back().Frame;
+    w.m_Unit  = 100.0f;
+    WorkPlane q{ 1, 1, 2 };
+    w.PushPull( q, Rect{ 1, 2, 1, 2 }, -1, 2, 0 );
+    EXPECT_EQ( q.Cell, 0 );
+
+    const auto after = Reframed( w, entity.Inverse() ).Bake();
+    const auto m     = Measured( after );
+    ExpectClosed( m );
+    EXPECT_NEAR( m.Volume, ( 16.0 + 4.0 - 8.0 ) * 1.0e6, 1.0 ) << "the committed floor was cut, not skipped";
+    EXPECT_EQ( NonConformingEdges( after ), 0 );
+    EXPECT_TRUE( w.m_Frozen.empty() ) << "both pieces the cut reached were thawed into the active volume";
+
+    // E on the same session builds back on the same mesh.
+    WorkPlane e{ 1, 1, 0 };
+    w.PushPull( e, Rect{ 1, 1, 1, 1 }, +1, 1, 0 );
+    EXPECT_NEAR( Measured( Reframed( w, entity.Inverse() ).Bake() ).Volume, 13.0e6, 1.0 );
+}
+
+TEST( VoxelBlockoutReedit, PushInSplitsACoarserFlatPieceAndEmptiesAFinerOne )
+{
+    Volume v = Ground();
+    Layer  coarse;
+    coarse.Unit                       = 200.0f;
+    coarse.Cells[Pack( { 0, 0, 0 } )] = {};
+    v.m_Frozen.push_back( coarse );
+    WorkPlane q{ 1, 1, 2 };
+    v.PushPull( q, Rect{ 0, 0, 0, 0 }, -1, 1, 0 );
+    EXPECT_TRUE( v.m_Frozen.empty() );
+    EXPECT_EQ( v.m_Cells.size(), 7u );
+    const auto split = v.Bake();
+    ExpectClosed( Measured( split ) );
+    EXPECT_NEAR( Measured( split ).Volume, 7.0e6, 1.0 );
+    EXPECT_EQ( NonConformingEdges( split ), 0 );
+
+    Volume f = Ground();
+    Layer  fine;
+    fine.Unit = 50.0f;
+    for ( int x = 0; x < 2; ++x )
+        for ( int y = 0; y < 2; ++y )
+            for ( int z = 0; z < 2; ++z )
+                fine.Cells[Pack( { x, y, z } )] = {};
+    f.m_Frozen.push_back( fine );
+    WorkPlane fq{ 1, 1, 1 };
+    f.PushPull( fq, Rect{ 0, 0, 0, 0 }, -1, 1, 0 );
+    EXPECT_TRUE( f.m_Frozen.empty() ) << "the finer piece lost every cell inside the cut";
+    EXPECT_TRUE( f.Bake().Indices.empty() );
+}
+
+TEST( VoxelBlockoutReedit, ADeformedCoarserPieceAndATurnedOneStayFrozen )
+{
+    Volume v = Ground();
+    Layer  ramp;
+    ramp.Unit = 200.0f;
+    Cell c;
+    c.V[2]                          = CornerDen;
+    ramp.Cells[Pack( { 0, 0, 0 } )] = c;
+    v.m_Frozen.push_back( ramp );
+    Layer turned;
+    turned.Unit                       = 100.0f;
+    turned.Frame                      = MakeGridFrame( {}, { 0.0f, 45.0f, 0.0f } );
+    turned.Cells[Pack( { 0, 1, 0 } )] = {};
+    v.m_Frozen.push_back( turned );
+    WorkPlane q{ 1, 1, 2 };
+    v.PushPull( q, Rect{ 0, 0, 0, 0 }, -1, 1, 0 );
+    ASSERT_EQ( v.m_Frozen.size(), 2u );
+    EXPECT_EQ( v.m_Frozen[0].Cells.size(), 1u );
+    EXPECT_EQ( v.m_Frozen[1].Cells.size(), 1u );
+}
+
+TEST( VoxelBlockoutReedit, SaveLoadKeepsCornersMaterialsFramesAndUnits )
+{
+    Volume     v = Ground();
+    WorkPlane  plane;
+    const Rect sel{ 0, 1, 0, 1 };
+    v.PushPull( plane, sel, +1, 1, 3 );
+    WorkPlane top{ 1, 1, 1 };
+    ASSERT_TRUE( v.ApplyCornerHeights( top, sel, { 0, 0, CornerDen, CornerDen } ) );
+    ASSERT_TRUE( v.Freeze() );
+    v.m_Unit  = 50.0f;
+    v.m_Frame = MakeGridFrame( { 10.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 20.0f } );
+    WorkPlane p2;
+    v.PushPull( p2, Rect{ 0, 0, 0, 0 }, +1, 2, 1 );
+
+    const SavedBlockout saved = Save( v, 0xabcdef0123456789ull );
+    EXPECT_EQ( saved.MeshKey, "abcdef0123456789" );
+    EXPECT_EQ( ParseMeshKey( saved.MeshKey ), 0xabcdef0123456789ull );
+    ASSERT_EQ( saved.Layers.size(), 2u );
+    EXPECT_FALSE( saved.Layers[0].Deformed.empty() );
+
+    auto loaded = Load( saved );
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    const Volume& l = loaded.GetValue();
+    ASSERT_EQ( l.m_Frozen.size(), 2u );
+    for ( int i = 0; i < 2; ++i )
+    {
+        const CellMap& want = i == 0 ? v.m_Frozen[0].Cells : v.m_Cells;
+        const Layer&   got  = l.m_Frozen[static_cast<size_t>( i )];
+        EXPECT_FLOAT_EQ( got.Unit, i == 0 ? 100.0f : 50.0f );
+        EXPECT_TRUE( got.Frame.SameAs( i == 0 ? v.m_Frozen[0].Frame : v.m_Frame ) );
+        ASSERT_EQ( got.Cells.size(), want.size() );
+        for ( const auto& [k, cell] : want )
+        {
+            const auto it = got.Cells.find( k );
+            ASSERT_NE( it, got.Cells.end() );
+            EXPECT_TRUE( std::equal( std::begin( cell.V ), std::end( cell.V ), std::begin( it->second.V ) ) );
+            EXPECT_TRUE( std::equal( std::begin( cell.Mat ), std::end( cell.Mat ), std::begin( it->second.Mat ) ) );
+        }
+    }
+    EXPECT_NEAR( Measured( l.Bake() ).Volume, Measured( v.Bake() ).Volume, 1.0 );
+}
+
+TEST( VoxelBlockoutReedit, LoadRefusesWhatCannotBeAVolumeByLayerAndReason )
+{
+    const std::vector<int32_t> one{ 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    auto                       refused = [&one]( SavedLayer layer, const char* why )
+    {
+        SavedBlockout s;
+        s.Layers.push_back( SavedLayer{ 100.0f, {}, { 1, 0, 0, 0 }, one, {} } );
+        s.Layers.push_back( std::move( layer ) );
+        auto r = Load( s );
+        ASSERT_FALSE( r.IsSuccess() ) << why;
+        EXPECT_NE( r.GetError().find( "layer 1" ), std::string::npos ) << r.GetError();
+        EXPECT_NE( r.GetError().find( why ), std::string::npos ) << r.GetError();
+    };
+    refused( SavedLayer{ 0.0f, {}, { 1, 0, 0, 0 }, one, {} }, "not positive" );
+    refused( SavedLayer{ 100.0f, {}, { 1, 0, 0, 0 }, { 0, 0, 0 }, {} }, "whole cells" );
+    refused( SavedLayer{ 100.0f, {}, { 2, 0, 0, 0 }, one, {} }, "not a rotation" );
+    refused( SavedLayer{ 100.0f, {}, { 1, 0, 0, 0 }, { 0, 0, 0, 300, 0, 0, 0, 0, 0 }, {} }, "material 300" );
+    refused( SavedLayer{ 100.0f, {}, { 1, 0, 0, 0 }, { 1 << 21, 0, 0, 0, 0, 0, 0, 0, 0 }, {} }, "outside" );
+    std::vector<int32_t> twice = one;
+    twice.insert( twice.end(), one.begin(), one.end() );
+    refused( SavedLayer{ 100.0f, {}, { 1, 0, 0, 0 }, twice, {} }, "stored twice" );
+    EXPECT_FALSE( ParseMeshKey( "12" ).has_value() );
+    EXPECT_FALSE( ParseMeshKey( "zzzzzzzzzzzzzzzz" ).has_value() );
+}
+
+TEST( VoxelBlockoutReedit, MeshKeyIgnoresOrderAndSeamCopiesButNotTheShape )
+{
+    const std::vector<glm::vec3> quad{ { 0, 0, 0 }, { 100, 0, 0 }, { 100, 0, 100 }, { 0, 0, 100 } };
+    std::vector<glm::vec3>       seams{ quad[2], quad[0], quad[3], quad[1], quad[0], quad[2] };
+    EXPECT_EQ( MeshKey( quad, 2 ), MeshKey( seams, 2 ) );
+    EXPECT_NE( MeshKey( quad, 2 ), MeshKey( quad, 4 ) );
+    auto moved = quad;
+    moved[1].y = 5.0f;
+    EXPECT_NE( MeshKey( quad, 2 ), MeshKey( moved, 2 ) );
+}
+
+TEST( VoxelBlockoutReedit, CompactMaterialsMakesTheIdsInUseTheSlotIndices )
+{
+    Volume    v = Ground();
+    WorkPlane a;
+    v.PushPull( a, Rect{ 0, 0, 0, 0 }, +1, 1, 4 );
+    ASSERT_TRUE( v.Freeze() );
+    v.m_Unit = 100.0f;
+    WorkPlane b;
+    v.PushPull( b, Rect{ 0, 0, 3, 3 }, +1, 1, 7 );
+    const auto before = v.Bake();
+    ASSERT_EQ( before.SubmeshMaterialIds, ( std::vector<int>{ 4, 7 } ) );
+    v.CompactMaterials( before.SubmeshMaterialIds );
+    EXPECT_EQ( v.Bake().SubmeshMaterialIds, ( std::vector<int>{ 0, 1 } ) );
+}
+
+TEST( VoxelBlockoutReedit, AFrameThroughAnEntityAndBackIsTheSameFrame )
+{
+    const GridFrame entity = MakeGridFrame( { 30.0f, -5.0f, 12.0f }, { 10.0f, 70.0f, -20.0f } );
+    const GridFrame piece  = MakeGridFrame( { 100.0f, 0.0f, 50.0f }, { 0.0f, 15.0f, 0.0f } );
+    EXPECT_TRUE( entity.Inverse().Compose( entity.Compose( piece ) ).SameAs( piece ) );
+    const glm::vec3 p( 7.0f, 8.0f, 9.0f );
+    const glm::vec3 w = entity.Compose( piece ).ToWorldPoint( p );
+    EXPECT_LT( glm::length( w - entity.ToWorldPoint( piece.ToWorldPoint( p ) ) ), 1e-3f );
 }

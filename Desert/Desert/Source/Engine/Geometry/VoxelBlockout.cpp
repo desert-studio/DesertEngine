@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -292,7 +293,7 @@ namespace Desert::Geometry::VoxelBlockout
         }
         else // Push in: remove `height` base cells just inside the plane, per column
         {
-            std::vector<glm::ivec3> removed;
+            std::vector<glm::ivec3> cut;
             for ( int u = sel.UMin; u <= sel.UMax; ++u )
                 for ( int v = sel.VMin; v <= sel.VMax; ++v )
                 {
@@ -301,9 +302,13 @@ namespace Desert::Geometry::VoxelBlockout
                     c[ua] = u;
                     c[va] = v;
                     for ( int s = 0; s < height; ++s, c[na] -= sign )
-                        if ( m_Cells.erase( Pack( c ) ) != 0 )
-                            removed.push_back( c );
+                        cut.push_back( c );
                 }
+            ThawUnder( cut );
+            std::vector<glm::ivec3> removed;
+            for ( const glm::ivec3& c : cut )
+                if ( m_Cells.erase( Pack( c ) ) != 0 )
+                    removed.push_back( c );
             // The walls and floor of the hole are new faces of the cells around it: they take the op's
             // material. A removed cell's neighbour sees it through the opposite face (f ^ 1 in kFace order).
             for ( const glm::ivec3& r : removed )
@@ -635,6 +640,227 @@ namespace Desert::Geometry::VoxelBlockout
             out.SubmeshMaterialIds.push_back( material );
         }
         return out;
+    }
+
+    void Volume::ThawUnder( const std::vector<glm::ivec3>& cells )
+    {
+        if ( cells.empty() || m_Unit <= 0.0f )
+            return;
+        for ( auto it = m_Frozen.begin(); it != m_Frozen.end(); )
+        {
+            Layer& l     = *it;
+            bool   thawn = false;
+            if ( l.Unit > 0.0f && !l.Cells.empty() && l.Frame.SameAs( m_Frame ) )
+            {
+                const int R = static_cast<int>( std::lround( l.Unit / m_Unit ) ); // layer cell = R base cells
+                const int D = static_cast<int>( std::lround( m_Unit / l.Unit ) ); // base cell = D layer cells
+                if ( R >= 1 && std::abs( l.Unit - static_cast<float>( R ) * m_Unit ) <= 0.001f * m_Unit )
+                {
+                    const bool reached = std::ranges::any_of(
+                         cells, [&]( const glm::ivec3& c )
+                         { return l.Cells.contains( Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ),
+                                                            FloorDiv( c.z, R ) } ) ); } );
+                    const bool splittable =
+                         R == 1 || std::ranges::all_of( l.Cells, []( const auto& kv ) { return kv.second.IsFlat(); } );
+                    if ( reached && splittable )
+                    {
+                        // The active cells win where both hold one: they are the newer edit.
+                        for ( const auto& [k, cell] : l.Cells )
+                        {
+                            if ( R == 1 )
+                            {
+                                m_Cells.try_emplace( k, cell );
+                                continue;
+                            }
+                            const glm::ivec3 p = Unpack( k ) * R;
+                            Cell             child;
+                            std::copy( std::begin( cell.Mat ), std::end( cell.Mat ), std::begin( child.Mat ) );
+                            for ( int dx = 0; dx < R; ++dx )
+                                for ( int dy = 0; dy < R; ++dy )
+                                    for ( int dz = 0; dz < R; ++dz )
+                                        m_Cells.try_emplace( Pack( p + glm::ivec3( dx, dy, dz ) ), child );
+                        }
+                        thawn = true;
+                    }
+                }
+                else if ( D >= 2 && std::abs( m_Unit - static_cast<float>( D ) * l.Unit ) <= 0.001f * l.Unit )
+                {
+                    for ( const glm::ivec3& c : cells )
+                        for ( int dx = 0; dx < D; ++dx )
+                            for ( int dy = 0; dy < D; ++dy )
+                                for ( int dz = 0; dz < D; ++dz )
+                                    l.Cells.erase( Pack( c * D + glm::ivec3( dx, dy, dz ) ) );
+                    thawn = l.Cells.empty();
+                }
+            }
+            it = thawn ? m_Frozen.erase( it ) : std::next( it );
+        }
+    }
+
+    void Volume::CompactMaterials( const std::vector<int>& usedAscending )
+    {
+        // An ID no visible face uses (a hidden face's) folds to 0: every ID must stay a valid slot, and a
+        // hidden face takes the op's material anyway the moment a push-in exposes it.
+        std::array<uint8_t, 256> remap{};
+        for ( size_t i = 0; i < usedAscending.size(); ++i )
+            if ( usedAscending[i] >= 0 && usedAscending[i] < 256 )
+                remap[static_cast<size_t>( usedAscending[i] )] = static_cast<uint8_t>( i );
+        auto apply = [&remap]( CellMap& cells )
+        {
+            for ( auto& [k, cell] : cells )
+                for ( uint8_t& m : cell.Mat )
+                    m = remap[m];
+        };
+        apply( m_Cells );
+        for ( Layer& l : m_Frozen )
+            apply( l.Cells );
+    }
+
+    Volume Reframed( const Volume& v, const GridFrame& parent )
+    {
+        Volume out  = v;
+        out.m_Frame = parent.Compose( v.m_Frame );
+        for ( Layer& l : out.m_Frozen )
+            l.Frame = parent.Compose( l.Frame );
+        return out;
+    }
+
+    SavedBlockout Save( const Volume& v, uint64_t meshKey )
+    {
+        SavedBlockout saved;
+        auto          put = [&saved]( const CellMap& cells, float unit, const GridFrame& frame )
+        {
+            if ( cells.empty() )
+                return;
+            SavedLayer l;
+            l.Unit     = unit;
+            l.Origin   = { frame.Origin.x, frame.Origin.y, frame.Origin.z };
+            l.Rotation = { frame.Rotation.w, frame.Rotation.x, frame.Rotation.y, frame.Rotation.z };
+            // Sorted, so the same volume always writes the same scene text.
+            std::map<uint64_t, const Cell*> ordered;
+            for ( const auto& [k, cell] : cells )
+                ordered.emplace( k, &cell );
+            for ( const auto& [k, cell] : ordered )
+            {
+                const glm::ivec3      c   = Unpack( k );
+                std::vector<int32_t>& out = cell->IsFlat() ? l.Flat : l.Deformed;
+                out.insert( out.end(), { c.x, c.y, c.z } );
+                for ( const uint8_t m : cell->Mat )
+                    out.push_back( m );
+                if ( !cell->IsFlat() )
+                    for ( const int16_t o : cell->V )
+                        out.push_back( o );
+            }
+            saved.Layers.push_back( std::move( l ) );
+        };
+        for ( const Layer& l : v.m_Frozen )
+            put( l.Cells, l.Unit, l.Frame );
+        put( v.m_Cells, v.m_Unit, v.m_Frame );
+        saved.MeshKey = std::format( "{:016x}", meshKey );
+        return saved;
+    }
+
+    Common::ResultStr<Volume> Load( const SavedBlockout& saved )
+    {
+        Volume v;
+        for ( size_t li = 0; li < saved.Layers.size(); ++li )
+        {
+            const SavedLayer& s = saved.Layers[li];
+            if ( !( s.Unit > 0.0f ) || !std::isfinite( s.Unit ) )
+                return Common::MakeFormattedError<Volume>( "CubeGrid layer {}: cell size {} is not positive", li,
+                                                           s.Unit );
+            if ( s.Flat.size() % kSavedFlatStride != 0 || s.Deformed.size() % kSavedDeformedStride != 0 )
+                return Common::MakeFormattedError<Volume>(
+                     "CubeGrid layer {}: {} flat / {} deformed values are not whole cells of {} / {}", li,
+                     s.Flat.size(), s.Deformed.size(), kSavedFlatStride, kSavedDeformedStride );
+            const glm::quat q( s.Rotation[0], s.Rotation[1], s.Rotation[2], s.Rotation[3] );
+            if ( !std::isfinite( glm::length( q ) ) || std::abs( glm::length( q ) - 1.0f ) > 1e-3f )
+                return Common::MakeFormattedError<Volume>( "CubeGrid layer {}: rotation of length {} is not a rotation",
+                                                           li, glm::length( q ) );
+            Layer l;
+            l.Unit  = s.Unit;
+            l.Frame = { { s.Origin[0], s.Origin[1], s.Origin[2] }, glm::normalize( q ) };
+            auto read = [&]( const std::vector<int32_t>& values, size_t stride ) -> Common::BoolResultStr
+            {
+                for ( size_t at = 0; at < values.size(); at += stride )
+                {
+                    const glm::ivec3 c( values[at], values[at + 1], values[at + 2] );
+                    if ( glm::any( glm::lessThan( c, glm::ivec3( -OFF ) ) ) ||
+                         glm::any( glm::greaterThanEqual( c, glm::ivec3( OFF ) ) ) )
+                        return Common::MakeFormattedError<bool>( "CubeGrid layer {}: cell ({}, {}, {}) is outside +-{}",
+                                                                 li, c.x, c.y, c.z, OFF );
+                    Cell cell;
+                    for ( int f = 0; f < 6; ++f )
+                    {
+                        const int32_t m = values[at + 3 + static_cast<size_t>( f )];
+                        if ( m < 0 || m > 255 )
+                            return Common::MakeFormattedError<bool>(
+                                 "CubeGrid layer {}: cell ({}, {}, {}) material {} is not 0..255", li, c.x, c.y, c.z, m );
+                        cell.Mat[f] = static_cast<uint8_t>( m );
+                    }
+                    if ( stride == kSavedDeformedStride )
+                        for ( int i = 0; i < 8; ++i )
+                        {
+                            const int32_t o = values[at + 9 + static_cast<size_t>( i )];
+                            if ( o < std::numeric_limits<int16_t>::min() || o > std::numeric_limits<int16_t>::max() )
+                                return Common::MakeFormattedError<bool>(
+                                     "CubeGrid layer {}: cell ({}, {}, {}) corner offset {} does not fit 16 bits", li,
+                                     c.x, c.y, c.z, o );
+                            cell.V[i] = static_cast<int16_t>( o );
+                        }
+                    if ( !l.Cells.emplace( Pack( c ), cell ).second )
+                        return Common::MakeFormattedError<bool>( "CubeGrid layer {}: cell ({}, {}, {}) is stored twice",
+                                                                 li, c.x, c.y, c.z );
+                }
+                return Common::MakeSuccess( true );
+            };
+            if ( auto r = read( s.Flat, kSavedFlatStride ); !r.IsSuccess() )
+                return Common::MakeError<Volume>( r.GetError() );
+            if ( auto r = read( s.Deformed, kSavedDeformedStride ); !r.IsSuccess() )
+                return Common::MakeError<Volume>( r.GetError() );
+            v.m_Frozen.push_back( std::move( l ) );
+        }
+        return Common::MakeSuccess( std::move( v ) );
+    }
+
+    std::optional<uint64_t> ParseMeshKey( const std::string& text )
+    {
+        if ( text.size() != 16 )
+            return std::nullopt;
+        uint64_t key = 0;
+        for ( const char ch : text )
+        {
+            const int d = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : -1;
+            if ( d < 0 )
+                return std::nullopt;
+            key = ( key << 4 ) | static_cast<uint64_t>( d );
+        }
+        return key;
+    }
+
+    uint64_t MeshKey( std::vector<glm::vec3> positions, int triangleCount )
+    {
+        std::vector<std::array<int64_t, 3>> q;
+        q.reserve( positions.size() );
+        for ( const glm::vec3& p : positions )
+            q.push_back( { std::llround( p.x * 100.0 ), std::llround( p.y * 100.0 ), std::llround( p.z * 100.0 ) } );
+        std::ranges::sort( q );
+        q.erase( std::unique( q.begin(), q.end() ), q.end() );
+        // FNV-1a over the triangle count and the sorted distinct positions.
+        uint64_t h   = 1469598103934665603ull;
+        auto     mix = [&h]( int64_t value )
+        {
+            for ( int b = 0; b < 8; ++b )
+            {
+                h ^= static_cast<uint64_t>( value >> ( 8 * b ) ) & 0xFFu;
+                h *= 1099511628211ull;
+            }
+        };
+        mix( triangleCount );
+        for ( const auto& p : q )
+            for ( const int64_t c : p )
+                mix( c );
+        return h;
     }
 
     void SlideSelection( WorkPlane& plane, int baseCells )
