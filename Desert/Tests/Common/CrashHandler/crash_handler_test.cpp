@@ -268,6 +268,9 @@ int main( int argc, char** argv )
     const bool        engineRun = mode == "--crash-child-engine" || mode == "--crash-child-moved";
     if ( mode == "--crash-child" || engineRun )
     {
+        // LogInit opens engine_log.txt in the WORKING directory, which is the checkout the suite runs
+        // from; a test writes nothing into the tree (TST1), so the child works inside its scratch root.
+        std::filesystem::current_path( argv[3] );
         Common::Logger::LogInit();
 
         Common::Crash::InstallOptions options;
