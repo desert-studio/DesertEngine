@@ -386,9 +386,9 @@ TEST( WorldCellsHLOD, AnHLODStandingInForAnAlwaysLoadedUnitIsRefused )
     cooked.Index.HLODs.front().Unit = 0;
 
     // Rewritten through the envelope writer, so every checksum is true and only the payload differs.
-    auto&                      bytes = cooked.Files.at( std::string( Cells::kIndexFileName ) );
-    const CC::SubsystemVersion known[] = { { Cells::kWorldFormatTag, Cells::kWorldFormatVersion } };
-    auto envelope = CC::ReadAssetEnvelope( std::as_bytes( std::span( bytes ) ), { known } );
+    auto&                      bytes    = cooked.Files.at( std::string( Cells::kIndexFileName ) );
+    const CC::SubsystemVersion known[]  = { { Cells::kWorldFormatTag, Cells::kWorldFormatVersion } };
+    auto                       envelope = CC::ReadAssetEnvelope( std::as_bytes( std::span( bytes ) ), { known } );
     ASSERT_TRUE( envelope ) << envelope.GetError();
     CC::AssetEnvelope edited  = envelope.ExtractValue();
     const std::string payload = Common::Json::Write( cooked.Index );

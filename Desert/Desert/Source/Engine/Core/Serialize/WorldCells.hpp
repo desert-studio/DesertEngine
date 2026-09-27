@@ -121,7 +121,7 @@ namespace Desert::Core::WorldCells
     // list in WorldPartitionHLODRules.hpp): what WP11 must treat as a hole when the cell unloads.
     struct IndexNotInstanced
     {
-        std::uint64_t        Id = 0;
+        std::uint64_t        Id     = 0;
         Rules::HLODExclusion Reason = Rules::HLODExclusion::Unreadable;
     };
 
@@ -133,11 +133,11 @@ namespace Desert::Core::WorldCells
     {
         std::uint32_t                  Unit = 0;
         std::optional<std::string>     File;
-        std::vector<std::uint64_t>     Ids;       // the HLOD's own records, one per batch, in batch order
+        std::vector<std::uint64_t>     Ids; // the HLOD's own records, one per batch, in batch order
         std::uint64_t                  Instances = 0;
-        std::vector<std::uint64_t>     Sources;   // the cell's records it stands in for, in member order
+        std::vector<std::uint64_t>     Sources; // the cell's records it stands in for, in member order
         std::vector<IndexNotInstanced> NotInstanced;
-        std::vector<std::string>       Assets;    // registry keys the HLOD needs, transitively; sorted
+        std::vector<std::string>       Assets; // registry keys the HLOD needs, transitively; sorted
     };
 
     struct WorldIndex

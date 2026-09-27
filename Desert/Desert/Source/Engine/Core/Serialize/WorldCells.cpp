@@ -457,7 +457,8 @@ namespace Desert::Core::WorldCells
         std::set<std::uint64_t>      hlodIds;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < unitCount; ++unit )
         {
-            const Rules::InstancingHLOD built = Rules::BuildInstancingHLOD( records, world, members[unit], issues );
+            const Rules::InstancingHLOD built =
+                 Rules::BuildInstancingHLOD( records, world, members[unit], issues );
             if ( built.Batches.empty() && built.NotInstanced.empty() )
                 continue;
             IndexHLOD row;
@@ -566,10 +567,9 @@ namespace Desert::Core::WorldCells
                 return Common::MakeError<WorldIndex>( "'" + name + "': the HLOD of " + unitName + " has " +
                                                       std::to_string( hlod.Ids.size() ) + " record(s) and " +
                                                       ( hlod.File ? "a" : "no" ) + " file" );
-            const bool listed =
-                 !hlod.File.has_value() ||
-                 std::any_of( index.Files.begin(), index.Files.end(),
-                              [&]( const IndexFile& file ) { return file.Name == *hlod.File; } );
+            const bool listed = !hlod.File.has_value() ||
+                                std::any_of( index.Files.begin(), index.Files.end(),
+                                             [&]( const IndexFile& file ) { return file.Name == *hlod.File; } );
             if ( !listed )
                 return Common::MakeError<WorldIndex>( "'" + name + "': the HLOD of " + unitName + " names file '" +
                                                       *hlod.File + "', which the index does not list" );
@@ -732,13 +732,14 @@ namespace Desert::Core::WorldCells
         return Assemble( index, reader, index.Units.size() );
     }
 
-    Common::ResultStr<std::vector<Assets::EntityData>> HLODRecords( const WorldIndex& index, const FileReader& reader,
-                                                                    std::size_t hlod )
+    Common::ResultStr<std::vector<Assets::EntityData>> HLODRecords( const WorldIndex& index,
+                                                                    const FileReader& reader, std::size_t hlod )
     {
         using Result = std::vector<Assets::EntityData>;
         if ( hlod >= index.HLODs.size() )
-            return Common::MakeError<Result>( "world '" + index.SceneName + "' has no HLOD " + std::to_string( hlod ) +
-                                              " (it has " + std::to_string( index.HLODs.size() ) + ")" );
+            return Common::MakeError<Result>( "world '" + index.SceneName + "' has no HLOD " +
+                                              std::to_string( hlod ) + " (it has " +
+                                              std::to_string( index.HLODs.size() ) + ")" );
         if ( !index.HLODs[hlod].File.has_value() )
             return Common::MakeSuccess( Result{} );
         auto cell = ReadUnitFile( index, reader, *index.HLODs[hlod].File );
