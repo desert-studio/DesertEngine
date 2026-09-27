@@ -8,7 +8,7 @@
 //   4. an import into a landscape replaces every stored copy of a seam sample, and its record undoes it exactly;
 //   5. a new landscape from a map has the map's tile grid and exports back to the same map.
 
-#include <Engine/World/Landscape/LandscapeHeightmapIO.hpp>
+#include <Editor/Import/LandscapeHeightmapIO.hpp>
 
 #include <gtest/gtest.h>
 

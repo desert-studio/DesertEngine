@@ -10,3 +10,4 @@ Desert/Tests/Engine/WorldCells/world_cells_hlod_test.cpp | JS1d: test fixtures/r
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
+Desert/Tests/Tools/SceneSettingsHomes/scene_settings_homes_test.cpp | KEEP: drives SceneMigrator's SET1 step on Migration::SceneSerialized, whose Settings block is an rfl::Generic of a schema that no longer has a struct (the migrator allowance; its path lacks "Migrat")
