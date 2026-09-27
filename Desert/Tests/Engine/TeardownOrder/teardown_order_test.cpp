@@ -499,8 +499,7 @@ TEST( TeardownOrder, EveryVulkanObjectTheEngineCreatesHasADestroyCall )
            "would silence the validation output during the very teardown it is there to watch" },
     };
 
-    // The engine's OWN backend. VulkanUtils/lightweightvk is vendored third-party code sitting inside
-    // this tree, and its create/destroy pairing is not this repository's to answer for.
+    // The engine's OWN backend: every create/destroy pairing under these two trees is ours to answer for.
     const std::vector<std::filesystem::path> trees = {
          RepoRoot() / "Desert/Desert/Source/Engine/Graphic/API/Vulkan",
          RepoRoot() / "Desert/Desert/Source/Engine/ShaderResources/API/Vulkan" };
@@ -514,8 +513,6 @@ TEST( TeardownOrder, EveryVulkanObjectTheEngineCreatesHasADestroyCall )
         {
             const auto& p = entry.path();
             if ( !entry.is_regular_file() || ( p.extension() != ".cpp" && p.extension() != ".hpp" ) )
-                continue;
-            if ( p.string().find( "lightweightvk" ) != std::string::npos )
                 continue;
             backend += StripLineComments( ReadFile( p ) );
             backend += '\n';

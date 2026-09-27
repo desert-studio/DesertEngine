@@ -98,7 +98,7 @@ namespace
     }
 
     // Every source the engine, the editor, the runtime and the tools are built from. Third-party trees
-    // are excluded, `lightweightvk` explicitly because it is vendored INSIDE our Vulkan folder.
+    // are excluded.
     std::vector<fs::path> ProjectSources( const std::string& root )
     {
         const char* trees[] = { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source",
@@ -117,8 +117,7 @@ namespace
                     break;
                 const fs::path&   p = it->path();
                 const std::string s = p.string();
-                if ( s.find( "ThirdParty" ) != std::string::npos ||
-                     s.find( "lightweightvk" ) != std::string::npos )
+                if ( s.find( "ThirdParty" ) != std::string::npos )
                     continue;
                 const std::string ext = p.extension().string();
                 if ( ext == ".cpp" || ext == ".hpp" || ext == ".h" || ext == ".inl" )
@@ -634,9 +633,9 @@ namespace
          // fenced for the device-loss rebuild; that fence came down when Г7, Г7-C and Г13 landed, and
          // Г12 took the decision the row was waiting for: DELETED, because a Vulkan backend binds a
          // descriptor SET per draw and names its vertex/index buffers in the draw command, and there is
-         // no second backend for the seam to serve (`RendererAPIType` has exactly `None` and `Vulkan`;
-         // `lightweightvk` is a vendored utility inside our own Vulkan folder and `NVRHI` is referenced
-         // by no engine file). The reasoning is kept at the site, in Graphic/RendererTypes.hpp.
+         // no second backend for the seam to serve (`RendererAPIType` has exactly `None` and `Vulkan`,
+         // and the tree carries no other rendering backend). The reasoning is kept at the site, in
+         // Graphic/RendererTypes.hpp.
          //
          // A dead pure virtual is not inert: it is a standing instruction to every future implementer to
          // write a body that does nothing. That is what these eight cost, and what the ones below still
