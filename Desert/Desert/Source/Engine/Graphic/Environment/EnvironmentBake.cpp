@@ -119,8 +119,8 @@ namespace Desert::Graphic
                      {
                          const Ser::TextureLevel& image = data.Levels[row];
                          // The level's RGBA32F texels, kept as bytes in the cooked container; read in place.
-                         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                          faces[row] = Core::Formats::CensusBC6HCeiling(
+                              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                               reinterpret_cast<const float*>( data.Pixels.data() + image.ByteOffset ),
                               static_cast<std::size_t>( image.ByteSize / ( 4u * sizeof( float ) ) ) );
                      }
