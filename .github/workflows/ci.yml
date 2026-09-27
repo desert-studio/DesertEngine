@@ -647,15 +647,27 @@ jobs:
           $ver = "${{ env.VULKAN_SDK_VERSION }}"
           $url = "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe"
           Write-Host "Downloading $url"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\vulkan.exe"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\vulkan.exe" -MaximumRetryCount 3 -RetryIntervalSec 15
           # com.lunarg.vulkan.debug — the "Debuggable Shader API Libraries", which is where the debug
           # halves of the shader libs (shadercd.lib and friends) live. It is an OPTIONAL component, and
           # a bare `install` with --default-answer takes the core only, so the Debug configuration
           # linked against a shadercd.lib that was never installed. The cache key above carries the
           # component set for exactly this reason — see the note on it.
-          & "$env:RUNNER_TEMP\vulkan.exe" --root "C:\VulkanSDK\$ver" --accept-licenses `
-              --default-answer --confirm-command install com.lunarg.vulkan.debug
-          if ($LASTEXITCODE -ne 0) { throw "Vulkan SDK install failed ($LASTEXITCODE)" }
+          # The installer downloads its components from sdk.lunarg.com itself, and that download drops
+          # ("archiveDownloadError ... Connection") often enough to have failed three gate runs on
+          # 2026-09-27. The cache above does not save us there: a cache is visible only to its own branch
+          # and the default branch, so every new integration/batch branch reinstalls. Retry the whole
+          # install, clearing the half-written root between attempts.
+          $ok = $false
+          for ($attempt = 1; $attempt -le 3 -and -not $ok; $attempt++) {
+            & "$env:RUNNER_TEMP\vulkan.exe" --root "C:\VulkanSDK\$ver" --accept-licenses `
+                --default-answer --confirm-command install com.lunarg.vulkan.debug
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            Write-Host "Vulkan SDK install attempt $attempt failed ($LASTEXITCODE)"
+            if (Test-Path "C:\VulkanSDK\$ver") { Remove-Item -Recurse -Force "C:\VulkanSDK\$ver" }
+            Start-Sleep -Seconds 30
+          }
+          if (-not $ok) { throw "Vulkan SDK install failed after 3 attempts" }
 
       - name: Export VULKAN_SDK
         shell: pwsh
