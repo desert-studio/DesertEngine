@@ -6,6 +6,7 @@
 // Desert::Editor::Core visible before them and every one of those names silently rebinds to the wrong
 // namespace. PreviewViewport.hpp carries a note about the same trap. So the registry takes the fields of a
 // request rather than the request, and nothing here drags that namespace along.
+#include <Engine/Core/ViewBudget.hpp>
 #include <Editor/Panels/IPanel.hpp>
 
 #include <functional>
@@ -255,34 +256,46 @@ namespace Desert::Editor
     // functions answering one question — the very thing the note above says the editor has already paid for
     // once — and the survivor would have been the one that could still be pointed at the wrong container.
 
-    // How many renderer slots the open documents have SPOKEN FOR but not yet taken.
+    // How many BYTES the open documents have SPOKEN FOR but not yet allocated: the forecast of every
+    // document that will build a view (ClaimsView) and has not built it yet (!HoldsView).
     //
-    // The cap is checked as `live + pending >= kMaxRendererSlots`, and `live` counts renderers that exist.
-    // A document is created before it first draws, and a Material Editor builds its PreviewViewport on that
-    // first frame — so between the two it holds no slot and has a claim coming. Counting only live
-    // renderers would admit a document there is no slot for and discover it a frame later, with the
-    // symptom being two surfaces quietly trading each other's per-frame camera.
+    // Why pending demand is counted at all: a document is created before it first draws, and a Material
+    // Editor builds its PreviewViewport on that first frame — so between the two its memory is in no usage
+    // figure the device reports, and a check that trusted usage alone would admit a document whose view
+    // does not fit and discover it a frame later as an allocation failure. A view that EXISTS is not counted
+    // here: its memory is already in the usage, and counting its forecast too would count it twice.
     //
-    // A DOCUMENT THAT WILL NEVER CLAIM ONE IS NOT PENDING DEMAND, and that half is not symmetry for its own
-    // sake: the four cloud documents bake on the CPU and upload an Image2D, so five of them open beside the
-    // main viewport would reach the cap on paper and the sixth would be refused — with a census telling the
-    // user to close windows that were holding nothing and would never hold anything. See
-    // ISubjectDocument::ClaimsRendererSlot.
+    // A DOCUMENT THAT WILL NEVER BUILD A VIEW ADDS NOTHING: the four cloud documents bake on the CPU, and
+    // counting them once refused a window with a census telling the user to close windows that held nothing.
     //
-    // A free function over the range, rather than a loop inside EditorLayer, for the reason
-    // FindOpenAssetDocument above is one: EditorLayer.cpp is compiled by no suite
-    // (scripts/CI/UnreachedSources.sh), so a rule written there is a rule nothing can assert. Templated on
-    // the range so a test can drive it with a plain vector and no editor anywhere near.
+    // A free function over the range, for the reason FindOpenAssetDocument above is one: EditorLayer.cpp is
+    // compiled by no suite, so a rule written there is a rule nothing can assert.
     template <typename Range>
-    [[nodiscard]] uint32_t PendingRendererSlotDemand( const Range& panels )
+    [[nodiscard]] uint64_t PendingViewBytes( const Range& panels )
     {
-        uint32_t pending = 0;
+        uint64_t pending = 0;
         for ( const auto& panel : panels )
         {
             const auto* document = dynamic_cast<const ISubjectDocument*>( &*panel );
-            if ( document && document->ClaimsRendererSlot() && !document->HoldsRendererSlot() )
-                ++pending;
+            if ( document && document->ClaimsView() && !document->HoldsView() )
+                pending += document->ViewForecastBytes();
         }
         return pending;
+    }
+
+    // May @p document be opened beside documents that have @p pendingBytes still to allocate?
+    //
+    // NOT A SECOND BUDGET RULE: this is Engine::ViewBudget::MayCreate for a user surface (the person asked
+    // for this window by name, so it keeps no reserve), asked for the new document's forecast PLUS the
+    // pending demand — memory that is spoken for but not yet in the reading's usage. A document that builds
+    // no view asks for its share of the pending demand only, so a CPU-drawn window is refused only when the
+    // documents already open cannot fit either.
+    [[nodiscard]] inline Engine::ViewBudget::Verdict
+    AdmitDocumentView( const ISubjectDocument& document, const uint64_t pendingBytes,
+                       const Engine::ViewBudget::Reading& reading )
+    {
+        const uint64_t own = document.ClaimsView() && !document.HoldsView() ? document.ViewForecastBytes() : 0;
+        return Engine::ViewBudget::MayCreate( Engine::ViewBudget::Demand::UserSurface, own + pendingBytes, 0,
+                                              reading );
     }
 } // namespace Desert::Editor

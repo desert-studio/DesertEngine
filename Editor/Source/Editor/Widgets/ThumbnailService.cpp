@@ -180,8 +180,8 @@ namespace Desert::Editor
         m_Renderer.reset();
         m_IdleTicks = 0;
 
-        LOG_INFO( "[Thumbnails] renderer released on shutdown ({}/{} renderer slots in use).",
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Thumbnails] renderer released on shutdown (views: {}).",
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     bool ThumbnailService::AcquireRenderer()
@@ -331,9 +331,8 @@ namespace Desert::Editor
                 // is what returns the slot.
                 m_Renderer.reset();
                 m_IdleTicks = 0;
-                LOG_INFO( "[Thumbnails] idle for {} frames — renderer released ({}/{} renderer slots in use).",
-                          kIdleTicksBeforeRelease, Graphic::SceneRenderer::GetLiveRendererCount(),
-                          EngineContext::kMaxRendererSlots );
+                LOG_INFO( "[Thumbnails] idle for {} frames — renderer released (views: {}).",
+                          kIdleTicksBeforeRelease, Graphic::SceneRenderer::DescribeLiveViews() );
             }
             return;
         }

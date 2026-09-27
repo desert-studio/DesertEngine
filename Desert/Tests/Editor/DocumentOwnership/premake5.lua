@@ -3,7 +3,7 @@
 -- The units under test are header-only and free of the renderer: Editor/Core/PanelRegistry.hpp carries the
 -- container that refuses a document, Editor/Core/OpenDocuments.hpp the OWNER that holds one and refuses a
 -- second for the same subject, Editor/Core/DocumentWell.hpp one VIEW over that owner, and
--- Engine/Core/RendererSlotPool.hpp the lease a closed document has to give back. They sit in headers for the
+-- Engine/Graphic/ViewResources.hpp the view a closed document has to end. They sit in headers for the
 -- reason Editor/Core/SceneViewIdentity.hpp and Editor/Core/SubjectEditorRegistry.hpp do -- EditorLayer.cpp is
 -- compiled by no suite (scripts/CI/UnreachedSources.sh), so anything assertable has to be lifted out of it.
 -- Nothing to link from the engine or the editor. glm is on the path because IPanel.hpp's
@@ -28,7 +28,13 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    files { test_files, "%{wks.location}/Editor/Source/Editor/Core/SubjectEditorRegistry.cpp" }
+    files {
+        test_files,
+        "%{wks.location}/Editor/Source/Editor/Core/SubjectEditorRegistry.cpp",
+        -- The view register: a document that holds a preview holds a real ViewResources, so "the view
+        -- went away" is the shipped register's count and not a counter this suite keeps for itself.
+        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/ViewResources.cpp",
+    }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",

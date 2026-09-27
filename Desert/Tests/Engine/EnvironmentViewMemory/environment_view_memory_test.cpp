@@ -114,7 +114,7 @@ namespace
     void EnsureEngineSingletons()
     {
         FrameManager::CreateInstance().Initialize( 2 );
-        EngineContext::CreateInstance().SetActiveRendererSlot( 0 );
+        EngineContext::CreateInstance();
     }
 
     /// Draws @p scene for @p frames frames, the way SceneRenderer does: the producer restates the scene's

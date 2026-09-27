@@ -675,8 +675,8 @@ namespace Desert::Editor
 
         // The last frame this recorded into may still be executing against the preview's pipelines,
         // framebuffers and descriptor pools. Idle, then release the scene before the renderer that owns its
-        // passes — whose destructor is what hands the renderer slot back
-        // (Engine/Core/RendererSlotPool.hpp). Same order as ~PreviewViewport, which is the pattern this
+        // passes — whose destructor is what gives the view's memory back
+        // (Graphic/ViewResources.hpp). Same order as ~PreviewViewport, which is the pattern this
         // editor's preview surfaces are destroyed by.
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
         m_PreviewTarget = ECS::Entity();

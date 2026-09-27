@@ -2180,8 +2180,8 @@ namespace Desert::ECS
     // WYSIWYG in the tool that already exists, and this component stays four fields.
     //
     // WHY IT IS NOT FREE, said here because the price is the design. Each of these elements that is
-    // actually on screen owns a Graphic::SceneRenderer, and therefore one of the six renderer slots
-    // (Engine/Core/RendererSlotPool.hpp). The seventh is REFUSED, by name and with numbers, and draws the
+    // actually on screen owns a Graphic::SceneRenderer, and therefore a view's worth of GPU memory
+    // (Engine/Core/ViewBudget.hpp). One past the budget is REFUSED, by name and with numbers, and draws the
     // magenta error fill rather than nothing — see Engine/UI/UIRenderTextureSource.hpp for who decides
     // and Engine/Graphic/Render2D/UIRenderTextureCache.hpp for the accounting. An element the walk did
     // not draw this frame — scrolled away, or not Visible — is not on screen, and its slot goes back.

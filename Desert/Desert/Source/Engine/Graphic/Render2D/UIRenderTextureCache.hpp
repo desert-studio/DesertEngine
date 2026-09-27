@@ -31,8 +31,8 @@ namespace Desert::Graphic::Render2D
      * @brief The worlds behind one view's render-texture elements (Ю16).
      *
      * WHAT IT OWNS. One offscreen Core::Scene and one Graphic::SceneRenderer per element that is ON
-     * SCREEN, keyed by the element entity. Each of those renderers holds one of the six renderer slots
-     * (Engine/Core/RendererSlotPool.hpp), and there is no seventh.
+     * SCREEN, keyed by the element entity. Each of those renderers is a view with its own GPU copies, and
+     * the byte budget (Engine/Core/ViewBudget.hpp) decides whether one more fits.
      *
      * THE TWO HALVES, AND WHY THEY ARE TWO. Vulkan has no nested render pass, and the canvas walk runs
      * INSIDE one — in the editor it is an external pass on the scene's HDR target

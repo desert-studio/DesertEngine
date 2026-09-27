@@ -46,30 +46,6 @@ namespace Desert
             return Engine::FrameManager::GetInstance().GetMaxFramesInFlight();
         }
 
-        // --- Renderer slot ------------------------------------------------------------------------------
-        // WHICH renderer is recording right now, alongside WHICH frame is in flight.
-        //
-        // Per-frame scene state (camera / lights / shadows / IBL) is written into buffers owned by the
-        // shared material, and a descriptor set REFERENCES those buffers rather than copying them — so two
-        // SceneRenderers in one frame overwrite each other's view (Docs/RENDERER_FRAME_STATE.md). The fix
-        // is to give those buffers and their descriptor sets a second dimension: not just the frame, but
-        // the renderer. This is the index into it.
-        //
-        // Set by SceneRenderer::BeginScene and read wherever a per-frame resource is written or bound. It
-        // deliberately mirrors the frame index: same lifetime, same "ambient state of the recording"
-        // shape, so the two are always looked up the same way.
-        static constexpr uint32_t kMaxRendererSlots = Engine::kMaxRendererSlots;
-
-        [[nodiscard]] uint32_t GetActiveRendererSlot() const
-        {
-            return m_ActiveRendererSlot;
-        }
-
-        void SetActiveRendererSlot( uint32_t slot )
-        {
-            m_ActiveRendererSlot = slot < kMaxRendererSlots ? slot : 0;
-        }
-
         [[nodiscard]] std::shared_ptr<Window> GetWindow() const
         {
             return m_Window.lock();
@@ -106,7 +82,6 @@ namespace Desert
         }
 
     private:
-        uint32_t                                m_ActiveRendererSlot = 0;
         std::weak_ptr<Window>                   m_Window;
         std::weak_ptr<Engine::Device>           m_Device;
         std::weak_ptr<Graphic::RendererContext> m_RendererContext;

@@ -22,6 +22,15 @@
 *.frag     -text
 *.comp     -text
 
+# Source models. Most FBX is binary and git leaves it alone, but an ASCII FBX (the hand-authored
+# unit fixture under Desert/Tests) is detected as text and would be checked out with CRLF on Windows
+# — a different byte count for a file whose whole purpose is to state one number the same way
+# everywhere.
+*.fbx          -text
+*.gltf         -text
+*.glb          -text
+*.obj          -text
+
 # Authored content the registry sizes and the packager hashes.
 *.desce        -text
 *.demat        -text

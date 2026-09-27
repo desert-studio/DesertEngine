@@ -137,7 +137,7 @@ namespace Desert::Editor
         }
     }
 
-    void SkyboxViewerDocument::ReleaseRendererSlot()
+    void SkyboxViewerDocument::ReleaseView()
     {
         m_Preview.reset();
         m_UIHelper.reset();
@@ -176,7 +176,7 @@ namespace Desert::Editor
     {
         // THE SLOT IS NOT CLAIMED UNTIL THE WINDOW HAS BEEN DRAWN (MaterialEditorPanel::OnPreUpdate has the
         // argument): the document exists a frame before its window does, and a hidden tab gives its slot back
-        // through ReleaseRendererSlot.
+        // through ReleaseView.
         if ( !m_DrewThisFrame )
             return;
         m_DrewThisFrame = false;
