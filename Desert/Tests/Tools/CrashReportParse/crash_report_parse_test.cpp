@@ -124,11 +124,8 @@ TEST( CrashReportParse, AnEndMarkerThatIsNotCompleteIsNotAWholeReport )
     // mid-token, or a future writer's other state. Only written=complete may read as whole.
     for ( const std::string value : { "partial", "compl", "" } )
     {
-        const std::string text = kHead + kTail.substr( 0, kTail.find( "written=" ) ) + "written=" + value +
-                                 "
-                                 ";
-                                 const CrashReporter::Report r =
-                                      CrashReporter::ParseCrashText( text, "crash.txt" );
+        const std::string text = kHead + kTail.substr( 0, kTail.find( "written=" ) ) + "written=" + value + "\n";
+        const CrashReporter::Report r = CrashReporter::ParseCrashText( text, "crash.txt" );
         ASSERT_TRUE( r.valid ) << r.error;
         EXPECT_FALSE( r.complete ) << "written=" << value << " was read as a complete report";
         EXPECT_EQ( r.frames.size(), 2u );
