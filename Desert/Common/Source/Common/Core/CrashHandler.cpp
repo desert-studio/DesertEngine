@@ -121,20 +121,37 @@ namespace Common::Crash::Detail
     // that a smashed stack may no longer have. The directory is named for the process START, not
     // for the crash — a process crashes once, so the two identify the same report, and the start
     // time is knowable while the program is still healthy.
-    char g_DirUtf8[kPathField] = "";
-    char g_TxtUtf8[kPathField] = "";
+    struct ReportPaths
+    {
+        char dirUtf8[kPathField] = "";
+        char txtUtf8[kPathField] = "";
 #if defined( DESERT_PLATFORM_WINDOWS )
-    wchar_t g_DirNative[kPathField]               = L"";
-    wchar_t g_TxtNative[kPathField]               = L"";
-    wchar_t g_DmpNative[kPathField]               = L"";
-    wchar_t g_ReporterNative[kPathField]          = L"";
-    wchar_t g_ReporterCommandLine[kPathField * 2] = L"";
+        wchar_t dirNative[kPathField]               = L"";
+        wchar_t txtNative[kPathField]               = L"";
+        wchar_t dmpNative[kPathField]               = L"";
+        wchar_t reporterNative[kPathField]          = L"";
+        wchar_t reporterCommandLine[kPathField * 2] = L"";
 #else
-    char  g_DmpUtf8[kPathField]      = "";
-    char  g_ReporterUtf8[kPathField] = "";
-    char* g_ReporterArgv[3]          = { nullptr, nullptr, nullptr };
+        char  dmpUtf8[kPathField]      = "";
+        char  reporterUtf8[kPathField] = "";
+        char* reporterArgv[3]          = { nullptr, nullptr, nullptr };
 #endif
-    bool g_HasReporter = false;
+        bool hasReporter = false;
+    };
+
+    // TWO SLOTS AND ONE ATOMIC POINTER, so the report root can MOVE while a handler may fire (PKG1c:
+    // the Runtime installs before the archive mount, under the engine's per-user root, and moves to
+    // GameUserDirectory(Name)/Crashes once the descriptor names the game). A move fills the slot the
+    // pointer does NOT name and then publishes it with one release store; a handler takes the pointer
+    // once with an acquire load, so it sees either the whole old set or the whole new one — never a
+    // directory from one and a crash.txt from the other. The store is a plain lock-free word, which is
+    // what makes reading it legal inside a signal handler.
+    ReportPaths               g_PathSlots[2];
+    std::atomic<ReportPaths*> g_Paths{ &g_PathSlots[0] };
+    static_assert( std::atomic<ReportPaths*>::is_always_lock_free,
+                   "the report-path pointer is read inside a signal handler and must be lock-free" );
+    // The set THIS crash writes to, taken once at handler entry (after the re-entry guard).
+    ReportPaths* g_CrashPaths = &g_PathSlots[0];
 
     std::atomic<bool> g_Installed{ false };
     // Re-entry guard: a fault inside the handler must kill the process rather than recurse until
@@ -344,7 +361,7 @@ namespace Common::Crash::Detail
 
     void RawCreateDirectory()
     {
-        ::CreateDirectoryW( g_DirNative, nullptr );
+        ::CreateDirectoryW( g_CrashPaths->dirNative, nullptr );
     }
 #else
     RawHandle RawCreateFile( const char* inPath )
@@ -362,7 +379,7 @@ namespace Common::Crash::Detail
 
     void RawCreateDirectory()
     {
-        ::mkdir( g_DirUtf8, 0755 );
+        ::mkdir( g_CrashPaths->dirUtf8, 0755 );
     }
 #endif
 
@@ -396,9 +413,9 @@ namespace Common::Crash::Detail
     {
         const RawHandle file = RawCreateFile(
 #if defined( DESERT_PLATFORM_WINDOWS )
-             g_TxtNative
+             g_CrashPaths->txtNative
 #else
-             g_TxtUtf8
+             g_CrashPaths->txtUtf8
 #endif
         );
         if ( file == kInvalidRawHandle )
@@ -540,10 +557,10 @@ namespace Common::Crash::Detail
     // is told where the report is and that no reporter ran.
     void LaunchReporter()
     {
-        if ( !g_HasReporter )
+        if ( !g_CrashPaths->hasReporter )
         {
             WriteStderr( "[Crash] report written to: " );
-            WriteStderr( g_DirUtf8 );
+            WriteStderr( g_CrashPaths->dirUtf8 );
             WriteStderr(
                  "\n[Crash] no crash reporter executable beside this binary - the report was not sent.\n" );
             return;
@@ -553,8 +570,8 @@ namespace Common::Crash::Detail
         STARTUPINFOW startup        = {};
         startup.cb                  = sizeof( startup );
         PROCESS_INFORMATION process = {};
-        if ( ::CreateProcessW( g_ReporterNative, g_ReporterCommandLine, nullptr, nullptr, FALSE, 0, nullptr,
-                               nullptr, &startup, &process ) != 0 )
+        if ( ::CreateProcessW( g_CrashPaths->reporterNative, g_CrashPaths->reporterCommandLine, nullptr, nullptr,
+                               FALSE, 0, nullptr, nullptr, &startup, &process ) != 0 )
         {
             ::CloseHandle( process.hThread );
             ::CloseHandle( process.hProcess );
@@ -562,15 +579,16 @@ namespace Common::Crash::Detail
         else
         {
             WriteStderr( "[Crash] could not start the crash reporter; report written to: " );
-            WriteStderr( g_DirUtf8 );
+            WriteStderr( g_CrashPaths->dirUtf8 );
             WriteStderr( "\n" );
         }
 #else
         pid_t child = 0;
-        if ( ::posix_spawn( &child, g_ReporterUtf8, nullptr, nullptr, g_ReporterArgv, environ ) != 0 )
+        if ( ::posix_spawn( &child, g_CrashPaths->reporterUtf8, nullptr, nullptr, g_CrashPaths->reporterArgv,
+                            environ ) != 0 )
         {
             WriteStderr( "[Crash] could not start the crash reporter; report written to: " );
-            WriteStderr( g_DirUtf8 );
+            WriteStderr( g_CrashPaths->dirUtf8 );
             WriteStderr( "\n" );
         }
 #endif
@@ -728,7 +746,7 @@ namespace Common::Crash::Detail
 
     void WriteMiniDump( EXCEPTION_POINTERS* inPointers )
     {
-        const HANDLE file = ::CreateFileW( g_DmpNative, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+        const HANDLE file = ::CreateFileW( g_CrashPaths->dmpNative, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                            FILE_ATTRIBUTE_NORMAL, nullptr );
         if ( file == INVALID_HANDLE_VALUE )
         {
@@ -762,6 +780,7 @@ namespace Common::Crash::Detail
         {
             TerminateAfterReport();
         }
+        g_CrashPaths = g_Paths.load( std::memory_order_acquire );
 
         RawCreateDirectory();
 
@@ -878,25 +897,26 @@ namespace Common::Crash::Detail
         }
     }
 
-    void FreezeNativePaths( const std::filesystem::path& inDirectory, const std::filesystem::path& inReporter )
+    void FreezeNativePaths( ReportPaths& ioSlot, const std::filesystem::path& inDirectory,
+                            const std::filesystem::path& inReporter )
     {
         const std::wstring directory = inDirectory.wstring();
         const std::wstring text      = ( inDirectory / "crash.txt" ).wstring();
         const std::wstring dump      = ( inDirectory / "crash.dmp" ).wstring();
-        std::wcsncpy( g_DirNative, directory.c_str(), kPathField - 1 );
-        std::wcsncpy( g_TxtNative, text.c_str(), kPathField - 1 );
-        std::wcsncpy( g_DmpNative, dump.c_str(), kPathField - 1 );
+        std::wcsncpy( ioSlot.dirNative, directory.c_str(), kPathField - 1 );
+        std::wcsncpy( ioSlot.txtNative, text.c_str(), kPathField - 1 );
+        std::wcsncpy( ioSlot.dmpNative, dump.c_str(), kPathField - 1 );
 
         if ( !inReporter.empty() )
         {
             const std::wstring reporter = inReporter.wstring();
-            std::wcsncpy( g_ReporterNative, reporter.c_str(), kPathField - 1 );
+            std::wcsncpy( ioSlot.reporterNative, reporter.c_str(), kPathField - 1 );
             // CreateProcessW wants a MUTABLE command line whose argv[0] is the program itself; the
             // report DIRECTORY is the single argument, quoted because it contains spaces on every
             // machine whose user name has one.
             const std::wstring command = L"\"" + reporter + L"\" \"" + directory + L"\"";
-            std::wcsncpy( g_ReporterCommandLine, command.c_str(), ( kPathField * 2 ) - 1 );
-            g_HasReporter = true;
+            std::wcsncpy( ioSlot.reporterCommandLine, command.c_str(), ( kPathField * 2 ) - 1 );
+            ioSlot.hasReporter = true;
         }
     }
 } // namespace Common::Crash::Detail
@@ -1017,6 +1037,7 @@ namespace Common::Crash::Detail
         {
             TerminateAfterReport();
         }
+        g_CrashPaths = g_Paths.load( std::memory_order_acquire );
 
         RawCreateDirectory();
 
@@ -1077,16 +1098,17 @@ namespace Common::Crash::Detail
         CopyIntoFixed( g_Os, kPathField, text );
     }
 
-    void FreezeNativePaths( const std::filesystem::path& inDirectory, const std::filesystem::path& inReporter )
+    void FreezeNativePaths( ReportPaths& ioSlot, const std::filesystem::path& inDirectory,
+                            const std::filesystem::path& inReporter )
     {
-        CopyIntoFixed( g_DmpUtf8, kPathField, ( inDirectory / "crash.dmp" ).string() );
+        CopyIntoFixed( ioSlot.dmpUtf8, kPathField, ( inDirectory / "crash.dmp" ).string() );
         if ( !inReporter.empty() )
         {
-            CopyIntoFixed( g_ReporterUtf8, kPathField, inReporter.string() );
-            g_ReporterArgv[0] = g_ReporterUtf8;
-            g_ReporterArgv[1] = g_DirUtf8;
-            g_ReporterArgv[2] = nullptr;
-            g_HasReporter     = true;
+            CopyIntoFixed( ioSlot.reporterUtf8, kPathField, inReporter.string() );
+            ioSlot.reporterArgv[0] = ioSlot.reporterUtf8;
+            ioSlot.reporterArgv[1] = ioSlot.dirUtf8;
+            ioSlot.reporterArgv[2] = nullptr;
+            ioSlot.hasReporter     = true;
         }
     }
 } // namespace Common::Crash::Detail
@@ -1105,10 +1127,6 @@ namespace Common::Crash
             if ( !inOptions.reportRootOverride.empty() )
             {
                 return inOptions.reportRootOverride;
-            }
-            if ( !inOptions.gameUserDirectory.empty() )
-            {
-                return inOptions.gameUserDirectory / "Crashes";
             }
             if ( !inOptions.projectRoot.empty() )
             {
@@ -1154,6 +1172,20 @@ namespace Common::Crash
             }
             return {};
 #endif
+        }
+
+        // What a later MoveReportRoot needs to rebuild the per-crash paths under another root: the
+        // directory NAME (start stamp + pid, fixed for the process) and the reporter found at Install.
+        std::string           g_RunName;
+        std::filesystem::path g_Reporter;
+
+        void FillSlot( Detail::ReportPaths& ioSlot, const std::filesystem::path& inDirectory,
+                       const std::filesystem::path& inReporter )
+        {
+            ioSlot = Detail::ReportPaths{};
+            Detail::CopyIntoFixed( ioSlot.dirUtf8, Detail::kPathField, inDirectory.string() );
+            Detail::CopyIntoFixed( ioSlot.txtUtf8, Detail::kPathField, ( inDirectory / "crash.txt" ).string() );
+            Detail::FreezeNativePaths( ioSlot, inDirectory, inReporter );
         }
 
         std::string FormatStartStamp()
@@ -1215,8 +1247,6 @@ namespace Common::Crash
         CopyIntoFixed( g_Branch, kSmallField, Common::Version::Branch() );
         g_Dirty = Common::Version::Dirty();
         CopyIntoFixed( g_Started, kSmallField, stamp );
-        CopyIntoFixed( g_DirUtf8, kPathField, directory.string() );
-        CopyIntoFixed( g_TxtUtf8, kPathField, ( directory / "crash.txt" ).string() );
         FormatOsDescription();
 
         std::filesystem::path reporter = inOptions.reporterExecutable;
@@ -1236,7 +1266,10 @@ namespace Common::Crash
         {
             reporter.clear();
         }
-        FreezeNativePaths( directory, reporter );
+        g_Reporter = reporter;
+        g_RunName  = stamp + "-" + std::to_string( pid );
+        FillSlot( g_PathSlots[0], directory, reporter );
+        g_Paths.store( &g_PathSlots[0], std::memory_order_release );
 
         // The ring sink joins the logger that LogInit() already created, so every line the host has
         // logged from this point on is in the report. Appending to the existing default logger and
@@ -1251,11 +1284,43 @@ namespace Common::Crash
         g_Installed.store( true, std::memory_order_release );
 
         LOG_INFO( "[Crash] handler installed for '{}'; reports go to {}", inOptions.hostName, directory.string() );
-        if ( !g_HasReporter )
+        if ( !g_PathSlots[0].hasReporter )
         {
             LOG_INFO( "[Crash] no reporter executable found - a crash will print its report path to stderr "
                       "instead of launching one" );
         }
+        return Common::MakeSuccess( true );
+    }
+
+    BoolResultStr MoveReportRoot( const std::filesystem::path& inNewRoot )
+    {
+        using namespace Detail;
+
+        if ( !g_Installed.load( std::memory_order_acquire ) )
+            return Common::MakeFormattedError( "Common::Crash::MoveReportRoot({}) before Install()",
+                                               inNewRoot.string() );
+        if ( inNewRoot.empty() )
+            return Common::MakeFormattedError( "Common::Crash::MoveReportRoot: empty root (host '{}')", g_Host );
+
+        // Created now, for Install's reason: the handler only creates the per-crash directory.
+        std::error_code error;
+        std::filesystem::create_directories( inNewRoot, error );
+        if ( error )
+            return Common::MakeFormattedError( "could not create the crash report directory {}: {} ({}); reports "
+                                               "stay under {}",
+                                               inNewRoot.string(), error.message(), error.value(),
+                                               g_ReportRoot.string() );
+
+        // The slot the pointer does NOT name is the one no handler can be reading.
+        ReportPaths* const          active    = g_Paths.load( std::memory_order_acquire );
+        ReportPaths&                spare     = active == &g_PathSlots[0] ? g_PathSlots[1] : g_PathSlots[0];
+        const std::filesystem::path directory = inNewRoot / g_RunName;
+        FillSlot( spare, directory, g_Reporter );
+        g_Paths.store( &spare, std::memory_order_release );
+
+        LOG_INFO( "[Crash] reports for '{}' now go to {} (were under {})", g_Host, directory.string(),
+                  g_ReportRoot.string() );
+        g_ReportRoot = inNewRoot;
         return Common::MakeSuccess( true );
     }
 

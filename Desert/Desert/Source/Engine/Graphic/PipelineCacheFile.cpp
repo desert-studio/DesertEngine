@@ -1,6 +1,6 @@
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 
-#include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/ProductName.hpp>
 
 #include <cstring>
 #include <format>
@@ -55,7 +55,7 @@ namespace Desert::Graphic::PipelineCacheFile
         std::filesystem::path root = userDir / "PipelineCache";
         if ( host == Host::Game )
             return root;
-        return root / Common::Settings::UserFolderName( projectName );
+        return root / Common::Settings::SanitizeProductName( projectName );
     }
 
     std::string FileName( const DeviceIdentity& identity )

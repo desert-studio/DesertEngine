@@ -48,7 +48,7 @@ namespace Desert::Graphic::PipelineCacheFile
     // Editor: <userDir>/PipelineCache/<project Name>/ — one editor opens many projects, and two projects'
     //         pipelines have nothing in common: one shared blob would only grow and be rewritten by whichever
     //         project ran last. The Name is the `.deproj` Name, not the folder's (a moved or cloned project
-    //         keeps its cache), made one path segment by Common::Settings::UserFolderName.
+    //         keeps its cache), made one path segment by Common::Settings::SanitizeProductName.
     std::filesystem::path Directory( Host host, const std::filesystem::path& userDir,
                                      std::string_view projectName );
 

@@ -1,4 +1,5 @@
 #include "MachineSettings.hpp"
+#include "ProductName.hpp"
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -257,8 +258,9 @@ namespace Common::Settings
 
     std::filesystem::path GameUserDirectory( const std::string& product )
     {
-        // A `.deproj` Name reaches a PATH here, so it is sanitised rather than trusted.
-        const std::string safe = UserFolderName( product );
+        // A `.deproj` Name reaches a PATH here, so it goes through the one rule the packager also names
+        // the package folder with (ProductName.hpp) rather than being trusted.
+        const std::string safe = SanitizeProductName( product );
 
         // ASKED OF THE COMPILER, NOT OF THE BUILD SYSTEM. `DESERT_PLATFORM_*` comes from a per-project
         // premake block that every test suite forgets (Common/Core/Core.hpp §DESERT_DEBUG_BREAK records

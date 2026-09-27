@@ -117,6 +117,21 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     }
 #endif
 
+    // THE CRASH HANDLER, BEFORE ANYTHING THAT CAN FAULT (PKG1c; UE installs its handler before the
+    // project loads). Mounting the archive and parsing the .deproj are exactly that, and the game's Name —
+    // which names its per-user directory — is known only after them. So the handler starts under the
+    // ENGINE's per-user root (no project: `$HOME/.desertengine/Crashes`, `%LOCALAPPDATA%/DesertEngine/
+    // Crashes`), never the install folder, and MoveReportRoot below moves it once the Name is read.
+    {
+        Common::Crash::InstallOptions crashOptions;
+        crashOptions.hostName = "Runtime";
+        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+             !installed.IsSuccess() )
+        {
+            FailStartup( "Crash handler: " + installed.GetError(), 1 );
+        }
+    }
+
     // DEV: an explicit --project opens the loose on-disk descriptor (overrides packaged discovery).
     if ( !projectArg.empty() && !Desert::Project::ProjectContext::Open( projectArg ) )
     {
@@ -188,21 +203,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                      1 );
     }
 
-    // THE CRASH HANDLER, INSTALLED AS SOON AS THERE IS A PLACE TO PUT A REPORT: the game's own per-user
-    // directory, GameUserDirectory(<.deproj Name>)/Crashes (PKG1), beside machine.json and the pipeline
-    // cache. Not <install>/Saved/Crashes: a player's install folder is read-only (Program Files, a signed
-    // .app). The Name is known only once the descriptor is open, so this follows the archive mount; a
-    // damaged archive is a refusal with a message above, not a crash.
+    // THE REPORTS FOLLOW THE GAME from here on: GameUserDirectory(<.deproj Name>)/Crashes (PKG1), beside
+    // machine.json and the pipeline cache — not <install>/Saved/Crashes, since a player's install folder
+    // is read-only (Program Files, a signed .app). The handler itself was installed before the mount.
+    if ( const Common::BoolResultStr moved = Common::Crash::MoveReportRoot(
+              Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "Crashes" );
+         !moved.IsSuccess() )
     {
-        Common::Crash::InstallOptions crashOptions;
-        crashOptions.hostName = "Runtime";
-        crashOptions.gameUserDirectory =
-             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name );
-        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
-             !installed.IsSuccess() )
-        {
-            FailStartup( "Crash handler: " + installed.GetError(), 1 );
-        }
+        FailStartup( "Crash handler: " + moved.GetError(), 1 );
     }
 
     if ( !crashTestArg.empty() )

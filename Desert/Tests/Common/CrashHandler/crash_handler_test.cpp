@@ -210,16 +210,49 @@ TEST( CrashHandler, PureCallWritesAReportNamingTheFaultingFunction )
     RunCrashCase( { "purecall", "PureCall" } );
 }
 
-// PKG1: a game's reports go to GameUserDirectory(Name)/Crashes, and that root wins over a project root
-// (a player's install folder is read-only). The child is given both and must use the game's.
-TEST( CrashHandler, GameUserDirectoryWinsOverTheProjectRoot )
+// PKG1c: the Runtime installs BEFORE the archive mount, under the engine's per-user root, and moves the
+// root to GameUserDirectory(Name)/Crashes once the descriptor is read. The children point the engine
+// root at a scratch directory through the environment the handler reads (HOME / LOCALAPPDATA).
+namespace
 {
-    const std::filesystem::path user = MakeScratchRoot( "game" );
-    const int                   code = RunChild( user, "segv", "--crash-child-game" );
+    std::filesystem::path EngineRootUnder( const std::filesystem::path& inUser )
+    {
+#if defined( _WIN32 )
+        return inUser / "DesertEngine" / "Crashes";
+#else
+        return inUser / ".desertengine" / "Crashes";
+#endif
+    }
+} // namespace
+
+TEST( CrashHandler, ACrashBeforeTheMoveLandsUnderTheEngineRoot )
+{
+    const std::filesystem::path user = MakeScratchRoot( "engine" );
+    const int                   code = RunChild( user, "segv", "--crash-child-engine" );
     ASSERT_NE( code, -1 ) << "could not start the crash child " << g_SelfPath.string();
 
-    EXPECT_FALSE( SoleReportDirectory( user / "Crashes" ).empty() ) << "no report under " << user.string();
-    EXPECT_FALSE( std::filesystem::exists( user / "project" / "Saved" ) ) << "the project root was used";
+    EXPECT_FALSE( SoleReportDirectory( EngineRootUnder( user ) ).empty() )
+         << "no report under " << EngineRootUnder( user ).string();
+    EXPECT_FALSE( std::filesystem::exists( user / "game" ) ) << "a report went to the game before the move";
+
+    std::error_code cleanup;
+    std::filesystem::remove_all( user, cleanup );
+}
+
+TEST( CrashHandler, ACrashAfterTheMoveLandsInTheGameDirectory )
+{
+    const std::filesystem::path user = MakeScratchRoot( "moved" );
+    const int                   code = RunChild( user, "segv", "--crash-child-moved" );
+    ASSERT_NE( code, -1 ) << "could not start the crash child " << g_SelfPath.string();
+
+    const std::filesystem::path report = SoleReportDirectory( user / "game" / "Crashes" );
+    EXPECT_FALSE( report.empty() ) << "no report under " << ( user / "game" / "Crashes" ).string();
+    EXPECT_TRUE( std::filesystem::exists( report / "crash.txt" ) ) << "the moved set lost its crash.txt path";
+    // The engine root was created at Install and must stay EMPTY: the move is the whole set, not the
+    // directory alone.
+    std::error_code ec;
+    EXPECT_TRUE( std::filesystem::is_empty( EngineRootUnder( user ), ec ) )
+         << "a report (or part of one) stayed under the engine root";
 
     std::error_code cleanup;
     std::filesystem::remove_all( user, cleanup );
@@ -231,17 +264,22 @@ int main( int argc, char** argv )
 {
     g_SelfPath = std::filesystem::absolute( argv[0] );
 
-    const bool gameChild = argc == 4 && std::string( argv[1] ) == "--crash-child-game";
-    if ( argc == 4 && ( std::string( argv[1] ) == "--crash-child" || gameChild ) )
+    const std::string mode      = argc == 4 ? argv[1] : "";
+    const bool        engineRun = mode == "--crash-child-engine" || mode == "--crash-child-moved";
+    if ( mode == "--crash-child" || engineRun )
     {
         Common::Logger::LogInit();
 
         Common::Crash::InstallOptions options;
         options.hostName = "CrashHandlerTestChild";
-        if ( gameChild )
+        if ( engineRun )
         {
-            options.gameUserDirectory = argv[3];
-            options.projectRoot       = std::filesystem::path( argv[3] ) / "project";
+            // No project and no override: the engine's per-user root, as the Runtime installs.
+#if defined( _WIN32 )
+            ::_putenv_s( "LOCALAPPDATA", argv[3] );
+#else
+            ::setenv( "HOME", argv[3], 1 );
+#endif
         }
         else
         {
@@ -252,6 +290,16 @@ int main( int argc, char** argv )
         {
             std::fputs( installed.GetError().c_str(), stderr );
             return 2;
+        }
+        if ( mode == "--crash-child-moved" )
+        {
+            const Common::BoolResultStr moved =
+                 Common::Crash::MoveReportRoot( std::filesystem::path( argv[3] ) / "game" / "Crashes" );
+            if ( !moved.IsSuccess() )
+            {
+                std::fputs( moved.GetError().c_str(), stderr );
+                return 2;
+            }
         }
 
         // Both context setters are exercised, because a value that is never written is a field the
