@@ -135,7 +135,7 @@ namespace
 #if defined( _WIN32 )
         _putenv_s( key, "" ); // an empty value removes the variable on Windows
 #else
-        unsetenv( key );
+        unsetenv( key ); // NOLINT(concurrency-mt-unsafe): single-threaded test fixture
 #endif
     }
 
@@ -143,7 +143,9 @@ namespace
     struct EnvironmentGuard
     {
         fs::path    OldCwd  = fs::current_path();
+        // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
         bool        HadHome = std::getenv( "HOME" ) != nullptr;
+        // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test fixture
         std::string OldHome = HadHome ? std::getenv( "HOME" ) : "";
         ~EnvironmentGuard()
         {

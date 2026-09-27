@@ -1019,7 +1019,7 @@ TEST( ReservedIdentifiers, NoIdentifierIsANameWindowsHDefinesAway )
             std::size_t end = i;
             while ( end < code.size() && IsWordChar( code[end] ) )
                 ++end;
-            if ( kMacroNames.count( code.substr( i, end - i ) ) != 0 )
+            if ( kMacroNames.contains( code.substr( i, end - i ) ) )
                 offenders.push_back( s.Name + ":" + std::to_string( LineOf( code, i ) ) + "  " +
                                      code.substr( i, end - i ) );
             i = end;
@@ -1079,12 +1079,12 @@ TEST( ReservedIdentifiers, EveryWriteTimeReaderStatesItsRule )
     for ( const Source& s : Sources() )
     {
         // Tests pin write times on purpose: that is how FIX2's class is reproduced on one machine.
-        if ( s.Name.rfind( "Desert/Tests/", 0 ) == 0 || s.Code.find( "last_write_time" ) == std::string::npos ||
+        if ( s.Name.starts_with( "Desert/Tests/" ) || s.Code.find( "last_write_time" ) == std::string::npos ||
              !std::regex_search( s.Code, reads ) )
             continue;
         if ( std::regex_search( s.Code, racyRule ) )
             continue;
-        if ( registered.count( s.Name ) != 0 )
+        if ( registered.contains( s.Name ) )
             matched.insert( s.Name );
         else
             offenders.push_back( s.Name );
@@ -1092,7 +1092,7 @@ TEST( ReservedIdentifiers, EveryWriteTimeReaderStatesItsRule )
     std::vector<std::string> stale;
     for ( const std::string& name : registered )
     {
-        if ( matched.count( name ) == 0 )
+        if ( !matched.contains( name ) )
             stale.push_back( name );
     }
     EXPECT_TRUE( offenders.empty() )
@@ -1150,7 +1150,7 @@ TEST( ReservedIdentifiers, NoPathOrCommandIsSpelledForOnePlatform )
         }
         // Tests SET HOME to keep the product out of the real user config, which works because the product
         // honours HOME before USERPROFILE; the product itself must know both.
-        if ( s.Name.rfind( "Desert/Tests/", 0 ) != 0 && std::regex_search( s.Code, homeOnly ) &&
+        if ( !s.Name.starts_with( "Desert/Tests/" ) && std::regex_search( s.Code, homeOnly ) &&
              s.Text.find( "USERPROFILE" ) == std::string::npos )
             offenders.push_back( s.Name + "  reads HOME with no USERPROFILE beside it" );
     }

@@ -1036,7 +1036,7 @@ namespace
                 verbatim = verbatim || attribute == "-text" || attribute == "binary";
             if ( !verbatim )
                 continue;
-            if ( pattern.rfind( "*", 0 ) == 0 && pattern.find( '/' ) == std::string::npos )
+            if ( pattern.starts_with( '*' ) && pattern.find( '/' ) == std::string::npos )
                 rules.Suffixes.push_back( pattern.substr( 1 ) );
             else if ( pattern.size() > 3 && pattern.compare( pattern.size() - 3, 3, "/**" ) == 0 )
                 rules.Prefixes.push_back( pattern.substr( 0, pattern.size() - 2 ) );
@@ -1057,10 +1057,10 @@ namespace
         }
         for ( const std::string& prefix : rules.Prefixes )
         {
-            if ( relative.rfind( prefix, 0 ) == 0 )
+            if ( relative.starts_with( prefix ) )
                 return true;
         }
-        return rules.Paths.count( relative ) != 0;
+        return rules.Paths.contains( relative );
     }
 
     // git's own test for "text": no NUL byte in the first 8000.
@@ -1114,7 +1114,7 @@ TEST( PakChunks, EveryPackedTextFileIsCheckedOutVerbatim )
     for ( const fs::path& file : tree )
     {
         const std::string relative = fs::relative( file, repo ).generic_string();
-        if ( relative.rfind( "..", 0 ) == 0 || !GitWouldCallItText( file ) )
+        if ( relative.starts_with( ".." ) || !GitWouldCallItText( file ) )
             continue;
         ++text;
         if ( !IsVerbatim( rules, relative ) )
