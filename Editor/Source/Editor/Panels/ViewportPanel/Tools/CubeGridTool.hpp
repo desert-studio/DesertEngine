@@ -57,6 +57,7 @@ namespace Desert::Editor::Tools
         Common::UUID m_Entity    = Common::UUID::Null(); // live blockout entity
 
         float     m_GroundY    = 0.0f;    // ground work-plane height in the active grid frame (Level up/down)
+        bool      m_GroundToPivot = false;   // Ctrl+MMB moved the pivot: next frame's ground goes through it
         bool      m_HoverValid = false;   // last frame's cursor targeting hit something
 
         // Work-plane (in BASE cells): locked while selecting and kept for the active selection.

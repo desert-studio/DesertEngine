@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <vector>
 
 using namespace Desert::Geometry::VoxelBlockout;
 
@@ -176,14 +177,14 @@ TEST( VoxelBlockout, DeformedNeighboursOnlyHideTheSharedFaceWhenTheirCornersAgre
     v.m_Cells[Pack( { 0, 0, 0 } )] = a;
     v.m_Cells[Pack( { 1, 0, 0 } )] = b;
     const int right              = 5; // +X
-    EXPECT_TRUE( v.FaceHidden( v.m_Cells, { 0, 0, 0 }, a, right, v.m_Unit, v.m_Origin ) );
+    EXPECT_TRUE( v.FaceHidden( v.m_Cells, { 0, 0, 0 }, a, right, v.m_Unit, v.m_Frame ) );
 
     a.V[1 | 2]                   = 30; // lift a's +X top corner only
     v.m_Cells[Pack( { 0, 0, 0 } )] = a;
-    EXPECT_FALSE( v.FaceHidden( v.m_Cells, { 0, 0, 0 }, a, right, v.m_Unit, v.m_Origin ) );
+    EXPECT_FALSE( v.FaceHidden( v.m_Cells, { 0, 0, 0 }, a, right, v.m_Unit, v.m_Frame ) );
     b.V[2]                       = 30; // the neighbour's matching -X top corner
     v.m_Cells[Pack( { 1, 0, 0 } )] = b;
-    EXPECT_TRUE( v.FaceHidden( v.m_Cells, { 0, 0, 0 }, a, right, v.m_Unit, v.m_Origin ) );
+    EXPECT_TRUE( v.FaceHidden( v.m_Cells, { 0, 0, 0 }, a, right, v.m_Unit, v.m_Frame ) );
 }
 
 TEST( VoxelBlockout, FrozenLayersCullAcrossUnitsButNotAcrossGridFrames )
@@ -199,9 +200,10 @@ TEST( VoxelBlockout, FrozenLayersCullAcrossUnitsButNotAcrossGridFrames )
 
     // A 50 cm volume beside the 100 cm cube: its -X faces touching the cube are hidden.
     v.m_Unit = 50.0f;
-    EXPECT_TRUE( v.SolidAt( { 1, 1, 1 }, 50.0f, glm::vec3( 0.0f ) ) );
-    EXPECT_FALSE( v.SolidAt( { 2, 0, 0 }, 50.0f, glm::vec3( 0.0f ) ) );
-    EXPECT_FALSE( v.SolidAt( { 1, 1, 1 }, 50.0f, glm::vec3( 10.0f, 0.0f, 0.0f ) ) ) << "another grid frame";
+    EXPECT_TRUE( v.SolidAt( { 1, 1, 1 }, 50.0f, GridFrame{} ) );
+    EXPECT_FALSE( v.SolidAt( { 2, 0, 0 }, 50.0f, GridFrame{} ) );
+    EXPECT_FALSE( v.SolidAt( { 1, 1, 1 }, 50.0f, GridFrame{ glm::vec3( 10.0f, 0.0f, 0.0f ) } ) )
+         << "another grid frame";
 
     WorkPlane side{ 0, 1, 2 };
     v.PushPull( side, Rect{ 0, 1, 0, 1 }, +1, 1, 0 ); // 2 x 2 x 1 of 50 cm cells against the cube's +X face
@@ -417,4 +419,124 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// M10: the grid frame carries a rotation as well as an origin. The edits stay frame-space (cell indices); the bake
+// carries every layer into the world by its OWN frame, and layers in turned frames never cull or paint each other.
+TEST( VoxelBlockoutFrame, FrameRoundTripsAndMakeGridFrameUsesDegreesAboutXYZ )
+{
+    const GridFrame f = MakeGridFrame( { 300.0f, 10.0f, -200.0f }, { 20.0f, 30.0f, -45.0f } );
+    const glm::vec3 p( 12.0f, -7.0f, 250.0f );
+    const glm::vec3 back = f.ToFramePoint( f.ToWorldPoint( p ) );
+    EXPECT_NEAR( back.x, p.x, 1e-3f );
+    EXPECT_NEAR( back.y, p.y, 1e-3f );
+    EXPECT_NEAR( back.z, p.z, 1e-3f );
+
+    const glm::vec3 yawedX =
+         MakeGridFrame( glm::vec3( 0.0f ), { 0.0f, 90.0f, 0.0f } ).ToWorldVector( { 1, 0, 0 } );
+    EXPECT_NEAR( yawedX.z, -1.0f, 1e-5f ) << "+90 degrees about Y turns +X onto -Z";
+    EXPECT_TRUE( f.SameAxes( GridFrame{ glm::vec3( 5.0f ), -f.Rotation } ) ) << "q and -q are one rotation";
+    EXPECT_FALSE( f.SameAs( GridFrame{ glm::vec3( 5.0f ), f.Rotation } ) );
+}
+
+TEST( VoxelBlockoutFrame, ABlockInARotatedFrameLandsOnTheFramesLatticeInTheWorld )
+{
+    Volume v  = Ground();
+    v.m_Frame = MakeGridFrame( { 300.0f, 0.0f, -200.0f }, { 0.0f, 30.0f, 0.0f } );
+    WorkPlane plane;
+    v.PushPull( plane, Rect{ 2, 2, 1, 1 }, +1, 1, 0 ); // u is Z, v is X: the cell (x 1, y 0, z 2)
+    ASSERT_EQ( v.m_Cells.size(), 1u );
+    ASSERT_TRUE( v.m_Cells.contains( Pack( { 1, 0, 2 } ) ) ) << "the edit itself stays in frame cells";
+
+    // Written out by hand, not through GridFrame: +30 degrees about Y is x' = x cos + z sin, z' = z cos - x sin.
+    const float cs    = std::cos( glm::radians( 30.0f ) );
+    const float sn    = std::sin( glm::radians( 30.0f ) );
+    auto        world = [&]( float x, float y, float z )
+    { return glm::vec3( 300.0f + x * cs + z * sn, y, -200.0f + z * cs - x * sn ); };
+    std::vector<glm::vec3> corners;
+    for ( int i = 0; i < 8; ++i )
+        corners.push_back( world( ( 1.0f + static_cast<float>( i & 1 ) ) * 100.0f, ( i & 2 ) ? 100.0f : 0.0f,
+                                  ( ( i & 4 ) ? 3.0f : 2.0f ) * 100.0f ) );
+    const std::vector<glm::vec3> normals = { { 0, 1, 0 },    { 0, -1, 0 },  { cs, 0, -sn },
+                                             { -cs, 0, sn }, { sn, 0, cs }, { -sn, 0, -cs } };
+
+    const auto mesh = v.Bake();
+    ASSERT_EQ( mesh.Vertices.size(), 24u );
+    std::vector<int> used( corners.size(), 0 );
+    for ( const auto& vert : mesh.Vertices )
+    {
+        int at = -1;
+        for ( size_t k = 0; k < corners.size(); ++k )
+            if ( glm::length( vert.Position - corners[k] ) < 1e-2f )
+                at = static_cast<int>( k );
+        ASSERT_GE( at, 0 ) << "a vertex off the turned lattice at (" << vert.Position.x << ", " << vert.Position.y
+                           << ", " << vert.Position.z << ")";
+        ++used[at];
+        bool normalOk = false;
+        for ( const auto& n : normals )
+            normalOk = normalOk || glm::length( vert.Normal - n ) < 1e-4f;
+        EXPECT_TRUE( normalOk ) << "the normal turns with the frame";
+        EXPECT_NEAR( glm::dot( vert.Tangent, vert.Normal ), 0.0f, 1e-4f ) << "the tangent turns with it too";
+    }
+    for ( int n : used )
+        EXPECT_EQ( n, 3 ) << "every corner of the cube is shared by three faces";
+    const Measure m = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_NEAR( m.Volume, 1.0e6, 1.0 ) << "one 100 cm cube, rotation keeps the volume";
+}
+
+TEST( VoxelBlockoutFrame, LayersInTurnedFramesNeverCullEachOther )
+{
+    Volume    v = Ground();
+    WorkPlane plane;
+    v.PushPull( plane, Rect{ 0, 0, 1, 1 }, +1, 1, 0 ); // the cell (x 1) in the world-aligned frame
+    ASSERT_TRUE( v.Freeze() );
+
+    v.m_Unit  = 100.0f;
+    v.m_Frame = MakeGridFrame( glm::vec3( 0.0f ), { 0.0f, 30.0f, 0.0f } );
+    WorkPlane turned;
+    v.PushPull( turned, Rect{}, +1, 1,
+                0 ); // the cell (x 0) of the turned frame: its +X face is NOT the other's -X
+    EXPECT_TRUE( v.SolidAt( { 1, 0, 0 }, 100.0f, GridFrame{} ) );
+    EXPECT_FALSE( v.SolidAt( { 1, 0, 0 }, 100.0f, v.m_Frame ) ) << "a turned lattice does not line up";
+    EXPECT_EQ( v.Bake().Indices.size(), 12u * 2u ) << "two whole cubes, no face culled between the frames";
+}
+
+TEST( VoxelBlockoutFrame, PaintFacesReachesAShiftedLayerButNotATurnedOne )
+{
+    Volume v  = Ground();
+    v.m_Frame = GridFrame{ glm::vec3( 100.0f, 0.0f, 0.0f ) }; // one cell along X, same axes
+    WorkPlane a;
+    v.PushPull( a, Rect{}, +1, 1, 0 );
+    ASSERT_TRUE( v.Freeze() );
+    v.m_Unit  = 100.0f;
+    v.m_Frame = MakeGridFrame( glm::vec3( 0.0f ), { 0.0f, 30.0f, 0.0f } );
+    WorkPlane b;
+    v.PushPull( b, Rect{}, +1, 1, 0 );
+    ASSERT_TRUE( v.Freeze() );
+
+    v.m_Unit  = 100.0f;
+    v.m_Frame = GridFrame{};
+    // The top plane over x 0..1: the shifted piece's top is at x 1; the turned piece's top index-coincides
+    // with x 0 but lies on another lattice.
+    EXPECT_EQ( v.PaintFaces( WorkPlane{ 1, 1, 1 }, Rect{ 0, 0, 0, 1 }, 3 ), 1 );
+    EXPECT_EQ( v.m_Frozen[0].Cells.at( Pack( { 0, 0, 0 } ) ).Mat[2], 3 );
+    EXPECT_EQ( v.m_Frozen[1].Cells.at( Pack( { 0, 0, 0 } ) ).Mat[2], 0 );
+}
+
+TEST( VoxelBlockoutFrame, CtrlMiddleClickPivotIsTheFaceCornerNearestTheRayInTheWorld )
+{
+    const GridFrame f = MakeGridFrame( { 300.0f, 0.0f, -200.0f }, { 0.0f, 30.0f, 0.0f } );
+    // The top face of the cell (1, 0, 2): corners at y 100, x 100..200, z 200..300 in the frame.
+    const glm::vec3 farCorner = f.ToWorldPoint( { 200.0f, 100.0f, 300.0f } );
+    const glm::vec3 got       = NearestFaceCorner( f, { 1, 0, 2 }, { 0, 1, 0 }, 100.0f,
+                                                   farCorner + glm::vec3( 8.0f, 500.0f, -6.0f ), { 0.0f, -1.0f, 0.0f } );
+    EXPECT_NEAR( glm::length( got - farCorner ), 0.0f, 1e-2f );
+
+    // The -X face sits on the cell's NEAR side along X: its corners are at x 100, not 200.
+    const glm::vec3 low = f.ToWorldPoint( { 100.0f, 0.0f, 200.0f } );
+    const glm::vec3 dir = f.ToWorldVector( { 1.0f, 0.0f, 0.0f } );
+    const glm::vec3 side =
+         NearestFaceCorner( f, { 1, 0, 2 }, { -1, 0, 0 }, 100.0f, low - dir * 400.0f + glm::vec3( 0, 4, 0 ), dir );
+    EXPECT_NEAR( glm::length( side - low ), 0.0f, 1e-2f );
 }

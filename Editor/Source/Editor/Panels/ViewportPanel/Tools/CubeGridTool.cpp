@@ -187,20 +187,28 @@ namespace Desert::Editor::Tools
         // Requested Block Size in world units (= centimetres, see Common::Units).
         const float gs = std::max( ms.CellSize, Core::ModelingState::MinCellSize );
 
-        // The whole tool works in GRID space: cell (0,0,0) sits at the origin of the grid frame, which the
-        // panel can move (Grid Frame Origin / Reset Grid from Actor) so the lattice lines up with an
-        // object's corner instead of tiling from the world origin. Only drawing and meshing add it back.
-        const glm::vec3         gridOrigin = ms.GridOrigin;
-        const Common::Math::Ray gray( ray.Origin - gridOrigin, ray.Direction );
-
-        // "Reset Grid from Actor": drop the grid frame onto the selected entity's own origin.
+        // "Reset Grid from Actor": drop the grid frame onto the selected entity's own origin AND orientation
+        // (UE 5.8 CubeGridTool.cpp:2560-2566: the actor's transform with its scale removed).
         if ( ms.ReqResetFromActor )
         {
             ms.ReqResetFromActor = false;
             if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
                 if ( auto ref = scene.FindEntityByID( *sel ) )
-                    ms.GridOrigin = glm::vec3( ref->get().GetWorldTransform()[3] );
+                {
+                    const glm::mat4 w = ref->get().GetWorldTransform();
+                    const glm::mat3 r( glm::normalize( glm::vec3( w[0] ) ), glm::normalize( glm::vec3( w[1] ) ),
+                                       glm::normalize( glm::vec3( w[2] ) ) );
+                    ms.GridOrigin   = glm::vec3( w[3] );
+                    ms.GridRotation = glm::degrees( glm::eulerAngles( glm::quat_cast( r ) ) );
+                }
         }
+
+        // The whole tool works in GRID space: cell (0,0,0) sits at the origin of the grid frame and the lattice
+        // runs along the frame's axes. The panel sets both (Grid Frame Origin / Orientation, Reset Grid from
+        // Actor, Ctrl+MMB) so the lattice lines up with an object's corner and faces instead of tiling from the
+        // world origin along the world axes. Only drawing, meshing and targeting cross into the world.
+        const GridFrame         frame = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
+        const Common::Math::Ray gray( frame.ToFramePoint( ray.Origin ), frame.ToFrameVector( ray.Direction ) );
 
         // Corner Mode toggle (Z, or the panel button). Only meaningful with a selection on a horizontal
         // work-plane: corners move along the grid's up axis.
@@ -233,13 +241,20 @@ namespace Desert::Editor::Tools
         // Re-initialising the grid frame commits the current piece too: cells are indices into a lattice,
         // so keeping them across a frame change would teleport built geometry. Frozen layers remember the
         // frame they were built in and stay exactly where they are.
-        if ( glm::any( glm::greaterThan( glm::abs( ms.GridOrigin - m_Volume.m_Origin ), glm::vec3( 1e-4f ) ) ) )
+        // The selection is in cell indices of the old frame, so it is dropped rather than teleported. The
+        // ground work-plane keeps its world point under the old frame's up axis - except after Ctrl+MMB, which
+        // puts it through the new pivot (UE: the grid plane is the frame's own).
+        if ( !frame.SameAs( m_Volume.m_Frame ) )
         {
-            const glm::vec3 prevOrigin = m_Volume.m_Origin;
+            const GridFrame prev = m_Volume.m_Frame;
             FreezeActive();
-            m_Volume.m_Origin = ms.GridOrigin;
-            m_GroundY += prevOrigin.y - m_Volume.m_Origin.y; // keep the work-plane at the same world height
+            m_Volume.m_Frame = frame;
+            m_GroundY        = frame.ToFramePoint( prev.ToWorldPoint( { 0.0f, m_GroundY, 0.0f } ) ).y;
+            m_HasSel = m_Selecting = m_CornerMode = false;
         }
+        if ( m_GroundToPivot )
+            m_GroundY = 0.0f;
+        m_GroundToPivot = false;
 
         // A finer Block Size subdivides the base — but splitting a DEFORMED cell would have to re-derive
         // every corner offset, so a piece that already has slopes is committed instead and the finer work
@@ -302,35 +317,57 @@ namespace Desert::Editor::Tools
         bool  tHas = false;
         int   tNa = 1, tSign = 1, tPlaneCell = 0, tU = 0, tV = 0;
         float bestT = FLT_MAX;
+        // The face under the cursor in its OWN layer (Ctrl+MMB puts the pivot on one of its corners): a frozen
+        // piece may be in a turned frame and another unit. Without a blockout hit it is the active lattice's
+        // cell under the targeted plane.
+        GridFrame  tFaceFrame = frame;
+        float      tFaceUnit  = u;
+        glm::ivec3 tFaceCell{ 0 };
+        glm::ivec3 tFaceN{ 0, 1, 0 };
         {
+            // Snap a surface point and normal (both in the ACTIVE frame) onto the active lattice: the normal's
+            // dominant axis is the work-plane's, the point's cell along it is the plane's cell.
+            auto snapToLattice = [&]( const glm::vec3& p, const glm::vec3& n )
+            {
+                const glm::vec3 a = glm::abs( n );
+                tNa               = ( a.x >= a.y && a.x >= a.z ) ? 0 : ( a.y >= a.z ) ? 1 : 2;
+                tSign             = n[tNa] >= 0.0f ? 1 : -1;
+                tPlaneCell        = static_cast<int>( std::lround( p[tNa] / u ) ) - ( tSign > 0 ? 0 : 1 );
+                tU                = static_cast<int>( std::floor( p[( tNa + 1 ) % 3] / u ) );
+                tV                = static_cast<int>( std::floor( p[( tNa + 2 ) % 3] / u ) );
+                tHas              = true;
+            };
+
             glm::ivec3 hitCell{ 0 };
             float      hitUnit = u;
-            glm::vec3  hitOff( 0.0f ); // frozen layer's frame, expressed in the ACTIVE grid space
+            GridFrame  hitFrame;
             bool       hit       = false;
-            auto       testLayer = [&]( const CellMap& cells, float lu, const glm::vec3& off )
+            auto       testLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
             {
+                // Box test in the layer's own frame; a rotation keeps lengths, so t is a world distance.
+                const Common::Math::Ray lray( lf.ToFramePoint( ray.Origin ), lf.ToFrameVector( ray.Direction ) );
                 for ( const auto& [key, cellData] : cells )
                 {
                     const glm::ivec3   c = Unpack( key );
                     // Targeting stays box-level even for a deformed cell: a slanted top still picks the
                     // cell you are pointing at, and the work-plane is a lattice plane either way.
                     Common::Math::AABB box;
-                    box.Min = glm::vec3( c ) * lu + off;
+                    box.Min = glm::vec3( c ) * lu;
                     box.Max = box.Min + lu;
                     float t;
-                    if ( gray.IntersectsAABB( box, t ) && t >= 0.0f && t < bestT )
+                    if ( lray.IntersectsAABB( box, t ) && t >= 0.0f && t < bestT )
                     {
-                        bestT   = t;
-                        hitCell = c;
-                        hitUnit = lu;
-                        hitOff  = off;
-                        hit     = true;
+                        bestT    = t;
+                        hitCell  = c;
+                        hitUnit  = lu;
+                        hitFrame = lf;
+                        hit      = true;
                     }
                 }
             };
-            testLayer( m_Volume.m_Cells, u, glm::vec3( 0.0f ) );
+            testLayer( m_Volume.m_Cells, u, frame );
             for ( const Layer& l : m_Volume.m_Frozen ) // you can keep building on a committed piece
-                testLayer( l.Cells, l.Unit, l.Origin - gridOrigin );
+                testLayer( l.Cells, l.Unit, l.Frame );
 
             // "Hit Unrelated Geometry": the rest of the scene is targetable too, so you can start a grid
             // on top of an imported prop. Bounding-box level (Scene::Raycast), which is all a work-plane
@@ -347,26 +384,18 @@ namespace Desert::Editor::Tools
                 {
                     sceneHit = true;
                     sceneT   = rh.Distance;
-
-                    const glm::vec3 a = glm::abs( rh.Normal );
-                    tNa               = ( a.x >= a.y && a.x >= a.z ) ? 0 : ( a.y >= a.z ) ? 1 : 2;
-                    tSign             = rh.Normal[tNa] >= 0.0f ? 1 : -1;
-
                     // Snap the hit surface onto the lattice, then work from there.
-                    const glm::vec3 p = rh.Point - gridOrigin;
-
-                    tPlaneCell = static_cast<int>( std::lround( p[tNa] / u ) ) - ( tSign > 0 ? 0 : 1 );
-                    tU         = static_cast<int>( std::floor( p[( tNa + 1 ) % 3] / u ) );
-                    tV         = static_cast<int>( std::floor( p[( tNa + 2 ) % 3] / u ) );
-                    tHas       = true;
+                    snapToLattice( frame.ToFramePoint( rh.Point ), frame.ToFrameVector( rh.Normal ) );
                 }
             }
 
             if ( hit && cellT <= sceneT )
             {
-                bestT              = cellT;
-                const glm::vec3 p  = gray.Origin + gray.Direction * bestT;
-                const glm::vec3 d  = p - ( ( glm::vec3( hitCell ) + 0.5f ) * hitUnit + hitOff );
+                bestT = cellT;
+                // The hit face in the LAYER's frame: the box side the hit point is furthest out on.
+                const glm::vec3 wp = ray.Origin + ray.Direction * bestT;
+                const glm::vec3 lp = hitFrame.ToFramePoint( wp );
+                const glm::vec3 d  = lp - ( glm::vec3( hitCell ) + 0.5f ) * hitUnit;
                 const glm::vec3 ad = glm::abs( d );
                 glm::ivec3      n{ 0 };
                 if ( ad.x >= ad.y && ad.x >= ad.z )
@@ -375,15 +404,14 @@ namespace Desert::Editor::Tools
                     n.y = d.y > 0 ? 1 : -1;
                 else
                     n.z = d.z > 0 ? 1 : -1;
-                tNa   = n.x ? 0 : n.y ? 1 : 2;
-                tSign = n[tNa];
-                // The hit face in ACTIVE grid units (a frozen layer may use another unit and frame).
-                const float faceW =
-                     static_cast<float>( hitCell[tNa] + ( tSign > 0 ? 1 : 0 ) ) * hitUnit + hitOff[tNa];
-                tPlaneCell = static_cast<int>( std::lround( faceW / u ) ) - ( tSign > 0 ? 0 : 1 );
-                tU         = static_cast<int>( std::floor( p[( tNa + 1 ) % 3] / u ) );
-                tV         = static_cast<int>( std::floor( p[( tNa + 2 ) % 3] / u ) );
-                tHas       = true;
+                tFaceFrame = hitFrame;
+                tFaceUnit  = hitUnit;
+                tFaceCell  = hitCell;
+                tFaceN     = n;
+                // Into the ACTIVE frame: a same-axes layer's face lands exactly on a lattice plane (a frozen
+                // layer may use another unit and origin); a turned one snaps to the nearest plane.
+                snapToLattice( frame.ToFramePoint( wp ),
+                               frame.ToFrameVector( hitFrame.ToWorldVector( glm::vec3( n ) ) ) );
             }
             else if ( sceneHit )
             {
@@ -395,6 +423,7 @@ namespace Desert::Editor::Tools
                 if ( t > 0.0f )
                 {
                     const glm::vec3 p = gray.Origin + gray.Direction * t;
+                    bestT             = t;
                     tNa               = 1;
                     tSign             = 1;
                     tPlaneCell        = static_cast<int>( std::lround( m_GroundY / u ) );
@@ -403,28 +432,37 @@ namespace Desert::Editor::Tools
                     tHas              = true;
                 }
             }
+            if ( tHas && !( hit && cellT <= sceneT ) )
+            {
+                // No blockout face: the active lattice's cell just behind the targeted plane.
+                tFaceCell[tNa]             = tPlaneCell + ( tSign > 0 ? -1 : 1 );
+                tFaceCell[( tNa + 1 ) % 3] = tU;
+                tFaceCell[( tNa + 2 ) % 3] = tV;
+                tFaceN                     = glm::ivec3( 0 );
+                tFaceN[tNa]                = tSign;
+            }
         }
         m_HoverValid = tHas;
 
         ImDrawList* dl = ::ImGui::GetWindowDrawList();
 
         auto drawCellSolid = [&]( const CellMap& cells, const glm::ivec3& c, const Cell& cell, float cu,
-                                  const glm::vec3& co, ImU32 fill, ImU32 outline )
+                                  const GridFrame& cf, ImU32 fill, ImU32 outline )
         {
-            const glm::vec3 mn = glm::vec3( c ) * cu + co;
+            const glm::vec3 mn = glm::vec3( c ) * cu;
             for ( int f = 0; f < 6; ++f )
             {
-                if ( m_Volume.FaceHidden( cells, c, cell, f, cu, co ) )
+                if ( m_Volume.FaceHidden( cells, c, cell, f, cu, cf ) )
                     continue;
-                const glm::vec3 fn = kFace[f][0].N;
-                const glm::vec3 fc = mn + 0.5f * cu + 0.5f * cu * fn;
-                if ( glm::dot( fn, ray.Origin - fc ) <= 0.0f ) // fc is world space here
+                const glm::vec3 fn = cf.ToWorldVector( kFace[f][0].N );
+                const glm::vec3 fc = cf.ToWorldPoint( mn + 0.5f * cu + 0.5f * cu * kFace[f][0].N );
+                if ( glm::dot( fn, ray.Origin - fc ) <= 0.0f ) // back-facing, in the world
                     continue;
                 glm::vec2 s[4];
                 bool      ok = true;
                 for ( int k = 0; k < 4; ++k )
-                    if ( !WorldToScreen( CornerPos( c, cell, kFaceCorner[f][k], cu, co ), viewProj, viewportPos,
-                                         viewportSize, s[k] ) )
+                    if ( !WorldToScreen( cf.ToWorldPoint( CornerPos( c, cell, kFaceCorner[f][k], cu ) ), viewProj,
+                                         viewportPos, viewportSize, s[k] ) )
                     {
                         ok = false;
                         break;
@@ -447,7 +485,7 @@ namespace Desert::Editor::Tools
             w[na] = planeW;
             w[ua] = fu * u;
             w[va] = fv * u;
-            return w + gridOrigin;
+            return frame.ToWorldPoint( w );
         };
         auto drawRect =
              [&]( int uMin, int uMax, int vMin, int vMax, int na, float planeW, ImU32 fill, ImU32 outline )
@@ -536,7 +574,7 @@ namespace Desert::Editor::Tools
                     c[na]             = cell - sign;
                     c[( na + 1 ) % 3] = corU[k];
                     c[( na + 2 ) % 3] = corV[k];
-                    while ( d < 4096 && m_Volume.SolidAt( c, u, gridOrigin ) )
+                    while ( d < 4096 && m_Volume.SolidAt( c, u, frame ) )
                     {
                         ++d;
                         c[na] -= sign;
@@ -566,18 +604,19 @@ namespace Desert::Editor::Tools
         if ( toolActive && ms.ShowGizmo )
         {
             const float     len     = static_cast<float>( K ) * u * 2.0f;
-            const glm::vec3 axes[3] = { { len, 0, 0 }, { 0, len, 0 }, { 0, 0, len } };
+            const glm::vec3 axes[3] = { frame.ToWorldVector( { len, 0, 0 } ), frame.ToWorldVector( { 0, len, 0 } ),
+                                        frame.ToWorldVector( { 0, 0, len } ) };
             // The theme's axis colours — the CubeGrid's handles point at the same X/Y/Z as the gizmo and
             // the transform fields, so they cannot have their own reds and greens.
             const ImU32     cols[3] = { ::ImGui::GetColorU32( ThemeManager::GetAxisColor( 0 ) ),
                                         ::ImGui::GetColorU32( ThemeManager::GetAxisColor( 1 ) ),
                                         ::ImGui::GetColorU32( ThemeManager::GetAxisColor( 2 ) ) };
             glm::vec2       o;
-            if ( WorldToScreen( gridOrigin, viewProj, viewportPos, viewportSize, o ) )
+            if ( WorldToScreen( frame.Origin, viewProj, viewportPos, viewportSize, o ) )
                 for ( int a = 0; a < 3; ++a )
                 {
                     glm::vec2 e;
-                    if ( WorldToScreen( gridOrigin + axes[a], viewProj, viewportPos, viewportSize, e ) )
+                    if ( WorldToScreen( frame.Origin + axes[a], viewProj, viewportPos, viewportSize, e ) )
                         dl->AddLine( ImVec2( o.x, o.y ), ImVec2( e.x, e.y ), cols[a], 2.0f );
                 }
         }
@@ -588,12 +627,12 @@ namespace Desert::Editor::Tools
         {
             for ( const Layer& l : m_Volume.m_Frozen )
                 for ( const auto& [k, cell] : l.Cells )
-                    drawCellSolid( l.Cells, Unpack( k ), cell, l.Unit, l.Origin, IM_COL32( 108, 112, 122, 200 ),
+                    drawCellSolid( l.Cells, Unpack( k ), cell, l.Unit, l.Frame, IM_COL32( 108, 112, 122, 200 ),
                                    IM_COL32( 78, 82, 92, 225 ) );
             for ( const auto& [k, cell] : m_Volume.m_Cells )
             {
                 const glm::ivec3 c = Unpack( k );
-                drawCellSolid( m_Volume.m_Cells, c, cell, u, gridOrigin,
+                drawCellSolid( m_Volume.m_Cells, c, cell, u, frame,
                                ( ( c.x + c.y + c.z ) & 1 ) ? IM_COL32( 120, 125, 135, 205 )
                                                            : IM_COL32( 150, 155, 165, 205 ),
                                IM_COL32( 90, 95, 105, 230 ) );
@@ -674,14 +713,9 @@ namespace Desert::Editor::Tools
                 if ( m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0 )
                     m_Plane.Cell += steps * K;
             }
-            // Ctrl + MMB drops the work-plane onto whatever surface was clicked (UE's grid realignment).
-            if ( ctrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Middle ) && tHas )
-            {
-                m_GroundY = planeWorldOf( tNa, tSign, tPlaneCell );
-                if ( tNa != 1 ) // clicked a vertical face: keep the ground plane, just move it to that height
-                    m_GroundY = gray.Origin.y + gray.Direction.y * bestT;
-                m_GroundY = std::round( m_GroundY / u ) * u;
-            }
+            // Ctrl + MMB: the grid pivot onto the face under the cursor (handled below with the palette's).
+            if ( ctrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Middle ) )
+                ms.ReqCubeGridPivot = true;
         }
 
         // --- The palette's E / Q and its N x N marquee: the step above, and the rectangle a drag from the
@@ -693,6 +727,24 @@ namespace Desert::Editor::Tools
         if ( ms.ReqCubeGridSlide != 0 && toolActive )
             SlideSelection( ms.ReqCubeGridSlide > 0 ? +1 : -1, K );
         ms.ReqCubeGridSlide = 0;
+        // Ctrl+MMB / the palette's pivot: the grid pivot goes on the corner of the targeted face nearest the
+        // ray, and the ground work-plane through it (UE: the grid plane is the frame's). A face of a piece
+        // built in a turned frame hands its orientation over too - the grid aligns to what you aimed at. The
+        // frame change itself lands next frame, through the same re-frame path as the panel's fields.
+        if ( ms.ReqCubeGridPivot && toolActive && tHas )
+        {
+            ms.GridOrigin =
+                 NearestFaceCorner( tFaceFrame, tFaceCell, tFaceN, tFaceUnit, ray.Origin, ray.Direction );
+            if ( !tFaceFrame.SameAxes( frame ) )
+                ms.GridRotation = glm::degrees( glm::eulerAngles( tFaceFrame.Rotation ) );
+            m_GroundToPivot = true;
+        }
+        else if ( ms.ReqCubeGridPivot && toolActive )
+        {
+            LOG_WARN( "[CubeGrid] grid pivot refused: nothing under the aim (no blockout face, scene hit or "
+                      "ground work-plane)" );
+        }
+        ms.ReqCubeGridPivot = false;
         if ( ms.ReqCubeGridPaint && toolActive )
             PaintSelection( scene );
         ms.ReqCubeGridPaint = false;

@@ -104,13 +104,65 @@ namespace Desert::Geometry::VoxelBlockout
         return a >= 0 ? a / b : -( ( -a + b - 1 ) / b );
     }
 
-    glm::vec3 CornerPos( const glm::ivec3& c, const Cell& cell, int i, float unit, const glm::vec3& origin )
+    bool GridFrame::SameAxes( const GridFrame& o ) const
+    {
+        return std::abs( glm::dot( Rotation, o.Rotation ) ) > 1.0f - 1e-6f;
+    }
+
+    bool GridFrame::SameAs( const GridFrame& o ) const
+    {
+        return SameAxes( o ) && !glm::any( glm::greaterThan( glm::abs( Origin - o.Origin ), glm::vec3( 1e-3f ) ) );
+    }
+
+    GridFrame MakeGridFrame( const glm::vec3& origin, const glm::vec3& eulerDegrees )
+    {
+        return GridFrame{ origin, glm::normalize( glm::quat( glm::radians( eulerDegrees ) ) ) };
+    }
+
+    glm::vec3 NearestFaceCorner( const GridFrame& frame, const glm::ivec3& cell, const glm::ivec3& normal,
+                                 float unit, const glm::vec3& rayOrigin, const glm::vec3& rayDir )
+    {
+        // The face's axis and the two in-plane ones; the face sits on the cell's far side along +normal.
+        const int na = normal.x != 0 ? 0 : normal.y != 0 ? 1 : 2;
+        const int ua = ( na + 1 ) % 3;
+        const int va = ( na + 2 ) % 3;
+
+        // Grid-space ray, as UE does: the distance ranking is the same in any frame a rotation reaches.
+        const glm::vec3 o      = frame.ToFramePoint( rayOrigin );
+        const glm::vec3 d      = glm::normalize( frame.ToFrameVector( rayDir ) );
+        auto            distSq = [&]( const glm::vec3& p )
+        {
+            const float     t = std::max( 0.0f, glm::dot( p - o, d ) );
+            const glm::vec3 q = o + d * t - p;
+            return glm::dot( q, q );
+        };
+
+        glm::vec3 best( 0.0f );
+        float     bestD = std::numeric_limits<float>::max();
+        for ( int k = 0; k < 4; ++k )
+        {
+            glm::vec3 p( cell );
+            p[na] += normal[na] > 0 ? 1.0f : 0.0f;
+            p[ua] += static_cast<float>( k & 1 );
+            p[va] += static_cast<float>( ( k >> 1 ) & 1 );
+            p *= unit;
+            const float dd = distSq( p );
+            if ( dd < bestD )
+            {
+                bestD = dd;
+                best  = p;
+            }
+        }
+        return frame.ToWorldPoint( best );
+    }
+
+    glm::vec3 CornerPos( const glm::ivec3& c, const Cell& cell, int i, float unit )
     {
         glm::vec3 p( c.x + ( ( ( i & 1 ) != 0 ) ? 1 : 0 ), c.y + ( ( ( i & 2 ) != 0 ) ? 1 : 0 ),
                      c.z + ( ( ( i & 4 ) != 0 ) ? 1 : 0 ) );
         p *= unit;
         p.y += static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen ) * unit;
-        return p + origin;
+        return p;
     }
 
     void RescaleSelection( WorkPlane& plane, glm::ivec2& anchor, Rect& sel, float oldUnit, float newUnit, int K )
@@ -134,29 +186,28 @@ namespace Desert::Geometry::VoxelBlockout
         sel.VMax       = FloorDiv( vMax, K ) * K + K - 1;
     }
 
-    bool Volume::SolidAt( const glm::ivec3& c, float unit, const glm::vec3& origin ) const
+    bool Volume::SolidAt( const glm::ivec3& c, float unit, const GridFrame& frame ) const
     {
         // Layer units are always commensurate in practice (the base only ever halves), so a coarser layer maps
         // with one FloorDiv. A layer FINER than `unit`, or one built in a DIFFERENT grid frame (its lattice
         // doesn't line up at all), is skipped - conservative: it can only ever leave a hidden interior face.
-        auto inLayer = [&]( const CellMap& cells, float lu, const glm::vec3& lo )
+        auto inLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
         {
-            if ( cells.empty() || lu <= 0.0f ||
-                 glm::any( glm::greaterThan( glm::abs( lo - origin ), glm::vec3( 1e-3f ) ) ) )
+            if ( cells.empty() || lu <= 0.0f || !lf.SameAs( frame ) )
                 return false;
             const int R = static_cast<int>( std::lround( lu / unit ) );
             if ( R < 1 || std::abs( lu - static_cast<float>( R ) * unit ) > 0.001f * unit )
                 return false;
             return cells.contains( Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ), FloorDiv( c.z, R ) } ) );
         };
-        if ( inLayer( m_Cells, m_Unit, m_Origin ) )
+        if ( inLayer( m_Cells, m_Unit, m_Frame ) )
             return true;
-        return std::ranges::any_of( m_Frozen, [&inLayer]( const Layer& l )
-                                    { return inLayer( l.Cells, l.Unit, l.Origin ); } );
+        return std::ranges::any_of( m_Frozen,
+                                    [&inLayer]( const Layer& l ) { return inLayer( l.Cells, l.Unit, l.Frame ); } );
     }
 
     bool Volume::FaceHidden( const CellMap& cells, const glm::ivec3& c, const Cell& data, int f, float unit,
-                             const glm::vec3& origin ) const
+                             const GridFrame& frame ) const
     {
         const glm::ivec3 n  = c + kNeighbor[f];
         const auto       it = cells.find( Pack( n ) );
@@ -174,7 +225,7 @@ namespace Desert::Geometry::VoxelBlockout
             return true;
         }
         // Another layer's solid can only hide a face of an UNDEFORMED cell (we don't know its corners).
-        return data.IsFlat() && SolidAt( n, unit, origin );
+        return data.IsFlat() && SolidAt( n, unit, frame );
     }
 
     void Volume::Refine( int F )
@@ -206,7 +257,7 @@ namespace Desert::Geometry::VoxelBlockout
         Layer l;
         l.Cells  = std::move( m_Cells );
         l.Unit   = m_Unit;
-        l.Origin = m_Origin;
+        l.Frame  = m_Frame;
         m_Frozen.push_back( std::move( l ) );
         m_Cells.clear();
         m_Unit = -1.0f; // the next Block Size becomes the base of a brand-new volume
@@ -217,7 +268,7 @@ namespace Desert::Geometry::VoxelBlockout
     {
         Cell fresh;
         std::fill( std::begin( fresh.Mat ), std::end( fresh.Mat ), material );
-        auto      occ  = [&]( const glm::ivec3& c ) { return SolidAt( c, m_Unit, m_Origin ); };
+        auto      occ  = [&]( const glm::ivec3& c ) { return SolidAt( c, m_Unit, m_Frame ); };
         const int na   = plane.Na;
         const int sign = plane.Sign;
         const int ua   = ( na + 1 ) % 3;
@@ -341,17 +392,21 @@ namespace Desert::Geometry::VoxelBlockout
             if ( kNeighbor[f][na] == sign )
                 face = f;
 
-        // The plane and the rectangle in world space: every layer has its own cell size and grid frame, and
-        // the selection (in the ACTIVE base) may sit on a face of any of them.
-        const float planeW = static_cast<float>( plane.Cell + ( sign > 0 ? 0 : 1 ) ) * m_Unit + m_Origin[na];
-        const float uLo    = static_cast<float>( sel.UMin ) * m_Unit + m_Origin[ua];
-        const float uHi    = static_cast<float>( sel.UMax + 1 ) * m_Unit + m_Origin[ua];
-        const float vLo    = static_cast<float>( sel.VMin ) * m_Unit + m_Origin[va];
-        const float vHi    = static_cast<float>( sel.VMax + 1 ) * m_Unit + m_Origin[va];
+        // The plane and the rectangle in the ACTIVE frame: every layer has its own cell size and grid frame,
+        // and the selection (in the active base) may sit on a face of any of them.
+        const float planeW = static_cast<float>( plane.Cell + ( sign > 0 ? 0 : 1 ) ) * m_Unit;
+        const float uLo    = static_cast<float>( sel.UMin ) * m_Unit;
+        const float uHi    = static_cast<float>( sel.UMax + 1 ) * m_Unit;
+        const float vLo    = static_cast<float>( sel.VMin ) * m_Unit;
+        const float vHi    = static_cast<float>( sel.VMax + 1 ) * m_Unit;
 
         int  painted    = 0;
-        auto paintLayer = [&]( CellMap& cells, float lu, const glm::vec3& lo )
+        auto paintLayer = [&]( CellMap& cells, float lu, const GridFrame& lf )
         {
+            // A turned layer's faces never lie on this lattice's planes; a shifted one's do, offset by `lo`.
+            if ( !lf.SameAxes( m_Frame ) )
+                return;
+            const glm::vec3 lo  = m_Frame.ToFramePoint( lf.Origin );
             const float eps = 1e-3f * std::min( lu, m_Unit );
             for ( auto& [key, cell] : cells )
             {
@@ -363,15 +418,15 @@ namespace Desert::Geometry::VoxelBlockout
                 const float cv = ( static_cast<float>( c[va] ) + 0.5f ) * lu + lo[va];
                 if ( cu < uLo || cu > uHi || cv < vLo || cv > vHi )
                     continue;
-                if ( FaceHidden( cells, c, cell, face, lu, lo ) )
+                if ( FaceHidden( cells, c, cell, face, lu, lf ) )
                     continue;
                 cell.Mat[face] = material;
                 ++painted;
             }
         };
-        paintLayer( m_Cells, m_Unit, m_Origin );
+        paintLayer( m_Cells, m_Unit, m_Frame );
         for ( Layer& l : m_Frozen )
-            paintLayer( l.Cells, l.Unit, l.Origin );
+            paintLayer( l.Cells, l.Unit, l.Frame );
         return painted;
     }
 
@@ -386,19 +441,22 @@ namespace Desert::Geometry::VoxelBlockout
         };
         std::map<int, Bucket> buckets;
 
-        // One quad -> 4 vertices + 2 triangles, with world-aligned UVs and a tangent frame that matches them
-        // (so a normal map on a merged quad lines up with the texture it is paired with).
-        auto emitQuad = [&]( int material, const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv )
+        // One quad -> 4 vertices + 2 triangles. `p` and `nrm` are in the layer's FRAME: the UVs are taken
+        // there (frame-aligned, so the texture turns with the grid) with a tangent frame that matches them (a
+        // normal map on a merged quad lines up with its texture), and everything is then carried into the
+        // world by the frame.
+        auto emitQuad = [&]( int material, const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv,
+                             const GridFrame& frame )
         {
             Bucket&    b    = buckets[material];
             const auto base = static_cast<uint32_t>( b.Verts.size() );
             for ( int k = 0; k < 4; ++k )
             {
                 Vertex v{};
-                v.Position  = p[k];
-                v.Normal    = nrm;
-                v.Tangent   = uv.T;
-                v.Bitangent = uv.B;
+                v.Position  = frame.ToWorldPoint( p[k] );
+                v.Normal    = frame.ToWorldVector( nrm );
+                v.Tangent   = frame.ToWorldVector( uv.T );
+                v.Bitangent = frame.ToWorldVector( uv.B );
                 v.TexCoord  = { glm::dot( p[k], uv.T ) * kUvPerUnit, glm::dot( p[k], uv.B ) * kUvPerUnit };
                 b.Verts.push_back( v );
             }
@@ -406,7 +464,7 @@ namespace Desert::Geometry::VoxelBlockout
             b.Inds.push_back( { base + 2, base + 3, base + 0 } );
         };
 
-        auto emitLayer = [&]( const CellMap& cells, float lu, const glm::vec3& lo )
+        auto emitLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
         {
             // FLAT cells go through greedy meshing: a 20x8 blockout wall becomes ONE quad instead of 160.
             // Corner-deformed cells keep their own per-face quads - their corners are not coplanar with a
@@ -422,7 +480,7 @@ namespace Desert::Geometry::VoxelBlockout
                  [&]( const glm::ivec3& c, int f )
                  {
                      const auto it = cells.find( Pack( c ) );
-                     return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lo );
+                     return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lf );
                  },
                  [&]( const glm::ivec3& c, int f ) -> uint64_t { return cells.at( Pack( c ) ).Mat[f]; } );
 
@@ -441,9 +499,9 @@ namespace Desert::Geometry::VoxelBlockout
                     g[ax.Normal] += unitP[ax.Normal];
                     g[ax.U] += unitP[ax.U] * static_cast<float>( q.SizeU );
                     g[ax.V] += unitP[ax.V] * static_cast<float>( q.SizeV );
-                    p[k] = g * lu + lo;
+                    p[k] = g * lu;
                 }
-                emitQuad( cells.at( Pack( q.Cell ) ).Mat[q.Face], p, kFace[q.Face][0].N, uv );
+                emitQuad( cells.at( Pack( q.Cell ) ).Mat[q.Face], p, kFace[q.Face][0].N, uv, lf );
             }
 
             for ( const auto& [key, cell] : cells )
@@ -454,23 +512,23 @@ namespace Desert::Geometry::VoxelBlockout
                 const glm::ivec3 c = Unpack( key );
                 for ( int f = 0; f < 6; ++f )
                 {
-                    if ( FaceHidden( cells, c, cell, f, lu, lo ) ) // only Solid/Empty borders
+                    if ( FaceHidden( cells, c, cell, f, lu, lf ) ) // only Solid/Empty borders
                         continue;
                     // Corner Mode can slant a quad, so the normal comes from the actual corners.
                     glm::vec3 p[4];
                     for ( int k = 0; k < 4; ++k )
-                        p[k] = CornerPos( c, cell, kFaceCorner[f][k], lu, lo );
+                        p[k] = CornerPos( c, cell, kFaceCorner[f][k], lu );
                     glm::vec3 nrm =
                          glm::cross( p[1] - p[0], p[3] - p[0] ) + glm::cross( p[3] - p[2], p[1] - p[2] );
                     nrm = glm::dot( nrm, nrm ) > 1e-12f ? glm::normalize( nrm ) : kFace[f][0].N;
 
-                    emitQuad( cell.Mat[f], p, nrm, UvFrame( f ) );
+                    emitQuad( cell.Mat[f], p, nrm, UvFrame( f ), lf );
                 }
             }
         };
-        emitLayer( m_Cells, m_Unit, m_Origin );
+        emitLayer( m_Cells, m_Unit, m_Frame );
         for ( const Layer& l : m_Frozen )
-            emitLayer( l.Cells, l.Unit, l.Origin );
+            emitLayer( l.Cells, l.Unit, l.Frame );
 
         RenderMeshData out;
         for ( auto& [material, b] : buckets )

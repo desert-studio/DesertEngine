@@ -160,6 +160,9 @@ namespace Desert::Editor::Core
         // World position of grid cell (0,0,0). Moving it re-aligns the lattice to an object's corner so
         // any block size stays flush with it, instead of tiling from the world origin.
         glm::vec3 GridOrigin = glm::vec3( 0.0f );
+        // Orientation of the grid frame, Euler degrees about X, Y, Z (UE "Grid Frame Orientation"): the lattice
+        // runs along the turned axes, so a blockout can follow a rotated building or a slope.
+        glm::vec3 GridRotation = glm::vec3( 0.0f );
         // Targeting also considers OTHER scene meshes (build on top of an imported prop, snap the plane
         // onto it), not just the blockout being edited. UE calls this "Hit Unrelated Geometry".
         bool HitUnrelated = true;
@@ -191,6 +194,7 @@ namespace Desert::Editor::Core
         int  ReqCubeGridStep         = 0; // one-shot: +1 = E, -1 = Q (Push/Pull, or the corner posts)
         int  ReqCubeGridSlide        = 0; // one-shot: +1 = Shift+E (slide back / out), -1 = Shift+Q
         bool ReqCubeGridPaint        = false; // one-shot: Shift+B (the Quick Material onto the selection)
+        bool ReqCubeGridPivot        = false; // one-shot: Ctrl+MMB (grid pivot onto the aimed face's corner)
 
         // Quick Materials (UE CubeGrid's Material property): the material Push/Pull gives every face it
         // creates and Shift+B paints onto the selected faces. Null = the engine default material. The tool

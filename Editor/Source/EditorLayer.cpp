@@ -5156,6 +5156,13 @@ namespace Desert::Editor
                                       MS::Get().ReqCubeGridSlide = dir;
                                       return PaletteCommandDone();
                                   } } );
+        commands.push_back( { "CubeGrid", "Grid pivot onto the aimed face corner (Ctrl+MMB)", [needCubeGrid]
+                              {
+                                  if ( auto active = needCubeGrid(); !active )
+                                      return active;
+                                  MS::Get().ReqCubeGridPivot = true;
+                                  return PaletteCommandDone();
+                              } } );
         commands.push_back( { "CubeGrid", "Paint the Quick Material onto the selection (Shift+B)", [needCubeGrid]
                               {
                                   if ( auto active = needCubeGrid(); !active )

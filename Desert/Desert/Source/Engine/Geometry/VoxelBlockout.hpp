@@ -3,6 +3,7 @@
 #include <Engine/Geometry/EditMeshConversion.hpp>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <array>
 #include <cstdint>
@@ -66,8 +67,51 @@ namespace Desert::Geometry::VoxelBlockout
     // The corner-index bit that flips when you step to that face's neighbour.
     extern const int kFaceAxisBit[6];
 
-    // World position of corner `i` of the cell at `c` (edge `unit`, frame `origin`), with its vertical offset.
-    glm::vec3 CornerPos( const glm::ivec3& c, const Cell& cell, int i, float unit, const glm::vec3& origin );
+    // The grid frame: cell (0,0,0) sits at Origin and the lattice axes are Rotation's. Every volume operation
+    // runs in FRAME coordinates (cell index * Unit); only meshing, drawing and targeting cross into the world,
+    // so a rotated grid builds exactly the blocks an unrotated one does, just turned.
+    // Ported from UE 5.8 ModelingComponents/Public/Mechanics/CubeGrid.h:158-186 (ToWorldPoint, ToGridPoint,
+    // GridFrame), adapted: glm, float, the cell size is applied by the caller, not stored in the frame.
+    struct GridFrame
+    {
+        glm::vec3 Origin{ 0.0f };
+        glm::quat Rotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+
+        glm::vec3 ToWorldPoint( const glm::vec3& p ) const
+        {
+            return Origin + Rotation * p;
+        }
+        glm::vec3 ToWorldVector( const glm::vec3& v ) const
+        {
+            return Rotation * v;
+        }
+        glm::vec3 ToFramePoint( const glm::vec3& w ) const
+        {
+            return glm::conjugate( Rotation ) * ( w - Origin );
+        }
+        glm::vec3 ToFrameVector( const glm::vec3& w ) const
+        {
+            return glm::conjugate( Rotation ) * w;
+        }
+        // Same lattice axes (q and -q are one rotation); origins may differ.
+        bool SameAxes( const GridFrame& o ) const;
+        // Same axes AND same origin: the two lattices coincide cell for cell.
+        bool SameAs( const GridFrame& o ) const;
+    };
+    // The panel's frame: origin in centimetres, orientation as Euler degrees about X, Y, Z (glm's XYZ order,
+    // the one the engine's transform rotation uses), UE's GridFrameOrigin + GridFrameOrientation.
+    GridFrame MakeGridFrame( const glm::vec3& origin, const glm::vec3& eulerDegrees );
+
+    // Ctrl+MMB: the world position of the corner of face `normal` (a unit axis step) of `cell` (edge `unit`,
+    // in `frame`) nearest the ray (origin, dir) - the grid pivot goes there.
+    // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:1634-1680 (OnCtrlMiddleClick), adapted:
+    // the face comes as a cell and an outward axis instead of a min/max box, and the corner is returned in the
+    // world rather than applied to a gizmo.
+    glm::vec3 NearestFaceCorner( const GridFrame& frame, const glm::ivec3& cell, const glm::ivec3& normal,
+                                 float unit, const glm::vec3& rayOrigin, const glm::vec3& rayDir );
+
+    // FRAME-space position of corner `i` of the cell at `c` (edge `unit`), with its vertical offset.
+    glm::vec3 CornerPos( const glm::ivec3& c, const Cell& cell, int i, float unit );
 
     // The work-plane, in BASE cells of the active volume: axis Na (0=X, 1=Y, 2=Z) facing Sign, sitting at the
     // near side of cell index `Cell` along Na. The in-plane axes are u = (Na+1)%3 and v = (Na+2)%3.
@@ -106,7 +150,7 @@ namespace Desert::Geometry::VoxelBlockout
     {
         CellMap   Cells;
         float     Unit = 1.0f;
-        glm::vec3 Origin{ 0.0f }; // grid frame this piece was built in
+        GridFrame Frame; // grid frame this piece was built in
     };
 
     // Re-express a marquee (stored in BASE cells) in a new base, keeping its world position, then re-snap it
@@ -116,22 +160,22 @@ namespace Desert::Geometry::VoxelBlockout
     class Volume
     {
     public:
-        CellMap            m_Cells;          // the active volume, BASE-resolution (world = index * Unit + Origin)
-        float              m_Unit = -1.0f;   // base cell size; negative = no base chosen yet
-        glm::vec3          m_Origin{ 0.0f }; // grid frame the active volume is built in
-        std::vector<Layer> m_Frozen;         // committed pieces, each at its own Unit and Origin
+        CellMap            m_Cells;        // the active volume, BASE-resolution (frame = index * Unit)
+        float              m_Unit = -1.0f; // base cell size; negative = no base chosen yet
+        GridFrame          m_Frame;        // grid frame the active volume is built in
+        std::vector<Layer> m_Frozen;       // committed pieces, each at its own Unit and Frame
 
         bool IsEmpty() const
         {
             return m_Cells.empty() && m_Frozen.empty();
         }
 
-        // Occupancy across every layer, for a query cell of edge `unit` in the frame `origin`.
-        bool SolidAt( const glm::ivec3& cell, float unit, const glm::vec3& origin ) const;
+        // Occupancy across every layer, for a query cell of edge `unit` in the grid frame `frame`.
+        bool SolidAt( const glm::ivec3& cell, float unit, const GridFrame& frame ) const;
         // Is face `f` of `cell` hidden by its neighbour? A deformed cell only hides a face when the four shared
         // corners agree; otherwise the two boxes don't actually meet there.
         bool FaceHidden( const CellMap& cells, const glm::ivec3& cell, const Cell& data, int f, float unit,
-                         const glm::vec3& origin ) const;
+                         const GridFrame& frame ) const;
 
         // Subdivide the active base by F: every cell splits into F^3 (geometry stays put), Unit /= F.
         void Refine( int F );
@@ -144,8 +188,9 @@ namespace Desert::Geometry::VoxelBlockout
         // every triangle an op creates the op's material, the walls of a hole included). The plane moves with
         // the edit.
         void PushPull( WorkPlane& plane, const Rect& sel, int dir, int height, uint8_t material );
-        // Shift+B: every exposed face, in ANY layer, that lies on the work-plane and faces out of it, with
-        // its centre inside `sel`, takes `material`. Geometry is untouched. Returns the faces painted; 0
+        // Shift+B: every exposed face, in ANY layer whose frame shares the active axes (a turned piece's faces
+        // never lie on this lattice's planes), that lies on the work-plane and faces out of it, with its
+        // centre inside `sel`, takes `material`. Geometry is untouched. Returns the faces painted; 0
         // when no active base is chosen yet or nothing under the selection faces that way.
         int PaintFaces( const WorkPlane& plane, const Rect& sel, uint8_t material );
         // Corner Mode: every top corner of the cell layer under the selection takes the bilinear blend of the
@@ -158,8 +203,9 @@ namespace Desert::Geometry::VoxelBlockout
 
         // One quad soup out of every layer, each meshed at its OWN cell size and face-culled against all
         // layers: flat cells greedy-merged (never across two materials), deformed cells one slanted quad per
-        // visible face, world-aligned UVs. One Submesh per material ID in use, ascending, with
-        // SubmeshMaterialIds naming it - the layout FromRenderMesh reads into per-triangle MaterialIDs.
+        // visible face, frame-aligned UVs (the texture turns with the grid), then carried into the world by the
+        // layer's own frame. One Submesh per material ID in use, ascending, with SubmeshMaterialIds naming it -
+        // the layout FromRenderMesh reads into per-triangle MaterialIDs.
         RenderMeshData Bake() const;
     };
 

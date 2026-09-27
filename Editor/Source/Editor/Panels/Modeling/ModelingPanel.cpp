@@ -489,15 +489,19 @@ namespace Desert::Editor
             if ( ImGui::Button( "Reset Grid from Actor", ImVec2( -1.0f, 0.0f ) ) )
                 ms.ReqResetFromActor = true;
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Put the grid origin on the SELECTED object's origin, so every block\n"
-                                   "size stays flush with its corners instead of tiling from (0,0,0)." );
+                ImGui::SetTooltip( "Put the grid frame on the SELECTED object's origin and orientation, so every\n"
+                                   "block size stays flush with its corners and faces instead of tiling from\n"
+                                   "(0,0,0) along the world axes. Ctrl+MMB puts the pivot on the nearest corner\n"
+                                   "of the face under the cursor." );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Options" ) )
         {
             // Moving the frame commits the current piece (cells are lattice indices) and re-tiles from
-            // the new origin — already-built geometry keeps the frame it was made in and never moves.
+            // the new origin and axes — already-built geometry keeps the frame it was made in and never moves.
             ImGui::SetNextItemWidth( -1.0f );
             ImGui::DragFloat3( "Grid Frame Origin", &ms.GridOrigin.x, 1.0f, 0.0f, 0.0f, "%.0f" );
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::DragFloat3( "Grid Frame Orientation", &ms.GridRotation.x, 0.5f, -180.0f, 180.0f, "%.1f deg" );
             ImGui::Checkbox( "Show Gizmo", &ms.ShowGizmo );
 
             // Grid Power: block size = 1 m >> power (Power 2 = 25 cm), like UE's slider. Typing a free
