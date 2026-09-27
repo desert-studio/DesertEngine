@@ -55,8 +55,8 @@
  *   SINCE RTGT 3 THE RIG IS NAMED BY ITS HEADER GUID, with the path kept beside it for the reader. The
  *   path is RELATIVE TO THE COOKED MESHES ROOT and was, before RTGT 3, joined in
  *   `RetargetAsset::ResolveDependencies` — the shape `.decloudtype` uses for its noise volume, against the root a
- * `.skeleton` actually lives under (`AssetPreloader` scans skeletons from `MESH_PATH_COOKED` and from nowhere
- *   else). Relative, so the library is the same library on another machine.
+ * `.skeleton` actually lives under (the content registry gathers skeletons from `MESH_PATH_COOKED` and from
+ * nowhere else). Relative, so the library is the same library on another machine.
  *
  *   THE TARGET RIG IS THE ENTITY'S OWN, AND IS NOT NAMED HERE. A second statement of it would be a
  *   second source of truth for which rig this entity has, and the loser of a disagreement between the

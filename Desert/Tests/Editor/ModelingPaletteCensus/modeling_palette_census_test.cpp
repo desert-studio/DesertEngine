@@ -1,8 +1,8 @@
 // EVERY WIDGET THE MODELING PANEL DRAWS IS REACHABLE WITHOUT A MOUSE.
 //
 // Three tasks in a row (M8, M16b, M17) shipped a Modeling tool that could not be photographed: CubeGrid, Create
-// Shape's activation, "Keep both halves" and Trim's cutter existed only as widgets, and the agent that has to
-// verify a change has the command palette and the control channel but no cursor. So each widget of
+// Shape's activation, "Keep both halves" and the old Trim's cutter existed only as widgets, and the agent that has
+// to verify a change has the command palette and the control channel but no cursor. So each widget of
 // Editor/Source/Editor/Panels/Modeling/ModelingPanel.cpp is a row of the register below, saying how it is
 // reached instead:
 //   - Palette: an entry in EditorLayer::BuildPaletteCommands; every token must appear in EditorLayer.cpp;
@@ -59,11 +59,17 @@ namespace
         { "Button", "\"Accept and Start New\"", Reach::Palette, { "{ \"Accept and Start New\", &MS::ReqAccept }" } },
         { "Button", "\"Reset Grid from Actor\"", Reach::Palette, { "{ \"Reset Grid from Actor\", &MS::ReqResetFromActor }" } },
         { "DragFloat3", "\"Grid Frame Origin\"", Reach::Set, { "CubeGrid.GridFrameOrigin" } },
+        { "DragFloat3", "\"Grid Frame Orientation\"", Reach::Set, { "CubeGrid.GridFrameOrientation" } },
         { "Checkbox", "\"Show Gizmo\"", Reach::Palette, { "\"Show Gizmo\"" } },
+        { "BeginCombo", "\"Quick Material\"", Reach::Palette, { "\"Quick Material: next project material\"" } },
+        { "Selectable", "\"Engine default\"", Reach::Palette, { "\"Quick Material: engine default\"" } },
+        { "Selectable", "( name + \"##\" + row.Key ).c_str()", Reach::Palette,
+          { "\"Quick Material: next project material\"" } },
         { "SliderInt", "\"Grid Power\"", Reach::Palette, { "\"Grid Power \"" } },
         { "Button", "ms.CornerMode ? \"Corner Mode: ON (Z)\" : \"Corner Mode: OFF (Z)\"", Reach::Palette,
           { "{ \"Corner Mode (Z)\", &MS::ReqCornerMode }", "\"Corner posts: U+ edge\"", "ReqCornerPosts = posts" } },
         { "Combo", "\"Snap Size\"", Reach::Palette, { "\"Snap Size 1/\"" } },
+        { "Checkbox", "\"Crosswise Diagonal (X)\"", Reach::Palette, { "\"Crosswise Diagonal\"" } },
         { "Checkbox", "\"Hit Unrelated Geometry\"", Reach::Palette, { "\"Hit Unrelated Geometry\"" } },
         { "Checkbox", "\"Generate Collision\"", Reach::Palette, { "\"Generate Collision\"" } },
         { "DragFloat", "\"Current Block Size\"", Reach::Set, { "CubeGrid.CurrentBlockSize" } },
@@ -72,12 +78,36 @@ namespace
         { "SliderInt", "\"Blocks / Step\"", Reach::Set, { "CubeGrid.BlocksPerStep" } },
         // Two panel buttons read "Clear": CubeGrid's and the element selection's.
         { "Button", "\"Clear\"", Reach::Palette, { "{ \"Clear\", &MS::ReqClear }", "SelectionOp::Clear" } },
-        // Create Shape: `cm( label, ... )` and `count( label, ... )` draw every dimension.
+        // Create Shape: `cm( label, ... )` and `count( label, ... )` draw every dimension of the chosen shape,
+        // and `combo( label, ... )` its closed choices.
         { "DragFloat", "label", Reach::Set,
-          { "CreateShape.Width", "CreateShape.Depth", "CreateShape.Height", "CreateShape.StepDepth",
-            "CreateShape.StepHeight" } },
+          { "CreateShape.Box.Width", "CreateShape.Box.Depth", "CreateShape.Box.Height",
+            "CreateShape.Sphere.Radius", "CreateShape.Cylinder.Radius", "CreateShape.Cylinder.Height",
+            "CreateShape.Cone.Radius", "CreateShape.Cone.Height", "CreateShape.Capsule.Radius",
+            "CreateShape.Capsule.CylinderLength", "CreateShape.Pyramid.Width", "CreateShape.Pyramid.Depth",
+            "CreateShape.Pyramid.Height", "CreateShape.Stairs.StepWidth", "CreateShape.Stairs.StepHeight",
+            "CreateShape.Stairs.StepDepth", "CreateShape.Stairs.InnerRadius", "CreateShape.Torus.MajorRadius",
+            "CreateShape.Torus.MinorRadius", "CreateShape.Arrow.ShaftRadius", "CreateShape.Arrow.ShaftHeight",
+            "CreateShape.Arrow.HeadRadius", "CreateShape.Arrow.HeadHeight", "CreateShape.Disc.Radius",
+            "CreateShape.Disc.HoleRadius", "CreateShape.Rectangle.Width", "CreateShape.Rectangle.Depth",
+            "CreateShape.Rectangle.CornerRadius" } },
         { "SliderInt", "label", Reach::Set,
-          { "CreateShape.Subdivisions", "CreateShape.Slices", "CreateShape.Stacks", "CreateShape.Steps" } },
+          { "CreateShape.Box.WidthSubdivisions", "CreateShape.Box.DepthSubdivisions",
+            "CreateShape.Box.HeightSubdivisions", "CreateShape.Sphere.Subdivisions",
+            "CreateShape.Sphere.HorizontalSlices", "CreateShape.Sphere.VerticalSlices",
+            "CreateShape.Cylinder.RadialSlices", "CreateShape.Cylinder.HeightSubdivisions",
+            "CreateShape.Cone.RadialSlices", "CreateShape.Cone.HeightSubdivisions",
+            "CreateShape.Capsule.HemisphereSlices", "CreateShape.Capsule.CylinderSlices",
+            "CreateShape.Capsule.CylinderSubdivisions", "CreateShape.Stairs.Steps",
+            "CreateShape.Torus.MajorSlices", "CreateShape.Torus.MinorSlices", "CreateShape.Arrow.RadialSlices",
+            "CreateShape.Arrow.HeightSubdivisions", "CreateShape.Disc.RadialSlices",
+            "CreateShape.Disc.RadialSubdivisions", "CreateShape.Rectangle.WidthSubdivisions",
+            "CreateShape.Rectangle.DepthSubdivisions", "CreateShape.Rectangle.CornerSlices" } },
+        { "BeginCombo", "label", Reach::Palette,
+          { "\"Create shape stairs: \"", "\"Create shape sphere: \"", "\"Create shape disc: \"",
+            "\"Create shape rectangle: \"" } },
+        { "DragFloat", "\"Curve Angle\"", Reach::Set, { "CreateShape.Stairs.CurveAngle" } },
+        { "Checkbox", "\"Maintain Dimension\"", Reach::Palette, { "\"Create shape: Maintain Dimension\"" } },
         { "BeginCombo", "\"Polygroups\"", Reach::Palette, { "\"Create shape polygroups: \"" } },
         { "BeginCombo", "\"Pivot\"", Reach::Palette, { "\"Create shape pivot: \"" } },
         { "Checkbox", "\"Place on Scene\"", Reach::Palette, { "\"Create shape: Place on Scene\"" } },
@@ -104,7 +134,10 @@ namespace
         { "DragFloat", "\"##ElementWeldTolerance\"", Reach::Set, { "Element.WeldTolerance" } },
         { "Button", "Core::ToString( MO::Clean )", Reach::Palette, { "Core::MeshOperation::Clean" } },
         { "SliderInt", "\"##ElementSubdivideLevels\"", Reach::Set, { "Element.SubdivideLevels" } },
-        { "Checkbox", "\"Smooth (Loop)\"", Reach::Palette, { "\"Subdivide: Smooth (Loop)\"" } },
+        { "Combo", "\"##ElementSubdivideScheme\"", Reach::Palette, { "\"Subdivide scheme: \"" } },
+        { "Combo", "\"##ElementSubdivideBoundary\"", Reach::Palette, { "\"Subdivide boundary: \"" } },
+        { "Combo", "\"##ElementSubdivideNormals\"", Reach::Palette, { "\"Subdivide normals: \"" } },
+        { "Checkbox", "\"New PolyGroups\"", Reach::Palette, { "\"Subdivide: New PolyGroups\"" } },
         { "Button", "Core::ToString( MO::Subdivide )", Reach::Palette, { "Core::MeshOperation::Subdivide" } },
         { "Combo", "\"##ElementMirrorAxis\"", Reach::Palette, { "\"Mirror axis: \"" } },
         { "Checkbox", "\"World\"", Reach::Palette, { "\"Mirror: World\"" } },
@@ -118,10 +151,14 @@ namespace
         { "Checkbox", "\"Fill##PlaneCut\"", Reach::Palette, { "\"Plane Cut: Fill\"" } },
         { "Checkbox", "\"Keep both halves (new entity)\"", Reach::Palette, { "\"Plane Cut: Keep both halves\"" } },
         { "Button", "Core::ToString( MO::PlaneCut )", Reach::Palette, { "Core::MeshOperation::PlaneCut" } },
-        { "Button", "\"Pick Cutter\"", Reach::Palette,
-          { "\"Trim: Pick Cutter from the selection\"", "\"Trim: cutter \"" } },
-        { "Checkbox", "\"Keep only the inside\"", Reach::Palette, { "\"Trim: Keep only the inside\"" } },
-        { "Button", "Core::ToString( MO::Trim )", Reach::Palette, { "Core::MeshOperation::Trim" } },
+        // Boolean and Trim (MeshBooleanTool.hpp)
+        { "Combo", "\"##TrimWhich\"", Reach::Palette, { "\"Trim: \"", "Core::TrimTarget::TrimB" } },
+        { "Combo", "\"##TrimSide\"", Reach::Palette, { "Core::TrimSide::RemoveOutside" } },
+        { "Button", "Core::ToString( Core::BooleanTool::Trim )", Reach::Palette, { "\"Boolean tool: \"", "Core::BooleanTool::Trim" } },
+        { "Combo", "\"##BooleanOperation\"", Reach::Palette, { "\"Boolean operation: \"", "Core::CsgOperation::Union" } },
+        { "Button", "Core::ToString( Core::BooleanTool::Boolean )", Reach::Palette, { "Core::BooleanTool::Boolean" } },
+        { "Combo", "\"##BooleanWriteTo\"", Reach::Palette, { "\"Boolean write to: \"", "Core::BooleanWriteTo::Input" } },
+        { "Combo", "\"##BooleanInputs\"", Reach::Palette, { "\"Boolean inputs: \"", "Core::BooleanInputs::Hide" } },
         // XForm
         { "Combo", "\"##XformPivot\"", Reach::Palette, { "\"XForm pivot: Bounds Center\"", "\"XForm pivot: World Point\"" } },
         { "DragFloat3", "\"##XformPivotPoint\"", Reach::Set, { "XForm.PivotWorldPoint" } },
@@ -220,6 +257,7 @@ namespace
     constexpr const char* kLayer             = "Editor/Source/EditorLayer.cpp";
     const std::string     kSelectableInCombo = "Selectable|Geometry::ToString( mode )";
     const std::string     kSelectablePivot   = "Selectable|Geometry::ToString( pivot )";
+    const std::string     kSelectableStairs  = "Selectable|Geometry::ToString( type )";
 
     bool IsSubjectRow( const std::string& name )
     {
@@ -248,7 +286,7 @@ TEST( ModelingPaletteCensus, EveryPanelWidgetHasARow )
     for ( const std::string& widget : PanelWidgets( ReadFile( RepoRoot() + kPanel ) ) )
     {
         // The combos' own entries are the combo's values, reached through the combo's row.
-        if ( widget == kSelectableInCombo || widget == kSelectablePivot )
+        if ( widget == kSelectableInCombo || widget == kSelectablePivot || widget == kSelectableStairs )
             continue;
         EXPECT_TRUE( registered.count( widget ) )
              << "ModelingPanel draws '" << widget
@@ -308,6 +346,10 @@ TEST( ModelingPaletteCensus, ASetWritesTheWidgetsFieldAndRefusesWhatTheWidgetCan
     EXPECT_EQ( state.XformPattern.Count, 6 );
     ASSERT_TRUE( SetModelingStateProperty( state, "CubeGrid.GridFrameOrigin", { 1.0f, 2.0f, 3.0f } ) );
     EXPECT_FLOAT_EQ( state.GridOrigin.z, 3.0f );
+    ASSERT_TRUE( SetModelingStateProperty( state, "CubeGrid.GridFrameOrientation", { 0.0f, 30.0f, 0.0f } ) );
+    EXPECT_FLOAT_EQ( state.GridRotation.y, 30.0f );
+    EXPECT_FALSE( SetModelingStateProperty( state, "CubeGrid.GridFrameOrientation", { 0.0f, 270.0f, 0.0f } ) )
+         << "the widget holds -180..180";
 
     EXPECT_FALSE( SetModelingStateProperty( state, "Pattern.Count", { 2.5f } ) );
     EXPECT_FALSE( SetModelingStateProperty( state, "Element.LoopPosition", { 1.5f } ) );

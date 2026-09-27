@@ -334,6 +334,9 @@ namespace Desert::Editor::Control
             // What is outstanding, in the same words a settle timeout uses. One vocabulary, so a client
             // that read "asset documents are waiting to be opened" here recognises it in a refusal.
             quiescence["outstanding"] = Str( snapshot.Quiescence.Describe() );
+            // Background runs a command started and did not wait for; poll until "idle" before using their result.
+            quiescence["background"]  = Str( snapshot.Quiescence.DescribeBackground() );
+            quiescence["idle"]        = Common::Json::Value( snapshot.Quiescence.Idle() );
             root["quiescence"]        = Common::Json::Value( quiescence );
         }
 

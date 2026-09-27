@@ -727,6 +727,8 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
 //     meshes can answer - a developer's ignored local meshes under Editor/Cooked would answer too.
 //   * +12 with UIL1 (2480 / 2448): UI_ListProbe.desce, twelve UI entities (canvas, panels, texts, two list
 //     views and their entry templates). A UI element has no world extent, so every one is point-only.
+//   * -1 with WP15c (2479 / 2447): Ramp_EditMesh of M4_RampNormalMap.desce, the corpus's one record whose
+//     StaticMesh block carries its geometry (EditMesh) - now bounded by its own vertices, no registry needed.
 //
 // The mesh references are resolved as the loader resolves them - handle, else path - and a path is
 // relative to the editor's working directory, so the walk runs from there.
@@ -735,7 +737,7 @@ namespace
     // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
     // records stay point-only once the gathered registry answers for them.
     constexpr std::size_t kCorpusMeshReferences        = 32;
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2448;
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2447;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
@@ -815,7 +817,7 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGathered
         seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
     }
 
-    EXPECT_EQ( blind, 2480u );
+    EXPECT_EQ( blind, 2479u );
     EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
     EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
     std::printf( "[corpus] %zu answered of %zu asked; point-only %zu blind, %zu with the registry\n", answers,
@@ -1129,6 +1131,128 @@ TEST( WorldPartitionMeshAssets, TheBoxIsCarriedByTheWorldMatrixNotJustThePositio
     EXPECT_NEAR( held.Footprint.value().MaxX, 520.0f, 0.5f );   // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_NEAR( held.Footprint.value().MinX, 0.0f, 0.5f );     // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_EQ( plan.PointOnlyRecords, 1u ) << "the pivot names nothing and stays a point";
+}
+
+namespace
+{
+    // A StaticMesh block carrying an EditMesh, the way the scene writer stores one (SavedMeshForm.hpp): the
+    // positions of a box from @p lo to @p hi, xyz per vertex in cm. No asset, no registry: the geometry IS
+    // the block.
+    std::string EditMeshBlock( glm::vec3 lo, glm::vec3 hi )
+    {
+        std::string positions;
+        for ( int corner = 0; corner < 8; ++corner )
+        {
+            const glm::vec3 p( ( corner & 1 ) != 0 ? hi.x : lo.x, ( corner & 2 ) != 0 ? hi.y : lo.y,
+                               ( corner & 4 ) != 0 ? hi.z : lo.z );
+            positions += ( corner == 0 ? "" : "," ) + std::to_string( p.x ) + "," + std::to_string( p.y ) + "," +
+                         std::to_string( p.z );
+        }
+        return R"({"EditMesh":{"Positions":[)" + positions + R"(],"Triangles":[]}})";
+    }
+
+    // Half the diagonal of a 400 cm square: the XZ reach of a 400 cm cube turned 45 degrees about Y.
+    constexpr float kTurnedCubeReach = 282.842712f;
+} // namespace
+
+// THE ACCEPTANCE CASE OF WP15c: an entity whose mesh lives in the scene (an EditMesh cube of 400 cm, no
+// asset behind it) moved into a far cell is held by THAT cell, and its footprint is its turned cube - with
+// no registry at all. The lamp beside it names no mesh and is still a point, as before.
+TEST( WorldPartitionSceneMeshes, AnEditMeshCubeInAFarCellIsHeldThereWithItsTurnedBox )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Ramp_EditMesh", { 35000.0f, 120.0f, 25000.0f } ) );
+    records[0].Rotation = glm::vec3( 0.0f, glm::quarter_pi<float>(), 0.0f );
+    With( records[0], "StaticMesh", EditMeshBlock( glm::vec3( -200.0f ), glm::vec3( 200.0f ) ).c_str() );
+    records.push_back( Record( 2, "Lamp", { 500.0f, 0.0f, 500.0f } ) );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    EXPECT_TRUE( plan.Issues.empty() );
+    const PlannedComposite& cube = HeldBy( plan, 0 );
+    ASSERT_TRUE( cube.Footprint.has_value() );
+    const auto& box = cube.Footprint.value(); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( box.MinX, 35000.0f - kTurnedCubeReach, 0.05f );
+    EXPECT_NEAR( box.MaxX, 35000.0f + kTurnedCubeReach, 0.05f );
+    EXPECT_NEAR( box.MinZ, 25000.0f - kTurnedCubeReach, 0.05f );
+    EXPECT_NEAR( box.MaxZ, 25000.0f + kTurnedCubeReach, 0.05f );
+    EXPECT_EQ( cube.Level, 0 );
+    EXPECT_EQ( cube.Cell, ( CellCoord{ 3, 2 } ) );
+
+    const PlannedComposite& lamp = HeldBy( plan, 1 );
+    EXPECT_EQ( lamp.Level, 0 );
+    EXPECT_EQ( lamp.Cell, ( CellCoord{ 0, 0 } ) );
+    EXPECT_EQ( plan.PointOnlyRecords, 1u ) << "only the lamp, which carries no mesh, is still a point";
+}
+
+// THE TURN DECIDES THE CELL. 250 cm short of the 30000 line, the square cube reaches 29950 and stays in
+// the level-0 cell (2, 2); turned 45 degrees its corner reaches past 30000 and the record goes up to the
+// level-1 cell (1, 1). A footprint that ignored rotation (or only took the position) would keep it below.
+TEST( WorldPartitionSceneMeshes, TurningAnEditMeshCubeAcrossALineMovesItUpALevel )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Crate_EditMesh", { 29750.0f, 0.0f, 25000.0f } ) );
+    With( records[0], "StaticMesh", EditMeshBlock( glm::vec3( -200.0f ), glm::vec3( 200.0f ) ).c_str() );
+
+    const WorldPartitionPlan square = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_TRUE( square.Composites[0].Footprint.has_value() );
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( square.Composites[0].Footprint->MaxX, 29950.0f, 0.05f );
+    EXPECT_EQ( square.Composites[0].Level, 0 );
+    EXPECT_EQ( square.Composites[0].Cell, ( CellCoord{ 2, 2 } ) );
+    EXPECT_EQ( square.PointOnlyRecords, 0u );
+
+    records[0].Rotation             = glm::vec3( 0.0f, glm::quarter_pi<float>(), 0.0f );
+    const WorldPartitionPlan turned = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_TRUE( turned.Composites[0].Footprint.has_value() );
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( turned.Composites[0].Footprint->MaxX, 29750.0f + kTurnedCubeReach, 0.05f );
+    EXPECT_EQ( turned.Composites[0].Level, 1 );
+    EXPECT_EQ( turned.Composites[0].Cell, ( CellCoord{ 1, 1 } ) );
+}
+
+// THE BOX IS THE VERTICES', NOT A BOX AROUND THE ORIGIN, AND THE WHOLE MATRIX CARRIES IT. A ramp modelled
+// 800..1200 cm along its local X, turned a quarter about Y (+X onto -Z) and scaled by 2: its vertices land
+// 1600..2400 cm on world -Z from the entity, 400 wide in X around it. The entity's own position is the
+// footprint's other corner, as for every record.
+TEST( WorldPartitionSceneMeshes, AnOffCentreEditMeshIsCarriedByTranslationRotationAndScale )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Ramp_EditMesh", { 35000.0f, 0.0f, 25000.0f } ) );
+    records[0].Rotation = glm::vec3( 0.0f, glm::half_pi<float>(), 0.0f );
+    records[0].Scale    = glm::vec3( 2.0f );
+    With( records[0], "StaticMesh",
+          EditMeshBlock( glm::vec3( 800.0f, 0.0f, -100.0f ), glm::vec3( 1200.0f, 400.0f, 100.0f ) ).c_str() );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
+    const auto& box = plan.Composites[0].Footprint.value(); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( box.MinZ, 25000.0f - 2400.0f, 0.1f );
+    EXPECT_NEAR( box.MaxZ, 25000.0f, 0.1f );
+    EXPECT_NEAR( box.MinX, 35000.0f - 200.0f, 0.1f );
+    EXPECT_NEAR( box.MaxX, 35000.0f + 200.0f, 0.1f );
+    EXPECT_EQ( plan.Composites[0].Cell, ( CellCoord{ 3, 2 } ) );
+}
+
+// A SCENE MESH WITH NO READABLE VERTICES IS NAMED, NOT A SILENT POINT. Seven numbers are not xyz triples,
+// an empty array is no mesh and an EditMesh without Positions has none: each is an Issue on the record's
+// own path, and the record falls back to its position, counted in PointOnlyRecords - the loader refuses
+// the same block, so nothing is drawn there.
+TEST( WorldPartitionSceneMeshes, AnEditMeshWithoutWholeVerticesIsAnIssueOnItsPath )
+{
+    for ( const char* block : { R"({"EditMesh":{"Positions":[0,0,0,1,1,1,2]}})",
+                                R"({"EditMesh":{"Positions":[]}})", R"({"EditMesh":{"Triangles":[]}})" } )
+    {
+        std::vector<EntityData> records;
+        records.push_back( Record( 7, "Broken_EditMesh", { 35000.0f, 0.0f, 25000.0f } ) );
+        With( records[0], "StaticMesh", block );
+
+        const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+        ASSERT_EQ( plan.Issues.size(), 1u ) << block;
+        EXPECT_EQ( plan.Issues[0].Path.rfind( "Entities[id=7].StaticMesh.EditMesh", 0 ), 0u )
+             << plan.Issues[0].Path;
+        EXPECT_EQ( plan.PointOnlyRecords, 1u ) << block;
+        EXPECT_EQ( plan.Composites[0].Cell, ( CellCoord{ 3, 2 } ) ) << block;
+    }
 }
 
 // A SKINNED MESH IS ASKED THE SAME WAY, BY ALL 128 BITS OF ITS GUID TEXT.

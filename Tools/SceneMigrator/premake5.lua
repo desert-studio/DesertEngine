@@ -55,6 +55,7 @@ project "SceneMigrator"
         -- restating either. Pure over the parsed tree, like everything else in this project: no GPU, no
         -- asset manager.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp", -- v35 reads and writes one file per entity (WP16)
 
         -- THE CLOUD NOISE VOLUME DECODER, since T7g: the DCNV 1/2 -> 3 step wraps the payload in the AF1
         -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure

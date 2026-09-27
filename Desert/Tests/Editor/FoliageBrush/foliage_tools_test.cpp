@@ -213,9 +213,9 @@ TEST( FoliageTools, FillCoversTheMeshByArea )
         EXPECT_LE( m[3].z, 1000.0f );
     }
     // Area-weighted: a triangle of a quarter of the area gets a quarter of the instances.
-    std::vector<FoliageFillTriangle> small = { { { 0, 0, 0 }, { 0, 0, 500 }, { 500, 0, 500 } } };
+    std::vector<FoliageFillTriangle> smallPatch = { { { 0, 0, 0 }, { 0, 0, 500 }, { 500, 0, 500 } } };
     FoliageRandom                    rng2( 21u );
-    EXPECT_EQ( FoliageFill( type, small, 1.0f, {}, rng2 ).size(), 50u );
+    EXPECT_EQ( FoliageFill( type, smallPatch, 1.0f, {}, rng2 ).size(), 50u );
     // Paint density scales it; the same seed places the same instances.
     FoliageRandom again( 21u );
     EXPECT_EQ( FoliageFill( type, Square( 50.0f ), 1.0f, {}, again ), placed );

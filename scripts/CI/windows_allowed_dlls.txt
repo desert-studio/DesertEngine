@@ -38,6 +38,7 @@ USER32.dll     # GLFW's win32 backend: windows, messages, input (ThirdParty/GLFW
 GDI32.dll      # GLFW's win32 backend: pixel formats, device contexts
 SHELL32.dll    # GLFW's win32 backend: DragAcceptFiles / DragQueryFileW for file drops
 WS2_32.dll     # Optick's capture server socket (#pragma comment(lib, "ws2_32.lib") in optick_server.cpp)
+dbghelp.dll    # CR1 in-process crash handler: MiniDumpWriteDump + SymFromAddr for the report (Common/Core/CrashHandler.cpp); a system DLL on every Windows 10+
 vulkan-1.dll   # the Vulkan loader: installed by every Vulkan-capable GPU driver, never shipped by a game
 
 # The Universal CRT: an OS component since Windows 10 (System32); /MD code imports it through these apisets.

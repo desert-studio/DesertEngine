@@ -273,6 +273,17 @@ TEST( FlightRules, TheCsvHasOneColumnPerHeaderFieldAndAnUnmeasuredValueIsEmptyNo
     EXPECT_NE( line.find( ",\"L0(1,2)\"\n" ), std::string::npos ) << line;
 }
 
+TEST( FlightRules, TheAssetGpuBytesAreTheirOwnColumnInFrontOfTheCellNames )
+{
+    Flight::FrameRow row     = Timed( 3, 10.0 );
+    row.AssetGpuBytes        = 123456789;
+    row.ActivatedUnits       = "L0(1,2)";
+    const std::string header = Flight::CsvHeader();
+    const std::string line   = Flight::CsvRow( row );
+    EXPECT_NE( header.find( ",asset_gpu_bytes,activated_units\n" ), std::string::npos ) << header;
+    EXPECT_NE( line.find( ",123456789,\"L0(1,2)\"\n" ), std::string::npos ) << line;
+}
+
 // ── The command line ───────────────────────────────────────────────────────────────────────────────────
 
 TEST( FlightRules, TheCommandLineArmsALineFlightAndSetsTheFrameCount )

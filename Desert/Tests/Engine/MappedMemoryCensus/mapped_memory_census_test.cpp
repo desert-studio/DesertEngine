@@ -93,9 +93,6 @@ namespace
                   !ec && it != fs::recursive_directory_iterator(); ++it )
             {
                 const fs::path& p = it->path();
-                // A vendored third-party tree that happens to live under our Vulkan folder.
-                if ( p.string().find( "lightweightvk" ) != std::string::npos )
-                    continue;
                 if ( p.extension() == ".cpp" || p.extension() == ".hpp" )
                     out.push_back( p );
             }

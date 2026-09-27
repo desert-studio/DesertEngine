@@ -605,6 +605,10 @@ namespace Desert::Migration
         void RunSteps( std::vector<Assets::EntityData>& entities, const std::string& name, int statedSceneVersion,
                        const std::filesystem::path& assetsRoot, FileMigrationReport& report )
         {
+            // v35 moves no key: it is the file layout of a partitioned world, which the caller writes.
+            if ( statedSceneVersion < kSceneVersionExternalEntities )
+                report.ExternalEntitiesRaised = true;
+
             // Adds MeshGuid where a StaticMesh/SkinnedMesh/InstancedStaticMesh block names a MeshPath but
             // states no MeshGuid; no step above writes one it lacks.
             if ( statedSceneVersion < kSceneVersionPathOnlyMeshGuids )
@@ -757,6 +761,8 @@ namespace Desert::Migration
         RunSteps( scene.Entities, scene.SceneName, statedSceneVersion, assetsRoot, report );
         if ( !report.Refused.empty() )
             return report; // unstamped: the file is FAILED by every caller and written by none
+        if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
+            report.EntitiesMovedOut = scene.Entities.size();
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.

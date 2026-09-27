@@ -51,8 +51,11 @@
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
 
 #include <Common/Content/ShaderAssetHeader.hpp>
@@ -62,6 +65,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <rflcpp/rfl/json.hpp>
@@ -150,6 +154,13 @@ namespace
         return path.extension() == Desert::Assets::kCloudModellingVolumeExtension;
     }
 
+    // LANDSCAPE HEIGHT TILES (.dlht) ARE COLLECTED TOO: binary 'DLHT' blobs next to their scene
+    // (LandscapeTileFiles.hpp). Only the current container version is read by the engine.
+    bool IsLandscapeTile( const std::filesystem::path& path )
+    {
+        return path.extension() == Desert::World::Landscape::kLandscapeTileExtension;
+    }
+
     // The exclusion `path` falls under, by its trailing components (MigratorMain.hpp, ScanExclusions).
     const Desert::Migration::ScanExclusion* ExclusionFor( const std::filesystem::path& path )
     {
@@ -170,7 +181,8 @@ namespace
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
                   std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
-                  std::vector<std::filesystem::path>& shaders, std::ostream& out )
+                  std::vector<std::filesystem::path>& shaders, std::vector<std::filesystem::path>& tiles,
+                  std::ostream& out )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -210,6 +222,8 @@ namespace
                     models.push_back( entry.path() );
                 else if ( entry.path().extension() == kShaderExtension )
                     shaders.push_back( entry.path() );
+                else if ( IsLandscapeTile( entry.path() ) )
+                    tiles.push_back( entry.path() );
             }
             return;
         }
@@ -234,6 +248,8 @@ namespace
             models.push_back( root );
         else if ( root.extension() == kShaderExtension )
             shaders.push_back( root );
+        else if ( IsLandscapeTile( root ) )
+            tiles.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -257,6 +273,22 @@ namespace
             return false;
         }
         const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text.GetValue() );
+        if ( !written )
+            err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+        return static_cast<bool>( written );
+    }
+
+    // A partitioned world is written as its header plus one file per entity, by the engine's own writer, so a
+    // migrated world and a world the editor saved are laid out alike, file for file.
+    bool WriteExternal( const std::filesystem::path& path, const std::string& json, std::ostream& err )
+    {
+        const auto document = Common::Json::TextDocument::Parse( json );
+        if ( !document )
+        {
+            err << "FAIL   " << path.string() << " — " << document.GetError() << "\n";
+            return false;
+        }
+        const auto written = Desert::Core::ExternalEntities::WriteSceneFile( path, document.GetValue() );
         if ( !written )
             err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
         return static_cast<bool>( written );
@@ -399,6 +431,13 @@ namespace
 
     void PrintSteps( std::ostream& out, const Desert::Migration::FileMigrationReport& report )
     {
+        if ( report.ExternalEntitiesRaised )
+        {
+            out << " scene ->v" << Desert::Migration::kSceneVersionExternalEntities;
+            if ( report.EntitiesMovedOut > 0 )
+                out << " (" << report.EntitiesMovedOut << " entit"
+                    << ( report.EntitiesMovedOut == 1 ? "y" : "ies" ) << " moved to one file each)";
+        }
         if ( report.PathOnlyMeshGuidsRaised )
             out << " scene v" << Desert::Migration::kSceneVersionShaderGuids << "->v"
                 << Desert::Migration::kSceneVersionPathOnlyMeshGuids << " (" << report.PathOnlyMeshGuids.Rewritten
@@ -514,16 +553,20 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> noises;
         std::vector<std::filesystem::path> models;
         std::vector<std::filesystem::path> shaders;
+        std::vector<std::filesystem::path> tiles;
         for ( const auto& root : roots )
             Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders,
-                     out );
+                     tiles, out );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() )
+             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() &&
+             tiles.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, shader or other text "
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, landscape tile, "
+                   "shader "
+                   "or other text "
                    "asset "
                    "files found\n";
             return 2;
@@ -666,6 +709,28 @@ namespace Desert::Migration
                 << Desert::Assets::kCloudModellingContainerVersion << "\n";
         }
 
+        // THE LANDSCAPE TILES: only the current 'DLHT' container (v2) is read, by the engine's own decoder, so
+        // a v1 tile FAILS by path and number - its raising step was deleted once it had raised the corpus
+        // (LS-15). Every line carries the heights' CRC-32C, so two runs over the corpus compare heights bit
+        // for bit.
+        for ( const auto& path : tiles )
+        {
+            const std::string bytes = ReadAll( path );
+            const auto        tile  = Desert::World::Landscape::DecodeLandscapeTile(
+                 std::span( reinterpret_cast<const unsigned char*>( bytes.data() ), bytes.size() ) );
+            if ( !tile )
+            {
+                err << "FAIL   " << path.string() << " — " << tile.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            const std::vector<uint16_t>& samples = tile.GetValue().Samples();
+            out << "ok     " << path.string() << " — already at tile v"
+                << Desert::World::Landscape::kLandscapeTileContainerVersion << ", heights crc " << std::hex
+                << Common::Utils::Crc32c( samples.data(), samples.size() * sizeof( uint16_t ) ) << std::dec
+                << "\n";
+        }
+
         // THE SHADERS: only SHDR 1 (the comment header line, ShaderAssetHeader.hpp) is read. A file stating no
         // header is generation 0 and is refused by number - its stamping step was deleted with the other legacy
         // steps (LEG1); a headed file is left byte for byte once its header is checked.
@@ -706,12 +771,27 @@ namespace Desert::Migration
 
         for ( const auto& path : scenes )
         {
-            const std::string source = ReadAll( path );
+            std::string source = ReadAll( path );
             if ( source.empty() )
             {
                 err << "FAIL   " << path.string() << " — unreadable or empty\n";
                 ++failed;
                 continue;
+            }
+            // A partitioned world's header (v35) is joined with its entity files first, by the engine's own
+            // reader, so every step below sees the one scene document it always has.
+            const auto document = Common::Json::TextDocument::Parse( source );
+            const bool isHeader = document && Desert::Core::ExternalEntities::IsHeader( document.GetValue() );
+            if ( isHeader )
+            {
+                auto joined = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+                if ( !joined )
+                {
+                    err << "FAIL   " << path.string() << " — " << joined.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                source = joined.ExtractValue();
             }
 
             auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( source );
@@ -726,7 +806,7 @@ namespace Desert::Migration
             // the migration as well as used for the write below, so the root the step resolves asset paths
             // against and the root the scene is written under are the same root by construction.
             const std::filesystem::path                  assetsRoot = SceneOutputRoot( path );
-            const Desert::Migration::FileMigrationReport report =
+            Desert::Migration::FileMigrationReport       report =
                  Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
 
             // A scene from a LATER build: nothing ran and nothing was stamped, so this is a FAILED file
@@ -739,8 +819,25 @@ namespace Desert::Migration
                 continue;
             }
 
+            // A partitioned world at the head whose records are still INLINE (written by a tool that
+            // predates v35's layout, or by hand) is moved out now: that is the whole of the v35 step.
+            const bool partitioned = parsed.value().WorldPartition.has_value();
+            if ( !report.Changed() && partitioned && !isHeader )
+            {
+                report.ExternalEntitiesRaised = true;
+                report.EntitiesMovedOut       = parsed.value().Entities.size();
+            }
+
             if ( !report.Changed() )
             {
+                // A header is the engine writer's canonical output piece by piece; `source` is the joined
+                // text, which is not the file, so there is no layout to compare it with.
+                if ( isHeader )
+                {
+                    out << "ok     " << path.string() << " — already at scene v"
+                        << Desert::Migration::kSceneVersion << " (one file per entity)\n";
+                    continue;
+                }
                 if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                      layout != Layout::Canonical )
                 {
@@ -775,7 +872,8 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( !WriteText( path, rfl::json::write( parsed.value() ), err ) )
+            if ( !( partitioned ? WriteExternal( path, rfl::json::write( parsed.value() ), err )
+                                : WriteText( path, rfl::json::write( parsed.value() ), err ) ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched\n";
@@ -1012,8 +1110,8 @@ namespace Desert::Migration
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
-            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << failed
-            << " failed\n";
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << tiles.size()
+            << " landscape tile(s), " << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )

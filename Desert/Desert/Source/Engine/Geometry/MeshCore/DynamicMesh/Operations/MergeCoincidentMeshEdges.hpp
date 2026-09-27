@@ -1,9 +1,9 @@
 // Ported from UE 5.8
 // Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/Operations/MergeCoincidentMeshEdges.h:1-91 and
 // Private/DynamicMesh/Operations/MergeCoincidentMeshEdges.cpp:1-235, adapted: namespace Desert::Geometry, UE Core
-// as std/glm; TPointHashGrid3 (FindPointsInBall/InsertPointUnsafe) and IndexPriorityQueue (Insert/Dequeue)
-// are ported as the subset Apply uses, private to the .cpp - the hash cell is a std::unordered_map bucket, so
-// points of one cell are visited in insertion order where UE's TMultiMap visits them newest-first; the equivalence
+// as std/glm; TPointHashGrid3 is the shared Spatial/PointHashGrid3.hpp and IndexPriorityQueue (Insert/Dequeue)
+// is ported as the subset Apply uses - points of one hash cell are visited in insertion order where UE's
+// TMultiMap visits them newest-first; the equivalence
 // sets are owned by std::unique_ptr instead of new/delete.
 #pragma once
 

@@ -190,9 +190,9 @@ namespace Desert::Editor::Core
         static inline Tools::FoliageReapplySettings s_Reapply;
         static inline glm::vec3                     s_MoveOffset = glm::vec3( 0.0f, 100.0f, 0.0f );
         static inline std::unordered_map<Common::UUID, Tools::FoliageSelection> s_Selection;
-        static inline bool                        s_FilterLandscape  = true;
-        static inline bool                        s_FilterStaticMesh = true;
-        static inline uint64_t                    s_StrokeCounter    = 0u;
+        static inline bool                                                      s_FilterLandscape  = true;
+        static inline bool                                                      s_FilterStaticMesh = true;
+        static inline uint64_t                                                  s_StrokeCounter    = 0u;
         static inline std::vector<std::string>                                  s_BrushLayers;
         static inline float                                                     s_BrushLayerMinWeight = 0.5f;
         static inline std::string                                               s_Search;

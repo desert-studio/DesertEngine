@@ -117,7 +117,13 @@ namespace Desert::Migration
     //       one is REFUSED by name (MigrateLandscapeLayerRefsV33ToV34) rather than guessed into assets.
     inline constexpr int kSceneVersionLandscapeLayerRefs = 34;
 
-    static_assert( kSceneVersionLandscapeLayerRefs == kSceneVersion,
+    //  35 - A PARTITIONED WORLD KEEPS ONE FILE PER ENTITY (WP16, Engine/Core/Serialize/ExternalEntities.hpp).
+    //       The tree does not change; a scene that states a WorldPartition block is WRITTEN as its header plus
+    //       one `.deent` per record, which is the caller's write (MigratorMain), counted here. Every other
+    //       scene and every prefab only gains the stamp.
+    inline constexpr int kSceneVersionExternalEntities = 35;
+
+    static_assert( kSceneVersionExternalEntities == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -205,9 +211,13 @@ namespace Desert::Migration
         bool                        FoliageTypesRaised = false; // below kSceneVersionFoliageTypes
         FoliageTypesMigrationReport FoliageTypes;
 
+        bool        ExternalEntitiesRaised = false; // below kSceneVersionExternalEntities
+        std::size_t EntitiesMovedOut       = 0;     // records a partitioned world now keeps in their own files
+
         bool Changed() const
         {
-            return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised;
+            return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
+                   ExternalEntitiesRaised;
         }
     };
 

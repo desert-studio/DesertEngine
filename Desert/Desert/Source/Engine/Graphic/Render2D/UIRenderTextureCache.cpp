@@ -7,6 +7,7 @@
 #include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -104,7 +105,7 @@ namespace Desert::Graphic::Render2D
         // down the running scene: a file that will not load must cost nothing. A SceneRenderer built here
         // and thrown away would have taken — and returned — a slot, and on the way would have allocated
         // its cascades.
-        const auto json = Common::Utils::FileSystem::ReadFileContent( demand.ScenePath );
+        const auto json = Core::ExternalEntities::ReadSceneFileText( demand.ScenePath );
         if ( !json )
         {
             if ( ShouldSay( m_Refused, element, "read:" + demand.ScenePath ) )

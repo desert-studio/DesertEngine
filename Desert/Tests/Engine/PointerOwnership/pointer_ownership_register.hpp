@@ -220,6 +220,54 @@ namespace Desert::Tests::PointerCensus
         { "Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/SimpleHoleFiller.hpp",
           "SimpleHoleFiller", "m_Mesh", Guard::HostOutlivesUs,
           "ported UE code (P12, GeometryCore), kept in UE's shape: the hole filler is built at the call site over the caller's DynamicMesh3* and fills in-place; the filler object does not outlive that call" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshPlaneCut.hpp",
+          "MeshPlaneCut", "m_Mesh", Guard::HostOutlivesUs,
+          "ported UE code (P14, FMeshPlaneCut), kept in UE's shape: built at the call site (MeshPlaneOperation KeepSide) over the caller's DynamicMesh3*, cuts it in-place and does not outlive that call" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshMirror.hpp",
+          "MeshMirror", "m_Mesh", Guard::HostOutlivesUs,
+          "ported UE code (P14, FMeshMirror), kept in UE's shape: built at the call site (MeshPlaneOperation MirrorMesh) over the caller's DynamicMesh3*, mirrors it in-place and does not outlive that call" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/PlanarHoleFiller.hpp",
+          "PlanarHoleFiller", "m_Mesh", Guard::HostOutlivesUs,
+          "ported UE code (P14, FPlanarHoleFiller), kept in UE's shape: built inside MeshPlaneCut::HoleFill over the cutter's mesh, fills in-place and dies at the end of that loop iteration" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/PlanarHoleFiller.hpp",
+          "PlanarHoleFiller", "m_VertexLoops", Guard::CallScoped,
+          "ported UE code (P14, FPlanarHoleFiller): points at MeshPlaneCut::HoleFill's local loop list, which lives for the whole Fill call the filler is built for" },
+        { "Desert/Common/Source/Common/Core/CrashHandler.cpp",
+          "PendingFault", "pointers", Guard::CallScoped,
+          "the OS's EXCEPTION_POINTERS for the fault (or HandleSynthesizedFault's local record); HandleWindowsFault publishes it and then BLOCKS on g_ReportFinished, and after the wait (or its timeout) the process terminates, so the faulting frame outlives every read the report thread makes (CR1b)" },
+        { "Desert/Common/Source/Common/Core/CrashHandler.cpp",
+          "PendingFault", "kind", Guard::StaticStorage,
+          "every writer passes a string literal: the SEH filter's kind names and HandleSynthesizedFault's ('purecall', 'invalid_parameter', 'signal') (CR1b)" },
+        { "Desert/Common/Source/Common/Core/CrashHandler.cpp",
+          "PendingFault", "codeNameOverride", Guard::StaticStorage,
+          "null or a string literal from HandleSynthesizedFault's callers ('PURE_VIRTUAL_CALL', 'INVALID_CRT_PARAMETER', 'SIGABRT') (CR1b)" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshBoolean.hpp",
+          "MeshBoolean", "Meshes", Guard::HostOutlivesUs,
+          "ported UE code (P17c, FMeshBoolean), kept in UE's shape: built at the call site (MeshBooleanOperation RunMeshBoolean) over the caller's const target and cutter references, read during Compute() and dead at the end of that function" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshBoolean.hpp",
+          "MeshBoolean", "Result", Guard::HostOutlivesUs,
+          "ported UE code (P17c, FMeshBoolean): the output mesh is RunMeshBoolean's local shared_ptr<DynamicMesh3>, declared before the MeshBoolean and returned after Compute(); the operation never outlives it" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshBoolean.hpp",
+          "CustomInsideTestContext", "Spatial", Guard::CallScoped,
+          "ported UE code (P17c): an argument pack built inside MeshBoolean::Compute's per-mesh loop from its own Spatial[] array (a local of Compute), consumed by the inside test within the same iteration" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshBoolean.hpp",
+          "CustomInsideTestContext", "OptionalWindingTree", Guard::CallScoped,
+          "ported UE code (P17c): null or the address of the loop iteration's local FastWindingTree declared just above the pack; both die at the end of the same iteration" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshMeshCut.hpp",
+          "MeshMeshCut", "Mesh", Guard::HostOutlivesUs,
+          "ported UE code (P17c, FMeshMeshCut), kept in UE's shape: built inside MeshBoolean::Compute over the meshes Compute owns (CutMesh[]), cuts them in-place and dies at the end of Compute" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshMeshCut.cpp",
+          "CutWorkingInfo", "Mesh", Guard::CallScoped,
+          "ported UE code (P17c): a local of MeshMeshCut::Cut built over Mesh[MeshIdx], which the MeshMeshCut holds for the whole call; dies at the end of that loop iteration" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Spatial/FastWinding.hpp",
+          "FastWindingTree", "m_Tree", Guard::HostOutlivesUs,
+          "ported UE code (P17c, TFastWindingTree), kept in UE's shape: built over an AABB tree the caller holds (MeshBoolean::Compute's Spatial[] local) and declared after it in the same scope, so destroyed first" },
+        { "Desert/Desert/Source/Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp",
+          "DynamicMeshAABBTree3", "m_Mesh", Guard::HostOutlivesUs,
+          "ported UE code (P17c, TMeshAABBTree3), kept in UE's shape: built over a mesh the caller holds for the tree's lifetime (MeshBoolean::Compute builds both trees over its own CutMesh[]) and drops them at the end of Compute" },
+        { "Desert/Desert/Source/Engine/World/Landscape/LandscapeGenerator.cpp",
+          "Steps", "Progress", Guard::CallScoped,
+          "an argument pack built inside one Generate call from its `progress` parameter (null = unwatched), consumed during that call and dead when it returns; the caller owns the progress object across the call" },
         { "Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/EmbedSurfacePath.hpp",
           "MeshSurfacePath", "m_Mesh", Guard::HostOutlivesUs,
           "ported UE code (P12g, GeometryCore), kept in UE's shape: the constructor takes the mesh the path lies on (DynamicMesh3*, non-owning); built at the call site, embedded into that mesh in-place, and never stored beyond the call" },
@@ -857,7 +905,7 @@ namespace Desert::Tests::PointerCensus
           "MeshRenderer itself (m_StaticInstancedMaterial / m_InstancedGBufferMaterial, both shared_ptr "
           "members). The service is the side that can retire one, and it cannot do so inside the window: "
           "Invalidate MOVES a material to the graveyard and CollectGarbage destroys it only at a frame "
-          "start, after WaitDeviceIdle -- while these sets are filled and drained entirely inside one "
+          "start, once no frame in flight can reference it (FrameRetireQueue) -- while these sets are filled and drained entirely inside one "
           "DrawStaticMeshes call" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "InstancedBatchSet", "Inst", Guard::OwnedByThisObject,
@@ -1527,19 +1575,10 @@ namespace Desert::Tests::PointerCensus
           "-- each is a local in the body of an AssetBase::Load() that a load one level up is inside -- so "
           "the parent's lifetime strictly encloses the child's by the shape of the call stack. Two things "
           "make that hold rather than merely look true: the stack of open scopes is THREAD-LOCAL, so a load "
-          "on the preloader's thread can never take the address of a scope on the hot-reload watcher's; and "
+          "on the boot's thread can never take the address of a scope on the hot-reload watcher's; and "
           "the type is neither copyable nor movable (all four operators deleted), because a copy would give "
           "two scopes one parent and a move would leave a live pointer to a husk. Dereferenced exactly once, "
           "in the destructor, to add this scope's duration to the parent's child-time" },
-        { "Desert/Desert/Source/Engine/Assets/AssetPreloader.cpp",
-          "RowProgress", "Report", Guard::CallScoped,
-          "SPL2: an argument pack built on the stack inside PreloadCookedAssetsAndMaterials -- rows{ &progress, ... } -- and passed down by pointer to each synchronous ProcessAssetKind call in the same function; the pointee is the caller's ItemProgress argument, which outlives the whole synchronous call" },
-        { "Desert/Desert/Source/Engine/Assets/AssetPreloader.hpp",
-          "AssetPreloader", "m_AnimationLibrary", Guard::HostOutlivesUs,
-          "the library the scan publishes clips to. Taken as a REFERENCE by the constructor, so it can never "
-          "be null, and both hosts that own one declare it BEFORE their preloader -- EditorLayer.hpp and "
-          "RuntimeLayer.hpp both say so at the declaration, because members are destroyed in reverse "
-          "declaration order and that order is the whole guarantee" },
         { "Desert/Desert/Source/Engine/Animation/Animator.hpp",
           "ClipPlayback", "Clip", Guard::HostOutlivesUs,
           "an AnimationClip inside an AnimationLibrary entry; the library outlives the animator that plays it" },

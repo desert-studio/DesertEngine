@@ -201,7 +201,7 @@ namespace Desert::Animation
     Common::ResultStr<LibraryPopulation> PopulateLibrary( Assets::AssetManager& assets, AnimationLibrary& library,
                                                           const size_t clipFilesDiscovered )
     {
-        // CLEARED FIRST because this is also the re-scan path: `AssetPreloader::ReloadCooked` ("Rebuild
+        // CLEARED FIRST because this is also the re-index path: `Assets::IndexAnimationClips` from ("Rebuild
         // Cooked Assets") runs the whole discovery again, and a library that only ever grew would answer
         // with two records per clip afterwards — the second of which resolves the same handle, so nothing
         // would look wrong until a picker showed every clip twice.

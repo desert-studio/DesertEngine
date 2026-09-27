@@ -550,6 +550,21 @@ namespace Desert::Assets
                               row->RigSignature };
         }
 
+        // THE ROW OF ONE FILE, AS A KIND: what a dropped file or a path-spelled reference resolves through.
+        // Compared by stable key, so every spelling of the path (absolute, relative, mixed separators) names one
+        // row.
+        inline std::optional<PickerRow> RowAtPath( Common::Content::ContentKind kind,
+                                                   const std::filesystem::path& path )
+        {
+            if ( path.empty() )
+                return std::nullopt;
+            const std::string key = Common::AssetHandle::StableKeyForPath( path );
+            for ( PickerRow& row : Rows( kind ) )
+                if ( row.Key == key )
+                    return std::move( row );
+            return std::nullopt;
+        }
+
         // ONE ROW OF A DEPENDENCY CLOSURE: the number a reference holds and the kind of the row it names.
         struct ClosureRow
         {

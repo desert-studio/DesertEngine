@@ -75,6 +75,8 @@ bool MeshBoundaryLoops::Compute()
     {
         if ( !m_Mesh->IsEdge( Eid ) || UsedEdge[Eid] || !m_Mesh->IsBoundaryEdge( Eid ) )
             continue;
+        if ( EdgeFilterFunc && !EdgeFilterFunc( Eid ) )
+            continue;
 
         const int EStart = Eid;
         UsedEdge[EStart] = true;
@@ -93,7 +95,15 @@ bool MeshBoundaryLoops::Compute()
 
             int       E0       = -1;
             int       E1       = 1;
-            const int BdryNbrs = m_Mesh->GetVtxBoundaryEdges( CureB, E0, E1 );
+            int       BdryNbrs = m_Mesh->GetVtxBoundaryEdges( CureB, E0, E1 );
+            // UE counts the filtered edges only for a two-edge vertex: a bowtie's list is filtered below.
+            if ( EdgeFilterFunc && BdryNbrs <= 2 )
+            {
+                if ( !EdgeFilterFunc( E0 ) )
+                    --BdryNbrs;
+                if ( !EdgeFilterFunc( E1 ) )
+                    --BdryNbrs;
+            }
             if ( BdryNbrs < 2 )
             {
                 // an endpoint vertex: continue the span from the other end of the chain
@@ -119,7 +129,13 @@ bool MeshBoundaryLoops::Compute()
                 else
                 {
                     AllE.clear();
-                    const int NumBe = m_Mesh->GetAllVtxBoundaryEdges( CureB, AllE );
+                    int NumBe = m_Mesh->GetAllVtxBoundaryEdges( CureB, AllE );
+                    if ( EdgeFilterFunc )
+                    {
+                        const auto Kept = std::remove_if( AllE.begin(), AllE.begin() + NumBe,
+                                                          [this]( int E ) { return !EdgeFilterFunc( E ); } );
+                        NumBe           = static_cast<int>( Kept - AllE.begin() );
+                    }
                     ENext           = FindLeftTurnEdge( ECur, CureB, AllE, NumBe, UsedEdge );
                     if ( ENext == -1 )
                     {

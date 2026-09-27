@@ -512,12 +512,12 @@ namespace Desert::Geometry
     // Quaternion::SetFromTo(UnitZ, Normal) (Quaternion.h:420-460), so its X/Y axes are UnitX/UnitY rotated by it.
     void DynamicMeshEditor::SetTriangleUVsFromProjection( const std::vector<int>& Triangles,
                                                           const glm::dvec3& Origin, const glm::dvec3& Normal,
-                                                          float UVScaleFactor ) const
+                                                          float UVScaleFactor, int UVLayerIndex ) const
     {
         if ( Triangles.empty() )
             return;
-        assert( m_Mesh->HasAttributes() && m_Mesh->Attributes()->NumUVLayers() > 0 );
-        DynamicMeshUVOverlay* UVs = m_Mesh->Attributes()->PrimaryUV();
+        assert( m_Mesh->HasAttributes() && m_Mesh->Attributes()->NumUVLayers() > UVLayerIndex );
+        DynamicMeshUVOverlay* UVs = m_Mesh->Attributes()->GetUVLayer( UVLayerIndex );
 
         // SetFromTo(UnitZ, Normal): W = from.bisector, XYZ = from x bisector; an antiparallel Normal takes UE's
         // first W == 0 branch (|from.X| >= |from.Y| holds for UnitZ): X = -1, Y = Z = 0.

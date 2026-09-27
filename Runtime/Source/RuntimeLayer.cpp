@@ -15,6 +15,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
@@ -22,7 +23,7 @@
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/AssetPreloader.hpp>
+#include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -76,6 +77,8 @@
 #include <Common/Core/Events/KeyEvents.hpp>
 #include <Common/Core/KeyCodes.hpp>
 
+#include <Engine/UI/LoadingOverlay.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -128,13 +131,10 @@ namespace Desert::Player
            m_Application( application )
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
-        // BEFORE the preloader, which now takes it: the preloader is what fills it, at the tail of the
-        // scan that finds the clips. This layer used to build a library, hand it to AnimationECSSystem and
-        // never put a single clip in it — `AnimationLibrary` appeared exactly twice in this whole file and
-        // neither occurrence was a Register — so every skinned character in a packaged game stood in its
-        // bind pose, and no editor session could reproduce it.
+        // Filled by the "Indexing animation clips" stage of the boot, the same call the editor makes. This
+        // layer once built a library, handed it to AnimationECSSystem and never put a clip in it, so every
+        // skinned character in a packaged game stood in its bind pose (BootContentCensus holds both hosts).
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
-        m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
         Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The game's view IS the window, so here — and only here — the window's size is the view's.
         const auto window = EngineContext::GetInstance().GetWindow();
@@ -187,13 +187,13 @@ namespace Desert::Player
         LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
                   Assets::ContentRegistry::Get().Count(), registry.GetValue() );
 
-        m_Boot.Run( "Preloading shaders", [this] { m_AssetPreloader->PreloadShaders(); } );
-        m_Boot.Run( "Preloading meshes, textures and materials",
-                    [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
-        m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
+        // The whole content boot (AL1-9): every other kind is created from its registry row when named.
+        m_Boot.Run( "Compiling engine shaders", [this] { Assets::CompileEngineShaders( m_AssetManager ); } );
+        m_Boot.Run( "Indexing animation clips",
+                    [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
-        m_Boot.Run( "Preloading string tables", [this] { m_AssetPreloader->PreloadStringTables(); } );
+        m_Boot.Run( "Requesting string tables", [this] { Assets::RequestStringTables( m_AssetManager ); } );
 
         // Same system set + order as the editor's Play mode — and it is the SAME LIST, not a copy of it
         // (Engine/Core/SceneRenderCollectors.hpp). "Same as the editor" was a comment above a hand-copied
@@ -234,7 +234,7 @@ namespace Desert::Player
             else
             {
                 auto read = m_Boot.Run( "Reading the scene file", [&scenePath]
-                                        { return Common::Utils::FileSystem::ReadFileContent( scenePath ); } );
+                                        { return Core::ExternalEntities::ReadSceneFileText( scenePath ); } );
                 if ( !read )
                     return Common::MakeError( read.GetError() );
                 sceneJson = read.ExtractValue();
@@ -367,7 +367,7 @@ namespace Desert::Player
             json = std::move( world->AlwaysLoadedJson );
         else
         {
-            auto jsonRead = Common::Utils::FileSystem::ReadFileContent( path );
+            auto jsonRead = Core::ExternalEntities::ReadSceneFileText( path );
             if ( !jsonRead )
             {
                 LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}",
@@ -575,28 +575,11 @@ namespace Desert::Player
         if ( auto* img = ResolveSpriteImage( sprite ) )
             DrawFittedSprite( dl, *img, w, h, 1.0f );
 
-        // AND SOMETHING THAT MOVES. A still loading screen is indistinguishable from a hung game -- the
-        // editor's overlay solves this with a label, and this host has no font it can rely on (fonts are
-        // assets, and the point of this screen is that the assets are not here yet). So: a track and a
-        // block sliding along it, driven by the PRESENTED frame count rather than by a clock, so that an
-        // unattended capture of frame N is reproducible.
-        constexpr float kTrackFraction = 0.34f;
-        constexpr float kBlockFraction = 0.18f;
-        constexpr float kPeriodFrames  = 48.0f;
-
-        const float trackW = w * kTrackFraction;
-        const float blockW = trackW * kBlockFraction;
-        const float x0     = ( w - trackW ) * 0.5f;
-        const float y0     = h * 0.82f;
-        const float thick  = std::max( 2.0f, h * 0.004f );
-
-        dl.AddRectFilled( { x0, y0 }, { x0 + trackW, y0 + thick }, glm::vec4( 1.0f, 1.0f, 1.0f, 0.16f ) );
-
-        // A ping-pong rather than a wrap, so the block is never cut in half at the ends of the track.
-        const float phase = std::fmod( static_cast<float>( m_LoadingFramesPresented ), kPeriodFrames * 2.0f );
-        const float tri   = phase < kPeriodFrames ? phase / kPeriodFrames : 2.0f - phase / kPeriodFrames;
-        const float bx    = x0 + tri * ( trackW - blockW );
-        dl.AddRectFilled( { bx, y0 }, { bx + blockW, y0 + thick }, glm::vec4( 1.0f, 1.0f, 1.0f, 0.85f ) );
+        // AND SOMETHING THAT MOVES. A still loading screen is indistinguishable from a hung game, and this
+        // cover cannot rely on a font (fonts are assets, and the point of this screen is that the assets are not
+        // here yet). The strip is the engine's one (Engine/UI/LoadingOverlay.hpp), driven by the PRESENTED frame
+        // count so an unattended capture of frame N is reproducible.
+        UI::DrawLoadingStrip( dl, w, h, m_LoadingFramesPresented );
     }
 
     Common::BoolResultStr RuntimeLayer::OnUpdate( const Common::Timestep& ts )
@@ -687,7 +670,12 @@ namespace Desert::Player
             }
         }
 
-        if ( const auto frame = m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts ); !frame )
+        // Time also stops while streaming waits for the cell under the camera (WP12): the loader keeps reading
+        // on its workers and Tick above keeps collecting, but no script or physics step runs over a hole.
+        const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
+        if ( const auto frame =
+                  m_Scene->OnUpdate( m_Content.Loading() || streamingWaits ? Common::Timestep( 0.0f ) : ts );
+             !frame )
             return Common::MakeError( frame.GetError() );
 
         return BOOLSUCCESS;
@@ -873,6 +861,13 @@ namespace Desert::Player
                             DrawFittedSprite( dl, *img, w, h, a );
                     }
                 }
+
+                // WORLD STREAMING WAITS FOR THE CELL UNDER THE CAMERA (WP12, decision O2): over the game's UI, so
+                // the player reads "loading" rather than a frozen HUD. Only while the level itself is shown.
+                if ( !loading )
+                    if ( const auto* wait = m_Scene->GetRegistry().try_ctx<Core::WorldStreamingWait>();
+                         wait != nullptr && wait->Assessment.Blocks() )
+                        UI::DrawStreamingWaitOverlay( dl, w, h, wait->FramesWaiting );
 
                 m_Render2D->Flush();
             }

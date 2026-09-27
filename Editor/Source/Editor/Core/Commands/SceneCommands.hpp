@@ -87,7 +87,7 @@ namespace Desert::Editor::Commands
     // ---- XForm (Modeling): whole-entity mesh + transform edits as ONE undo step ----
 
     // What an entity holds after an XForm operation: its mesh (by reference, like EditMeshCommand), its LOCAL
-    // transform, and - when set - its material slots (Merge unites the parts' slots).
+    // transform, and - when set - its material slots (Merge unites the parts' slots) and its visibility.
     struct XformEntityState
     {
         Common::UUID                                    Entity;
@@ -96,6 +96,8 @@ namespace Desert::Editor::Commands
         glm::vec3                                       Rotation{ 0.0f };
         glm::vec3                                       Scale{ 1.0f };
         std::optional<std::vector<Common::AssetHandle>> MaterialSlots;
+        // Set: the entity is shown or hidden (VisibilityComponent) - a Boolean's "Hide inputs".
+        std::optional<bool> Visible;
     };
 
     // A new entity: a copy of CopyOf alone (not its children, same parent), named Name, then given State.
@@ -207,6 +209,15 @@ namespace Desert::Editor::Commands
     // entity's creation (NotifyCreated) right after: the created state is then already the static mesh.
     [[nodiscard]] Common::ResultStr<std::filesystem::path>
     OutputStaticMesh( const Common::UUID& uuid, std::string_view folder, std::string_view name );
+
+    // An edit that spans a whole tool session (Cube Grid reopened on an entity): the entity subtree as it was
+    // when the session began. CommitEntityState makes "then -> now" ONE undo step (the same swap
+    // MutateEntityUndoable records); RevertEntityState puts the entity back as it was and records nothing (the
+    // session's Cancel). Null when there is no scene or no such entity.
+    struct EntityStateSnapshot;
+    [[nodiscard]] std::shared_ptr<const EntityStateSnapshot> CaptureEntityState( const Common::UUID& uuid );
+    void CommitEntityState( const std::shared_ptr<const EntityStateSnapshot>& before );
+    void RevertEntityState( const std::shared_ptr<const EntityStateSnapshot>& before );
 
     // Runs `mutate` (a component add/remove from the Details panel) undoably: the entity subtree is
     // snapshotted before and after, and undo/redo swap between the two serialized states (delete +

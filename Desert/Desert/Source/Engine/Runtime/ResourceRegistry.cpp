@@ -135,6 +135,7 @@ namespace Desert::Runtime
         GetMeshService()->BindAssetManager( assets );
         GetCloudTypeService()->BindAssetManager( assets );
         GetUIThemeService()->BindAssetManager( assets );
+        GetSkyboxService()->BindAssetManager( assets );
         GetLandscapeLayerInfoService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
     }

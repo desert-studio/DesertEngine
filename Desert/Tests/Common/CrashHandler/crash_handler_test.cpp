@@ -12,6 +12,7 @@
 // nothing else.
 
 #include <Common/Core/CrashHandler.hpp>
+#include <RuntimeCrashTest.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <gtest/gtest.h>
@@ -138,7 +139,11 @@ namespace
     {
         const char* Kind;
         const char* ExpectedFunctionFragment;
+        // Leaves the scratch root in place (named by g_LastCrashRoot) for a test that asserts more.
+        bool KeepReport = false;
     };
+
+    std::filesystem::path g_LastCrashRoot;
 
     void RunCrashCase( const CrashCase& inCase )
     {
@@ -164,6 +169,13 @@ namespace
         EXPECT_FALSE( FieldValue( contents, "version" ).empty() );
         EXPECT_FALSE( FieldValue( contents, "os" ).empty() );
         EXPECT_EQ( FieldValue( contents, "scene" ), "Scenes/CrashHandlerSuite.desce" );
+        // CR1c: the GPU keys come from the device the host created, decoded; the game from SetGameName.
+        EXPECT_EQ( FieldValue( contents, "gpu" ), "test harness, no device" );
+        EXPECT_EQ( FieldValue( contents, "gpu_vendor" ), "0x10DE" );
+        EXPECT_EQ( FieldValue( contents, "gpu_device" ), "0x2482" );
+        EXPECT_EQ( FieldValue( contents, "gpu_driver" ), "591.86" );
+        EXPECT_EQ( FieldValue( contents, "gpu_api" ), "1.4.303" );
+        EXPECT_EQ( FieldValue( contents, "game" ), "CrashHandlerSuiteGame" );
         EXPECT_NE( contents.find( "\n[stack]\n" ), std::string::npos );
         EXPECT_NE( contents.find( "\nlog=" ), std::string::npos ) << "the log ring produced no lines";
 
@@ -179,16 +191,69 @@ namespace
         EXPECT_GT( std::filesystem::file_size( dump ), 4096u ) << "crash.dmp is too small to be a minidump";
 #endif
 
+        if ( inCase.KeepReport )
+        {
+            g_LastCrashRoot = root;
+            return;
+        }
         std::error_code cleanup;
         std::filesystem::remove_all( root, cleanup );
     }
 } // namespace
 
-TEST( CrashHandler, ParsesTheThreeTestKinds )
+// CR1c: each vendor's own packing of VkPhysicalDeviceProperties::driverVersion. A wrong split prints a
+// plausible-looking but false driver version, which sends a support ticket after the wrong driver.
+TEST( CrashHandler, DecodesDriverVersionsTheWayEachVendorPrintsThem )
+{
+    // NVIDIA 10/8/8/6: 591.86 is what nvidia-smi and the control panel show.
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x10DE, ( 591u << 22 ) | ( 86u << 14 ) ), "591.86" );
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x10DE, ( 560u << 22 ) | ( 9u << 14 ) ), "560.09" );
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x10DE, ( 470u << 22 ) | ( 57u << 14 ) | ( 2u << 6 ) | 1u ),
+               "470.57.2.1" );
+#if defined( _WIN32 )
+    // Intel on Windows 18/14: the last two groups of "31.0.101.5186".
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x8086, ( 101u << 14 ) | 5186u ), "101.5186" );
+#endif
+    // AMD (and anyone else) use VK_MAKE_API_VERSION's 3/7/10/12 packing.
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x1002, ( 2u << 22 ) | ( 0u << 12 ) | 302u ), "2.0.302" );
+    EXPECT_EQ( Common::Crash::DescribeApiVersion( ( 1u << 22 ) | ( 3u << 12 ) | 280u ), "1.3.280" );
+}
+
+#if DESERT_DEV_INSTRUMENTS
+// PKG1c: the Runtime's `--crash-test <kind>[@stage]`. No stage keeps the flag's old meaning (@mounted); an
+// unknown stage is refused, because a crash at the other stage files its report in the other directory.
+TEST( CrashHandler, TheRuntimeCrashTestFlagNamesAKindAndAStage )
+{
+    using Desert::Player::CrashTestStage;
+    const auto plain = Desert::Player::ParseCrashTest( "segv" );
+    ASSERT_TRUE( plain.has_value() );
+    EXPECT_EQ( plain->Kind, Common::Crash::TestKind::Segv );
+    EXPECT_EQ( plain->Stage, CrashTestStage::Mounted );
+
+    const auto early = Desert::Player::ParseCrashTest( "abort@early" );
+    ASSERT_TRUE( early.has_value() );
+    EXPECT_EQ( early->Kind, Common::Crash::TestKind::Abort );
+    EXPECT_EQ( early->Stage, CrashTestStage::Early );
+
+    const auto mounted = Desert::Player::ParseCrashTest( "purecall@mounted" );
+    ASSERT_TRUE( mounted.has_value() );
+    EXPECT_EQ( mounted->Stage, CrashTestStage::Mounted );
+
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "segv@" ).has_value() );
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "segv@late" ).has_value() );
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "@early" ).has_value() );
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "sigsegv@early" ).has_value() );
+}
+#endif
+
+TEST( CrashHandler, ParsesEveryTestKind )
 {
     EXPECT_EQ( Common::Crash::ParseTestKind( "segv" ), Common::Crash::TestKind::Segv );
     EXPECT_EQ( Common::Crash::ParseTestKind( "abort" ), Common::Crash::TestKind::Abort );
     EXPECT_EQ( Common::Crash::ParseTestKind( "purecall" ), Common::Crash::TestKind::PureCall );
+    EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow" ), Common::Crash::TestKind::StackOverflow );
+    EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow-worker" ),
+               Common::Crash::TestKind::StackOverflowWorker );
     // An unknown word is refused rather than defaulted: a --crash-test typo that crashed in some
     // other way would file a report describing a fault nobody asked for.
     EXPECT_FALSE( Common::Crash::ParseTestKind( "sigsegv" ).has_value() );
@@ -208,6 +273,92 @@ TEST( CrashHandler, AbortWritesAReportNamingTheFaultingFunction )
 TEST( CrashHandler, PureCallWritesAReportNamingTheFaultingFunction )
 {
     RunCrashCase( { "purecall", "PureCall" } );
+}
+
+// CR1b: a stack overflow leaves the faulting thread no stack to write a report on, so the report must come
+// from the report thread (Windows) / the alternate signal stack (POSIX). Proven by the relation between
+// the crash and the report: the report's stack is the recursion, frame after frame, not just a file.
+namespace
+{
+    const char* const kRecursion = "CrashTestStackOverflowRecurse";
+
+    // Runs one stack-overflow child and returns its crash.txt, or "" after a fatal failure.
+    std::string RunStackOverflowCase( const char* inKind )
+    {
+        RunCrashCase( { inKind, kRecursion, true } );
+        if ( ::testing::Test::HasFatalFailure() )
+        {
+            return {};
+        }
+        std::string     contents = ReadWholeFile( SoleReportDirectory( g_LastCrashRoot ) / "crash.txt" );
+        std::error_code cleanup;
+        std::filesystem::remove_all( g_LastCrashRoot, cleanup );
+        return contents;
+    }
+
+    void ExpectReportStackIsTheRecursion( const std::string& contents )
+    {
+
+#if defined( _WIN32 )
+        EXPECT_EQ( FieldValue( contents, "codename" ), "EXCEPTION_STACK_OVERFLOW" );
+        // A real SEH fault: `function` is frame 0, the faulting frame itself, which is the recursion.
+        EXPECT_NE( FieldValue( contents, "function" ).find( kRecursion ), std::string::npos )
+             << "function=" << FieldValue( contents, "function" );
+#else
+        const std::string signal = FieldValue( contents, "codename" );
+        EXPECT_TRUE( signal == "SIGSEGV" || signal == "SIGBUS" ) << "codename=" << signal;
+#endif
+
+        // The recursion fills the walked frames: at least 16 of the report's [stack] lines name it.
+        const std::size_t stackAt = contents.find( "\n[stack]\n" );
+        const std::size_t logAt   = contents.find( "\n[log]\n" );
+        ASSERT_NE( stackAt, std::string::npos );
+        ASSERT_NE( logAt, std::string::npos );
+        const std::string stack     = contents.substr( stackAt, logAt - stackAt );
+        std::size_t       recursive = 0;
+        for ( std::size_t at = stack.find( kRecursion ); at != std::string::npos;
+              at             = stack.find( kRecursion, at + 1 ) )
+        {
+            ++recursive;
+        }
+        EXPECT_GE( recursive, 16u ) << "the report's stack is not the recursion:\n" << stack;
+    }
+} // namespace
+
+TEST( CrashHandler, StackOverflowWritesAReportWhoseStackIsTheRecursion )
+{
+    const std::string contents = RunStackOverflowCase( "stackoverflow" );
+    if ( !contents.empty() )
+    {
+        ExpectReportStackIsTheRecursion( contents );
+    }
+}
+
+// A worker thread has neither the main thread's stack guarantee nor (POSIX) its alternate signal stack:
+// only a report written off the faulting thread survives this. The report's tid must be the worker's.
+TEST( CrashHandler, StackOverflowOnAWorkerThreadReportsThatThread )
+{
+    const std::string contents = RunStackOverflowCase( "stackoverflow-worker" );
+    if ( contents.empty() )
+    {
+        return;
+    }
+    ExpectReportStackIsTheRecursion( contents );
+#if defined( _WIN32 )
+    const std::string tid = FieldValue( contents, "tid" );
+    ASSERT_FALSE( tid.empty() );
+    // The [log] line is a spdlog-formatted record whose end-of-line the ring sink turns into a
+    // trailing space (newlines would break the one-field-per-line report contract), so the number
+    // is not immediately followed by '\n'. Match the number itself and require that what follows
+    // is not another digit, so a truncated or extended tid cannot pass for the child's.
+    const std::string needle = "stackoverflow worker thread tid=" + tid;
+    const std::size_t at     = contents.find( needle );
+    ASSERT_NE( at, std::string::npos ) << "the report's tid=" << tid
+                                       << " is not the worker thread the child logged";
+    const std::size_t afterTid = at + needle.size();
+    EXPECT_FALSE( afterTid < contents.size() && contents[afterTid] >= '0' && contents[afterTid] <= '9' )
+         << "the report's tid=" << tid << " is not the worker thread the child logged";
+#endif
 }
 
 // PKG1c: the Runtime installs BEFORE the archive mount, under the engine's per-user root, and moves the
@@ -310,7 +461,12 @@ int main( int argc, char** argv )
         // Both context setters are exercised, because a value that is never written is a field the
         // report would always show as "none" and nobody would notice.
         Common::Crash::SetScenePath( "Scenes/CrashHandlerSuite.desce" );
-        Common::Crash::SetGpuDescription( "test harness, no device" );
+        Common::Crash::SetGpu( { .name          = "test harness, no device",
+                                 .vendorId      = 0x10DE,
+                                 .deviceId      = 0x2482,
+                                 .driverVersion = ( 591u << 22 ) | ( 86u << 14 ),
+                                 .apiVersion    = ( 1u << 22 ) | ( 4u << 12 ) | 303u } );
+        Common::Crash::SetGameName( "CrashHandlerSuiteGame" );
         LOG_INFO( "[CrashHandlerTestChild] about to crash on purpose: {}", argv[2] );
 
         const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( argv[2] );

@@ -44,7 +44,14 @@ namespace Desert::World::Landscape
             return;
         }
 
-        const int32_t      target = 255 - static_cast<int32_t>( value );
+        // What the other layers hold afterwards. Unlike UE's components, whose layers always sum to 255, our
+        // samples may leave a share unclaimed (the rule ground, LandscapeWeights.glslh). A gain is taken from
+        // that share first and from the others only past it; a loss goes to the others, but only as much as
+        // the painted layer held - never up to 255. Scaling the others UP on a gain turned a faint stroke
+        // edge into a full one wherever a new brush touched it (LS-13: a staircase on the sample grid).
+        const int32_t      current = weights[painted];
+        const int32_t      target  = value > current ? std::min( sumOthers, 255 - static_cast<int32_t>( value ) )
+                                                     : sumOthers + current - static_cast<int32_t>( value );
         const float        delta  = static_cast<float>( sumOthers - target ); // > 0: the others lose weight
         std::vector<float> next( weights.size(), 0.0f );
         if ( delta > 0.0f )
@@ -90,7 +97,7 @@ namespace Desert::World::Landscape
                 heaviest = i;
         }
         weights[painted] = value;
-        // Rounding residue: to the heaviest other layer, so the weight-blended sum is exactly 255.
+        // Rounding residue: to the heaviest other layer, so the others hold exactly `target`.
         weights[heaviest] = ClampWeight( weights[heaviest] + ( target - total ) );
     }
 

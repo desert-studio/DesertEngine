@@ -45,7 +45,11 @@ namespace Desert::Core
     // key, drops it from the FILES, and is made compulsory by this number moving. The loader therefore
     // needs no list of dead keys and must never grow one: "retired" is a fact about a conversion that has
     // already happened, not a rule the runtime carries.
-    inline constexpr int kSceneVersion = 34;
+    //
+    // v35 (WP16): a partitioned world keeps one file per entity (Serialize/ExternalEntities.hpp). The typed
+    // tree did not change; the FILE LAYOUT did, and an older build reading the header alone would load a world
+    // with no entities in it - so the number moves and that build refuses the file by name.
+    inline constexpr int kSceneVersion = 35;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

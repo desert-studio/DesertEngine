@@ -2,8 +2,12 @@
 
 #include <string>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/MeshPlaneOperation.hpp>
+#include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -26,8 +30,8 @@ namespace Desert::Editor::Core
             CreateShape,   // place a parametric shape (CreateShapeTool, UE's Add Primitive tools)
         };
 
-        // The shapes the Create tool places. Plane is not here: it is a card for the scene's Add menu, not
-        // a solid anyone models from.
+        // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
+        // is not here: it is an upright card for the scene's Add menu; the palette's flat card is Rectangle.
         enum class Shape
         {
             Box,
@@ -37,9 +41,14 @@ namespace Desert::Editor::Core
             Capsule,
             Pyramid,
             Stairs,
+            Torus,
+            Arrow,
+            Disc,
+            Rectangle,
         };
         static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder, Shape::Cone,
-                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs };
+                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs,   Shape::Torus,
+                                             Shape::Arrow,   Shape::Disc,    Shape::Rectangle };
 
         static constexpr const char* ShapeName( Shape shape )
         {
@@ -59,6 +68,14 @@ namespace Desert::Editor::Core
                     return "Pyramid";
                 case Shape::Stairs:
                     return "Stairs";
+                case Shape::Torus:
+                    return "Torus";
+                case Shape::Arrow:
+                    return "Arrow";
+                case Shape::Disc:
+                    return "Disc";
+                case Shape::Rectangle:
+                    return "Rectangle";
             }
             return "Box";
         }
@@ -87,22 +104,35 @@ namespace Desert::Editor::Core
             OnScene,
         };
 
-        // Every field moves the shape it is shown for (ModelingPanel shows only those). Centimetres.
+        // The Pyramid is not in UE's palette, so it has no UE property set; its three extents, in centimetres.
+        struct PyramidSettings
+        {
+            float Width  = 100.0f; // X
+            float Depth  = 100.0f; // Z
+            float Height = 100.0f; // Y
+
+            bool operator==( const PyramidSettings& ) const = default;
+        };
+
+        // One property set per shape, as UE keeps one UProcedural*ToolProperties per Add Primitive tool: each
+        // shape remembers its own values, with UE's names and defaults. ModelingPanel shows the chosen one's.
         struct ShapeSettings
         {
-            Shape                        Kind         = Shape::Box;
-            float                        Width        = 100.0f; // X extent; the diameter of a round shape
-            float                        Depth        = 100.0f; // Z extent (Box, Pyramid)
-            float                        Height       = 100.0f; // Y extent (all but Sphere and Stairs)
-            int                          Subdivisions = 1;      // Box: quads along each edge
-            int                          Slices       = 24;     // round shapes: segments around the axis
-            int                          Stacks       = 16;     // Sphere, Capsule: segments pole to pole
-            int                          Steps        = 8;      // Stairs
-            float                        StepDepth    = 30.0f;  // Stairs
-            float                        StepHeight   = 20.0f;  // Stairs
-            Geometry::ShapePolygroupMode Groups       = Geometry::ShapePolygroupMode::PerFace;
-            Geometry::ShapePivot         Pivot        = Geometry::ShapePivot::Base;
-            Placement                    Place        = Placement::OnScene;
+            Shape                        Kind = Shape::Box;
+            Geometry::BoxShape           Box;
+            Geometry::SphereShape        Sphere;
+            Geometry::CylinderShape      Cylinder;
+            Geometry::ConeShape          Cone;
+            Geometry::CapsuleShape       Capsule;
+            PyramidSettings              Pyramid;
+            Geometry::StairsShape        Stairs;
+            Geometry::TorusShape         Torus;
+            Geometry::ArrowShape         Arrow;
+            Geometry::DiscShape          Disc;
+            Geometry::RectangleShape     Rectangle;
+            Geometry::ShapePolygroupMode Groups = Geometry::ShapePolygroupMode::PerFace;
+            Geometry::ShapePivot         Pivot  = Geometry::ShapePivot::Base;
+            Placement                    Place  = Placement::OnScene;
 
             bool operator==( const ShapeSettings& ) const = default;
         };
@@ -159,15 +189,20 @@ namespace Desert::Editor::Core
         // World position of grid cell (0,0,0). Moving it re-aligns the lattice to an object's corner so
         // any block size stays flush with it, instead of tiling from the world origin.
         glm::vec3 GridOrigin = glm::vec3( 0.0f );
+        // Orientation of the grid frame, Euler degrees about X, Y, Z (UE "Grid Frame Orientation"): the lattice
+        // runs along the turned axes, so a blockout can follow a rotated building or a slope.
+        glm::vec3 GridRotation = glm::vec3( 0.0f );
         // Targeting also considers OTHER scene meshes (build on top of an imported prop, snap the plane
         // onto it), not just the blockout being edited. UE calls this "Hit Unrelated Geometry".
         bool HitUnrelated = true;
         bool ShowGizmo    = false; // draw the grid frame axes at the origin
 
-        // Corner Mode (Z): moves the selection's corner posts along the grid's up axis to build ramps,
-        // roofs and wedges. Snap Size = the fraction of a block one press moves them.
+        // Corner Mode (Z): moves the selection's corner posts out of (or into) the face it lies on to build
+        // ramps, roofs, wedges and leaning walls. Snap Size = the fraction of a block one press moves them.
         int  CornerSnapDiv = 2;     // 2 = half a block, 4 = quarter, 10 = a tenth
         bool ReqCornerMode = false; // one-shot: toggle Corner Mode
+        // UE's Crosswise Diagonal (X in Corner Mode): split a non-planar sloped quad along the other diagonal.
+        bool CornerCrosswise = false;
 
         // Accept also gives the committed piece a BOX collider + a static body, so a blockout is
         // walkable immediately. Box, not triangle mesh: the physics layer has no trimesh shape yet.
@@ -180,6 +215,7 @@ namespace Desert::Editor::Core
         bool ReqCancel         = false; // one-shot: delete the in-progress blockout
         bool ReqClear          = false; // one-shot: clear the cells (keep editing)
         bool ReqResetFromActor = false; // one-shot: put the grid origin on the selected entity
+        bool ReqCubeGridEditSelected = false; // one-shot: reopen CubeGrid on the selected blockout
 
         // --- The mouse's part of CubeGrid, for the command palette and the control channel (which have no
         //     cursor). Each lands in the same code the mouse and E/Q reach inside CubeGridTool::Update. ---
@@ -188,6 +224,14 @@ namespace Desert::Editor::Core
         bool CubeGridAimCentre       = false;
         int  ReqCubeGridSelectBlocks = 0; // one-shot: select an N x N block square starting at the aim
         int  ReqCubeGridStep         = 0; // one-shot: +1 = E, -1 = Q (Push/Pull, or the corner posts)
+        int  ReqCubeGridSlide        = 0; // one-shot: +1 = Shift+E (slide back / out), -1 = Shift+Q
+        bool ReqCubeGridPaint        = false; // one-shot: Shift+B (the Quick Material onto the selection)
+        bool ReqCubeGridPivot        = false; // one-shot: Ctrl+MMB (grid pivot onto the aimed face's corner)
+
+        // Quick Materials (UE CubeGrid's Material property): the material Push/Pull gives every face it
+        // creates and Shift+B paints onto the selected faces. Null = the engine default material. The tool
+        // turns it into a per-face material ID through the blockout's own material set.
+        Common::AssetHandle QuickMaterial; // default-constructed = null
         // One-shot: which of the selection's four corner posts Corner Mode picks, one bit per post in the
         // order of CubeGridTool's kPosts (bit k = post k); -1 = no request.
         int ReqCornerPosts = -1;
@@ -200,10 +244,9 @@ namespace Desert::Editor::Core
         float ElementLoopPosition = 0.5f;
         // Clean: vertices closer than this (cm) are welded.
         float ElementWeldTolerance = 0.01f;
-        // Subdivide: how many times the whole mesh is split, and whether it is smoothed (Loop) or only
-        // re-tessellated (Uniform).
-        int                       ElementSubdivideLevels = 1;
-        Geometry::SubdivideScheme ElementSubdivideScheme = Geometry::SubdivideScheme::Loop;
+        // Subdivide: UE's Subdivide tool settings with its defaults (level 3, Catmull-Clark, smooth corners,
+        // generated normals).
+        Geometry::SubdivideSettings ElementSubdivide{};
         // Mirror: the plane is perpendicular to ElementMirrorAxis (0 = X, 1 = Y, 2 = Z) through the entity's
         // origin along its own axis, or - ElementMirrorWorld - through the world's origin along the world's.
         // Cut and Mirror keeps the positive side of that axis, the negative one with ElementMirrorKeepNegative.
@@ -222,10 +265,8 @@ namespace Desert::Editor::Core
         bool                   ElementPlaneCutKeepNegative = false;
         bool                   ElementPlaneCutFill         = true;
         Geometry::PlaneCutMode ElementPlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
-        // Trim: the entity whose mesh (closed and convex) trims the edited one, picked in the panel from the
-        // scene selection; Null until picked.
-        Common::UUID       ElementTrimCutter;
-        Geometry::TrimSide ElementTrimSide = Geometry::TrimSide::RemoveInside;
+        // Boolean and Trim (MeshBooleanTool.hpp), on the scene selection's two entities.
+        BooleanToolArgs Boolean;
 
         // XForm tab (MeshXformOperations.hpp), acting on the scene selection's entities. Edit Pivot moves the
         // origin to XformPivot (XformPivotWorldPoint for World Point); Bake Transform bakes the XformBake

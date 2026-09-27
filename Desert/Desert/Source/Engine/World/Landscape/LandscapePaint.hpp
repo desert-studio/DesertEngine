@@ -41,7 +41,9 @@ namespace Desert::World::Landscape
      *
      * @p weights holds every layer's weight at this sample, indexed as @p rules. A NoWeightBlend layer is set
      * and nothing else moves. When the painted layer LOSES weight and no other weight-blended layer holds any,
-     * the weight has nowhere to go and the painted layer keeps its old value: the sum stays 255. Rounding
+     * the weight has nowhere to go and the painted layer keeps its old value: the sum stays 255. A sample
+     * whose weights sum to less than 255 has an unclaimed share (the rule ground): a gain takes from it first
+     * and from the others only past it, a loss goes to the others only as much as was lost. Rounding
      * residue goes to the heaviest other layer, so the sum is exact, not approximately 255.
      */
     void LandscapeNormalizeWeights( std::span<uint8_t> weights, std::span<const LandscapeLayerRule> rules,

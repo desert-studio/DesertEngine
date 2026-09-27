@@ -102,17 +102,10 @@ for /f "usebackq tokens=1,4" %%m in (`git ls-files --stage`) do (
 if "%SM_COUNT%"=="0" call :fail "no submodules found in the git index (is this a git checkout?)"
 
 REM ---------------------------------------------------------------------------
-REM 4. Third-party sources that are NOT submodules (all three are gitignored).
+REM 4. Third-party sources that are NOT submodules (both are gitignored).
 REM ---------------------------------------------------------------------------
 call :clone_dep "ThirdParty\optick\src\optick.h" "ThirdParty\optick" ^
     "https://github.com/bombomby/optick.git" ""
-
-REM volk: the include is <volk/volk.h> and the directory on the include path is ThirdParty
-REM (Desert/Dependencies.lua, `base = baseDir`), NOT the Vulkan SDK. This script did not clone it
-REM until 2026-09-07 on the belief that the LunarG SDK supplies it; the SDK's copy is not on any
-REM include path here, so Windows failed with "Cannot open include file: 'volk/volk.h'".
-call :clone_dep "ThirdParty\volk\volk.h" "ThirdParty\volk" ^
-    "https://github.com/zeux/volk.git" ""
 
 REM meshoptimizer pinned to v0.20, the version BuildScripts/ThirdParty/MeshOptimizer.lua expects.
 call :clone_dep "ThirdParty\meshoptimizer\src\meshoptimizer.h" "ThirdParty\meshoptimizer" ^
@@ -185,10 +178,9 @@ REM wildcard, so when it is missing premake5 still succeeds and emits a project 
 REM the failure only surfaces later as a link error naming a symbol you can see in the tree. Name them
 REM here instead. Same list as scripts/MacOS/Setup.sh, plus the two Windows-only prebuilt binaries.
 REM
-REM Three submodules are deliberately absent: ThirdParty/NVRHI, ThirdParty/lightweightvk and
-REM Editor/ThirdParty/ImGuiColorTextEdit. No premake file and no source refers to them. They are still
-REM initialised above and a failure to initialise one is still reported — but the build does not read
-REM them, so their absence must not be reported as a missing build input.
+REM One submodule is deliberately absent: Editor/ThirdParty/ImGuiColorTextEdit. No premake file and no
+REM source refers to it. It is still initialised above and a failure to initialise it is still reported
+REM — but the build does not read it, so its absence must not be reported as a missing build input.
 REM
 REM assimp is a SUBMODULE COMPILED FROM SOURCE since D40, so what the list below verifies is its
 REM SOURCE TREE (code\Common\ImporterRegistry.cpp — the file the build derives its importer set from),
@@ -210,7 +202,6 @@ for %%P in (
     "ThirdParty\meshoptimizer\src\meshoptimizer.h"
     "ThirdParty\reflect-cpp\src\reflectcpp.cpp"
     "ThirdParty\reflect-cpp\include"
-    "ThirdParty\volk\volk.h"
     "ThirdParty\GLFW\include\GLFW\glfw3.h"
     "ThirdParty\ImGui\imgui.cpp"
     "ThirdParty\imgui-node-editor\imgui_node_editor.cpp"

@@ -8,7 +8,7 @@
 // would then be Pending forever, the sky would never draw, and nothing in the engine would say why —
 // the splash would simply stay up.
 //
-// This is the same defect shape, and the same file pair, as `AssetPreloadCensus` next door:
+// This is the same defect shape, and the same file pair, as `BootContentCensus` next door:
 // `AssetPreloader::PreloadCloudLayouts` scanned a directory, registered what it found, and was called
 // by nobody for the whole life of the painted-layout feature. Both ends were right; the link between
 // them was missing; every test of either end passed. The relation lives between a class in the engine

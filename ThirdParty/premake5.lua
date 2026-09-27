@@ -11,6 +11,7 @@ include( buildScripts .. "/Jolt.lua" )
 include( buildScripts .. "/Lua.lua" )
 include( buildScripts .. "/Optick.lua" )
 include( buildScripts .. "/MeshOptimizer.lua" )
+include( buildScripts .. "/OpenSubdiv.lua" ) -- CPU refiner only (sdc/vtr/far), see the file
 include( buildScripts .. "/Dlib.lua" ) -- optional; no-op when ThirdParty/dlib is absent
 
 -- assimp, compiled from the pinned submodule on every platform. It used to be a committed MSVC import

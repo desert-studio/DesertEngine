@@ -80,12 +80,12 @@ TEST( TerrainTextureKey, AnUnsetSlotIsNoSlot )
 
 // ---- The instance row layout is the shader's -------------------------------------------------------
 
-TEST( TerrainInstanceRow, TheRowIsTwelveSixteenByteSlots )
+TEST( TerrainInstanceRow, TheRowIsSeventeenSixteenByteSlots )
 {
     // The GLSL `TerrainInstance` in Common/TerrainInstance.glslh is the second statement of this layout; the
     // static_asserts in TerrainBatch.hpp hold the offsets and this holds the stride the GPU indexes by.
     // The SPIR-V side of the same relation is asserted in the ShaderCacheKey suite.
-    EXPECT_EQ( sizeof( TerrainInstance ), 192u );
+    EXPECT_EQ( sizeof( TerrainInstance ), 272u );
 }
 
 // ── Landscape tiles: the LOD (UE's FLandscapeRenderSystem, ported) ──────────────────────────────────
