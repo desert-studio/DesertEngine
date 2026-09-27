@@ -36,6 +36,7 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -1457,8 +1458,7 @@ namespace Desert::Editor
                         {
                             if ( auto a = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( handle ) )
                             {
-                                Graphic::Renderer::GetInstance().WaitDeviceIdle();
-                                svc->Register( a );
+                                Runtime::EnsureSkyboxRegistered( a );
                             }
                         }
                         // By the panorama's header GUID (MATL 3): a skybox that states none cannot be named.

@@ -1,16 +1,56 @@
 #include "SkyboxService.hpp"
 
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+
 namespace Desert::Runtime
 {
-    Common::BoolResultStr SkyboxService::Register( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset )
+    void SkyboxService::Request( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset )
     {
-        if ( !skyboxAsset->GetMetadata().IsValid() )
+        if ( !skyboxAsset || !skyboxAsset->GetMetadata().IsValid() )
         {
-            return Common::MakeError( "Skybox asset is invalid" );
+            LOG_ERROR( "[Skybox] a skybox request carried no valid asset; nothing is loaded." );
+            return;
+        }
+        const auto  handle = skyboxAsset->GetMetadata().Handle;
+        const auto& path   = skyboxAsset->GetMetadata().Filepath;
+        if ( m_Skyboxes.contains( handle ) || m_Pending.contains( handle ) )
+            return;
+
+        // Decision V3: a missing file is an error that names it, never a quiet empty sky.
+        if ( !Common::Utils::FileSystem::Exists( path ) )
+        {
+            LOG_ERROR( "[Skybox] '{}' (GUID {}, handle {}) is not on disk and not in a mounted pak: the scene "
+                       "has no environment from it.",
+                       path.string(), Common::Content::AssetGuidToText( skyboxAsset->Guid() ),
+                       static_cast<uint64_t>( handle ) );
+            return;
         }
 
-        m_Skyboxes[skyboxAsset->GetMetadata().Handle] = std::make_shared<Graphic::MaterialSkybox>( skyboxAsset );
-        return BOOLSUCCESS;
+        auto request = Assets::AsyncAssetLoader::Get().Request(
+             skyboxAsset,
+             [this, handle]( const Assets::Asset<Assets::AssetBase>& asset, const Assets::LoadOutcome outcome,
+                             const std::string& error )
+             {
+                 m_Pending.erase( handle );
+                 const auto skybox = std::dynamic_pointer_cast<Assets::SkyboxAsset>( asset );
+                 if ( outcome != Assets::LoadOutcome::Loaded || !skybox )
+                 {
+                     LOG_ERROR( "[Skybox] '{}' did not load, so the scene has no environment from it: {}",
+                                asset ? asset->GetMetadata().Filepath.string() : std::string( "<null>" ), error );
+                     return;
+                 }
+                 m_Skyboxes[handle] = std::make_shared<Graphic::MaterialSkybox>( skybox );
+             },
+             [this, handle]() { m_Pending.erase( handle ); } );
+        if ( request.IsValid() )
+            m_Pending.emplace( handle, std::move( request ) );
+    }
+
+    bool SkyboxService::IsPending( const Assets::AssetHandle& handle ) const
+    {
+        return m_Pending.contains( handle );
     }
 
     std::shared_ptr<Desert::Graphic::MaterialSkybox> SkyboxService::Get( const Assets::AssetHandle& handle ) const
@@ -21,8 +61,9 @@ namespace Desert::Runtime
 
     void SkyboxService::Clear()
     {
-        // Was an empty body. A skybox material owns its cubemap images and descriptor sets.
+        // A skybox material owns its cubemap images and descriptor sets; a pending read is cancelled
+        // with it, so a completion can never land in a service that has been emptied.
+        m_Pending.clear();
         m_Skyboxes.clear();
     }
-
 } // namespace Desert::Runtime

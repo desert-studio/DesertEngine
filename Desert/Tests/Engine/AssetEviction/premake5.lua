@@ -41,6 +41,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/EnvironmentStaging.cpp", -- SkyboxAsset stages the environment cache on the worker
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",

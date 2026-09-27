@@ -143,6 +143,14 @@ TEST( AsyncAssetPump, BothHostsPumpTheLoaderOnceATick )
                 "is never told they arrived. Every cloud kind stays Pending forever, the sky never draws, "
                 "and nothing says why: the splash simply does not come down. This is the exact "
                 "shape of PreloadCloudLayouts, which scanned, registered, and was called by nobody.";
+
+        // AL1-3: the environment cache's readbacks are polled by the same tick and finished at teardown.
+        // A host without the pump submits the copies and never writes the file (every run bakes again for
+        // 15 s); a host without the drain releases the readbacks after the device is gone.
+        EXPECT_TRUE( std::regex_search( source, std::regex( R"(EnvironmentCacheWriter::Get\(\)\.Pump\(\))" ) ) )
+             << layer << " never pumps EnvironmentCacheWriter: a baked sky is never cached.";
+        EXPECT_TRUE( std::regex_search( source, std::regex( R"(EnvironmentCacheWriter::Get\(\)\.Drain\(\))" ) ) )
+             << layer << " never drains EnvironmentCacheWriter before the device goes.";
     }
 }
 

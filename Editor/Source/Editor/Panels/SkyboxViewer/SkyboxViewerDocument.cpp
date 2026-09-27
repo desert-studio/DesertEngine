@@ -13,6 +13,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -93,8 +94,7 @@ namespace Desert::Editor
                 m_Unavailable = "This skybox is not registered with the asset manager — nothing to show.";
                 return;
             }
-            Graphic::Renderer::GetInstance().WaitDeviceIdle();
-            skyboxes.Register( asset );
+            Runtime::EnsureSkyboxRegistered( asset );
         }
 
         m_Unavailable.clear();

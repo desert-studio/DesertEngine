@@ -234,9 +234,11 @@ namespace
     };
     constexpr SkyboxBindSite kSkyboxBindSites[] = {
          { "Desert/Desert/Source/Engine/Runtime/Services/AssetServiceRegistration.cpp",
-           "service->Register( skybox )" },
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp", "svc.Register(" },
-         { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp", "svc->Register(" },
+           "service->Request( skybox )" },
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp",
+           "Runtime::EnsureSkyboxRegistered( a )" },
+         { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
+           "Runtime::EnsureSkyboxRegistered( a )" },
     };
 } // namespace
 

@@ -16,6 +16,7 @@
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -67,8 +68,7 @@ namespace Desert::Editor
                       {
                           if ( auto a = assetManager->FindByHandle<Assets::SkyboxAsset>( handle ) )
                           {
-                              Graphic::Renderer::GetInstance().WaitDeviceIdle();
-                              svc.Register( a );
+                              Runtime::EnsureSkyboxRegistered( a );
                           }
                       }
                       skybox.SkyboxHandle = handle;

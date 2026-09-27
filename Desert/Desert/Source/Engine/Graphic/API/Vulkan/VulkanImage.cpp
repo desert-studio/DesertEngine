@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <thread>
 
 namespace Desert::Graphic::API::Vulkan
@@ -628,12 +629,14 @@ namespace Desert::Graphic::API::Vulkan
     namespace
     {
         /// One submitted image->buffer copy. Owns the staging buffer and the submission; both are released
-        /// on the device thread by the destructor, which waits for the fence first if it has to.
+        /// on the device thread by the destructor, which waits for the fence first if it has to. A copy
+        /// without a pixel source is a raw one (an environment cube's levels): ReadBytes only.
         class VulkanImageReadback final : public ImageReadback
         {
         public:
             VulkanImageReadback( VkBuffer staging, VmaAllocation allocation, uint64_t bytes, std::size_t pixels,
-                                 Graphic::PackedPixelSource source, CommandBufferAllocator::Submitted submitted )
+                                 std::optional<Graphic::PackedPixelSource> source,
+                                 CommandBufferAllocator::Submitted         submitted )
                  : m_Staging( staging ), m_Allocation( allocation ), m_Bytes( bytes ), m_Pixels( pixels ),
                    m_Source( source ), m_Submitted( submitted )
             {
@@ -657,16 +660,28 @@ namespace Desert::Graphic::API::Vulkan
 
             [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const override
             {
+                if ( !m_Source )
+                    return Common::MakeError<std::vector<uint8_t>>(
+                         "ReadRGBA8: this readback is a raw copy with no RGBA8 packing; use ReadBytes()" );
+                auto raw = ReadBytes();
+                if ( !raw.IsSuccess() )
+                    return raw;
+                return Common::MakeSuccess(
+                     Graphic::PackToRGBA8( raw.GetValue().data(), raw.GetValue().size(), m_Pixels, *m_Source ) );
+            }
+
+            [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> ReadBytes() const override
+            {
                 if ( !IsComplete() )
                     return Common::MakeError<std::vector<uint8_t>>(
-                         "ReadRGBA8: the GPU copy has not completed yet; poll IsComplete() first" );
+                         "ReadBytes: the GPU copy has not completed yet; poll IsComplete() first" );
                 std::vector<uint8_t> raw( static_cast<std::size_t>( m_Bytes ) );
                 MappedMemory         mapped = Allocator()->MapMemory( m_Allocation );
                 const auto           read   = mapped.ReadInto( raw.data(), raw.size() );
                 if ( !read.IsSuccess() )
-                    return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadRGBA8: {}", read.GetError() );
+                    return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadBytes: {}", read.GetError() );
                 mapped.Unmap();
-                return Common::MakeSuccess( Graphic::PackToRGBA8( raw.data(), raw.size(), m_Pixels, m_Source ) );
+                return Common::MakeSuccess( std::move( raw ) );
             }
 
         private:
@@ -681,7 +696,7 @@ namespace Desert::Graphic::API::Vulkan
             VmaAllocation                     m_Allocation;
             uint64_t                          m_Bytes;
             std::size_t                       m_Pixels;
-            Graphic::PackedPixelSource        m_Source;
+            std::optional<Graphic::PackedPixelSource> m_Source;
             CommandBufferAllocator::Submitted m_Submitted;
         };
     } // namespace
@@ -1038,7 +1053,7 @@ namespace Desert::Graphic::API::Vulkan
                                 static_cast<uint32_t>( regions.size() ), regions.data() );
     }
 
-    Common::ResultStr<std::vector<unsigned char>> VulkanImageCube::RT_ReadAllLevels()
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImageCube::RT_BeginReadAllLevels()
     {
         // THE OTHER DIRECTION, AND THE ONE THE BAKE NEEDS. `Image2D::ReadPixelsRGBA8` is deliberately the
         // only readback in the engine and it CONVERTS to RGBA8 for a thumbnail; that is the wrong answer
@@ -1046,9 +1061,14 @@ namespace Desert::Graphic::API::Vulkan
         // nothing: it hands back the image's own bytes, in the image's own format, laid out TIGHTLY and
         // in TABLE ORDER — level 0's six faces, then level 1's — which is exactly what
         // `Serialization::BuildLevelTable` takes.
+        //
+        // AND IT DOES NOT WAIT (AL1-3). The copy is submitted behind the bake and nobody blocks on it: the
+        // environment is already in use from the GPU cubes, and the bytes are for the NEXT run's cache. The
+        // caller polls the returned readback and hands it to a worker, as TH3's thumbnail capture does —
+        // one readback mechanism, two formats.
         if ( m_Resource.Image == VK_NULL_HANDLE )
-            return Common::MakeFormattedError<std::vector<unsigned char>>(
-                 "ImageCube '{}': RT_ReadAllLevels before the image exists", m_Specification.Tag );
+            return Common::MakeFormattedError<std::shared_ptr<ImageReadback>>(
+                 "ImageCube '{}': RT_BeginReadAllLevels before the image exists", m_Specification.Tag );
 
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                               ->GetVulkanAllocator()
@@ -1083,7 +1103,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto         allocRes =
              allocator->RT_AllocateBuffer( "CubeReadback", bInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, staging );
         if ( !allocRes.IsSuccess() )
-            return Common::MakeFormattedError<std::vector<unsigned char>>(
+            return Common::MakeFormattedError<std::shared_ptr<ImageReadback>>(
                  "ImageCube '{}': {} byte readback buffer failed: {}", m_Specification.Tag, at,
                  allocRes.GetError() );
         const VmaAllocation stagingAlloc = allocRes.GetValue();
@@ -1092,33 +1112,42 @@ namespace Desert::Graphic::API::Vulkan
         if ( !cmdAlloc.IsSuccess() )
         {
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
-            return Common::MakeFormattedError<std::vector<unsigned char>>(
-                 "ImageCube '{}': RT_ReadAllLevels has no command buffer: {}", m_Specification.Tag,
+            return Common::MakeFormattedError<std::shared_ptr<ImageReadback>>(
+                 "ImageCube '{}': RT_BeginReadAllLevels has no command buffer: {}", m_Specification.Tag,
                  cmdAlloc.GetError() );
         }
         const VkCommandBuffer cmd     = cmdAlloc.GetValue();
         const VkImageLayout   restore = m_Resource.Layout;
-        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
+        // Whole-queue dependencies instead of a device idle, exactly as BeginReadbackRGBA8 argues.
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT );
         vkCmdCopyImageToBuffer( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging,
                                 static_cast<uint32_t>( regions.size() ), regions.data() );
-        TransitionLayout( cmd, restore );
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-
-        std::vector<unsigned char> out( static_cast<size_t>( at ) );
+        // The fence alone does not make the copy visible to a host read on the worker.
+        const VkBufferMemoryBarrier toHost = { .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                                               .pNext               = nullptr,
+                                               .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+                                               .dstAccessMask       = VK_ACCESS_HOST_READ_BIT,
+                                               .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                               .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                               .buffer              = staging,
+                                               .offset              = 0,
+                                               .size                = VK_WHOLE_SIZE };
+        vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
+                              &toHost, 0, nullptr );
+        TransitionLayout(
+             cmd, restore == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : restore,
+             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+             VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT );
+        auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitCommandBufferGraphic( cmd );
+        if ( !submitted.IsSuccess() )
         {
-            MappedMemory mapped = allocator->MapMemory( stagingAlloc );
-            const auto   read   = mapped.ReadInto( out.data(), out.size() );
-            if ( !read.IsSuccess() )
-            {
-                const std::string reason = read.GetError();
-                mapped.Unmap();
-                allocator->RT_DestroyBuffer( staging, stagingAlloc );
-                return Common::MakeFormattedError<std::vector<unsigned char>>( "ImageCube '{}': {}",
-                                                                               m_Specification.Tag, reason );
-            }
+            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            return Common::MakeFormattedError<std::shared_ptr<ImageReadback>>(
+                 "ImageCube '{}': RT_BeginReadAllLevels: {}", m_Specification.Tag, submitted.GetError() );
         }
-        allocator->RT_DestroyBuffer( staging, stagingAlloc );
-        return Common::MakeSuccess( std::move( out ) );
+        return Common::MakeSuccess<std::shared_ptr<ImageReadback>>( std::make_shared<VulkanImageReadback>(
+             staging, stagingAlloc, at, std::size_t{ 0 }, std::nullopt, submitted.GetValue() ) );
     }
 
     Common::BoolResultStr VulkanImageCube::RT_ClearToColor( float r, float g, float b, float a )
