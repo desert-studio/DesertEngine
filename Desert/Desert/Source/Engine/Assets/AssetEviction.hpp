@@ -155,6 +155,11 @@ namespace Desert::Assets
         /// Park @p handle's runtime materials for destruction, keeping the shell.
         virtual void DropBuiltMaterial( const Common::AssetHandle& handle ) = 0;
 
+        /// Drop the built GPU texture for @p handle, keeping the shell so `Require` reads and builds it again.
+        /// Returns true when something was actually dropped. WP14b: before it existed a texture's GPU image
+        /// outlived its asset's release for the rest of the session - the payload went, the image stayed.
+        virtual bool DropBuiltTexture( const Common::AssetHandle& handle ) = 0;
+
         /// Destroy what was parked, at a point where no frame is recording.
         virtual void CollectGarbage() = 0;
     };
@@ -187,6 +192,7 @@ namespace Desert::Assets
         /// Built GPU objects dropped, by kind.
         uint32_t MeshesDropped    = 0;
         uint32_t MaterialsDropped = 0;
+        uint32_t TexturesDropped  = 0;
         /// Rows in the resource ledger before and after. The number the report quotes.
         uint32_t LedgerRowsBefore = 0;
         uint32_t LedgerRowsAfter  = 0;

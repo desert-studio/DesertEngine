@@ -21,8 +21,8 @@ namespace Desert::Assets
                 std::to_string( Released ) + ", already cold " + std::to_string( AlreadyCold ) + ", refused " +
                 std::to_string( Refused ) + ", project-scoped " + std::to_string( ProjectScoped ) + ". Dropped " +
                 std::to_string( MeshesDropped ) + " built mesh(es) and " + std::to_string( MaterialsDropped ) +
-                " built material(s). GPU rows " + std::to_string( LedgerRowsBefore ) + " -> " +
-                std::to_string( LedgerRowsAfter ) + ".";
+                " built material(s) and " + std::to_string( TexturesDropped ) + " built texture(s). GPU rows " +
+                std::to_string( LedgerRowsBefore ) + " -> " + std::to_string( LedgerRowsAfter ) + ".";
 
         for ( const std::string& refusal : Refusals )
             text += "\n  refused: " + refusal;
@@ -181,6 +181,9 @@ namespace Desert::Assets
 
             if ( sink.DropBuiltMesh( handle ) )
                 outcome.MeshesDropped++;
+
+            if ( sink.DropBuiltTexture( handle ) )
+                outcome.TexturesDropped++;
 
             // A READ IS IN FLIGHT FOR THIS HANDLE, OR ITS COMPLETION HAS NOT BEEN PUMPED YET.
             //

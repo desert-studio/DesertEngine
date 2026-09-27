@@ -1,6 +1,7 @@
 #include "TextureService.hpp"
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/TextureFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -175,8 +176,35 @@ namespace Desert::Runtime
                     : std::string{};
     }
 
+    bool TextureService::EvictBuilt( const Assets::AssetHandle& handle )
+    {
+        const auto it = m_Entries.find( handle );
+        if ( it == m_Entries.end() || !it->second.Built )
+            return false;
+        // No shell means no recipe: a texture handed over by Register with nothing to read it back from. Only
+        // the image holds it, so it is kept, and said - a silent "nothing to do" reads as "already released".
+        if ( !it->second.Source )
+        {
+            LOG_WARN( "[TextureService] eviction asked for texture {} and it has no asset shell, so nothing could "
+                      "rebuild it. Kept.",
+                      static_cast<uint64_t>( handle ) );
+            return false;
+        }
+        m_Retiring.Park( std::move( it->second.Built ),
+                         Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        it->second.Built.reset();
+        return true;
+    }
+
+    std::size_t TextureService::RetireEvicted()
+    {
+        const auto& frames = Engine::FrameManager::GetInstance();
+        return m_Retiring.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+    }
+
     void TextureService::Clear()
     {
+        m_Retiring.Clear();
         m_Entries.clear();
         m_ReportedMissing.clear();
         m_Waiters.Clear();

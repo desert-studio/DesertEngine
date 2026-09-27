@@ -77,9 +77,11 @@ namespace
     public:
         std::set<uint64_t> BuiltMaterials;
         std::set<uint64_t> BuiltMeshes;
+        std::set<uint64_t> BuiltTextures;
 
         std::vector<uint64_t> DroppedMaterials;
         std::vector<uint64_t> DroppedMeshes;
+        std::vector<uint64_t> DroppedTextures;
         int                   CollectGarbageCalls = 0;
 
         bool DropBuiltMesh( const Common::AssetHandle& handle ) override
@@ -101,6 +103,15 @@ namespace
             const uint64_t value = static_cast<uint64_t>( handle );
             BuiltMaterials.erase( value );
             DroppedMaterials.push_back( value );
+        }
+
+        bool DropBuiltTexture( const Common::AssetHandle& handle ) override
+        {
+            const uint64_t value = static_cast<uint64_t>( handle );
+            if ( BuiltTextures.erase( value ) == 0 )
+                return false;
+            DroppedTextures.push_back( value );
+            return true;
         }
 
         void CollectGarbage() override
@@ -370,6 +381,32 @@ TEST( AssetEviction, TheBuiltGpuObjectsOfAnUnreachableAssetAreDroppedAndAReachab
     EXPECT_EQ( sink.DroppedMeshes.front(), static_cast<uint64_t>( dropped->GetMetadata().Handle ) );
 }
 
+// WP14b: a texture's GPU image is a built object like a mesh's buffers - dropped when nothing reaches the texture,
+// kept when something does. Before the sink had this call a texture's image outlived its asset's release for the
+// whole session: the WP14 corpus flight held 21.3 MB of textures flat from its first frame to its last.
+TEST( AssetEviction, AnUnreachableTexturesBuiltImageIsDroppedAndAReachableOnesIsKept )
+{
+    AssetManager manager;
+
+    const auto kept    = Register( manager, "probe/kept_texture.deprefab", true );
+    const auto dropped = Register( manager, "probe/dropped_texture.deprefab", true );
+
+    RecordingSink sink;
+    sink.BuiltTextures = { static_cast<uint64_t>( kept->GetMetadata().Handle ),
+                           static_cast<uint64_t>( dropped->GetMetadata().Handle ) };
+
+    AssetRootSet roots;
+    roots.Mark( kept->GetMetadata().Handle, "the test says a material samples it" );
+
+    const auto outcome = AssetEviction::Run( manager, roots, sink );
+
+    EXPECT_EQ( outcome.TexturesDropped, 1u );
+    ASSERT_EQ( sink.DroppedTextures.size(), 1u );
+    EXPECT_EQ( sink.DroppedTextures.front(), static_cast<uint64_t>( dropped->GetMetadata().Handle ) );
+    EXPECT_EQ( sink.BuiltTextures.count( static_cast<uint64_t>( kept->GetMetadata().Handle ) ), 1u );
+    EXPECT_NE( outcome.Describe().find( "1 built texture(s)" ), std::string::npos ) << outcome.Describe();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 // RELATION 2 — a released asset must be RELOADABLE, i.e. it must stop reporting itself ready.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -548,10 +585,24 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
     roots.Mark( material->GetMetadata().Handle, "the test says a mesh slot names it" );
 
     RecordingSink sink;
-    const auto    outcome = AssetEviction::Run( manager, roots, sink );
+    sink.BuiltTextures = { static_cast<uint64_t>( texture->GetMetadata().Handle ) };
+    const auto outcome = AssetEviction::Run( manager, roots, sink );
 
     EXPECT_EQ( outcome.Reachable, 2u ) << "the material -> texture edge was not followed: the trace reached "
                                        << outcome.Reachable << " asset(s) where the material alone names one more";
+    // WP14b: and the texture's GPU IMAGE is kept with it. A built material samples the image; dropping it while
+    // the material stays would leave the surface bound to a texture the service no longer answers for.
+    EXPECT_EQ( outcome.TexturesDropped, 0u );
+    EXPECT_TRUE( sink.DroppedTextures.empty() )
+         << "the built image of a texture a rooted material names was dropped";
+
+    // Once nothing names the material, both go - the image with them.
+    RecordingSink orphaned;
+    orphaned.BuiltTextures = { static_cast<uint64_t>( texture->GetMetadata().Handle ) };
+    const auto released    = AssetEviction::Run( manager, AssetRootSet{}, orphaned );
+    EXPECT_EQ( released.TexturesDropped, 1u );
+    ASSERT_EQ( orphaned.DroppedTextures.size(), 1u );
+    EXPECT_EQ( orphaned.DroppedTextures.front(), static_cast<uint64_t>( texture->GetMetadata().Handle ) );
     EXPECT_FALSE( roots.Contains( texture->GetMetadata().Handle ) )
          << "the ROOT set was mutated; the closure must be a copy so the caller's roots stay its own";
 

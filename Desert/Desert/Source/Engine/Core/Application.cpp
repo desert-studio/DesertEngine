@@ -255,9 +255,11 @@ namespace Desert::Engine
             // Free when nothing is due: RunIfDue tests one bool and does not build the root set.
             Assets::AssetEvictionSchedule::RunIfDue( [] { return Core::CollectAssetRootsFromLiveScenes(); } );
 
-            // The meshes a sweep dropped are freed here, frames later, once no frame in flight can still draw
-            // them (Assets::FrameRetireQueue). Every frame, because the margin is counted in frames begun.
+            // The meshes and textures a sweep dropped are freed here, frames later, once no frame in flight can
+            // still draw them (Assets::FrameRetireQueue). Every frame, because the margin is counted in frames
+            // begun.
             Runtime::ResourceRegistry::GetMeshService()->RetireEvicted();
+            Runtime::ResourceRegistry::GetTextureService()->RetireEvicted();
 
             // 3. Start recording commands for this frame
             const auto frameBegun = Graphic::Renderer::GetInstance().BeginFrame();
