@@ -171,7 +171,8 @@ namespace Desert::Assets
             // `Invalidate` and not `Release`: Release forgets the shell as well, and the shell is what the
             // rebuild reads. Invalidate parks the runtime materials in the graveyard — destroying them
             // here would invalidate a command buffer that is still recording against their descriptor
-            // pools — and `CollectGarbage()` destroys them at a safe point after a device idle.
+            // pools — and `CollectGarbage()` destroys them at a later frame start, once no frame in flight can
+            // still reference them (FrameRetireQueue).
             if ( sink.HasBuiltMaterial( handle ) )
             {
                 sink.DropBuiltMaterial( handle );
@@ -221,16 +222,13 @@ namespace Desert::Assets
             outcome.Released++;
         }
 
-        // COLLECT THE GRAVEYARD BEFORE READING THE LEDGER BACK, or the two numbers this outcome quotes are
-        // measuring different things. `Invalidate` does not destroy a runtime material — it parks it, so
-        // that a frame in flight recording against its descriptor pools stays valid — and until the
-        // collector runs, every material this sweep "dropped" is still a live row. The first version of
-        // this function reported `GPU rows 564 -> 564` after invalidating sixteen materials, which is a
-        // true statement about an instant nobody cares about.
-        //
-        // Calling it here is exactly its documented contract: "at the START of a frame, before any command
-        // recording", which is where the sweep runs. It waits for the device to go idle and is free when
-        // the graveyard is empty.
+        // COLLECT WHAT HAS RETIRED, THEN READ THE LEDGER BACK. `Invalidate` does not destroy a runtime
+        // material and `EvictBuilt` does not destroy a mesh — both are parked until no frame in flight can
+        // still reference them (Assets::FrameRetireQueue, WP13), because a sweep asked for by world streaming
+        // runs with the departed cell's frames still on the GPU and a device idle per departed cell would stop
+        // the GPU mid-flight. So `LedgerRowsAfter` counts what THIS sweep dropped as still live: the rows go
+        // a few frames later, when the frame loop collects (MeshService::RetireEvicted, CollectGarbage).
+        // Collecting here still releases what earlier sweeps parked, and is free when nothing is due.
         sink.CollectGarbage();
 
         outcome.LedgerRowsAfter = Graphic::ResourceLedger::Take().Live;

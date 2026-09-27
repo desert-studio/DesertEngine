@@ -7719,6 +7719,7 @@ namespace Desert::Editor
             row.ActivationMs     = report.ActivationMs;
             row.ActivatedUnits   = report.ActivatedUnits;
         }
+        row.AssetGpuBytes = Graphic::ResourceLedger::Take().BytesForOwner( Graphic::ResourceOwner::AssetService );
         m_FlightLog.Append( std::move( row ) );
     }
 

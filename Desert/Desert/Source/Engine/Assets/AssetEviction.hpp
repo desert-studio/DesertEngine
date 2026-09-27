@@ -261,10 +261,9 @@ namespace Desert::Assets
      * command buffer is open, which is also what makes it safe for the sweep itself to collect the
      * material graveyard before it reads the ledger back (see AssetEviction::Run).
      *
-     * AND IT IS DEBOUNCED BY TWO QUIET FRAMES, which is not a detail — see the constant in
-     * AssetEvictionServices.cpp for the measurement that put it there. Loading a level raises the request
-     * more than once and on different frames, and a sweep fired on the first of them sees a half-built
-     * world.
+     * AND IT RUNS TWO FRAMES AFTER THE FIRST REQUEST, which is not a detail — see EvictionDeadline.hpp for the
+     * measurement that put the delay there, and for why later requests do not move it (world streaming asks
+     * on every cell that leaves, and a re-armed countdown would never fire during a flight).
      */
     class AssetEvictionSchedule final
     {

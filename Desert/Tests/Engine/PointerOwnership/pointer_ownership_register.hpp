@@ -857,7 +857,7 @@ namespace Desert::Tests::PointerCensus
           "MeshRenderer itself (m_StaticInstancedMaterial / m_InstancedGBufferMaterial, both shared_ptr "
           "members). The service is the side that can retire one, and it cannot do so inside the window: "
           "Invalidate MOVES a material to the graveyard and CollectGarbage destroys it only at a frame "
-          "start, after WaitDeviceIdle -- while these sets are filled and drained entirely inside one "
+          "start, once no frame in flight can reference it (FrameRetireQueue) -- while these sets are filled and drained entirely inside one "
           "DrawStaticMeshes call" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp",
           "InstancedBatchSet", "Inst", Guard::OwnedByThisObject,

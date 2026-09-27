@@ -120,7 +120,7 @@ namespace Desert::Core::Rules
     // are roots of the eviction trace, and so is a Loaded cell's record list. When a cell is deactivated or
     // unloaded those holds are gone, and an asset nothing else names can be released — UE's level streaming out
     // forces a collection for the same reason (GLevelStreamingForceGCAfterLevelStreamedOut). The streamer asks
-    // for a sweep on this; the schedule's debounce makes a flight that drops five cells one sweep.
+    // for a sweep on this; the cells that leave within the schedule's two frames (EvictionDeadline) share one.
     [[nodiscard]] inline bool ReleasesCellAssets( const ResidencyTick& tick )
     {
         return tick.UnitsDeactivated > 0 || tick.UnitsUnloaded > 0;
