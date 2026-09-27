@@ -7,6 +7,9 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/DragPayloads.hpp>
+#include <Editor/Core/AssetOpen.hpp>
+#include <Editor/Panels/Foliage/FoliagePalette.hpp>
+#include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 #include <Editor/Panels/Collections/CollectionFoliageTypes.hpp>
 
@@ -45,17 +48,6 @@ namespace Desert::Editor::Tools
 
     namespace
     {
-        // A toggle-style button that looks pressed when `active` (for the tool tabs).
-        bool ToolTabButton( const char* label, bool active, float width )
-        {
-            if ( active )
-                ImGui::PushStyleColor( ImGuiCol_Button, ImGui::GetStyleColorVec4( ImGuiCol_ButtonActive ) );
-            const bool pressed = ImGui::Button( label, ImVec2( width, 0.0f ) );
-            if ( active )
-                ImGui::PopStyleColor();
-            return pressed;
-        }
-
         // A `.delayerinfo` named by path (absolute or relative to the assets root) as a type's layer reference:
         // its header GUID and its path under the assets root.
         Common::ResultStr<Assets::AssetGuidRef> LayerInfoRefOf( const std::string& path )
@@ -88,16 +80,11 @@ namespace Desert::Editor::Tools
             return Common::MakeSuccess( Assets::AssetGuidRef{ info.GetValue().Header->Guid, relative } );
         }
 
-        // The cooked mesh a source path names, as a `.defoliage` names it; cooks the source on first use.
-        Common::ResultStr<Assets::AssetGuidRef> MeshRefOf( Assets::AssetManager& manager,
-                                                           const std::string&    meshSourcePath )
+        // The reference a `.defoliage` records for a cooked static mesh: its header GUID and its path under the
+        // assets root. @p meshSourcePath names the mesh in an error.
+        Common::ResultStr<Assets::AssetGuidRef> MeshRefOfAsset( const Assets::Asset<Assets::MeshAsset>& mesh,
+                                                                const std::string&                     meshSourcePath )
         {
-            const auto handle = MeshDnD::ResolveOrImport( manager, meshSourcePath );
-            if ( !handle )
-                return Common::MakeFormattedError<Assets::AssetGuidRef>(
-                     "mesh '{}' did not cook to a static mesh (a skinned source or an import failure)",
-                     meshSourcePath );
-            const auto mesh = manager.FindByHandle<Assets::MeshAsset>( handle );
             if ( !mesh || mesh->Guid().IsNull() )
                 return Common::MakeFormattedError<Assets::AssetGuidRef>(
                      "mesh '{}' has no header GUID, so no foliage type can name it", meshSourcePath );
@@ -116,6 +103,19 @@ namespace Desert::Editor::Tools
                      mesh->GetMetadata().Filepath.string(), Common::Constants::Path::ASSETS_PATH.string() );
             return Common::MakeSuccess(
                  Assets::AssetGuidRef{ Common::Content::AssetGuidToText( mesh->Guid() ), path } );
+        }
+
+
+        // The cooked mesh a source path names, as a `.defoliage` names it; cooks the source on first use.
+        Common::ResultStr<Assets::AssetGuidRef> MeshRefOf( Assets::AssetManager& manager,
+                                                           const std::string&    meshSourcePath )
+        {
+            const auto handle = MeshDnD::ResolveOrImport( manager, meshSourcePath );
+            if ( !handle )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "mesh '{}' did not cook to a static mesh (a skinned source or an import failure)",
+                     meshSourcePath );
+            return MeshRefOfAsset( manager.FindByHandle<Assets::MeshAsset>( handle ), meshSourcePath );
         }
     } // namespace
 
@@ -193,27 +193,25 @@ namespace Desert::Editor::Tools
         Core::FoliagePaint::SetEditingType( newUuid );
     }
 
-    void FoliagePaintTool::CreateTypeFromMesh( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
-                                               const std::string& meshSourcePath )
+    Common::BoolResultStr FoliagePaintTool::AddMeshRef( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                        const Assets::AssetGuidRef& mesh, const std::string& stem )
+    {
+        Assets::Serialization::FoliageTypeData wanted;
+        wanted.Mesh     = mesh;
+        const auto file = Assets::Serialization::FindOrCreateFoliageTypeFile(
+             Common::Constants::Path::FOLIAGE_TYPE_PATH, wanted, stem );
+        if ( !file )
+            return Common::MakeFormattedError<bool>( "{}", file.GetError() );
+        return AddTypeFile( scene, manager, file.GetValue().Path.string() );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::AddMeshFile( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                         const std::string& meshSourcePath )
     {
         const auto mesh = MeshRefOf( manager, meshSourcePath );
         if ( !mesh )
-        {
-            LOG_ERROR( "[Foliage] {}", mesh.GetError() );
-            return;
-        }
-        Assets::Serialization::FoliageTypeData wanted;
-        wanted.Mesh     = mesh.GetValue();
-        const auto file = Assets::Serialization::FindOrCreateFoliageTypeFile(
-             Common::Constants::Path::FOLIAGE_TYPE_PATH, wanted,
-             std::filesystem::path( meshSourcePath ).stem().string() );
-        if ( !file )
-        {
-            LOG_ERROR( "[Foliage] {}", file.GetError() );
-            return;
-        }
-        if ( auto type = OpenTypeFile( manager, file.GetValue().Path.string() ) )
-            AddField( scene, manager, type );
+            return Common::MakeFormattedError<bool>( "{}", mesh.GetError() );
+        return AddMeshRef( scene, manager, mesh.GetValue(), std::filesystem::path( meshSourcePath ).stem().string() );
     }
 
     Common::BoolResultStr FoliagePaintTool::AddCollection( ::Desert::Core::Scene& scene,
@@ -235,6 +233,9 @@ namespace Desert::Editor::Tools
         if ( types.GetValue().ManifestChanged )
             if ( auto saved = SaveCollectionManifest( manifestPath, m ); !saved )
                 return saved;
+        // A collection is also a palette PRESET (Foliage::SavePalettePreset): all of its types end up checked,
+        // and only they, as UE checks every type of a folder dropped on the palette.
+        std::vector<Common::UUID> listed;
         for ( const auto& file : types.GetValue().Types )
         {
             auto type = OpenTypeFile( manager, file.Path.string() );
@@ -242,7 +243,13 @@ namespace Desert::Editor::Tools
                 return Common::MakeFormattedError<bool>( "foliage type '{}' of collection '{}' did not load",
                                                          file.Path.string(), manifestPath );
             AddField( scene, manager, type );
+            if ( const auto editing = Core::FoliagePaint::EditingType() )
+                listed.push_back( *editing );
         }
+        Core::FoliagePaint::ClearActive();
+        for ( const auto& uuid : listed )
+            if ( !Core::FoliagePaint::IsActive( uuid ) )
+                Core::FoliagePaint::ToggleActive( uuid );
         return Common::MakeSuccess( true );
     }
 
@@ -278,97 +285,106 @@ namespace Desert::Editor::Tools
             commit = commit || ImGui::IsItemDeactivatedAfterEdit();
         };
 
+        // UE's FoliageType Details, section for section (FO-UI1): Painting, Placement, Instance Settings, Wind.
+        // One row per field in the Details grid's look (ImGuiUtilities property rows).
+        using Row      = Utils::ImGuiUtilities;
+        const auto row = [&]( const char* label, const char* tip, const std::function<void()>& widget )
+        {
+            Row::BeginPropertyRow( label, tip );
+            ImGui::SetNextItemWidth( -1 );
+            widget();
+            track();
+            Row::EndPropertyRow();
+        };
         ImGui::TextDisabled( "%s", type->GetMetadata().Filepath.filename().string().c_str() );
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 1000.0f, "Density:  %.0f / 1000x1000 cm",
-                            ImGuiSliderFlags_Logarithmic );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloatRange2( "##Scale", &f.ScaleX.Min, &f.ScaleX.Max, 0.01f, 0.02f, 10.0f, "Scale %.2f",
-                                "%.2f" );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloatRange2( "##ZOffset", &f.ZOffset.Min, &f.ZOffset.Max, 0.5f, -500.0f, 500.0f, "Z Off %.0f",
-                                "%.0f cm" );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::SliderFloat( "##Pitch", &f.RandomPitchAngle, 0.0f, 90.0f, "Random Pitch:  %.0f deg" );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloatRange2( "##Slope", &f.GroundSlopeAngle.Min, &f.GroundSlopeAngle.Max, 0.5f, 0.0f, 90.0f,
-                                "Slope %.0f", "%.0f deg" );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloatRange2( "##Height", &f.Height.Min, &f.Height.Max, 10.0f, -262144.0f, 262144.0f,
-                                "Height %.0f", "%.0f cm" );
-        track();
-        // UE CullDistance: fade from Min, gone from Max; Max 0 = never culled.
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloatRange2( "##CullDistance", &f.CullDistance.Min, &f.CullDistance.Max, 50.0f, 0.0f,
-                                1000000.0f, "Cull %.0f", "%.0f cm" );
-        track();
+        Row::ResetPropertyRows();
+        if ( Row::SectionHeader( "Painting" ) )
+        {
+            row( "Density", "Instances per 1000x1000 cm of brushed area (UE Density)",
+                 [&] { ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 1000.0f, "%.0f", ImGuiSliderFlags_Logarithmic ); } );
+            row( "Scale", "Uniform scale range drawn per instance (UE ScaleX, Uniform)",
+                 [&] { ImGui::DragFloatRange2( "##Scale", &f.ScaleX.Min, &f.ScaleX.Max, 0.01f, 0.02f, 10.0f, "%.2f", "%.2f" ); } );
+            row( "Z Offset", "Offset along the placement up axis, cm",
+                 [&] { ImGui::DragFloatRange2( "##ZOffset", &f.ZOffset.Min, &f.ZOffset.Max, 0.5f, -500.0f, 500.0f, "%.0f", "%.0f cm" ); } );
+        }
+        if ( Row::SectionHeader( "Placement" ) )
+        {
+            Row::BeginPropertyRow( "Align to Normal", "Tilt instances to the surface normal" );
+            commit = ImGui::Checkbox( "##AlignToNormal", &f.AlignToNormal ) || commit;
+            Row::EndPropertyRow();
+            Row::BeginPropertyRow( "Random Yaw", "Random rotation about the up axis" );
+            commit = ImGui::Checkbox( "##RandomYaw", &f.RandomYaw ) || commit;
+            Row::EndPropertyRow();
+            row( "Random Pitch", "Random tilt off the up axis, degrees",
+                 [&] { ImGui::SliderFloat( "##Pitch", &f.RandomPitchAngle, 0.0f, 90.0f, "%.0f deg" ); } );
+            row( "Ground Slope", "Paint only where the slope lies in this range, degrees",
+                 [&] { ImGui::DragFloatRange2( "##Slope", &f.GroundSlopeAngle.Min, &f.GroundSlopeAngle.Max, 0.5f, 0.0f, 90.0f, "%.0f", "%.0f deg" ); } );
+            row( "Height", "Paint only where the world height (Y) lies in this range, cm",
+                 [&] { ImGui::DragFloatRange2( "##Height", &f.Height.Min, &f.Height.Max, 10.0f, -262144.0f, 262144.0f, "%.0f", "%.0f cm" ); } );
+
+            // UE LandscapeLayers: a `.delayerinfo` dropped here restricts the type to ground painted with it.
+            for ( size_t i = 0; i < f.LandscapeLayers.size(); ++i )
+            {
+                ImGui::PushID( static_cast<int>( i ) );
+                Row::BeginPropertyRow( i == 0 ? "Landscape Layers" : "" );
+                const bool removed = ImGui::SmallButton( ICON_MDI_CLOSE );
+                ImGui::SameLine();
+                ImGui::TextUnformatted( f.LandscapeLayers[i].Path.c_str() );
+                Row::EndPropertyRow();
+                ImGui::PopID();
+                if ( removed )
+                {
+                    f.LandscapeLayers.erase( f.LandscapeLayers.begin() + static_cast<std::ptrdiff_t>( i ) );
+                    commit = true;
+                    break;
+                }
+            }
+            Row::BeginPropertyRow( f.LandscapeLayers.empty() ? "Landscape Layers" : "",
+                                   "Drop a .delayerinfo: the type paints only on ground painted with it" );
+            ImGui::Button( f.LandscapeLayers.empty() ? "Any layer - drop a .delayerinfo" : ICON_MDI_PLUS " Add a layer",
+                           ImVec2( -1, 0 ) );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                if ( const ImGuiPayload* p =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                {
+                    if ( auto ref = LayerInfoRefOf( std::string( static_cast<const char*>( p->Data ) ) ); !ref )
+                    {
+                        LOG_ERROR( "[Foliage] {}", ref.GetError() );
+                    }
+                    else if ( std::ranges::none_of( f.LandscapeLayers, [&]( const Assets::AssetGuidRef& r )
+                                                    { return r.Guid == ref.GetValue().Guid; } ) )
+                    {
+                        f.LandscapeLayers.push_back( ref.GetValue() );
+                        commit = true;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            Row::EndPropertyRow();
+            if ( !f.LandscapeLayers.empty() )
+                row( "Min Layer Weight", "The weight a listed layer must reach (UE MinimumLayerWeight)",
+                     [&] { ImGui::SliderFloat( "##MinLayerWeight", &f.MinimumLayerWeight, 0.0f, 1.0f, "%.2f" ); } );
+        }
+        if ( Row::SectionHeader( "Instance Settings" ) )
+        {
+            // UE CullDistance: fade from Min, gone from Max; Max 0 = never culled.
+            row( "Cull Distance", "Fade out from Min, none drawn from Max, cm; Max 0 = never culled",
+                 [&] { ImGui::DragFloatRange2( "##CullDistance", &f.CullDistance.Min, &f.CullDistance.Max, 50.0f, 0.0f, 1000000.0f, "%.0f", "%.0f cm" ); } );
+        }
         // Wind (FO-7; UE SimpleGrassWind): the tip's largest sway, its rate, the height it is reached at, and
         // the direction the wind blows towards. Strength 0 = still.
-        ImGui::TextDisabled( "WIND" );
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloat( "##WindStrength", &f.Wind.Strength, 1.0f, 0.0f, 10000.0f, "Strength %.0f cm" );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloat( "##WindSpeed", &f.Wind.Speed, 0.01f, 0.0f, 20.0f, "Speed %.2f Hz" );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloat( "##WindHeight", &f.Wind.Height, 1.0f, 1.0f, 100000.0f, "Full sway at %.0f cm" );
-        track();
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::DragFloat( "##WindDirection", &f.Wind.DirectionDegrees, 1.0f, -360.0f, 360.0f,
-                          "Direction %.0f deg" );
-        track();
-
-        // UE LandscapeLayers: a `.delayerinfo` dropped here restricts the type to ground painted with it.
-        ImGui::TextDisabled( "LANDSCAPE LAYERS%s", f.LandscapeLayers.empty() ? " (any)" : "" );
-        for ( size_t i = 0; i < f.LandscapeLayers.size(); ++i )
+        if ( Row::SectionHeader( "Wind" ) )
         {
-            ImGui::PushID( static_cast<int>( i ) );
-            if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
-            {
-                f.LandscapeLayers.erase( f.LandscapeLayers.begin() + static_cast<std::ptrdiff_t>( i ) );
-                commit = true;
-                ImGui::PopID();
-                break;
-            }
-            ImGui::SameLine();
-            ImGui::TextUnformatted( f.LandscapeLayers[i].Path.c_str() );
-            ImGui::PopID();
+            row( "Strength", "The tip's largest sway, cm; 0 = still",
+                 [&] { ImGui::DragFloat( "##WindStrength", &f.Wind.Strength, 1.0f, 0.0f, 10000.0f, "%.0f cm" ); } );
+            row( "Speed", "Sway rate, Hz",
+                 [&] { ImGui::DragFloat( "##WindSpeed", &f.Wind.Speed, 0.01f, 0.0f, 20.0f, "%.2f Hz" ); } );
+            row( "Full Sway Height", "The height the full sway is reached at, cm",
+                 [&] { ImGui::DragFloat( "##WindHeight", &f.Wind.Height, 1.0f, 1.0f, 100000.0f, "%.0f cm" ); } );
+            row( "Direction", "The direction the wind blows towards, degrees",
+                 [&] { ImGui::DragFloat( "##WindDirection", &f.Wind.DirectionDegrees, 1.0f, -360.0f, 360.0f, "%.0f deg" ); } );
         }
-        ImGui::Button( ICON_MDI_PLUS " Drop a .delayerinfo", ImVec2( -1, 0 ) );
-        if ( ImGui::BeginDragDropTarget() )
-        {
-            if ( const ImGuiPayload* p =
-                      ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
-            {
-                if ( auto ref = LayerInfoRefOf( std::string( static_cast<const char*>( p->Data ) ) ); !ref )
-                {
-                    LOG_ERROR( "[Foliage] {}", ref.GetError() );
-                }
-                else if ( std::ranges::none_of( f.LandscapeLayers, [&]( const Assets::AssetGuidRef& r )
-                                                { return r.Guid == ref.GetValue().Guid; } ) )
-                {
-                    f.LandscapeLayers.push_back( ref.GetValue() );
-                    commit = true;
-                }
-            }
-            ImGui::EndDragDropTarget();
-        }
-        if ( !f.LandscapeLayers.empty() )
-        {
-            ImGui::SetNextItemWidth( -1 );
-            ImGui::SliderFloat( "##MinLayerWeight", &f.MinimumLayerWeight, 0.0f, 1.0f,
-                                "Minimum Layer Weight:  %.2f" );
-            track();
-        }
-        commit = ImGui::Checkbox( "Align to Normal", &f.AlignToNormal ) || commit;
-        ImGui::SameLine();
-        commit    = ImGui::Checkbox( "Random Yaw", &f.RandomYaw ) || commit;
         s_Editing = active;
 
         if ( commit && !( f == type->GetData() ) )
@@ -656,8 +672,7 @@ namespace Desert::Editor::Tools
         dab.Normal            = centre.Normal;
         dab.Radius            = Core::FoliagePaint::BrushRadius();
         dab.PaintDensity      = Core::FoliagePaint::PaintDensity();
-        dab.Filter.Landscape  = Core::FoliagePaint::FilterLandscape();
-        dab.Filter.StaticMesh = Core::FoliagePaint::FilterStaticMesh();
+        dab.Filter            = Core::FoliagePaint::SurfaceFilter();
         const LandscapeTileIndex tiles( scene );
 
         for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
@@ -734,6 +749,10 @@ namespace Desert::Editor::Tools
                     if ( !names.empty() )
                         out.LayerWeight =
                              MaxLayerWeight( *tile->Tile, tile->Frame, names, hit.Point.x, hit.Point.z );
+                    if ( filter.LayerFiltered )
+                        out.BrushLayerWeight = MaxLayerWeight( *tile->Tile, tile->Frame,
+                                                               Core::FoliagePaint::BrushLayers(), hit.Point.x,
+                                                               hit.Point.z );
                 }
                 else
                     out.Surface = FoliageSurface::StaticMesh;
@@ -872,6 +891,40 @@ namespace Desert::Editor::Tools
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr
+    FoliagePaintTool::ReplaceSelection( ::Desert::Core::Scene& scene, const std::string& label,
+                                        const std::unordered_map<Common::UUID, FoliageSelection>& wanted )
+    {
+        FoliageStroke stroke( 0u );
+        size_t        total = 0;
+        for ( const auto& [uuid, selection] : wanted )
+        {
+            auto ref = scene.FindEntityByID( uuid );
+            if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                continue;
+            auto& selected = Core::FoliagePaint::Selection()[uuid];
+            stroke.Touch( uuid, ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms,
+                          selected );
+            selected = selection;
+            total += selection.size();
+        }
+        if ( total == 0 )
+            return Common::MakeError( "foliage " + label + ": there is no instance to select" );
+        auto fields = stroke.Finish(
+             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
+             {
+                 const auto ref = scene.FindEntityByID( uuid );
+                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                     return nullptr;
+                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+             },
+             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+        if ( !fields.empty() )
+            CommandHistory::Get().PushCommand(
+                 std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage " + label ) );
+        return BOOLSUCCESS;
+    }
+
     void FoliagePaintTool::DrawSelection( ::Desert::Core::Scene& scene, const glm::mat4& viewProjection,
                                           const glm::vec2& viewportPos, const glm::vec2& viewportSize )
     {
@@ -987,220 +1040,217 @@ namespace Desert::Editor::Tools
                               []( std::vector<glm::mat4>&, FoliageSelection& selected ) { selected.clear(); } );
     }
 
-    void FoliagePaintTool::DrawPanel( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
-                                      const glm::vec2& viewportPos )
+    // ----- the palette's actions (FO-UI1) --------------------------------------------------------------------
+
+    std::vector<ECS::Entity> FoliagePaintTool::PaletteFields( ::Desert::Core::Scene& scene )
     {
-        ImGui::SetNextWindowPos( ImVec2( viewportPos.x + 12.0f, viewportPos.y + 58.0f ), ImGuiCond_Always );
-        ImGui::SetNextWindowSize( ImVec2( 300.0f, 0.0f ), ImGuiCond_Always );
-        ImGui::SetNextWindowBgAlpha( 0.93f );
-        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                                       ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-        if ( !ImGui::Begin( "Foliage##FoliagePanel", nullptr, flags ) )
-        {
-            ImGui::End();
-            return;
-        }
-
-        // ----- Tool (UE FoliageEdMode's tool bar), three to a row ---------------------------------------
-        struct ToolTab
-        {
-            Core::FoliageTool Tool;
-            std::string_view  Label; // a literal: .data() is NUL-terminated
-        };
-        static constexpr ToolTab kTabs[] = {
-             { Core::FoliageTool::Paint, ICON_MDI_BRUSH " Paint" },
-             { Core::FoliageTool::Single, ICON_MDI_SPROUT " Single" },
-             { Core::FoliageTool::Reapply, ICON_MDI_REFRESH " Reapply" },
-             { Core::FoliageTool::Select, ICON_MDI_CURSOR_DEFAULT_CLICK " Select" },
-             { Core::FoliageTool::Lasso, ICON_MDI_LASSO " Lasso" },
-             { Core::FoliageTool::Remove, ICON_MDI_ERASER " Remove" },
-             { Core::FoliageTool::Fill, ICON_MDI_FORMAT_COLOR_FILL " Fill" },
-        };
-        Core::FoliageTool& tool = Core::FoliagePaint::Tool();
-        const float thirdW = ( ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x ) / 3.0f;
-        for ( size_t i = 0; i < std::size( kTabs ); ++i )
-        {
-            if ( i % 3 != 0 )
-                ImGui::SameLine();
-            if ( ToolTabButton( kTabs[i].Label.data(), tool == kTabs[i].Tool, thirdW ) )
-                tool = kTabs[i].Tool;
-        }
-        if ( tool == Core::FoliageTool::Select || tool == Core::FoliageTool::Lasso )
-            ImGui::TextDisabled( "Shift: %s",
-                                 tool == Core::FoliageTool::Select ? "add to the selection" : "deselect" );
-
-        // ----- Selection: what UE does to selected instances (delete, move) --------------------------------
-        if ( tool == Core::FoliageTool::Select || tool == Core::FoliageTool::Lasso ||
-             Core::FoliagePaint::SelectedCount() > 0 )
-        {
-            ImGui::TextDisabled( "SELECTION  %zu instances", Core::FoliagePaint::SelectedCount() );
-            const float halfW = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
-            if ( ImGui::Button( ICON_MDI_DELETE " Delete", ImVec2( halfW, 0 ) ) )
-                if ( auto done = RemoveSelected( scene ); !done )
-                    ToastManager::Push( done.GetError(), ToastLevel::Warning, 4.0f );
-            ImGui::SameLine();
-            if ( ImGui::Button( "Select None", ImVec2( halfW, 0 ) ) )
-                if ( auto done = SelectNone( scene ); !done )
-                    ToastManager::Push( done.GetError(), ToastLevel::Warning, 4.0f );
-            ImGui::SetNextItemWidth( halfW );
-            ImGui::DragFloat3( "##MoveOffset", &Core::FoliagePaint::MoveOffset().x, 1.0f, -100000.0f, 100000.0f,
-                               "%.0f" );
-            ImGui::SameLine();
-            if ( ImGui::Button( ICON_MDI_ARROW_ALL " Move by (cm)", ImVec2( halfW, 0 ) ) )
-                if ( auto done = MoveSelected( scene, Core::FoliagePaint::MoveOffset() ); !done )
-                    ToastManager::Push( done.GetError(), ToastLevel::Warning, 4.0f );
-        }
-
-        // ----- Reapply: which of the type's properties the brush re-rolls or re-checks ----------------------
-        if ( tool == Core::FoliageTool::Reapply )
-        {
-            auto& r = Core::FoliagePaint::Reapply();
-            ImGui::TextDisabled( "REAPPLY" );
-            ImGui::Checkbox( "Scale", &r.Scale );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Z Offset", &r.ZOffset );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Align", &r.AlignToNormal );
-            ImGui::Checkbox( "Yaw", &r.RandomYaw );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Pitch", &r.RandomPitch );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Slope", &r.GroundSlope );
-            ImGui::Checkbox( "Height", &r.Height );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Layers", &r.LandscapeLayers );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Density", &r.Density );
-        }
-
-        // ----- Brush ----------------------------------------------------------------------------------
-        ImGui::Dummy( ImVec2( 0, 2 ) );
-        ImGui::TextDisabled( "BRUSH" );
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::SliderFloat( "##BrushSize", &Core::FoliagePaint::BrushRadius(), 50.0f, 6000.0f, "Size:  %.0f cm" );
-        ImGui::SetNextItemWidth( -1 );
-        ImGui::SliderFloat( "##PaintDensity", &Core::FoliagePaint::PaintDensity(), 0.0f, 1.0f, "Density:  %.2f" );
-        ImGui::TextDisabled( "FILTERS" );
-        ImGui::Checkbox( "Landscape", &Core::FoliagePaint::FilterLandscape() );
-        ImGui::SameLine();
-        ImGui::Checkbox( "Static Meshes", &Core::FoliagePaint::FilterStaticMesh() );
-
-        // ----- Foliage types --------------------------------------------------------------------------
-        ImGui::Dummy( ImVec2( 0, 2 ) );
-        ImGui::TextDisabled( "FOLIAGE TYPES" );
-
-        ImGui::Button( ICON_MDI_PLUS " Add Foliage Type (mesh, collection, .defoliage)", ImVec2( -1, 0 ) );
-        if ( assetManager && ImGui::BeginDragDropTarget() )
-        {
-            auto& manager = const_cast<Assets::AssetManager&>( *assetManager );
-            if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::MeshAsset ) )
-                CreateTypeFromMesh( scene, manager, std::string( static_cast<const char*>( p->Data ) ) );
-            if ( const ImGuiPayload* p =
-                      ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::Collection ) )
-                if ( auto added =
-                          AddCollection( scene, manager, std::string( static_cast<const char*>( p->Data ) ) );
-                     !added )
-                    LOG_ERROR( "[Foliage] {}", added.GetError() );
-            if ( const ImGuiPayload* p =
-                      ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
-            {
-                const std::string path( static_cast<const char*>( p->Data ) );
-                if ( std::filesystem::path( path ).extension() == Assets::Serialization::kFoliageTypeExtension )
-                    if ( auto type = OpenTypeFile( manager, path ) )
-                        AddField( scene, manager, type );
-            }
-            ImGui::EndDragDropTarget();
-        }
-
-        // Collect foliage-type entities once.
-        std::vector<ECS::Entity> types;
+        std::vector<ECS::Entity> fields;
         for ( const auto& entity : scene.GetAllEntities() )
             if ( entity.HasComponent<ECS::FoliageComponent>() &&
                  entity.HasComponent<ECS::InstancedStaticMeshComponent>() )
-                types.push_back( entity );
+                fields.push_back( entity );
+        return fields;
+    }
 
-        if ( types.empty() )
+    namespace
+    {
+        // The palette field @p uuid names, or an error naming the action.
+        Common::ResultStr<ECS::Entity> FieldOf( ::Desert::Core::Scene& scene, const Common::UUID& uuid,
+                                                const char* action )
         {
-            ImGui::TextDisabled( "Drag a mesh, a collection or a .defoliage here." );
+            const auto ref = scene.FindEntityByID( uuid );
+            if ( !ref || !ref->get().HasComponent<ECS::FoliageComponent>() ||
+                 !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                return Common::MakeFormattedError<ECS::Entity>( "foliage {}: {} is not a foliage type in the palette",
+                                                                action, static_cast<uint64_t>( uuid ) );
+            return Common::MakeSuccess( ref->get() );
         }
-        else
-        {
-            if ( ImGui::SmallButton( "All" ) )
-                for ( auto& t : types )
-                    if ( !Core::FoliagePaint::IsActive( t.GetComponent<ECS::UUIDComponent>().UUID ) )
-                        Core::FoliagePaint::ToggleActive( t.GetComponent<ECS::UUIDComponent>().UUID );
-            ImGui::SameLine();
-            if ( ImGui::SmallButton( "None" ) )
-                Core::FoliagePaint::ClearActive();
-            ImGui::SameLine();
-            ImGui::TextDisabled( "(check = paint)" );
 
-            const auto editing = Core::FoliagePaint::EditingType();
-            ImGui::BeginChild( "##foltypes", ImVec2( -1, 132 ), true );
-            int id = 0;
-            for ( auto& t : types )
+        std::string TypePathOf( const ECS::Entity& field, const Assets::AssetManager& manager )
+        {
+            const auto handle = field.GetComponent<ECS::FoliageComponent>().FoliageType;
+            const auto type   = manager.FindByHandle<Assets::FoliageTypeAsset>( handle );
+            return type ? type->GetMetadata().Filepath.string() : std::string();
+        }
+    } // namespace
+
+    Common::BoolResultStr FoliagePaintTool::AddFromEntity( ::Desert::Core::Scene& scene,
+                                                           Assets::AssetManager& manager, const Common::UUID& entity )
+    {
+        const auto ref = scene.FindEntityByID( entity );
+        if ( !ref )
+            return Common::MakeError( "foliage from selection: the selected entity is not in the scene" );
+        const auto& e = ref->get();
+        if ( e.HasComponent<ECS::FoliageComponent>() )
+        {
+            const std::string path = TypePathOf( e, manager );
+            if ( path.empty() )
+                return Common::MakeError( "foliage from selection: the selected foliage field names no loaded type" );
+            return AddTypeFile( scene, manager, path );
+        }
+        Assets::AssetHandle mesh;
+        if ( e.HasComponent<ECS::StaticMeshComponent>() )
+            mesh = e.GetComponent<ECS::StaticMeshComponent>().MeshHandle;
+        else if ( e.HasComponent<ECS::InstancedStaticMeshComponent>() )
+            mesh = e.GetComponent<ECS::InstancedStaticMeshComponent>().MeshHandle;
+        if ( !mesh )
+            return Common::MakeError(
+                 "foliage from selection: the selected entity draws no mesh asset (a primitive or no mesh)" );
+        const auto asset = manager.FindByHandle<Assets::MeshAsset>( mesh );
+        if ( !asset )
+            return Common::MakeFormattedError<bool>( "foliage from selection: mesh {} is not known to the asset manager",
+                                                     static_cast<uint64_t>( mesh ) );
+        const auto ref2 = MeshRefOfAsset( asset, asset->GetMetadata().Filepath.string() );
+        if ( !ref2 )
+            return Common::MakeFormattedError<bool>( "foliage from selection: {}", ref2.GetError() );
+        return AddMeshRef( scene, manager, ref2.GetValue(), asset->GetMetadata().Filepath.stem().string() );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::SelectAllInstances( ::Desert::Core::Scene& scene )
+    {
+        if ( !Core::FoliagePaint::HasActive() )
+            return Common::MakeError( "foliage select all: no foliage type is checked in the palette" );
+        std::unordered_map<Common::UUID, FoliageSelection> wanted;
+        for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
+            if ( const auto field = FieldOf( scene, uuid, "select all" ) )
             {
-                const auto  uuid = t.GetComponent<ECS::UUIDComponent>().UUID;
-                const auto& ism  = t.GetComponent<ECS::InstancedStaticMeshComponent>();
-                std::string name = t.HasComponent<ECS::TagComponent>()
-                                       ? t.GetComponent<ECS::TagComponent>().Tag
-                                       : ( "Foliage " + std::to_string( id ) );
-
-                ImGui::PushID( id++ );
-                bool active = Core::FoliagePaint::IsActive( uuid );
-                if ( ImGui::Checkbox( "##chk", &active ) )
-                    Core::FoliagePaint::ToggleActive( uuid );
-                ImGui::SameLine();
-                const std::string label = name + "   (" + std::to_string( ism.InstanceTransforms.size() ) + ")";
-                // `optional == value` and not `has_value() && *opt == value`: the standard comparison is
-                // false for an empty optional by definition, so the two are the same question with one
-                // fewer dereference to keep in step with its guard.
-                const bool editingThis = editing == uuid;
-                if ( ImGui::Selectable( label.c_str(), editingThis ) )
-                {
-                    Core::FoliagePaint::SetEditingType( uuid );
-                }
-                ImGui::PopID();
+                FoliageSelection all(
+                     field.GetValue().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms.size() );
+                for ( uint32_t i = 0; i < all.size(); ++i )
+                    all[i] = i;
+                wanted.emplace( uuid, std::move( all ) );
             }
-            ImGui::EndChild();
-        }
+        return ReplaceSelection( scene, "Select All", wanted );
+    }
 
-        // ----- Selected type settings -----------------------------------------------------------------
-        const auto editing = Core::FoliagePaint::EditingType();
-        if ( editing )
+    Common::BoolResultStr FoliagePaintTool::SelectTypeInstances( ::Desert::Core::Scene& scene,
+                                                                 const Common::UUID&    field )
+    {
+        const auto e = FieldOf( scene, field, "select instances" );
+        if ( !e )
+            return Common::MakeFormattedError<bool>( "{}", e.GetError() );
+        FoliageSelection all( e.GetValue().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms.size() );
+        for ( uint32_t i = 0; i < all.size(); ++i )
+            all[i] = i;
+        return ReplaceSelection( scene, "Select Instances", { { field, std::move( all ) } } );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::RemoveType( ::Desert::Core::Scene& scene, const Common::UUID& field )
+    {
+        auto e = FieldOf( scene, field, "remove type" );
+        if ( !e )
+            return Common::MakeFormattedError<bool>( "{}", e.GetError() );
+        if ( Core::FoliagePaint::EditingType() == field )
+            Core::FoliagePaint::ClearEditingType();
+        if ( Core::FoliagePaint::IsActive( field ) )
+            Core::FoliagePaint::ToggleActive( field );
+        Core::FoliagePaint::Selection().erase( field );
+        auto entity = e.GetValue();
+        scene.DestroyEntity( entity );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr FoliagePaintTool::ReplaceType( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                         const Common::UUID& field, const std::string& typePath )
+    {
+        auto e = FieldOf( scene, field, "replace type" );
+        if ( !e )
+            return Common::MakeFormattedError<bool>( "{}", e.GetError() );
+        const auto type = OpenTypeFile( manager, typePath );
+        if ( !type )
+            return Common::MakeFormattedError<bool>( "foliage replace type: '{}' does not load (the log says why)",
+                                                     typePath );
+        auto& source = e.GetValue();
+        if ( source.GetComponent<ECS::FoliageComponent>().FoliageType == type->GetMetadata().Handle )
+            return Common::MakeFormattedError<bool>( "foliage replace type: the field already paints '{}'", typePath );
+        if ( const auto mesh = type->GetMeshHandle() )
+            if ( auto asset = manager.FindByHandle<Assets::MeshAsset>( mesh ) )
+                Runtime::EnsureMeshRegistered( asset, manager );
+
+        // UE ReplaceFoliageTypeObject: a field already painting the new type takes the instances over.
+        for ( auto& other : PaletteFields( scene ) )
         {
-            if ( auto ref = scene.FindEntityByID( *editing );
-                 ref && ref->get().HasComponent<ECS::FoliageComponent>() )
-            {
-                ImGui::Dummy( ImVec2( 0, 2 ) );
-                ImGui::TextDisabled( "TYPE SETTINGS" );
-                auto type = assetManager
-                                 ? ResolveType( const_cast<Assets::AssetManager&>( *assetManager ),
-                                                ref->get().GetComponent<ECS::FoliageComponent>().FoliageType )
-                                 : nullptr;
-                if ( type )
-                    DrawTypeSettings( const_cast<Assets::AssetManager&>( *assetManager ), type );
-                else
-                    ImGui::TextDisabled( "No foliage type (drop a .defoliage on the entity's Details)." );
-
-                ImGui::Dummy( ImVec2( 0, 2 ) );
-                if ( ImGui::Button( ICON_MDI_DELETE " Remove Type", ImVec2( -1, 0 ) ) )
-                {
-                    Core::FoliagePaint::ClearEditingType();
-                    auto e = ref->get();
-                    if ( Core::FoliagePaint::IsActive( *editing ) )
-                        Core::FoliagePaint::ToggleActive( *editing );
-                    Core::FoliagePaint::Selection().erase( *editing );
-                    scene.DestroyEntity( e );
-                }
-            }
+            if ( other.GetComponent<ECS::FoliageComponent>().FoliageType != type->GetMetadata().Handle )
+                continue;
+            auto&       into = other.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            const auto& from = source.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            into.insert( into.end(), from.begin(), from.end() );
+            const auto into_uuid = other.GetComponent<ECS::UUIDComponent>().UUID;
+            if ( auto removed = RemoveType( scene, field ); !removed )
+                return removed;
+            Core::FoliagePaint::SetEditingType( into_uuid );
+            return BOOLSUCCESS;
         }
+        source.GetComponent<ECS::FoliageComponent>().FoliageType             = type->GetMetadata().Handle;
+        source.GetComponent<ECS::InstancedStaticMeshComponent>().MeshHandle = type->GetMeshHandle();
+        source.GetComponent<ECS::TagComponent>().Tag                         = "Foliage_" + type->GetDisplayName();
+        return BOOLSUCCESS;
+    }
 
-        ImGui::Separator();
-        static constexpr const char* kHints[] = {
-             "LMB drag: paint",  "LMB click: place one", "LMB click: select one",        "LMB drag: select",
-             "LMB drag: remove", "LMB drag: reapply",    "LMB click: fill a static mesh" };
-        ImGui::TextDisabled( "%s  -  on the checked types", kHints[static_cast<size_t>( tool )] );
-        ImGui::End();
+    Common::BoolResultStr FoliagePaintTool::SaveTypeCopy( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                          const Common::UUID& field )
+    {
+        auto e = FieldOf( scene, field, "save as asset" );
+        if ( !e )
+            return Common::MakeFormattedError<bool>( "{}", e.GetError() );
+        const auto type = ResolveType( manager, e.GetValue().GetComponent<ECS::FoliageComponent>().FoliageType );
+        if ( !type )
+            return Common::MakeError( "foliage save as asset: the field's type does not load (the log says why)" );
+        const auto copy = Foliage::SaveFoliageTypeCopy( type->GetMetadata().Filepath, type->GetData() );
+        if ( !copy )
+            return Common::MakeFormattedError<bool>( "foliage save as asset: {}", copy.GetError() );
+        return ReplaceType( scene, manager, field, copy.GetValue().string() );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::ShowTypeInBrowser( ::Desert::Core::Scene& scene, const Common::UUID& field )
+    {
+        const auto e = FieldOf( scene, field, "show in browser" );
+        if ( !e )
+            return Common::MakeFormattedError<bool>( "{}", e.GetError() );
+        const auto handle = e.GetValue().GetComponent<ECS::FoliageComponent>().FoliageType;
+        if ( !handle )
+            return Common::MakeError( "foliage show in browser: the field names no type" );
+        Core::AssetFieldRequests::Request( handle, Core::AssetFieldAction::ShowInBrowser );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr FoliagePaintTool::ToggleTypeVisible( ::Desert::Core::Scene& scene, const Common::UUID& field )
+    {
+        auto e = FieldOf( scene, field, "visibility" );
+        if ( !e )
+            return Common::MakeFormattedError<bool>( "{}", e.GetError() );
+        auto&      entity  = e.GetValue();
+        const bool visible = !entity.HasComponent<ECS::VisibilityComponent>() ||
+                             entity.GetComponent<ECS::VisibilityComponent>().Visible;
+        scene.SetVisibleRecursive( entity, !visible );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr FoliagePaintTool::SavePreset( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                        const std::string& name )
+    {
+        std::vector<Foliage::PalettePresetEntry> entries;
+        for ( const auto& field : PaletteFields( scene ) )
+        {
+            const auto type = ResolveType( manager, field.GetComponent<ECS::FoliageComponent>().FoliageType );
+            if ( !type || !type->GetData().Header )
+                return Common::MakeFormattedError<bool>( "foliage preset '{}': the type of '{}' does not load",
+                                                         name, field.GetComponent<ECS::TagComponent>().Tag );
+            std::error_code   ec;
+            const std::string typePath =
+                 std::filesystem::absolute( type->GetMetadata().Filepath, ec )
+                      .lexically_normal()
+                      .lexically_relative( std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec )
+                                                .lexically_normal() )
+                      .generic_string();
+            entries.push_back( { type->GetDisplayName(),
+                                 ( Common::Constants::Path::ASSETS_PATH / type->GetData().Mesh.Path ).generic_string(),
+                                 Assets::AssetGuidRef{ type->GetData().Header->Guid, typePath } } );
+        }
+        const auto saved = Foliage::SavePalettePreset( Common::Constants::Path::COLLECTIONS_PATH, name, entries );
+        if ( !saved )
+            return Common::MakeFormattedError<bool>( "{}", saved.GetError() );
+        ToastManager::Push( "Foliage preset saved: " + saved.GetValue().generic_string(), ToastLevel::Info, 4.0f );
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::Tools
