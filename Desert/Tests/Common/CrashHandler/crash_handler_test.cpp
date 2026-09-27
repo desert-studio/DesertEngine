@@ -138,7 +138,11 @@ namespace
     {
         const char* Kind;
         const char* ExpectedFunctionFragment;
+        // Leaves the scratch root in place (named by g_LastCrashRoot) for a test that asserts more.
+        bool KeepReport = false;
     };
+
+    std::filesystem::path g_LastCrashRoot;
 
     void RunCrashCase( const CrashCase& inCase )
     {
@@ -179,16 +183,22 @@ namespace
         EXPECT_GT( std::filesystem::file_size( dump ), 4096u ) << "crash.dmp is too small to be a minidump";
 #endif
 
+        if ( inCase.KeepReport )
+        {
+            g_LastCrashRoot = root;
+            return;
+        }
         std::error_code cleanup;
         std::filesystem::remove_all( root, cleanup );
     }
 } // namespace
 
-TEST( CrashHandler, ParsesTheThreeTestKinds )
+TEST( CrashHandler, ParsesEveryTestKind )
 {
     EXPECT_EQ( Common::Crash::ParseTestKind( "segv" ), Common::Crash::TestKind::Segv );
     EXPECT_EQ( Common::Crash::ParseTestKind( "abort" ), Common::Crash::TestKind::Abort );
     EXPECT_EQ( Common::Crash::ParseTestKind( "purecall" ), Common::Crash::TestKind::PureCall );
+    EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow" ), Common::Crash::TestKind::StackOverflow );
     // An unknown word is refused rather than defaulted: a --crash-test typo that crashed in some
     // other way would file a report describing a fault nobody asked for.
     EXPECT_FALSE( Common::Crash::ParseTestKind( "sigsegv" ).has_value() );
@@ -208,6 +218,46 @@ TEST( CrashHandler, AbortWritesAReportNamingTheFaultingFunction )
 TEST( CrashHandler, PureCallWritesAReportNamingTheFaultingFunction )
 {
     RunCrashCase( { "purecall", "PureCall" } );
+}
+
+// CR1b: a stack overflow leaves the faulting thread no stack to write a report on, so the report must come
+// from the report thread (Windows) / the alternate signal stack (POSIX). Proven by the relation between
+// the crash and the report: the report's stack is the recursion, frame after frame, not just a file.
+TEST( CrashHandler, StackOverflowWritesAReportWhoseStackIsTheRecursion )
+{
+    const char* const kRecursion = "CrashTestStackOverflowRecurse";
+    RunCrashCase( { "stackoverflow", kRecursion, true } );
+    if ( ::testing::Test::HasFatalFailure() )
+    {
+        return;
+    }
+    const std::string contents = ReadWholeFile( SoleReportDirectory( g_LastCrashRoot ) / "crash.txt" );
+    std::error_code   cleanup;
+    std::filesystem::remove_all( g_LastCrashRoot, cleanup );
+
+#if defined( _WIN32 )
+    EXPECT_EQ( FieldValue( contents, "codename" ), "EXCEPTION_STACK_OVERFLOW" );
+    // A real SEH fault: `function` is frame 0, the faulting frame itself, which is the recursion.
+    EXPECT_NE( FieldValue( contents, "function" ).find( kRecursion ), std::string::npos )
+         << "function=" << FieldValue( contents, "function" );
+#else
+    const std::string signal = FieldValue( contents, "codename" );
+    EXPECT_TRUE( signal == "SIGSEGV" || signal == "SIGBUS" ) << "codename=" << signal;
+#endif
+
+    // The recursion fills the walked frames: at least 16 of the report's [stack] lines name it.
+    const std::size_t stackAt = contents.find( "\n[stack]\n" );
+    const std::size_t logAt   = contents.find( "\n[log]\n" );
+    ASSERT_NE( stackAt, std::string::npos );
+    ASSERT_NE( logAt, std::string::npos );
+    const std::string stack     = contents.substr( stackAt, logAt - stackAt );
+    std::size_t       recursive = 0;
+    for ( std::size_t at = stack.find( kRecursion ); at != std::string::npos;
+          at             = stack.find( kRecursion, at + 1 ) )
+    {
+        ++recursive;
+    }
+    EXPECT_GE( recursive, 16u ) << "the report's stack is not the recursion:\n" << stack;
 }
 
 // PKG1c: the Runtime installs BEFORE the archive mount, under the engine's per-user root, and moves the
