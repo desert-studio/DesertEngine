@@ -172,6 +172,11 @@ namespace Desert::Migration
     // PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV2ToV3( const std::string& text );
 
+    // The v4 text of a v3 `.defoliage`: every v3 number kept, Wind at Strength 0 (the instances stand still,
+    // as every v3 field drew), the header's GUID kept. A file that does not state FOLT 3 is an error naming
+    // what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV3ToV4( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

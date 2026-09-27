@@ -59,19 +59,20 @@ namespace Desert::Graphic::Render
         std::shared_ptr<const std::vector<glm::mat4>> Transforms;
         bool                                          CastShadows;
         InstanceCullDistance                          CullDistance; // the foliage type's (FO-5); {0, 0} = none
+        InstanceWind                                  Wind;         // the foliage type's (FO-7); still = none
 
         DrawInstancedStaticMeshCommand( Desert::Mesh* mesh, Graphic::MaterialInstancePtr material,
                                         std::shared_ptr<const std::vector<glm::mat4>> transforms, bool castShadows,
-                                        const InstanceCullDistance& cullDistance )
+                                        const InstanceCullDistance& cullDistance, const InstanceWind& wind )
              : Mesh( mesh ), Material( std::move( material ) ), Transforms( std::move( transforms ) ),
-               CastShadows( castShadows ), CullDistance( cullDistance )
+               CastShadows( castShadows ), CullDistance( cullDistance ), Wind( wind )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
             if ( Mesh && Material && Transforms )
-                renderer.SubmitInstancedMesh( Mesh, Material, Transforms, CastShadows, CullDistance );
+                renderer.SubmitInstancedMesh( Mesh, Material, Transforms, CastShadows, CullDistance, Wind );
         }
     };
 } // namespace Desert::Graphic::Render

@@ -22,6 +22,13 @@ namespace Desert::Graphic
                                           Core::Formats::kMaterialTransformPushOffset );
     }
 
+    void Material::SetInstancedWind( const InstanceWindPush& wind )
+    {
+        if ( !m_MaterialExecutor )
+            return;
+        m_MaterialExecutor->PushConstant( &wind, sizeof( InstanceWindPush ), kInstancedWindPushOffset );
+    }
+
     Material::Material( std::string&& debugName, std::string&& shaderName )
          : m_MaterialExecutor(
                 Graphic::MaterialExecutor::Create( std::move( debugName ), std::move( shaderName ) ) ),

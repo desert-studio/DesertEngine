@@ -419,7 +419,7 @@ namespace Desert::Migration
 
     namespace
     {
-        // FOLT 2's body, member for member: the engine's struct is v3 and refuses a file without CullDistance.
+        // FOLT 2's body, member for member: v3 added CullDistance, and the engine's struct is v4.
         struct FoliageTypeDataV2
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -434,6 +434,24 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
             std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
             float                                                     MinimumLayerWeight = 0.0f;
+        };
+
+        // FOLT 3's body, member for member: the engine's struct is v4 and refuses a file without Wind.
+        struct FoliageTypeDataV3
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
         };
 
         // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
@@ -466,7 +484,7 @@ namespace Desert::Migration
                  stated == old.Header->Versions.end() ? std::string( "nothing" )
                                                       : std::to_string( stated->second ) );
 
-        // v2 text, not the engine's struct: the engine is v3, and the chain raises v2 -> v3 as its own step.
+        // v2 text, not the engine's struct: the engine is v4, and the chain raises each generation in turn.
         // v1 names no landscape layer, so its Dependencies (the mesh's GUID) are v2's as they stand.
         FoliageTypeDataV2 data;
         data.Header                   = old.Header;
@@ -498,6 +516,43 @@ namespace Desert::Migration
         if ( !v2 )
             return Common::MakeFormattedError<std::string>( "FOLT 2 body does not read: {}", v2.GetError() );
         const FoliageTypeDataV2& old = v2.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+
+        // v3 text, not the engine's struct: the engine is v4, and v3 -> v4 is the chain's next step.
+        FoliageTypeDataV3 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 3u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = old.Density;
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        data.Height                   = old.Height;
+        data.LandscapeLayers          = old.LandscapeLayers;
+        data.MinimumLayerWeight       = old.MinimumLayerWeight;
+        // UE's default CullDistance {0, 0}: never culled, which is what every v2 field drew.
+        data.CullDistance   = { 0.0f, 0.0f };
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV3ToV4( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 3: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV3ToV4( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 3u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 3 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v3 = Common::Json::Read<FoliageTypeDataV3>( text );
+        if ( !v3 )
+            return Common::MakeFormattedError<std::string>( "FOLT 3 body does not read: {}", v3.GetError() );
+        const FoliageTypeDataV3& old = v3.GetValue();
 
         Assets::Serialization::FoliageTypeData data;
         data.Header             = old.Header;
@@ -512,12 +567,13 @@ namespace Desert::Migration
         data.Height             = old.Height;
         data.LandscapeLayers    = old.LandscapeLayers;
         data.MinimumLayerWeight = old.MinimumLayerWeight;
-        // UE's default CullDistance {0, 0}: never culled, which is what every v2 field drew.
-        data.CullDistance = { 0.0f, 0.0f };
+        data.CullDistance       = old.CullDistance;
+        // Strength 0: the instances stand still, which is what every v3 field drew.
+        data.Wind = Assets::Serialization::FoliageWind{};
 
         std::string written = Assets::Serialization::WriteFoliageType( data );
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 3: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 4: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

@@ -11,6 +11,7 @@
 
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
 
 #include <glm/glm.hpp>
@@ -74,9 +75,10 @@ namespace Desert::Graphic
      */
     inline void CollectIsmInstances( const std::vector<glm::mat4>& transforms,
                                      const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
-                                     const InstanceCullDistance& cull, const glm::vec3& cullViewPosition,
-                                     const glm::vec3& lodViewPosition, uint32_t maxLevel,
-                                     std::vector<glm::mat4>& visible, std::vector<uint32_t>& levels )
+                                     const InstanceCullDistance& cull, const InstanceWind& wind,
+                                     const glm::vec3& cullViewPosition, const glm::vec3& lodViewPosition,
+                                     uint32_t maxLevel, std::vector<glm::mat4>& visible,
+                                     std::vector<uint32_t>& levels )
     {
         visible.clear();
         levels.clear();
@@ -86,7 +88,12 @@ namespace Desert::Graphic
             if ( !KeepsInstanceAtDistance( cull, static_cast<uint32_t>( i ), glm::vec3( instanceTransform[3] ),
                                            cullViewPosition ) )
                 continue;
-            if ( !IsVisibleInView( frustum, instanceTransform, localBounds ) )
+            // Tested on the box the WIND can reach, not the authored one: a swaying tip leaves the mesh's box
+            // by up to Strength, and a test on the authored box would drop the instance - and its shadow -
+            // while its tip is still on screen (UE widens the bounds for a WPO the same way).
+            if ( !Geometry::IsEmpty( localBounds ) &&
+                 !frustum.Intersects(
+                      WindExpandedBounds( Geometry::TransformBounds( instanceTransform, localBounds ), wind ) ) )
                 continue;
             visible.push_back( instanceTransform );
             levels.push_back(

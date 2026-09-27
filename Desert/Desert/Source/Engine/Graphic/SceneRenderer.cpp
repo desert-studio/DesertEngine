@@ -1467,7 +1467,8 @@ namespace Desert::Graphic
 
     void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                             bool castShadows, const InstanceCullDistance& cullDistance )
+                                             bool castShadows, const InstanceCullDistance& cullDistance,
+                                             const InstanceWind& wind )
     {
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
@@ -1480,7 +1481,8 @@ namespace Desert::Graphic
                                       .Material     = material,
                                       .Transforms   = transforms,
                                       .CastShadows  = castShadows,
-                                      .CullDistance = cullDistance } );
+                                      .CullDistance = cullDistance,
+                                      .Wind         = wind } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )

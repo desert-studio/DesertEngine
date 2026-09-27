@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/InstanceCullDistance.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -209,7 +210,8 @@ namespace Desert::Graphic
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                  bool castShadows, const InstanceCullDistance& cullDistance );
+                                  bool castShadows, const InstanceCullDistance& cullDistance,
+                                  const InstanceWind& wind );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 

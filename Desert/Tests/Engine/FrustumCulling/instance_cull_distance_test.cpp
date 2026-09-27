@@ -127,16 +127,16 @@ TEST( InstanceCullDistance, AShadowCascadeDropsExactlyWhatTheViewDrops )
 
     std::vector<glm::mat4> viewKept, cascadeKept;
     std::vector<uint32_t>  viewLevels, cascadeLevels;
-    CollectIsmInstances( transforms, bounds, MainView(), kBand, kEye, kEye, 0, viewKept, viewLevels );
+    CollectIsmInstances( transforms, bounds, MainView(), kBand, {}, kEye, kEye, 0, viewKept, viewLevels );
     // The cascade's LOD is asked from its own place; its cull distance from the main camera, as the renderer does.
     const glm::vec3 sun( 0.0f, 20000.0f, -2000.0f );
-    CollectIsmInstances( transforms, bounds, Cascade(), kBand, kEye, sun, 0, cascadeKept, cascadeLevels );
+    CollectIsmInstances( transforms, bounds, Cascade(), kBand, {}, kEye, sun, 0, cascadeKept, cascadeLevels );
 
     // Without a cull distance both passes hold every instance: the frusta are not what is being compared.
     std::vector<glm::mat4> allView, allCascade;
     std::vector<uint32_t>  scratch;
-    CollectIsmInstances( transforms, bounds, MainView(), {}, kEye, kEye, 0, allView, scratch );
-    CollectIsmInstances( transforms, bounds, Cascade(), {}, kEye, sun, 0, allCascade, scratch );
+    CollectIsmInstances( transforms, bounds, MainView(), {}, {}, kEye, kEye, 0, allView, scratch );
+    CollectIsmInstances( transforms, bounds, Cascade(), {}, {}, kEye, sun, 0, allCascade, scratch );
     ASSERT_EQ( allView.size(), transforms.size() );
     ASSERT_EQ( allCascade.size(), transforms.size() );
 

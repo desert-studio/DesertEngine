@@ -47,7 +47,7 @@ namespace Desert::Assets
     inline constexpr uint32_t kRetargetSchemaVersion = 3;
     // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
-    inline constexpr uint32_t kFoliageTypeSchemaVersion = 3;
+    inline constexpr uint32_t kFoliageTypeSchemaVersion = 4;
     // A .delayerinfo: the landscape layer info file layout, stated in the header from its first version (LS-12b).
     inline constexpr uint32_t kLandscapeLayerInfoSchemaTag     = Common::Content::FourCC( "LLYI" );
     inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 1;

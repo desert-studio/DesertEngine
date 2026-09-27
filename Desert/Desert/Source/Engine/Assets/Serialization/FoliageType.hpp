@@ -37,7 +37,10 @@ namespace Desert::Assets::Serialization
      *       join. The header's Dependencies are the mesh's GUID, then each layer info's, in list order.
      *       SceneMigrator raises a v1 file (MigrateFoliageTypeV1ToV2).
      *   3 - CullDistance joins (FO-5, UE UFoliageType::CullDistance). SceneMigrator raises a v2 file
-     *       (MigrateFoliageTypeV2ToV3) with {0, 0}, UE's default: never culled. The engine reads v3 only.
+     *       (MigrateFoliageTypeV2ToV3) with {0, 0}, UE's default: never culled.
+     *   4 - Wind joins (FO-7): how the instances sway (UE: a SimpleGrassWind world-position offset in the
+     *       material). SceneMigrator raises a v3 file (MigrateFoliageTypeV3ToV4) with Strength 0: still, which
+     *       is what every v3 field drew. The engine reads v4 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -58,6 +61,28 @@ namespace Desert::Assets::Serialization
         float Max = 0.0f;
 
         [[nodiscard]] bool operator==( const FoliageFloatInterval& ) const = default;
+    };
+
+    /**
+     * @brief How a type's instances sway in the wind (UE: SimpleGrassWind's WindIntensity / WindSpeed and the
+     *        material's height mask, with the direction a WindDirectionalSource would give).
+     *
+     * Displacement is horizontal, in world centimetres, and grows with the vertex's height in the MESH's own
+     * space: zero at and below the pivot (the root), full at Height and above. Graphic::FoliageWindOffset is
+     * the whole formula; Common/FoliageWind.glslh is its GPU twin.
+     */
+    struct FoliageWind
+    {
+        /// The largest displacement, cm, reached by a vertex at Height. 0 = the instances stand still.
+        float Strength = 0.0f;
+        /// Sway cycles per second of the fundamental.
+        float Speed = 0.5f;
+        /// Mesh-local height, cm, at which the sway reaches Strength (the root at 0 does not move).
+        float Height = 100.0f;
+        /// The direction the wind blows TOWARDS, degrees about the up axis from +X towards +Z.
+        float DirectionDegrees = 0.0f;
+
+        [[nodiscard]] bool operator==( const FoliageWind& ) const = default;
     };
 
     /**
@@ -101,6 +126,8 @@ namespace Desert::Assets::Serialization
         /// nearer than Min, none from Max on, and between the two a share growing linearly from 0 to 1 is
         /// dropped (Graphic::KeepsInstanceAtDistance). Max = 0 is UE's "never culled".
         FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
+        /// How the instances sway (FO-7). Strength 0 = still.
+        FoliageWind Wind;
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
     };
