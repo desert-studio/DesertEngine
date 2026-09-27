@@ -24,10 +24,11 @@
 // base cells at once; a Block Size finer than the base subdivides the base losslessly (Volume::Refine).
 namespace Desert::Geometry::VoxelBlockout
 {
-    // Corner Mode moves a cell's corners along the grid's up axis, so a cell is not a plain solid flag but a
-    // box with 8 vertical corner offsets. Offsets are in 1/CornerDen of a BASE cell (60 divides the 1/2, 1/4
-    // and 1/10 snap sizes exactly); 0 everywhere is the ordinary axis-aligned block.
-    // Corner index bits: 1 = +X, 2 = +Y (top), 4 = +Z.
+    // Corner Mode moves a cell's corners along the normal of the face it works on - any of the three lattice
+    // axes (UE's corner mode works on whatever face the selection lies on) - so a cell is not a plain solid flag
+    // but a box with 8 corner offsets along one axis. Offsets are in 1/CornerDen of a BASE cell (60 divides the
+    // 1/2, 1/4 and 1/10 snap sizes exactly); 0 everywhere is the ordinary axis-aligned block.
+    // Corner index bits: 1 = +X, 2 = +Y (top), 4 = +Z; the bit of axis a is 1 << a.
     constexpr int CornerDen = 60;
 
     struct Cell
@@ -37,6 +38,13 @@ namespace Desert::Geometry::VoxelBlockout
         // OpMeshMaterialID). Per FACE, not per cell, because Shift+B repaints only the faces under the
         // selection and a push-in gives the walls it exposes the active material, not the whole cell.
         uint8_t Mat[6] = {};
+        // The lattice axis (0 = X, 1 = Y, 2 = Z) the offsets in V move along. One axis per cell: a slope is
+        // built on one face at a time, and a cell already sloped along another axis refuses a second one
+        // (Volume::ApplyCornerHeights). Meaningless while the cell is flat.
+        uint8_t Axis = 1;
+        // UE CubeGrid's Crosswise Diagonal, frozen into the cell by the Corner Mode pass that shaped it: the
+        // bake splits its non-planar quads along the other diagonal (SplitsAlong13).
+        bool Crosswise = false;
 
         bool IsFlat() const
         {
@@ -127,7 +135,7 @@ namespace Desert::Geometry::VoxelBlockout
     glm::vec3 NearestFaceCorner( const GridFrame& frame, const glm::ivec3& cell, const glm::ivec3& normal,
                                  float unit, const glm::vec3& rayOrigin, const glm::vec3& rayDir );
 
-    // FRAME-space position of corner `i` of the cell at `c` (edge `unit`), with its vertical offset.
+    // FRAME-space position of corner `i` of the cell at `c` (edge `unit`), with its offset along the cell's Axis.
     glm::vec3 CornerPos( const glm::ivec3& c, const Cell& cell, int i, float unit );
 
     // The work-plane, in BASE cells of the active volume: axis Na (0=X, 1=Y, 2=Z) facing Sign, sitting at the
@@ -148,17 +156,25 @@ namespace Desert::Geometry::VoxelBlockout
         int VMax = 0;
     };
 
-    // The four posts of the selection rectangle, as (at uMax, at vMax, corner index of that post's cell).
-    // For a ground grid (Na=1) u is Z (bit 4) and v is X (bit 1). Index order is (uMin,vMin) (uMax,vMin)
+    // The four posts of the selection rectangle, as (at uMax, at vMax). Index order is (uMin,vMin) (uMax,vMin)
     // (uMin,vMax) (uMax,vMax) - the order of Corner Mode's height array.
     struct RectPost
     {
         bool AtUMax, AtVMax;
-        int  Corner;
     };
     extern const RectPost kPosts[4];
+    // The corner index, in the cell just inside `plane` at that post, that post `k` is: the corner on the
+    // plane's side of the cell, at the post's u and v ends.
+    int PostCorner( const WorkPlane& plane, int k );
 
-    // Corner Mode heights of the four rectangle posts, in 1/CornerDen base-cell units.
+    // Which diagonal the bake splits face `f` of a deformed `cell` along: true = corners 1-3 of kFaceCorner[f],
+    // false = 0-2. The diagonal runs through the odd corner out, so a single raised or lowered corner makes a
+    // pyramid on a square base and a checkerboard a ridge; Cell::Crosswise flips it.
+    // Ported from UE 5.8 ModelingOperators/Private/CompositionOps/CubeGridBooleanOp.cpp:255-266, adapted: a
+    // corner is "welded at base" when its offset is 0, and the rule is applied per face of a cell.
+    bool SplitsAlong13( const Cell& cell, int f );
+
+    // Corner Mode heights of the four rectangle posts, in 1/CornerDen base-cell units, OUT of the work-plane.
     using CornerHeights = std::array<int, 4>;
 
     // A committed piece. Its cells and its Block Size are frozen for good: starting a new marquee commits what
@@ -210,12 +226,14 @@ namespace Desert::Geometry::VoxelBlockout
         // centre inside `sel`, takes `material`. Geometry is untouched. Returns the faces painted; 0
         // when no active base is chosen yet or nothing under the selection faces that way.
         int PaintFaces( const WorkPlane& plane, const Rect& sel, uint8_t material );
-        // Corner Mode: every top corner of the cell layer under the selection takes the bilinear blend of the
-        // four posts, so raising two posts yields one clean ramp and raising one a hip. Only a ground-facing
-        // plane (Na=1, Sign>0) has a top layer; returns false and changes nothing otherwise.
-        bool ApplyCornerHeights( const WorkPlane& plane, const Rect& sel, const CornerHeights& heights );
-        // Read the rectangle's post heights back out of the cells (zero where no cell or no ground plane), so
-        // a second Corner Mode pass continues from the current shape.
+        // Corner Mode: every outer corner of the cell layer just inside the work-plane, under the selection,
+        // takes the bilinear blend of the four posts along the plane's normal (a wall slopes as a floor does),
+        // so raising two posts yields one clean ramp and raising one a hip; the cells take `crosswise`.
+        // Refused, and nothing changes, when a cell there is already sloped along another axis.
+        Common::BoolResultStr ApplyCornerHeights( const WorkPlane& plane, const Rect& sel,
+                                                  const CornerHeights& heights, bool crosswise );
+        // Read the rectangle's post heights back out of the cells (zero where no cell, or a cell sloped along
+        // another axis), so a second Corner Mode pass continues from the current shape.
         CornerHeights ReadCornerHeights( const WorkPlane& plane, const Rect& sel ) const;
 
         // One quad soup out of every layer, each meshed at its OWN cell size and face-culled against all
@@ -251,11 +269,12 @@ namespace Desert::Geometry::VoxelBlockout
         std::array<float, 4> Rotation{ 1.0f, 0.0f, 0.0f, 0.0f }; // w, x, y, z
         // Per flat cell: x, y, z, then the 6 face materials in kFace order.
         std::vector<int32_t> Flat;
-        // Per deformed cell: x, y, z, the 6 face materials, then the 8 corner offsets (Cell::V).
+        // Per deformed cell: x, y, z, the 6 face materials, the 8 corner offsets (Cell::V), the offset axis
+        // (Cell::Axis) and Crosswise (0 / 1).
         std::vector<int32_t> Deformed;
     };
     constexpr size_t kSavedFlatStride     = 9;
-    constexpr size_t kSavedDeformedStride = 17;
+    constexpr size_t kSavedDeformedStride = 19;
 
     struct SavedBlockout
     {
@@ -270,8 +289,8 @@ namespace Desert::Geometry::VoxelBlockout
 
     SavedBlockout Save( const Volume& v, uint64_t meshKey );
     // Refused, by layer, cell and value, when a unit is not positive, an array is not whole cells, a cell is
-    // outside the packable range or repeats, a material or offset does not fit its field, or a rotation is
-    // not a rotation.
+    // outside the packable range or repeats, a material, offset, axis or diagonal does not fit its field, or a
+    // rotation is not a rotation.
     Common::ResultStr<Volume> Load( const SavedBlockout& saved );
     // Parse Save's MeshKey spelling back; nullopt when it is not 16 hex digits.
     std::optional<uint64_t> ParseMeshKey( const std::string& text );
