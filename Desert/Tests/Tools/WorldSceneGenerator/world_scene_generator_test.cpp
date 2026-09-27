@@ -31,6 +31,8 @@
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Json/Document.hpp>
@@ -799,4 +801,218 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 8. THE CORPUS PRESET (WP14) - a world furnished with REAL tracked assets, the streaming-memory instrument
+// ---------------------------------------------------------------------------------------------------
+
+namespace
+{
+    std::string ProjectRoot()
+    {
+        return RepoRoot() + "Editor";
+    }
+
+    int GenerateCorpus( const std::filesystem::path& out, std::string& bytes,
+                        const std::vector<std::string>& extra = {} )
+    {
+        std::vector<std::string> args{ "--preset", "corpus-smoke", "--project", ProjectRoot(), "--partition" };
+        args.insert( args.end(), extra.begin(), extra.end() );
+        return Generate( out, args, bytes );
+    }
+
+    // FNV-1a 64, spelled out: std::hash differs between standard libraries, and the point of the hash is to be
+    // a number two machines can compare.
+    uint64_t Fnv1a( std::string_view text )
+    {
+        uint64_t hash = 0xCBF29CE484222325ull;
+        for ( const char c : text )
+        {
+            hash ^= static_cast<unsigned char>( c );
+            hash *= 0x100000001B3ull;
+        }
+        return hash;
+    }
+
+    // What a generated world IS, minus its identity: the records as the writer spells them, and the partition
+    // index the loader would build from them - every composite's anchor, level and reason, plus the summary line.
+    struct WorldFingerprint
+    {
+        uint64_t    EntitiesHash = 0;
+        std::string Index;
+    };
+
+    WorldFingerprint Fingerprint( const std::string& bytes )
+    {
+        WorldFingerprint print;
+        const auto       scene = ReadScene( bytes );
+        if ( !scene.has_value() || !scene->WorldPartition.has_value() )
+        {
+            ADD_FAILURE() << "the corpus world did not read back with its WorldPartition block";
+            return print;
+        }
+        print.EntitiesHash = Fnv1a( Common::Json::Write( scene->Entities ) );
+
+        namespace Rules = Desert::Core::Rules;
+        const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+        print.Index     = Rules::SummarisePartition( plan, *scene->WorldPartition );
+        for ( const auto& composite : plan.Composites )
+            print.Index += "|" + std::to_string( composite.Anchor ) + ":" + std::to_string( composite.Level ) +
+                           ":" + std::to_string( static_cast<int>( composite.Reason ) );
+        return print;
+    }
+} // namespace
+
+// 8a. Same seed, two never-before-written files (so two different GUIDs): the same records and the same partition
+// index. A different seed: a different world. Without this the flight is not a repeatable measurement.
+TEST( WorldSceneGenerator, CorpusPresetIsDeterministicInItsRecordsAndItsPartitionIndex )
+{
+    std::filesystem::remove( Scratch() / "corpus_a.desce" );
+    std::filesystem::remove( Scratch() / "corpus_b.desce" );
+    std::string a;
+    std::string b;
+    std::string c;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_a.desce", a, { "--seed", "7" } ), 0 ) << a;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_b.desce", b, { "--seed", "7" } ), 0 ) << b;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_c.desce", c, { "--seed", "8" } ), 0 ) << c;
+
+    const auto fa = Fingerprint( a );
+    const auto fb = Fingerprint( b );
+    const auto fc = Fingerprint( c );
+    EXPECT_NE( fa.EntitiesHash, 0u );
+    EXPECT_EQ( fa.EntitiesHash, fb.EntitiesHash ) << "same seed, different records";
+    EXPECT_EQ( fa.Index, fb.Index ) << "same seed, different partition index";
+    EXPECT_NE( fa.EntitiesHash, fc.EntitiesHash ) << "the seed does not reach the corpus layout";
+
+    // And regenerating over the same file is the same bytes, as for the cube world.
+    std::string again;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_a.desce", again, { "--seed", "7" } ), 0 ) << again;
+    EXPECT_EQ( a, again );
+}
+
+// 8b. EVERY ASSET THE CORPUS WORLD NAMES RESOLVES BY ITS GUID: the mesh file at the stated path carries the stated
+// GUID in its header and is the stated kind; the material likewise; every texture the material binds exists and
+// carries the GUID its slot states. And the world is really made of what it claims: skinned meshes, a textured
+// material, a custom-shader material - not probe cubes.
+TEST( WorldSceneGenerator, EveryCorpusAssetResolvesByItsGuidAndTheCorpusIsReal )
+{
+    std::string bytes;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_resolve.desce", bytes, { "--cells", "4" } ), 0 ) << bytes;
+    const auto parsed = Common::Json::Parse( bytes );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto entities = Common::Json::Root( parsed.GetValue() ).Get( "Entities" );
+    ASSERT_TRUE( entities.IsSuccess() ) << entities.GetError();
+
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    text = []( const Common::Json::Node& node, const char* key )
+    {
+        const auto field = node.Get( key );
+        EXPECT_TRUE( field.IsSuccess() ) << key << ": " << field.GetError();
+        if ( !field.IsSuccess() )
+            return std::string();
+        const auto value = field.GetValue().AsString();
+        return value.IsSuccess() ? value.GetValue() : std::string();
+    };
+    const auto firstOf = []( const Common::Json::Node& list )
+    {
+        std::string first;
+        list.ForEachElement(
+             [&]( std::size_t index, const Common::Json::Node& element )
+             {
+                 if ( index == 0 )
+                 {
+                     const auto value = element.AsString();
+                     first            = value.IsSuccess() ? value.GetValue() : std::string();
+                 }
+             } );
+        return first;
+    };
+
+    std::set<std::string> meshes;
+    std::set<std::string> materials;
+    std::set<std::string> textures;
+    int                   skinned      = 0;
+    int                   customShader = 0;
+    int                   props        = 0;
+    entities.GetValue().ForEachElement(
+         [&]( std::size_t, const Common::Json::Node& record )
+         {
+             const auto  skin  = record.Find( "SkinnedMesh" );
+             const auto  still = record.Find( "StaticMesh" );
+             const auto* block = skin ? &*skin : ( still ? &*still : nullptr );
+             if ( block == nullptr || !block->Find( "MeshPath" ) )
+                 return; // fixtures and ground tiles
+             ++props;
+             skinned += skin ? 1 : 0;
+
+             // The mesh, by GUID.
+             const std::string meshPath = text( *block, "MeshPath" );
+             const auto header = Common::Content::ReadAssetHeader( ProjectRoot() + "/" + meshPath, recordOnly );
+             ASSERT_TRUE( header.IsSuccess() ) << meshPath << ": " << header.GetError();
+             EXPECT_EQ( Common::Content::AssetGuidToText( header.GetValue().Guid ), text( *block, "MeshGuid" ) )
+                  << meshPath << ": MeshGuid is not the file's header GUID";
+             EXPECT_EQ( header.GetValue().Kind, skin ? Common::Content::ContentKind::SkinnedMesh
+                                                     : Common::Content::ContentKind::StaticMesh )
+                  << meshPath;
+             meshes.insert( meshPath );
+
+             // The material, by GUID, and every texture it binds, by GUID.
+             const auto paths = block->Get( "MaterialPaths" );
+             const auto guids = block->Get( "MaterialGuids" );
+             ASSERT_TRUE( paths.IsSuccess() && guids.IsSuccess() ) << meshPath << " names no material";
+             const std::string materialPath = firstOf( paths.GetValue() );
+             const auto        material =
+                  Common::Json::Parse( ReadAll( std::filesystem::path( AssetsRoot() ) / materialPath ) );
+             ASSERT_TRUE( material.IsSuccess() ) << materialPath << ": " << material.GetError();
+             const auto root   = Common::Json::Root( material.GetValue() );
+             const auto matHdr = root.Get( "Header" );
+             ASSERT_TRUE( matHdr.IsSuccess() ) << materialPath;
+             EXPECT_EQ( text( matHdr.GetValue(), "Guid" ), firstOf( guids.GetValue() ) ) << materialPath;
+             materials.insert( materialPath );
+             if ( root.Find( "Shader" ) )
+                 ++customShader;
+             if ( const auto slots = root.Find( "Textures" ) )
+             {
+                 slots->ForEachElement(
+                      [&]( std::size_t, const Common::Json::Node& slot )
+                      {
+                          const std::string path = text( slot, "Path" );
+                          if ( path.empty() && text( slot, "Guid" ).empty() )
+                              return; // an unbound slot
+                          ASSERT_TRUE( path.starts_with( "assets:" ) ) << materialPath << ": " << path;
+                          const auto file = AssetsRoot() + "/" + path.substr( 7 );
+                          const auto tex  = Common::Content::ReadAssetHeader( file, recordOnly );
+                          ASSERT_TRUE( tex.IsSuccess() ) << file << ": " << tex.GetError();
+                          EXPECT_EQ( Common::Content::AssetGuidToText( tex.GetValue().Guid ),
+                                     text( slot, "Guid" ) )
+                               << materialPath << " binds " << path << " by a GUID that is not the file's";
+                          textures.insert( path );
+                      } );
+             }
+         } );
+
+    EXPECT_EQ( props, 4 * 4 * 4 ) << "every corpus cell holds PerCell props";
+    EXPECT_GT( skinned, 0 ) << "no skinned mesh: nothing a cell departure frees past an HLOD";
+    EXPECT_GT( customShader, 0 ) << "no custom-shader material";
+    EXPECT_GE( textures.size(), 3u )
+         << "the corpus world binds fewer than three textures - no texture memory to stream";
+    EXPECT_GE( meshes.size(), 3u );
+    EXPECT_GE( materials.size(), 3u );
+}
+
+// 8c. A missing asset is a refusal that names the file, and nothing is written - never a world with a hole in it.
+TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothing )
+{
+    const auto out = Scratch() / "corpus_missing.desce";
+    std::filesystem::remove( out );
+    const std::vector<std::string> args{ "--out",    out.string(),   "--assets",  AssetsRoot(),
+                                         "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
+    std::ostringstream             reported;
+    std::ostringstream             refused;
+    EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
+    EXPECT_NE( refused.str().find( "/nonexistent-project-root/Cooked/Meshes/SkinProbe.skmesh" ),
+               std::string::npos )
+         << refused.str();
+    EXPECT_FALSE( std::filesystem::exists( out ) );
 }

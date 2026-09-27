@@ -5,10 +5,17 @@
 
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
+#include <array>
+#include <span>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
@@ -28,6 +35,9 @@ namespace Desert::WorldGen
             const char* SceneName;
             int         Cells;
             int         PerCell;
+            int         CellSizeCm;
+            // Furnished from the tracked corpus (kCorpusProps) instead of primitive-cube buildings.
+            bool Corpus;
         };
 
         // `world` is the acceptance instrument. 32 x 32 cells of 256 m is 8192 m on a side - ten and a
@@ -37,9 +47,17 @@ namespace Desert::WorldGen
         //
         // `smoke` is what the test suite generates. Same code path, same arithmetic, four cells - small
         // enough that a suite can build it, parse it and round-trip it several times per run.
+        //
+        // `corpus` is the streaming-memory instrument (WP14): 16 x 16 cells of 20 m, each furnished from ONE
+        // theme of real tracked assets, so a flight along a row crosses themes and resident asset memory has
+        // something to rise and fall with. Cells are small because the corpus meshes are probes (tens of
+        // centimetres to a couple of metres) - a 256 m tile would hold them as specks. `corpus-smoke` is its
+        // suite-sized twin: same content table, four cells.
         constexpr Preset kPresets[] = {
-             { "world", "World Grid 8 km", 32, 48 },
-             { "smoke", "World Grid Smoke", 2, 6 },
+             { "world", "World Grid 8 km", 32, 48, 25600, false },
+             { "smoke", "World Grid Smoke", 2, 6, 25600, false },
+             { "corpus", "World Corpus Flight", 16, 9, 2000, true },
+             { "corpus-smoke", "World Corpus Smoke", 2, 4, 2000, true },
         };
 
         const Preset* FindPreset( const std::string& key )
@@ -56,7 +74,7 @@ namespace Desert::WorldGen
             for ( const auto& p : kPresets )
                 presets += std::string( presets.empty() ? "" : ", " ) + p.Key;
             return "usage: WorldGen --out <scene.desce> [--preset <" + presets +
-                   ">] [--assets <dir>] [--cells N] [--per-cell N] [--cell-size CM] [--seed N] "
+                   ">] [--assets <dir>] [--project <dir>] [--cells N] [--per-cell N] [--cell-size CM] [--seed N] "
                    "[--name <scene name>] [--partition [--partition-cell CM] [--loading-range CM]] [--verify]";
         }
 
@@ -66,9 +84,21 @@ namespace Desert::WorldGen
         // the wrong shape for this value: to_int() truncated 6418972230554417713 to 155908657 in the first
         // run of this tool, and to_double() would round every handle above 2^53. Same defect
         // SceneSerializer.cpp:159 names for SplashSprite, met again on the way in.
+        // A texture slot of a .demat, as the material states it: the texture's header GUID and its path.
+        struct TextureSlotIdentity
+        {
+            std::string Name;
+            std::string Guid;
+            std::string Path;
+        };
+
         struct MaterialIdentityOnly
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            // Read so every texture the material binds is checked to exist and to BE the texture its slot
+            // names: a missing texture draws as the default white, which in a memory instrument is a
+            // measurement of nothing that looks like a measurement of something.
+            std::optional<std::vector<TextureSlotIdentity>> Textures;
             // Everything else a material states: not this tool's to read, carried so the strict read
             // accepts it instead of refusing the file for keys it was never asked about.
             Common::Json::KeyedValues Rest;
@@ -78,6 +108,35 @@ namespace Desert::WorldGen
         // it rather than carrying a copy of the number. A hard-coded GUID here would be a second statement
         // of an asset's identity and would go stale silently the day the material is re-imported -
         // MaterialIdentity's corpus rule is exactly that check, one level out.
+        // What any header-reading caller outside the engine may ask: record what the file states, judged by
+        // the build that loads the body (AssetHeaderReadContext::RecordOnly - this tool links Common only).
+        const Common::Content::AssetHeaderReadContext kRecordOnly{ {}, true };
+
+        // A texture slot's file, resolved and checked against the GUID the slot states.
+        Common::BoolResultStr CheckTextureSlot( const std::filesystem::path& assetsRoot,
+                                                const std::string& material, const TextureSlotIdentity& slot )
+        {
+            constexpr std::string_view kAssetsScheme = "assets:";
+            const std::string          where         = "material '" + material + "' slot '" + slot.Name + "'";
+            // An UNBOUND slot states neither (the shader samples its default); half a reference is a defect.
+            if ( slot.Path.empty() && slot.Guid.empty() )
+                return Common::MakeSuccess( true );
+            if ( !slot.Path.starts_with( kAssetsScheme ) )
+                return Common::MakeError<bool>( where + " names '" + slot.Path +
+                                                "', not an assets: path - the generator cannot resolve it" );
+            const auto file   = assetsRoot / slot.Path.substr( kAssetsScheme.size() );
+            const auto header = Common::Content::ReadAssetHeader( file, kRecordOnly );
+            if ( !header )
+                return Common::MakeError<bool>( where + " texture '" + file.string() + "': " + header.GetError() );
+            if ( header.GetValue().Kind != Common::Content::ContentKind::Texture )
+                return Common::MakeError<bool>( where + " texture '" + file.string() + "' is not a texture file" );
+            const std::string stated = Common::Content::AssetGuidToText( header.GetValue().Guid );
+            if ( stated != slot.Guid )
+                return Common::MakeError<bool>( where + " states GUID " + slot.Guid + " but '" + file.string() +
+                                                "' is " + stated );
+            return Common::MakeSuccess( true );
+        }
+
         Common::ResultStr<MaterialRef> LoadMaterial( const std::filesystem::path& assetsRoot,
                                                      const std::string&           relative )
         {
@@ -95,6 +154,13 @@ namespace Desert::WorldGen
             const auto guid = Common::Content::AssetGuidFromText( header->Guid );
             if ( !guid || guid.GetValue().IsNull() )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "' states no GUID" );
+
+            for ( const auto& slot : parsed.GetValue().Textures.value_or( std::vector<TextureSlotIdentity>{} ) )
+            {
+                const auto checked = CheckTextureSlot( assetsRoot, relative, slot );
+                if ( !checked )
+                    return Common::MakeError<MaterialRef>( checked.GetError() );
+            }
 
             // A scene names a material by its header GUID's text (SCNE 27); the loader folds it to a handle.
             return Common::MakeSuccess<MaterialRef>(
@@ -118,6 +184,129 @@ namespace Desert::WorldGen
         };
         constexpr const char* kGroundMaterial = "Materials/M_CheckerFloor.demat";
 
+        // A mesh file, read for what a scene must state about it: its header GUID (SCNE 28), its kind, and the
+        // bounds it states (to seat it on the ground). Two on-disk forms are tracked and both are read here: an
+        // AF1 envelope (`DAST`, bounds in its Meta section - StaticProbe.stmesh) and a cooked render file
+        // (`DESTMESH` v3, bounds in its header - the Cooked/Meshes/*.skmesh probes). Kind and GUID come from
+        // ReadAssetHeader, which sniffs both - the same entry point the registry cook reads identity through.
+        // Every failure names the file: no asset is a refusal, never a stand-in.
+        Common::ResultStr<MeshRef> LoadMesh( const std::filesystem::path& projectRoot, const std::string& relative,
+                                             bool skinned )
+        {
+            const auto        file   = projectRoot / relative;
+            const std::string where  = "mesh '" + relative + "' (" + file.string() + ")";
+            const auto        header = Common::Content::ReadAssetHeader( file, kRecordOnly );
+            if ( !header )
+                return Common::MakeError<MeshRef>( where + ": " + header.GetError() );
+            const auto expected =
+                 skinned ? Common::Content::ContentKind::SkinnedMesh : Common::Content::ContentKind::StaticMesh;
+            if ( header.GetValue().Kind != expected )
+                return Common::MakeError<MeshRef>( where + " is not a " + ( skinned ? "skinned" : "static" ) +
+                                                   " mesh file" );
+            if ( header.GetValue().Guid.IsNull() )
+                return Common::MakeError<MeshRef>( where + " states no GUID" );
+
+            const auto bytes = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !bytes )
+                return Common::MakeError<MeshRef>( where + ": " + bytes.GetError() );
+            std::optional<std::array<float, 3>> lowest;
+            if ( const auto cooked = Common::Content::ReadMeshHeaderBounds( bytes.GetValue() ) )
+            {
+                if ( cooked->Bounds )
+                    lowest = std::array<float, 3>{ cooked->Bounds->Min[0], cooked->Bounds->Min[1],
+                                                   cooked->Bounds->Min[2] };
+            }
+            else
+            {
+                const auto envelope = Common::Content::ReadAssetEnvelope(
+                     std::as_bytes( std::span( bytes.GetValue().data(), bytes.GetValue().size() ) ), kRecordOnly );
+                if ( !envelope )
+                    return Common::MakeError<MeshRef>( where + ": " + envelope.GetError() );
+                for ( const auto& section : envelope.GetValue().Sections )
+                {
+                    if ( section.Tag != Common::Content::EnvelopeSection::Meta )
+                        continue;
+                    const auto meta = Common::Content::DecodeEnvelopeMeta( section.Bytes );
+                    if ( !meta )
+                        return Common::MakeError<MeshRef>( where + " Meta: " + meta.GetError() );
+                    if ( meta.GetValue().Bounds )
+                        lowest = meta.GetValue().Bounds->Lo;
+                }
+            }
+            if ( !lowest )
+                return Common::MakeError<MeshRef>( where +
+                                                   " states no bounds, so there is nothing to seat it by" );
+
+            MeshRef mesh;
+            mesh.Path       = relative;
+            mesh.Guid       = Common::Content::AssetGuidToText( header.GetValue().Guid );
+            mesh.Skinned    = skinned;
+            mesh.BaseLiftCm = -( *lowest )[1];
+            return Common::MakeSuccess( std::move( mesh ) );
+        }
+
+        // THE CORPUS THE `corpus` PRESETS ARE FURNISHED FROM - tracked files only, spelled as the tracked
+        // scenes spell them (mesh paths relative to the project root, materials to the assets root).
+        //
+        // WHY THESE AND NOT Meshes/base*.fbx. The only textured meshes in the tree are the three base*.fbx,
+        // and a scene naming one resolves through the DDC (MeshDerivedData.hpp LoadMeshSourceAsset: a DDC miss
+        // is a refusal) - so on a machine that has not imported it the world would not load. The .stmesh files
+        // beside them are pre-AF4h leftovers the loader never reads. The TEXTURES those meshes were imported
+        // with are tracked and bound by tracked materials, so the texture memory is here all the same: on the
+        // cooked skinned probes and the static probe.
+        //
+        // THEMES ARE CHOSEN FOR WHAT A CELL DEPARTURE CAN FREE (WP13 handover): skinned meshes and
+        // custom-shader materials are HLOD-excluded, so their meshes, skeletons, materials and textures are
+        // rooted only by the cell that holds them. `Checker` is the control - a static PBR prop whose mesh and
+        // material an Instancing HLOD keeps resident after the cell leaves.
+        struct CorpusProp
+        {
+            const char* Theme;
+            const char* Mesh;
+            bool        Skinned;
+            const char* Material;
+            int         ScalePercent;
+        };
+
+        constexpr CorpusProp kCorpusProps[] = {
+             { "Skinned PBR", "Cooked/Meshes/SkinProbe.skmesh", true, "Materials/base_basic_pbr/model.demat",
+               100 },
+             { "Skinned PBR", "Cooked/Meshes/TwoBoneProbe.skmesh", true, "Materials/base_basic_pbr/model.demat",
+               100 },
+             { "Skinned shaded", "Cooked/Meshes/TwoBoneProbe.skmesh", true,
+               "Materials/base_basic_shaded/model.demat", 100 },
+             { "Skinned shaded", "Cooked/Meshes/IKProbe.skmesh", true, "Materials/base_basic_shaded/model.demat",
+               100 },
+             { "Witness", "Cooked/Meshes/IKProbe.skmesh", true, "Materials/M_NormalWitness.demat", 100 },
+             { "Witness", "Resources/Assets/Meshes/StaticProbe.stmesh", false, "Materials/MP_Unlit.demat", 100 },
+             { "Checker", "Resources/Assets/Meshes/StaticProbe.stmesh", false, "Materials/M_CheckerFloor.demat",
+               100 },
+        };
+
+        // The table, resolved: one theme per distinct Theme name in first-appearance order, every file read
+        // once. Fails on the first asset that does not resolve, naming it.
+        Common::ResultStr<std::vector<PropTheme>> LoadCorpusThemes( const std::filesystem::path& projectRoot,
+                                                                    const std::filesystem::path& assetsRoot )
+        {
+            std::vector<PropTheme> themes;
+            for ( const auto& row : kCorpusProps )
+            {
+                auto mesh = LoadMesh( projectRoot, row.Mesh, row.Skinned );
+                if ( !mesh )
+                    return Common::MakeError<std::vector<PropTheme>>( mesh.GetError() );
+                auto material = LoadMaterial( assetsRoot, row.Material );
+                if ( !material )
+                    return Common::MakeError<std::vector<PropTheme>>( material.GetError() );
+
+                auto theme = std::find_if( themes.begin(), themes.end(),
+                                           [&]( const PropTheme& t ) { return t.Name == row.Theme; } );
+                if ( theme == themes.end() )
+                    theme = themes.insert( themes.end(), PropTheme{ row.Theme, {} } );
+                theme->Props.push_back( { mesh.GetValue(), material.GetValue(), row.ScalePercent } );
+            }
+            return Common::MakeSuccess( std::move( themes ) );
+        }
+
         bool ParseInt( const std::string& text, int& out )
         {
             try
@@ -140,6 +329,7 @@ namespace Desert::WorldGen
     {
         std::string        outPath;
         std::string        assetsRoot = "Editor/Resources/Assets";
+        std::string        projectRoot = "Editor";
         std::string        presetKey  = "world";
         std::string        nameOverride;
         std::optional<int> cells;
@@ -171,6 +361,8 @@ namespace Desert::WorldGen
                 outPath = v;
             else if ( a == "--assets" && value( v ) )
                 assetsRoot = v;
+            else if ( a == "--project" && value( v ) )
+                projectRoot = v;
             else if ( a == "--preset" && value( v ) )
                 presetKey = v;
             else if ( a == "--name" && value( v ) )
@@ -262,7 +454,7 @@ namespace Desert::WorldGen
         spec.Name       = nameOverride.empty() ? preset->SceneName : nameOverride;
         spec.Cells      = cells.value_or( preset->Cells );
         spec.PerCell    = perCell.value_or( preset->PerCell );
-        spec.CellSizeCm = cellSize.value_or( spec.CellSizeCm );
+        spec.CellSizeCm = cellSize.value_or( preset->CellSizeCm );
         spec.Seed       = static_cast<uint64_t>( seed.value_or( 1 ) );
 
         if ( spec.Cells <= 0 || spec.PerCell <= 0 || spec.CellSizeCm <= 0 )
@@ -291,6 +483,21 @@ namespace Desert::WorldGen
             return 3;
         }
 
+        std::vector<PropTheme> themes;
+        if ( preset->Corpus )
+        {
+            auto loaded = LoadCorpusThemes( projectRoot, assets );
+            if ( !loaded )
+            {
+                err << "WorldGen: " << loaded.GetError() << "\n"
+                    << "WorldGen: preset '" << presetKey << "' is furnished from tracked assets only; --project '"
+                    << projectRoot << "' / --assets '" << assetsRoot
+                    << "' must be the project and assets roots.\n";
+                return 3;
+            }
+            themes = loaded.ExtractValue();
+        }
+
         // Regenerating an existing world keeps that file's identity; a first write mints one. Resolved once,
         // so the --verify rebuild below produces the same bytes.
         const Common::Content::AssetGuid worldGuid =
@@ -298,7 +505,7 @@ namespace Desert::WorldGen
 
         const auto build = [&]( std::string& json, WorldStats& stats ) -> bool
         {
-            auto scene = BuildWorld( spec, palette, ground.GetValue(), worldGuid, stats );
+            auto scene = BuildWorld( spec, palette, ground.GetValue(), themes, worldGuid, stats );
 
             // --partition: the world states a WorldPartition block. By default its level-0 cell IS the
             // generator's tile, so every ground tile is exactly one cell and what the plan promotes is what
@@ -367,7 +574,8 @@ namespace Desert::WorldGen
         out << "WorldGen wrote " << outPath << "\n"
             << "  scene name   : " << spec.Name << " (preset '" << presetKey << "')\n"
             << "  entities     : " << stats.Entities << "  (" << stats.Buildings << " buildings, "
-            << stats.GroundTiles << " ground tiles, 3 fixtures)\n"
+            << stats.GroundTiles << " ground tiles, " << stats.Props << " corpus props of which "
+            << stats.SkinnedProps << " skinned, 3 fixtures)\n"
             << "  cells        : " << stats.Cells << " of " << spec.CellSizeCm / 100 << " m\n"
             << "  extent       : " << stats.ExtentCm / 100 << " m square\n"
             << "  bytes        : " << json.size() << "\n"

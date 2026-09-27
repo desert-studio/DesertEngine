@@ -88,6 +88,9 @@ namespace Desert::WorldGen
         // that gets remembered wrongly in the second place it is written.
         constexpr float kCubeEdgeCm = 100.0f;
 
+        // The draw index a corpus cell picks its theme with (see BuildWorld): negative, so no i * 8 + k collides.
+        constexpr int kThemeDraw = -1;
+
         glm::vec3 BoxScale( int widthCm, int heightCm, int depthCm )
         {
             return { static_cast<float>( widthCm ) / kCubeEdgeCm, static_cast<float>( heightCm ) / kCubeEdgeCm,
@@ -96,8 +99,8 @@ namespace Desert::WorldGen
     } // namespace
 
     Core::SceneSerialized BuildWorld( const WorldSpec& spec, const std::vector<MaterialRef>& buildingMaterials,
-                                      const MaterialRef& groundMaterial, const Common::Content::AssetGuid& guid,
-                                      WorldStats& stats )
+                                      const MaterialRef& groundMaterial, const std::vector<PropTheme>& themes,
+                                      const Common::Content::AssetGuid& guid, WorldStats& stats )
     {
         Core::SceneSerialized scene;
         scene.SceneName = spec.Name;
@@ -212,6 +215,64 @@ namespace Desert::WorldGen
                     ground.Components["StaticMesh"] = AsBlock( mesh );
                     scene.Entities.push_back( std::move( ground ) );
                     ++stats.GroundTiles;
+                }
+
+                if ( !themes.empty() )
+                {
+                    // The theme is the cell's own draw, at an index no prop draw uses (props take i * 8 + k,
+                    // all non-negative), so adding a prop draw can never re-theme a cell.
+                    const auto& theme = themes[static_cast<size_t>(
+                         Range( CellDraw( spec.Seed, cx - half, cz - half, kThemeDraw ), 0,
+                                static_cast<int>( themes.size() ) - 1 ) )];
+                    for ( int i = 0; i < spec.PerCell; ++i )
+                    {
+                        const int      sx = i % slots;
+                        const int      sz = i / slots;
+                        const uint64_t d0 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 0 );
+                        const uint64_t d1 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 1 );
+                        const uint64_t d2 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 2 );
+
+                        const PropRef& prop = theme.Props[static_cast<size_t>(
+                             Range( d0, 0, static_cast<int>( theme.Props.size() ) - 1 ) )];
+
+                        // A quarter of the slot either way: the prop stays inside its slot, so inside its tile,
+                        // whatever its footprint within half a slot.
+                        const int jitter = spacing / 4;
+                        const int x      = originX + sx * spacing + spacing / 2 + Range( d1, -jitter, jitter );
+                        const int z      = originZ + sz * spacing + spacing / 2 + Range( d2, -jitter, jitter );
+
+                        const float scale = static_cast<float>( prop.ScalePercent ) / 100.0f;
+
+                        char tag[48];
+                        std::snprintf( tag, sizeof( tag ), "%s_P%02d", cellTag, i );
+                        auto entity = MakeEntity(
+                             nextId++, tag,
+                             { static_cast<float>( x ), prop.Mesh.BaseLiftCm * scale, static_cast<float>( z ) },
+                             { 0.0f, 0.0f, 0.0f }, { scale, scale, scale } );
+
+                        if ( prop.Mesh.Skinned )
+                        {
+                            Assets::SkinnedMeshComponentSer mesh;
+                            mesh.MeshPath                    = prop.Mesh.Path;
+                            mesh.MeshGuid                    = prop.Mesh.Guid;
+                            mesh.MaterialPaths               = std::vector<std::string>{ prop.Material.Path };
+                            mesh.MaterialGuids               = std::vector<std::string>{ prop.Material.Guid };
+                            entity.Components["SkinnedMesh"] = AsBlock( mesh );
+                            ++stats.SkinnedProps;
+                        }
+                        else
+                        {
+                            Assets::StaticMeshComponentSer mesh;
+                            mesh.MeshPath                   = prop.Mesh.Path;
+                            mesh.MeshGuid                   = prop.Mesh.Guid;
+                            mesh.MaterialPaths              = std::vector<std::string>{ prop.Material.Path };
+                            mesh.MaterialGuids              = std::vector<std::string>{ prop.Material.Guid };
+                            entity.Components["StaticMesh"] = AsBlock( mesh );
+                        }
+                        scene.Entities.push_back( std::move( entity ) );
+                        ++stats.Props;
+                    }
+                    continue;
                 }
 
                 for ( int i = 0; i < spec.PerCell; ++i )
