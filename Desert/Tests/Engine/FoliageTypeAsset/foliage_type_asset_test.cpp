@@ -87,10 +87,10 @@ TEST( FoliageTypeAsset, AFileWithoutAHeaderIsRefusedByName )
 
 TEST( FoliageTypeAsset, AnotherVersionIsRefused )
 {
-    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":1", "\"FOLT\":2" );
+    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":2", "\"FOLT\":3" );
     const auto        parsed = ParseFoliageType( text );
     ASSERT_FALSE( parsed );
-    EXPECT_NE( parsed.GetError().find( "version 2" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "FOLT 3" ), std::string::npos ) << parsed.GetError();
 }
 
 TEST( FoliageTypeAsset, AnotherKindIsRefused )

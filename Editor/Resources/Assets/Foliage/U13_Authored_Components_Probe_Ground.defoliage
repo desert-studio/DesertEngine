@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 1
+            "FOLT": 2
         },
         "Dependencies": []
     },
@@ -11,7 +11,7 @@
         "Guid": "",
         "Path": ""
     },
-    "Density": 23.0,
+    "Density": 81.34585571289062,
     "ScaleX": {
         "Min": 0.10999999940395355,
         "Max": 4.75
@@ -26,5 +26,11 @@
     "GroundSlopeAngle": {
         "Min": 7.0,
         "Max": 62.5
-    }
+    },
+    "Height": {
+        "Min": -262144.0,
+        "Max": 262144.0
+    },
+    "LandscapeLayers": [],
+    "MinimumLayerWeight": 0.0
 }

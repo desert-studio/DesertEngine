@@ -1573,18 +1573,17 @@ namespace Desert::Editor
         if ( foliageMode )
         {
             m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos );
-            if ( m_ViewportData.IsHovered && Core::FoliagePaint::HasActive() &&
-                 ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive() )
+            // A stroke starts on a press over the viewport and runs until release (one undo step); leaving the
+            // viewport mid-drag does not split it.
+            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive() &&
+                                  ( m_ViewportData.IsHovered || m_FoliageTool.IsStroking() );
+            if ( const auto camera = ViewCamera() )
             {
-                if ( const auto camera = ViewCamera() )
-                {
-                    auto [mx, my]  = GetMouseViewportSpace();
-                    const auto ray = Common::Math::Ray::FromScreenPosition(
-                         { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(),
-                         camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
-                         static_cast<uint32_t>( m_ViewportData.Size.y ) );
-                    m_FoliageTool.Paint( *m_Scene, m_AssetManager, ray );
-                }
+                auto [mx, my]  = GetMouseViewportSpace();
+                const auto ray = Common::Math::Ray::FromScreenPosition(
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
+                m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing );
             }
         }
 

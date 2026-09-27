@@ -22,11 +22,35 @@ namespace Desert::Assets::Serialization
             return BOOLSUCCESS;
         }
 
+        // The FOLT generation the header states, read as an untyped tree (TextAssetHeaderCheck.hpp: a struct
+        // would impose this build's layout on a file whose problem may be that it is another generation).
+        std::optional<uint32_t> StatedGeneration( const std::string& text )
+        {
+            const auto members = Common::Json::ObjectMembers( text );
+            if ( !members )
+                return std::nullopt;
+            for ( const auto& [name, value] : members.GetValue() )
+                if ( name == Common::Content::kTextHeaderMember )
+                {
+                    const auto header = Common::Json::Read<Common::Content::TextAssetHeaderSerialized>( value );
+                    if ( !header )
+                        return std::nullopt;
+                    const auto stated = header.GetValue().Versions.find( "FOLT" );
+                    if ( stated == header.GetValue().Versions.end() )
+                        return std::nullopt;
+                    return stated->second;
+                }
+            return std::nullopt;
+        }
+
         std::vector<std::string> DependenciesOf( const FoliageTypeData& data )
         {
-            if ( data.Mesh.Guid.empty() )
-                return {};
-            return { data.Mesh.Guid };
+            std::vector<std::string> out;
+            if ( !data.Mesh.Guid.empty() )
+                out.push_back( data.Mesh.Guid );
+            for ( const auto& layer : data.LandscapeLayers )
+                out.push_back( layer.Guid );
+            return out;
         }
     } // namespace
 
@@ -51,6 +75,23 @@ namespace Desert::Assets::Serialization
              data.RandomPitchAngle > 180.0f )
             return Common::MakeFormattedError<bool>( "RandomPitchAngle {} must lie within [0, 180] degrees",
                                                      data.RandomPitchAngle );
+        if ( auto ok = CheckInterval( "Height", data.Height ); !ok )
+            return ok;
+        if ( !std::isfinite( data.MinimumLayerWeight ) || data.MinimumLayerWeight < 0.0f ||
+             data.MinimumLayerWeight > 1.0f )
+            return Common::MakeFormattedError<bool>( "MinimumLayerWeight {} must lie within [0, 1]",
+                                                     data.MinimumLayerWeight );
+        for ( size_t i = 0; i < data.LandscapeLayers.size(); ++i )
+        {
+            const auto& layer = data.LandscapeLayers[i];
+            if ( layer.Guid.empty() || layer.Path.empty() )
+                return Common::MakeFormattedError<bool>( "LandscapeLayers[{}] must name a GUID and a path ('{}' / '{}')",
+                                                         i, layer.Guid, layer.Path );
+            for ( size_t j = 0; j < i; ++j )
+                if ( data.LandscapeLayers[j].Guid == layer.Guid )
+                    return Common::MakeFormattedError<bool>( "LandscapeLayers[{}] repeats LandscapeLayers[{}] ('{}')",
+                                                             i, j, layer.Path );
+        }
         if ( data.Mesh.Guid.empty() != data.Mesh.Path.empty() )
             return Common::MakeFormattedError<bool>(
                  "Mesh names {} without {} ('{}' / '{}')", data.Mesh.Guid.empty() ? "a path" : "a GUID",
@@ -65,6 +106,14 @@ namespace Desert::Assets::Serialization
 
         if ( auto headed = Assets::RefuseTextWithoutHeader( text, kFoliageTypeVersion, std::nullopt ); !headed )
             return Common::MakeFormattedError<FoliageTypeData>( "foliage type {}", headed.GetError() );
+
+        // THE GENERATION BEFORE THE BODY: a v1 file lacks v2's fields, and the typed read would name those
+        // missing fields instead of the one fact that matters — the file is an older generation.
+        if ( const auto stated = StatedGeneration( text ); stated && *stated != static_cast<uint32_t>( kFoliageTypeVersion ) )
+            return Common::MakeFormattedError<FoliageTypeData>(
+                 "foliage type states FOLT {}, and this build reads FOLT {} only{}", *stated, kFoliageTypeVersion,
+                 *stated < static_cast<uint32_t>( kFoliageTypeVersion ) ? " (scripts/Dev/migrate.sh --write raises it)"
+                                                                        : "" );
 
         const auto parsed = Common::Json::Read<FoliageTypeData>( text );
         if ( !parsed )
@@ -84,8 +133,9 @@ namespace Desert::Assets::Serialization
         // Mesh. A file where they disagree would have the two sides load different meshes.
         if ( data.Header->Dependencies != DependenciesOf( data ) )
             return Common::MakeFormattedError<FoliageTypeData>(
-                 "the header's Dependencies ({} entries) do not state exactly the mesh's GUID '{}'",
-                 data.Header->Dependencies.size(), data.Mesh.Guid );
+                 "the header's Dependencies ({} entries) do not state exactly the mesh's GUID '{}' and the {} "
+                 "landscape layer GUID(s), in that order",
+                 data.Header->Dependencies.size(), data.Mesh.Guid, data.LandscapeLayers.size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }

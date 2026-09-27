@@ -1,6 +1,8 @@
 #include "FoliagePaintTool.hpp"
 
 #include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -9,6 +11,11 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -22,7 +29,6 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
-#include <random>
 #include <unordered_set>
 #include <vector>
 
@@ -43,16 +49,35 @@ namespace Desert::Editor::Tools
             return pressed;
         }
 
-        // Rotation that maps the up axis to a surface normal (for align-to-normal placement).
-        glm::quat AlignUpToNormal( const glm::vec3& n )
+        // A `.delayerinfo` named by path (absolute or relative to the assets root) as a type's layer reference:
+        // its header GUID and its path under the assets root.
+        Common::ResultStr<Assets::AssetGuidRef> LayerInfoRefOf( const std::string& path )
         {
-            const glm::vec3 up( 0.0f, 1.0f, 0.0f );
-            const float     d = glm::clamp( glm::dot( up, n ), -1.0f, 1.0f );
-            if ( d > 0.9999f )
-                return glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
-            if ( d < -0.9999f )
-                return glm::angleAxis( 3.14159265f, glm::vec3( 1.0f, 0.0f, 0.0f ) );
-            return glm::angleAxis( std::acos( d ), glm::normalize( glm::cross( up, n ) ) );
+            std::filesystem::path file( path );
+            if ( file.extension() != ".delayerinfo" )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}' is not a landscape layer info (.delayerinfo)",
+                                                                         path );
+            if ( file.is_relative() )
+                file = Common::Constants::Path::ASSETS_PATH / file;
+            const auto text = Common::Utils::FileSystem::ReadFileContent( file );
+            if ( !text )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}' does not read: {}", file.string(),
+                                                                         text.GetError() );
+            const auto info = Assets::Serialization::ParseLandscapeLayerInfo( text.GetValue() );
+            if ( !info )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}': {}", file.string(), info.GetError() );
+            std::error_code   ec;
+            const std::string relative =
+                 std::filesystem::absolute( file, ec )
+                      .lexically_normal()
+                      .lexically_relative(
+                           std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec ).lexically_normal() )
+                      .generic_string();
+            if ( relative.empty() || relative.starts_with( ".." ) )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>( "'{}' is not under the assets root '{}'",
+                                                                         file.string(),
+                                                                         Common::Constants::Path::ASSETS_PATH.string() );
+            return Common::MakeSuccess( Assets::AssetGuidRef{ info.GetValue().Header->Guid, relative } );
         }
 
         // The cooked mesh a source path names, as a `.defoliage` names it; cooks the source on first use.
@@ -237,7 +262,8 @@ namespace Desert::Editor::Tools
 
         ImGui::TextDisabled( "%s", type->GetMetadata().Filepath.filename().string().c_str() );
         ImGui::SetNextItemWidth( -1 );
-        ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 80.0f, "Density:  %.0f / dab" );
+        ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 1000.0f, "Density:  %.0f / 1000x1000 cm",
+                            ImGuiSliderFlags_Logarithmic );
         track();
         ImGui::SetNextItemWidth( -1 );
         ImGui::DragFloatRange2( "##Scale", &f.ScaleX.Min, &f.ScaleX.Max, 0.01f, 0.02f, 10.0f, "Scale %.2f",
@@ -254,6 +280,49 @@ namespace Desert::Editor::Tools
         ImGui::DragFloatRange2( "##Slope", &f.GroundSlopeAngle.Min, &f.GroundSlopeAngle.Max, 0.5f, 0.0f, 90.0f,
                                 "Slope %.0f", "%.0f deg" );
         track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloatRange2( "##Height", &f.Height.Min, &f.Height.Max, 10.0f, -262144.0f, 262144.0f,
+                                "Height %.0f", "%.0f cm" );
+        track();
+
+        // UE LandscapeLayers: a `.delayerinfo` dropped here restricts the type to ground painted with it.
+        ImGui::TextDisabled( "LANDSCAPE LAYERS%s", f.LandscapeLayers.empty() ? " (any)" : "" );
+        for ( size_t i = 0; i < f.LandscapeLayers.size(); ++i )
+        {
+            ImGui::PushID( static_cast<int>( i ) );
+            if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )
+            {
+                f.LandscapeLayers.erase( f.LandscapeLayers.begin() + static_cast<std::ptrdiff_t>( i ) );
+                commit = true;
+                ImGui::PopID();
+                break;
+            }
+            ImGui::SameLine();
+            ImGui::TextUnformatted( f.LandscapeLayers[i].Path.c_str() );
+            ImGui::PopID();
+        }
+        ImGui::Button( ICON_MDI_PLUS " Drop a .delayerinfo", ImVec2( -1, 0 ) );
+        if ( ImGui::BeginDragDropTarget() )
+        {
+            if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+            {
+                if ( auto ref = LayerInfoRefOf( std::string( static_cast<const char*>( p->Data ) ) ); !ref )
+                    LOG_ERROR( "[Foliage] {}", ref.GetError() );
+                else if ( std::ranges::none_of( f.LandscapeLayers, [&]( const Assets::AssetGuidRef& r )
+                                                { return r.Guid == ref.GetValue().Guid; } ) )
+                {
+                    f.LandscapeLayers.push_back( ref.GetValue() );
+                    commit = true;
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if ( !f.LandscapeLayers.empty() )
+        {
+            ImGui::SetNextItemWidth( -1 );
+            ImGui::SliderFloat( "##MinLayerWeight", &f.MinimumLayerWeight, 0.0f, 1.0f, "Minimum Layer Weight:  %.2f" );
+            track();
+        }
         commit = ImGui::Checkbox( "Align to Normal", &f.AlignToNormal ) || commit;
         ImGui::SameLine();
         commit    = ImGui::Checkbox( "Random Yaw", &f.RandomYaw ) || commit;
@@ -274,91 +343,262 @@ namespace Desert::Editor::Tools
         }
     }
 
-    void FoliagePaintTool::Paint( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
-                                  const Common::Math::Ray& ray )
+    namespace
     {
-        if ( !Core::FoliagePaint::HasActive() || !assetManager )
+        // The largest weight, 0..1, of @p layers on @p tile at world (x, z): bilinear between the four samples
+        // (UE ULandscapeComponent::GetLayerWeightAtLocation). A layer the tile holds no plane for weighs 0.
+        float MaxLayerWeight( const World::Landscape::LandscapeTileData& tile,
+                              const World::Landscape::LandscapeFrame& frame, const std::vector<std::string>& layers,
+                              float x, float z )
+        {
+            const float lastX = static_cast<float>( tile.SamplesX() - 1u );
+            const float lastZ = static_cast<float>( tile.SamplesZ() - 1u );
+            const float fx    = glm::clamp( ( x - frame.OriginX ) / frame.SpacingCm, 0.0f, lastX );
+            const float fz    = glm::clamp( ( z - frame.OriginZ ) / frame.SpacingCm, 0.0f, lastZ );
+            const auto  x0    = static_cast<uint32_t>( fx );
+            const auto  z0    = static_cast<uint32_t>( fz );
+            const auto  x1    = std::min( x0 + 1u, tile.SamplesX() - 1u );
+            const auto  z1    = std::min( z0 + 1u, tile.SamplesZ() - 1u );
+            const float tx = fx - static_cast<float>( x0 ), tz = fz - static_cast<float>( z0 );
+            float       best = 0.0f;
+            for ( const auto& name : layers )
+            {
+                const auto layer = tile.FindWeightLayer( name );
+                if ( !layer )
+                    continue;
+                const auto w = [&]( uint32_t sx, uint32_t sz )
+                { return static_cast<float>( tile.Weight( *layer, sx, sz ) ) / 255.0f; };
+                const float v = glm::mix( glm::mix( w( x0, z0 ), w( x1, z0 ), tx ),
+                                          glm::mix( w( x0, z1 ), w( x1, z1 ), tx ), tz );
+                best          = std::max( best, v );
+            }
+            return best;
+        }
+
+        // The weight-plane names of the type's layer infos. A layer info still loading or unusable is an
+        // error naming it: painting without it would place on ground the type excludes.
+        Common::ResultStr<std::vector<std::string>> LayerNamesOf( const Assets::Serialization::FoliageTypeData& type )
+        {
+            std::vector<std::string> names;
+            auto*                    service = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+            for ( const auto& ref : type.LandscapeLayers )
+            {
+                const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+                if ( !guid )
+                    return Common::MakeFormattedError<std::vector<std::string>>(
+                         "landscape layer '{}' names an unreadable GUID '{}'", ref.Path, ref.Guid );
+                const auto handle = Common::Content::HandleForGuid( guid.GetValue() );
+                const auto* info  = service ? service->Get( handle ) : nullptr;
+                if ( !info )
+                    return Common::MakeFormattedError<std::vector<std::string>>(
+                         "landscape layer '{}' is {}", ref.Path,
+                         !service ? std::string( "unreadable: no layer info service" )
+                         : service->StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending
+                              ? std::string( "still loading" )
+                              : "unusable: " + service->ErrorOf( handle ) );
+                names.push_back( info->LayerName );
+            }
+            return Common::MakeSuccess( std::move( names ) );
+        }
+
+        // The landscape tile entity @p entity names, with its frame; nullopt when it is not a drawn tile.
+        struct TileSample
+        {
+            const World::Landscape::LandscapeTileData* Tile = nullptr;
+            World::Landscape::LandscapeFrame           Frame;
+        };
+        std::optional<TileSample> TileOf( ::Desert::Core::Scene& scene, const Common::UUID& entity )
+        {
+            const auto ref = scene.FindEntityByID( entity );
+            if ( !ref || !ref->get().HasComponent<ECS::LandscapeTileComponent>() )
+                return std::nullopt;
+            const auto& tile = ref->get().GetComponent<ECS::LandscapeTileComponent>();
+            if ( !tile.Heights )
+                return std::nullopt;
+            const auto root = scene.FindEntityByID( tile.Landscape );
+            if ( !root || !root->get().HasComponent<ECS::LandscapeComponent>() )
+                return std::nullopt;
+            return TileSample{ &*tile.Heights, World::Landscape::LandscapeTileFrame(
+                                                    ECS::LandscapeRootOf( root->get() ), tile.TileX, tile.TileZ ) };
+        }
+
+        // The tile whose frame covers world (x, z), for the layer weight under an existing instance.
+        std::optional<TileSample> TileAt( ::Desert::Core::Scene& scene, float x, float z )
+        {
+            for ( const auto& entity : scene.GetAllEntities() )
+            {
+                if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
+                    continue;
+                auto sample = TileOf( scene, entity.GetComponent<ECS::UUIDComponent>().UUID );
+                if ( !sample )
+                    continue;
+                const float spanX = sample->Frame.SpacingCm * static_cast<float>( sample->Tile->SamplesX() - 1u );
+                const float spanZ = sample->Frame.SpacingCm * static_cast<float>( sample->Tile->SamplesZ() - 1u );
+                if ( x >= sample->Frame.OriginX && x <= sample->Frame.OriginX + spanX &&
+                     z >= sample->Frame.OriginZ && z <= sample->Frame.OriginZ + spanZ )
+                    return sample;
+            }
+            return std::nullopt;
+        }
+
+        /// One press of the foliage brush, undone and redone as a whole (UE: one FScopedTransaction per
+        /// stroke, "Foliage Paint" / "Foliage Erase").
+        class FoliageStrokeCommand final : public ICommand
+        {
+        public:
+            FoliageStrokeCommand( ::Desert::Core::Scene& scene, std::vector<FoliageStrokeField> fields,
+                                  std::string label )
+                 : m_Scene( &scene ), m_Fields( std::move( fields ) ), m_Label( std::move( label ) )
+            {
+            }
+
+            bool Undo() override
+            {
+                return Write( true );
+            }
+            bool Redo() override
+            {
+                return Write( false );
+            }
+            std::string GetLabel() const override
+            {
+                return m_Label;
+            }
+
+        private:
+            bool Write( bool before )
+            {
+                bool all = true;
+                for ( const auto& field : m_Fields )
+                {
+                    const auto ref = m_Scene->FindEntityByID( field.Entity );
+                    if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                    {
+                        ToastManager::Push( "Foliage undo: the painted field is gone", ToastLevel::Error, 6.0f );
+                        all = false;
+                        continue;
+                    }
+                    ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms =
+                         before ? field.Before : field.After;
+                }
+                return all;
+            }
+
+            ::Desert::Core::Scene*          m_Scene;
+            std::vector<FoliageStrokeField> m_Fields;
+            std::string                     m_Label;
+        };
+    } // namespace
+
+    void FoliagePaintTool::Update( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
+                                   const Common::Math::Ray& ray, bool pressing )
+    {
+        if ( !pressing || !Core::FoliagePaint::HasActive() || !assetManager )
+        {
+            EndStroke( scene );
             return;
+        }
+        if ( !m_Stroke )
+        {
+            m_Stroke.emplace( Core::FoliagePaint::NextStrokeSeed(), Core::FoliagePaint::Erase() );
+            m_Refused.clear();
+        }
         auto& manager = const_cast<Assets::AssetManager&>( *assetManager );
 
-        ::Desert::Core::RaycastHit hit;
-        if ( !scene.Raycast( ray, hit ) )
-            return;
-        const glm::vec3 hitPos = hit.Point;
-        const glm::vec3 hitN   = hit.Normal;
+        ::Desert::Core::RaycastHit centre;
+        if ( !scene.Raycast( ray, centre ) )
+            return; // UE: no surface under the cursor, no application this tick
 
-        const float radius = Core::FoliagePaint::BrushRadius();
-        const bool  erase  = Core::FoliagePaint::Erase();
-        // Surface slope (deg) at the brush centre, for the per-type slope filter.
-        const float slopeDeg = glm::degrees( std::acos( glm::clamp( hitN.y, -1.0f, 1.0f ) ) );
+        FoliageBrushDab dab;
+        dab.Center            = centre.Point;
+        dab.Normal            = centre.Normal;
+        dab.Radius            = Core::FoliagePaint::BrushRadius();
+        dab.PaintDensity      = Core::FoliagePaint::PaintDensity();
+        dab.Filter.Landscape  = Core::FoliagePaint::FilterLandscape();
+        dab.Filter.StaticMesh = Core::FoliagePaint::FilterStaticMesh();
 
-        static std::mt19937                   rng{ std::random_device{}() };
-        std::uniform_real_distribution<float> u01( 0.0f, 1.0f );
-        std::uniform_real_distribution<float> usym( -1.0f, 1.0f );
-
-        // Paint/erase EVERY checked type under one dab (UE5-style multi-paint).
         for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
         {
             auto ref = scene.FindEntityByID( uuid );
-            if ( !ref )
+            if ( !ref || !ref->get().HasComponent<ECS::FoliageComponent>() ||
+                 !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
-            auto& e = ref->get();
-            if ( !e.HasComponent<ECS::FoliageComponent>() ||
-                 !e.HasComponent<ECS::InstancedStaticMeshComponent>() )
-                continue;
-
+            auto& e   = ref->get();
             auto& ism = e.GetComponent<ECS::InstancedStaticMeshComponent>();
+            m_Stroke->Touch( uuid, ism.InstanceTransforms );
 
-            if ( erase )
+            if ( m_Stroke->Erase() )
             {
-                const float r2 = radius * radius;
-                auto&       xs = ism.InstanceTransforms;
-                xs.erase( std::remove_if( xs.begin(), xs.end(),
-                                          [&]( const glm::mat4& m )
-                                          {
-                                              const glm::vec3 p  = glm::vec3( m[3] );
-                                              const float     dx = p.x - hitPos.x, dz = p.z - hitPos.z;
-                                              return dx * dx + dz * dz <= r2;
-                                          } ),
-                          xs.end() );
+                FoliageBrushErase( ism.InstanceTransforms, dab.Center, dab.Radius );
                 continue;
             }
 
             const auto type = ResolveType( manager, e.GetComponent<ECS::FoliageComponent>().FoliageType );
             if ( !type )
                 continue;
-            const auto& fol = type->GetData();
-
-            // Per-type slope filter (uses the brush-centre surface).
-            if ( slopeDeg < fol.GroundSlopeAngle.Min || slopeDeg > fol.GroundSlopeAngle.Max )
-                continue;
-
-            const int count = glm::max(
-                 1, static_cast<int>( std::round( fol.Density * Core::FoliagePaint::PaintDensity() ) ) );
-            for ( int i = 0; i < count; ++i )
+            const auto& data   = type->GetData();
+            const auto  layers = LayerNamesOf( data );
+            if ( !layers )
             {
-                const float ang = u01( rng ) * 6.2831853f;
-                const float rr  = radius * std::sqrt( u01( rng ) ); // uniform disk
-                glm::vec3   pos = hitPos + glm::vec3( std::cos( ang ) * rr, 0.0f, std::sin( ang ) * rr );
-                pos.y += glm::mix( fol.ZOffset.Min, fol.ZOffset.Max, u01( rng ) );
-                const float scl = glm::mix( fol.ScaleX.Min, fol.ScaleX.Max, u01( rng ) );
-
-                glm::mat4 m = glm::translate( glm::mat4( 1.0f ), pos );
-                if ( fol.AlignToNormal )
-                    m *= glm::mat4_cast( AlignUpToNormal( hitN ) );
-                if ( fol.RandomYaw )
-                    m = glm::rotate( m, u01( rng ) * 6.2831853f, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-                if ( fol.RandomPitchAngle > 0.01f )
-                {
-                    const float     pitch = glm::radians( fol.RandomPitchAngle ) * u01( rng );
-                    const glm::vec3 axis =
-                         glm::normalize( glm::vec3( usym( rng ), 0.0f, usym( rng ) ) + glm::vec3( 1e-3f, 0, 0 ) );
-                    m = glm::rotate( m, pitch, axis );
-                }
-                m = glm::scale( m, glm::vec3( scl ) );
-                ism.InstanceTransforms.push_back( m );
+                if ( m_Refused.insert( uuid ).second )
+                    ToastManager::Push( "Foliage '" + type->GetDisplayName() + "': " + layers.GetError(),
+                                        ToastLevel::Error, 6.0f );
+                continue;
             }
+            const std::vector<std::string>& names = layers.GetValue();
+
+            FoliageBrushWorld world;
+            world.Trace = [&]( const glm::vec3& start, const glm::vec3& end ) -> std::optional<FoliageTraceHit>
+            {
+                const glm::vec3 d   = end - start;
+                const float     len = glm::length( d );
+                if ( len <= 0.0f )
+                    return std::nullopt;
+                ::Desert::Core::RaycastHit hit;
+                if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit ) || hit.Distance > len )
+                    return std::nullopt;
+                FoliageTraceHit out;
+                out.Point  = hit.Point;
+                out.Normal = hit.Normal;
+                if ( const auto tile = TileOf( scene, hit.Entity ) )
+                {
+                    out.Surface = FoliageSurface::Landscape;
+                    if ( !names.empty() )
+                        out.LayerWeight = MaxLayerWeight( *tile->Tile, tile->Frame, names, hit.Point.x, hit.Point.z );
+                }
+                else
+                    out.Surface = FoliageSurface::StaticMesh;
+                return out;
+            };
+            world.LayerWeightAt = [&]( const glm::vec3& p ) -> std::optional<float>
+            {
+                const auto tile = TileAt( scene, p.x, p.z );
+                if ( !tile )
+                    return std::nullopt;
+                return MaxLayerWeight( *tile->Tile, tile->Frame, names, p.x, p.z );
+            };
+
+            auto added = FoliageBrushAdd( data, dab, ism.InstanceTransforms, m_Stroke->Random(), world );
+            ism.InstanceTransforms.insert( ism.InstanceTransforms.end(), added.begin(), added.end() );
         }
+    }
+
+    void FoliagePaintTool::EndStroke( ::Desert::Core::Scene& scene )
+    {
+        if ( !m_Stroke )
+            return;
+        auto fields = m_Stroke->Finish(
+             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
+             {
+                 const auto ref = scene.FindEntityByID( uuid );
+                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                     return nullptr;
+                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+             } );
+        if ( !fields.empty() )
+            CommandHistory::Get().PushCommand( std::make_unique<FoliageStrokeCommand>(
+                 scene, std::move( fields ), m_Stroke->Erase() ? "Foliage Erase" : "Foliage Paint" ) );
+        m_Stroke.reset();
     }
 
     void FoliagePaintTool::DrawPanel( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
@@ -391,6 +631,10 @@ namespace Desert::Editor::Tools
         ImGui::SliderFloat( "##BrushSize", &Core::FoliagePaint::BrushRadius(), 50.0f, 6000.0f, "Size:  %.0f cm" );
         ImGui::SetNextItemWidth( -1 );
         ImGui::SliderFloat( "##PaintDensity", &Core::FoliagePaint::PaintDensity(), 0.0f, 1.0f, "Density:  %.2f" );
+        ImGui::TextDisabled( "FILTERS" );
+        ImGui::Checkbox( "Landscape", &Core::FoliagePaint::FilterLandscape() );
+        ImGui::SameLine();
+        ImGui::Checkbox( "Static Meshes", &Core::FoliagePaint::FilterStaticMesh() );
 
         // ----- Foliage types --------------------------------------------------------------------------
         ImGui::Dummy( ImVec2( 0, 2 ) );

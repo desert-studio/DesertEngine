@@ -33,6 +33,7 @@
 
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -351,6 +352,9 @@ namespace Desert::Migration
                         return;
                     }
                 }
+                // The inline number was per dab, as v1 of the type file was: the file this step writes is the
+                // current generation, so it states UE's areal density (the FOLT 1 -> 2 conversion).
+                data.Density          = FoliageDensityFromPerDab( data.Density );
                 data.ScaleX           = { scaleMin, scaleMax };
                 data.ZOffset          = { zMin, zMax };
                 data.GroundSlopeAngle = { slopeMin, slopeMax };
@@ -405,6 +409,63 @@ namespace Desert::Migration
             }
         };
     } // namespace
+
+    float FoliageDensityFromPerDab( float perDab )
+    {
+        constexpr float kPi   = 3.14159265358979f;
+        const float     discA = kPi * kFoliageV1ReferenceBrushRadiusCm * kFoliageV1ReferenceBrushRadiusCm;
+        return perDab * ( 1000.0f * 1000.0f ) / discA;
+    }
+
+    namespace
+    {
+        // FOLT 1's body, member for member: the engine's struct is v2 and cannot read what v1 meant.
+        struct FoliageTypeDataV1
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 6.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+        };
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )
+    {
+        const auto v1 = Common::Json::Read<FoliageTypeDataV1>( text );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "FOLT 1 body does not read: {}", v1.GetError() );
+        const FoliageTypeDataV1& old = v1.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        const auto stated = old.Header->Versions.find( "FOLT" );
+        if ( stated == old.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 1 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" ) : std::to_string( stated->second ) );
+
+        Assets::Serialization::FoliageTypeData data;
+        data.Header           = old.Header;
+        data.Mesh             = old.Mesh;
+        data.Density          = FoliageDensityFromPerDab( old.Density );
+        data.ScaleX           = old.ScaleX;
+        data.ZOffset          = old.ZOffset;
+        data.AlignToNormal    = old.AlignToNormal;
+        data.RandomYaw        = old.RandomYaw;
+        data.RandomPitchAngle = old.RandomPitchAngle;
+        data.GroundSlopeAngle = old.GroundSlopeAngle;
+
+        std::string written = Assets::Serialization::WriteFoliageType( data );
+        // What the step writes, the engine must read: a v1 number v2 refuses fails HERE, naming the field.
+        if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 2: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
 
     FoliageTypesMigrationReport MigrateInlineFoliageV32ToV33( std::vector<Assets::EntityData>& entities,
                                                               const std::string&               ownerName,

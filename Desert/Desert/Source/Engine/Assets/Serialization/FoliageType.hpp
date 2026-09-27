@@ -19,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Desert::Assets::Serialization
 {
@@ -31,6 +32,10 @@ namespace Desert::Assets::Serialization
      *   1 - the text asset header (Kind "FoliageType", the GUID that IS the type's identity and handle, this
      *       number under `FOLT`), the mesh by {Guid, Path}, and UFoliageType's painting fields (FO-1). The
      *       mesh's GUID is the header's one Dependency when a mesh is named.
+     *   2 - UE's units and filters (FO-3): Density is instances per 1000x1000 cm (UFoliageType::Density), not
+     *       per brush dab; Height, LandscapeLayers (layer info assets by {Guid, Path}) and MinimumLayerWeight
+     *       join. The header's Dependencies are the mesh's GUID, then each layer info's, in list order.
+     *       SceneMigrator raises a v1 file (MigrateFoliageTypeV1ToV2); the engine reads v2 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -66,10 +71,9 @@ namespace Desert::Assets::Serialization
         /// The static mesh the instances draw. Empty = a type that can be authored but not painted yet.
         AssetGuidRef Mesh;
 
-        /// Instances scattered per paint dab inside the brush disk. UE's Density is per 1000x1000 cm; this
-        /// brush is dab-based until FO-3 ports UE's area-density brush, and the number keeps the brush's
-        /// meaning so every painted field reads back the same.
-        float Density = 6.0f;
+        /// Instances per 1000x1000 cm of brushed area (UE UFoliageType::Density, default 100). The brush tops
+        /// the area under it up to this count and no further, so repeated dabs do not pile instances up.
+        float Density = 100.0f;
         /// Uniform scale range (UE ScaleX under EFoliageScaling::Uniform).
         FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
         /// Offset along the placement up axis, cm, drawn per instance.
@@ -82,6 +86,15 @@ namespace Desert::Assets::Serialization
         float RandomPitchAngle = 0.0f;
         /// Paint only where the surface slope lies in [Min, Max] degrees.
         FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+        /// Paint only where the surface's world height (Y, cm) lies in [Min, Max] (UE Height).
+        FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+        /// Paint on a landscape only where one of these layers has weight (UE LandscapeLayers, named here by
+        /// their `.delayerinfo` as every reference in a text asset is). Empty = every layer. A surface that is
+        /// not a landscape is not filtered by layer, as in UE.
+        std::vector<AssetGuidRef> LandscapeLayers;
+        /// The weight, 0..1, a listed layer must reach; above it an instance survives with probability equal
+        /// to the weight (UE MinimumLayerWeight and IsFilteredByWeight).
+        float MinimumLayerWeight = 0.0f;
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
     };
