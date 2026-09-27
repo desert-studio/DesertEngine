@@ -5440,7 +5440,8 @@ namespace Desert::Editor
         // NOLINTBEGIN(bugprone-exception-escape)
         for ( const auto tool :
               { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
-                Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply } )
+                Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply,
+                Core::FoliageTool::Fill } )
             commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
                                   [tool]() -> Common::BoolResultStr
                                   {
@@ -5461,6 +5462,16 @@ namespace Desert::Editor
                        return PaletteCommandOutcome( false, "no scene" );
                    return Tools::FoliagePaintTool::MoveSelected( *m_MainScene, Core::FoliagePaint::MoveOffset() );
                } } );
+        commands.push_back( { "Foliage", "Fill the selected mesh", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene || !m_AssetManager )
+                                      return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                                  const auto& selected = Core::SelectionManager::GetSelected();
+                                  if ( !selected )
+                                      return PaletteCommandOutcome( false, "no entity is selected" );
+                                  return Tools::FoliagePaintTool::FillEntity( *m_MainScene, *m_AssetManager,
+                                                                              *selected );
+                              } } );
         commands.push_back( { "Foliage", "Select no instances", [this]() -> Common::BoolResultStr
                               {
                                   if ( !m_MainScene )

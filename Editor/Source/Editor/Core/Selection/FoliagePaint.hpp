@@ -20,6 +20,7 @@ namespace Desert::Editor::Core
         Lasso,   ///< the brush selects what it passes over; Shift deselects (UE "Lasso")
         Remove,  ///< every instance of a checked type under the brush (UE "Remove")
         Reapply, ///< re-roll / re-check existing instances from the type's current numbers (UE "Reapply")
+        Fill,    ///< click a static mesh: cover its triangles at the checked types' density (UE "Fill")
     };
 
     inline const char* FoliageToolName( FoliageTool tool )
@@ -38,6 +39,8 @@ namespace Desert::Editor::Core
                 return "Remove";
             case FoliageTool::Reapply:
                 return "Reapply";
+            case FoliageTool::Fill:
+                return "Fill";
         }
         return "?";
     }

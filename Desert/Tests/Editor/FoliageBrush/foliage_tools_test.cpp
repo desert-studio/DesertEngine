@@ -159,21 +159,89 @@ TEST( FoliageTools, LassoSelectsAndDeselectsTheSphere )
     EXPECT_EQ( FoliageSelectInSphere( field, { 250.0f, 0.0f, 0.0f }, 160.0f, true, selected ), 0u );
 }
 
-TEST( FoliageTools, SelectPicksTheFirstInstanceTheRayEnters )
+TEST( FoliageTools, SelectPicksTheFirstMeshBoxTheRayEnters )
 {
-    auto field = Row( 5 );
-    // A ray along +x at height 20 passes through every instance; the first entered is x = 0 (index 0) from
-    // the left, x = 400 (index 4) from the right.
-    EXPECT_EQ( FoliagePickInstance( field, { -500.0f, 20.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, 50.0f ), 0u );
-    EXPECT_EQ( FoliagePickInstance( field, { 900.0f, 20.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, 50.0f ), 4u );
-    // Straight down onto x = 200.
-    EXPECT_EQ( FoliagePickInstance( field, { 210.0f, 500.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 50.0f ), 2u );
-    // Past every instance, and behind the ray.
-    EXPECT_FALSE( FoliagePickInstance( field, { 0.0f, 500.0f, 300.0f }, { 1.0f, 0.0f, 0.0f }, 50.0f ) );
-    EXPECT_FALSE( FoliagePickInstance( field, { 900.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, 50.0f ) );
-    // The pick sphere grows with the instance's scale.
+    // A tall thin mesh: 20 x 200 x 20 cm, standing on its origin.
+    const glm::vec3 lo( -10.0f, 0.0f, -10.0f ), hi( 10.0f, 200.0f, 10.0f );
+    auto            field = Row( 5 );
+    const auto      pick  = []( const std::vector<glm::mat4>& f, glm::vec3 o, glm::vec3 d, glm::vec3 a, glm::vec3 b )
+    {
+        const auto p = FoliagePickInstance( f, o, d, a, b );
+        return p ? static_cast<int>( p->Index ) : -1;
+    };
+    // Along +x at height 150 every box is crossed; the first entered from each side wins, at its face.
+    EXPECT_EQ( pick( field, { -500.0f, 150.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, lo, hi ), 0 );
+    EXPECT_NEAR( FoliagePickInstance( field, { -500.0f, 150.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, lo, hi )->Distance,
+                 490.0f, 1e-3f );
+    EXPECT_EQ( pick( field, { 900.0f, 150.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, lo, hi ), 4 );
+    // Above the box tops (y 250), and 15 cm beside a box: a sphere of the old kind would have taken both.
+    EXPECT_EQ( pick( field, { -500.0f, 250.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, lo, hi ), -1 );
+    EXPECT_EQ( pick( field, { 215.0f, 500.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, lo, hi ), -1 );
+    EXPECT_EQ( pick( field, { 205.0f, 500.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, lo, hi ), 2 );
+    // The box follows the instance: scaled x4 it is 40 cm wide each way, rotated 90 deg about z it lies along x.
     field[2] = glm::scale( field[2], glm::vec3( 4.0f ) );
-    EXPECT_EQ( FoliagePickInstance( field, { 350.0f, 500.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 50.0f ), 2u );
+    EXPECT_EQ( pick( field, { 235.0f, 500.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, lo, hi ), 2 );
+    field[2] = glm::rotate( glm::translate( glm::mat4( 1.0f ), { 200.0f, 0.0f, 0.0f } ), glm::radians( -90.0f ),
+                            glm::vec3( 0.0f, 0.0f, 1.0f ) );
+    EXPECT_EQ( pick( field, { 300.0f, 500.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, lo, hi ), 3 ); // x=300 stands taller
+    EXPECT_EQ( pick( field, { 350.0f, 500.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, lo, hi ), 2 ); // the lying box
+}
+
+namespace
+{
+    // A 1000 x 1000 cm square (two triangles, normal +y) at height y, and a vertical 1000 x 1000 wall.
+    std::vector<FoliageFillTriangle> Square( float y )
+    {
+        const glm::vec3 a( 0.0f, y, 0.0f ), b( 0.0f, y, 1000.0f ), c( 1000.0f, y, 1000.0f ), d( 1000.0f, y, 0.0f );
+        return { { a, b, c, FoliageSurface::StaticMesh }, { a, c, d, FoliageSurface::StaticMesh } };
+    }
+} // namespace
+
+TEST( FoliageTools, FillCoversTheMeshByArea )
+{
+    FoliageTypeData type;
+    type.Density = 400.0f; // per 1000 x 1000 cm
+    FoliageRandom rng( 21u );
+    const auto    placed = FoliageFill( type, Square( 50.0f ), 1.0f, {}, rng );
+    EXPECT_EQ( placed.size(), 400u ); // two triangles of 500 000 cm2, 200 each
+    for ( const auto& m : placed )
+    {
+        EXPECT_NEAR( m[3].y, 50.0f, 1e-3f );
+        EXPECT_GE( m[3].x, 0.0f );
+        EXPECT_LE( m[3].x, 1000.0f );
+        EXPECT_GE( m[3].z, 0.0f );
+        EXPECT_LE( m[3].z, 1000.0f );
+    }
+    // Area-weighted: a triangle of a quarter of the area gets a quarter of the instances.
+    std::vector<FoliageFillTriangle> small = { { { 0, 0, 0 }, { 0, 0, 500 }, { 500, 0, 500 } } };
+    FoliageRandom                    rng2( 21u );
+    EXPECT_EQ( FoliageFill( type, small, 1.0f, {}, rng2 ).size(), 50u );
+    // Paint density scales it; the same seed places the same instances.
+    FoliageRandom again( 21u );
+    EXPECT_EQ( FoliageFill( type, Square( 50.0f ), 1.0f, {}, again ), placed );
+    FoliageRandom half( 21u );
+    EXPECT_EQ( FoliageFill( type, Square( 50.0f ), 0.5f, {}, half ).size(), 200u );
+    std::printf( "[ fill ] hash %016llx\n", static_cast<unsigned long long>( Fnv1a( placed ) ) );
+    EXPECT_EQ( Fnv1a( placed ), 0x8268f45bd2b2a98bull );
+}
+
+TEST( FoliageTools, FillKeepsTheFiltersAndTheTypeRules )
+{
+    FoliageTypeData type;
+    type.Density          = 400.0f;
+    type.GroundSlopeAngle = { 0.0f, 30.0f };
+    FoliageRandom rng( 3u );
+    // A wall (normal along x) is outside the slope range.
+    std::vector<FoliageFillTriangle> wall = { { { 0, 0, 0 }, { 0, 1000, 0 }, { 0, 0, 1000 } } };
+    EXPECT_TRUE( FoliageFill( type, wall, 1.0f, {}, rng ).empty() );
+    // The static-mesh filter off: nothing on a static mesh.
+    FoliageSurfaceFilter noMeshes;
+    noMeshes.StaticMesh = false;
+    EXPECT_TRUE( FoliageFill( type, Square( 0.0f ), 1.0f, noMeshes, rng ).empty() );
+    // Height range above the square.
+    type.Height = { 100.0f, 200.0f };
+    EXPECT_TRUE( FoliageFill( type, Square( 0.0f ), 1.0f, {}, rng ).empty() );
+    EXPECT_EQ( FoliageFill( type, Square( 150.0f ), 1.0f, {}, rng ).size(), 400u );
 }
 
 TEST( FoliageTools, SelectionMovesAndDeletesAsOneUndoStep )
@@ -325,4 +393,50 @@ TEST( FoliageTools, ReapplyAlignsToTheGroundAndIsDeterministic )
     std::printf( "[ reapply ] hash %016llx\n", static_cast<unsigned long long>( Fnv1a( field ) ) );
     // Pinned: the same numbers on every platform (PCG32, no <random>).
     EXPECT_EQ( Fnv1a( field ), 0x515801d99d7d7a57ull );
+}
+
+TEST( FoliageTools, ReapplyDensityThinsAndTopsUpToTheType )
+{
+    // 100 instances packed in a 300 cm sphere; the type asks for Density 100 per 1000x1000 -> round(pi*300^2*1e-4)
+    // = 28 in the brush disk.
+    std::vector<glm::mat4> field;
+    for ( int i = 0; i < 100; ++i )
+        field.push_back( glm::translate( glm::mat4( 1.0f ), { 20.0f * ( i % 10 ) - 90.0f, 0.0f, 20.0f * ( i / 10 ) - 90.0f } ) );
+    field.push_back( glm::translate( glm::mat4( 1.0f ), { 5000.0f, 0.0f, 0.0f } ) ); // outside, untouched
+    FoliageTypeData type;
+    type.Density = 100.0f;
+    FoliageReapplySettings settings;
+    settings.Density = true;
+    settings.Scale   = false;
+    FoliageSelection       selected = { 100u };
+    std::vector<glm::vec3> readjusted;
+    FoliageRandom          rng( 0xDE5u );
+    const auto r = FoliageBrushReapply( type, settings, DabAt( {}, 300.0f ), field, readjusted, rng, Ground(),
+                                        &selected );
+    EXPECT_EQ( r.Thinned, 72u );
+    EXPECT_EQ( field.size(), 29u );
+    EXPECT_EQ( selected, ( FoliageSelection{ 28u } ) ); // the outside instance, renumbered
+    EXPECT_FLOAT_EQ( field.back()[3].x, 5000.0f );
+    const uint64_t thinned = Fnv1a( field );
+
+    // Density raised: the same sphere is topped up by the brush rule, never past the type's count.
+    type.Density = 1000.0f; // 283 in the disk
+    readjusted.clear();
+    const auto up = FoliageBrushReapply( type, settings, DabAt( {}, 300.0f ), field, readjusted, rng, Ground() );
+    EXPECT_GT( up.Added, 200u );
+    EXPECT_LE( up.Added, 283u - 28u );
+    EXPECT_EQ( up.Thinned, 0u );
+
+    // Deterministic from the seed.
+    std::vector<glm::mat4> again;
+    for ( int i = 0; i < 100; ++i )
+        again.push_back( glm::translate( glm::mat4( 1.0f ), { 20.0f * ( i % 10 ) - 90.0f, 0.0f, 20.0f * ( i / 10 ) - 90.0f } ) );
+    again.push_back( glm::translate( glm::mat4( 1.0f ), { 5000.0f, 0.0f, 0.0f } ) );
+    type.Density = 100.0f;
+    readjusted.clear();
+    FoliageRandom rng2( 0xDE5u );
+    FoliageBrushReapply( type, settings, DabAt( {}, 300.0f ), again, readjusted, rng2, Ground() );
+    EXPECT_EQ( Fnv1a( again ), thinned );
+    std::printf( "[ reapply density ] hash %016llx\n", static_cast<unsigned long long>( thinned ) );
+    EXPECT_EQ( thinned, 0xf971428d32960e49ull );
 }

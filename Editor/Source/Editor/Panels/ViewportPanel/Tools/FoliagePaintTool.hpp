@@ -43,6 +43,12 @@ namespace Desert::Editor::Tools
         static Common::BoolResultStr MoveSelected( ::Desert::Core::Scene& scene, const glm::vec3& offset );
         static Common::BoolResultStr SelectNone( ::Desert::Core::Scene& scene );
 
+        // UE ApplyPaintBucket_Add: the static mesh of @p entity (its tool-target mesh, world-placed) covered by
+        // every checked type (FoliageFill), ONE undo step. An error naming why when the entity has no readable
+        // static mesh, no type is checked, or nothing was placed.
+        static Common::BoolResultStr FillEntity( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                 const Common::UUID& entity );
+
         // UE draws selected foliage instances highlighted; here a ring on the viewport overlay at each selected
         // instance's origin (no render pass: the ImGui draw list of the viewport window). @p viewProjection is
         // the view camera's projection * view; @p viewportPos / @p viewportSize the scene image on screen.
@@ -85,9 +91,6 @@ namespace Desert::Editor::Tools
         EditSelection( ::Desert::Core::Scene& scene, const std::string& label,
                        const std::function<void( std::vector<glm::mat4>&, FoliageSelection& )>& edit );
 
-        // The Select tool's pick sphere per unit of instance scale, cm (UE picks by hit proxy; an instance here
-        // is a bare transform, so a sphere of this radius stands for its mesh).
-        static constexpr float kPickRadius = 50.0f;
 
         std::optional<FoliageStroke>     m_Stroke;
         Core::FoliageTool                m_StrokeTool = Core::FoliageTool::Paint; ///< the tool at press

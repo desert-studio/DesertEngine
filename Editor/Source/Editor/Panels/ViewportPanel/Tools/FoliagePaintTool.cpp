@@ -1,6 +1,8 @@
 #include "FoliagePaintTool.hpp"
 
 #include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -624,6 +626,15 @@ namespace Desert::Editor::Tools
         if ( !scene.Raycast( ray, centre ) )
             return; // UE: no surface under the cursor, no application this tick
 
+        if ( m_StrokeTool == Core::FoliageTool::Fill )
+        {
+            // UE's Fill acts on the actor clicked, once per click.
+            m_Applied = true;
+            if ( auto filled = FillEntity( scene, manager, centre.Entity ); !filled )
+                ToastManager::Push( filled.GetError(), ToastLevel::Warning, 6.0f );
+            return;
+        }
+
         FoliageBrushDab dab;
         dab.Center            = centre.Point;
         dab.Normal            = centre.Normal;
@@ -785,14 +796,22 @@ namespace Desert::Editor::Tools
             m_Stroke->Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
             if ( !shift )
                 Core::FoliagePaint::Selection()[uuid].clear();
-            const auto picked = FoliagePickInstance( instances, ray.Origin, ray.Direction, kPickRadius );
-            if ( !picked )
-                continue;
-            const float distance = glm::length( glm::vec3( instances[*picked][3] ) - ray.Origin );
-            if ( distance < bestDistance )
+            // The instance's mesh box (Geometry::LocalBounds, the culler's extent), not a stand-in sphere.
+            const auto  meshHandle = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().MeshHandle;
+            const auto* mesh       = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
+            if ( !mesh )
             {
-                best         = std::make_pair( uuid, *picked );
-                bestDistance = distance;
+                if ( m_Refused.insert( uuid ).second )
+                    ToastManager::Push( "Foliage select: the field's mesh is not loaded, its instances cannot be picked",
+                                        ToastLevel::Error, 6.0f );
+                continue;
+            }
+            const Common::Math::AABB box    = Geometry::LocalBounds( mesh->GetSubmeshes() );
+            const auto               picked = FoliagePickInstance( instances, ray.Origin, ray.Direction, box.Min, box.Max );
+            if ( picked && picked->Distance < bestDistance )
+            {
+                best         = std::make_pair( uuid, picked->Index );
+                bestDistance = picked->Distance;
             }
         }
         if ( !best )
@@ -863,6 +882,72 @@ namespace Desert::Editor::Tools
         }
     }
 
+    Common::BoolResultStr FoliagePaintTool::FillEntity( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                        const Common::UUID& entity )
+    {
+        const auto target = scene.FindEntityByID( entity );
+        if ( !target || !target->get().HasComponent<ECS::StaticMeshComponent>() )
+            return Common::MakeError( "foliage fill: the entity has no static mesh to fill" );
+        const auto mesh = GetToolTargetMesh( target->get().GetComponent<ECS::StaticMeshComponent>() );
+        if ( !mesh )
+            return Common::MakeError( "foliage fill: " + mesh.GetError() );
+        if ( !Core::FoliagePaint::HasActive() )
+            return Common::MakeError( "foliage fill: no foliage type is checked in the palette" );
+
+        // The mesh's triangles in the world (UE FFoliagePaintBucketTriangle over LocalToWorld).
+        const glm::mat4                  toWorld = target->get().GetWorldTransform();
+        const Geometry::DynamicMesh3&    dm      = *mesh.GetValue().Mesh;
+        std::vector<FoliageFillTriangle> triangles;
+        triangles.reserve( static_cast<size_t>( dm.TriangleCount() ) );
+        const auto world = [&]( int v ) { return glm::vec3( toWorld * glm::vec4( glm::vec3( dm.GetVertex( v ) ), 1.0f ) ); };
+        for ( const int t : dm.TriangleIndicesItr() )
+        {
+            const auto tri = dm.GetTriangle( t );
+            triangles.push_back( { world( tri.A ), world( tri.B ), world( tri.C ), FoliageSurface::StaticMesh } );
+        }
+
+        FoliageSurfaceFilter filter;
+        filter.Landscape  = Core::FoliagePaint::FilterLandscape();
+        filter.StaticMesh = Core::FoliagePaint::FilterStaticMesh();
+        FoliageStroke stroke( Core::FoliagePaint::NextStrokeSeed() );
+        size_t        placed = 0;
+        for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
+        {
+            auto ref = scene.FindEntityByID( uuid );
+            if ( !ref || !ref->get().HasComponent<ECS::FoliageComponent>() ||
+                 !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                continue;
+            const auto type = ResolveType( manager, ref->get().GetComponent<ECS::FoliageComponent>().FoliageType );
+            if ( !type )
+                continue;
+            auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            stroke.Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
+            const auto added =
+                 FoliageFill( type->GetData(), triangles, Core::FoliagePaint::PaintDensity(), filter, stroke.Random() );
+            instances.insert( instances.end(), added.begin(), added.end() );
+            placed += added.size();
+            LOG_INFO( "[Foliage] fill '{}': {} placed on {} triangles; field now {}", type->GetDisplayName(),
+                      added.size(), triangles.size(), instances.size() );
+        }
+        auto fields = stroke.Finish(
+             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
+             {
+                 const auto ref = scene.FindEntityByID( uuid );
+                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                     return nullptr;
+                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+             },
+             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+        if ( !fields.empty() )
+            CommandHistory::Get().PushCommand(
+                 std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage Fill" ) );
+        if ( placed == 0 )
+            return Common::MakeFormattedError( "foliage fill: nothing placed on {} triangles (density, slope, height "
+                                               "or the static-mesh filter refused all of them)",
+                                               triangles.size() );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr FoliagePaintTool::RemoveSelected( ::Desert::Core::Scene& scene )
     {
         return EditSelection( scene, "Remove Selected",
@@ -910,6 +995,7 @@ namespace Desert::Editor::Tools
              { Core::FoliageTool::Select, ICON_MDI_CURSOR_DEFAULT_CLICK " Select" },
              { Core::FoliageTool::Lasso, ICON_MDI_LASSO " Lasso" },
              { Core::FoliageTool::Remove, ICON_MDI_ERASER " Remove" },
+             { Core::FoliageTool::Fill, ICON_MDI_FORMAT_COLOR_FILL " Fill" },
         };
         Core::FoliageTool& tool = Core::FoliagePaint::Tool();
         const float thirdW = ( ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x ) / 3.0f;
@@ -964,6 +1050,8 @@ namespace Desert::Editor::Tools
             ImGui::Checkbox( "Height", &r.Height );
             ImGui::SameLine();
             ImGui::Checkbox( "Layers", &r.LandscapeLayers );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Density", &r.Density );
         }
 
         // ----- Brush ----------------------------------------------------------------------------------
@@ -1092,7 +1180,8 @@ namespace Desert::Editor::Tools
         ImGui::Separator();
         static constexpr const char* kHints[] = { "LMB drag: paint",       "LMB click: place one",
                                                   "LMB click: select one", "LMB drag: select",
-                                                  "LMB drag: remove",      "LMB drag: reapply" };
+                                                  "LMB drag: remove",      "LMB drag: reapply",
+                                                  "LMB click: fill a static mesh" };
         ImGui::TextDisabled( "%s  -  on the checked types", kHints[static_cast<size_t>( tool )] );
         ImGui::End();
     }

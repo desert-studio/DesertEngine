@@ -202,11 +202,43 @@ namespace Desert::Editor::Tools
     size_t FoliageSelectInSphere( std::span<const glm::mat4> instances, const glm::vec3& center, float radius,
                                   bool select, FoliageSelection& selected );
 
-    /// UE SelectInstanceAtLocation (the Select tool's click), without hit proxies: the instance whose
-    /// bounding sphere — @p pickRadius cm times the instance's scale around its origin — the ray enters
-    /// first. nullopt when the ray passes every instance.
-    std::optional<uint32_t> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
-                                                 const glm::vec3& rayDirection, float pickRadius );
+    /// What the Select tool's ray hit: the instance and the distance along the ray to its box, cm.
+    struct FoliagePick
+    {
+        uint32_t Index    = 0;
+        float    Distance = 0.0f;
+    };
+
+    /// UE SelectInstanceAtLocation (the Select tool's click), without hit proxies: the instance whose mesh box
+    /// - the mesh's local bounds @p localMin..@p localMax carried by the instance transform - the ray enters
+    /// first. nullopt when the ray misses every box.
+    std::optional<FoliagePick> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
+                                                    const glm::vec3& rayDirection, const glm::vec3& localMin,
+                                                    const glm::vec3& localMax );
+
+    /// A world-space triangle of the mesh the Fill tool covers (UE FFoliagePaintBucketTriangle, no vertex colour).
+    struct FoliageFillTriangle
+    {
+        glm::vec3      A = glm::vec3( 0.0f );
+        glm::vec3      B = glm::vec3( 0.0f );
+        glm::vec3      C = glm::vec3( 0.0f );
+        FoliageSurface Surface = FoliageSurface::StaticMesh;
+    };
+
+    /**
+     * @brief UE's Fill tool (ApplyPaintBucket_Add): every triangle the filter allows and whose normal is within
+     *        the type's slope range gets Area * Density * PaintDensity / (1000 * 1000) instances at uniform
+     *        random points (a fraction below one is a chance of one), each kept when the type's height rule
+     *        passes, placed like a brush instance. Area-weighted by construction; deterministic in @p rng.
+     */
+    std::vector<glm::mat4> FoliageFill( const Assets::Serialization::FoliageTypeData& type,
+                                        std::span<const FoliageFillTriangle> triangles, float paintDensity,
+                                        const FoliageSurfaceFilter& filter, FoliageRandom& rng );
+
+    /// UE RemoveInstancesForBrush at a desired count: while the sphere holds more than @p desired instances, a
+    /// random choice of them (from @p rng) leaves the field. @p selected is renumbered. Returns how many left.
+    size_t FoliageBrushThin( std::vector<glm::mat4>& instances, const glm::vec3& center, float radius, int desired,
+                             FoliageRandom& rng, FoliageSelection* selected = nullptr );
 
     /// UE RemoveSelectedInstances: the selected instances leave the field and the selection is emptied.
     size_t FoliageRemoveSelected( std::vector<glm::mat4>& instances, FoliageSelection& selected );
@@ -228,6 +260,7 @@ namespace Desert::Editor::Tools
         bool GroundSlope     = true; ///< UE ReapplyGroundSlope: remove where the ground is outside the slope range
         bool Height          = true; ///< UE ReapplyHeight: remove where the ground is outside the height range
         bool LandscapeLayers = true; ///< UE ReapplyLandscapeLayers: remove where the layer weight filters it out
+        bool Density = false; ///< UE ReapplyDensity: thin or top up the sphere to the type's current Density
     };
 
     struct FoliageReapplyResult
@@ -235,6 +268,8 @@ namespace Desert::Editor::Tools
         size_t Updated = 0; ///< rebuilt from the current settings
         size_t Removed = 0; ///< failed a re-checked filter
         size_t Skipped = 0; ///< no ground under the instance along its up axis: left as it was
+        size_t Added   = 0; ///< placed to reach the type's density (Density switch)
+        size_t Thinned = 0; ///< taken out to come down to the type's density (Density switch)
     };
 
     /**
@@ -242,6 +277,10 @@ namespace Desert::Editor::Tools
      *        stroke finds its ground along its own up axis, is removed when a re-checked filter refuses the
      *        ground, and is otherwise rebuilt with the switched properties re-rolled from @p type and the rest
      *        kept (scale, yaw, Z offset above the ground, up axis).
+     *
+     * With the Density switch the sphere is first brought to the type's CURRENT Density (UE
+     * ReapplyInstancesDensityForBrush, which scales by a DensityAdjustmentFactor instead): thinned by a random
+     * choice, or topped up by FoliageBrushAdd; the new instances count as readjusted.
      *
      * @p readjusted holds the origins already rebuilt this stroke (FoliageStroke::Readjusted); @p selected, when
      * given, is renumbered past removals. Deterministic in @p rng.

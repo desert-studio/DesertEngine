@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <limits>
 
 namespace Desert::Editor::Tools
 {
@@ -356,28 +357,104 @@ namespace Desert::Editor::Tools
         return changed;
     }
 
-    std::optional<uint32_t> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
-                                                 const glm::vec3& rayDirection, float pickRadius )
+    std::optional<FoliagePick> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
+                                                    const glm::vec3& rayDirection, const glm::vec3& localMin,
+                                                    const glm::vec3& localMax )
     {
-        const glm::vec3         dir = glm::normalize( rayDirection );
-        std::optional<uint32_t> best;
-        float                   bestT = 0.0f;
+        const glm::vec3            dir = glm::normalize( rayDirection );
+        std::optional<FoliagePick> best;
         for ( size_t i = 0; i < instances.size(); ++i )
         {
-            const glm::mat4& m      = instances[i];
-            const float      radius = pickRadius * glm::length( glm::vec3( m[1] ) );
-            const glm::vec3  oc     = glm::vec3( m[3] ) - rayOrigin;
-            const float      along  = glm::dot( oc, dir );
-            const float      d2     = glm::dot( oc, oc ) - along * along;
-            if ( d2 > radius * radius )
-                continue;
-            const float t = along - std::sqrt( std::max( radius * radius - d2, 0.0f ) );
-            if ( along < 0.0f || ( best && t >= bestT ) )
-                continue;
-            best  = static_cast<uint32_t>( i );
-            bestT = t;
+            // The ray in the instance's own space, slab test against the mesh box there; the entry parameter
+            // is the same along the world ray because the local ray is the world ray mapped affinely.
+            const glm::mat4 inv = glm::inverse( instances[i] );
+            const glm::vec3 o   = glm::vec3( inv * glm::vec4( rayOrigin, 1.0f ) );
+            const glm::vec3 d   = glm::vec3( inv * glm::vec4( dir, 0.0f ) );
+            float           t0 = 0.0f, t1 = std::numeric_limits<float>::max();
+            bool            hit = true;
+            for ( int k = 0; k < 3 && hit; ++k )
+            {
+                if ( std::abs( d[k] ) < kSmall )
+                {
+                    hit = o[k] >= localMin[k] && o[k] <= localMax[k];
+                    continue;
+                }
+                float ta = ( localMin[k] - o[k] ) / d[k];
+                float tb = ( localMax[k] - o[k] ) / d[k];
+                if ( ta > tb )
+                    std::swap( ta, tb );
+                t0  = std::max( t0, ta );
+                t1  = std::min( t1, tb );
+                hit = t0 <= t1;
+            }
+            if ( hit && ( !best || t0 < best->Distance ) )
+                best = FoliagePick{ static_cast<uint32_t>( i ), t0 };
         }
         return best;
+    }
+
+    std::vector<glm::mat4> FoliageFill( const Assets::Serialization::FoliageTypeData& type,
+                                        std::span<const FoliageFillTriangle> triangles, float paintDensity,
+                                        const FoliageSurfaceFilter& filter, FoliageRandom& rng )
+    {
+        std::vector<glm::mat4> placed;
+        for ( const FoliageFillTriangle& tri : triangles )
+        {
+            if ( !filter.Allows( tri.Surface ) )
+                continue;
+            const glm::vec3 e1    = tri.B - tri.A;
+            const glm::vec3 e2    = tri.C - tri.A;
+            const glm::vec3 cross = glm::cross( e1, e2 );
+            const float     twice = glm::length( cross );
+            if ( twice <= kSmall )
+                continue;
+            const glm::vec3 normal = cross / twice;
+            if ( !IsWithinSlopeAngle( normal.y, type.GroundSlopeAngle.Min, type.GroundSlopeAngle.Max ) )
+                continue;
+            // UE: Triangle.Area * Density * PaintDensity / (1000 * 1000), a fraction below one a chance of one.
+            const float desiredF = 0.5f * twice * type.Density * paintDensity / ( 1000.0f * 1000.0f );
+            const int   desired  = desiredF > 1.0f ? static_cast<int>( std::lround( desiredF ) )
+                                                   : ( rng.Next01() < desiredF ? 1 : 0 );
+            for ( int i = 0; i < desired; ++i )
+            {
+                // UE FFoliagePaintBucketTriangle::GetRandomPoint: the parallelogram folded into the triangle.
+                float x = rng.Next01();
+                float y = rng.Next01();
+                if ( x + y > 1.0f )
+                {
+                    x = 1.0f - x;
+                    y = 1.0f - y;
+                }
+                const FoliageTraceHit hit{ tri.A + x * e1 + y * e2, normal, tri.Surface, std::nullopt };
+                if ( !PassesTypeRules( type, hit, false, rng ) )
+                    continue;
+                placed.push_back( PlaceInstance( type, { hit.Point, normal }, rng ) );
+            }
+        }
+        return placed;
+    }
+
+    size_t FoliageBrushThin( std::vector<glm::mat4>& instances, const glm::vec3& center, float radius, int desired,
+                             FoliageRandom& rng, FoliageSelection* selected )
+    {
+        const float           r2 = radius * radius;
+        std::vector<uint32_t> inside;
+        for ( size_t i = 0; i < instances.size(); ++i )
+            if ( InSphere( instances[i], center, r2 ) )
+                inside.push_back( static_cast<uint32_t>( i ) );
+        const int excess = static_cast<int>( inside.size() ) - std::max( desired, 0 );
+        if ( excess <= 0 )
+            return 0;
+        // A partial Fisher-Yates from the stroke's stream: the first `excess` of the shuffled indices leave.
+        std::vector<bool> gone( instances.size(), false );
+        for ( int k = 0; k < excess; ++k )
+        {
+            const auto span = static_cast<uint32_t>( inside.size() ) - static_cast<uint32_t>( k );
+            const auto j    = static_cast<uint32_t>( k ) + rng.NextU32() % span;
+            std::swap( inside[k], inside[j] );
+            gone[inside[k]] = true;
+        }
+        return RemoveMarked( instances, gone, selected );
     }
 
     size_t FoliageRemoveSelected( std::vector<glm::mat4>& instances, FoliageSelection& selected )
@@ -406,6 +483,21 @@ namespace Desert::Editor::Tools
                                               const FoliageBrushWorld& world, FoliageSelection* selected )
     {
         FoliageReapplyResult result;
+        if ( settings.Density )
+        {
+            // UE ReapplyInstancesDensityForBrush, against the type's current Density.
+            const float desiredF = FoliageBrushDesiredCount( type.Density, dab.Radius, dab.PaintDensity );
+            const int   desired  = static_cast<int>( std::lround( desiredF ) );
+            result.Thinned       = FoliageBrushThin( instances, dab.Center, dab.Radius, desired, rng, selected );
+            if ( result.Thinned == 0 )
+            {
+                const auto added = FoliageBrushAdd( type, dab, instances, rng, world );
+                for ( const glm::mat4& m : added )
+                    readjusted.push_back( glm::vec3( m[3] ) );
+                instances.insert( instances.end(), added.begin(), added.end() );
+                result.Added = added.size();
+            }
+        }
         const float          r2      = dab.Radius * dab.Radius;
         const bool           layered = !type.LandscapeLayers.empty();
         std::vector<bool>    gone( instances.size(), false );
