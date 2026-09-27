@@ -258,7 +258,8 @@ namespace Desert::Geometry
             // A box needs more than this many triangles below it to get an expansion.
             constexpr int kWindingCacheThresh = 1;
 
-            const FastTriWinding::MeshTriInfoCache TriCache = FastTriWinding::MeshTriInfoCache::Build( *m_Tree->GetMesh() );
+            const FastTriWinding::MeshTriInfoCache TriCache =
+                 FastTriWinding::MeshTriInfoCache::Build( *m_Tree->GetMesh() );
 
             const int NumBoxes = static_cast<int>( m_Tree->BoxToIndex.size() );
             for ( m_CacheOffset = 0; m_CacheOffset < NumBoxes; ++m_CacheOffset )

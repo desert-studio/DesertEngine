@@ -234,7 +234,8 @@ namespace Desert::Geometry
             const glm::dvec3 Normal0 = VectorUtil::Normal( m_Triangle0.V[0], m_Triangle0.V[1], m_Triangle0.V[2] );
             if ( Normal0 == glm::dvec3( 0 ) )
             {
-                if ( VectorUtil::Normal( m_Triangle1.V[0], m_Triangle1.V[1], m_Triangle1.V[2] ) == glm::dvec3( 0 ) )
+                if ( VectorUtil::Normal( m_Triangle1.V[0], m_Triangle1.V[1], m_Triangle1.V[2] ) ==
+                     glm::dvec3( 0 ) )
                     return false;
                 IntrTriangle3Triangle3 Swapped( m_Triangle1, m_Triangle0 );
                 Swapped.m_Tolerance = m_Tolerance;

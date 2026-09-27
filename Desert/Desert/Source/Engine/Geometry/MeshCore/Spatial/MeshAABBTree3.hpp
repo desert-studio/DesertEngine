@@ -260,11 +260,11 @@ namespace Desert::Geometry
             const int RootNode = SplitTriSetMidpoint( Triangles, Centers, 0, static_cast<int>( Triangles.size() ),
                                                       0, kTopDownLeafMaxTriCount, Tris, Nodes, RootBox );
 
-            BoxToIndex          = Tris.BoxToIndex;
-            BoxCenters          = Tris.BoxCenters;
-            BoxExtents          = Tris.BoxExtents;
-            IndexList           = Tris.IndexList;
-            TrianglesEnd        = Tris.IIndicesCur;
+            BoxToIndex            = Tris.BoxToIndex;
+            BoxCenters            = Tris.BoxCenters;
+            BoxExtents            = Tris.BoxExtents;
+            IndexList             = Tris.IndexList;
+            TrianglesEnd          = Tris.IIndicesCur;
             const int iIndexShift = TrianglesEnd;
             const int iBoxShift   = Tris.IBoxCur;
 
