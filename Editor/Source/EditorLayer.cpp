@@ -4851,6 +4851,30 @@ namespace Desert::Editor
                                   Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Sculpt;
                                   return PaletteCommandDone();
                               } } );
+        // NEW LANDSCAPE (UE's Manage tab): the mode, the fill, the erosion passes and Create, so a generated
+        // landscape can be made and photographed unattended.
+        commands.push_back( { "Landscape", "Manage mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Manage;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Landscape", "New Landscape: noise fill with erosion and hydro erosion", []
+                              {
+                                  auto& s        = Core::LandscapeSculptState::Get().NewLandscape;
+                                  s.Fill         = World::Landscape::LandscapeGenerateFill::Noise;
+                                  s.Erosion      = true;
+                                  s.HydroErosion = true;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Landscape", "New Landscape: Create", [this]
+                              {
+                                  auto created = Commands::CreateLandscape(
+                                       m_MainScene, Core::LandscapeSculptState::Get().NewLandscape );
+                                  if ( !created.IsSuccess() )
+                                      return PaletteCommandOutcome( false, created.GetError() );
+                                  return PaletteCommandDone();
+                              } } );
         // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
         // Layers list, so a frame can show a list and a stroke unattended.
         for ( const char* label : { "Paint mode", "Tool: Paint" } )

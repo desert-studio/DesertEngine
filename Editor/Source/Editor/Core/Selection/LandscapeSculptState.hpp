@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/World/Landscape/LandscapeGenerator.hpp>
 #include <Engine/World/Landscape/LandscapePaint.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
@@ -235,6 +236,8 @@ namespace Desert::Editor::Core
     /// the user had picked survives a trip to Paint and back.
     enum class LandscapeEdMode : uint8_t
     {
+        /// UE's Manage tab: New Landscape. No viewport tool — the landscape is made by the panel's Create.
+        Manage,
         Sculpt,
         Paint,
     };
@@ -245,6 +248,8 @@ namespace Desert::Editor::Core
         LandscapeSculptSettings Settings;
         /// The Paint tool's settings; the brush (Settings.Brush) is shared with the sculpt tools, as in UE.
         World::Landscape::LandscapePaintSettings Paint;
+        /// UE's New Landscape settings (Manage mode); kept across uses like UE's editor object keeps them.
+        World::Landscape::LandscapeGenerateSettings NewLandscape;
         LandscapeStrokeRequest                   Request = LandscapeStrokeRequest::None;
         /// UE's FLandscapeToolRamp::Points, in world cm; applying keeps them, as UE does until the tool is reset.
         std::optional<glm::vec3> RampStart;

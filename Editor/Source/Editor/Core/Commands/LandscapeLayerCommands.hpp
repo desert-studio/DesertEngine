@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/World/Landscape/LandscapeGenerator.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
@@ -32,4 +33,14 @@ namespace Desert::Editor::Commands
     /// UE's "+" under Target Layers: appends "Layer N" (the first free N) to the scene's first landscape,
     /// undoably. Returns the new layer's name; refuses a scene without a loaded landscape root.
     Common::ResultStr<std::string> AddLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene );
+
+    /**
+     * @brief UE's New Landscape "Create": generates the heights (World/Landscape/LandscapeGenerator.hpp), then adds a
+     * root entity and one tile entity per tile, as ONE undo step. The tiles' heights live in memory until the scene
+     * is saved (their files are written beside the scene then), so the undo entry keeps the generated tiles and
+     * redo re-creates the same UUIDs WITH them — a snapshot restore would come back without terrain, since a tile
+     * block without a file has none. Returns the root's UUID, or the generator's refusal.
+     */
+    Common::ResultStr<Common::UUID> CreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&     scene,
+                                                     const World::Landscape::LandscapeGenerateSettings& settings );
 } // namespace Desert::Editor::Commands
