@@ -113,42 +113,86 @@ namespace Desert::Runtime
         return Assets::ContentRegistry::Closure( roots );
     }
 
+    namespace
+    {
+        bool IsMeshKind( const std::string& kind )
+        {
+            using Common::Content::ContentKind;
+            using Common::Content::KindName;
+            return kind == KindName( ContentKind::StaticMesh ) || kind == KindName( ContentKind::SkinnedMesh );
+        }
+
+        // Starts every row's worker read, then waits for each: one batch, no read on this thread.
+        std::size_t ReadBatch( const std::vector<Assets::ContentRegistry::ClosureRow>& rows )
+        {
+            using Common::Content::ContentKind;
+            using Common::Content::KindName;
+            auto*                            meshes    = Meshes();
+            auto*                            materials = Materials();
+            auto*                            textures  = ResourceRegistry::GetTextureService();
+            std::vector<Assets::AssetHandle> awaited;
+            for ( const auto& row : rows )
+            {
+                if ( IsMeshKind( row.Kind ) && meshes )
+                    meshes->StartRead( row.Handle, awaited );
+                else if ( row.Kind == KindName( ContentKind::Material ) && materials )
+                    materials->StartRead( row.Handle, awaited );
+                else if ( row.Kind == KindName( ContentKind::Texture ) && textures )
+                    textures->StartRead( row.Handle, awaited );
+            }
+            std::sort( awaited.begin(), awaited.end() );
+            awaited.erase( std::unique( awaited.begin(), awaited.end() ), awaited.end() );
+            for ( const auto& read : awaited )
+                Assets::AsyncAssetLoader::Get().AwaitOne( read );
+            return awaited.size();
+        }
+    } // namespace
+
     ClosureResidency AwaitClosure( const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
     {
         using Common::Content::ContentKind;
         using Common::Content::KindName;
-        const auto isMesh = []( const std::string& kind )
-        { return kind == KindName( ContentKind::StaticMesh ) || kind == KindName( ContentKind::SkinnedMesh ); };
+        auto*            meshes    = Meshes();
+        auto*            materials = Materials();
+        ClosureResidency outcome;
 
-        auto*                            meshes    = Meshes();
-        auto*                            materials = Materials();
-        auto*                            textures  = ResourceRegistry::GetTextureService();
-        ClosureResidency                 outcome;
-        std::vector<Assets::AssetHandle> awaited;
-        outcome.Rows = closure.size();
+        // ALL READS START BEFORE THE FIRST WAIT, so the workers read the closure side by side.
+        outcome.Reads = ReadBatch( closure );
 
-        // ALL READS START BEFORE THE FIRST WAIT, so the workers read the closure side by side. The parents,
-        // textures and a mesh's own materials are rows of the closure already, so there is no second
-        // generation to discover after the first lands.
-        for ( const auto& row : closure )
+        // A MESH WITH NO REGISTRY ROW HAS NO `deps` TO WALK. An imported static mesh lives only in the DDC since
+        // AF4h — nothing is ever written at its content path, so no row can describe it — and the materials its
+        // envelope names are then known only from the read mesh (the same GUIDs its header states). They and
+        // their own closure are the second, and last, batch; for a mesh with a row they are already in the
+        // closure and the batch is empty.
+        std::vector<Assets::ContentRegistry::ClosureRow> all = closure;
+        if ( meshes && materials )
         {
-            if ( isMesh( row.Kind ) && meshes )
-                meshes->StartRead( row.Handle, awaited );
-            else if ( row.Kind == KindName( ContentKind::Material ) && materials )
-                materials->StartRead( row.Handle, awaited );
-            else if ( row.Kind == KindName( ContentKind::Texture ) && textures )
-                textures->StartRead( row.Handle, awaited );
+            std::vector<Assets::ContentRegistry::ClosureRow> roots;
+            for ( const auto& row : closure )
+                if ( IsMeshKind( row.Kind ) )
+                    if ( const auto* asset = meshes->GetAsset( row.Handle ) )
+                        for ( const auto& external : asset->GetMaterialHandles() )
+                        {
+                            const Assets::AssetHandle material = materials->GetAssetHandleByExternal( external );
+                            const bool                known    = std::any_of( all.begin(), all.end(),
+                                                                              [&material]( const auto& in )
+                                                                              { return in.Handle == material; } );
+                            if ( material && !known )
+                                roots.push_back( { material, std::string( KindName( ContentKind::Material ) ) } );
+                        }
+            if ( !roots.empty() )
+            {
+                const auto more = Assets::ContentRegistry::Closure( roots );
+                outcome.Reads += ReadBatch( more );
+                all.insert( all.end(), more.begin(), more.end() );
+            }
         }
-        std::sort( awaited.begin(), awaited.end() );
-        awaited.erase( std::unique( awaited.begin(), awaited.end() ), awaited.end() );
-        for ( const auto& read : awaited )
-            Assets::AsyncAssetLoader::Get().AwaitOne( read );
-        outcome.Reads = awaited.size();
+        outcome.Rows = all.size();
 
         // A rig arrives with its mesh, so the skinned ones may have become buildable only now.
         if ( meshes )
             for ( const auto& row : closure )
-                if ( isMesh( row.Kind ) )
+                if ( IsMeshKind( row.Kind ) )
                     outcome.DrawableMeshes += meshes->Get( row.Handle ) != nullptr ? 1 : 0;
         return outcome;
     }

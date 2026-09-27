@@ -27,6 +27,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -150,6 +152,29 @@ TEST( AssetRootsCensus, EveryComponentFieldThatNamesAnAssetIsVisitedByTheRootWal
             list += ( list.empty() ? "" : ", " ) + field;
         return list;
     }() << ". Add them to Desert/Desert/Source/Engine/Core/SceneAssetRoots.cpp.";
+}
+
+// THE FIELD NAME IS NOT ENOUGH: `Material` is visited for a landscape, and that one spelling hid for a whole
+// programme that a cloud layer's `Data.Material` was never marked — eviction released it after every sweep and the
+// renderer parsed it again inside a frame (AL1-8b). One row per component that names a material it draws with.
+TEST( AssetRootsCensus, EveryComponentThatDrawsWithAMaterialIsVisitedByName )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+    const std::string walk = ReadWholeFile( root + "Desert/Desert/Source/Engine/Core/SceneAssetRoots.cpp" );
+    ASSERT_FALSE( walk.empty() ) << "SceneAssetRoots.cpp could not be read; the census would pass vacuously";
+
+    const std::array<std::pair<const char*, const char*>, 5> components{ {
+         { "StaticMeshComponent", "its material slots" },
+         { "SkinnedMeshComponent", "its material slots" },
+         { "InstancedStaticMeshComponent", "its material slots" },
+         { "LandscapeMaterialComponent", "the landscape's surface material" },
+         { "VolumetricCloudComponent", "the medium the cloud layer marches, read every frame" },
+    } };
+    for ( const auto& [component, why] : components )
+        EXPECT_NE( walk.find( std::string( "ECS::" ) + component + ">" ), std::string::npos )
+             << component << " is not visited by the eviction root walk, so " << why
+             << " is released while it is drawn. Add it to Desert/Desert/Source/Engine/Core/SceneAssetRoots.cpp.";
 }
 
 TEST( AssetRootsCensus, TheHandleSpeltAsAPlainIntegerIsVisitedToo )
