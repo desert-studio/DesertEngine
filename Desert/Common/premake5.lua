@@ -36,12 +36,13 @@ project "Common"
     -- Windows keeps the ordinary `prebuildcommands`, which is also the only one of the two that MSBuild
     -- understands — `makesettings` is a make-exporter setting and the vs2022 exporter ignores it.
     filter "system:not windows"
-        makesettings [[
-DESERT_VERSION_LOG := $(shell bash ./scripts/GenVersion.sh)
+        -- The script path is absolute: since the makefiles moved to build/Projects, make runs there, and
+        -- the old `./scripts/GenVersion.sh` failed silently inside $(shell) — the header stopped updating.
+        makesettings( 'DESERT_VERSION_LOG := $(shell bash "' .. _MAIN_SCRIPT_DIR .. '/scripts/GenVersion.sh")\n' .. [[
 ifneq (,$(DESERT_VERSION_LOG))
   $(info $(DESERT_VERSION_LOG))
 endif
-]]
+]] )
     filter "system:windows"
         prebuildcommands { 'call "%{_MAIN_SCRIPT_DIR}\\scripts\\Windows\\GenVersion.bat"' }
     filter {}
