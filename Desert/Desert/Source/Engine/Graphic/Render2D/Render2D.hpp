@@ -32,9 +32,9 @@ namespace Desert::Graphic::Render2D
     {
     public:
         Render2D() = default;
-        // Releases the white texture's image from the ImageService (see the definition for why).
         ~Render2D();
-        // One owner of the white texture's registration: a copy would release it twice.
+        // Owns per-view GPU state (pipelines, buffers, executors keyed by image address) that two
+        // copies could not share.
         Render2D( const Render2D& )            = delete;
         Render2D& operator=( const Render2D& ) = delete;
         Render2D( Render2D&& )                 = delete;

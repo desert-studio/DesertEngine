@@ -546,6 +546,47 @@ TEST( TeardownOrder, EveryVulkanObjectTheEngineCreatesHasADestroyCall )
 }
 
 // Only gtest is linked, not gtest_main — every suite in this tree brings its own entry point.
+// RELATION: a Texture2D unregisters its image from the ImageService in its destructor (RT2n), and three
+// registry services hold Texture2Ds in function-local statics. Statics die in the reverse order their
+// construction completed, so each of those getters must construct the ImageService BEFORE its own static
+// -- otherwise the holder outlives the service and its textures unregister into a destroyed object at
+// exit. The holders are found from the service headers, not listed here, so a fourth one is covered the
+// day it starts holding a texture.
+TEST( TeardownOrder, EveryServiceHoldingATextureConstructsTheImageServiceFirst )
+{
+    const auto        dir    = RepoRoot() / "Desert" / "Desert" / "Source" / "Engine" / "Runtime";
+    const std::string source = ReadFile( dir / "ResourceRegistry.cpp" );
+    ASSERT_FALSE( source.empty() ) << "ResourceRegistry.cpp not found or empty";
+
+    const std::string helper = FunctionBody( source, "void ImageServiceConstructedFirst()" );
+    ASSERT_NE( helper.find( "GetImageService()" ), std::string::npos )
+         << "ImageServiceConstructedFirst() no longer constructs the ImageService";
+
+    size_t holders = 0;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( dir / "Services" ) )
+    {
+        const auto& p = entry.path();
+        if ( !entry.is_regular_file() || p.extension() != ".hpp" )
+            continue;
+        const std::string header = StripLineComments( ReadFile( p ) );
+        if ( header.find( "shared_ptr<Graphic::Texture2D>" ) == std::string::npos )
+            continue;
+        ++holders;
+
+        const std::string getter = "ResourceRegistry::Get" + p.stem().string() + "()";
+        const std::string body   = FunctionBody( source, getter );
+        ASSERT_FALSE( body.empty() ) << getter << " not found in ResourceRegistry.cpp";
+        const size_t first  = body.find( "ImageServiceConstructedFirst()" );
+        const size_t holder = body.find( "static " );
+        EXPECT_TRUE( first != std::string::npos && holder != std::string::npos && first < holder )
+             << p.stem().string() << " holds Texture2Ds, but " << getter
+             << " does not call ImageServiceConstructedFirst() before its static: the service would be "
+                "destroyed after the ImageService and its textures would unregister into a dead object";
+    }
+    EXPECT_GE( holders, 3u ) << "found only " << holders
+                             << " texture-holding services (Texture, AnimatedImage, Video) -- the scan is wrong";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );

@@ -2,6 +2,24 @@
 
 namespace Desert::Runtime
 {
+    namespace
+    {
+        // CONSTRUCTED FIRST, SO DESTROYED LAST. A Texture2D unregisters its image from the ImageService
+        // in its destructor (Texture.hpp), and the services below hold Texture2Ds in function-local
+        // statics. Statics are destroyed in the reverse order their construction COMPLETED
+        // ([basic.start.term]), and a service is usually first asked for before any image exists -- so
+        // without this call the texture service would be built before the image service, destroyed
+        // after it, and every texture it still held would unregister into a destroyed object. Renderer::
+        // Shutdown empties them through ClearAll() first, but a process that never reaches it (a tool, a
+        // test, an early exit) still runs the static destructors. Touching the ImageService getter
+        // before the holder's own static makes the order a property of the code rather than of which
+        // service somebody happened to ask for first.
+        void ImageServiceConstructedFirst()
+        {
+            (void)ResourceRegistry::GetImageService();
+        }
+    } // namespace
+
     MeshService* ResourceRegistry::GetMeshService()
     {
         static MeshService meshService( MakeGpuMeshUploader() );
@@ -16,6 +34,7 @@ namespace Desert::Runtime
 
     TextureService* ResourceRegistry::GetTextureService()
     {
+        ImageServiceConstructedFirst(); // holds Texture2Ds -- see the function
         static TextureService textureService;
         return &textureService;
     }
@@ -52,12 +71,14 @@ namespace Desert::Runtime
 
     AnimatedImageService* ResourceRegistry::GetAnimatedImageService()
     {
+        ImageServiceConstructedFirst(); // holds Texture2Ds -- see the function
         static AnimatedImageService animatedImageService;
         return &animatedImageService;
     }
 
     VideoService* ResourceRegistry::GetVideoService()
     {
+        ImageServiceConstructedFirst(); // holds Texture2Ds -- see the function
         static VideoService videoService;
         return &videoService;
     }
