@@ -1276,7 +1276,8 @@ namespace Desert::Graphic
         if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
 
-        // Same gate as GI: the trace target and its ping-pong history are sampled/blended RGBA32F.
+        // Same gate as GI: the trace target and its ping-pong history are sampled/blended float targets
+        // (ViewTargetFormats::kSSRTrace / kSSRAccum).
         if ( !HasFloatRenderTargetSupport() )
         {
             LOG_WARN( "[SceneRenderer] SSR needs blendable float render targets, which this device does not "
@@ -1287,23 +1288,12 @@ namespace Desert::Graphic
 
         Renderer::GetInstance().WaitDeviceIdle();
 
-        // SSR trace target (HDR reflection colour, reflectance in .a). Traced first, then denoised and
-        // composited — blending the raw single-sample trace straight onto the scene looks stippled.
-        FramebufferSpecification ssrSpec;
-        ssrSpec.DebugName = "SSRTrace";
-        ssrSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSRTrace );
-        m_SSRBuffer = Graphic::Framebuffer::Create( ssrSpec );
-        m_SSRBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
-                             m_TargetFramebuffer->GetFramebufferHeight() );
-
         RegisterSystem<System::SSRRenderer>( "SSRSystem", this, m_TargetFramebuffer, m_RenderGraphBuilder );
         const auto& ssrSys = SP_CAST( System::SSRRenderer, m_RenderSystems["SSRSystem"] );
-        ssrSys->SetTraceBuffer( m_SSRBuffer ); // must be set BEFORE Initialize()
         if ( !ssrSys->Initialize() )
         {
             LOG_WARN( "[SceneRenderer] SSR system unavailable." );
             m_SSRResourcesFailed = true;
-            m_SSRBuffer.reset();
             return false;
         }
 
@@ -1362,8 +1352,6 @@ namespace Desert::Graphic
             m_SSAOBuffer->Resize( width, height );
         if ( m_SceneColorCopy )
             m_SceneColorCopy->Resize( width, height );
-        if ( m_SSRBuffer )
-            m_SSRBuffer->Resize( width, height );
         if ( m_GIBuffer )
             m_GIBuffer->Resize( width, height );
         // m_RSMBuffer is deliberately NOT resized: it is a fixed-resolution light-space target, unrelated

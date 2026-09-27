@@ -554,7 +554,6 @@ namespace Desert::Graphic
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)
         std::shared_ptr<Framebuffer> m_SSAOBuffer;                 // deferred SSAO (AO factor)
         std::shared_ptr<Framebuffer> m_SceneColorCopy;             // scene snapshot for glass refraction
-        std::shared_ptr<Framebuffer> m_SSRBuffer;                  // SSR trace target (denoised, then composited)
         std::shared_ptr<Framebuffer> m_GIBuffer;                   // RSM-GI resolve target (blur-read by lighting)
         std::shared_ptr<Framebuffer> m_RSMBuffer;                  // reflective shadow map (G-buffer from the sun)
         Core::RenderPath m_RenderPath = Core::RenderPath::Forward; // refreshed from SceneSettings each BeginScene

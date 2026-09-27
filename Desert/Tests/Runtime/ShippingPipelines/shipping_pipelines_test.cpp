@@ -445,7 +445,7 @@ namespace
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRTrace\"",
                Verdict::Shipped, "" },
-             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRResolve\"",
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRResolveTiled\"",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", "\"SSRComposite\"",
                Verdict::Shipped, "" },

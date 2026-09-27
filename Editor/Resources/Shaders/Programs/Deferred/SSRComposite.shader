@@ -6,15 +6,17 @@ Shader "SSRComposite"
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
+        // Drawn over the SSR tiles only (Common/SSRTiles.glslh): two tiles around them, because the resolved
+        // buffer is non-zero up to ~6 px past a marked tile (half-resolution trace read bilinearly, 5x5 resolve)
+        // and the blur reads it up to 4 px away; elsewhere the output alpha is 0 and the blend is a no-op.
         #include <Common/QuadTextureCoords.glslh>
+        #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;
 
         void main()
         {
-        	v_TexCoord  = QUAD_TEXTURE_COORDINATES[gl_VertexIndex];
-        	gl_Position = vec4(QUAD_POSITIONS[gl_VertexIndex], 0.0, 1.0);
+        	gl_Position = SSRTileVertex(2, v_TexCoord);
         }
     }
 

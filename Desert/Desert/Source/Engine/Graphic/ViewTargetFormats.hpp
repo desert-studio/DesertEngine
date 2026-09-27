@@ -51,6 +51,9 @@ namespace Desert::Graphic::ViewTargetFormats
     // Screen-space reflections and RSM global illumination.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSSRAccum  = ImageFormat::RGBA16F;
+    // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit
+    // colour format; at 1/64 of the screen the three unused channels cost nothing worth a new format.
+    inline constexpr ImageFormat kSSRTileMask = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
     // The RSM render pass MUST stay compatible with the G-buffer's (it reuses the G-buffer pipeline), so its
