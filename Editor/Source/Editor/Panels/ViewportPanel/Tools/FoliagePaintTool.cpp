@@ -834,6 +834,32 @@ namespace Desert::Editor::Tools
         return BOOLSUCCESS;
     }
 
+    void FoliagePaintTool::DrawSelection( ::Desert::Core::Scene& scene, const glm::mat4& viewProjection,
+                                          const glm::vec2& viewportPos, const glm::vec2& viewportSize )
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for ( const auto& [uuid, selected] : Core::FoliagePaint::Selection() )
+        {
+            auto ref = scene.FindEntityByID( uuid );
+            if ( selected.empty() || !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                continue;
+            const auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            for ( const uint32_t i : selected )
+            {
+                if ( i >= instances.size() )
+                    continue;
+                const glm::vec4 clip = viewProjection * glm::vec4( glm::vec3( instances[i][3] ), 1.0f );
+                if ( clip.w <= 0.0f )
+                    continue; // behind the camera
+                const float  x = ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x;
+                const float  y = ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y;
+                const ImVec2 at( viewportPos.x + x, viewportPos.y + y );
+                dl->AddCircle( at, 6.0f, IM_COL32( 0, 0, 0, 200 ), 12, 3.5f );
+                dl->AddCircle( at, 6.0f, IM_COL32( 255, 170, 30, 255 ), 12, 2.0f );
+            }
+        }
+    }
+
     Common::BoolResultStr FoliagePaintTool::RemoveSelected( ::Desert::Core::Scene& scene )
     {
         return EditSelection( scene, "Remove Selected",

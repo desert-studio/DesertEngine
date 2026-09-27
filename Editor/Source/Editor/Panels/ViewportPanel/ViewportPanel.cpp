@@ -1611,6 +1611,9 @@ namespace Desert::Editor
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing, ImGui::GetIO().KeyShift );
+                Tools::FoliagePaintTool::DrawSelection( *m_Scene,
+                                                        camera->GetProjectionMatrix() * camera->GetViewMatrix(),
+                                                        m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }
 

@@ -43,6 +43,12 @@ namespace Desert::Editor::Tools
         static Common::BoolResultStr MoveSelected( ::Desert::Core::Scene& scene, const glm::vec3& offset );
         static Common::BoolResultStr SelectNone( ::Desert::Core::Scene& scene );
 
+        // UE draws selected foliage instances highlighted; here a ring on the viewport overlay at each selected
+        // instance's origin (no render pass: the ImGui draw list of the viewport window). @p viewProjection is
+        // the view camera's projection * view; @p viewportPos / @p viewportSize the scene image on screen.
+        static void DrawSelection( ::Desert::Core::Scene& scene, const glm::mat4& viewProjection,
+                                   const glm::vec2& viewportPos, const glm::vec2& viewportSize );
+
         [[nodiscard]] bool IsStroking() const
         {
             return m_Stroke.has_value();
