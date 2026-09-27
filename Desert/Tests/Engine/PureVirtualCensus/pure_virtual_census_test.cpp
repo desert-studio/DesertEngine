@@ -686,6 +686,44 @@ namespace
          // somebody has to say what it is for.
     };
 
+    // INTERFACES DECLARED AHEAD OF THEIR IMPLEMENTATION, by the owner's order. CLO0 (2026-09-27) was
+    // asked for "only interfaces" for cloth, hair and modular characters, with the backends as separate
+    // named tasks. Such a base has no implementation and no caller in the scanned trees BY DESIGN — its
+    // fakes and callers live in Desert/Tests/Engine/ClothHairEquipmentApi, which this census does not
+    // scan — so both rules above would call it dead. It is not the habit those rules hunt (a body
+    // written that nothing runs): it is a seam with a named task owing its implementation.
+    //
+    // One row per CLASS, naming that task. The row is checked in BOTH directions like k_Census: the
+    // class must still be abstract and still have no derived class in the tree — the moment the task
+    // lands its implementation, this suite goes red until the row is deleted, and from then on the two
+    // rules above hold the class like any other.
+    struct AheadOfImplementationRow
+    {
+        const char* Class;
+        const char* Header;
+        const char* Task;
+    };
+
+    constexpr std::array<AheadOfImplementationRow, 6> k_AheadOfImplementation = { {
+         { "IClothingSimulation", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+           "CLO1: Jolt SoftBody backend" },
+         { "IClothingSimulationFactory", "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+           "CLO1: Jolt SoftBody backend" },
+         { "IGroomSimulation", "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp", "HAIR1: guide solver" },
+         { "IGroomSimulationFactory", "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
+           "HAIR1: guide solver" },
+         { "IGroomRenderDataSource", "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
+           "HAIR1: groom instance + strand renderer" },
+         { "IModularCharacter", "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp",
+           "EQP1: ECS modular character + Lua bindings" },
+    } };
+
+    bool DeclaredAheadOfImplementation( const std::string& cls )
+    {
+        return std::any_of( k_AheadOfImplementation.begin(), k_AheadOfImplementation.end(),
+                            [&]( const AheadOfImplementationRow& row ) { return cls == row.Class; } );
+    }
+
     std::string Key( const std::string& cls, const std::string& method )
     {
         return cls + "::" + method;
@@ -750,7 +788,7 @@ TEST( PureVirtualCensus, EveryDeadPureVirtualIsInTheRegisterAndEveryRegisterRowI
                 }
             }
         }
-        if ( !reached )
+        if ( !reached && !DeclaredAheadOfImplementation( entry.Class ) )
             dead.emplace( Key( entry.Class, entry.Method ), entry );
     }
 
@@ -823,6 +861,8 @@ TEST( PureVirtualCensus, NoAbstractBaseIsLeftWithoutASingleImplementation )
 
     for ( const auto& base : abstractBases )
     {
+        if ( DeclaredAheadOfImplementation( base.first ) )
+            continue; // held by InterfacesDeclaredAheadOfImplementationAreStillUnimplemented
         EXPECT_EQ( hasDerived.count( base.first ), 1u )
              << base.first << " (" << base.second
              << ") declares a pure virtual and NOTHING in the repository derives from it. It cannot be "
@@ -847,6 +887,44 @@ TEST( PureVirtualCensus, ABaseNamedThroughAnAliasCountsAsDerived )
     EXPECT_EQ( derivedFrom.count( "TOtherBase" ), 1u );
     EXPECT_EQ( derivedFrom.count( "FMeshBase" ), 1u );
     EXPECT_EQ( derivedFrom.count( "Mesh" ), 0u ) << "a template argument is not a base";
+}
+
+TEST( PureVirtualCensus, InterfacesDeclaredAheadOfImplementationAreStillUnimplemented )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const Tree                         tree = ReadTree( root );
+    std::set<std::string>              hasDerived;
+    std::map<std::string, std::string> aliases;
+    for ( const auto& file : tree.Files )
+    {
+        const std::string& code = tree.Code.at( file.string() );
+        for ( const auto& span : ClassSpans( code ) )
+        {
+            for ( const std::string& base : BaseNames( span.BaseClause ) )
+                hasDerived.insert( base );
+        }
+        aliases.merge( TypeAliases( code ) );
+    }
+    ResolveAliases( hasDerived, aliases );
+
+    std::map<std::string, std::string> abstractHeader; // class -> declaring header
+    for ( const auto& entry : PureVirtuals( root, tree ) )
+        abstractHeader.emplace( entry.Class, entry.Header );
+
+    for ( const auto& row : k_AheadOfImplementation )
+    {
+        const auto it = abstractHeader.find( row.Class );
+        ASSERT_NE( it, abstractHeader.end() )
+             << row.Class << " is no longer an abstract base in the tree -- delete its row (" << row.Task << ").";
+        EXPECT_EQ( it->second, row.Header ) << row.Class << " moved; update the row";
+        EXPECT_EQ( hasDerived.count( row.Class ), 0u )
+             << row.Class << " has an implementation now (" << row.Task
+             << "): delete its k_AheadOfImplementation row so the two census rules hold it like any other base.";
+    }
+    // Stated so growth is visible, as the count below is.
+    EXPECT_EQ( k_AheadOfImplementation.size(), 6u );
 }
 
 TEST( PureVirtualCensus, TheNumberIsStatedSoAShrinkageIsVisible )

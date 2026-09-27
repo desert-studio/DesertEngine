@@ -32,6 +32,7 @@
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
+#include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
@@ -760,6 +761,21 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Bloom Tint" ), Category( "Light Shafts" ), Color,
                   EditCondition( "LightShaftBloom" ), Tooltip( "Tint of the light-shaft streaks." ) )
         glm::vec3 BloomTint = glm::vec3( 1.0f );
+
+        // THE CASCADED SHADOW MAPS OF THIS LIGHT (UE: UDirectionalLightComponent's Cascaded Shadow Maps
+        // section). They were SceneSettings until SET1 — a level-wide switch for the shadows of the one
+        // light that has any. Graphic::ResolveViewSettings reads them from the light it elects, the same
+        // one Scene::OnUpdate shades with.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Cascaded Shadow Maps" ) )
+        bool CastShadows = true;
+
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 0.05f ) )
+        float ShadowBias = 0.005f;
+
+        PROPERTY( DisplayName( "Cascade Split Lambda" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "0 = uniform cascade splits, 1 = logarithmic; UE's Distribution Exponent plays "
+                           "the same part." ) )
+        float CascadeSplitLambda = 0.6f;
     };
 
     struct DirectionLightComponent

@@ -337,7 +337,8 @@ TEST( LandscapeRaycast, ARefusedTileIsTracedThroughAndTheHitNamesItsIndexInTheWh
     ASSERT_TRUE( low.IsSuccess() && high.IsSuccess() );
     const LandscapeTileData lowTile  = low.ExtractValue();
     const LandscapeTileData highTile = high.ExtractValue();
-    LandscapeFrame          lowFrame, highFrame;
+    const LandscapeFrame    lowFrame;
+    LandscapeFrame          highFrame;
     highFrame.BaseY = 300.0f; // the same rectangle, 3 m higher: a surface over the ground
     const std::vector<LandscapeRayTile> tiles{ { &highTile, highFrame }, { &lowTile, lowFrame } };
 
@@ -346,6 +347,8 @@ TEST( LandscapeRaycast, ARefusedTileIsTracedThroughAndTheHitNamesItsIndexInTheWh
 
     const auto all = RaycastLandscape( tiles, origin, down, 1e4f, {} );
     ASSERT_TRUE( all.has_value() );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( all->Tile, 0u );
     EXPECT_NEAR( all->Point.y, 300.0f, 1e-3f );
 
@@ -353,6 +356,7 @@ TEST( LandscapeRaycast, ARefusedTileIsTracedThroughAndTheHitNamesItsIndexInTheWh
     ASSERT_TRUE( through.has_value() );
     EXPECT_EQ( through->Tile, 1u ) << "the index in the whole set, not in the kept subset";
     EXPECT_NEAR( through->Point.y, 0.0f, 1e-3f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     EXPECT_FALSE( RaycastLandscape( tiles, origin, down, 1e4f, []( size_t ) { return false; } ) )
          << "every tile refused is a miss";

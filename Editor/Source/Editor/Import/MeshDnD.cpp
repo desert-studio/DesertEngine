@@ -1,3 +1,4 @@
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include "MeshDnD.hpp"
 #include "ImportManager.hpp"
@@ -124,6 +125,15 @@ namespace Desert::Editor::MeshDnD
 
         if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
             return Common::UUID::Null(); // cook failed / produced a skinned mesh (.skmesh) instead
+
+        // THE SOURCE'S IDENTITY (FIX8): a source cooked before its record existed (the DDC already held its
+        // envelope, so no import ran) gets its record now - the import's first step, taken here because this
+        // is the import entry for a drop. The asset below reads its GUID from it.
+        if ( const auto identity = Assets::Serialization::EnsureImportRecord( sourcePath ); !identity )
+        {
+            LOG_ERROR( "[MeshDnD] {}", identity.GetError() );
+            return Common::UUID::Null();
+        }
 
         // Create + register + load the cooked static mesh, return its handle.
         auto created = mgr.CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High, cookedStr,

@@ -737,7 +737,10 @@ namespace
     // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
     // records stay point-only once the gathered registry answers for them.
     constexpr std::size_t kCorpusMeshReferences        = 32;
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2447;
+    // SET1 (scene v36) gave each of the 148 corpus scenes an unbound PostProcessVolume: a record with no
+    // extent of its own (it grades everywhere and loads Global), so +148 on both counts.
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2595;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2627;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
@@ -817,7 +820,7 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGathered
         seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
     }
 
-    EXPECT_EQ( blind, 2479u );
+    EXPECT_EQ( blind, kCorpusPointOnlyBlind );
     EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
     EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
     std::printf( "[corpus] %zu answered of %zu asked; point-only %zu blind, %zu with the registry\n", answers,

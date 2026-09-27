@@ -2,6 +2,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -303,6 +304,12 @@ namespace Common::Content
 
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
     {
+        // A STATIC MESH IMPORTED SINCE AF4h HAS NO FILE OF ITS OWN: its row is described from the import
+        // record that stands for it (FIX8, ImportRecord.hpp) - asked by path (ContentRegistry::Update after a
+        // cook) or visited as the record itself (the walk below).
+        if ( kind == ContentKind::StaticMesh )
+            if ( const auto record = ImportRecordStandingFor( file ) )
+                return DescribeContentFile( *record, kind );
         ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
         if ( kind == ContentKind::StaticMesh )
             described.HeaderBounds = ReadMeshAssetMetaBounds( file );
@@ -382,6 +389,18 @@ namespace Common::Content
                 {
                     // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
                     // kind whose root is the LONGEST that contains it, never to whichever row was walked first.
+                    // An import record stands for a static mesh asset that has no file (FIX8): the row is
+                    // the asset's key, described from the record. An asset that does exist is its own row.
+                    if ( kind == ContentKind::StaticMesh && IsImportRecord( candidate ) )
+                    {
+                        const std::filesystem::path asset = MeshAssetOfImportRecord( candidate );
+                        std::error_code             ec;
+                        if ( std::filesystem::exists( asset, ec ) || KindOfContentFile( asset ) != kind )
+                            continue;
+                        if ( const std::string key = AssetHandle::StableKeyForPath( asset ); !key.empty() )
+                            visit( candidate, kind, key );
+                        continue;
+                    }
                     if ( LowerExtension( candidate ) != spec.Extension || KindOfContentFile( candidate ) != kind )
                         continue;
 
@@ -566,8 +585,13 @@ namespace Common::Content
         text += '\n';
         for ( const Utils::AssetRegistryEntry& row : registry.Entries() )
         {
-            text +=
-                 std::to_string( SettledModifiedTime( AssetHandle::PathForStableKey( row.Key ), serializedAt ) );
+            // The stamp of the file the gather DESCRIBES the row from: for an imported static mesh that is
+            // its import record (FIX8), not the `.stmesh` its key names and that does not exist. Stamping
+            // the key's path wrote 0 for every imported mesh, so each gather re-read them all.
+            std::filesystem::path described = AssetHandle::PathForStableKey( row.Key );
+            if ( const auto record = ImportRecordStandingFor( described ) )
+                described = *record;
+            text += std::to_string( SettledModifiedTime( described, serializedAt ) );
             text += ' ';
             text += row.Key;
             text += '\n';

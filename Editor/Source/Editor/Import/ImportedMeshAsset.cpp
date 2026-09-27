@@ -1,5 +1,7 @@
 #include "ImportedMeshAsset.hpp"
 
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
+
 #include "CookPaths.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
@@ -135,20 +137,19 @@ namespace Desert::Editor
                             name, source.DroppedDegenerate, source.DroppedDuplicate, source.DetachedTriangles );
     }
 
-    namespace
+    std::optional<std::filesystem::path> RemoveBesideSourceFile( const std::filesystem::path& source )
     {
-        // A LEGACY BESIDE-SOURCE FILE, from a build of the engine that still wrote one at
-        // CookPaths::MeshAsset( source ) (AF4d's original design, retired by AF4h): removed rather than
-        // left behind. It must never be read in preference to the DDC entry (Assets::LoadMeshSourceAsset
-        // does not even look at it once a companion source exists), and an untracked, multi-megabyte file
-        // with nothing pointing at it is not something a cook should leave for the next person to wonder
-        // about.
-        void RemoveStaleBesideSourceFile( const std::filesystem::path& source )
-        {
-            std::error_code ec;
-            std::filesystem::remove( CookPaths::MeshAsset( source ), ec );
-        }
-    } // namespace
+        const std::filesystem::path asset = CookPaths::MeshAsset( source );
+        // Asked before the removal: afterwards the file that answers it is gone.
+        const bool      edited = Assets::IsEditedImportedMesh( asset );
+        std::error_code ec;
+        if ( !std::filesystem::remove( asset, ec ) || !edited )
+            return std::nullopt;
+        LOG_WARN( "[Import] re-importing '{}' OVERWROTE the modeling edits saved in '{}': the asset is the "
+                  "source file's import again (the edit is gone; undo does not bring it back)",
+                  source.generic_string(), asset.generic_string() );
+        return asset;
+    }
 
     bool ImportedMeshAssetIsFresh( const std::filesystem::path& source )
     {
@@ -177,20 +178,23 @@ namespace Desert::Editor
             return Common::MakeError<MeshAssetWrite>( hash.GetError() );
         const uint64_t key = Assets::MeshSourceDerivedDataKey( hash.GetValue() );
 
-        RemoveStaleBesideSourceFile( source );
+        (void)RemoveBesideSourceFile( source );
+
+        // THE IDENTITY FIRST (FIX8): the record beside the source is written by the first import and read by
+        // every later one, so a re-import of changed bytes keeps the GUID every reference holds.
+        const auto identity = Assets::Serialization::EnsureImportRecord( source );
+        if ( !identity )
+            return Common::MakeError<MeshAssetWrite>( identity.GetError() );
 
         if ( Common::DDC::Get( Assets::kMeshSourceDeriver, key ).has_value() )
             return Common::MakeSuccess( MeshAssetWrite::Unchanged ); // this exact content is already cached
 
-        // A RE-IMPORT OF CHANGED BYTES MINTS A NEW GUID (unlike the old beside-file design, which kept the
-        // one already on disk): the cache is addressed by content, and there is no beside-source file left
-        // to read an old identity from. Scenes are unaffected - StaticMeshAsset's handle comes from its
-        // PATH (AssetBase::AssetBase -> AssetHandle::FromCookedPath), never from this Guid; this Guid is
-        // this envelope's OWN identity for the content registry and for anything that references a mesh by
-        // it specifically, and it is stable for as long as the source's bytes are (AF4h).
+        // THE ENVELOPE STATES THE RECORD'S GUID (FIX8). Its DDC key is the source's bytes, so an edit of the
+        // source makes a new envelope - under the same identity, because the record is not rewritten. (AF4h
+        // minted a GUID per import here, and every reference by GUID died with the next edit of the .fbx.)
         Assets::MeshSourceAsset asset;
         asset.Kind              = Common::Content::ContentKind::StaticMesh;
-        asset.Guid              = Common::Content::AssetGuid::Generate();
+        asset.Guid              = identity.GetValue();
         asset.Name              = source.stem().string();
         asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
         asset.Import.SourceHash = hash.GetValue();

@@ -17,6 +17,7 @@
 #include <glm/geometric.hpp>
 
 #include <array>
+#include <cstdint>
 #include <cmath>
 #include <utility>
 

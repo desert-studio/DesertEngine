@@ -496,6 +496,9 @@ namespace Desert::Core::Rules
          { "UICanvas", ComponentLoading::ByField, "RenderMode", 1.0, true },
          // `Spatial` true (the default) attenuates from the entity; false is music/ambience — no place.
          { "AudioSource", ComponentLoading::ByField, "Spatial", 1.0, false },
+         // `Unbound` true (the default) is the level's base grade, applied wherever the camera is; false is a
+         // box around the entity, which grades only the cells it covers (UE's bUnbound on APostProcessVolume).
+         { "PostProcessVolume", ComponentLoading::ByField, "Unbound", 0.0, true },
          // ── Spatial ──
          { "Animation", ComponentLoading::Spatial },
          { "CharacterController", ComponentLoading::Spatial },

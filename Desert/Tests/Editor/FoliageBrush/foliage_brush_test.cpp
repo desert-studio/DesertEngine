@@ -8,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -216,6 +218,51 @@ TEST( FoliageBrush, ATypeTiedToALayerPlantsOnlyWhereTheLayerIs )
     // A static mesh is not filtered by layer (UE: GetMaxHitWeight answers only for a landscape).
     const auto mesh = Plane( { 0.0f, 1.0f, 0.0f }, 0.0f, FoliageSurface::StaticMesh, std::nullopt );
     EXPECT_FALSE( FoliageBrushAdd( type, DabAt( {}, 500.0f ), {}, rng, mesh ).empty() );
+}
+
+// FO-UI1: the BRUSH's landscape-layer filter holds every checked type to the chosen layers, whatever the type
+// says. Ground whose brush-layer weight is 1 west of x = 0 and 0 east of it; a mesh sheet is not filtered.
+TEST( FoliageBrush, ABrushLayerFilterPlantsOnlyWhereTheBrushLayerIs )
+{
+    const auto halfPainted = []( FoliageSurface surface )
+    {
+        FoliageBrushWorld world;
+        world.Trace = [=]( const glm::vec3& a, const glm::vec3& b,
+                           const FoliageSurfaceFilter& ) -> std::optional<FoliageTraceHit>
+        {
+            if ( ( a.y > 0.0f ) == ( b.y > 0.0f ) )
+                return std::nullopt;
+            const glm::vec3 p = a + ( a.y / ( a.y - b.y ) ) * ( b - a );
+            FoliageTraceHit hit{ p, { 0.0f, 1.0f, 0.0f }, surface, std::nullopt };
+            if ( surface == FoliageSurface::Landscape )
+                hit.BrushLayerWeight = p.x < 0.0f ? 1.0f : 0.0f;
+            return hit;
+        };
+        return world;
+    };
+    FoliageRandom   rng( 11u );
+    FoliageBrushDab dab = DabAt( {}, 500.0f );
+
+    const auto unfiltered = FoliageBrushAdd( Grass(), dab, {}, rng, halfPainted( FoliageSurface::Landscape ) );
+    ASSERT_FALSE( unfiltered.empty() );
+    EXPECT_TRUE( std::ranges::any_of( unfiltered, []( const glm::mat4& m ) { return m[3].x > 0.0f; } ) );
+
+    dab.Filter.LayerFiltered      = true;
+    dab.Filter.MinimumLayerWeight = 0.5f;
+    const auto filtered = FoliageBrushAdd( Grass(), dab, {}, rng, halfPainted( FoliageSurface::Landscape ) );
+    ASSERT_FALSE( filtered.empty() );
+    EXPECT_TRUE( std::ranges::all_of( filtered, []( const glm::mat4& m ) { return m[3].x < 0.0f; } ) );
+
+    // Single refuses a click on the unpainted half and places on the painted one.
+    FoliageBrushDab east = DabAt( { 200.0f, 0.0f, 0.0f }, 100.0f );
+    east.Filter          = dab.Filter;
+    EXPECT_FALSE( FoliageBrushSingle( Grass(), east, rng, halfPainted( FoliageSurface::Landscape ) ) );
+    FoliageBrushDab west = DabAt( { -200.0f, 0.0f, 0.0f }, 100.0f );
+    west.Filter          = dab.Filter;
+    EXPECT_TRUE( FoliageBrushSingle( Grass(), west, rng, halfPainted( FoliageSurface::Landscape ) ) );
+
+    // A static mesh carries no layer: the brush layer does not filter it.
+    EXPECT_FALSE( FoliageBrushAdd( Grass(), dab, {}, rng, halfPainted( FoliageSurface::StaticMesh ) ).empty() );
 }
 
 TEST( FoliageBrush, SlopeAndHeightRangesRefuseGroundOutsideThem )

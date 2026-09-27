@@ -1,0 +1,11 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "56916479183d19ac580f5e8f62a520c4",
+        "Versions": {
+            "DIMP": 1
+        },
+        "Dependencies": []
+    },
+    "Source": "base.fbx"
+}

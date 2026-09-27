@@ -125,7 +125,8 @@
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
-#include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
+#include "Editor/Panels/Scalability/ScalabilityPanel.hpp"
+#include "Editor/Panels/WorldSettings/WorldSettingsPanel.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
@@ -224,8 +225,11 @@ namespace Desert::Editor
             for ( const std::string& key : keys )
             {
                 named += named.empty() ? key : ", " + key;
-                const std::filesystem::path file  = Common::AssetHandle::PathForStableKey( key );
-                const auto                  bytes = Common::Utils::FileSystem::ReadFileContent( file );
+                const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
+                // The render-form bytes through the DDC, not the file at the key: an imported mesh has no
+                // `.stmesh` of its own since AF4h (its row comes from the import record, FIX8), and the
+                // DDC answers for it and for an authored `.stmesh` alike.
+                const auto bytes = Assets::LoadMeshPlatformData( file );
                 if ( !bytes )
                 {
                     LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
@@ -282,8 +286,10 @@ namespace Desert::Editor
             return ICON_MDI_TUNE;
         if ( name == "Assets" )
             return ICON_MDI_FOLDER_OUTLINE;
-        if ( name == "Scene Settings" )
+        if ( name == "World Settings" )
             return ICON_MDI_COG;
+        if ( name == "Scalability" )
+            return ICON_MDI_TUNE;
         if ( name == "Logs" )
             return ICON_MDI_TEXT_BOX_OUTLINE;
         if ( name == "History" )
@@ -818,7 +824,8 @@ namespace Desert::Editor
         }
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
         m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
-        m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
+        m_Panels.Add<Editor::WorldSettingsPanel>( m_MainScene );
+        m_Panels.Add<Editor::ScalabilityPanel>();
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
         // the getter each frame, because Stop and a streaming error destroy it from this side.
         m_WorldPartitionPanel = &m_Panels.Add<Editor::WorldPartitionPanel>(
@@ -3849,7 +3856,7 @@ namespace Desert::Editor
                 //  │ Outliner  │ per open asset document    ├──────────────┤
                 //  ├───────────┤ (DocumentPlacement)        │ SceneSettings│
                 //  │Collections├────────────────────────────┤ / Profiler   │
-                //  │           │ Assets / Logs / Documents  │ / Foliage    │
+                //  │           │ Assets / Logs / Documents  │              │
                 //  └───────────┴────────────────────────────┴──────────────┘
                 //
                 // THE CENTRE IS WHOLE. An asset document is a tab beside the level, the way Unreal opens an
@@ -3866,14 +3873,17 @@ namespace Desert::Editor
 
                 // Panels routed through the central Begin carry an icon (a ### suffix), so dock them by the
                 // SAME composed title — otherwise the icon-changed ImGui ID wouldn't match this assignment.
-                // Non-panel windows (Profiler / Foliage / Shader Code) self-Begin with plain names.
+                // Non-panel windows (Profiler / Shader Code) self-Begin with plain names.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene###scene" ).c_str(), center );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene Outliner" ).c_str(), left );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Collections" ).c_str(), leftBottom );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Details" ).c_str(), right );
-                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Scene Settings" ).c_str(), rightBottom );
+                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "World Settings" ).c_str(), rightBottom );
                 ::ImGui::DockBuilderDockWindow( "Profiler", rightBottom );
-                ::ImGui::DockBuilderDockWindow( "Foliage##FoliagePanel", rightBottom );
+                // NO LINE FOR "Foliage##FoliagePanel" (FO-UI1): docked here it became a tab behind Scene Settings
+                // that entering Foliage mode never showed, in a node ~300 px tall. It floats over the viewport's
+                // left edge while Foliage mode is on (FoliagePaintTool::DrawPanel), as UE's mode toolkit sits
+                // beside the level.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Assets" ).c_str(), bottom );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Logs" ).c_str(), bottom );
                 ::ImGui::DockBuilderDockWindow( "Shader Code", bottom );
@@ -5097,6 +5107,24 @@ namespace Desert::Editor
                    Core::MeshElementSelection::Get().ReqPickCentre = true;
                    return PaletteCommandDone();
                } } );
+        // UE's Accept on a static mesh (P9b): the selected entity's edit goes INTO its asset - an imported .fbx
+        // mesh included - under the same GUID, so every scene and foliage type naming the mesh draws the edit.
+        commands.push_back(
+             { "Modeling", "Accept: write the edit into the static mesh asset", [this]
+               {
+                   const auto selected = Core::SelectionManager::GetSelected();
+                   if ( !m_MainScene || !selected.has_value() )
+                       return PaletteCommandOutcome( false, "no entity is selected" );
+                   auto ref = m_MainScene->FindEntityByID( *selected );
+                   if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                       return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
+                   auto written =
+                        Editor::CommitEditableMeshToAsset( ref->get().GetComponent<ECS::StaticMeshComponent>() );
+                   if ( !written.IsSuccess() )
+                       return PaletteCommandOutcome( false, written.GetError() );
+                   LOG_INFO( "[Modeling] the edit was written into '{}'", written.GetValue().generic_string() );
+                   return PaletteCommandDone();
+               } } );
         // The operations on that selection, at the panel's values (ModelingState). Cut is not here: it needs
         // a line drawn in the viewport (the knife, Alt+K).
         for ( const Core::MeshOperation op :
@@ -5617,23 +5645,42 @@ namespace Desert::Editor
         }
         // FOLIAGE (FO-3): a type file into the palette, and the stroke a hand gives at the viewport centre.
         {
-            std::error_code ec;
-            for ( auto it =
-                       std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
-                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            // Through the one content enumeration (loose files and a mounted .dpak alike).
+            for ( const std::filesystem::path& file :
+                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ) )
             {
-                if ( !it->is_regular_file() ||
-                     it->path().extension() != Assets::Serialization::kFoliageTypeExtension )
-                    continue;
-                const std::string path = it->path().generic_string();
+                const std::string ext  = file.extension().string();
+                const std::string path = file.generic_string();
                 // NOLINTBEGIN(bugprone-exception-escape)
+                // FO-UI1: the "+ Foliage" picker's static meshes (a type is found or made for the mesh).
+                if ( ext == ".fbx" || ext == ".obj" || ext == ".gltf" || ext == ".glb" )
+                    commands.push_back(
+                         { "Foliage", "Add mesh to the palette: " + file.stem().string(), [this, path]
+                           {
+                               if ( !m_MainScene || !m_AssetManager )
+                                   return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                               Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                               return Tools::FoliagePaintTool::AddMeshFile( *m_MainScene, *m_AssetManager, path );
+                           } } );
+                if ( ext != Assets::Serialization::kFoliageTypeExtension )
+                    continue;
                 commands.push_back(
-                     { "Foliage", "Add type to the palette: " + it->path().stem().string(), [this, path]
+                     { "Foliage", "Add type to the palette: " + file.stem().string(), [this, path]
                        {
                            if ( !m_MainScene || !m_AssetManager )
                                return PaletteCommandOutcome( false, "no scene or no asset manager" );
                            Core::ViewportMode::Set( Core::EditorMode::Foliage );
                            return Tools::FoliagePaintTool::AddTypeFile( *m_MainScene, *m_AssetManager, path );
+                       } } );
+                // FO-UI1: the row menu's Replace.
+                commands.push_back(
+                     { "Foliage", "Replace the edited type with: " + file.stem().string(), [this, path]
+                       {
+                           const auto editing = Core::FoliagePaint::EditingType();
+                           if ( !m_MainScene || !m_AssetManager || !editing )
+                               return PaletteCommandOutcome( false, "no scene, asset manager or edited type" );
+                           return Tools::FoliagePaintTool::ReplaceType( *m_MainScene, *m_AssetManager, *editing,
+                                                                        path );
                        } } );
                 // NOLINTEND(bugprone-exception-escape)
             }
@@ -5681,6 +5728,136 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false, "no scene" );
                                   return Tools::FoliagePaintTool::SelectNone( *m_MainScene );
                               } } );
+        // FOLIAGE PANEL (FO-UI1): every control of the panel (Editor/Panels/Foliage/FoliagePanel.cpp) without a
+        // mouse; the FoliagePalette suite's census holds the two in step.
+        commands.push_back( { "Foliage", "Select all instances of the checked types",
+                              [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::SelectAllInstances( *m_MainScene );
+                              } } );
+        commands.push_back(
+             { "Foliage", "Add the selected entity to the palette", [this]() -> Common::BoolResultStr
+               {
+                   if ( !m_MainScene || !m_AssetManager )
+                       return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                   const auto& selected = Core::SelectionManager::GetSelected();
+                   if ( !selected )
+                       return PaletteCommandOutcome( false, "no entity is selected" );
+                   Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                   return Tools::FoliagePaintTool::AddFromEntity( *m_MainScene, *m_AssetManager, *selected );
+               } } );
+        commands.push_back( { "Foliage", "Palette: grid view", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::GridView() = true;
+                                  return BOOLSUCCESS;
+                              } } );
+        commands.push_back( { "Foliage", "Palette: list view", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::GridView() = false;
+                                  return BOOLSUCCESS;
+                              } } );
+        commands.push_back( { "Foliage", "Palette: clear the search", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::Search().clear();
+                                  return BOOLSUCCESS;
+                              } } );
+        commands.push_back( { "Foliage", "Palette: save as preset", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene || !m_AssetManager )
+                                      return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                                  return Tools::FoliagePaintTool::SavePreset( *m_MainScene, *m_AssetManager,
+                                                                              Core::FoliagePaint::PresetName() );
+                              } } );
+        commands.push_back( { "Foliage", "Preview the brush footprint at viewport centre",
+                              [] { return ViewportPanel::PreviewFoliageInActiveViewport(); } } );
+        commands.push_back( { "Foliage", "Brush filter: landscape on/off", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::FilterLandscape() = !Core::FoliagePaint::FilterLandscape();
+                                  return BOOLSUCCESS;
+                              } } );
+        commands.push_back( { "Foliage", "Brush filter: static meshes on/off", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::FilterStaticMesh() = !Core::FoliagePaint::FilterStaticMesh();
+                                  return BOOLSUCCESS;
+                              } } );
+        commands.push_back( { "Foliage", "Brush layer filter: off", []() -> Common::BoolResultStr
+                              {
+                                  Core::FoliagePaint::BrushLayers().clear();
+                                  return BOOLSUCCESS;
+                              } } );
+        if ( m_MainScene )
+        {
+            std::set<std::string> layerNames;
+            for ( const auto& entity : m_MainScene->GetAllEntities() )
+                if ( entity.HasComponent<ECS::LandscapeTileComponent>() &&
+                     entity.GetComponent<ECS::LandscapeTileComponent>().Heights )
+                    for ( const auto& layer :
+                          entity.GetComponent<ECS::LandscapeTileComponent>().Heights->WeightLayers() )
+                        layerNames.insert( layer.Name );
+            for ( const auto& name : layerNames )
+                commands.push_back( { "Foliage", "Brush layer filter: toggle " + name,
+                                      [name]() -> Common::BoolResultStr
+                                      {
+                                          auto&      layers = Core::FoliagePaint::BrushLayers();
+                                          const auto it     = std::ranges::find( layers, name );
+                                          if ( it == layers.end() )
+                                              layers.push_back( name );
+                                          else
+                                              layers.erase( it );
+                                          return BOOLSUCCESS;
+                                      } } );
+            // The rows: one "edit" per listed type (the row's click), then the edited type's own actions.
+            for ( const auto& field : Tools::FoliagePaintTool::PaletteFields( *m_MainScene ) )
+            {
+                const auto uuid = field.GetComponent<ECS::UUIDComponent>().UUID;
+                commands.push_back( { "Foliage", "Palette: edit " + field.GetComponent<ECS::TagComponent>().Tag,
+                                      [uuid]() -> Common::BoolResultStr
+                                      {
+                                          Core::FoliagePaint::SetEditingType( uuid );
+                                          return BOOLSUCCESS;
+                                      } } );
+            }
+        }
+        using FieldAction = std::function<Common::BoolResultStr( const Common::UUID& )>;
+        const std::pair<const char*, FieldAction> editedActions[] = {
+             { "Edited type: toggle checked (paint with it)",
+               []( const Common::UUID& uuid ) -> Common::BoolResultStr
+               {
+                   Core::FoliagePaint::ToggleActive( uuid );
+                   return BOOLSUCCESS;
+               } },
+             { "Edited type: toggle visibility", [this]( const Common::UUID& uuid )
+               { return Tools::FoliagePaintTool::ToggleTypeVisible( *m_MainScene, uuid ); } },
+             { "Edited type: select all instances", [this]( const Common::UUID& uuid )
+               { return Tools::FoliagePaintTool::SelectTypeInstances( *m_MainScene, uuid ); } },
+             { "Edited type: save as asset", [this]( const Common::UUID& uuid )
+               { return Tools::FoliagePaintTool::SaveTypeCopy( *m_MainScene, *m_AssetManager, uuid ); } },
+             { "Edited type: show in Content Browser", [this]( const Common::UUID& uuid )
+               { return Tools::FoliagePaintTool::ShowTypeInBrowser( *m_MainScene, uuid ); } },
+             { "Edited type: remove from the palette", [this]( const Common::UUID& uuid )
+               { return Tools::FoliagePaintTool::RemoveType( *m_MainScene, uuid ); } },
+             { "Edited type: cast shadows on/off",
+               [this]( const Common::UUID& uuid ) -> Common::BoolResultStr
+               {
+                   const auto ref = m_MainScene->FindEntityByID( uuid );
+                   if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                       return Common::MakeError( "the edited type has no instanced mesh" );
+                   bool& casts = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().CastShadows;
+                   casts       = !casts;
+                   return BOOLSUCCESS;
+               } },
+        };
+        for ( const auto& [label, action] : editedActions )
+            commands.push_back( { "Foliage", label, [this, action]() -> Common::BoolResultStr
+                                  {
+                                      const auto editing = Core::FoliagePaint::EditingType();
+                                      if ( !m_MainScene || !m_AssetManager || !editing )
+                                          return PaletteCommandOutcome( false,
+                                                                        "no scene or no edited foliage type" );
+                                      return action( *editing );
+                                  } } );
         // NOLINTEND(bugprone-exception-escape)
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
@@ -8478,7 +8655,7 @@ namespace Desert::Editor
         // ten panels under "NOT YET GROUPED" that are grouped. The census has to be readable without opening
         // anything, so it is stated once here and the drawing below refers to it.
         static constexpr const char* kLevelGroup[]    = { "Scene Outliner", "Collections",      "Details",
-                                                          "Scene Settings", "Scene Validation", "World Partition" };
+                                                          "World Settings", "Scene Validation", "World Partition" };
         static constexpr const char* kContentGroup[]  = { "Assets", "Asset References", "Shader Library" };
         static constexpr const char* kOutputGroup[]   = { "Logs", "Lua Console", "History" };
         static constexpr const char* kViewportGroup[] = { "Scene###scene" };
@@ -8492,7 +8669,7 @@ namespace Desert::Editor
         // Localization sits with the tools rather than with the level: it is about the PROJECT's strings,
         // not about the scene that happens to be open, and it keeps answering after every scene change.
         static constexpr const char* kToolGroup[] = { "Modeling", "Model from Photos", "Build Settings",
-                                                      "Localization" };
+                                                      "Scalability", "Localization" };
 
         std::unordered_set<std::string> placed;
         for ( const auto& group :

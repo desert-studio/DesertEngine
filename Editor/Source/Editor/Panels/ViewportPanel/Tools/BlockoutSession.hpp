@@ -5,7 +5,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <glm/glm.hpp>
