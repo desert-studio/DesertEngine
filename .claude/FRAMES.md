@@ -28,13 +28,10 @@
 export HOME=/private/tmp/claude-501/<T>/home; mkdir -p $HOME
 cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
   --scene Resources/Assets/Scenes/Starter.desce \
-  --shot /private/tmp/claude-501/<T>/shot.png --shot-frames 90 --camera 0,200,400 --look 0,-0.3,-1 \
+  --shot /private/tmp/claude-501/<T>/shot.png --shot-frames 90 --camera 0,200,0 --look 0,0.9,-1 \
   > /private/tmp/claude-501/<T>/editor.log 2>&1
 ```
-`--camera`/`--look` ОБЯЗАТЕЛЬНО со значениями. **Камера `0,200,0 --look 0,0.9,-1` на Starter видит ТОЛЬКО небо** (09-27: AL1-4, AL1-12a,
-PSO1 — кадр «= dev» ничего не доказывал); для объектов Starter — `--camera 0,200,400 --look 0,-0.3,-1`; для неба —
-три высоты (память check-three-elevations). **GPU-строка одного прохода:** `--gpu-profile` + `grep 'slot 0 | <pass>'`
-в логе — мерить свою строку, не разницу кадров. Падение в teardown после записи PNG — известное, PNG уже записан.
+`--camera`/`--look` ОБЯЗАТЕЛЬНО со значениями. Падение в teardown после записи PNG — известное, PNG уже записан.
 Облака/накопление: 90 кадров; per-frame-in-flight состояние — снимай и `--shot-frames 3`.
 
 ## 2. Сценарий (команды палитры, камера, несколько кадров) — DesertCtl
@@ -78,21 +75,3 @@ $C quit 0
   `/private/tmp/claude-501/p10e/` (скрипт в `agent/`).
 
 Появился новый рабочий рецепт — допиши сюда строкой в отчёте тимлиду (сам `.claude/` не правишь).
-
-## 4. Добавлено 2026-09-27
-- **DesertCtl из Bash-инструмента** — через `/bin/bash -c '…'`: инструмент запускает zsh, и `$C` не делится на аргументы.
-- **Открыть ассет:** `$C run Open "<папка>/<файл>"` (путь от корня Assets), напр. `run Open "Textures/HDR/PreviewCheck.detex"`.
-- **Details:** `run Entity <имя>` → `run Details "Show field: <Компонент> / <Поле>"`, `run Details "Open picker: Skybox|Static mesh|Material slot N"`;
-  список появляется КАДРОМ ПОЗЖЕ — `sleep 2` перед `shot-window`. Popup выше окна уходит в окно ОС и в кадр не попадает.
-- **Content Browser:** `run Panel "Open Assets"`, `run Assets "Open folder: Materials"`, `run Panel "Maximize panel: Assets"` / `"Restore panel"`.
-- **Сокет на Windows:** путь ≤ 107 символов (AF_UNIX), напр. `C:/aftmp/x.sock`.
-- **Если редактор вышел, а обёртка висит** — это был `footprint -p` (теперь с тайм-аутом 5 с в run_capped.sh).
-
-## Sky bake runs (AL1-3b/3c, 09-27)
-- `/private/tmp/claude-501/al1-3b/run.sh <name> <cold|warm> <look>` — SKY_HdrOrientation cold/warm run with a shot and the cache lines of the log.
-- Look directions that match the reference frames `/private/tmp/claude-501/al1-3/pv-*`: horizon `0,0,-1`, zenith `0,1,0.01`, mid `0,1,-1`.
-- DesertCtl may be unbuilt in an agent tree — use `DesertEngine/build/Bin/Debug/DesertCtl` from the main tree (AL1-5b, 09-27).
-- `al1-3b/run.sh` waits until NO Editor runs — a foreign interactive Editor (control socket) blocks it forever; `/private/tmp/claude-501/al1-3c/run3.sh` does not wait (AL1-3c, 09-27).
-- Mesh DnD through DesertCtl: `run Assets "Drop into the viewport: <path under Assets>"` (AL1-5c, 09-27).
-- Pipeline build census after the splash: `/private/tmp/claude-501/pso2/measure.sh` (PSO2, 09-27).
-- Budget refusal repro (CB_Red at `--view-budget-mib 250`, frames before/after): `/private/tmp/claude-501/rt2m/repro.sh [tag]` (RT2m, 09-27).
