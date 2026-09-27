@@ -731,10 +731,15 @@ namespace Desert::Editor
             directory->Parent->Children.clear();
         }
 
-        for ( auto& subdir : directory->Children )
-            RemoveDirectoryNode( subdir, false );
-
-        m_Directories.erase( directory->AssetPath );
+        // A walk, not recursion: the tree is as deep as the user's folders.
+        std::vector<DirectoryInformation*> pending{ directory };
+        while ( !pending.empty() )
+        {
+            DirectoryInformation* node = pending.back();
+            pending.pop_back();
+            pending.insert( pending.end(), node->Children.begin(), node->Children.end() );
+            m_Directories.erase( node->AssetPath ); // may destroy `node`; its children were taken first
+        }
     }
 
     // Unreadable, or the platform's own junk. A path that cannot be STAT'd is not hidden — it is a
