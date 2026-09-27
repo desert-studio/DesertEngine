@@ -218,9 +218,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( crashTestArg );
         if ( !kind.has_value() )
         {
-            FailStartup( "--crash-test '" + crashTestArg +
-                              "' is not a crash kind; it knows: " + Common::Crash::kKnownTestKinds,
-                         2 );
+            FailStartup(
+                 "--crash-test '" + crashTestArg + "' is not a crash kind; it knows: segv, abort, purecall", 2 );
         }
         Common::Crash::TriggerTestCrash( *kind );
     }
