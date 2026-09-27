@@ -236,6 +236,11 @@ namespace Desert::Core
         // etc.) share ONE raycast + ONE mesh resolution (MeshHandle / RuntimeMesh / primitive) instead of
         // duplicating both.
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit ) const;
+        // The same trace through every entity @p accept refuses, as if it were not there (UE: a trace's
+        // ignore filter, as FFoliagePaintingGeometryFilter passes the foliage brush's trace through a
+        // surface it may not paint on to the one beneath).
+        [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
+                                    const std::function<bool( const Common::UUID& )>& accept ) const;
 
         // Play-mode state. Edit = authoring (gameplay systems frozen); Play = running (gameplay ticks);
         // Paused = running but time frozen (ts forced to 0). The editor snapshots the scene on Play and

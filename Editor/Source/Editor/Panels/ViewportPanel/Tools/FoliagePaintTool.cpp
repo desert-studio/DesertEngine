@@ -239,6 +239,16 @@ namespace Desert::Editor::Tools
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr FoliagePaintTool::AddTypeFile( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                         const std::string& path )
+    {
+        const auto type = OpenTypeFile( manager, path );
+        if ( !type )
+            return Common::MakeFormattedError<bool>( "foliage type '{}' does not load (the log says why)", path );
+        AddField( scene, manager, type );
+        return BOOLSUCCESS;
+    }
+
     void FoliagePaintTool::DrawTypeSettings( Assets::AssetManager&                          manager,
                                              const Assets::Asset<Assets::FoliageTypeAsset>& type )
     {
@@ -555,14 +565,24 @@ namespace Desert::Editor::Tools
             const std::vector<std::string>& names = layers.GetValue();
 
             FoliageBrushWorld world;
-            world.Trace = [&]( const glm::vec3& start, const glm::vec3& end ) -> std::optional<FoliageTraceHit>
+            // UE FFoliagePaintingGeometryFilter: a surface the brush may not paint on is traced THROUGH, so a
+            // landscape-only brush reaches the ground under a mesh instead of losing the spot.
+            world.Trace = [&]( const glm::vec3& start, const glm::vec3& end,
+                               const FoliageSurfaceFilter& filter ) -> std::optional<FoliageTraceHit>
             {
+                // UE FFoliagePaintingGeometryFilter: a surface the brush may not paint on is traced THROUGH, so
+                // a landscape-only brush reaches the ground under a mesh instead of losing the spot.
+                const auto accept = [&]( const Common::UUID& id )
+                {
+                    const bool landscape = TileOf( scene, id ).has_value();
+                    return filter.Allows( landscape ? FoliageSurface::Landscape : FoliageSurface::StaticMesh );
+                };
                 const glm::vec3 d   = end - start;
                 const float     len = glm::length( d );
                 if ( len <= 0.0f )
                     return std::nullopt;
                 ::Desert::Core::RaycastHit hit;
-                if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit ) || hit.Distance > len )
+                if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept ) || hit.Distance > len )
                     return std::nullopt;
                 FoliageTraceHit out;
                 out.Point  = hit.Point;

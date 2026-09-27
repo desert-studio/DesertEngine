@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace
@@ -21,7 +22,8 @@ namespace
     {
         n = glm::normalize( n );
         FoliageBrushWorld world;
-        world.Trace = [=]( const glm::vec3& a, const glm::vec3& b ) -> std::optional<FoliageTraceHit>
+        world.Trace = [=]( const glm::vec3& a, const glm::vec3& b,
+                           const FoliageSurfaceFilter& ) -> std::optional<FoliageTraceHit>
         {
             const glm::vec3 o( 0.0f, y, 0.0f );
             const float     da = glm::dot( a - o, n ), db = glm::dot( b - o, n );
@@ -154,6 +156,38 @@ TEST( FoliageBrush, ASurfaceTheFilterExcludesGetsNothing )
     dab.Filter.Landscape = false;
     EXPECT_TRUE( FoliageBrushAdd( Grass(), dab, {}, rng, kGround ).empty() );
     EXPECT_FALSE( FoliageBrushAdd( Grass(), dab, {}, rng, mesh ).empty() );
+}
+
+TEST( FoliageBrush, ALandscapeOnlyBrushReachesTheGroundUnderAMeshSheet )
+{
+    // A static-mesh sheet at 100 cm over the landscape at 0: the trace honours the dab's filter and passes
+    // through the sheet (UE FFoliagePaintingGeometryFilter), as the tool's Scene::Raycast(accept) does.
+    FoliageBrushWorld world;
+    world.Trace = []( const glm::vec3& a, const glm::vec3& b,
+                      const FoliageSurfaceFilter& filter ) -> std::optional<FoliageTraceHit>
+    {
+        for ( const auto& [y, surface] :
+              { std::pair{ 100.0f, FoliageSurface::StaticMesh }, std::pair{ 0.0f, FoliageSurface::Landscape } } )
+        {
+            if ( !filter.Allows( surface ) || ( a.y > y ) == ( b.y > y ) )
+                continue;
+            const float t = ( a.y - y ) / ( a.y - b.y );
+            return FoliageTraceHit{ a + t * ( b - a ), { 0.0f, 1.0f, 0.0f }, surface, std::nullopt };
+        }
+        return std::nullopt;
+    };
+    auto dab             = DabAt( { 0.0f, 100.0f, 0.0f }, 500.0f );
+    dab.Filter.StaticMesh = false;
+    FoliageRandom rng( 12u );
+    const auto    placed = FoliageBrushAdd( Grass(), dab, {}, rng, world );
+    ASSERT_FALSE( placed.empty() );
+    for ( const auto& m : placed )
+        EXPECT_NEAR( m[3].y, 0.0f, 1e-3f ); // on the landscape, none on the sheet
+
+    dab.Filter = {};
+    FoliageRandom again( 12u );
+    for ( const auto& m : FoliageBrushAdd( Grass(), dab, {}, again, world ) )
+        EXPECT_NEAR( m[3].y, 100.0f, 1e-3f ); // both allowed: the sheet is nearest
 }
 
 TEST( FoliageBrush, ATypeTiedToALayerPlantsOnlyWhereTheLayerIs )

@@ -168,7 +168,7 @@ namespace Desert::Editor::Tools
             const glm::vec3 start = dab.Center + dab.Radius * ( point + rw );
             const glm::vec3 end   = dab.Center + dab.Radius * ( point - rw );
 
-            const auto hit = world.Trace( start, end );
+            const auto hit = world.Trace( start, end, dab.Filter );
             if ( !hit || !dab.Filter.Allows( hit->Surface ) )
                 continue;
             if ( hit->Point.y < type.Height.Min || hit->Point.y > type.Height.Max )

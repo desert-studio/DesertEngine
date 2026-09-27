@@ -188,6 +188,32 @@ namespace Desert::Editor
         return index ? *index : m_Scene->GetViewCount(); // past the end == "this view is gone"
     }
 
+    Common::BoolResultStr ViewportPanel::StrokeFoliageInActiveViewport()
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport )
+            return Common::MakeError( "foliage stroke: no viewport is open" );
+        return viewport->StrokeFoliageAtCentre();
+    }
+
+    Common::BoolResultStr ViewportPanel::StrokeFoliageAtCentre()
+    {
+        if ( !m_Scene || !m_AssetManager )
+            return Common::MakeError( "foliage stroke: the viewport has no scene or asset manager" );
+        if ( !Core::FoliagePaint::HasActive() )
+            return Common::MakeError( "foliage stroke: no foliage type is checked in the palette" );
+        const auto camera = ViewCamera();
+        if ( !camera || m_ViewportData.Size.x < 1.0f || m_ViewportData.Size.y < 1.0f )
+            return Common::MakeError( "foliage stroke: the viewport has no camera or no size yet" );
+        const auto ray = Common::Math::Ray::FromScreenPosition(
+             { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
+             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+        m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, true );
+        m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, false );
+        return BOOLSUCCESS;
+    }
+
     std::shared_ptr<::Desert::Core::Camera> ViewportPanel::ViewCamera() const
     {
         return m_Scene ? m_Scene->GetViewCamera( ViewIndex() ) : nullptr;

@@ -56,6 +56,11 @@ namespace Desert::Editor::Tools
         static Common::BoolResultStr AddCollection( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
                                                     const std::string& manifestPath );
 
+        // A `.defoliage` named by path listed in the palette and checked for painting (the palette command's
+        // twin of dropping the file on the panel).
+        static Common::BoolResultStr AddTypeFile( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                  const std::string& path );
+
     private:
         void EndStroke( ::Desert::Core::Scene& scene );
 

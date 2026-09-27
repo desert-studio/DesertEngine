@@ -5409,6 +5409,31 @@ namespace Desert::Editor
                 // NOLINTEND(bugprone-exception-escape)
             }
         }
+        // FOLIAGE (FO-3): a type file into the palette, and the stroke a hand gives at the viewport centre.
+        {
+            std::error_code ec;
+            for ( auto it = std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( !it->is_regular_file() ||
+                     it->path().extension() != Assets::Serialization::kFoliageTypeExtension )
+                    continue;
+                const std::string path = it->path().generic_string();
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back( { "Foliage", "Add type to the palette: " + it->path().stem().string(),
+                                      [this, path]
+                                      {
+                                          if ( !m_MainScene || !m_AssetManager )
+                                              return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                                          Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                                          return Tools::FoliagePaintTool::AddTypeFile( *m_MainScene,
+                                                                                       *m_AssetManager, path );
+                                      } } );
+                // NOLINTEND(bugprone-exception-escape)
+            }
+        }
+        commands.push_back( { "Foliage", "Stroke at viewport centre", []
+                              { return ViewportPanel::StrokeFoliageInActiveViewport(); } } );
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {

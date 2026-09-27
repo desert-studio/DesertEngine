@@ -8,8 +8,8 @@
 // callbacks (a segment trace and a layer weight at a point) so the brush is a pure function of its inputs;
 // instances are the field's InstancedStaticMesh transforms; Y is up and units are centimetres; FMath::FRand
 // is a seeded PCG32 stream (one per stroke) so a stroke replays to the same instances on every platform;
-// the geometry filter keeps Landscape and StaticMesh (no BSP in this engine; translucency is a material
-// property the hit does not carry — see FoliagePaintTool); no vertex-colour mask, no AlignMaxAngle, no
+// the geometry filter keeps Landscape and StaticMesh and is applied by the trace (no BSP in this engine;
+// translucency is a material property Scene::Raycast does not see); no vertex-colour mask, no AlignMaxAngle, no
 // overlap radius (UFoliageType fields this project's type does not carry).
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
@@ -75,11 +75,14 @@ namespace Desert::Editor::Tools
         std::optional<float> LayerWeight;
     };
 
-    /// The world the brush reads: the nearest surface on a segment, and the type's layer weight at a point
+    /// The world the brush reads: the nearest surface on a segment THAT THE DAB'S FILTER ALLOWS (a refused
+    /// surface is traced through, UE FFoliagePaintingGeometryFilter), and the type's layer weight at a point
     /// (for the instances already under the brush). Supplied by the tool; a test supplies planes.
     struct FoliageBrushWorld
     {
-        std::function<std::optional<FoliageTraceHit>( const glm::vec3& start, const glm::vec3& end )> Trace;
+        std::function<std::optional<FoliageTraceHit>( const glm::vec3& start, const glm::vec3& end,
+                                                      const FoliageSurfaceFilter& filter )>
+             Trace;
         std::function<std::optional<float>( const glm::vec3& point )> LayerWeightAt;
     };
 
