@@ -74,32 +74,6 @@ namespace Desert::Editor::Tools
                 return Geometry::MakeRectangle( s.Rectangle, options );
         }
         return Geometry::MakeBox( { s.Box.Width, s.Box.Height, s.Box.Depth }, glm::ivec3( 1 ), options );
-            case MS::Shape::Sphere:
-                return Geometry::MakeSphere( s.Width, s.Slices, s.Stacks, options );
-            case MS::Shape::Cylinder:
-                return Geometry::MakeCylinder( s.Width, s.Height, s.Slices, options );
-            case MS::Shape::Cone:
-                return Geometry::MakeCone( s.Width, s.Height, s.Slices, options );
-            case MS::Shape::Capsule:
-                // Stacks count pole to pole, as on the Sphere, so each hemisphere takes half.
-                return Geometry::MakeCapsule( s.Width, s.Height, s.Slices, std::max( s.Stacks / 2, 1 ), options );
-            case MS::Shape::Pyramid:
-                return Geometry::MakePyramid( { s.Width, s.Height, s.Depth }, options );
-            case MS::Shape::Stairs:
-                return Geometry::MakeStairs(
-                     { s.StairsKind, s.Steps, s.Width, s.StepHeight, s.StepDepth, s.InnerRadius, s.CurveAngle },
-                     options );
-            case MS::Shape::Torus:
-                return Geometry::MakeTorus( s.Width, s.TubeDiameter, s.Slices, s.TubeSlices, options );
-            case MS::Shape::Arrow:
-                return Geometry::MakeArrow( s.ShaftDiameter, s.ShaftLength, s.Width, s.HeadLength, s.Slices,
-                                            options );
-            case MS::Shape::Disc:
-                return Geometry::MakeDisc( s.Width, s.HoleDiameter, s.Slices, s.Subdivisions, options );
-            case MS::Shape::Rectangle:
-                return Geometry::MakeRectangle( { s.Width, s.Depth }, glm::ivec2( s.Subdivisions ), options );
-        }
-        return Geometry::MakeBox( { s.Width, s.Height, s.Depth }, glm::ivec3( s.Subdivisions ), options );
     }
 
     std::optional<glm::vec3> CreateShapeTool::PlacementPoint( const ::Desert::Core::Scene& scene,
