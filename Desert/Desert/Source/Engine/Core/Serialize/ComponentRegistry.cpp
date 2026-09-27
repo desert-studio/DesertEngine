@@ -1703,8 +1703,8 @@ namespace Desert::Core::Serialize
         Register( MakeReflected<ECS::UIOverlayTriggerComponent, ECS::UIOverlayTriggerData>(
              "UIOverlayTrigger", "UIOverlayTriggerData", &ECS::UIOverlayTriggerComponent::Data ) );
 
-        // The voxels a Cube Grid blockout was baked from, so the tool reopens on it (CubeGridBlockoutComponent.hpp).
-        // No version bump - an added key is what ForeignKeys is for.
+        // The voxels a Cube Grid blockout was baked from, so the tool reopens on it
+        // (CubeGridBlockoutComponent.hpp). No version bump - an added key is what ForeignKeys is for.
         {
             ComponentSerializer s;
             s.Key       = "CubeGridBlockout";

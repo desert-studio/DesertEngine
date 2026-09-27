@@ -759,7 +759,8 @@ TEST( VoxelBlockoutReedit, SaveLoadKeepsCornersMaterialsFramesAndUnits )
             const auto it = got.Cells.find( k );
             ASSERT_NE( it, got.Cells.end() );
             EXPECT_TRUE( std::equal( std::begin( cell.V ), std::end( cell.V ), std::begin( it->second.V ) ) );
-            EXPECT_TRUE( std::equal( std::begin( cell.Mat ), std::end( cell.Mat ), std::begin( it->second.Mat ) ) );
+            EXPECT_TRUE(
+                 std::equal( std::begin( cell.Mat ), std::end( cell.Mat ), std::begin( it->second.Mat ) ) );
         }
     }
     EXPECT_NEAR( Measured( l.Bake() ).Volume, Measured( v.Bake() ).Volume, 1.0 );

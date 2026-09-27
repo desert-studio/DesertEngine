@@ -57,7 +57,7 @@ namespace Desert::Editor::Tools
         // Reopen on the selected entity (UE: the tool takes the selected mesh as its target): its voxels become
         // the volume, the grid goes onto its last piece, and Accept / Cancel end in ONE undo step / the entity
         // as it was. Refused with a toast, by reason (BlockoutSession.hpp, ReopenBlockout).
-        void        EditSelected( ::Desert::Core::Scene& scene );
+        void EditSelected( ::Desert::Core::Scene& scene );
         // Accept's first step: renumber the materials to the entity's slots, re-bake, and store the voxels (in
         // the entity's space) and the key of the mesh they baked to on the entity.
         Common::BoolResultStr StoreVoxels( ::Desert::Core::Scene& scene );

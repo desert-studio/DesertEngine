@@ -203,9 +203,9 @@ namespace Desert::Editor::Tools
             refuse( "select the blockout to edit" );
             return;
         }
-        ECS::Entity       e    = ref->get();
-        const std::string name = e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
-                                                                     : sel->ToString();
+        ECS::Entity       e = ref->get();
+        const std::string name =
+             e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag : sel->ToString();
         Common::ResultStr<uint64_t> key = Common::MakeError<uint64_t>( "it has no StaticMeshComponent" );
         if ( e.HasComponent<ECS::StaticMeshComponent>() )
         {
@@ -213,10 +213,10 @@ namespace Desert::Editor::Tools
             key         = target.IsSuccess() ? Common::MakeSuccess( MeshKeyOf( *target.GetValue().Mesh ) )
                                              : Common::MakeError<uint64_t>( target.GetError() );
         }
-        const auto* saved = e.HasComponent<ECS::CubeGridBlockoutComponent>()
-                                 ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
-                                 : nullptr;
-        auto opened = ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+        const auto* saved  = e.HasComponent<ECS::CubeGridBlockoutComponent>()
+                                  ? &e.GetComponent<ECS::CubeGridBlockoutComponent>().Saved
+                                  : nullptr;
+        auto        opened = ReopenBlockout( name, saved, key, e.GetWorldTransform() );
         if ( !opened.IsSuccess() )
         {
             refuse( opened.GetError() );
@@ -252,7 +252,7 @@ namespace Desert::Editor::Tools
     Common::BoolResultStr CubeGridTool::StoreVoxels( ::Desert::Core::Scene& scene )
     {
         // Renumber first: after it the i-th material in use is ID i, which is slot i of the entity.
-        const Geometry::RenderMeshData quads = LocalVolume().Bake();
+        const Geometry::RenderMeshData   quads = LocalVolume().Bake();
         std::vector<Common::AssetHandle> used;
         for ( const int id : quads.SubmeshMaterialIds )
             used.push_back( m_Materials.at( static_cast<size_t>( id ) ) );

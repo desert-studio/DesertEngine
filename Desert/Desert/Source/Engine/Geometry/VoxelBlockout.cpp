@@ -657,11 +657,13 @@ namespace Desert::Geometry::VoxelBlockout
                 if ( R >= 1 && std::abs( l.Unit - static_cast<float>( R ) * m_Unit ) <= 0.001f * m_Unit )
                 {
                     const bool reached = std::ranges::any_of(
-                         cells, [&]( const glm::ivec3& c )
-                         { return l.Cells.contains( Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ),
-                                                            FloorDiv( c.z, R ) } ) ); } );
-                    const bool splittable =
-                         R == 1 || std::ranges::all_of( l.Cells, []( const auto& kv ) { return kv.second.IsFlat(); } );
+                         cells,
+                         [&]( const glm::ivec3& c ) {
+                             return l.Cells.contains(
+                                  Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ), FloorDiv( c.z, R ) } ) );
+                         } );
+                    const bool splittable = R == 1 || std::ranges::all_of( l.Cells, []( const auto& kv )
+                                                                           { return kv.second.IsFlat(); } );
                     if ( reached && splittable )
                     {
                         // The active cells win where both hold one: they are the newer edit.
@@ -775,11 +777,11 @@ namespace Desert::Geometry::VoxelBlockout
                      s.Flat.size(), s.Deformed.size(), kSavedFlatStride, kSavedDeformedStride );
             const glm::quat q( s.Rotation[0], s.Rotation[1], s.Rotation[2], s.Rotation[3] );
             if ( !std::isfinite( glm::length( q ) ) || std::abs( glm::length( q ) - 1.0f ) > 1e-3f )
-                return Common::MakeFormattedError<Volume>( "CubeGrid layer {}: rotation of length {} is not a rotation",
-                                                           li, glm::length( q ) );
+                return Common::MakeFormattedError<Volume>(
+                     "CubeGrid layer {}: rotation of length {} is not a rotation", li, glm::length( q ) );
             Layer l;
-            l.Unit  = s.Unit;
-            l.Frame = { { s.Origin[0], s.Origin[1], s.Origin[2] }, glm::normalize( q ) };
+            l.Unit    = s.Unit;
+            l.Frame   = { { s.Origin[0], s.Origin[1], s.Origin[2] }, glm::normalize( q ) };
             auto read = [&]( const std::vector<int32_t>& values, size_t stride ) -> Common::BoolResultStr
             {
                 for ( size_t at = 0; at < values.size(); at += stride )
@@ -787,30 +789,32 @@ namespace Desert::Geometry::VoxelBlockout
                     const glm::ivec3 c( values[at], values[at + 1], values[at + 2] );
                     if ( glm::any( glm::lessThan( c, glm::ivec3( -OFF ) ) ) ||
                          glm::any( glm::greaterThanEqual( c, glm::ivec3( OFF ) ) ) )
-                        return Common::MakeFormattedError<bool>( "CubeGrid layer {}: cell ({}, {}, {}) is outside +-{}",
-                                                                 li, c.x, c.y, c.z, OFF );
+                        return Common::MakeFormattedError<bool>(
+                             "CubeGrid layer {}: cell ({}, {}, {}) is outside +-{}", li, c.x, c.y, c.z, OFF );
                     Cell cell;
                     for ( int f = 0; f < 6; ++f )
                     {
                         const int32_t m = values[at + 3 + static_cast<size_t>( f )];
                         if ( m < 0 || m > 255 )
                             return Common::MakeFormattedError<bool>(
-                                 "CubeGrid layer {}: cell ({}, {}, {}) material {} is not 0..255", li, c.x, c.y, c.z, m );
+                                 "CubeGrid layer {}: cell ({}, {}, {}) material {} is not 0..255", li, c.x, c.y,
+                                 c.z, m );
                         cell.Mat[f] = static_cast<uint8_t>( m );
                     }
                     if ( stride == kSavedDeformedStride )
                         for ( int i = 0; i < 8; ++i )
                         {
                             const int32_t o = values[at + 9 + static_cast<size_t>( i )];
-                            if ( o < std::numeric_limits<int16_t>::min() || o > std::numeric_limits<int16_t>::max() )
+                            if ( o < std::numeric_limits<int16_t>::min() ||
+                                 o > std::numeric_limits<int16_t>::max() )
                                 return Common::MakeFormattedError<bool>(
-                                     "CubeGrid layer {}: cell ({}, {}, {}) corner offset {} does not fit 16 bits", li,
-                                     c.x, c.y, c.z, o );
+                                     "CubeGrid layer {}: cell ({}, {}, {}) corner offset {} does not fit 16 bits",
+                                     li, c.x, c.y, c.z, o );
                             cell.V[i] = static_cast<int16_t>( o );
                         }
                     if ( !l.Cells.emplace( Pack( c ), cell ).second )
-                        return Common::MakeFormattedError<bool>( "CubeGrid layer {}: cell ({}, {}, {}) is stored twice",
-                                                                 li, c.x, c.y, c.z );
+                        return Common::MakeFormattedError<bool>(
+                             "CubeGrid layer {}: cell ({}, {}, {}) is stored twice", li, c.x, c.y, c.z );
                 }
                 return Common::MakeSuccess( true );
             };
@@ -843,7 +847,8 @@ namespace Desert::Geometry::VoxelBlockout
         std::vector<std::array<int64_t, 3>> q;
         q.reserve( positions.size() );
         for ( const glm::vec3& p : positions )
-            q.push_back( { std::llround( p.x * 100.0 ), std::llround( p.y * 100.0 ), std::llround( p.z * 100.0 ) } );
+            q.push_back(
+                 { std::llround( p.x * 100.0 ), std::llround( p.y * 100.0 ), std::llround( p.z * 100.0 ) } );
         std::ranges::sort( q );
         q.erase( std::unique( q.begin(), q.end() ), q.end() );
         // FNV-1a over the triangle count and the sorted distinct positions.
