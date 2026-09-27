@@ -4,6 +4,7 @@
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Assets/ContentWork.hpp>
+#include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -430,46 +431,12 @@ namespace Desert::Editor
         constexpr double kSecondsPerShader = 0.048; // 78 programs in 3.73 s
         // A texture whose cook is fresh costs its freshness check: 11 in 0.04 s.
         constexpr double kSecondsPerTextureCheck = 0.0036;
-        // A texture that IS cooked costs by its source's size, not by its count: with the artifact deleted,
-        // the 3.18 MB texture_diffuse.png (2048x2048, BC7) took the stage from 0.04 s to 4.30 s. The
-        // 3.11 MB 1k_Dissolve_Noise_Texture.png, kept uncompressed, took 1.3 s: BC7 is what is slow, and
-        // the rate that assumes it is the one a start full of colour textures actually waits for.
-        constexpr double kSecondsPerCookedSourceByte = 4.26 / 3177561.0;
-        constexpr double kSecondsPerAssetRow         = 0.0002; // 151 rows in 0.03 s
+        constexpr double kSecondsPerClipRow      = 0.0002; // indexing a registry row reads nothing
         // The settle costs its first frames whether or not a read is outstanding: 0.75 s with none. A read
         // outstanding at its start adds one shader's worth; no measured start has had one.
         constexpr double kSecondsSceneSettle  = 0.75;
         constexpr double kSecondsPerSceneRead = kSecondsPerShader;
 
-        // The BC7 derivation a first import used to pay inside "Importing textures" now runs where the platform
-        // data is first asked for: the preload, on a DDC miss (SetTexturePlatformDataBuilder). Importing a source
-        // only wraps its bytes, so the import stage weighs a freshness check per source, and the preload carries
-        // the bytes of every source that has no texture asset yet — the sources whose derivation is still owed.
-        // Asked before any stage runs, so "no asset yet" is the state the import is about to change.
-        double PendingTextureDerivationSeconds()
-        {
-            double seconds = 0.0;
-            for ( const std::filesystem::path& source : LooseTextureSources() )
-            {
-                std::error_code ec;
-                if ( std::filesystem::exists( TextureImporter::AssetPathFor( source ), ec ) )
-                    continue;
-                const std::uintmax_t bytes = std::filesystem::file_size( source, ec );
-                if ( !ec )
-                    seconds += static_cast<double>( bytes ) * kSecondsPerCookedSourceByte;
-            }
-            return seconds;
-        }
-
-        // One row each at the registry rate, then the owed derivations as one item: the preloader reaches the
-        // textures among its rows in the registry's order, which the plan cannot know before the stage runs.
-        std::vector<double> PreloadCosts()
-        {
-            std::vector<double> costs( Assets::AssetPreloader::CookedAssetRowCount(), kSecondsPerAssetRow );
-            if ( const double derivation = PendingTextureDerivationSeconds(); derivation > 0.0 )
-                costs.push_back( derivation );
-            return costs;
-        }
     } // namespace
 
     EditorLayer::EditorLayer( Engine::Application* application, const std::string& layerName,
@@ -482,7 +449,7 @@ namespace Desert::Editor
         m_ImportManager = std::make_unique<ImportManager>();
         // Cook only what's missing/stale (skips the expensive Assimp re-parse on every launch). Collections
         // hold packs (a character + its animation FBXs), so they're cooked too — their outputs land under
-        // Cooked/Meshes/Collections/... where the preloader discovers them (see CookPaths::CookedSkinned).
+        // Cooked/Meshes/Collections/... where the content registry gathers them (see CookPaths::CookedSkinned).
         //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
@@ -490,7 +457,7 @@ namespace Desert::Editor
         // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
         //
         // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
-        // JobSystem after the reveal (StartBackgroundCook) and the preload reads whatever cook is on the disk.
+        // JobSystem after the reveal (StartBackgroundCook) and the registry lists whatever cook is on the disk.
         // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
         // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
         // this repository then committed had no producer in any automatic path -- and a stale one (a container
@@ -516,17 +483,22 @@ namespace Desert::Editor
                                          Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
                                          (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                                      },
-                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); } } );
-        m_StartupStages.push_back( { "Preloading meshes, textures and materials...", [this]
-                                     { m_AssetPreloader->PreloadCookedAssetsAndMaterials( SplashItems() ); },
-                                     kSecondsPerAssetRow, nullptr, [] { return PreloadCosts(); } } );
+                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr,
+                                     0 } );
+        // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
+        // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
+        // names them, and the scene settle below waits for the ones the scene names.
         m_StartupStages.push_back(
-             { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
+             { "Indexing animation clips...",
+               [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); }, kSecondsPerClipRow,
+               [] { return Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size(); },
+               nullptr, 0 } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.
-        m_StartupStages.push_back(
-             { "Preloading string tables...", [this] { m_AssetPreloader->PreloadStringTables(); } } );
+        m_StartupStages.push_back( { "Requesting string tables...",
+                                     [this] { Assets::RequestStringTables( m_AssetManager ); }, kSecondsPerClipRow,
+                                     nullptr, nullptr, 0 } );
 
         // WHAT THIS MACHINE CAN AFFORD — a different file from editor.json and deliberately so (К3).
         // editor.json is one person's copy of the EDITOR and the packaged game never opens it, while every
@@ -541,11 +513,8 @@ namespace Desert::Editor
         Common::Settings::MachineSettings::Load( std::filesystem::path( ProjectContext::ConfigDirectory() ) /
                                                  "machine.json" );
 
-        // BEFORE the preloader, which now takes it and fills it at the tail of the scan that finds the
-        // clips. The editor used to fill it itself, in OnAttach — a whole startup stage BEFORE the scan
-        // ran — so with two `.anim` files on disk it reported the four procedural clips and nothing else.
+        // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
-        m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
         Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
@@ -756,9 +725,9 @@ namespace Desert::Editor
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;
         }
 
-        // THE COOKED ASSET REGISTRY, BEFORE ANY PRELOAD — including the shader one on the next line,
-        // which is the earliest scan this host runs. Every `Preload*` takes its candidates from the
-        // registry since T2.4, so a preload that ran before the file was read would find nothing; and
+        // THE COOKED ASSET REGISTRY, BEFORE ANY CONTENT IS ASKED FOR, including the engine shaders a few
+        // lines down, the earliest content this host creates. Every kind resolves its references through
+        // the registry rows, so anything asked before the file was read would come back empty; and
         // the boot's cook stages call `ContentRegistry::NoteFile` as they write, which would be writing
         // into rows that `Load` was about to replace.
         //
@@ -788,20 +757,14 @@ namespace Desert::Editor
         MakeSplashPlan();
         BeginSplashStage( m_ShaderStage );
         // The splash's close button, pressed during this one long call, stops it between programs.
-        m_AssetPreloader->PreloadShaders( SplashItems(),
-                                          [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+        Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
+                                      [this]() { return m_Splash && m_Splash->CloseRequested(); } );
 
         BuildSceneSystems( *m_MainScene );
 
-        // THE ANIMATION LIBRARY IS NOT FILLED HERE ANY MORE, and its absence is the fix rather than an
-        // omission. A `FindAllByType<AnimationAsset>` loop and a `ProceduralCharacterAnimations::
-        // RegisterClips` call used to stand on these lines, and both were wrong in the same way: they ran
-        // in OnAttach, several startup stages BEFORE `PreloadCookedAssetsAndMaterials` scans `.anim` off
-        // disk, so they filled the library out of a manager that had not been shown a single clip file —
-        // measured at "4 clip(s) known" with three clips sitting in Cooked/Meshes. The runtime layer, which
-        // has no OnAttach loop of its own, had no clips at all. Both are now `Animation::PopulateLibrary`,
-        // called from the tail of that scan, and `Desert/Tests/Editor/AssetPreloadCensus` forbids either
-        // host from growing its own copy again.
+        // THE ANIMATION LIBRARY IS NOT FILLED HERE, and its absence is the fix rather than an omission: a fill
+        // loop in OnAttach once ran before the clips were known and reported only the procedural ones, and the
+        // runtime had none at all. Both hosts call `Assets::IndexAnimationClips` (BootContentCensus).
 
         // NOT INITIALISED WHEN A SCENE LOAD IS ALREADY QUEUED, and that condition is why the line moved
         // rather than why it is conditional. The constructor above has already called LoadScene() for
@@ -1370,12 +1333,9 @@ namespace Desert::Editor
                     Assets::SyncLoadLedger::NoteBootFinished();
                     LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
                     LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
-                    // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER. The
-                    // eager preloader's directory walk is what mints them, so this number IS the size
-                    // of the path->handle inverse the engine holds at that moment — and therefore the
-                    // exact quantity the demand-driven model has to reproduce some other way once the
-                    // walk stops happening (GAP_ANALYSIS T2.4). Beside the two lines above because it
-                    // answers the same question they do: what did the boot buy.
+                    // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER: the registry's
+                    // rows publish them before anything is created (T2.4), so this is the size of the
+                    // path->handle inverse the engine holds without having created a single content shell.
                     LOG_INFO( "[AssetPathIndex] boot finished — {} handle(s) can name their own path",
                               Common::AssetPathIndex::Size() );
                     // AND WHAT IT COST TO MINT THEM. The line above is only an achievement next to this
@@ -6627,8 +6587,9 @@ namespace Desert::Editor
             (void)m_ImportManager->ImportLooseTextures();
         }
 
-        if ( m_AssetPreloader )
-            m_AssetPreloader->ReloadCooked();
+        // The clip rows may have changed with the re-cook; everything else is re-read on demand.
+        if ( m_AnimationLibrary )
+            Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary );
 
         // Drop cached per-entity material instances so MeshECSSystem rebuilds them from the freshly
         // re-registered runtime materials (which now reference the reloaded texture images).
@@ -6758,8 +6719,8 @@ namespace Desert::Editor
     // lines below; a machine twice as fast halves every stage alike and the shares do not move.
     void EditorLayer::MakeSplashPlan()
     {
-        m_ShaderStage = m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader,
-                                             Assets::AssetPreloader::ShaderRowCount() );
+        m_ShaderStage =
+             m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader, Assets::EngineShaderCount() );
         for ( StartupStage& stage : m_StartupStages )
             stage.ProgressStage =
                  stage.ItemCosts ? m_Progress.AddStage( stage.Label, stage.SecondsPerItem, stage.ItemCosts() )

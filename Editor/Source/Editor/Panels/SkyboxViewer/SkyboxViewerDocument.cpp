@@ -87,14 +87,11 @@ namespace Desert::Editor
         auto&                     skyboxes = *Runtime::ResourceRegistry::GetSkyboxService();
         if ( !skyboxes.Get( handle ) )
         {
-            const auto asset =
-                 m_Assets != nullptr ? m_Assets->FindByHandle<Assets::SkyboxAsset>( handle ) : nullptr;
-            if ( !asset )
+            if ( !skyboxes.IsPending( handle ) && !Runtime::RequireSkybox( handle ) )
             {
-                m_Unavailable = "This skybox is not registered with the asset manager — nothing to show.";
+                m_Unavailable = "This skybox is not a skybox row of the content registry — nothing to show.";
                 return;
             }
-            Runtime::EnsureSkyboxRegistered( asset );
         }
 
         m_Unavailable.clear();
@@ -252,14 +249,13 @@ namespace Desert::Editor
             return Outcome::NotMine;
 
         // The header decides, not the folder: it is what the importer wrote from the folder at import time, and
-        // what AssetPreloader sorts skyboxes from textures by.
+        // what the content registry sorts skyboxes from textures by.
         const auto key = Assets::ReadTextureAssetKey( path );
         if ( !key.IsSuccess() || key.GetValue().Kind != Common::Content::ContentKind::Skybox )
             return Outcome::NotMine;
 
-        auto asset = assets->FindByPath<Assets::SkyboxAsset>( path );
-        if ( !asset )
-            asset = assets->CreateAsset<Assets::SkyboxAsset>( Assets::AssetPriority::Medium, path );
+        const Assets::AssetHandle row   = Runtime::SkyboxHandleAtPath( path );
+        const auto                asset = row != 0 ? Runtime::RequireSkybox( row ) : nullptr;
         if ( !asset )
         {
             LOG_ERROR( "[Assets] '{}' could not be registered as a skybox — no viewer was opened.", path );

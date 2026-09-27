@@ -230,14 +230,19 @@ namespace Desert::Runtime
             service->RegisterAsset( texture );
     }
 
-    void EnsureSkyboxRegistered( const Assets::Asset<Assets::SkyboxAsset>& skybox )
+    Assets::Asset<Assets::SkyboxAsset> RequireSkybox( const Assets::AssetHandle& handle )
     {
         auto* service = ResourceRegistry::GetSkyboxService();
-        if ( service == nullptr || !skybox || service->Get( skybox->GetMetadata().Handle ) )
-            return;
-
+        if ( service == nullptr || static_cast<uint64_t>( handle ) == 0 )
+            return nullptr;
         // Declares only (AL1-3): the read is on the loader's worker and the scene's ContentGate waits for it.
-        service->Request( skybox );
+        return service->Require( handle );
+    }
+
+    Assets::AssetHandle SkyboxHandleAtPath( const std::filesystem::path& path )
+    {
+        const auto row = Assets::ContentRegistry::RowAtPath( Common::Content::ContentKind::Skybox, path );
+        return row ? row->Handle : Assets::AssetHandle( 0 );
     }
 
     MeshReadiness EnsureMeshDrawable( const Assets::Asset<Assets::MeshAsset>& mesh,

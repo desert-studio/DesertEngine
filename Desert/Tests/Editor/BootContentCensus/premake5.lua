@@ -1,8 +1,9 @@
--- "Every Preload* the asset layer declares is called by both layers that start the engine."
+-- "No asset kind has a boot stage, and the three things a host loads before its first frame are called by
+-- both hosts." (AL1-9: AssetPreloader deleted.)
 --
 -- Nothing is compiled or linked from the engine or the editor: the census is READ FROM THE SOURCES at
--- run time, which is the only way to state a relation between a class's declarations and two call sites
--- that no header can see. Same shape as TextureSourceFormatCensus beside it, and for the same reason.
+-- run time, which is the only way to state a relation between declarations and two call sites that no
+-- header can see.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
