@@ -14,6 +14,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 #include <algorithm>
@@ -240,8 +241,17 @@ TEST_F( MeshServiceResidency, AnEvictedMeshReleasesItsBuffersAndRebuildsWithoutA
     ASSERT_NE( Service->Get( Handle ), nullptr );
     ASSERT_EQ( g_LiveMeshes.load(), 1 );
 
+    // WP13: an evicted mesh is PARKED with the sweep's absolute frame and released once every frame recorded
+    // before the sweep has had its fence waited on (FrameRetireQueue) - not at the eviction itself.
+    auto& frames = Engine::FrameManager::CreateInstance();
     EXPECT_TRUE( Service->EvictBuilt( Handle ) );
-    EXPECT_EQ( g_LiveMeshes.load(), 0 ) << "eviction kept the device buffers alive";
+    EXPECT_EQ( g_LiveMeshes.load(), 1 ) << "released while frames recorded before the sweep may still read it";
+    for ( uint32_t i = 0; i < frames.GetMaxFramesInFlight(); ++i )
+        frames.NextFrame();
+    EXPECT_EQ( Service->RetireEvicted(), 0u ) << "released one frame before the margin";
+    frames.NextFrame();
+    EXPECT_EQ( Service->RetireEvicted(), 1u );
+    EXPECT_EQ( g_LiveMeshes.load(), 0 ) << "retirement kept the device buffers alive";
 
     EXPECT_NE( Service->Get( Handle ), nullptr );
     EXPECT_EQ( *Uploads, 2 );
