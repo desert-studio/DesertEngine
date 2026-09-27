@@ -219,7 +219,8 @@ namespace Desert::Graphic
         return output;
     }
 
-    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCube( GpuBatch& batch, const ComputeImagesSpecification& spec )
+    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCube( GpuBatch&                         batch,
+                                                                    const ComputeImagesSpecification& spec )
     {
         const auto shader = GetComputeShader( spec.ShaderName );
         if ( !shader )
@@ -262,8 +263,8 @@ namespace Desert::Graphic
 
         // The compute writes only mip 0; a caller asking for a chain wants the lower levels FILLED, and a
         // requested-but-empty mip is undefined memory behind a valid view (the dispatch's closing barrier
-        // makes its write visible to the blits recorded after it in the same batch). Per-face 2D blit mips with clamp
-        // addressing are exactly what UE builds for its cubes; seam correctness across faces is the
+        // makes its write visible to the blits recorded after it in the same batch). Per-face 2D blit mips with
+        // clamp addressing are exactly what UE builds for its cubes; seam correctness across faces is the
         // hardware's seamless-cubemap filtering, not ours.
         if ( spec.MipLevels > 1u )
         {
@@ -277,7 +278,8 @@ namespace Desert::Graphic
         return output;
     }
 
-    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCubeMips( GpuBatch& batch, const ComputeImagesSpecification& spec )
+    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCubeMips( GpuBatch&                         batch,
+                                                                        const ComputeImagesSpecification& spec )
     {
         const auto shader = GetComputeShader( spec.ShaderName );
         if ( !shader )

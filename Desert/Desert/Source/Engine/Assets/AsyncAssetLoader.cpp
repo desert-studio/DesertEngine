@@ -336,7 +336,8 @@ namespace Desert::Assets
         {
             LOG_ERROR( "[AsyncLoad] an await for handle {} was refused: {} delegate is null, and every one "
                        "of the three is required.",
-                       static_cast<uint64_t>( handle ), !isDone ? "the poll" : ( !onDone ? "the done" : "the cancel" ) );
+                       static_cast<uint64_t>( handle ),
+                       !isDone ? "the poll" : ( !onDone ? "the done" : "the cancel" ) );
             return {};
         }
 

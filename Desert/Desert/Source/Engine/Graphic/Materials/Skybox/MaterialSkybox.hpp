@@ -38,10 +38,16 @@ namespace Desert::Graphic
         /// Is the GPU still convolving this skybox's cubes (a cache miss, AL1-3c)? Never blocks. While it
         /// answers yes nothing may sample the environment; SkyboxService keeps the skybox pending and
         /// hands the material out only after `SettleConvolution`.
-        [[nodiscard]] bool IsConvolving() const { return m_Convolving && !m_Convolving->IsComplete(); }
+        [[nodiscard]] bool IsConvolving() const
+        {
+            return m_Convolving && !m_Convolving->IsComplete();
+        }
 
         /// Lets go of the finished convolution batch and what it retained. Only after IsConvolving() said no.
-        void SettleConvolution() { m_Convolving.reset(); }
+        void SettleConvolution()
+        {
+            m_Convolving.reset();
+        }
 
         bool IsUsingBaseMaterial() const { return m_BaseMaterial.lock() != nullptr; }
 

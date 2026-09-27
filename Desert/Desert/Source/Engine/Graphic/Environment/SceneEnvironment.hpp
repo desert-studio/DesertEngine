@@ -65,7 +65,7 @@ namespace Desert::Graphic
         // it until `IsComplete()` and samples nothing before then (SkyboxService holds the skybox pending
         // meanwhile). A hit, and every refusal, leaves @p convolving empty.
         static Environment Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
-                                   std::unique_ptr<GpuBatch>&                   convolving );
+                                   std::unique_ptr<GpuBatch>&                  convolving );
 
         // Builds an IBL environment from the engine-generated procedural atmosphere (no HDR asset): the sky
         // is baked into an equirect panorama of @p panoramaWidth x @p panoramaHeight, then run through the
@@ -93,11 +93,14 @@ namespace Desert::Graphic
         // the prefilter convolves). Named for the RESULT: the 4x3 "cross" this used to be named after was
         // an internal unwrap of the source pixels, and carrying it in the name is how call sites came to
         // reason in cross widths instead of faces.
-        static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( GpuBatch& batch, const Runtime::ImageHandle& panorama );
+        static std::shared_ptr<ImageCube> ConvertPanoramaToRadianceCube( GpuBatch&                   batch,
+                                                                         const Runtime::ImageHandle& panorama );
 
-        static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( GpuBatch& batch, const Runtime::ImageHandle& panorama );
+        static std::shared_ptr<ImageCube> CreateDiffuseIrradiance( GpuBatch&                   batch,
+                                                                   const Runtime::ImageHandle& panorama );
 
         // GGX-prefilters an already-built radiance cubemap (per-mip roughness).
-        static std::shared_ptr<ImageCube> CreatePrefilteredMap( GpuBatch& batch, const Runtime::ImageHandle& radianceCube );
+        static std::shared_ptr<ImageCube> CreatePrefilteredMap( GpuBatch&                   batch,
+                                                                const Runtime::ImageHandle& radianceCube );
     };
 } // namespace Desert::Graphic

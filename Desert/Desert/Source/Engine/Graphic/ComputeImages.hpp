@@ -64,10 +64,12 @@ namespace Desert::Graphic
         // Both RECORD into @p batch and return the cube before the GPU has written it: the caller submits
         // the batch and must not sample the cube until it completes. The transient pipeline is retained
         // by the batch; the input image is the caller's to keep alive.
-        static std::shared_ptr<ImageCube> ProccessForImageCube( GpuBatch& batch, const ComputeImagesSpecification& spec );
+        static std::shared_ptr<ImageCube> ProccessForImageCube( GpuBatch&                         batch,
+                                                                const ComputeImagesSpecification& spec );
         // GGX prefilter: convolves spec.InputHandle (radiance cube) per mip (roughness = mip/(mips-1))
         // into a mipped output cube. Returns the prefiltered cube.
-        static std::shared_ptr<ImageCube> ProccessForImageCubeMips( GpuBatch& batch, const ComputeImagesSpecification& spec );
+        static std::shared_ptr<ImageCube> ProccessForImageCubeMips( GpuBatch&                         batch,
+                                                                    const ComputeImagesSpecification& spec );
     };
 
 } // namespace Desert::Graphic

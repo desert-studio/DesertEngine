@@ -494,7 +494,8 @@ TEST_F( AsyncAssetLoad, ACancelledAwaitFiresItsCancelAndNeverPollsAgain )
 
 TEST_F( AsyncAssetLoad, AnAwaitWithANullDelegateIsRefused )
 {
-    auto awaited = AsyncAssetLoader::Get().Await( Desert::Assets::AssetHandle{ 44 }, [] { return true; }, [] {}, nullptr );
+    auto awaited =
+         AsyncAssetLoader::Get().Await( Desert::Assets::AssetHandle{ 44 }, [] { return true; }, [] {}, nullptr );
     EXPECT_FALSE( awaited.IsValid() );
     EXPECT_EQ( AsyncAssetLoader::Get().Outstanding(), 0u );
 }

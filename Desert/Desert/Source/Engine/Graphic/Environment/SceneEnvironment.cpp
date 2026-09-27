@@ -16,7 +16,7 @@
 namespace Desert::Graphic
 {
     Environment EnvironmentManager::Create( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset,
-                                            std::unique_ptr<GpuBatch>&                   convolving )
+                                            std::unique_ptr<GpuBatch>&                  convolving )
     {
         convolving.reset();
         // The panorama, the three cubes and the transient compute pipelines the bake creates are all the
@@ -214,7 +214,8 @@ namespace Desert::Graphic
         }
 
         LOG_INFO(
-             "[SceneEnvironment] '{}' submitted its IBL chain in {:.1f} ms of this thread ({:.1f} ms uploading the "
+             "[SceneEnvironment] '{}' submitted its IBL chain in {:.1f} ms of this thread ({:.1f} ms uploading "
+             "the "
              "panorama, {:.1f} ms recording and submitting the convolutions, {:.1f} ms "
              "submitting the cache readbacks); the GPU convolves it after this returns (radiance {}^2 x{}, "
              "irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
@@ -360,8 +361,8 @@ namespace Desert::Graphic
                  prefilteredHandle };
     }
 
-    std::shared_ptr<ImageCube>
-    EnvironmentManager::CreatePrefilteredMap( GpuBatch& batch, const Runtime::ImageHandle& radianceCube )
+    std::shared_ptr<ImageCube> EnvironmentManager::CreatePrefilteredMap( GpuBatch&                   batch,
+                                                                         const Runtime::ImageHandle& radianceCube )
     {
         // GGX per-mip convolution of the already-built radiance cube (roughness ramps with mip).
         ComputeImagesSpecification processingInfo;

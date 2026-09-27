@@ -1,6 +1,5 @@
 #include "MaterialSkybox.hpp"
 
-
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>

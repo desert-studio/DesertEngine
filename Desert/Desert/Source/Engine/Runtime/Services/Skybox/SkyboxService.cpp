@@ -61,11 +61,12 @@ namespace Desert::Runtime
                       {
                           m_Pending.erase( handle );
                           material->SettleConvolution();
-                          LOG_INFO( "[Skybox] '{}' finished convolving on the GPU; seen {:.1f} ms after its submit.",
-                                    material->GetEnvironment().Filepath.string(),
-                                    std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
-                                                                               submittedAt )
-                                         .count() );
+                          LOG_INFO(
+                               "[Skybox] '{}' finished convolving on the GPU; seen {:.1f} ms after its submit.",
+                               material->GetEnvironment().Filepath.string(),
+                               std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                                    submittedAt )
+                                    .count() );
                           m_Skyboxes[handle] = material;
                       },
                       [this, handle]() { m_Pending.erase( handle ); } );

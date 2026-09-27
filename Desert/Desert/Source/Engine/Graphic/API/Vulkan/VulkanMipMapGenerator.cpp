@@ -97,19 +97,22 @@ namespace Desert::Graphic::API::Vulkan
             const auto& res = cube.GetResource();
             cube.TransitionLayout( commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                    VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                   VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT );
+                                   VK_ACCESS_MEMORY_WRITE_BIT,
+                                   VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT );
 
             GenerateMipmapsTO( commandBuffer, res.Image, res.Format, cube.GetWidth(), cube.GetHeight(),
                                cube.GetMipmapLevels(), 0, 6, /*transitionToShaderRead=*/false );
 
             cube.TransitionLayout( commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                                   VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT );
+                                   VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT,
+                                   VK_ACCESS_MEMORY_READ_BIT );
         }
     } // namespace
 
-    Common::BoolResultStr VulkanMipMapCubeGeneratorCS::RecordMips( GpuBatch& /*batch*/,
-                                                                   const std::shared_ptr<ImageCube>& /*imageCube*/ ) const
+    Common::BoolResultStr
+    VulkanMipMapCubeGeneratorCS::RecordMips( GpuBatch& /*batch*/,
+                                             const std::shared_ptr<ImageCube>& /*imageCube*/ ) const
     {
         return Common::MakeError( "Not impl" );
     }
@@ -127,8 +130,8 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanMipMapCubeGeneratorTO::RecordMips( GpuBatch&                         batch,
-                                                                   const std::shared_ptr<ImageCube>& imageCube ) const
+    Common::BoolResultStr
+    VulkanMipMapCubeGeneratorTO::RecordMips( GpuBatch& batch, const std::shared_ptr<ImageCube>& imageCube ) const
     {
         const VkCommandBuffer commandBuffer = RecordingBuffer( batch );
         if ( commandBuffer == VK_NULL_HANDLE )
