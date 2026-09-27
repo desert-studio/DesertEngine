@@ -354,14 +354,14 @@ namespace Desert::Editor
                               "Levels %d" );
             ImGui::SameLine();
             ImGui::SetNextItemWidth( half );
-            int                                scheme      = static_cast<int>( subdivide.Scheme );
+            int                                         scheme   = static_cast<int>( subdivide.Scheme );
             static constexpr std::array<const char*, 3> kSchemes = { "Bilinear", "Catmull-Clark", "Loop" };
             if ( ImGui::Combo( "##ElementSubdivideScheme", &scheme, kSchemes.data(),
                                static_cast<int>( kSchemes.size() ) ) )
                 subdivide.Scheme = static_cast<Geometry::SubdivisionScheme>( scheme );
             ImGui::SetNextItemWidth( half );
             ImGui::BeginDisabled( subdivide.Scheme == Geometry::SubdivisionScheme::Bilinear );
-            int                                boundary      = static_cast<int>( subdivide.Boundary );
+            int                                         boundary    = static_cast<int>( subdivide.Boundary );
             static constexpr std::array<const char*, 2> kBoundaries = { "Smooth Corners", "Sharp Corners" };
             if ( ImGui::Combo( "##ElementSubdivideBoundary", &boundary, kBoundaries.data(),
                                static_cast<int>( kBoundaries.size() ) ) )
@@ -369,8 +369,9 @@ namespace Desert::Editor
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::SetNextItemWidth( half );
-            int                                normals    = static_cast<int>( subdivide.Normals );
-            static constexpr std::array<const char*, 2> kNormals = { "Normals: Interpolated", "Normals: Generated" };
+            int                                         normals  = static_cast<int>( subdivide.Normals );
+            static constexpr std::array<const char*, 2> kNormals = { "Normals: Interpolated",
+                                                                     "Normals: Generated" };
             if ( ImGui::Combo( "##ElementSubdivideNormals", &normals, kNormals.data(),
                                static_cast<int>( kNormals.size() ) ) )
                 subdivide.Normals = static_cast<Geometry::SubdivisionOutputNormals>( normals );

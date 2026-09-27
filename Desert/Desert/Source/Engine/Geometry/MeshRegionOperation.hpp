@@ -76,11 +76,11 @@ namespace Desert::Geometry
     // extra-corner hook yet), bRenderGroups / bRenderCage (preview drawing).
     struct SubdivideSettings
     {
-        int                       Level          = 3;
-        SubdivisionScheme         Scheme         = SubdivisionScheme::CatmullClark;
-        SubdivisionBoundaryScheme Boundary       = SubdivisionBoundaryScheme::SmoothCorners;
-        SubdivisionOutputNormals  Normals        = SubdivisionOutputNormals::Generated;
-        bool                      NewPolyGroups  = false;
+        int                       Level         = 3;
+        SubdivisionScheme         Scheme        = SubdivisionScheme::CatmullClark;
+        SubdivisionBoundaryScheme Boundary      = SubdivisionBoundaryScheme::SmoothCorners;
+        SubdivisionOutputNormals  Normals       = SubdivisionOutputNormals::Generated;
+        bool                      NewPolyGroups = false;
     };
 
     // UE caps a subdivision at this many faces (SubdividePolyTool.cpp:150, from UDisplaceMeshTool).
@@ -98,7 +98,6 @@ namespace Desert::Geometry
     // Refused, by name and numbers, on an empty mesh, a level below 1 or above MaxSubdivisionLevel (UE clamps it
     // with a warning), a group topology Bilinear / Catmull-Clark cannot use (UE switches to Loop with a warning,
     // SubdividePolyTool.cpp:230-235; here the user picks Loop), or SubdividePoly's own failure.
-    [[nodiscard]] Common::ResultStr<RegionOutcome> SubdivideMesh( const DynamicMesh3&      before,
-                                                                  const SubdivideSettings& settings,
-                                                                  ElementMode              mode );
+    [[nodiscard]] Common::ResultStr<RegionOutcome>
+    SubdivideMesh( const DynamicMesh3& before, const SubdivideSettings& settings, ElementMode mode );
 } // namespace Desert::Geometry

@@ -188,7 +188,7 @@ namespace Desert::Editor::Core
         args.Distance      = ms.ElementOpDistance;
         args.LoopPosition  = ms.ElementLoopPosition;
         args.WeldTolerance = ms.ElementWeldTolerance;
-        args.Subdivide          = ms.ElementSubdivide;
+        args.Subdivide            = ms.ElementSubdivide;
         args.MirrorAxis         = ms.ElementMirrorAxis;
         args.MirrorWorld        = ms.ElementMirrorWorld;
         args.MirrorKeepNegative = ms.ElementMirrorKeepNegative;

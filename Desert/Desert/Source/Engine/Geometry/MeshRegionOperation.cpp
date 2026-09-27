@@ -341,8 +341,8 @@ namespace Desert::Geometry
         if ( before.TriangleCount() == 0 )
             return Common::MakeError<RegionOutcome>( "Mesh Subdivide: the mesh has no triangles" );
         if ( settings.Level < 1 )
-            return Common::MakeFormattedError<RegionOutcome>( "Mesh Subdivide: the level must be at least 1, not {}",
-                                                              settings.Level );
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Subdivide: the level must be at least 1, not {}", settings.Level );
         const bool    bLoop = settings.Scheme == SubdivisionScheme::Loop;
         GroupTopology topology( &before, false );
         if ( !bLoop )
@@ -350,7 +350,7 @@ namespace Desert::Geometry
             if ( !topology.RebuildTopology() )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh Subdivide: the polygroup topology: {}",
                                                                   topology.Failure() );
-            const SubdividePoly                     probe( topology, before, 1 );
+            const SubdividePoly                      probe( topology, before, 1 );
             const SubdividePoly::TopologyCheckResult check = probe.ValidateTopology();
             if ( check != SubdividePoly::TopologyCheckResult::Ok )
                 return Common::MakeFormattedError<RegionOutcome>(

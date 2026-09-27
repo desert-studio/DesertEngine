@@ -236,8 +236,7 @@ namespace Desert::Geometry
                      static_cast<size_t>( refiner.GetLevel( currentLevel ).GetNumFVarValues( fvarChannel ) ) );
                 auto* src = sourceData.data();
                 auto* dst = outRefinedData.data();
-                interpolator.InterpolateFaceVarying( currentLevel, src, dst,
-                                                     fvarChannel );
+                interpolator.InterpolateFaceVarying( currentLevel, src, dst, fvarChannel );
                 sourceData = outRefinedData;
             }
         }
@@ -307,14 +306,14 @@ namespace Desert::Geometry
                         tri[i] = IndexConstants::InvalidID;
         }
 
-    // The channel of each face-varying attribute in the descriptor, -1 if absent (UE: FFVarChannelMapping,
-    // :453-465).
-    struct FVarChannelMapping
-    {
-        std::vector<int> UVLayerFVarChannels;
-        int              ColorFVarChannel  = -1;
-        int              NormalFVarChannel = -1;
-    };
+        // The channel of each face-varying attribute in the descriptor, -1 if absent (UE: FFVarChannelMapping,
+        // :453-465).
+        struct FVarChannelMapping
+        {
+            std::vector<int> UVLayerFVarChannels;
+            int              ColorFVarChannel  = -1;
+            int              NormalFVarChannel = -1;
+        };
     } // namespace
 
     const char* ToString( SubdivisionScheme scheme )

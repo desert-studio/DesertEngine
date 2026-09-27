@@ -8,8 +8,9 @@
 //
 // Which card removes which crossing: element selection and picking -> P10; Offset (ours, no UE counterpart) -> P11
 // left it here; Edge Loop / Weld / Hole Fill / Clean -> P12; Bevel -> P13a/b; Plane Cut / Mirror -> P14; Subdivide
-// -> P15 (done: MeshRegionOperation.hpp SubdivideMesh); Create Shape and the shape generators -> P16; Boolean / Trim -> P17; the CubeGrid bake -> P18; the XForm
-// tab (our own, no UE counterpart) -> P19 or a card of its own. The bridge as a whole -> P8b.
+// -> P15 (done: MeshRegionOperation.hpp SubdivideMesh); Create Shape and the shape generators -> P16; Boolean /
+// Trim -> P17; the CubeGrid bake -> P18; the XForm tab (our own, no UE counterpart) -> P19 or a card of its own.
+// The bridge as a whole -> P8b.
 //
 // The editor sees the EditMesh types (selection, operation arguments, the operations themselves) only through
 // the includes below, which is why they are here and not in the callers.
