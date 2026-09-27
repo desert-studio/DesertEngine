@@ -97,7 +97,7 @@ namespace
         l.Root.QuadsPerTile = 7u;
         for ( int32_t tz = 0; tz < tilesZ; ++tz )
             for ( int32_t tx = 0; tx < tilesX; ++tx )
-                {
+            {
                 auto tile = LandscapeTileData::Create( 8u, 8u );
                 l.Tiles.emplace( std::make_pair( tx, tz ), tile.ExtractValue() );
             }
@@ -166,7 +166,7 @@ TEST( LandscapeHeightmapIO, RawWithoutASizeIsASquareAsUeInfersIt )
     const LandscapeHeightmap square    = MakeMap( 15u, 15u );
     const auto               squareRaw = EncodeLandscapeHeightmapRaw( square );
     const auto               oblongRaw = EncodeLandscapeHeightmapRaw( MakeMap( 15u, 8u ) );
-    auto back = DecodeLandscapeHeightmapRaw( squareRaw.GetValue(), {} );
+    auto                     back      = DecodeLandscapeHeightmapRaw( squareRaw.GetValue(), {} );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_EQ( back.GetValue().Width, 15u );
     EXPECT_EQ( back.GetValue().Samples, square.Samples );

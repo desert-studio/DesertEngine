@@ -240,7 +240,7 @@ namespace Desert::World::Landscape
                                                            const LandscapeGeneratedMap&     map,
                                                            LandscapeGenerateProgress*       progress )
     {
-        const Steps steps{ progress };
+        const Steps  steps{ progress };
         const size_t wantX = static_cast<size_t>( s.TilesX ) * s.QuadsPerTile + 1u;
         const size_t wantZ = static_cast<size_t>( s.TilesZ ) * s.QuadsPerTile + 1u;
         if ( s.TilesX < 1 || s.TilesZ < 1 || map.SamplesX != wantX || map.SamplesZ != wantZ ||
