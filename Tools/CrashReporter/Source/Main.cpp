@@ -377,6 +377,13 @@ namespace
             return;
         }
         output << inText;
+        // The flush is where a full disk shows; close before claiming success (WriteVerdictCensus).
+        output.close();
+        if ( !output )
+        {
+            outStatus = "could not write the comment: " + file.string();
+            return;
+        }
         outStatus = "saved " + file.string();
     }
 

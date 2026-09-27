@@ -6827,7 +6827,7 @@ namespace Desert::Editor
                     break;
             }
         }
-        if ( !m_BackgroundCookReported && m_BackgroundCook->Outstanding() == 0 )
+        if ( !m_BackgroundCookReported && m_BackgroundCook->AllSettled() )
         {
             m_BackgroundCookReported = true;
             LOG_INFO( "[BackgroundCook] {} mesh source(s) checked after the reveal in {} ms: {} cooked, {} failed",

@@ -34,10 +34,13 @@ namespace
     // baked in at compile time is the one thing that does not depend on how the test was launched.
     std::filesystem::path EditorDirectory()
     {
-        // Desert/Tests/Engine/EngineShaderByGuid/engine_shader_by_guid_test.cpp -> repo root is four
-        // directories up from this file's parent.
-        const std::filesystem::path here = std::filesystem::path( __FILE__ ).parent_path();
-        return std::filesystem::weakly_canonical( here / ".." / ".." / ".." / ".." / "Editor" );
+        // Walks up from the working directory (suites run from the repo root): __FILE__ is relative to
+        // wherever the project file sits (build/Projects since BLD1), so it cannot name the tree.
+        std::filesystem::path prefix = ".";
+        for ( int up = 0; up < 6; ++up, prefix /= ".." )
+            if ( std::filesystem::exists( prefix / "Editor" / "Resources" / "Shaders" ) )
+                return std::filesystem::weakly_canonical( prefix / "Editor" );
+        return {};
     }
 
     // Changes the process's working directory to `Editor/` for the lifetime of the guard and restores it

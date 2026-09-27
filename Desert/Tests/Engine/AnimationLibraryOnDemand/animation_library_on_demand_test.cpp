@@ -30,8 +30,8 @@ namespace
     {
         for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
         {
-            const fs::path candidate = fs::path( prefix ) / "Editor/Cooked/Meshes";
-            if ( fs::is_directory( candidate ) )
+            const fs::path candidate = fs::path( prefix ) / "Editor/Cooked/Meshes/SkinProbe_Tilt.anim";
+            if ( fs::is_regular_file( candidate ) )
                 return fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) )
                      .lexically_normal();
         }

@@ -122,6 +122,13 @@ namespace Desert::Editor
             std::lock_guard<std::mutex> lock( m_Mutex );
             return m_Running;
         }
+        // Every queued cook has completed (the startup report's trigger). A named question rather than
+        // `Outstanding() == 0` in the host, which RuntimeLoadingState reserves for the loader's rule.
+        bool AllSettled() const
+        {
+            std::lock_guard<std::mutex> lock( m_Mutex );
+            return m_Running == 0;
+        }
         std::size_t Total() const
         {
             std::lock_guard<std::mutex> lock( m_Mutex );

@@ -160,9 +160,12 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
 {
     // Derived from this file's path, not the working directory: the suite binary runs from
     // build/Bin/Tests/<Config>/. Desert/Tests/Editor/MaterialDocumentOpen -> four directories up.
-    const std::filesystem::path here = std::filesystem::path( __FILE__ ).parent_path();
-    const std::filesystem::path editorDir =
-         std::filesystem::weakly_canonical( here / ".." / ".." / ".." / ".." / "Editor" );
+    // Walks up from the working directory (suites run from the repo root): __FILE__ is relative to
+    // wherever the project file sits (build/Projects since BLD1), so it cannot name the tree.
+    std::filesystem::path editorDir;
+    for ( std::filesystem::path prefix = "."; editorDir.empty() && prefix.string().size() < 20; prefix /= ".." )
+        if ( std::filesystem::exists( prefix / "Editor" / "Resources" / "Shaders" ) )
+            editorDir = std::filesystem::weakly_canonical( prefix / "Editor" );
     const std::filesystem::path material =
          editorDir / "Resources" / "Assets" / "Materials" / "M_CubemapCheck.demat";
     ASSERT_TRUE( std::filesystem::exists( material ) ) << material.string();
