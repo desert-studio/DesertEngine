@@ -85,6 +85,7 @@
 #include "Editor/Packaging/GamePackager.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <Engine/Graphic/Image.hpp>                      // Image2D::ReadPixelsRGBA8 (debug frame dump)
 #include <Engine/Core/Input.hpp>
@@ -3186,7 +3187,11 @@ namespace Desert::Editor
         // The Details preview is a TOOL that happens to own a renderer, so it is found among the panels.
         for ( const auto& panel : m_Panels )
             if ( const auto* details = dynamic_cast<const ScenePropertiesPanel*>( panel.get() ) )
-                census.push_back( { "Details preview", details->HoldsView() } );
+                // Only while it HOLDS one. With nothing previewable selected it owns no renderer and has
+                // no forecast either (it builds lazily on a selection, not on a document), so a row here
+                // read "will allocate ~0.0 MiB when it draws" — a line the user could do nothing with.
+                if ( details->HoldsView() )
+                    census.push_back( { "Details preview", true } );
 
         // The documents are asked of their own owner rather than sifted out of the panel list with a
         // dynamic_cast. That cast was the seam an earlier task closed: it only existed because the two
@@ -5409,6 +5414,24 @@ namespace Desert::Editor
                                   m_AddSceneViewportRequested = true;
                                   return PaletteCommandDone();
                               } } );
+
+        // THE ALLOCATOR'S OWN CENSUS, for the leak no view ledger can see: device usage that grows while every
+        // view's HeldBytes stays flat (RT2k). One line per tag, so a before/after pair diffs to the culprit.
+        commands.push_back(
+             { "Debug", "Log GPU allocations by tag", []() -> Common::BoolResultStr
+               {
+                   const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
+                        EngineContext::GetInstance().GetRendererContext() );
+                   if ( !context || !context->GetVulkanAllocator() )
+                       return Common::MakeError<bool>(
+                            "the renderer is not Vulkan; there is no allocator to read." );
+                   const auto& ledger = context->GetVulkanAllocator()->Ledger();
+                   LOG_INFO( "[AllocLedger] {} live allocation(s), {:.2f} MiB", ledger.LiveCount(),
+                             static_cast<double>( ledger.LiveBytes() ) / ( 1024.0 * 1024.0 ) );
+                   for ( const auto& row : ledger.ByTag() )
+                       LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
+                   return PaletteCommandDone();
+               } } );
 
         // FOUR ANGLES IN ONE ACTION. Opening three viewports by hand and dragging each into a quarter is
         // eleven gestures, none of which a headless run can make (synthetic input is closed on this

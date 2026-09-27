@@ -149,7 +149,7 @@
                 "FitHeight": false
             },
             "UIText": {
-                "Text": "Six render-texture elements, six renderer slots",
+                "Text": "Six render-texture elements, six views",
                 "FontSize": 28.0,
                 "Color": [0.93, 0.95, 0.98],
                 "Font": "",

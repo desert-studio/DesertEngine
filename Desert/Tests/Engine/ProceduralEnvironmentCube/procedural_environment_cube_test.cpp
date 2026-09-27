@@ -34,6 +34,7 @@
 
 #include <gtest/gtest.h>
 
+#include <Engine/Graphic/Environment/OwnedEnvironment.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 #include <algorithm>
@@ -298,7 +299,8 @@ TEST( ProceduralEnvironmentCube, NoOneElseNamesTheRadianceCube )
     const std::set<std::string> allowed = {
          "Desert/Desert/Source/Engine/Graphic/Environment/SceneEnvironment.hpp",
          "Desert/Desert/Source/Engine/Graphic/Materials/Skybox/MaterialSkybox.cpp",
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Environment/OwnedEnvironment.hpp", // releases it with the view that
+                                                                                 // baked it
          "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
          "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
          // The skybox viewer shows one .hdr FILE: it reads the SkyboxService's own MaterialSkybox for that
@@ -413,6 +415,62 @@ TEST( ProceduralEnvironmentCube, AFreedCubeIsNotResolvableAndItsNeighbourIsUntou
     EXPECT_EQ( service.Resolve( radiance ), nullptr );
     EXPECT_EQ( service.Resolve( prefiltered ), reinterpret_cast<Desert::Graphic::Image*>( 0x2000 ) )
          << "freeing the bake's radiance cube took the prefiltered cube with it";
+}
+
+// ------------------------------------------------------------------------------------------------
+// 5. A view's baked environment dies with the view (RT2k: +8.16 MiB per closed view with a sky).
+// ------------------------------------------------------------------------------------------------
+namespace
+{
+    Desert::Graphic::Environment Bake( Desert::Runtime::ImageService& service, std::uintptr_t base )
+    {
+        using Type = Desert::Runtime::ImageHandle::Type;
+        Desert::Graphic::Environment env;
+        env.IrradianceMap  = service.Register( Stand( base ), Type::ImageCube );
+        env.PreFilteredMap = service.Register( Stand( base + 0x100 ), Type::ImageCube );
+        return env;
+    }
+} // namespace
+
+TEST( ProceduralEnvironmentCube, AViewsEnvironmentIsReleasedWhenTheViewDies )
+{
+    Desert::Runtime::ImageService service;
+    Desert::Graphic::Environment  held;
+    {
+        Desert::Graphic::OwnedEnvironment owned;
+        owned.Replace( service, Bake( service, 0x1000 ) );
+        held = owned.Get();
+        ASSERT_NE( service.Resolve( held.PreFilteredMap ), nullptr );
+    }
+    EXPECT_EQ( service.Resolve( held.PreFilteredMap ), nullptr )
+         << "the prefiltered cube outlived the view that baked it: 8.06 MiB per closed view with a sky, "
+            "resident for the session (RT2k).";
+    EXPECT_EQ( service.Resolve( held.IrradianceMap ), nullptr ) << "the irradiance cube outlived its view";
+}
+
+TEST( ProceduralEnvironmentCube, ARebakeReleasesThePreviousEnvironmentAndKeepsTheNewOne )
+{
+    Desert::Runtime::ImageService     service;
+    Desert::Graphic::OwnedEnvironment owned;
+    owned.Replace( service, Bake( service, 0x1000 ) );
+    const auto first = owned.Get();
+    owned.Replace( service, Bake( service, 0x2000 ) );
+
+    EXPECT_EQ( service.Resolve( first.PreFilteredMap ), nullptr ) << "a rebake kept the previous cubes";
+    EXPECT_EQ( service.Resolve( owned.Get().PreFilteredMap ),
+               reinterpret_cast<Desert::Graphic::Image*>( 0x2100 ) );
+}
+
+TEST( ProceduralEnvironmentCube, TheSkyboxRendererOwnsItsEnvironmentRatherThanCopyingHandles )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string header = StripComments(
+         ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp" ) );
+    EXPECT_NE( header.find( "OwnedEnvironment m_ProceduralEnv;" ), std::string::npos )
+         << "SkyboxRenderer holds its procedural environment as bare handles again. The cubes live in the "
+            "process-wide ImageService and nothing unregisters the last bake when the view closes: the "
+            "8.16 MiB-per-view leak RT2k measured.";
 }
 
 int main( int argc, char** argv )

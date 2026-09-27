@@ -109,6 +109,7 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
+        m_Ledger.Record( reinterpret_cast<uint64_t>( allocation ), tag, AllocationSize( allocation ) );
         return Common::MakeSuccess( allocation );
     }
 
@@ -152,6 +153,7 @@ namespace Desert::Graphic::API::Vulkan
                  VkResultToString( res ) );
         }
 
+        m_Ledger.Record( reinterpret_cast<uint64_t>( allocation ), tag, AllocationSize( allocation ) );
         return Common::MakeSuccess( allocation );
     }
 
@@ -302,6 +304,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( takeFrame( it->FrameIndex ) )
             {
                 vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
+                m_Ledger.Release( reinterpret_cast<uint64_t>( it->Allocation ) );
                 it = m_BufferDeletionQueue.erase( it );
                 ++destroyed;
             }
@@ -317,6 +320,7 @@ namespace Desert::Graphic::API::Vulkan
                 for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
 
                 vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
+                m_Ledger.Release( reinterpret_cast<uint64_t>( it->Allocation ) );
                 it = m_ImageDeletionQueue.erase( it );
                 ++destroyed;
             }
