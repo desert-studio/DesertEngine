@@ -336,12 +336,6 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    Common::BoolResultStr SplitMeshAlongPlane( EditMesh& mesh, std::vector<char>& inSet, const CutPlane& plane,
-                                               const char* what )
-    {
-        return SplitAlongPlane( mesh, inSet, plane, what );
-    }
-
     Common::ResultStr<PlaneCutCap> CutAwayPositiveSide( EditMesh& mesh, std::vector<char>& inSet,
                                                         const CutPlane& plane, bool fillHole, const char* what )
     {

@@ -327,4 +327,72 @@ namespace
         ASSERT_FALSE( Empty.IsSuccess() );
         EXPECT_NE( Empty.GetError().find( "Mesh Union: the mesh has no triangles" ), std::string::npos );
     }
+
+    // A CONCAVE cutter: the L-shaped prism over {[0,100] x [0,50]} u {[0,50] x [50,100]}, z in [0,100], closed
+    // and facing out. The Trim it replaced (EditMesh TrimMesh) cut by the intersection of the cutter's face
+    // planes and refused a dent; the notch [50,100]^2 is exactly what that would have got wrong.
+    DynamicMesh3 MakeLPrism()
+    {
+        const std::array<glm::dvec2, 7> Outline{ { { 0, 0 },
+                                                   { 100, 0 },
+                                                   { 100, 50 },
+                                                   { 50, 50 },
+                                                   { 50, 100 },
+                                                   { 0, 100 },
+                                                   { 0, 50 } } }; // counter-clockwise
+        DynamicMesh3                    Mesh;
+        for ( const double Z : { 0.0, 100.0 } )
+            for ( const glm::dvec2& P : Outline )
+                Mesh.AppendVertex( glm::dvec3( P, Z ) );
+        const int Top = static_cast<int>( Outline.size() );
+        // the caps: the rectangle [0,100] x [0,50] (0,1,2,3,6) and the square [0,50] x [50,100] (6,3,4,5)
+        const std::array<std::array<int, 3>, 5> Cap{
+             { { 0, 1, 2 }, { 0, 2, 3 }, { 0, 3, 6 }, { 6, 3, 4 }, { 6, 4, 5 } } };
+        for ( const auto& T : Cap )
+        {
+            AddOutwardTri( Mesh, T[0], T[1], T[2], glm::dvec3( 0, 0, -1 ) );
+            AddOutwardTri( Mesh, T[0] + Top, T[1] + Top, T[2] + Top, glm::dvec3( 0, 0, 1 ) );
+        }
+        for ( int i = 0; i < Top; ++i )
+        {
+            const int        j = ( i + 1 ) % Top;
+            const glm::dvec2 d = Outline[j] - Outline[i];
+            const glm::dvec3 Out( d.y, -d.x, 0 ); // right of a counter-clockwise walk
+            AddOutwardTri( Mesh, i, j, j + Top, Out );
+            AddOutwardTri( Mesh, i, j + Top, i + Top, Out );
+        }
+        return Mesh;
+    }
+
+    TEST( MeshBooleanOperation, ConcaveCutterTrimsItsNotchAndSubtracts )
+    {
+        const DynamicMesh3 L = MakeLPrism();
+        ASSERT_EQ( OpenEdges( L ), 0 );
+        ASSERT_NEAR( Volume( L ), 7500.0 * 100.0, 1e-6 );
+        const DynamicMesh3 Sheet = MakeSheet( -50, 150, 5, 50 );
+
+        auto Outside = RunMeshBoolean( BooleanOperation::TrimInside, Sheet, L );
+        ASSERT_TRUE( Outside.IsSuccess() ) << Outside.GetError();
+        // the L's footprint goes, the notch stays: its convex hull would take 100 x 100
+        EXPECT_NEAR( Area( *Outside.GetValue().Mesh ), 200.0 * 200.0 - 7500.0, 1e-6 * 4e4 );
+        for ( int t : Outside.GetValue().Mesh->TriangleIndicesItr() )
+        {
+            glm::dvec3 a, b, c;
+            Outside.GetValue().Mesh->GetTriVertices( t, a, b, c );
+            EXPECT_FALSE( InsideOf( L, ( a + b + c ) / 3.0 ) ) << t;
+        }
+
+        auto Inside = RunMeshBoolean( BooleanOperation::TrimOutside, Sheet, L );
+        ASSERT_TRUE( Inside.IsSuccess() ) << Inside.GetError();
+        EXPECT_NEAR( Area( *Inside.GetValue().Mesh ), 7500.0, 1e-6 * 4e4 );
+
+        // a cube [25,125]^3 minus the L: the overlap is 3125 cm^2 of footprint over 75 cm of height
+        const DynamicMesh3 Cube = MakeBox( glm::dvec3( 25 ), kSize );
+        auto               Diff = RunMeshBoolean( BooleanOperation::Difference, Cube, L );
+        ASSERT_TRUE( Diff.IsSuccess() ) << Diff.GetError();
+        EXPECT_EQ( OpenEdges( *Diff.GetValue().Mesh ), 0 );
+        EXPECT_NEAR( Volume( *Diff.GetValue().Mesh ), 1e6 - 3125.0 * 75.0, 1.0 );
+        EXPECT_FALSE( InsideOf( *Diff.GetValue().Mesh, glm::dvec3( 40, 40, 50 ) ) ); // in the L: removed
+        EXPECT_TRUE( InsideOf( *Diff.GetValue().Mesh, glm::dvec3( 75, 75, 50 ) ) );  // in the notch: kept
+    }
 } // namespace

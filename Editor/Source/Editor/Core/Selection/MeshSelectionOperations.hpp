@@ -35,7 +35,6 @@ namespace Desert::Editor::Core
         Subdivide, // mesh-wide, like Clean: no selection in, none out
         Mirror,    // mesh-wide
         PlaneCut,  // mesh-wide; Keep Both Halves splits the entity in two
-        Trim,      // mesh-wide, by another entity's mesh
         FillHole,  // the open loops through a selected edge, or every loop
         WeldEdges, // mesh-wide, UE's coincidence tolerance: no distance
     };
@@ -59,8 +58,6 @@ namespace Desert::Editor::Core
         bool                      PlaneCutKeepNegative = false;
         bool                      PlaneCutFill         = true;
         Geometry::PlaneCutMode    PlaneCutMode         = Geometry::PlaneCutMode::DiscardNegativeSide;
-        Common::UUID              TrimCutter; // Null: no cutter picked, Trim is refused
-        Geometry::TrimSide        TrimSide = Geometry::TrimSide::RemoveInside;
         // Cut only: the plane in the MESH's space (the knife maps its screen line through the entity's
         // transform). Absent, Cut is refused - it has no line to cut along.
         std::optional<Geometry::CutPlane> CutPlane;

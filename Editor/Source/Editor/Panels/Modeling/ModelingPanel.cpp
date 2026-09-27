@@ -1,6 +1,7 @@
 #include "ModelingPanel.hpp"
 
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
@@ -184,6 +185,18 @@ namespace Desert::Editor
             LOG_WARN( "{0}", done.GetError() );
     }
 
+    void ModelingPanel::RunBoolean( Core::BooleanTool tool )
+    {
+        if ( !m_Scene )
+        {
+            LOG_WARN( "{0}: the Modeling panel has no scene", Core::ToString( tool ) );
+            return;
+        }
+        if ( const auto done = Core::ApplyBooleanTool( *m_Scene, tool, Core::BooleanArgsFromModelingState() );
+             !done )
+            LOG_WARN( "{0}", done.GetError() );
+    }
+
     void ModelingPanel::Transform( Core::XformOperation op )
     {
         if ( !m_Scene )
@@ -253,8 +266,8 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Pick a shape above to place it." );
     }
 
-    // UE's Create palette: of its tools we have Merge (UE's Combine Meshes) and Pattern, both operations on the
-    // scene selection that run on one click; in UE each is a tool with its own Accept.
+    // UE's Create palette: of its tools we have Boolean, Merge (UE's Combine Meshes) and Pattern, all operations
+    // on the scene selection that run on one click; in UE each is a tool with its own Accept.
     void ModelingPanel::DrawCreatePalette()
     {
         auto&       ms       = Core::ModelingState::Get();
@@ -262,6 +275,21 @@ namespace Desert::Editor
         const char* axes[]   = { "X", "Y", "Z" };
         using XO             = Core::XformOperation;
         const auto transform = [this]( XO op ) { Transform( op ); };
+        if ( Utils::ImGuiUtilities::SectionHeader( "Boolean" ) )
+        {
+            static constexpr std::array<const char*, 4> kOps = { "Difference A - B", "Difference B - A",
+                                                                 "Intersect", "Union" };
+            int                                         op   = static_cast<int>( ms.Boolean.Operation );
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( ImGui::Combo( "##BooleanOperation", &op, kOps.data(), static_cast<int>( kOps.size() ) ) )
+                ms.Boolean.Operation = static_cast<Core::CsgOperation>( op );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Of the two selected entities, A is the first selected and B the second.\n"
+                                   "Both must be closed solids." );
+            DrawBooleanOutput();
+            if ( ImGui::Button( Core::ToString( Core::BooleanTool::Boolean ), ImVec2( -1.0f, 0.0f ) ) )
+                RunBoolean( Core::BooleanTool::Boolean );
+        }
         if ( Utils::ImGuiUtilities::SectionHeader( "Merge" ) )
         {
             if ( ImGui::Button( Core::ToString( XO::Merge ), ImVec2( -1.0f, 0.0f ) ) )
@@ -374,7 +402,8 @@ namespace Desert::Editor
     }
 
     // UE's TriModel palette: Mirror, Plane Cut and Trim (UE's Mesh Trim). In UE each is a tool with a gizmo and
-    // its own Accept; here each is an operation on the Select Elements mesh that runs on one click.
+    // its own Accept; here each runs on one click - Mirror and Plane Cut on the Select Elements mesh, Trim on
+    // the scene selection's two entities.
     void ModelingPanel::DrawTriModelPalette()
     {
         auto&       ms      = Core::ModelingState::Get();
@@ -414,23 +443,22 @@ namespace Desert::Editor
         if ( ImGui::Button( Core::ToString( MO::PlaneCut ), ImVec2( -1.0f, 0.0f ) ) )
             operate( MO::PlaneCut );
 
-        // Trim (UE's Trim tool): another entity's closed convex mesh cuts this one; the cut stays open.
-        if ( ImGui::Button( "Pick Cutter", ImVec2( half, 0.0f ) ) )
-        {
-            if ( const auto picked = PickTrimCutterFromSelection(); !picked )
-                LOG_WARN( "Mesh Trim: {}", picked.GetError() );
-        }
-        ImGui::SameLine();
-        if ( ms.ElementTrimCutter.IsNull() )
-            ImGui::TextDisabled( "no cutter" );
-        else
-            ImGui::Text( "cutter %llu",
-                         static_cast<unsigned long long>( static_cast<uint64_t>( ms.ElementTrimCutter ) ) );
-        bool outside = ms.ElementTrimSide == Geometry::TrimSide::RemoveOutside;
-        if ( ImGui::Checkbox( "Keep only the inside", &outside ) )
-            ms.ElementTrimSide = outside ? Geometry::TrimSide::RemoveOutside : Geometry::TrimSide::RemoveInside;
-        if ( ImGui::Button( Core::ToString( MO::Trim ), ImVec2( -1.0f, 0.0f ) ) )
-            operate( MO::Trim );
+        // Trim (UE's Trim tool): of the scene selection's two entities, one is cut by the other's closed surface
+        // (any shape, dents included); the cut stays open.
+        auto&                                       boolean  = ms.Boolean;
+        static constexpr std::array<const char*, 2> kTrimmed = { "Trim A (first selected)", "Trim B (second)" };
+        int                                         trimmed  = static_cast<int>( boolean.Trimmed );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##TrimWhich", &trimmed, kTrimmed.data(), static_cast<int>( kTrimmed.size() ) ) )
+            boolean.Trimmed = static_cast<Core::TrimTarget>( trimmed );
+        static constexpr std::array<const char*, 2> kSides = { "Remove Inside", "Remove Outside" };
+        int                                         side   = static_cast<int>( boolean.Side );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##TrimSide", &side, kSides.data(), static_cast<int>( kSides.size() ) ) )
+            boolean.Side = static_cast<Core::TrimSide>( side );
+        DrawBooleanOutput();
+        if ( ImGui::Button( Core::ToString( Core::BooleanTool::Trim ), ImVec2( -1.0f, 0.0f ) ) )
+            RunBoolean( Core::BooleanTool::Trim );
     }
 
     // UE's Transform palette: Edit Pivot, Bake Transform and Split. In UE each is a tool with its own Accept;
@@ -697,22 +725,19 @@ namespace Desert::Editor
     }
 
     // UE's "Output Type" section (UCreateMeshObjectTypeProperties), shared by the creating tools.
-    Common::BoolResultStr ModelingPanel::PickTrimCutterFromSelection()
+    void ModelingPanel::DrawBooleanOutput()
     {
-        // The first selected entity that is not the one being edited.
-        Core::ModelingState::Get().ElementTrimCutter = Common::UUID::Null();
-        for ( const Common::UUID& id : Core::SelectionManager::GetSelection() )
-            if ( id != Core::MeshElementSelection::Get().Entity() )
-                return PickTrimCutter( id );
-        return Common::MakeError<bool>( "select the cutter entity (besides the edited one) before Pick Cutter" );
-    }
-
-    Common::BoolResultStr ModelingPanel::PickTrimCutter( const Common::UUID& cutter )
-    {
-        if ( cutter == Core::MeshElementSelection::Get().Entity() )
-            return Common::MakeError<bool>( "the entity being edited cannot be its own Trim cutter" );
-        Core::ModelingState::Get().ElementTrimCutter = cutter;
-        return Common::MakeSuccess( true );
+        auto&                                       boolean  = Core::ModelingState::Get().Boolean;
+        static constexpr std::array<const char*, 2> kWriteTo = { "Write To: New Object", "Write To: Input" };
+        int                                         writeTo  = static_cast<int>( boolean.WriteTo );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##BooleanWriteTo", &writeTo, kWriteTo.data(), static_cast<int>( kWriteTo.size() ) ) )
+            boolean.WriteTo = static_cast<Core::BooleanWriteTo>( writeTo );
+        static constexpr std::array<const char*, 3> kInputs = { "Delete Inputs", "Hide Inputs", "Keep Inputs" };
+        int                                         inputs  = static_cast<int>( boolean.Inputs );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##BooleanInputs", &inputs, kInputs.data(), static_cast<int>( kInputs.size() ) ) )
+            boolean.Inputs = static_cast<Core::BooleanInputs>( inputs );
     }
 
     void ModelingPanel::DrawOutputType()
