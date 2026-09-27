@@ -775,8 +775,7 @@ namespace Desert::Migration
             if ( stated.GetValue() != Desert::Assets::kMaterialSchemaVersion )
             {
                 err << "FAIL   " << path.string() << " — states MATL v" << stated.GetValue()
-                    << "; this tool reads "
-                    << "only MATL v" << Desert::Assets::kMaterialSchemaVersion
+                    << "; this tool reads " << "only MATL v" << Desert::Assets::kMaterialSchemaVersion
                     << ( stated.GetValue() < Desert::Assets::kMaterialSchemaVersion
                               ? " (older materials are not supported)"
                               : " (written by a later build)" )
