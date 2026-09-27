@@ -7,6 +7,7 @@
 #include <Engine/ECS/System/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Render/Commands/DrawLandscapeTileCommand.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeWeightmap.hpp>
@@ -150,8 +151,11 @@ namespace Desert::ECS
         {
             glm::vec3                  LayerModes = glm::vec3( 0.0f );
             Graphic::MaterialOverrides Overrides;
-            // The root's weight layers, which give each tile channel its colour and blend by name.
-            std::vector<LandscapeLayerInfo> Layers;
+            // The root's weight layers (their `.delayerinfo` data), which give each tile channel its colour
+            // and blend by name. Pending: a layer is still loading, so a channel that names nothing yet is
+            // not reported as unknown.
+            std::vector<Assets::Serialization::LandscapeLayerInfoData> Layers;
+            bool                                                       LayersPending = false;
         };
         std::map<uint64_t, Surface> surfaces;
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
@@ -161,7 +165,18 @@ namespace Desert::ECS
                 return it->second;
             const entt::entity rootEntity = FindLandscapeRootEntity( registry, rootId );
             if ( rootEntity != entt::null && registry.has<LandscapeComponent>( rootEntity ) )
-                it->second.Layers = registry.get<LandscapeComponent>( rootEntity ).Layers;
+            {
+                // The service logs a failed layer once; a failed layer is simply absent here, and the tile's
+                // channels of it are reported below as layers the landscape does not list.
+                auto& service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                for ( const Assets::AssetHandle& handle : registry.get<LandscapeComponent>( rootEntity ).Layers )
+                {
+                    if ( const auto* info = service.Get( handle ) )
+                        it->second.Layers.push_back( *info );
+                    else if ( service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending )
+                        it->second.LayersPending = true;
+                }
+            }
             for ( const auto entity : registry.view<LandscapeMaterialComponent, UUIDComponent>() )
             {
                 if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
@@ -236,7 +251,10 @@ namespace Desert::ECS
             gpu.NeighbourMask = mask;
 
             if ( d.WeightsDirty )
+            {
                 m_WarnedWeights.erase( d.Entity );
+                m_WarnedPages.erase( d.Entity );
+            }
             UpdateWeightmap( gpu, heights, d.Entity, tileComp, d.WeightsDirty );
 
             if ( ECS::IsHidden( registry, d.Entity ) )
@@ -260,11 +278,27 @@ namespace Desert::ECS
             {
                 const Landscape::LandscapeWeightChannels channels =
                      Landscape::ResolveLandscapeWeightChannels( heights, surface.Layers );
-                weights.Weightmap  = gpu.Weightmap.get();
-                weights.LayerCount = channels.Count;
-                weights.Colors     = channels.Colors;
-                weights.AlphaBlend = channels.AlphaBlend;
-                if ( !channels.Unknown.empty() && m_WarnedWeights.insert( d.Entity ).second )
+                // The terrain shader reads ONE RGBA8 weightmap (page 0, the tile's first four layers); pages
+                // past it wait for the Texture2DArray surface (LS-13), and the layers on them are reported below.
+                const uint32_t drawn = std::min( channels.Count, Landscape::kLandscapeWeightmapChannels );
+                weights.Weightmap    = gpu.Weightmap.get();
+                weights.LayerCount   = drawn;
+                for ( uint32_t c = 0; c < drawn; ++c )
+                {
+                    weights.Colors[c]                                   = channels.Colors[c];
+                    weights.AlphaBlend[static_cast<glm::length_t>( c )] = channels.AlphaBlend[c];
+                }
+                if ( channels.Count > drawn && m_WarnedPages.insert( d.Entity ).second )
+                {
+                    std::string names;
+                    for ( uint32_t c = drawn; c < channels.Count; ++c )
+                        names += ( names.empty() ? "" : ", " ) + heights.WeightLayers()[c].Name;
+                    LOG_WARN( "[Landscape] tile ({}, {}) carries {} weight layers; the terrain surface draws the "
+                              "first {} (one RGBA8 weightmap), so {} are kept on the tile but not drawn",
+                              tileComp.TileX, tileComp.TileZ, channels.Count, drawn, names );
+                }
+                if ( !channels.Unknown.empty() && !surface.LayersPending &&
+                     m_WarnedWeights.insert( d.Entity ).second )
                 {
                     // Not dropped silently: the tile keeps the layer's weights (renaming it back on the root
                     // restores it), it is just not drawn while the root does not name it.
@@ -291,6 +325,8 @@ namespace Desert::ECS
             it = registry.valid( *it ) ? std::next( it ) : m_Warned.erase( it );
         for ( auto it = m_WarnedWeights.begin(); it != m_WarnedWeights.end(); )
             it = registry.valid( *it ) ? std::next( it ) : m_WarnedWeights.erase( it );
+        for ( auto it = m_WarnedPages.begin(); it != m_WarnedPages.end(); )
+            it = registry.valid( *it ) ? std::next( it ) : m_WarnedPages.erase( it );
     }
 
     void LandscapeECSSystem::UpdateWeightmap( TileGpu& gpu, const Landscape::LandscapeTileData& heights,
@@ -305,7 +341,7 @@ namespace Desert::ECS
         // In place per stroke, like the heightmap: the weightmap's address keys the tile's material too.
         const auto weightmap = RefreshLandscapeTileImage(
              gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(), heights.SamplesZ(), weightsDirty,
-             [&] { return Landscape::LandscapeWeightmapTexels( heights ); },
+             [&] { return Landscape::LandscapeWeightmapTexels( heights, 0u ); },
              [&]( std::vector<unsigned char> texels )
              { return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
         if ( weightmap.IsSuccess() )

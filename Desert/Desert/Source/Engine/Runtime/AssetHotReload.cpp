@@ -8,6 +8,7 @@
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -76,6 +77,7 @@ namespace Desert::Runtime
         PollCloudTypes( assetManager );
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
+        PollLandscapeLayerInfos( assetManager );
         m_ContentWatch.Poll();
         m_FirstScan = false;
     }
@@ -230,6 +232,34 @@ namespace Desert::Runtime
             }
 
             LOG_INFO( "[HotReload] UI theme '{}' reloaded — the next frame draws it.", key );
+        }
+    }
+
+    void AssetHotReload::PollLandscapeLayerInfos( Assets::AssetManager& assetManager )
+    {
+        // No service to notify: LandscapeLayerInfoService hands out the asset's own data, and the landscape
+        // system and the paint tool read it every frame / every stroke, so re-reading the asset IS the reload.
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::LandscapeLayerInfoAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            const auto& path = asset->GetMetadata().Filepath;
+            if ( !TouchWatched( path ) )
+                continue;
+
+            const std::string key = path.generic_string();
+
+            // A FAILED RE-READ KEEPS THE OLD NUMBERS (the asset's data is replaced only by a parse that
+            // succeeded), for the cloud type's reason: a poll can land mid-write.
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] Landscape layer info '{}' could not be re-read: {}", key,
+                           reloaded.GetError() );
+                continue;
+            }
+
+            LOG_INFO( "[HotReload] Landscape layer info '{}' reloaded — the next frame and stroke use it.", key );
         }
     }
 

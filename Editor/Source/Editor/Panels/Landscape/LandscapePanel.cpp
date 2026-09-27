@@ -17,7 +17,9 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
@@ -343,11 +345,11 @@ namespace Desert::Editor
             ImGui::TextDisabled( "the scene has no loaded landscape" );
             return;
         }
-        auto&      layers = registry.get<ECS::LandscapeComponent>( root ).Layers;
-        auto&      paint  = Core::LandscapeSculptState::Get().Paint;
-        const auto before = layers;
+        const auto layers  = registry.get<ECS::LandscapeComponent>( root ).Layers; // a copy: commands edit it
+        auto&      paint   = Core::LandscapeSculptState::Get().Paint;
+        auto&      service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
 
-        if ( ImGui::Button( ICON_MDI_PLUS "  Add layer" ) )
+        if ( ImGui::Button( ICON_MDI_PLUS "  Create Layer Info" ) )
         {
             auto added = Commands::AddLandscapeLayer( scene );
             if ( !added.IsSuccess() )
@@ -357,37 +359,77 @@ namespace Desert::Editor
             return; // the command already recorded this change
         }
         if ( layers.empty() )
-            ImGui::TextDisabled( "no target layers: add one to paint" );
+            ImGui::TextDisabled( "no target layers: create a layer info to paint" );
 
+        const auto& rows = Assets::ContentRegistry::Rows( Common::Content::ContentKind::LandscapeLayerInfo );
         for ( size_t i = 0; i < layers.size(); ++i )
         {
-            auto& layer = layers[i];
             ImGui::PushID( static_cast<int>( i ) );
-            ImGui::ColorEdit3( "##swatch", &layer.Color.x, ImGuiColorEditFlags_NoInputs );
+            const Assets::AssetHandle handle = layers[i];
+            const auto*               info   = service.Get( handle );
+
+            // The asset slot (UE: the target layer's Layer Info object picker).
+            std::string current = "(missing)";
+            for ( const auto& row : rows )
+                if ( row.Handle == handle )
+                    current = row.Path.stem().string();
+            ImGui::SetNextItemWidth( -ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x );
+            if ( ImGui::BeginCombo( "##layerInfo", current.c_str() ) )
+            {
+                for ( const auto& row : rows )
+                    if ( ImGui::Selectable( row.Path.stem().string().c_str(), row.Handle == handle ) &&
+                         row.Handle != handle )
+                        if ( auto assigned = Commands::AssignLandscapeLayer( scene, i, row.Handle ); !assigned )
+                            ToastManager::Push( assigned.GetError(), ToastLevel::Error, 6.0f );
+                ImGui::EndCombo();
+            }
             ImGui::SameLine();
-            if ( ImGui::Selectable( layer.Name.c_str(), paint.Layer == layer.Name ) )
-                paint.Layer = layer.Name;
+            if ( ImGui::Button( ICON_MDI_CLOSE ) )
+            {
+                if ( auto removed = Commands::RemoveLandscapeLayer( scene, i ); !removed )
+                    ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
+                ImGui::PopID();
+                return;
+            }
+            if ( !info )
+            {
+                const bool pending =
+                     service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending;
+                ImGui::TextDisabled( "%s", pending ? "loading..." : service.ErrorOf( handle ).c_str() );
+                ImGui::PopID();
+                continue;
+            }
+
+            // Edits go to a copy and are saved to the asset when the widget is released (FO-1's pattern); the
+            // copy lives across frames only while this layer is the one being edited.
+            Assets::Serialization::LandscapeLayerInfoData local =
+                 m_LayerEdit && m_LayerEdit->first == handle ? m_LayerEdit->second : *info;
+            auto& edit   = local;
+            bool  commit = false;
+            ImGui::ColorEdit3( "##swatch", &edit.LayerUsageDebugColor.x, ImGuiColorEditFlags_NoInputs );
+            commit = commit || ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            if ( ImGui::Selectable( info->LayerName.c_str(), paint.Layer == info->LayerName ) )
+                paint.Layer = info->LayerName;
             ImGuiUtilities::ResetPropertyRows();
             ImGuiUtilities::BeginPropertyRow( "Hardness" );
             ImGui::SetNextItemWidth( -FLT_MIN );
-            ImGui::SliderFloat( "##hardness", &layer.Hardness, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderFloat( "##hardness", &edit.Hardness, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            commit = commit || ImGui::IsItemDeactivatedAfterEdit();
             ImGuiUtilities::EndPropertyRow();
             ImGuiUtilities::BeginPropertyRow( "No Weight Blend" );
-            ImGui::Checkbox( "##noBlend", &layer.NoWeightBlend );
+            if ( ImGui::Checkbox( "##noBlend", &edit.NoWeightBlend ) )
+                commit = true;
             ImGuiUtilities::EndPropertyRow();
+            if ( !( edit == *info ) )
+                m_LayerEdit.emplace( handle, edit );
+            if ( commit && m_LayerEdit && m_LayerEdit->first == handle )
+            {
+                if ( auto saved = service.Save( handle, m_LayerEdit->second ); !saved )
+                    ToastManager::Push( saved.GetError(), ToastLevel::Error, 6.0f );
+                m_LayerEdit.reset();
+            }
             ImGui::PopID();
-        }
-
-        // One undo entry per finished edit: a slider drag changes the list every frame, so the entry is recorded
-        // when no widget is active any more, from the list as it was when the edit began.
-        if ( !m_LayersEditStart && !Commands::SameLandscapeLayers( before, layers ) )
-            m_LayersEditStart = before;
-        if ( m_LayersEditStart && !ImGui::IsAnyItemActive() )
-        {
-            if ( !Commands::SameLandscapeLayers( *m_LayersEditStart, layers ) )
-                Commands::RecordLandscapeLayersEdit( scene, *landscape, std::move( *m_LayersEditStart ), layers,
-                                                     "Edit landscape layers" );
-            m_LayersEditStart.reset();
         }
     }
 } // namespace Desert::Editor

@@ -400,6 +400,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionShaderGuids << "->v"
                 << Desert::Migration::kSceneVersionPathOnlyMeshGuids << " (" << report.PathOnlyMeshGuids.Rewritten
                 << " path-only mesh reference(s) now state the mesh header GUID)";
+        if ( report.LandscapeLayerRefsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionFoliageTypes << "->v"
+                << Desert::Migration::kSceneVersionLandscapeLayerRefs
+                << " (landscape layers are .delayerinfo references; no inline layer in this file)";
         if ( report.FoliageTypesRaised )
             out << " scene v" << Desert::Migration::kSceneVersionPathOnlyMeshGuids << "->v"
                 << Desert::Migration::kSceneVersionFoliageTypes << " (" << report.FoliageTypes.Rewritten

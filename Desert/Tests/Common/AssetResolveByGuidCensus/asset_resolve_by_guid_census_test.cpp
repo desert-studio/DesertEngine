@@ -109,12 +109,13 @@ namespace
     // FromGuid branches), skyboxes (SCNE 29), and a .demat's texture/cloud references (MaterialAssetRef,
     // MaterialData.hpp), and shaders - a .demat's Shader (MATL 4) and a scene's Material.Shader (SCNE 31),
     // both {Guid, Path} against the `.shader` comment header the registry reads (ShaderCommentHeaderFormat).
-    // Every other kind's referrer writes the path alone.
+    // A landscape's layer list (SCNE 34, LS-12b) writes each `.delayerinfo` as {Guid, Path} and resolves the
+    // GUID first (ComponentRegistry's Landscape serializer). Every other kind's referrer writes the path alone.
     constexpr std::array kGuidReferrers = {
          ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
          ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
          // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
-         ContentKind::FoliageType };
+         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -248,6 +249,15 @@ namespace
                 const std::string text =
                      Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader( kind, guid, {} ) ) +
                      "Shader \"AF10a_Probe\" {}\n";
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::LandscapeLayerInfo:
+            {
+                // No layer info ships with the corpus yet; the least `.delayerinfo` the header reader accepts.
+                const std::string text = "{\"Header\":{\"Kind\":\"LandscapeLayerInfo\",\"Guid\":\"" +
+                                         Common::Content::AssetGuidToText( guid ) +
+                                         "\",\"Versions\":{\"LLYI\":1},\"Dependencies\":[]},"
+                                         "\"LayerName\":\"AF10a_Probe\"}\n";
                 return { text.begin(), text.end() };
             }
             default:

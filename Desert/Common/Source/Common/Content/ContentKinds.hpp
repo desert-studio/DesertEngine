@@ -67,6 +67,7 @@ namespace Common::Content
         AnimGraph,
         Retarget,
         FoliageType,
+        LandscapeLayerInfo,
         StringTable,
         WorldCell,
         WorldIndex,
@@ -139,6 +140,7 @@ namespace Common::Content
              /* AnimGraph            */ { "AnimGraph", ".danimgraph", &P::ANIM_GRAPH_PATH, "Name" },
              /* Retarget             */ { "Retarget", ".retarget", &P::RETARGET_PATH, "Name" },
              /* FoliageType          */ { "FoliageType", ".defoliage", &P::FOLIAGE_TYPE_PATH },
+             /* LandscapeLayerInfo   */ { "LandscapeLayerInfo", ".delayerinfo", &P::LANDSCAPE_LAYER_INFO_PATH },
              /* StringTable          */ { "StringTable", ".destrings", &P::LOCALIZATION_PATH },
              // A partitioned world's cooked cells and its index (WP8, in the AF1 envelope since AF2) sit beside
              // their scene, in `Worlds/X.dwworld/` (WorldCells::CookedWorldDirectory). Derived by the cook and

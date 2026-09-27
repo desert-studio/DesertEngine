@@ -15,10 +15,6 @@ namespace Desert::Core
 
 namespace Desert::Editor::Commands
 {
-    /// Field-by-field equality of two target-layer lists (the panel's "did this frame change anything").
-    bool SameLandscapeLayers( const std::vector<ECS::LandscapeLayerInfo>& a,
-                              const std::vector<ECS::LandscapeLayerInfo>& b );
-
     /**
      * @brief Records an edit of the landscape root's target layers as one undo entry: @p after is already in the
      * component, @p before is what undo puts back. Addressed by the root's UUID, so the entry survives the entt
@@ -26,10 +22,18 @@ namespace Desert::Editor::Commands
      * every tile of the landscape for a one-float edit.
      */
     void RecordLandscapeLayersEdit( const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    const Common::UUID& landscape, std::vector<ECS::LandscapeLayerInfo> before,
-                                    std::vector<ECS::LandscapeLayerInfo> after, std::string label );
+                                    const Common::UUID& landscape, std::vector<Assets::AssetHandle> before,
+                                    std::vector<Assets::AssetHandle> after, std::string label );
 
-    /// UE's "+" under Target Layers: appends "Layer N" (the first free N) to the scene's first landscape,
-    /// undoably. Returns the new layer's name; refuses a scene without a loaded landscape root.
+    /// UE's "Create Layer Info" under Target Layers: writes `Landscape/Layers/Layer N.delayerinfo` (the first
+    /// free N, a distinct swatch), registers it, and appends it to the scene's first landscape, undoably.
+    /// Returns the new layer's name; refuses a scene without a loaded landscape root.
     Common::ResultStr<std::string> AddLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene );
+
+    /// Points target layer @p slot at the layer info @p handle, undoably; refuses a handle already listed.
+    Common::BoolResultStr AssignLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene, size_t slot,
+                                                const Assets::AssetHandle& handle );
+
+    /// Removes target layer @p slot from the list, undoably. The tiles keep that layer's weights.
+    Common::BoolResultStr RemoveLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene, size_t slot );
 } // namespace Desert::Editor::Commands

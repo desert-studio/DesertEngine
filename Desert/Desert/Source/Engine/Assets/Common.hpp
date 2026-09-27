@@ -96,6 +96,10 @@ namespace Desert::Assets
         // draws and the numbers the paint brush scatters it with. A first-class asset so one grass is ONE
         // file every field painted with it shares — see Engine/Assets/FoliageTypeAsset.hpp.
         FoliageType,
+        // A LANDSCAPE LAYER INFO (`.delayerinfo`): UE's ULandscapeLayerInfoObject — the name a landscape's
+        // weight plane is keyed by and the numbers a paint stroke normalises with. A first-class asset so one
+        // "Grass" is ONE file every landscape painting it shares — see Engine/Assets/LandscapeLayerInfoAsset.hpp.
+        LandscapeLayerInfo,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -176,6 +180,9 @@ namespace Desert::Assets
             // A FOLIAGE TYPE IS SCENE-SCOPED for the retarget's reason: `FoliageComponent::FoliageType` is
             // an `AssetHandle` the reachability walk sees (SceneAssetRoots).
             case AssetTypeID::FoliageType:
+            // A LAYER INFO IS SCENE-SCOPED for the retarget's reason: `LandscapeComponent::Layers` holds
+            // `AssetHandle`s the reachability walk sees (SceneAssetRoots).
+            case AssetTypeID::LandscapeLayerInfo:
             case AssetTypeID::Count:
                 return false;
         }
@@ -238,6 +245,8 @@ namespace Desert::Assets
                 return "Retarget";
             case AssetTypeID::FoliageType:
                 return "FoliageType";
+            case AssetTypeID::LandscapeLayerInfo:
+                return "LandscapeLayerInfo";
             case AssetTypeID::Count:
                 return "Count";
         }
