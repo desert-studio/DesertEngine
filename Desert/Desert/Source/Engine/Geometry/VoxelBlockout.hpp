@@ -28,6 +28,10 @@ namespace Desert::Geometry::VoxelBlockout
     struct Cell
     {
         int16_t V[8] = {};
+        // Material ID per face, in kFace order: an index into the blockout's material set (UE CubeGrid's
+        // OpMeshMaterialID). Per FACE, not per cell, because Shift+B repaints only the faces under the
+        // selection and a push-in gives the walls it exposes the active material, not the whole cell.
+        uint8_t Mat[6] = {};
 
         bool IsFlat() const
         {
@@ -134,9 +138,16 @@ namespace Desert::Geometry::VoxelBlockout
         // Commit the active volume into an immutable layer; afterwards the next Block Size starts a new base.
         // Returns false (and changes nothing) when there is nothing to commit.
         bool Freeze();
-        // dir > 0: per column of `sel`, fill `height` base cells from the first empty cell out of the plane.
-        // dir <= 0: remove `height` base cells just inside the plane. The plane moves with the edit.
-        void PushPull( WorkPlane& plane, const Rect& sel, int dir, int height );
+        // dir > 0: per column of `sel`, fill `height` base cells from the first empty cell out of the plane;
+        // every face of a new cell takes `material`. dir <= 0: remove `height` base cells just inside the
+        // plane; the faces of the remaining active cells that the removal exposes take `material` (UE gives
+        // every triangle an op creates the op's material, the walls of a hole included). The plane moves with
+        // the edit.
+        void PushPull( WorkPlane& plane, const Rect& sel, int dir, int height, uint8_t material );
+        // Shift+B: every exposed face, in ANY layer, that lies on the work-plane and faces out of it, with
+        // its centre inside `sel`, takes `material`. Geometry is untouched. Returns the faces painted; 0
+        // when no active base is chosen yet or nothing under the selection faces that way.
+        int PaintFaces( const WorkPlane& plane, const Rect& sel, uint8_t material );
         // Corner Mode: every top corner of the cell layer under the selection takes the bilinear blend of the
         // four posts, so raising two posts yields one clean ramp and raising one a hip. Only a ground-facing
         // plane (Na=1, Sign>0) has a top layer; returns false and changes nothing otherwise.
@@ -146,7 +157,26 @@ namespace Desert::Geometry::VoxelBlockout
         CornerHeights ReadCornerHeights( const WorkPlane& plane, const Rect& sel ) const;
 
         // One quad soup out of every layer, each meshed at its OWN cell size and face-culled against all
-        // layers: flat cells greedy-merged, deformed cells one slanted quad per visible face, world-aligned UVs.
+        // layers: flat cells greedy-merged (never across two materials), deformed cells one slanted quad per
+        // visible face, world-aligned UVs. One Submesh per material ID in use, ascending, with
+        // SubmeshMaterialIds naming it - the layout FromRenderMesh reads into per-triangle MaterialIDs.
         RenderMeshData Bake() const;
     };
+
+    // Shift+E / Shift+Q: move the selection `baseCells` along the work-plane's outward normal (negative =
+    // back into the surface) without editing anything, so the next Push/Pull starts from there.
+    // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:878-894 (SlideSelection), adapted: the
+    // selection is a base-cell plane index, not a frame-space box, so the displacement is an index step.
+    void SlideSelection( WorkPlane& plane, int baseCells );
+
+    // Ctrl+drag push/pull. The parameter along the line (origin, unit dir) of the point closest to the ray
+    // (origin, dir; t >= 0): the drag is measured by projecting the cursor ray onto the selection's normal.
+    // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Distance/DistLine3Ray3.h:52-98, adapted:
+    // glm, float, only the line parameter is returned (the ray direction is normalised here).
+    float LineParameterClosestToRay( const glm::vec3& lineOrigin, const glm::vec3& lineDir, const glm::vec3& rayOrigin,
+                                     const glm::vec3& rayDir );
+    // Blocks a drag of `paramDelta` along the normal means: rounded to whole steps of Blocks Per Step.
+    // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:2033-2035 (OnClickDrag), adapted: int
+    // result, no preview op.
+    int DragExtrudeBlocks( float paramDelta, float blockSize, int blocksPerStep );
 } // namespace Desert::Geometry::VoxelBlockout

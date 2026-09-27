@@ -4,6 +4,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
+#include <limits>
+#include <map>
+#include <string>
 
 namespace Desert::Geometry::VoxelBlockout
 {
@@ -183,7 +187,13 @@ namespace Desert::Geometry::VoxelBlockout
             for ( int dx = 0; dx < F; ++dx )
                 for ( int dy = 0; dy < F; ++dy )
                     for ( int dz = 0; dz < F; ++dz )
-                        out[Pack( { c.x * F + dx, c.y * F + dy, c.z * F + dz } )] = Cell{};
+                    {
+                        // The children keep the parent's face materials; the corner offsets are not carried
+                        // (a deformed piece is frozen before a refine, see the tool).
+                        Cell child;
+                        std::copy( std::begin( cell.Mat ), std::end( cell.Mat ), std::begin( child.Mat ) );
+                        out[Pack( { c.x * F + dx, c.y * F + dy, c.z * F + dz } )] = child;
+                    }
         }
         m_Cells = std::move( out );
         m_Unit /= static_cast<float>( F );
@@ -203,8 +213,10 @@ namespace Desert::Geometry::VoxelBlockout
         return true;
     }
 
-    void Volume::PushPull( WorkPlane& plane, const Rect& sel, int dir, int height )
+    void Volume::PushPull( WorkPlane& plane, const Rect& sel, int dir, int height, uint8_t material )
     {
+        Cell fresh;
+        std::fill( std::begin( fresh.Mat ), std::end( fresh.Mat ), material );
         auto      occ  = [&]( const glm::ivec3& c ) { return SolidAt( c, m_Unit, m_Origin ); };
         const int na   = plane.Na;
         const int sign = plane.Sign;
@@ -223,12 +235,13 @@ namespace Desert::Geometry::VoxelBlockout
                     while ( occ( c ) )
                         c[na] += sign;
                     for ( int s = 0; s < height; ++s, c[na] += sign )
-                        m_Cells[Pack( c )] = Cell{};
+                        m_Cells[Pack( c )] = fresh;
                 }
             plane.Cell += sign * height;
         }
         else // Push in: remove `height` base cells just inside the plane, per column
         {
+            std::vector<glm::ivec3> removed;
             for ( int u = sel.UMin; u <= sel.UMax; ++u )
                 for ( int v = sel.VMin; v <= sel.VMax; ++v )
                 {
@@ -237,7 +250,17 @@ namespace Desert::Geometry::VoxelBlockout
                     c[ua] = u;
                     c[va] = v;
                     for ( int s = 0; s < height; ++s, c[na] -= sign )
-                        m_Cells.erase( Pack( c ) );
+                        if ( m_Cells.erase( Pack( c ) ) != 0 )
+                            removed.push_back( c );
+                }
+            // The walls and floor of the hole are new faces of the cells around it: they take the op's
+            // material. A removed cell's neighbour sees it through the opposite face (f ^ 1 in kFace order).
+            for ( const glm::ivec3& r : removed )
+                for ( int f = 0; f < 6; ++f )
+                {
+                    const auto it = m_Cells.find( Pack( r + kNeighbor[f] ) );
+                    if ( it != m_Cells.end() )
+                        it->second.Mat[f ^ 1] = material;
                 }
             plane.Cell -= sign * height;
         }
@@ -305,17 +328,70 @@ namespace Desert::Geometry::VoxelBlockout
         return h;
     }
 
+    int Volume::PaintFaces( const WorkPlane& plane, const Rect& sel, uint8_t material )
+    {
+        if ( m_Unit <= 0.0f )
+            return 0;
+        const int na   = plane.Na;
+        const int ua   = ( na + 1 ) % 3;
+        const int va   = ( na + 2 ) % 3;
+        const int sign = plane.Sign;
+        int       face = 0; // the face whose outward normal is the plane's
+        for ( int f = 0; f < 6; ++f )
+            if ( kNeighbor[f][na] == sign )
+                face = f;
+
+        // The plane and the rectangle in world space: every layer has its own cell size and grid frame, and
+        // the selection (in the ACTIVE base) may sit on a face of any of them.
+        const float planeW = static_cast<float>( plane.Cell + ( sign > 0 ? 0 : 1 ) ) * m_Unit + m_Origin[na];
+        const float uLo    = static_cast<float>( sel.UMin ) * m_Unit + m_Origin[ua];
+        const float uHi    = static_cast<float>( sel.UMax + 1 ) * m_Unit + m_Origin[ua];
+        const float vLo    = static_cast<float>( sel.VMin ) * m_Unit + m_Origin[va];
+        const float vHi    = static_cast<float>( sel.VMax + 1 ) * m_Unit + m_Origin[va];
+
+        int  painted    = 0;
+        auto paintLayer = [&]( CellMap& cells, float lu, const glm::vec3& lo )
+        {
+            const float eps = 1e-3f * std::min( lu, m_Unit );
+            for ( auto& [key, cell] : cells )
+            {
+                const glm::ivec3 c     = Unpack( key );
+                const float      faceW = static_cast<float>( c[na] + ( sign > 0 ? 1 : 0 ) ) * lu + lo[na];
+                if ( std::abs( faceW - planeW ) > eps )
+                    continue;
+                const float cu = ( static_cast<float>( c[ua] ) + 0.5f ) * lu + lo[ua];
+                const float cv = ( static_cast<float>( c[va] ) + 0.5f ) * lu + lo[va];
+                if ( cu < uLo || cu > uHi || cv < vLo || cv > vHi )
+                    continue;
+                if ( FaceHidden( cells, c, cell, face, lu, lo ) )
+                    continue;
+                cell.Mat[face] = material;
+                ++painted;
+            }
+        };
+        paintLayer( m_Cells, m_Unit, m_Origin );
+        for ( Layer& l : m_Frozen )
+            paintLayer( l.Cells, l.Unit, l.Origin );
+        return painted;
+    }
+
     RenderMeshData Volume::Bake() const
     {
-        RenderMeshData       out;
-        std::vector<Vertex>& verts = out.Vertices;
-        std::vector<Index>&  inds  = out.Indices;
+        // Quads are collected per material ID and laid out one contiguous submesh per ID afterwards
+        // (ascending - std::map), because a submesh is a vertex range + an index range.
+        struct Bucket
+        {
+            std::vector<Vertex> Verts;
+            std::vector<Index>  Inds; // bucket-local, which is what submesh-local indices are
+        };
+        std::map<int, Bucket> buckets;
 
         // One quad -> 4 vertices + 2 triangles, with world-aligned UVs and a tangent frame that matches them
         // (so a normal map on a merged quad lines up with the texture it is paired with).
-        auto emitQuad = [&]( const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv )
+        auto emitQuad = [&]( int material, const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv )
         {
-            const auto base = static_cast<uint32_t>( verts.size() );
+            Bucket&    b    = buckets[material];
+            const auto base = static_cast<uint32_t>( b.Verts.size() );
             for ( int k = 0; k < 4; ++k )
             {
                 Vertex v{};
@@ -324,10 +400,10 @@ namespace Desert::Geometry::VoxelBlockout
                 v.Tangent   = uv.T;
                 v.Bitangent = uv.B;
                 v.TexCoord  = { glm::dot( p[k], uv.T ) * kUvPerUnit, glm::dot( p[k], uv.B ) * kUvPerUnit };
-                verts.push_back( v );
+                b.Verts.push_back( v );
             }
-            inds.push_back( { base + 0, base + 1, base + 2 } );
-            inds.push_back( { base + 2, base + 3, base + 0 } );
+            b.Inds.push_back( { base + 0, base + 1, base + 2 } );
+            b.Inds.push_back( { base + 2, base + 3, base + 0 } );
         };
 
         auto emitLayer = [&]( const CellMap& cells, float lu, const glm::vec3& lo )
@@ -341,13 +417,14 @@ namespace Desert::Geometry::VoxelBlockout
                 if ( cell.IsFlat() )
                     flat.push_back( Unpack( key ) );
 
-            const auto merged =
-                 GreedyMeshFaces( flat,
-                                  [&]( const glm::ivec3& c, int f )
-                                  {
-                                      const auto it = cells.find( Pack( c ) );
-                                      return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lo );
-                                  } );
+            const auto merged = GreedyMeshFaces(
+                 flat,
+                 [&]( const glm::ivec3& c, int f )
+                 {
+                     const auto it = cells.find( Pack( c ) );
+                     return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lo );
+                 },
+                 [&]( const glm::ivec3& c, int f ) -> uint64_t { return cells.at( Pack( c ) ).Mat[f]; } );
 
             for ( const auto& q : merged )
             {
@@ -366,7 +443,7 @@ namespace Desert::Geometry::VoxelBlockout
                     g[ax.V] += unitP[ax.V] * static_cast<float>( q.SizeV );
                     p[k] = g * lu + lo;
                 }
-                emitQuad( p, kFace[q.Face][0].N, uv );
+                emitQuad( cells.at( Pack( q.Cell ) ).Mat[q.Face], p, kFace[q.Face][0].N, uv );
             }
 
             for ( const auto& [key, cell] : cells )
@@ -387,13 +464,66 @@ namespace Desert::Geometry::VoxelBlockout
                          glm::cross( p[1] - p[0], p[3] - p[0] ) + glm::cross( p[3] - p[2], p[1] - p[2] );
                     nrm = glm::dot( nrm, nrm ) > 1e-12f ? glm::normalize( nrm ) : kFace[f][0].N;
 
-                    emitQuad( p, nrm, UvFrame( f ) );
+                    emitQuad( cell.Mat[f], p, nrm, UvFrame( f ) );
                 }
             }
         };
         emitLayer( m_Cells, m_Unit, m_Origin );
         for ( const Layer& l : m_Frozen )
             emitLayer( l.Cells, l.Unit, l.Origin );
+
+        RenderMeshData out;
+        for ( auto& [material, b] : buckets )
+        {
+            Submesh sm{};
+            sm.Name         = "MaterialID " + std::to_string( material );
+            sm.VertexOffset = static_cast<uint32_t>( out.Vertices.size() );
+            sm.VertexCount  = static_cast<uint32_t>( b.Verts.size() );
+            sm.IndexOffset  = static_cast<uint32_t>( out.Indices.size() * 3 ); // uint32 units
+            sm.IndexCount   = static_cast<uint32_t>( b.Inds.size() * 3 );
+            sm.Transform    = glm::mat4( 1.0f );
+            glm::vec3 lo( std::numeric_limits<float>::max() ), hi( std::numeric_limits<float>::lowest() );
+            for ( const Vertex& v : b.Verts )
+                lo = glm::min( lo, v.Position ), hi = glm::max( hi, v.Position );
+            sm.BoundingBox.Min = lo;
+            sm.BoundingBox.Max = hi;
+            out.Vertices.insert( out.Vertices.end(), b.Verts.begin(), b.Verts.end() );
+            out.Indices.insert( out.Indices.end(), b.Inds.begin(), b.Inds.end() );
+            out.Submeshes.push_back( std::move( sm ) );
+            out.SubmeshMaterialIds.push_back( material );
+        }
         return out;
+    }
+
+    void SlideSelection( WorkPlane& plane, int baseCells )
+    {
+        plane.Cell += plane.Sign * baseCells;
+    }
+
+    float LineParameterClosestToRay( const glm::vec3& lineOrigin, const glm::vec3& lineDir, const glm::vec3& rayOrigin,
+                                     const glm::vec3& rayDir )
+    {
+        const glm::vec3 rd   = glm::normalize( rayDir );
+        const glm::vec3 diff = lineOrigin - rayOrigin;
+        const float     a01  = -glm::dot( lineDir, rd );
+        const float     b0   = glm::dot( diff, lineDir );
+        const float     det  = std::abs( 1.0f - a01 * a01 );
+        if ( det >= 1e-6f )
+        {
+            const float b1 = -glm::dot( diff, rd );
+            if ( a01 * b0 - b1 >= 0.0f ) // the closest ray point is interior: both parameters are free
+                return ( a01 * b1 - b0 ) / det;
+        }
+        // Parallel, or the closest ray point is its origin: project the origin onto the line.
+        return -b0;
+    }
+
+    int DragExtrudeBlocks( float paramDelta, float blockSize, int blocksPerStep )
+    {
+        const int   bps  = std::max( 1, blocksPerStep );
+        const float step = blockSize * static_cast<float>( bps );
+        if ( step <= 0.0f )
+            return 0;
+        return static_cast<int>( std::lround( paramDelta / step ) ) * bps;
     }
 } // namespace Desert::Geometry::VoxelBlockout
