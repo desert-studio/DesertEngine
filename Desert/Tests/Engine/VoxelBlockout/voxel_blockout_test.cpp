@@ -1137,3 +1137,35 @@ TEST( VoxelBlockoutMixedStep, ACoarseFaceCoveredWholeByFineBlocksIsHiddenWhole )
     EXPECT_NEAR( m.Volume, kWallBlocksVolume + 0.5e6, 2.0 );
     EXPECT_NEAR( m.Area, kWallBlocksArea + 2.0e4, 1.0 );
 }
+
+TEST( VoxelBlockoutMixedStep, SlopesAlongDifferentAxesSideBySideShowOnlyWhatTheOtherDoesNotCover )
+{
+    // a rises along Y towards +X (its +X face reaches 150 cm up), b beside it leans along Z (its -X face runs out
+    // to 150 cm at the top). The two faces on x = 100 overlap in the 100 x 100 square only; M12 showed both
+    // whole (different axes: all or nothing), doubling that square.
+    Cell a;
+    a.Axis         = 1;
+    a.V[2 | 1]     = CornerDen / 2;
+    a.V[2 | 1 | 4] = CornerDen / 2;
+    Cell b;
+    b.Axis     = 2;
+    b.V[4 | 2] = CornerDen / 2;
+    auto alone = []( const Cell& cell, const glm::ivec3& at )
+    {
+        Volume v              = Ground();
+        v.m_Cells[Pack( at )] = cell;
+        return Measured( v.Bake() );
+    };
+    Volume v                       = Ground();
+    v.m_Cells[Pack( { 0, 0, 0 } )] = a;
+    v.m_Cells[Pack( { 1, 0, 0 } )] = b;
+    const auto    mesh             = v.Bake();
+    const Measure m                = Measured( mesh );
+    const Measure ma               = alone( a, { 0, 0, 0 } );
+    const Measure mb               = alone( b, { 1, 0, 0 } );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_EQ( BowtieVertices( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, ma.Volume + mb.Volume, 2.0 );
+    EXPECT_NEAR( m.Area, ma.Area + mb.Area - 2.0e4, 1.0 ) << "the shared square is shown by neither";
+}
