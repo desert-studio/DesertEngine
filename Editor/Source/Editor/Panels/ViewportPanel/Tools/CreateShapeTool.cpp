@@ -49,7 +49,31 @@ namespace Desert::Editor::Tools
         switch ( s.Kind )
         {
             case MS::Shape::Box:
-                return Geometry::MakeBox( { s.Width, s.Height, s.Depth }, glm::ivec3( s.Subdivisions ), options );
+                return Geometry::MakeBox( { s.Box.Width, s.Box.Height, s.Box.Depth },
+                                          { s.Box.WidthSubdivisions, s.Box.HeightSubdivisions, s.Box.DepthSubdivisions },
+                                          options );
+            case MS::Shape::Sphere:
+                return Geometry::MakeSphere( s.Sphere, options );
+            case MS::Shape::Cylinder:
+                return Geometry::MakeCylinder( s.Cylinder, options );
+            case MS::Shape::Cone:
+                return Geometry::MakeCone( s.Cone, options );
+            case MS::Shape::Capsule:
+                return Geometry::MakeCapsule( s.Capsule, options );
+            case MS::Shape::Pyramid:
+                return Geometry::MakePyramid( { s.Pyramid.Width, s.Pyramid.Height, s.Pyramid.Depth }, options );
+            case MS::Shape::Stairs:
+                return Geometry::MakeStairs( s.Stairs, options );
+            case MS::Shape::Torus:
+                return Geometry::MakeTorus( s.Torus, options );
+            case MS::Shape::Arrow:
+                return Geometry::MakeArrow( s.Arrow, options );
+            case MS::Shape::Disc:
+                return Geometry::MakeDisc( s.Disc, options );
+            case MS::Shape::Rectangle:
+                return Geometry::MakeRectangle( s.Rectangle, options );
+        }
+        return Geometry::MakeBox( { s.Box.Width, s.Box.Height, s.Box.Depth }, glm::ivec3( 1 ), options );
             case MS::Shape::Sphere:
                 return Geometry::MakeSphere( s.Width, s.Slices, s.Stacks, options );
             case MS::Shape::Cylinder:

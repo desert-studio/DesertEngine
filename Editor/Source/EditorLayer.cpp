@@ -5166,8 +5166,8 @@ namespace Desert::Editor
 
         // Create Shape's closed choices.
         for ( const Geometry::ShapePolygroupMode mode :
-              { Geometry::ShapePolygroupMode::PerFace, Geometry::ShapePolygroupMode::PerQuad,
-                Geometry::ShapePolygroupMode::Single } )
+              { Geometry::ShapePolygroupMode::PerShape, Geometry::ShapePolygroupMode::PerFace,
+                Geometry::ShapePolygroupMode::PerQuad } )
             commands.push_back( { "Modeling",
                                   std::string( "Create shape polygroups: " ) + Geometry::ToString( mode ), [mode]
                                   {
@@ -5179,9 +5179,33 @@ namespace Desert::Editor
             commands.push_back( { "Modeling", std::string( "Create shape stairs: " ) + Geometry::ToString( type ),
                                   [type]
                                   {
-                                      MS::Get().CreateShape.StairsKind = type;
+                                      MS::Get().CreateShape.Stairs.Type = type;
                                       return PaletteCommandDone();
                                   } } );
+        for ( const Geometry::SphereType type : { Geometry::SphereType::LatLong, Geometry::SphereType::Box } )
+            commands.push_back( { "Modeling", std::string( "Create shape sphere: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().CreateShape.Sphere.SubdivisionType = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::DiscType type : { Geometry::DiscType::Disc, Geometry::DiscType::PuncturedDisc } )
+            commands.push_back( { "Modeling", std::string( "Create shape disc: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().CreateShape.Disc.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::RectangleType type :
+              { Geometry::RectangleType::Rectangle, Geometry::RectangleType::RoundedRectangle } )
+            commands.push_back( { "Modeling", std::string( "Create shape rectangle: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().CreateShape.Rectangle.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Create shape: Maintain Dimension", []( MS& ms, bool on )
+                       { ms.CreateShape.Rectangle.MaintainDimension = on; } );
         for ( const Geometry::ShapePivot pivot :
               { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre, Geometry::ShapePivot::Top } )
             commands.push_back( { "Modeling", std::string( "Create shape pivot: " ) + Geometry::ToString( pivot ),

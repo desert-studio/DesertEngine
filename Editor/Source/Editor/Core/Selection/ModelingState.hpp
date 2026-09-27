@@ -100,31 +100,35 @@ namespace Desert::Editor::Core
             OnScene,
         };
 
-        // Every field moves the shape it is shown for (ModelingPanel shows only those). Centimetres.
+        // The Pyramid is not in UE's palette, so it has no UE property set; its three extents, in centimetres.
+        struct PyramidSettings
+        {
+            float Width  = 100.0f; // X
+            float Depth  = 100.0f; // Z
+            float Height = 100.0f; // Y
+
+            bool operator==( const PyramidSettings& ) const = default;
+        };
+
+        // One property set per shape, as UE keeps one UProcedural*ToolProperties per Add Primitive tool: each
+        // shape remembers its own values, with UE's names and defaults. ModelingPanel shows the chosen one's.
         struct ShapeSettings
         {
-            Shape                        Kind         = Shape::Box;
-            float                        Width        = 100.0f; // X extent; the diameter of a round shape
-            float                        Depth        = 100.0f; // Z extent (Box, Pyramid, Rectangle)
-            float                        Height       = 100.0f; // Y extent (Cylinder, Cone, Capsule, Box, Pyramid)
-            int                          Subdivisions = 1;      // Box, Rectangle: quads per edge; Disc: rings
-            int                          Slices       = 24;     // round shapes: segments around the axis
-            int                          Stacks       = 16;     // Sphere, Capsule: segments pole to pole
-            Geometry::StairsType         StairsKind   = Geometry::StairsType::Linear;
-            int                          Steps        = 8;       // Stairs
-            float                        StepDepth    = 30.0f;   // Stairs: Linear, Floating
-            float                        StepHeight   = 20.0f;   // Stairs
-            float                        InnerRadius  = 150.0f;  // Stairs: Curved, Spiral
-            float                        CurveAngle   = 90.0f;   // Stairs: Curved, Spiral; degrees, sign = turn
-            float                        TubeDiameter = 50.0f;   // Torus
-            int                          TubeSlices   = 16;      // Torus: segments around the tube
-            float                        HoleDiameter = 0.0f;    // Disc: a hole from 1 mm up
-            float                        ShaftDiameter = 40.0f;  // Arrow (Width is the head's diameter)
-            float                        ShaftLength   = 200.0f; // Arrow
-            float                        HeadLength    = 120.0f; // Arrow
-            Geometry::ShapePolygroupMode Groups       = Geometry::ShapePolygroupMode::PerFace;
-            Geometry::ShapePivot         Pivot        = Geometry::ShapePivot::Base;
-            Placement                    Place        = Placement::OnScene;
+            Shape                        Kind = Shape::Box;
+            Geometry::BoxShape           Box;
+            Geometry::SphereShape        Sphere;
+            Geometry::CylinderShape      Cylinder;
+            Geometry::ConeShape          Cone;
+            Geometry::CapsuleShape       Capsule;
+            PyramidSettings              Pyramid;
+            Geometry::StairsShape        Stairs;
+            Geometry::TorusShape         Torus;
+            Geometry::ArrowShape         Arrow;
+            Geometry::DiscShape          Disc;
+            Geometry::RectangleShape     Rectangle;
+            Geometry::ShapePolygroupMode Groups = Geometry::ShapePolygroupMode::PerFace;
+            Geometry::ShapePivot         Pivot  = Geometry::ShapePivot::Base;
+            Placement                    Place  = Placement::OnScene;
 
             bool operator==( const ShapeSettings& ) const = default;
         };
