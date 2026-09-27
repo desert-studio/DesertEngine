@@ -207,6 +207,12 @@ namespace Desert::Core::WorldCells
     [[nodiscard]] Rules::CustomShaderSource
     CustomShaderFrom( std::span<const Common::Utils::AssetRegistry> registries );
 
+    // Whether a foliage type stands in its cell's HLOD (FO-6): the `.defoliage` the registry row of
+    // {guid, path} keys is read and its IncludeInHLOD answered. An error names the type when no registry holds
+    // it or its file does not read. Empty registries give an empty source (see Rules::FoliageHLODSource).
+    [[nodiscard]] Rules::FoliageHLODSource
+    FoliageInHLODFrom( std::span<const Common::Utils::AssetRegistry> registries );
+
     // ── Reading ──────────────────────────────────────────────────────────────────────────────────
 
     // Checks the envelope and parses the index; every error names @p fileName.

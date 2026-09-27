@@ -96,6 +96,14 @@ namespace Desert::Core::Rules
     using CustomShaderSource =
          std::function<bool( const Common::Content::AssetGuid& guid, std::string_view path )>;
 
+    // WHETHER A FOLIAGE TYPE STANDS IN ITS CELL'S HLOD (UE UFoliageType::bIncludeInHLOD, FOLT 5), asked by the
+    // {FoliageTypeGuid, FoliageTypePath} text a record's Foliage block states, because the flag is in the type's
+    // `.defoliage`, not in this file. An error (the type does not resolve or read) makes the record an Unreadable
+    // hole, named. AN EMPTY SOURCE IS A STATED CONDITION: every type is in the HLOD, UE's default.
+    using FoliageHLODSource =
+         std::function<Common::ResultStr<bool>( std::string_view guid, std::string_view path )>;
+    inline constexpr std::string_view kFoliageComponent = "Foliage";
+
     struct HLODNotInstanced
     {
         std::size_t   Record = kNoRecord;
@@ -114,6 +122,9 @@ namespace Desert::Core::Rules
         std::vector<HLODBatch>        Batches;
         std::vector<HLODNotInstanced> NotInstanced;
         std::size_t                   Instances = 0;
+        // Foliage records left out because their type says so (IncludeInHLOD false). Not holes: the author chose
+        // that a far cell draws none of the type.
+        std::size_t FoliageLeftOut = 0;
     };
 
     namespace Detail
@@ -167,11 +178,10 @@ namespace Desert::Core::Rules
 
     // THE INSTANCING HLOD of the records @p members (one cell's, in ResidencyUnitMembers order). @p world is
     // every record's world matrix (Detail::ComposeWorld over the whole file, indexed like @p records).
-    [[nodiscard]] inline InstancingHLOD BuildInstancingHLOD( std::span<const Assets::EntityData> records,
-                                                             std::span<const glm::mat4>          world,
-                                                             std::span<const std::size_t>        members,
-                                                             const CustomShaderSource&           customShader,
-                                                             Common::Json::Issues&               issues )
+    [[nodiscard]] inline InstancingHLOD
+    BuildInstancingHLOD( std::span<const Assets::EntityData> records, std::span<const glm::mat4> world,
+                         std::span<const std::size_t> members, const CustomShaderSource& customShader,
+                         Common::Json::Issues& issues, const FoliageHLODSource& foliage = {} )
     {
         InstancingHLOD                     hlod;
         std::map<std::string, std::size_t> batchOf; // canonical text of the batch key -> index into Batches
@@ -204,6 +214,26 @@ namespace Desert::Core::Rules
             const Assets::EntityData& record = records[index];
             if ( !Detail::AuthoredVisible( record, issues ) )
                 continue;
+
+            // FO-6: a foliage field whose type is left out of the HLOD (UE bIncludeInHLOD false).
+            if ( const auto type = Detail::PayloadOf( record, kFoliageComponent ); type.has_value() && foliage )
+            {
+                std::string guid;
+                std::string path;
+                type->ReadInto( "FoliageTypeGuid", guid, issues );
+                type->ReadInto( "FoliageTypePath", path, issues );
+                const auto included = foliage( guid, path );
+                if ( !included )
+                {
+                    hlod.NotInstanced.push_back( { index, HLODExclusion::Unreadable } );
+                    continue;
+                }
+                if ( !included.GetValue() )
+                {
+                    hlod.FoliageLeftOut++;
+                    continue;
+                }
+            }
 
             if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
             {

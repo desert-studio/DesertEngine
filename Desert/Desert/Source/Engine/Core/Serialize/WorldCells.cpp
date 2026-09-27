@@ -1,6 +1,7 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
 #include <Engine/Assets/Mesh/SurfaceShaderNames.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -16,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <map>
 #include <tuple>
@@ -366,6 +368,36 @@ namespace Desert::Core::WorldCells
         };
     }
 
+    Rules::FoliageHLODSource FoliageInHLODFrom( std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        if ( registries.empty() )
+            return {};
+        return [registries]( std::string_view guidText, std::string_view path ) -> Common::ResultStr<bool>
+        {
+            const auto guid = CC::AssetGuidFromText( guidText );
+            if ( !guid )
+                return Common::MakeFormattedError<bool>( "foliage type '{}' ({}): {}", path, guidText,
+                                                         guid.GetError() );
+            const Common::Utils::AssetRegistryEntry* row = nullptr;
+            for ( const auto& registry : registries )
+                if ( ( row = registry.FindByGuidReference( guid.GetValue(), path ) ) != nullptr )
+                    break;
+            if ( row == nullptr )
+                return Common::MakeFormattedError<bool>( "foliage type '{}' ({}) is in no asset registry", path,
+                                                         guidText );
+            const std::filesystem::path file = Common::AssetHandle::PathForStableKey( row->Key );
+            std::ifstream               in( file, std::ios::binary );
+            if ( !in )
+                return Common::MakeFormattedError<bool>( "foliage type '{}' could not be opened", file.string() );
+            const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+            const auto        parsed = Assets::Serialization::ParseFoliageType( text );
+            if ( !parsed )
+                return Common::MakeFormattedError<bool>( "foliage type '{}': {}", file.string(),
+                                                         parsed.GetError() );
+            return Common::MakeSuccess( parsed.GetValue().IncludeInHLOD );
+        };
+    }
+
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Common::Utils::AssetRegistry> registries )
     {
@@ -501,11 +533,12 @@ namespace Desert::Core::WorldCells
         // that stands in for it and the index lists them in that order.
         const std::vector<glm::mat4>    world        = Rules::Detail::ComposeWorld( records, byId );
         const Rules::CustomShaderSource customShader = CustomShaderFrom( registries );
+        const Rules::FoliageHLODSource  foliageInHLOD = FoliageInHLODFrom( registries );
         std::set<std::uint64_t>         hlodIds;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < unitCount; ++unit )
         {
             const Rules::InstancingHLOD built =
-                 Rules::BuildInstancingHLOD( records, world, members[unit], customShader, issues );
+                 Rules::BuildInstancingHLOD( records, world, members[unit], customShader, issues, foliageInHLOD );
             if ( built.Batches.empty() && built.NotInstanced.empty() )
                 continue;
             IndexHLOD row;

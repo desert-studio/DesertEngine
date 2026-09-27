@@ -128,10 +128,13 @@ namespace Desert::Core
             // The editor's registry is the one the cook reads, so Play excludes what the cook excludes.
             const Rules::CustomShaderSource customShader =
                  WorldCells::CustomShaderFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
+            const Rules::FoliageHLODSource foliageInHLOD =
+                 WorldCells::FoliageInHLODFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
             for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
                 const Rules::InstancingHLOD built = Rules::BuildInstancingHLOD(
-                     snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ), customShader, issues );
+                     snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ), customShader, issues,
+                     foliageInHLOD );
                 for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
                     holes.push_back( missing.Reason );
                 if ( built.Batches.empty() )
