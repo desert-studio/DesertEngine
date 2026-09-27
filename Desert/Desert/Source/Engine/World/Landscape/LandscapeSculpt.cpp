@@ -1396,7 +1396,7 @@ namespace Desert::World::Landscape
         if ( ramp.NumPoints < 2 )
         {
             ramp.Points[static_cast<size_t>( ramp.NumPoints )] = *hit;
-            ramp.SelectedPoint                                  = ramp.NumPoints;
+            ramp.SelectedPoint                                 = ramp.NumPoints;
             ++ramp.NumPoints;
             ramp.Moving = true;
             return true;
@@ -1464,9 +1464,7 @@ namespace Desert::World::Landscape
         const glm::vec3 inner = side * ( settings.WidthCm * 0.5f * ( 1.0f - settings.SideFalloff ) );
         const glm::vec3 outer = side * ( settings.WidthCm * 0.5f );
         const auto      quad  = [&]( const glm::vec3& half ) -> std::array<glm::vec3, 4>
-        {
-            return { ramp.Points[0] - half, ramp.Points[0] + half, ramp.Points[1] + half, ramp.Points[1] - half };
-        };
+        { return { ramp.Points[0] - half, ramp.Points[0] + half, ramp.Points[1] + half, ramp.Points[1] - half }; };
         return LandscapeRampOutline{ quad( inner ), quad( outer ) };
     }
 } // namespace Desert::World::Landscape

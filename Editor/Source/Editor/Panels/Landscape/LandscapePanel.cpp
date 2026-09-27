@@ -235,11 +235,27 @@ namespace Desert::Editor
         if ( s.Erosion || s.HydroErosion )
             ImGui::SliderFloat( "Erosion Strength", &s.ErosionStrength, 0.0f, 1.0f );
 
-        if ( ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) ) )
+        // The run is on the JobSystem; the editor applies it when it finishes (EditorLayer). While it runs, Create
+        // is closed and says why, and the run can be cancelled.
+        if ( Commands::IsCreatingLandscape() )
         {
-            auto created = Commands::CreateLandscape( m_Scene.lock(), s );
-            if ( !created.IsSuccess() )
-                ToastManager::Push( created.GetError(), ToastLevel::Error, 6.0f );
+            const float fraction = Commands::CreateLandscapeFraction();
+            ImGui::ProgressBar(
+                 fraction, ImVec2( -FLT_MIN, 0.0f ),
+                 ( "Generating " + std::to_string( static_cast<int>( fraction * 100.0f ) ) + " %" ).c_str() );
+            ImGui::BeginDisabled();
+            ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) );
+            ImGui::EndDisabled();
+            ImGui::TextDisabled(
+                 "A landscape is being generated; Create opens when it finishes or is cancelled." );
+            if ( ImGui::Button( ICON_MDI_CLOSE "  Cancel", ImVec2( -FLT_MIN, 0.0f ) ) )
+                Commands::CancelCreateLandscape();
+        }
+        else if ( ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) ) )
+        {
+            auto started = Commands::StartCreateLandscape( m_Scene.lock(), s );
+            if ( !started.IsSuccess() )
+                ToastManager::Push( started.GetError(), ToastLevel::Error, 6.0f );
         }
     }
 
@@ -291,9 +307,14 @@ namespace Desert::Editor
         switch ( settings.Tool )
         {
             case Core::LandscapeTool::Ramp:
-                PointRow( "Start", state.RampStart, "click the landscape" );
-                PointRow( "End", state.RampEnd, "click the landscape" );
+            {
+                const auto& ramp = state.RampPoints;
+                PointRow( "Start", ramp.NumPoints > 0 ? std::optional( ramp.Points[0] ) : std::nullopt,
+                          "click the landscape" );
+                PointRow( "End", ramp.NumPoints > 1 ? std::optional( ramp.Points[1] ) : std::nullopt,
+                          "click or drag from the start" );
                 break;
+            }
             case Core::LandscapeTool::Mirror:
                 PointRow( "Mirror Point", state.MirrorPoint, "landscape centre" );
                 break;

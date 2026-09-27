@@ -497,7 +497,8 @@ namespace Desert::World::Landscape
     /**
      * @brief The left button goes down. @p picked is the point drawn under the cursor, -1 for none: UE's hit proxy
      * is asked first and a hit selects that point and starts moving it. Otherwise UE's BeginTool at @p hit (the
-     * landscape under the cursor): fewer than two points lays the next one, two points move the selected one there.
+     * landscape under the cursor): fewer than two points lays the next one, two points move the selected one
+     * there.
      * @return whether the press was taken (false: nothing picked and no landscape under the cursor).
      */
     bool LandscapeRampPress( LandscapeRampPoints& ramp, int32_t picked, const std::optional<glm::vec3>& hit );
@@ -517,8 +518,8 @@ namespace Desert::World::Landscape
     int32_t PickLandscapeRampPoint( const LandscapeRampPoints& ramp, glm::vec3 rayOrigin, glm::vec3 rayDirection,
                                     float toleranceRadians );
 
-    /// FLandscapeToolRamp::Render's outline: the inner rectangle (full ramp height, half width · (1 - falloff)) and
-    /// the outer one (the falloff's edge, half width), each start-left, start-right, end-right, end-left.
+    /// FLandscapeToolRamp::Render's outline: the inner rectangle (full ramp height, half width · (1 - falloff))
+    /// and the outer one (the falloff's edge, half width), each start-left, start-right, end-right, end-left.
     struct LandscapeRampOutline
     {
         std::array<glm::vec3, 4> Inner{};

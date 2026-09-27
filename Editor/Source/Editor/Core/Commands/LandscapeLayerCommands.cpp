@@ -195,20 +195,69 @@ namespace Desert::Editor::Commands
         return Common::MakeSuccess( name );
     }
 
-    Common::ResultStr<Common::UUID> CreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&      scene,
-                                                     const World::Landscape::LandscapeGenerateSettings& settings )
+    namespace
+    {
+        /// The one New Landscape run and the scene it was started for. One run at a time, as UE's Create is
+        /// modal; the scene is held weakly, so closing it mid-run is a refusal at the hand-over, not a crash.
+        struct CreateLandscapeRun
+        {
+            World::Landscape::LandscapeGenerateJob Job;
+            std::weak_ptr<::Desert::Core::Scene>   Scene;
+        };
+
+        CreateLandscapeRun& Run()
+        {
+            static CreateLandscapeRun run;
+            return run;
+        }
+    } // namespace
+
+    Common::BoolResultStr StartCreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&      scene,
+                                                const World::Landscape::LandscapeGenerateSettings& settings )
     {
         if ( !scene )
-            return Common::MakeError<Common::UUID>( "new landscape: no scene" );
-        auto generated = World::Landscape::GenerateLandscape( settings );
-        if ( !generated.IsSuccess() )
-            return Common::MakeError<Common::UUID>( generated.GetError() );
-        const Common::UUID        root = Common::UUID::Generate();
-        std::vector<Common::UUID> tiles( generated.GetValue().Tiles.size() );
+            return Common::MakeError( "new landscape: no scene" );
+        auto started = Run().Job.Start( settings );
+        if ( started.IsSuccess() )
+            Run().Scene = scene;
+        return started;
+    }
+
+    bool IsCreatingLandscape()
+    {
+        return Run().Job.Running();
+    }
+
+    float CreateLandscapeFraction()
+    {
+        return Run().Job.Fraction();
+    }
+
+    void CancelCreateLandscape()
+    {
+        Run().Job.Cancel();
+    }
+
+    std::optional<Common::ResultStr<Common::UUID>> FinishCreateLandscape()
+    {
+        auto finished = Run().Job.TakeFinished();
+        if ( !finished )
+            return std::nullopt;
+        const auto scene = Run().Scene.lock();
+        Run().Scene.reset();
+        if ( !finished->IsSuccess() )
+            return Common::MakeError<Common::UUID>( finished->GetError() );
+        if ( !scene )
+            return Common::MakeError<Common::UUID>(
+                 "new landscape: the scene it was generated for was closed before it finished" );
+        auto                      generated = finished->ExtractValue();
+        const uint32_t            quads     = generated.Root.QuadsPerTile;
+        const Common::UUID        root      = Common::UUID::Generate();
+        std::vector<Common::UUID> tiles( generated.Tiles.size() );
         for ( auto& id : tiles )
             id = Common::UUID::Generate();
-        auto command = std::make_unique<CreateLandscapeCommand>( scene, generated.ExtractValue(),
-                                                                 settings.QuadsPerTile, root, std::move( tiles ) );
+        auto command = std::make_unique<CreateLandscapeCommand>( scene, std::move( generated ), quads, root,
+                                                                 std::move( tiles ) );
         command->Redo();
         CommandHistory::Get().PushCommand( std::move( command ) );
         return Common::MakeSuccess( root );

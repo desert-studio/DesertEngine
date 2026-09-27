@@ -150,7 +150,7 @@ namespace Desert::World::Landscape
 
     /// The frame and the tiles of GenerateLandscapeMap's map. Refuses what ValidateLandscapeGenerate refuses.
     Common::ResultStr<LandscapeGenerated> GenerateLandscape( const LandscapeGenerateSettings& settings,
-                                                             LandscapeGenerateProgress* progress = nullptr );
+                                                             LandscapeGenerateProgress*       progress = nullptr );
 
     /**
      * @brief One GenerateLandscape run on the JobSystem, for a caller that must keep drawing meanwhile (the

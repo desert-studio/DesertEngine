@@ -158,7 +158,8 @@ namespace Desert::World::Landscape
         const Steps steps{ progress };
         if ( progress )
             progress->Total.store( TotalSteps( s, map.SamplesZ ), std::memory_order_relaxed );
-        const auto cancelled = [] { return Common::MakeError<LandscapeGeneratedMap>( kLandscapeGenerateCancelled ); };
+        const auto cancelled = []
+        { return Common::MakeError<LandscapeGeneratedMap>( kLandscapeGenerateCancelled ); };
 
         const NoiseOffset offset = SeedOffset( s.Seed );
         if ( s.Fill == LandscapeGenerateFill::Noise )
@@ -291,7 +292,7 @@ namespace Desert::World::Landscape
             return valid;
         m_Progress = std::make_shared<LandscapeGenerateProgress>();
         m_Run      = Common::JobSystem::Get().Async( [settings, progress = m_Progress]
-                                                     { return GenerateLandscape( settings, progress.get() ); } );
+                                                { return GenerateLandscape( settings, progress.get() ); } );
         return Common::MakeSuccess( true );
     }
 

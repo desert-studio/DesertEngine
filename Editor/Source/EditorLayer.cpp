@@ -1303,6 +1303,18 @@ namespace Desert::Editor
 
         ServiceControlChannel();
 
+        // A New Landscape run that finished on the JobSystem is applied here, on the main thread and ahead of
+        // this frame's scene update, as one undo step. A cancel is the user's own act, so it is told, not flagged.
+        if ( auto created = Commands::FinishCreateLandscape() )
+        {
+            if ( created->IsSuccess() )
+                Editor::ToastManager::Push( "New Landscape created", Editor::ToastLevel::Info, 3.0f );
+            else if ( created->GetError() == World::Landscape::kLandscapeGenerateCancelled )
+                Editor::ToastManager::Push( "New Landscape cancelled", Editor::ToastLevel::Info, 3.0f );
+            else
+                Editor::ToastManager::Push( created->GetError(), Editor::ToastLevel::Error, 6.0f );
+        }
+
         // Staged startup loading: run ONE heavy stage per frame. While loading, the scene is NOT rendered
         // at all (shaders/assets aren't there yet — rendering before the preload stage crashed on the
         // missing StaticMeshPBR shader); the frame is ImGui-only and the window it goes to is still hidden.
@@ -2222,6 +2234,9 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
+        // Asked of the run itself: it stays pending until FinishCreateLandscape has applied it, so a shot after
+        // Create shows the terrain rather than the scene without it.
+        quiescence.Set( Control::PendingWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
         m_FrameQuiescence = quiescence;
     }
 
@@ -4867,12 +4882,26 @@ namespace Desert::Editor
                                   s.HydroErosion = true;
                                   return PaletteCommandDone();
                               } } );
-        commands.push_back( { "Landscape", "New Landscape: Create", [this]
+        // The same fill without the passes: with the preset above, one seed photographed before and after erosion.
+        commands.push_back( { "Landscape", "New Landscape: noise fill without erosion", []
                               {
-                                  auto created = Commands::CreateLandscape(
-                                       m_MainScene, Core::LandscapeSculptState::Get().NewLandscape );
-                                  if ( !created.IsSuccess() )
-                                      return PaletteCommandOutcome( false, created.GetError() );
+                                  auto& s        = Core::LandscapeSculptState::Get().NewLandscape;
+                                  s.Fill         = World::Landscape::LandscapeGenerateFill::Noise;
+                                  s.Erosion      = false;
+                                  s.HydroErosion = false;
+                                  return PaletteCommandDone();
+                              } } );
+        // Starts the background run; the control channel's reply waits for it (PendingWork::LandscapeGenerate).
+        commands.push_back( { "Landscape", "New Landscape: Create", [this] {
+                                 return Commands::StartCreateLandscape(
+                                      m_MainScene, Core::LandscapeSculptState::Get().NewLandscape );
+                             } } );
+        commands.push_back( { "Landscape", "New Landscape: Cancel", []
+                              {
+                                  if ( !Commands::IsCreatingLandscape() )
+                                      return PaletteCommandOutcome( false,
+                                                                    "new landscape: nothing is being generated" );
+                                  Commands::CancelCreateLandscape();
                                   return PaletteCommandDone();
                               } } );
         // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target

@@ -251,9 +251,9 @@ namespace Desert::Editor::Core
         /// UE's New Landscape settings (Manage mode); kept across uses like UE's editor object keeps them.
         World::Landscape::LandscapeGenerateSettings NewLandscape;
         LandscapeStrokeRequest                   Request = LandscapeStrokeRequest::None;
-        /// UE's FLandscapeToolRamp::Points, in world cm; applying keeps them, as UE does until the tool is reset.
-        std::optional<glm::vec3> RampStart;
-        std::optional<glm::vec3> RampEnd;
+        /// UE's FLandscapeToolRamp points, in world cm, and which one the mouse holds; applying keeps them, as UE
+        /// does until the tool is reset. Placed and dragged in the viewport, drawn by the gizmo overlay.
+        World::Landscape::LandscapeRampPoints RampPoints;
         /// UE's MirrorPoint in world cm; unset means the landscape's centre (UE's CenterMirrorPoint).
         std::optional<glm::vec3> MirrorPoint;
         /// The copy region's corners (UE: the gizmo's extent) and what the last Copy took.

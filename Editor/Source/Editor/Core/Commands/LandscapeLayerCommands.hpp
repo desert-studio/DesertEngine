@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,12 +36,26 @@ namespace Desert::Editor::Commands
     Common::ResultStr<std::string> AddLandscapeLayer( const std::shared_ptr<::Desert::Core::Scene>& scene );
 
     /**
-     * @brief UE's New Landscape "Create": generates the heights (World/Landscape/LandscapeGenerator.hpp), then
-     * adds a root entity and one tile entity per tile, as ONE undo step. The tiles' heights live in memory until
-     * the scene is saved (their files are written beside the scene then), so the undo entry keeps the generated
-     * tiles and redo re-creates the same UUIDs WITH them — a snapshot restore would come back without terrain,
-     * since a tile block without a file has none. Returns the root's UUID, or the generator's refusal.
+     * @brief UE's New Landscape "Create", in the background: the heights are generated on the JobSystem
+     * (World/Landscape/LandscapeGenerator.hpp's LandscapeGenerateJob) while the editor keeps drawing, and
+     * FinishCreateLandscape applies them on the main thread. Refuses while a run is in flight (naming how far it
+     * is), with no scene, or with settings the generator refuses.
      */
-    Common::ResultStr<Common::UUID> CreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&      scene,
-                                                     const World::Landscape::LandscapeGenerateSettings& settings );
+    Common::BoolResultStr StartCreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&      scene,
+                                                const World::Landscape::LandscapeGenerateSettings& settings );
+    /// A run is in flight (started, not yet handed over).
+    bool IsCreatingLandscape();
+    /// The run's progress, 0..1; 0 when idle.
+    float CreateLandscapeFraction();
+    /// Asks the run to stop; FinishCreateLandscape then hands over World::Landscape::kLandscapeGenerateCancelled.
+    void CancelCreateLandscape();
+    /**
+     * @brief Main thread, once a frame. When the run has finished, adds a root entity and one tile entity per tile
+     * to the scene the run was started for, as ONE undo step, and returns the root's UUID; or the run's refusal
+     * (a cancel among them). nullopt while idle or still running. The tiles' heights live in memory until the
+     * scene is saved (their files are written beside the scene then), so the undo entry keeps the generated
+     * tiles and redo re-creates the same UUIDs WITH them — a snapshot restore would come back without terrain,
+     * since a tile block without a file has none.
+     */
+    std::optional<Common::ResultStr<Common::UUID>> FinishCreateLandscape();
 } // namespace Desert::Editor::Commands
