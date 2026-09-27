@@ -392,11 +392,12 @@ def main():
                      "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
                      "done; make ...",
                      data, agent)
-        if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b|\bstat\b|\bshasum\b|\botool\b|\bnm\b", cmd):
+        if EDITOR_RUN.search(cmd) and "run_capped" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b|\bstat\b|\bshasum\b|\botool\b|\bnm\b", cmd):
             save_state(state, path)
             deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
-                 "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... "
-                 "(путь: /Users/daniilsavcenko/.claude/tools/run_capped.sh). "
+                 "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... на macOS "
+                 "(путь: /Users/daniilsavcenko/.claude/tools/run_capped.sh), "
+                 "python .claude/tools/run_capped.py build/Bin/Debug/Editor.exe ... на Windows. "
                  "2026-09-24 один редактор съел 13.7 ГБ из 16 и уронил машину.", data, agent)
         if EDITOR_RUN.search(cmd) and not re.search(r"\bpkill\b|\bpgrep\b", cmd) and editor_running():
             save_state(state, path)
