@@ -3,9 +3,21 @@
         "Kind": "StaticMesh",
         "Guid": "8dbbffaf988c2bd5931b389fd26e5702",
         "Versions": {
-            "DIMP": 1
+            "DIMP": 2
         },
         "Dependencies": []
     },
-    "Source": "base_basic_shaded.fbx"
+    "Source": "base_basic_shaded.fbx",
+    "Bounds": {
+        "Min": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "Max": [
+            0.0,
+            0.0,
+            0.0
+        ]
+    }
 }

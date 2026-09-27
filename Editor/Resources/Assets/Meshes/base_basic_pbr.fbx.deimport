@@ -3,9 +3,21 @@
         "Kind": "StaticMesh",
         "Guid": "ed7f380a5045ff382106e0c8d16e8174",
         "Versions": {
-            "DIMP": 1
+            "DIMP": 2
         },
         "Dependencies": []
     },
-    "Source": "base_basic_pbr.fbx"
+    "Source": "base_basic_pbr.fbx",
+    "Bounds": {
+        "Min": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "Max": [
+            0.0,
+            0.0,
+            0.0
+        ]
+    }
 }

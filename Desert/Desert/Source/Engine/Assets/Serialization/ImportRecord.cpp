@@ -24,6 +24,8 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<ImportRecordData>( "import record {}", header.GetError() );
         if ( data.Source.empty() )
             return Common::MakeFormattedError<ImportRecordData>( "import record names no Source" );
+        if ( !data.Bounds )
+            return Common::MakeFormattedError<ImportRecordData>( "import record states no Bounds" );
         return Common::MakeSuccess( std::move( data ) );
     }
 
@@ -61,18 +63,38 @@ namespace Desert::Assets::Serialization
         return guid;
     }
 
-    Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source )
+    Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
+                                                                      const Common::Math::AABB&    bounds )
     {
-        std::error_code ec;
-        if ( std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( source ), ec ) )
-            return ReadImportRecordGuid( source );
-        ImportRecordData data;
-        data.Source                        = source.filename().string(); // no header: the stamp mints the GUID
+        using Common::Content::AssetGuid;
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        const ImportRecordData::Box box{ { bounds.Min.x, bounds.Min.y, bounds.Min.z },
+                                         { bounds.Max.x, bounds.Max.y, bounds.Max.z } };
+        ImportRecordData            data;
+        std::error_code             ec;
+        if ( std::filesystem::is_regular_file( record, ec ) )
+        {
+            // The identity is read through the one reader, so a record of another generation or another
+            // source is refused here exactly as everywhere else.
+            if ( auto guid = ReadImportRecordGuid( source ); !guid )
+                return guid;
+            const auto text = Common::Utils::FileSystem::ReadFileContent( record );
+            if ( !text )
+                return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), text.GetError() );
+            auto parsed = ParseImportRecord( text.GetValue() );
+            if ( !parsed )
+                return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), parsed.GetError() );
+            data = parsed.ExtractValue();
+            if ( data.Bounds && data.Bounds->Min == box.Min && data.Bounds->Max == box.Max )
+                return ReadImportRecordGuid( source );
+        }
+        else
+            data.Source = source.filename().string(); // no header: the stamp mints the GUID
+        data.Bounds = box;
         if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( data ) );
              !written )
-            return Common::MakeFormattedError<Common::Content::AssetGuid>( "'{}' could not be written: {}",
-                                                                           record.string(), written.GetError() );
+            return Common::MakeFormattedError<AssetGuid>( "'{}' could not be written: {}", record.string(),
+                                                          written.GetError() );
         return ReadImportRecordGuid( source );
     }
 } // namespace Desert::Assets::Serialization
