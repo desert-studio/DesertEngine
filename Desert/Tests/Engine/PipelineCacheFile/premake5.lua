@@ -16,6 +16,8 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/PipelineCacheFile.cpp",
+        -- Directory() names the per-project folder with the one product-name rule (PKG1c).
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Settings/ProductName.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/ContentGate.cpp",
     }
 

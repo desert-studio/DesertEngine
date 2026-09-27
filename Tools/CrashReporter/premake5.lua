@@ -29,7 +29,6 @@ project "DesertCrashReporter"
 
     files {
         "Source/**.hpp",
-        "Resources/*.rc",
         "Source/**.cpp",
 
         "../../ThirdParty/ImGui/imgui.cpp",
@@ -80,6 +79,8 @@ project "DesertCrashReporter"
         -- the directory holding AppIcon.ico is named here; without it the resource compiles
         -- empty and the build still succeeds, which looks exactly like an icon-cache problem.
         resincludedirs { "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Resources" }
+        -- The icon resource is Windows' own: gmake on macOS/Linux has no rc compiler and would run `windres`.
+        files { "Resources/*.rc" }
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
