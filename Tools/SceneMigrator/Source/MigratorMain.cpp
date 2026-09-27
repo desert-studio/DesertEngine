@@ -50,6 +50,9 @@
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/ContainerBytes.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
@@ -61,6 +64,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <rflcpp/rfl/json.hpp>
@@ -147,6 +151,13 @@ namespace
         return path.extension() == Desert::Assets::kCloudModellingVolumeExtension;
     }
 
+    // LANDSCAPE HEIGHT TILES (.dlht) ARE COLLECTED TOO: binary 'DLHT' blobs next to their scene
+    // (LandscapeTileFiles.hpp). Only the current container version is read by the engine.
+    bool IsLandscapeTile( const std::filesystem::path& path )
+    {
+        return path.extension() == Desert::World::Landscape::kLandscapeTileExtension;
+    }
+
     // The exclusion `path` falls under, by its trailing components (MigratorMain.hpp, ScanExclusions).
     const Desert::Migration::ScanExclusion* ExclusionFor( const std::filesystem::path& path )
     {
@@ -167,7 +178,8 @@ namespace
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
                   std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
-                  std::vector<std::filesystem::path>& shaders, std::ostream& out )
+                  std::vector<std::filesystem::path>& shaders, std::vector<std::filesystem::path>& tiles,
+                  std::ostream& out )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -207,6 +219,8 @@ namespace
                     models.push_back( entry.path() );
                 else if ( entry.path().extension() == kShaderExtension )
                     shaders.push_back( entry.path() );
+                else if ( IsLandscapeTile( entry.path() ) )
+                    tiles.push_back( entry.path() );
             }
             return;
         }
@@ -231,6 +245,8 @@ namespace
             models.push_back( root );
         else if ( root.extension() == kShaderExtension )
             shaders.push_back( root );
+        else if ( IsLandscapeTile( root ) )
+            tiles.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -511,16 +527,19 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> noises;
         std::vector<std::filesystem::path> models;
         std::vector<std::filesystem::path> shaders;
+        std::vector<std::filesystem::path> tiles;
         for ( const auto& root : roots )
             Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders,
-                     out );
+                     tiles, out );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() )
+             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() &&
+             tiles.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, shader or other text "
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, landscape tile, shader "
+                   "or other text "
                    "asset "
                    "files found\n";
             return 2;
@@ -661,6 +680,58 @@ namespace Desert::Migration
             }
             out << "ok     " << path.string() << " — already at sculpted cloud volume v"
                 << Desert::Assets::kCloudModellingContainerVersion << "\n";
+        }
+
+        // THE LANDSCAPE TILES: a v1 'DLHT' blob is raised to v2 - the same heights and no weight layers, which
+        // is all a v1 blob describes. The raised bytes are decoded again before anything is written and must
+        // give back the same samples, so a step that moved a height FAILS here instead of shipping a mountain.
+        // Every line carries the heights' CRC-32C, so two runs over the corpus compare heights bit for bit.
+        int tilesChanged = 0;
+        for ( const auto& path : tiles )
+        {
+            namespace LS             = Desert::World::Landscape;
+            const std::string  bytes = ReadAll( path );
+            const auto         all   = std::span( reinterpret_cast<const unsigned char*>( bytes.data() ), bytes.size() );
+            const auto         tile  = LS::DecodeLandscapeTile( all );
+            if ( !tile )
+            {
+                err << "FAIL   " << path.string() << " — " << tile.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            const std::vector<uint16_t>& samples = tile.GetValue().Samples();
+            const uint32_t heights = Common::Utils::Crc32c( samples.data(), samples.size() * sizeof( uint16_t ) );
+            const uint32_t stated  = Desert::Assets::ReadU32( all.data() + sizeof( LS::kLandscapeTileMagic ) );
+            if ( stated == LS::kLandscapeTileContainerVersion )
+            {
+                out << "ok     " << path.string() << " — already at tile v" << LS::kLandscapeTileContainerVersion
+                    << ", heights crc " << std::hex << heights << std::dec << "\n";
+                continue;
+            }
+            const std::vector<unsigned char> raised = LS::EncodeLandscapeTile( tile.GetValue() );
+            const auto                       again  = LS::DecodeLandscapeTile( raised );
+            if ( !again || again.GetValue().Samples() != samples || !again.GetValue().WeightLayers().empty() )
+            {
+                err << "FAIL   " << path.string() << " — the raised v" << LS::kLandscapeTileContainerVersion
+                    << " tile does not decode to the v" << stated << " heights\n";
+                ++failed;
+                continue;
+            }
+            if ( !check )
+            {
+                if ( const auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                          path, std::as_bytes( std::span( raised.data(), raised.size() ) ) );
+                     !written )
+                {
+                    err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+            }
+            out << ( check ? "would  " : "raised " ) << path.string() << " — tile v" << stated << " -> v"
+                << LS::kLandscapeTileContainerVersion << ", heights crc " << std::hex << heights << std::dec
+                << "\n";
+            ++tilesChanged;
         }
 
         // THE SHADERS: only SHDR 1 (the comment header line, ShaderAssetHeader.hpp) is read. A file stating no
@@ -953,12 +1024,13 @@ namespace Desert::Migration
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
-            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << failed << " failed\n";
+            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << tiles.size() << " landscape tile(s), "
+            << tilesChanged << ( check ? " would change, " : " raised, " ) << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 ) ) ? 1 : 0;
+        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || tilesChanged > 0 ) ) ? 1 : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over
