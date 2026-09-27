@@ -5,8 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <cmath>
 #include <optional>
@@ -42,6 +41,17 @@ TEST( PreviewEnvironment, DefaultsAreThePresetSkyAtUnitGainWithEverythingShown )
     EXPECT_TRUE( resolved.Error.empty() ) << "no skybox chosen is the preset sky, not an error";
 }
 
+namespace
+{
+    // The record as editor.json nests it: one member of the lenient EditorPreferences, read through the facade.
+    struct InEditorJson
+    {
+        Settings PreviewScene;
+    };
+    DESERT_JSON_LENIENT( InEditorJson, "stands in for EditorPreferences, whose editor.json is shared by every build "
+                                       "and a field an older build has not got yet is normal output" )
+} // namespace
+
 TEST( PreviewEnvironment, RoundTripsThroughTheSameJsonWriterAsEditorJson )
 {
     Settings authored;
@@ -51,18 +61,18 @@ TEST( PreviewEnvironment, RoundTripsThroughTheSameJsonWriterAsEditorJson )
     authored.ShowEnvironment = false;
     authored.ShowFloor       = false;
 
-    const std::string text = rfl::json::write( authored );
-    const auto        back = rfl::json::read<Settings, rfl::DefaultIfMissing>( text );
-    ASSERT_TRUE( back ) << text;
-    EXPECT_EQ( back.value(), authored ) << text;
+    const std::string text = Common::Json::Write( InEditorJson{ authored } );
+    const auto        back = Common::Json::Read<InEditorJson>( text );
+    ASSERT_TRUE( back ) << back.GetError() << "\n" << text;
+    EXPECT_EQ( back.GetValue().PreviewScene, authored ) << text;
 
     // An editor.json written before the record existed, or holding only part of it, reads as defaults
-    // for what it does not state — the same rfl::DefaultIfMissing EditorPreferences::Load reads with.
-    const auto partial = rfl::json::read<Settings, rfl::DefaultIfMissing>( R"({"ExposureEV":1.5})" );
-    ASSERT_TRUE( partial );
+    // for what it does not state — the leniency EditorPreferences declares and Common::Json::Read applies.
+    const auto partial = Common::Json::Read<InEditorJson>( R"({"PreviewScene":{"ExposureEV":1.5}})" );
+    ASSERT_TRUE( partial ) << partial.GetError();
     Settings expected;
     expected.ExposureEV = 1.5f;
-    EXPECT_EQ( partial.value(), expected );
+    EXPECT_EQ( partial.GetValue().PreviewScene, expected );
 }
 
 TEST( PreviewEnvironment, RotationAndEvReachTheLookThatIsSampled )

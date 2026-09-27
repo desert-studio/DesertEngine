@@ -1822,6 +1822,10 @@ TEST( PreferenceOwnershipFavourites, PinningThroughTheBrowsersOwnHelpersRoundTri
 // that mattered: it did not create the directory, so the first pin of a fresh install was written into a
 // folder that might not exist. EditorPreferences::ConfigDirectory() is not a fourth: it forwards.
 //
+// The name itself is spelled in Common/Settings/EngineUserDirectory.hpp (INT1): the crash handler (CR1) lives
+// in Common, below ProjectContext, and composed its own copy for the reports of hosts with no project open.
+// Both now join through EngineUserDirectoryUnder; ProjectContext::ConfigDirectory still decides the home.
+//
 // The census is over the RAW text on purpose. The shared reader blanks string literals, and the literal
 // is the whole subject — a census run over stripped text here would be looking at nothing and would pass
 // whatever the tree did.
@@ -1844,9 +1848,9 @@ TEST( PreferenceOwnershipFavourites, OnlyOnePlaceInTheEditorAndTheEngineComposes
                 composers.push_back( entry.path().filename().string() );
         }
 
-    const std::vector<std::string> expected = { "ProjectContext.cpp" };
+    const std::vector<std::string> expected = { "EngineUserDirectory.hpp" };
     EXPECT_EQ( composers, expected )
-         << "the user config directory is composed somewhere other than ProjectContext::ConfigDirectory(). "
+         << "the user config directory is composed somewhere other than Common::Settings::EngineUserDirectoryUnder. "
             "A second copy is a directory that is not created, or a directory that moves in one place and "
             "not the other; Tools/ProjectHub keeps its own only because it is a separate binary that links "
             "no engine code at all.";

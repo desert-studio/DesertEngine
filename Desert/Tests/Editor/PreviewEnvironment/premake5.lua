@@ -13,6 +13,7 @@ project(test_name)
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files { test_files }
+    files { "%{wks.location}/Desert/Common/Source/Common/Json/Json.cpp" } -- the record round-trips through the JSON facade
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",

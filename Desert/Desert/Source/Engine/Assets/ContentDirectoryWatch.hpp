@@ -3,6 +3,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <cstddef>
 #include <filesystem>
@@ -41,13 +42,14 @@ namespace Desert::Assets
             }
 
             std::vector<std::filesystem::path> moved;
+            const auto                         observedAt = std::filesystem::file_time_type::clock::now();
             for ( auto& [dir, time] : m_Directories )
             {
                 std::error_code ec;
                 const auto      now = std::filesystem::last_write_time( dir, ec );
                 if ( ec || now == time )
                     continue;
-                time = now;
+                time = Settled( now, observedAt );
                 moved.emplace_back( dir );
             }
 
@@ -85,10 +87,21 @@ namespace Desert::Assets
 
         void RecordDirectory( const std::filesystem::path& dir )
         {
+            const auto      observedAt = std::filesystem::file_time_type::clock::now();
             std::error_code ec;
             const auto      time = std::filesystem::last_write_time( dir, ec );
             if ( !ec )
-                m_Directories.emplace( dir.lexically_normal().generic_string(), time );
+                m_Directories.emplace( dir.lexically_normal().generic_string(), Settled( time, observedAt ) );
+        }
+
+        // A directory's stamp moves in file-system ticks: an entry added in the tick just listed leaves it equal,
+        // and the file would never get a row. A stamp still inside the racy window is kept as min(), which no
+        // stamp equals, so the directory is listed again on the next poll until its stamp settles.
+        static std::filesystem::file_time_type Settled( std::filesystem::file_time_type stamp,
+                                                        std::filesystem::file_time_type observedAt )
+        {
+            return Common::Utils::IsRacyWriteTime( stamp, observedAt ) ? std::filesystem::file_time_type::min()
+                                                                       : stamp;
         }
 
         // Lists ONE directory that moved: every content file in it with no row is new, every row that names

@@ -5,6 +5,7 @@
 #include <Editor/Core/EditorPreferences.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -30,15 +31,16 @@ namespace Desert::Editor::PreviewEnvironment
             std::string Name; // what a person reads in the picker and the palette
         };
 
-        std::vector<Entry> SkyboxesIn( const Assets::AssetManager* assets )
+        // The registry's rows, not the loaded skyboxes (AL1-1): a skybox nobody has opened yet is still a choice.
+        std::vector<Entry> Skyboxes()
         {
             std::vector<Entry> entries;
-            if ( assets == nullptr )
-                return entries;
-            for ( const auto& [handle, asset] : assets->FindAllByType<Assets::SkyboxAsset>() )
+            for ( const Assets::ContentRegistry::PickerRow& row :
+                  Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skybox ) )
             {
-                const auto& path = asset->GetMetadata().Filepath;
-                entries.push_back( { path.generic_string(), Common::Utils::FileSystem::GetFileName( path ) } );
+                entries.push_back( { row.Path.generic_string(),
+                                     row.DisplayName.empty() ? Common::Utils::FileSystem::GetFileName( row.Path )
+                                                             : row.DisplayName } );
             }
             return entries;
         }
@@ -125,7 +127,7 @@ namespace Desert::Editor::PreviewEnvironment
         {
             if ( ImGui::Selectable( "Preset sky", settings.Skybox.empty() ) )
                 Edit( []( Settings& s ) { s.Skybox.clear(); } );
-            for ( const Entry& entry : SkyboxesIn( assets ) )
+            for ( const Entry& entry : Skyboxes() )
             {
                 ImGui::PushID( entry.Path.c_str() );
                 if ( ImGui::Selectable( entry.Name.c_str(), entry.Path == settings.Skybox ) )
@@ -168,7 +170,7 @@ namespace Desert::Editor::PreviewEnvironment
     {
         actions.push_back(
              { "Preview environment: preset sky", [] { Edit( []( Settings& s ) { s.Skybox.clear(); } ); } } );
-        for ( Entry& entry : SkyboxesIn( assets ) )
+        for ( Entry& entry : Skyboxes() )
             actions.push_back( { "Preview environment: " + entry.Name, [path = std::move( entry.Path )]
                                  { Edit( [&path]( Settings& s ) { s.Skybox = path; } ); } } );
 

@@ -13,6 +13,7 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Version.hpp>
+#include <Common/Settings/EngineUserDirectory.hpp>
 
 #include <spdlog/sinks/base_sink.h>
 
@@ -1124,7 +1125,7 @@ namespace Common::Crash
             const char* home = std::getenv( "HOME" );
             if ( home != nullptr && home[0] != '\0' )
             {
-                return std::filesystem::path( home ) / ".desertengine" / "Crashes";
+                return Common::Settings::EngineUserDirectoryUnder( home ) / "Crashes";
             }
             return {};
 #endif

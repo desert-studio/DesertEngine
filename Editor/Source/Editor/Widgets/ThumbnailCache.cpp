@@ -6,6 +6,7 @@
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -71,6 +72,8 @@ namespace Desert::Editor
         // in m_Outdated until its new picture is cached, or the old one would be served as current from then on.
         if ( m_Watch.Observe( sourcePath, sourcePath ) == Common::Utils::WriteWatch::Seen::Changed )
             m_Outdated.insert( sourcePath );
+        // Sampled BEFORE the stat: a write landing after it carries a stamp at or past it (the racy rule).
+        const auto                        readBegan = std::filesystem::file_time_type::clock::now();
         std::error_code                   stampEc;
         const auto                        stamp = std::filesystem::last_write_time( sourcePath, stampEc );
         std::shared_ptr<Graphic::Image2D> previous;
@@ -188,7 +191,11 @@ namespace Desert::Editor
                        sourcePath, failure );
         }
         m_Cache[sourcePath] = result; // cache success or failure (null)
-        m_Outdated.erase( sourcePath );
+        // The worker's pixels are matched by write time. A stamp still inside the racy window may be shared by a
+        // same-size rewrite in the same file-system tick, so such a picture stays outdated and is asked for again
+        // until the stamp settles; a settled stamp names one content.
+        if ( stampEc || !Common::Utils::IsRacyWriteTime( stamp, readBegan ) )
+            m_Outdated.erase( sourcePath );
         return result;
     }
 
