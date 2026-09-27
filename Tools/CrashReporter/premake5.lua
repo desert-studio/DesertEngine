@@ -41,9 +41,9 @@ project "DesertCrashReporter"
     }
 
     externalincludedirs {
-        "%{wks.location}/ThirdParty/ImGui",
-        "%{wks.location}/ThirdParty/ImGui/backends",
-        "%{wks.location}/ThirdParty/GLFW/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui/backends",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include",
     }
 
     links {
@@ -57,10 +57,10 @@ project "DesertCrashReporter"
     -- missing is reported in the window rather than swapped for the ImGui default.
     postbuildcommands {
         "{MKDIR} %{cfg.targetdir}/Resources/Fonts",
-        "{COPYFILE} %{wks.location}/Editor/Resources/Fonts/Roboto-Regular.ttf %{cfg.targetdir}/Resources/Fonts/",
-        "{COPYFILE} %{wks.location}/Editor/Resources/Fonts/Roboto-Bold.ttf %{cfg.targetdir}/Resources/Fonts/",
-        "{COPYFILE} %{wks.location}/Editor/Resources/Fonts/RobotoMono-Regular.ttf %{cfg.targetdir}/Resources/Fonts/",
-        "{COPYFILE} %{wks.location}/Editor/Resources/Fonts/fontawesome-webfont.ttf %{cfg.targetdir}/Resources/Fonts/",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/Roboto-Regular.ttf %{cfg.targetdir}/Resources/Fonts/",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/Roboto-Bold.ttf %{cfg.targetdir}/Resources/Fonts/",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/RobotoMono-Regular.ttf %{cfg.targetdir}/Resources/Fonts/",
+        "{COPYFILE} %{_MAIN_SCRIPT_DIR}/Editor/Resources/Fonts/fontawesome-webfont.ttf %{cfg.targetdir}/Resources/Fonts/",
     }
 
     filter "configurations:Debug"
@@ -79,7 +79,7 @@ project "DesertCrashReporter"
         -- rc.exe resolves an ICON path against its include dirs, not against the .rc file, so
         -- the directory holding AppIcon.ico is named here; without it the resource compiles
         -- empty and the build still succeeds, which looks exactly like an icon-cache problem.
-        resincludedirs { "%{wks.location}/Tools/CrashReporter/Resources" }
+        resincludedirs { "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Resources" }
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
