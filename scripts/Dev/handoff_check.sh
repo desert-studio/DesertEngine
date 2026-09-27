@@ -2,7 +2,8 @@
 # handoff_check.sh [base=origin/dev] — everything a branch must pass before hand-off, in one call.
 # Runs every built test in build/Bin/Tests/Debug from the tree root (exit codes, 300 s cap, HANDOFF_JOBS=4 in
 # parallel, reds re-run alone), RepoOnlyIncludes --require-replacements, llvm@18 clang-format on changed lines,
-# and the .claude guard; warns on test binaries older than their .o or linked libs. Exit 0 = all green.
+# and the .claude guard; warns on test binaries older than their .o or linked libs; red if the suites left anything
+# new in the checkout (names the suite that wrote it). Exit 0 = all green.
 # On green with a clean tree, writes .cache/handoff/<full HEAD sha>.ok (the summary line); any red deletes it.
 set -u
 source "$(dirname "$0")/_common.sh"
@@ -23,7 +24,9 @@ fail=0
 # Parallel for time; a suite that fails in parallel is re-run ALONE before it counts as red, so two suites
 # sharing a temp path cannot manufacture a red.
 BIN=build/Bin/Tests/Debug
-run_one() { dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"; }
+# run_one (records each run's window), tree_state and trace_leaks — step (h) — live in tree_leaks.sh, which
+# also runs the same check standalone on named suites.
+source "$(dirname "$0")/tree_leaks.sh"
 export -f run_one dev_capped
 dev_regen_makefiles "$LOG" || exit 2
 # A suite deleted on this branch keeps its old .make (premake never removes one), and the build below stops on
@@ -54,6 +57,7 @@ if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
         fi
     fi
 fi
+tree_state >"$LOG/tree.before"
 bins=()
 for t in "$BIN"/*; do [ -f "$t" ] && [ -x "$t" ] && bins+=("$t"); done
 total=${#bins[@]}
@@ -91,6 +95,9 @@ for t in "${bins[@]}"; do
         if [ -f "$lib" ] && [ "$lib" -nt "$t" ]; then stale+=("$name<$(basename "$lib")"); break; fi
     done
 done
+# (h) the suites must leave the checkout as they found it; a new entry is traced to the suite that wrote it.
+trace_leaks "$LOG" "${bins[@]}" || fail=1
+
 [ ${#red[@]} -gt 0 ] && fail=1
 [ "$total" -eq 0 ] && { red+=("no test binaries in $BIN — build the suites first"); fail=1; }
 

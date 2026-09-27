@@ -48,6 +48,21 @@ namespace Common::DDC
                             Constants::Path::CurrentProjectRoot().ProjectDir );
     }
 
+    Common::ResultStr<std::filesystem::path> WritableRoot()
+    {
+        std::filesystem::path root = Root();
+        if ( root.is_absolute() )
+            return Common::MakeSuccess( root );
+        std::error_code ec;
+        return Common::MakeFormattedError<std::filesystem::path>(
+             "the derived data cache has no root: no project is open and machine.json's DerivedDataCachePath "
+             "('{}') is not an absolute path, so the cache would be written into the working directory '{}'. "
+             "Open a project or set an absolute DerivedDataCachePath (a test: hold a "
+             "Desert::TestSupport::DerivedDataSandbox)",
+             Settings::MachineSettings::Get().DerivedDataCachePath,
+             std::filesystem::current_path( ec ).generic_string() );
+    }
+
     std::filesystem::path RelativePath( const Deriver& deriver, const uint64_t key )
     {
         const std::string hex = std::format( "{:016x}", key );
@@ -80,7 +95,10 @@ namespace Common::DDC
 
     Common::BoolResultStr Put( const Deriver& deriver, const uint64_t key, const std::string_view bytes )
     {
-        const std::filesystem::path path = PathFor( deriver, key );
+        auto root = WritableRoot();
+        if ( !root.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "DDC Put '{}' refused: {}", deriver.Bucket, root.GetError() );
+        const std::filesystem::path path = root.GetValue() / RelativePath( deriver, key );
         std::error_code             ec;
         std::filesystem::create_directories( path.parent_path(), ec );
         return Utils::FileSystem::WriteContentToFileAtomic( path, std::string( bytes ) );
