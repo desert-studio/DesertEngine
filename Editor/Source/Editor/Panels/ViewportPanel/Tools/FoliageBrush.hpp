@@ -174,11 +174,11 @@ namespace Desert::Editor::Tools
         /// @p selected its selection now (none given: the selection is not part of this stroke).
         std::vector<FoliageStrokeField>
         Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
-                const std::function<FoliageSelection( const Common::UUID& )>&            selected = {} ) const;
+                const std::function<FoliageSelection( const Common::UUID& )>&              selected = {} ) const;
 
     private:
-        FoliageRandom                                          m_Random;
-        std::vector<FoliageStrokeField>                        m_Touched; // After unused until Finish
+        FoliageRandom                                                m_Random;
+        std::vector<FoliageStrokeField>                              m_Touched; // After unused until Finish
         std::vector<std::pair<Common::UUID, std::vector<glm::vec3>>> m_Readjusted;
     };
 
@@ -220,13 +220,13 @@ namespace Desert::Editor::Tools
     /// re-rolls or re-checks that property from the type's CURRENT numbers; a clear one keeps the instance's.
     struct FoliageReapplySettings
     {
-        bool Scale         = true;  ///< UE ReapplyScaling: a new uniform scale from ScaleX
-        bool ZOffset       = false; ///< UE ReapplyZOffset: a new offset from ZOffset
-        bool AlignToNormal = true;  ///< UE ReapplyAlignToNormal: align to the ground, or stand upright
-        bool RandomYaw     = false; ///< UE ReapplyRandomYaw: a new yaw, or yaw 0 when the type has none
-        bool RandomPitch   = false; ///< UE ReapplyRandomPitchAngle: a new tilt up to RandomPitchAngle
-        bool GroundSlope   = true;  ///< UE ReapplyGroundSlope: remove where the ground is outside the slope range
-        bool Height        = true;  ///< UE ReapplyHeight: remove where the ground is outside the height range
+        bool Scale           = true;  ///< UE ReapplyScaling: a new uniform scale from ScaleX
+        bool ZOffset         = false; ///< UE ReapplyZOffset: a new offset from ZOffset
+        bool AlignToNormal   = true;  ///< UE ReapplyAlignToNormal: align to the ground, or stand upright
+        bool RandomYaw       = false; ///< UE ReapplyRandomYaw: a new yaw, or yaw 0 when the type has none
+        bool RandomPitch     = false; ///< UE ReapplyRandomPitchAngle: a new tilt up to RandomPitchAngle
+        bool GroundSlope     = true; ///< UE ReapplyGroundSlope: remove where the ground is outside the slope range
+        bool Height          = true; ///< UE ReapplyHeight: remove where the ground is outside the height range
         bool LandscapeLayers = true; ///< UE ReapplyLandscapeLayers: remove where the layer weight filters it out
     };
 
@@ -248,7 +248,8 @@ namespace Desert::Editor::Tools
      */
     FoliageReapplyResult FoliageBrushReapply( const Assets::Serialization::FoliageTypeData& type,
                                               const FoliageReapplySettings& settings, const FoliageBrushDab& dab,
-                                              std::vector<glm::mat4>& instances, std::vector<glm::vec3>& readjusted,
-                                              FoliageRandom& rng, const FoliageBrushWorld& world,
-                                              FoliageSelection* selected = nullptr );
+                                              std::vector<glm::mat4>& instances,
+                                              std::vector<glm::vec3>& readjusted, FoliageRandom& rng,
+                                              const FoliageBrushWorld& world,
+                                              FoliageSelection*        selected = nullptr );
 } // namespace Desert::Editor::Tools

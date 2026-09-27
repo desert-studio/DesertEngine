@@ -5438,8 +5438,9 @@ namespace Desert::Editor
                               [] { return ViewportPanel::StrokeFoliageInActiveViewport(); } } );
         // FOLIAGE (FO-4): the tool the stroke above uses, and what UE does to the selected instances.
         // NOLINTBEGIN(bugprone-exception-escape)
-        for ( const auto tool : { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
-                                  Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply } )
+        for ( const auto tool :
+              { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
+                Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply } )
             commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
                                   [tool]() -> Common::BoolResultStr
                                   {
@@ -5453,14 +5454,13 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false, "no scene" );
                                   return Tools::FoliagePaintTool::RemoveSelected( *m_MainScene );
                               } } );
-        commands.push_back( { "Foliage", "Move selected instances by the panel offset",
-                              [this]() -> Common::BoolResultStr
-                              {
-                                  if ( !m_MainScene )
-                                      return PaletteCommandOutcome( false, "no scene" );
-                                  return Tools::FoliagePaintTool::MoveSelected( *m_MainScene,
-                                                                                Core::FoliagePaint::MoveOffset() );
-                              } } );
+        commands.push_back(
+             { "Foliage", "Move selected instances by the panel offset", [this]() -> Common::BoolResultStr
+               {
+                   if ( !m_MainScene )
+                       return PaletteCommandOutcome( false, "no scene" );
+                   return Tools::FoliagePaintTool::MoveSelected( *m_MainScene, Core::FoliagePaint::MoveOffset() );
+               } } );
         commands.push_back( { "Foliage", "Select no instances", [this]() -> Common::BoolResultStr
                               {
                                   if ( !m_MainScene )

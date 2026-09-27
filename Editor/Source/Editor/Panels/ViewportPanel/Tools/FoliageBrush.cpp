@@ -255,7 +255,7 @@ namespace Desert::Editor::Tools
 
     std::vector<FoliageStrokeField>
     FoliageStroke::Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
-                           const std::function<FoliageSelection( const Common::UUID& )>&            selected ) const
+                           const std::function<FoliageSelection( const Common::UUID& )>& selected ) const
     {
         std::vector<FoliageStrokeField> changed;
         for ( const auto& field : m_Touched )
@@ -401,9 +401,9 @@ namespace Desert::Editor::Tools
 
     FoliageReapplyResult FoliageBrushReapply( const Assets::Serialization::FoliageTypeData& type,
                                               const FoliageReapplySettings& settings, const FoliageBrushDab& dab,
-                                              std::vector<glm::mat4>& instances, std::vector<glm::vec3>& readjusted,
-                                              FoliageRandom& rng, const FoliageBrushWorld& world,
-                                              FoliageSelection* selected )
+                                              std::vector<glm::mat4>& instances,
+                                              std::vector<glm::vec3>& readjusted, FoliageRandom& rng,
+                                              const FoliageBrushWorld& world, FoliageSelection* selected )
     {
         FoliageReapplyResult result;
         const float          r2      = dab.Radius * dab.Radius;
@@ -453,14 +453,14 @@ namespace Desert::Editor::Tools
             const float     keptYaw   = std::atan2( -local[0].z, local[0].x );
             const float     keptZ     = glm::dot( origin - ground, up );
 
-            const glm::quat align    = settings.AlignToNormal
-                                            ? ( type.AlignToNormal ? AlignUpToNormal( normal ) : glm::quat( 1, 0, 0, 0 ) )
-                                            : keptAlign;
-            const float     newScale = settings.Scale ? glm::mix( type.ScaleX.Min, type.ScaleX.Max, rng.Next01() )
-                                                      : scale;
-            const float     zOffset  = settings.ZOffset ? glm::mix( type.ZOffset.Min, type.ZOffset.Max, rng.Next01() )
-                                                        : keptZ;
-            const float     yaw      = settings.RandomYaw ? ( type.RandomYaw ? rng.Next01() * kTwoPi : 0.0f ) : keptYaw;
+            const glm::quat align = settings.AlignToNormal ? ( type.AlignToNormal ? AlignUpToNormal( normal )
+                                                                                  : glm::quat( 1, 0, 0, 0 ) )
+                                                           : keptAlign;
+            const float     newScale =
+                 settings.Scale ? glm::mix( type.ScaleX.Min, type.ScaleX.Max, rng.Next01() ) : scale;
+            const float zOffset =
+                 settings.ZOffset ? glm::mix( type.ZOffset.Min, type.ZOffset.Max, rng.Next01() ) : keptZ;
+            const float yaw = settings.RandomYaw ? ( type.RandomYaw ? rng.Next01() * kTwoPi : 0.0f ) : keptYaw;
 
             glm::mat4 out = glm::translate( glm::mat4( 1.0f ), ground ) * glm::mat4_cast( align );
             out           = glm::translate( out, glm::vec3( 0.0f, zOffset, 0.0f ) );

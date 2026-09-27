@@ -45,7 +45,8 @@ namespace Desert::Editor::Core
     // Shared state for the UE5-style Foliage paint tool (active in ViewportMode::Foliage). Multiple foliage
     // TYPES can be CHECKED for painting at once (all checked types scatter under one dab); one type is the
     // "editing" selection whose detailed settings are shown. Per-type scatter params live on
-    // ECS::FoliageComponent. Brush state (radius, paint density, the tool, surface filters, the stroke seed) is here.
+    // ECS::FoliageComponent. Brush state (radius, paint density, the tool, surface filters, the stroke seed) is
+    // here.
     class FoliagePaint final
     {
     public:
@@ -79,13 +80,25 @@ namespace Desert::Editor::Core
         // --- brush --------------------------------------------------------------------------------------
         static float& BrushRadius() { return s_Radius; }
         static float& PaintDensity() { return s_PaintDensity; } // 0..1 multiplier on each type's Density
-        static FoliageTool& Tool() { return s_Tool; }
-        static Tools::FoliageReapplySettings& Reapply() { return s_Reapply; }
+        static FoliageTool& Tool()
+        {
+            return s_Tool;
+        }
+        static Tools::FoliageReapplySettings& Reapply()
+        {
+            return s_Reapply;
+        }
         // The panel's "Move by" offset for the selected instances, cm.
-        static glm::vec3& MoveOffset() { return s_MoveOffset; }
+        static glm::vec3& MoveOffset()
+        {
+            return s_MoveOffset;
+        }
 
         // --- selected instances, per foliage entity (UE FFoliageInfo::SelectedIndices) -----------------
-        static std::unordered_map<Common::UUID, Tools::FoliageSelection>& Selection() { return s_Selection; }
+        static std::unordered_map<Common::UUID, Tools::FoliageSelection>& Selection()
+        {
+            return s_Selection;
+        }
         static Tools::FoliageSelection SelectionOf( const Common::UUID& u )
         {
             const auto it = s_Selection.find( u );
@@ -124,7 +137,7 @@ namespace Desert::Editor::Core
         static inline std::optional<Common::UUID> s_Editing;
         static inline float                       s_Radius       = 300.0f; // world units (cm) = 3 m
         static inline float                       s_PaintDensity = 1.0f;
-        static inline FoliageTool                 s_Tool         = FoliageTool::Paint;
+        static inline FoliageTool                   s_Tool         = FoliageTool::Paint;
         static inline Tools::FoliageReapplySettings s_Reapply;
         static inline glm::vec3                     s_MoveOffset = glm::vec3( 0.0f, 100.0f, 0.0f );
         static inline std::unordered_map<Common::UUID, Tools::FoliageSelection> s_Selection;

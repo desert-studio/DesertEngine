@@ -581,7 +581,8 @@ namespace Desert::Editor::Tools
                     }
                     ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms =
                          before ? field.Before : field.After;
-                    Core::FoliagePaint::Selection()[field.Entity] = before ? field.SelectedBefore : field.SelectedAfter;
+                    Core::FoliagePaint::Selection()[field.Entity] =
+                         before ? field.SelectedBefore : field.SelectedAfter;
                 }
                 return all;
             }
@@ -728,9 +729,9 @@ namespace Desert::Editor::Tools
             }
             if ( m_StrokeTool == Core::FoliageTool::Reapply )
             {
-                const auto r = FoliageBrushReapply( data, Core::FoliagePaint::Reapply(), dab, ism.InstanceTransforms,
-                                                    m_Stroke->Readjusted( uuid ), m_Stroke->Random(), world,
-                                                    &selected );
+                const auto r =
+                     FoliageBrushReapply( data, Core::FoliagePaint::Reapply(), dab, ism.InstanceTransforms,
+                                          m_Stroke->Readjusted( uuid ), m_Stroke->Random(), world, &selected );
                 LOG_INFO( "[Foliage] reapply '{}': {} rebuilt, {} removed, {} without ground; field now {}",
                           type->GetDisplayName(), r.Updated, r.Removed, r.Skipped, ism.InstanceTransforms.size() );
                 continue;
@@ -779,7 +780,8 @@ namespace Desert::Editor::Tools
             auto ref = scene.FindEntityByID( uuid );
             if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
-            const auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            const auto& instances =
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
             m_Stroke->Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
             if ( !shift )
                 Core::FoliagePaint::Selection()[uuid].clear();
@@ -843,7 +845,8 @@ namespace Desert::Editor::Tools
             auto ref = scene.FindEntityByID( uuid );
             if ( selected.empty() || !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
-            const auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            const auto& instances =
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
             for ( const uint32_t i : selected )
             {
                 if ( i >= instances.size() )
@@ -908,8 +911,8 @@ namespace Desert::Editor::Tools
              { Core::FoliageTool::Lasso, ICON_MDI_LASSO " Lasso" },
              { Core::FoliageTool::Remove, ICON_MDI_ERASER " Remove" },
         };
-        Core::FoliageTool& tool  = Core::FoliagePaint::Tool();
-        const float        thirdW = ( ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x ) / 3.0f;
+        Core::FoliageTool& tool = Core::FoliagePaint::Tool();
+        const float thirdW = ( ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x ) / 3.0f;
         for ( size_t i = 0; i < std::size( kTabs ); ++i )
         {
             if ( i % 3 != 0 )
@@ -918,7 +921,8 @@ namespace Desert::Editor::Tools
                 tool = kTabs[i].Tool;
         }
         if ( tool == Core::FoliageTool::Select || tool == Core::FoliageTool::Lasso )
-            ImGui::TextDisabled( "Shift: %s", tool == Core::FoliageTool::Select ? "add to the selection" : "deselect" );
+            ImGui::TextDisabled( "Shift: %s",
+                                 tool == Core::FoliageTool::Select ? "add to the selection" : "deselect" );
 
         // ----- Selection: what UE does to selected instances (delete, move) --------------------------------
         if ( tool == Core::FoliageTool::Select || tool == Core::FoliageTool::Lasso ||
@@ -1086,8 +1090,9 @@ namespace Desert::Editor::Tools
         }
 
         ImGui::Separator();
-        static constexpr const char* kHints[] = { "LMB drag: paint", "LMB click: place one", "LMB click: select one",
-                                                  "LMB drag: select", "LMB drag: remove", "LMB drag: reapply" };
+        static constexpr const char* kHints[] = { "LMB drag: paint",       "LMB click: place one",
+                                                  "LMB click: select one", "LMB drag: select",
+                                                  "LMB drag: remove",      "LMB drag: reapply" };
         ImGui::TextDisabled( "%s  -  on the checked types", kHints[static_cast<size_t>( tool )] );
         ImGui::End();
     }
