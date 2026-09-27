@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 
 #include <memory>
 #include <string>
@@ -27,6 +28,19 @@ namespace Desert::Runtime
         /// The type's data when it is read; nullptr while it is pending or when it failed (said once, logged).
         const Assets::Serialization::FoliageTypeData* Get( const Assets::AssetHandle& handle );
 
+        /// The prefab a Prefab type places (FO-8), read on first ask and kept; nullptr when it cannot be — a missing
+        /// file, a GUID that is not the type's, or a UI prefab, which draws only under a canvas — said once.
+        Assets::Asset<Assets::PrefabAsset> GetPrefab( const Assets::Serialization::FoliageTypeData& type );
+
+        /// The manager the service creates in; null when none is bound.
+        [[nodiscard]] std::shared_ptr<Assets::AssetManager> Manager() const
+        {
+            return m_Assets.lock();
+        }
+
+        /// Stops realizing @p prefabGuid after a failed instantiation, saying why once.
+        void RefusePrefab( const std::string& prefabGuid, const std::string& why );
+
         void Clear();
 
     private:
@@ -36,5 +50,7 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest>                     m_Requests;
         std::unordered_map<Assets::AssetHandle, Assets::Asset<Assets::FoliageTypeAsset>> m_Ready;
         std::unordered_map<Assets::AssetHandle, std::string>                             m_Failed;
+        std::unordered_map<std::string, Assets::Asset<Assets::PrefabAsset>>              m_Prefabs;
+        std::unordered_map<std::string, std::string>                                     m_PrefabFailed;
     };
 } // namespace Desert::Runtime

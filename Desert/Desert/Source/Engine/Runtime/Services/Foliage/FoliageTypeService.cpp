@@ -1,6 +1,9 @@
 #include "FoliageTypeService.hpp"
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Assets/Prefab/PrefabPlacement.hpp>
+#include <Engine/World/Foliage/FoliagePrefabs.hpp>
+#include <Common/Core/Constants.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -58,10 +61,70 @@ namespace Desert::Runtime
         return found == m_Ready.end() ? nullptr : &found->second->GetData();
     }
 
+    void FoliageTypeService::RefusePrefab( const std::string& prefabGuid, const std::string& why )
+    {
+        if ( m_PrefabFailed.emplace( prefabGuid, why ).second )
+            LOG_ERROR( "[Foliage] Prefab {} is not placed as foliage: {}", prefabGuid, why );
+        m_Prefabs.erase( prefabGuid );
+    }
+
+    Assets::Asset<Assets::PrefabAsset>
+    FoliageTypeService::GetPrefab( const Assets::Serialization::FoliageTypeData& type )
+    {
+        const std::string& guid = type.Prefab.Guid;
+        if ( !type.IsPrefab() || m_PrefabFailed.contains( guid ) )
+            return nullptr;
+        if ( const auto found = m_Prefabs.find( guid ); found != m_Prefabs.end() )
+            return found->second;
+
+        const auto manager = m_Assets.lock();
+        if ( !manager )
+            return nullptr;
+        // By path, and the GUID the file states must be the one the type names: a prefab renamed over another
+        // would otherwise be placed in its stead without a word.
+        const std::filesystem::path file = Common::Constants::Path::ASSETS_PATH / type.Prefab.Path;
+        const auto                  stated = World::Foliage::PrefabFileGuid( file );
+        if ( !stated )
+        {
+            RefusePrefab( guid, stated.GetError() );
+            return nullptr;
+        }
+        if ( stated.GetValue() != guid )
+        {
+            RefusePrefab( guid, "'" + file.string() + "' states GUID " + stated.GetValue() +
+                                     ", not the one the foliage type names" );
+            return nullptr;
+        }
+        auto prefab = manager->FindByPath<Assets::PrefabAsset>( file );
+        if ( !prefab )
+            prefab = manager->CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High, file );
+        if ( !prefab )
+        {
+            RefusePrefab( guid, "'" + file.string() + "' could not be created as a prefab asset" );
+            return nullptr;
+        }
+        if ( !prefab->IsReadyForUse() )
+            if ( const auto loaded = prefab->Load(); !loaded )
+            {
+                RefusePrefab( guid, loaded.GetError() );
+                return nullptr;
+            }
+        if ( prefab->GetEntities().empty() ||
+             Assets::ClassifyPrefabRoot( prefab->GetEntities().front() ) != Assets::PrefabRootKind::World )
+        {
+            RefusePrefab( guid, "'" + file.string() + "' is empty or a UI prefab, which draws only under a canvas" );
+            return nullptr;
+        }
+        m_Prefabs[guid] = prefab;
+        return prefab;
+    }
+
     void FoliageTypeService::Clear()
     {
         m_Requests.clear(); // released: no delegate fires into a cleared service
         m_Ready.clear();
         m_Failed.clear();
+        m_Prefabs.clear();
+        m_PrefabFailed.clear();
     }
 } // namespace Desert::Runtime

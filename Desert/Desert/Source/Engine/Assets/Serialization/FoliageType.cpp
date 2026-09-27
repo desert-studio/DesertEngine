@@ -27,6 +27,8 @@ namespace Desert::Assets::Serialization
             std::vector<std::string> out;
             if ( !data.Mesh.Guid.empty() )
                 out.push_back( data.Mesh.Guid );
+            if ( !data.Prefab.Guid.empty() )
+                out.push_back( data.Prefab.Guid );
             for ( const auto& layer : data.LandscapeLayers )
                 out.push_back( layer.Guid );
             return out;
@@ -115,6 +117,31 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>(
                  "Mesh names {} without {} ('{}' / '{}')", data.Mesh.Guid.empty() ? "a path" : "a GUID",
                  data.Mesh.Guid.empty() ? "a GUID" : "a path", data.Mesh.Guid, data.Mesh.Path );
+        if ( !data.IsPrefab() )
+        {
+            if ( !data.Prefab.Guid.empty() || !data.Prefab.Path.empty() )
+                return Common::MakeFormattedError<bool>( "a Mesh type names a prefab ('{}' / '{}'); only a Prefab "
+                                                         "type places one",
+                                                         data.Prefab.Guid, data.Prefab.Path );
+            return BOOLSUCCESS;
+        }
+        // A Prefab type (FO-8): one prefab, no mesh, and none of the instanced-mesh settings — a value there
+        // would be a knob that moves nothing.
+        if ( data.Prefab.Guid.empty() || data.Prefab.Path.empty() )
+            return Common::MakeFormattedError<bool>( "a Prefab type must name its prefab by GUID and path ('{}' / "
+                                                     "'{}')",
+                                                     data.Prefab.Guid, data.Prefab.Path );
+        if ( !data.Mesh.Guid.empty() )
+            return Common::MakeFormattedError<bool>( "a Prefab type names mesh '{}' as well; it places prefab "
+                                                     "'{}' and draws no mesh of its own",
+                                                     data.Mesh.Path, data.Prefab.Path );
+        if ( data.CullDistance != FoliageFloatInterval{ 0.0f, 0.0f } || data.Wind.Strength != 0.0f ||
+             data.IncludeInHLOD )
+            return Common::MakeFormattedError<bool>( "a Prefab type sets CullDistance [{}, {}], Wind.Strength {} or "
+                                                     "IncludeInHLOD {}: {}",
+                                                     data.CullDistance.Min, data.CullDistance.Max,
+                                                     data.Wind.Strength, data.IncludeInHLOD,
+                                                     kFoliagePrefabMeshOnlyReason );
         return BOOLSUCCESS;
     }
 
@@ -154,9 +181,9 @@ namespace Desert::Assets::Serialization
         // Mesh. A file where they disagree would have the two sides load different meshes.
         if ( data.Header->Dependencies != DependenciesOf( data ) )
             return Common::MakeFormattedError<FoliageTypeData>(
-                 "the header's Dependencies ({} entries) do not state exactly the mesh's GUID '{}' and the {} "
-                 "landscape layer GUID(s), in that order",
-                 data.Header->Dependencies.size(), data.Mesh.Guid, data.LandscapeLayers.size() );
+                 "the header's Dependencies ({} entries) do not state exactly the mesh's GUID '{}', the prefab's "
+                 "GUID '{}' and the {} landscape layer GUID(s), in that order",
+                 data.Header->Dependencies.size(), data.Mesh.Guid, data.Prefab.Guid, data.LandscapeLayers.size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }
