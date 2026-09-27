@@ -13,6 +13,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
+#include <array>
 #include <filesystem>
 #include <unordered_map>
 #include <utility>
@@ -89,6 +90,17 @@ namespace Desert::Editor::ThumbnailSubject
             // shades with it, which is one frame later and only for the materials actually photographed.
             Runtime::EnsureMaterialRegistered( asset );
 
+            // THE SERVICE MAY HOLD ITS OWN SHELL of this material — one it discovered from the registry row
+            // before the browser asked — and registration keeps that one. The capture shades through the
+            // service, so an unread service shell was parsed inside the capture's frame (M_HDR_Chrome,
+            // CB_Red, … on Starter). Waited for here on a worker (AwaitOne: not an in-frame load), which is
+            // free when the service's asset is the one just read.
+            if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
+            {
+                const std::array<Assets::AssetHandle, 1> handles{ asset->GetMetadata().Handle };
+                (void)materials->AwaitResident( handles );
+            }
+
             Material out;
             out.Handle = asset->GetMetadata().Handle;
             out.How    = route.GetValue();
@@ -151,8 +163,9 @@ namespace Desert::Editor::ThumbnailSubject
 
         Assets::LoadRequest request = Assets::AsyncAssetLoader::Get().Request(
              asset,
-             [assetPath, onArrived]( const Assets::Asset<Assets::AssetBase>& loaded, Assets::LoadOutcome outcome,
-                                     const std::string& error )
+             [assetPath, onArrived,
+              weakManager = manager.weak_from_this()]( const Assets::Asset<Assets::AssetBase>& loaded,
+                                                       Assets::LoadOutcome outcome, const std::string& error )
              {
                  // The map's handle is released first: the result has arrived, and the resolution below may
                  // itself ask for another read.
@@ -163,6 +176,17 @@ namespace Desert::Editor::ThumbnailSubject
                                                                                  assetPath, error ) );
                      return;
                  }
+                 // THE SHADER IS NAMED THROUGH THE MANAGER, which a worker may not touch: the read leaves
+                 // the shader name empty and ResolveDependencies fills it here, back on the main thread.
+                 // Skipping it answered "shader '' is not registered" for 41 materials on Starter.
+                 const auto owner = weakManager.lock();
+                 if ( !owner )
+                 {
+                     onArrived( assetPath, Common::MakeFormattedError<Material>(
+                                                "'{}' arrived after its asset manager closed", assetPath ) );
+                     return;
+                 }
+                 loaded->ResolveDependencies( *owner );
                  onArrived( assetPath,
                             ResolveLoadedMaterial(
                                  std::static_pointer_cast<Assets::SurfaceMaterialAsset>( loaded ), assetPath ) );
@@ -197,7 +221,7 @@ namespace Desert::Editor::ThumbnailSubject
         auto asset = manager.FindByPath<Assets::MeshAsset>( cooked );
         if ( !asset )
         {
-            asset = manager.CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High, cooked );
+            asset = manager.CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High, cooked, false );
             if ( !asset )
                 return Common::MakeFormattedError<Mesh>( "'{}' could not be created as a static mesh", cooked );
         }
@@ -211,6 +235,20 @@ namespace Desert::Editor::ThumbnailSubject
         // produced "built no drawable geometry (a skinned mesh's static buffer is empty by design)", which
         // sends the next reader to look at rigs. This header's own doc block already promised three
         // distinct refusals; it is the code that had two.
+        // NOT READ HERE (AL1-5c). EnsureMeshDrawable builds through MeshService::LoadNow, which parses a
+        // cold mesh on this thread: 726 ms for base_basic_shaded.stmesh, inside a frame, a second after the
+        // window appeared. A cold mesh is registered and asked for instead — MeshService answers pending and
+        // hands the read to AsyncAssetLoader — and the sweep's next pass, which re-finds every asset that
+        // still has no picture, meets it resident.
+        if ( !asset->IsReadyForUse() )
+        {
+            Runtime::EnsureMeshRegistered( asset, manager );
+            if ( auto* meshes = Runtime::ResourceRegistry::GetMeshService() )
+                (void)meshes->Get( asset->GetMetadata().Handle );
+            return Common::MakeFormattedError<Mesh>( "'{}' is being read on a worker; its picture follows on a "
+                                                     "later pass",
+                                                     cooked );
+        }
         const auto readiness = Runtime::EnsureMeshDrawable( asset, manager );
         if ( readiness != Runtime::MeshReadiness::Drawable )
         {
