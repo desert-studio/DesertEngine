@@ -103,8 +103,8 @@ namespace Desert::Runtime
                 if ( !shell->IsReadyForUse() )
                     continue; // the completion logged which file and why
                 ++resident;
-                const auto* surface  = dynamic_cast<const Assets::SurfaceMaterialAsset*>( shell.get() );
-                const auto  parentId = surface ? surface->Data().InstanceParentId() : std::optional<Common::UUID>{};
+                const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( shell.get() );
+                const auto parentId = surface ? surface->Data().InstanceParentId() : std::optional<Common::UUID>{};
                 if ( parentId.has_value() )
                     parents.push_back( GetAssetHandleByExternal( *parentId ) );
             }

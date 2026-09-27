@@ -578,7 +578,7 @@ namespace Desert::Core::Serialize
                      {
                          return Assets::Asset<Assets::MaterialAsset>(
                               m.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, full,
-                                                                          /*loadAfterCreate=*/false ) );
+                                                                           /*loadAfterCreate=*/false ) );
                      },
                      []( const Assets::Asset<Assets::MaterialAsset>& material, ReferenceOrigin )
                      { Runtime::EnsureMaterialRegistered( material ); } );

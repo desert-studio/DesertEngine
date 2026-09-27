@@ -67,9 +67,9 @@ namespace Desert::Runtime
      */
 
     /// Register @p material with the MaterialService if it is not already there. Idempotent; reads
-    /// nothing — a file-backed shell carries its external id from its header GUID. A refusal (another `.demat` already holds this MaterialId) is
-    /// logged with both filenames — the slot is about to fall back to the default material and this is
-    /// the only place that knows why.
+    /// nothing — a file-backed shell carries its external id from its header GUID. A refusal (another `.demat`
+    /// already holds this MaterialId) is logged with both filenames — the slot is about to fall back to the
+    /// default material and this is the only place that knows why.
     void EnsureMaterialRegistered( const Assets::Asset<Assets::MaterialAsset>& material );
 
     /// Register @p mesh with the MeshService as a LAZY SHELL if it is not already there. Idempotent.

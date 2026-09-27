@@ -25,11 +25,17 @@ namespace Desert::Runtime
         {
             return ResourceRegistry::GetMeshService();
         }
+
+        // The same rule for materials: registration and the scene-open wait both reach it through here.
+        MaterialService* Materials()
+        {
+            return ResourceRegistry::GetMaterialService();
+        }
     } // namespace
 
     void EnsureMaterialRegistered( const Assets::Asset<Assets::MaterialAsset>& material )
     {
-        auto* service = ResourceRegistry::GetMaterialService();
+        auto* service = Materials();
         if ( !service || !material || service->HasAsset( material->GetMetadata().Handle ) )
             return;
 
@@ -85,7 +91,7 @@ namespace Desert::Runtime
 
     std::size_t AwaitSceneMaterials( const Core::Scene& owner )
     {
-        auto* materials = ResourceRegistry::GetMaterialService();
+        auto* materials = Materials();
         if ( !materials )
             return 0;
         const auto*                      meshes = Meshes();
@@ -103,9 +109,13 @@ namespace Desert::Runtime
                 for ( const auto& external : asset->GetMaterialHandles() )
                     handles.push_back( materials->GetAssetHandleByExternal( external ) );
         };
-        scene.view<const ECS::StaticMeshComponent>().each( [&note]( const ECS::StaticMeshComponent& mesh ) { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
-        scene.view<const ECS::SkinnedMeshComponent>().each( [&note]( const ECS::SkinnedMeshComponent& mesh ) { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
-        scene.view<const ECS::InstancedStaticMeshComponent>().each( [&note]( const ECS::InstancedStaticMeshComponent& mesh ) { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
+        scene.view<const ECS::StaticMeshComponent>().each( [&note]( const ECS::StaticMeshComponent& mesh )
+                                                           { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
+        scene.view<const ECS::SkinnedMeshComponent>().each( [&note]( const ECS::SkinnedMeshComponent& mesh )
+                                                            { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
+        scene.view<const ECS::InstancedStaticMeshComponent>().each(
+             [&note]( const ECS::InstancedStaticMeshComponent& mesh )
+             { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
         std::sort( handles.begin(), handles.end() );
         handles.erase( std::unique( handles.begin(), handles.end() ), handles.end() );
         return materials->AwaitResident( handles );
