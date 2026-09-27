@@ -23,6 +23,7 @@
 #include <cstring>
 #include <ctime>
 #include <mutex>
+#include <thread>
 
 #if defined( DESERT_PLATFORM_WINDOWS )
 #include <Windows.h>
@@ -1576,6 +1577,10 @@ namespace Common::Crash
         {
             return TestKind::StackOverflow;
         }
+        if ( inWord == "stackoverflow-worker" )
+        {
+            return TestKind::StackOverflowWorker;
+        }
         return std::nullopt;
     }
 
@@ -1591,6 +1596,8 @@ namespace Common::Crash
                 return "purecall";
             case TestKind::StackOverflow:
                 return "stackoverflow";
+            case TestKind::StackOverflowWorker:
+                return "stackoverflow-worker";
         }
         return "unknown";
     }
@@ -1686,6 +1693,23 @@ namespace Common::Crash
             (void)depth;
             std::abort();
         }
+
+        // The worker logs its own thread id before recursing, so the suite can check that the report's
+        // `tid=` names the thread that overflowed and not the main thread or the report thread.
+        [[noreturn]] void CrashTestStackOverflowWorker()
+        {
+            std::thread worker(
+                 []
+                 {
+#if defined( DESERT_PLATFORM_WINDOWS )
+                     LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", ::GetCurrentThreadId() );
+#endif
+                     CrashTestStackOverflow();
+                 } );
+            worker.join();
+            // Reached only if the worker returned: say so rather than exit clean.
+            std::abort();
+        }
     } // namespace
 
     void TriggerTestCrash( TestKind inKind )
@@ -1700,6 +1724,8 @@ namespace Common::Crash
                 CrashTestPureCall();
             case TestKind::StackOverflow:
                 CrashTestStackOverflow();
+            case TestKind::StackOverflowWorker:
+                CrashTestStackOverflowWorker();
         }
         std::abort();
     }
