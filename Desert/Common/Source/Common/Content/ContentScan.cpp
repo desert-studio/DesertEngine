@@ -311,7 +311,8 @@ namespace Common::Content
             if ( const auto record = ImportRecordStandingFor( file ) )
                 return DescribeContentFile( *record, kind );
         ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
-        if ( kind == ContentKind::StaticMesh )
+        const bool  importRecord = kind == ContentKind::StaticMesh && IsImportRecord( file );
+        if ( kind == ContentKind::StaticMesh && !importRecord )
             described.HeaderBounds = ReadMeshAssetMetaBounds( file );
         else if ( kind == ContentKind::SkinnedMesh )
         {
@@ -345,7 +346,9 @@ namespace Common::Content
             described.Header = stated.GetValue();
         // A PREFAB'S BOX IS STATED BESIDE ITS HEADER, and read with it: a member that is there and unreadable
         // keeps the file out exactly as an unreadable header does.
-        if ( kind == ContentKind::Prefab && described.HeaderError.empty() )
+        // AN IMPORT RECORD STATES ITS MESH'S BOX in the same `Bounds` member (DIMP 2): the registry knows an
+        // imported mesh's box without the DDC, and before the mesh is ever built on this machine.
+        if ( ( kind == ContentKind::Prefab || importRecord ) && described.HeaderError.empty() )
         {
             auto box = ReadStatedPrefabBounds( file );
             if ( !box )

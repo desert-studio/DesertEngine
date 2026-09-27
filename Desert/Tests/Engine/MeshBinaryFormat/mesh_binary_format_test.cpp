@@ -48,6 +48,8 @@
  */
 
 #include <Common/Json/Json.hpp>
+#include <Common/Content/ImportRecord.hpp>
+
 #include <gtest/gtest.h>
 
 #include "../../TestSupport/cooked_static_mesh.hpp"
@@ -836,6 +838,13 @@ TEST( MeshBinaryFormat, EveryGatheredMeshRowStatesTheBoundsOfItsFile )
         }
         ++meshes;
         const std::filesystem::path       file = Common::AssetHandle::PathForStableKey( row.Key );
+        // An imported mesh has no file of its own (AF4h): its row and its box are its import record's, which
+        // the import writes from the built mesh (DIMP 2; held by MeshDerivedData's ImportRecord suite).
+        if ( Common::Content::ImportRecordStandingFor( file ).has_value() )
+        {
+            EXPECT_TRUE( row.Bounds.has_value() ) << row.Key << ": its import record states no box";
+            continue;
+        }
         std::optional<Common::Math::AABB> box;
         if ( row.Kind == "StaticMesh" )
         {
