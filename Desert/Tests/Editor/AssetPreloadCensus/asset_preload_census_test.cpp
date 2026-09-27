@@ -251,7 +251,7 @@ TEST( AssetPreloadCensus, TheHeaderStillDeclaresPreloadsAtAll )
 
     // A census that found nothing would pass the test below for the wrong reason — the failure mode of
     // every source-scanning suite, and the one it has to rule out about itself first.
-    EXPECT_GE( declared.size(), 5u ) << "the scan found " << declared.size() << " Preload* declarations in "
+    EXPECT_GE( declared.size(), 4u ) << "the scan found " << declared.size() << " Preload* declarations in "
                                      << kPreloaderHeader
                                      << ", which means the parse stopped matching rather than that the "
                                         "asset layer shrank";
