@@ -207,3 +207,40 @@ TEST( EmbedSurfacePathWalk, TinySplitBecomesAFlip )
         EXPECT_TRUE( mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::ReturnOnly ) );
     }
 }
+
+// On a closed 100 cm cube the plane x = 60 loops all the way round, so the walk from the top face to the front
+// face has two routes: 100 cm over the near top edge, or 300 cm over the back and the bottom. Shortest-first must
+// take the near one.
+TEST( EmbedSurfacePathWalk, PlanarWalkTakesTheShorterWayRound )
+{
+    DynamicMesh3 mesh;
+    for ( int z = 0; z < 2; ++z )
+    {
+        mesh.AppendVertex( glm::dvec3( 0, 0, z * Cell ) );
+        mesh.AppendVertex( glm::dvec3( Cell, 0, z * Cell ) );
+        mesh.AppendVertex( glm::dvec3( Cell, Cell, z * Cell ) );
+        mesh.AppendVertex( glm::dvec3( 0, Cell, z * Cell ) );
+    }
+    const int tris[12][3] = { { 0, 2, 1 }, { 0, 3, 2 }, { 4, 5, 6 }, { 4, 6, 7 }, { 0, 1, 5 }, { 0, 5, 4 },
+                              { 3, 7, 6 }, { 3, 6, 2 }, { 0, 4, 7 }, { 0, 7, 3 }, { 1, 2, 6 }, { 1, 6, 5 } };
+    for ( const auto& t : tris )
+    {
+        mesh.AppendTriangle( t[0], t[1], t[2] );
+    }
+    ASSERT_TRUE( mesh.IsClosed() );
+
+    MeshSurfacePath  path( &mesh );
+    const glm::dvec3 start( 60, 40, Cell ); // top face, triangle (4,5,6)
+    const glm::dvec3 end( 60, 0, 40 );      // front face, triangle (0,1,5)
+    ASSERT_TRUE( path.AddViaPlanarWalk( 2, -1, start, 4, -1, end, glm::dvec3( 1, 0, 0 ) ) );
+    EXPECT_TRUE( path.IsConnected() );
+    double length = 0;
+    for ( size_t i = 0; i + 1 < path.m_Path.size(); ++i )
+    {
+        length += Distance( path.m_Path[i].first.Pos( &mesh ), path.m_Path[i + 1].first.Pos( &mesh ) );
+    }
+    EXPECT_NEAR( length, 100.0, 1e-9 );
+    ASSERT_EQ( path.m_Path.size(), 4u );
+    EXPECT_LT( Distance( path.m_Path[1].first.Pos( &mesh ), glm::dvec3( 60, 0, Cell ) ), 1e-9 );
+    EXPECT_LT( Distance( path.m_Path[2].first.Pos( &mesh ), glm::dvec3( 60, 0, 60 ) ), 1e-9 );
+}
