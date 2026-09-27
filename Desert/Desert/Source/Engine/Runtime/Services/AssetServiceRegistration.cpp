@@ -174,9 +174,8 @@ namespace Desert::Runtime
                         for ( const auto& external : asset->GetMaterialHandles() )
                         {
                             const Assets::AssetHandle material = materials->GetAssetHandleByExternal( external );
-                            const bool                known    = std::any_of( all.begin(), all.end(),
-                                                                              [&material]( const auto& in )
-                                                                              { return in.Handle == material; } );
+                            const bool known = std::any_of( all.begin(), all.end(), [&material]( const auto& in )
+                                                            { return in.Handle == material; } );
                             if ( material && !known )
                                 roots.push_back( { material, std::string( KindName( ContentKind::Material ) ) } );
                         }
