@@ -79,8 +79,8 @@ TEST( WorldPartitionStreamingPerformance, FallingBehindWithACellUnderfootFliesOn
     const auto plan = TwoCells( 10, 400 );
     for ( const Rules::Residency farCell : { Rules::Residency::Loading, Rules::Residency::Loaded } )
     {
-        const auto seen =
-             Rules::AssessStreaming( plan, Budget(), States( Rules::Residency::Activated, farCell ), kStandingHere );
+        const auto seen = Rules::AssessStreaming( plan, Budget(), States( Rules::Residency::Activated, farCell ),
+                                                  kStandingHere );
         EXPECT_EQ( seen.Performance, Rules::StreamingPerformance::Slow );
         EXPECT_FALSE( seen.Blocks() );
         EXPECT_GT( seen.QueuedMs, Budget().ActivationBudgetMs );

@@ -39,10 +39,10 @@ namespace Desert::Editor::Core
 
         struct Input
         {
-            Common::UUID Id;
-            ECS::Entity  Entity;
-            OperandMeshPtr      Mesh;
-            std::string  Name;
+            Common::UUID   Id;
+            ECS::Entity    Entity;
+            OperandMeshPtr Mesh;
+            std::string    Name;
         };
 
         Common::ResultStr<std::array<Input, 2>> SelectedInputs( ::Desert::Core::Scene& scene, const char* name )
@@ -87,17 +87,18 @@ namespace Desert::Editor::Core
         // takes both in one space. A Boolean keeps the other mesh's triangles, so their material IDs are
         // remapped into `table` - the operated entity's slots, then the other's slots not already there.
         Common::ResultStr<OperandMeshPtr> BakeInto( const Input& operated, const Input& other,
-                                             std::vector<Common::AssetHandle>* table, const char* name )
+                                                    std::vector<Common::AssetHandle>* table, const char* name )
         {
             auto view = Geometry::Bridge::EditMeshView( other.Mesh );
             if ( !view.IsSuccess() )
-                return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name, view.GetError() );
+                return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name,
+                                                                   view.GetError() );
             const glm::mat4 toOperated =
                  glm::inverse( operated.Entity.GetWorldTransform() ) * other.Entity.GetWorldTransform();
             auto moved = Geometry::TransformMesh( *view.GetValue(), toOperated );
             if ( !moved.IsSuccess() )
                 return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}' into the space of '{}': {}", name,
-                                                            other.Name, operated.Name, moved.GetError() );
+                                                                   other.Name, operated.Name, moved.GetError() );
             Geometry::EditMesh mesh = std::move( moved.ExtractValue().Mesh );
             if ( table )
             {
@@ -117,7 +118,8 @@ namespace Desert::Editor::Core
             }
             auto shared = Geometry::Bridge::FromEditMesh( std::move( mesh ) );
             if ( !shared.IsSuccess() )
-                return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name, shared.GetError() );
+                return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}': {}", name, other.Name,
+                                                                   shared.GetError() );
             return Common::MakeSuccess( OperandMeshPtr( shared.ExtractValue() ) );
         }
     } // namespace

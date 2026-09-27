@@ -593,7 +593,7 @@ TEST( ReservedIdentifiers, NoSourceUsesThePosixMathConstants )
     // The one file that DEFINES M_PI rather than using it: OpenSubdiv's scheme headers need it, so
     // SubdividePoly.cpp defines it around their include only and undefines it after. Only its preprocessor
     // lines are excused; a use of M_PI in its code is an offender like anywhere else.
-    const std::string        kDefinesForOpenSubdiv =
+    const std::string kDefinesForOpenSubdiv =
          "Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/SubdividePoly.cpp";
     std::vector<std::string> offenders;
     for ( const Source& s : Sources() )
@@ -605,13 +605,13 @@ TEST( ReservedIdentifiers, NoSourceUsesThePosixMathConstants )
             for ( auto it = std::sregex_iterator( s.Code.begin(), s.Code.end(), posixConstant );
                   it != std::sregex_iterator(); ++it )
             {
-                const auto        at        = static_cast<std::size_t>( it->position() );
-                const std::size_t lineStart = s.Code.rfind( '\n', at ) == std::string::npos
-                                                   ? 0
-                                                   : s.Code.rfind( '\n', at ) + 1;
-                const std::size_t first     = s.Code.find_first_not_of( " \t", lineStart );
+                const auto        at = static_cast<std::size_t>( it->position() );
+                const std::size_t lineStart =
+                     s.Code.rfind( '\n', at ) == std::string::npos ? 0 : s.Code.rfind( '\n', at ) + 1;
+                const std::size_t first = s.Code.find_first_not_of( " \t", lineStart );
                 if ( first == std::string::npos || s.Code[first] != '#' )
-                    offenders.push_back( s.Name + ":" + std::to_string( LineOf( s.Code, at ) ) + "  " + it->str() );
+                    offenders.push_back( s.Name + ":" + std::to_string( LineOf( s.Code, at ) ) + "  " +
+                                         it->str() );
             }
             continue;
         }
