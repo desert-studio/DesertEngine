@@ -91,296 +91,293 @@ extern char** environ;
 // function names stay Itanium-MANGLED, because demangling allocates.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-namespace Common::Crash
+namespace Common::Crash::Detail
 {
-    namespace Detail
+    // Capacities. Fixed, because every one of these buffers is read from a signal handler where
+    // an allocation is undefined behaviour. Chosen to cover the real values with room to spare;
+    // anything longer is truncated, which still identifies a crash.
+    constexpr std::size_t kSmallField     = 128;
+    constexpr std::size_t kPathField      = 1024;
+    constexpr std::size_t kLogRingLines   = 64;
+    constexpr std::size_t kLogLineChars   = 256;
+    constexpr std::size_t kMaxStackFrames = 64;
+    constexpr std::size_t kWriteBuffer    = 8192;
+
+    // The report context, formatted BEFORE the fault. See the header: nothing here is produced
+    // inside a handler.
+    char g_Host[kSmallField]    = "unknown";
+    char g_Version[kSmallField] = "unknown";
+    char g_Sha[kSmallField]     = "unknown";
+    char g_Branch[kSmallField]  = "unknown";
+    bool g_Dirty                = false;
+    char g_Machine[kSmallField] = "unknown";
+    char g_Os[kPathField]       = "unknown";
+    char g_Gpu[kPathField]      = "unknown";
+    char g_Scene[kPathField]    = "none";
+    char g_Started[kSmallField] = "unknown";
+
+    // The per-crash paths, all built at Install() time. The handler does no path arithmetic:
+    // building one needs concatenation, and concatenation in a handler needs a scratch buffer
+    // that a smashed stack may no longer have. The directory is named for the process START, not
+    // for the crash — a process crashes once, so the two identify the same report, and the start
+    // time is knowable while the program is still healthy.
+    char g_DirUtf8[kPathField] = "";
+    char g_TxtUtf8[kPathField] = "";
+#if defined( DESERT_PLATFORM_WINDOWS )
+    wchar_t g_DirNative[kPathField]               = L"";
+    wchar_t g_TxtNative[kPathField]               = L"";
+    wchar_t g_DmpNative[kPathField]               = L"";
+    wchar_t g_ReporterNative[kPathField]          = L"";
+    wchar_t g_ReporterCommandLine[kPathField * 2] = L"";
+#else
+    char  g_DmpUtf8[kPathField]      = "";
+    char  g_ReporterUtf8[kPathField] = "";
+    char* g_ReporterArgv[3]          = { nullptr, nullptr, nullptr };
+#endif
+    bool g_HasReporter = false;
+
+    std::atomic<bool> g_Installed{ false };
+    // Re-entry guard: a fault inside the handler must kill the process rather than recurse until
+    // the stack is gone. `exchange` and not a bool, because a second thread can fault while the
+    // first is still writing.
+    std::atomic<bool> g_InHandler{ false };
+
+    std::filesystem::path g_ReportRoot;
+
+    // ── The log ring ────────────────────────────────────────────────────────────────────────
+    // A plain array of fixed rows. The handler reads it with nothing but memcpy, so no sink
+    // mutex is taken and no allocator is entered while the process is dying.
+    char                       g_LogRing[kLogRingLines][kLogLineChars] = {};
+    std::atomic<std::uint32_t> g_LogWritten{ 0 };
+
+    void StoreLogLine( const char* inText, std::size_t inLength )
     {
-        // Capacities. Fixed, because every one of these buffers is read from a signal handler where
-        // an allocation is undefined behaviour. Chosen to cover the real values with room to spare;
-        // anything longer is truncated, which still identifies a crash.
-        constexpr std::size_t kSmallField     = 128;
-        constexpr std::size_t kPathField      = 1024;
-        constexpr std::size_t kLogRingLines   = 64;
-        constexpr std::size_t kLogLineChars   = 256;
-        constexpr std::size_t kMaxStackFrames = 64;
-        constexpr std::size_t kWriteBuffer    = 8192;
-
-        // The report context, formatted BEFORE the fault. See the header: nothing here is produced
-        // inside a handler.
-        char g_Host[kSmallField]    = "unknown";
-        char g_Version[kSmallField] = "unknown";
-        char g_Sha[kSmallField]     = "unknown";
-        char g_Branch[kSmallField]  = "unknown";
-        bool g_Dirty                = false;
-        char g_Machine[kSmallField] = "unknown";
-        char g_Os[kPathField]       = "unknown";
-        char g_Gpu[kPathField]      = "unknown";
-        char g_Scene[kPathField]    = "none";
-        char g_Started[kSmallField] = "unknown";
-
-        // The per-crash paths, all built at Install() time. The handler does no path arithmetic:
-        // building one needs concatenation, and concatenation in a handler needs a scratch buffer
-        // that a smashed stack may no longer have. The directory is named for the process START, not
-        // for the crash — a process crashes once, so the two identify the same report, and the start
-        // time is knowable while the program is still healthy.
-        char g_DirUtf8[kPathField] = "";
-        char g_TxtUtf8[kPathField] = "";
-#if defined( DESERT_PLATFORM_WINDOWS )
-        wchar_t g_DirNative[kPathField]               = L"";
-        wchar_t g_TxtNative[kPathField]               = L"";
-        wchar_t g_DmpNative[kPathField]               = L"";
-        wchar_t g_ReporterNative[kPathField]          = L"";
-        wchar_t g_ReporterCommandLine[kPathField * 2] = L"";
-#else
-        char  g_DmpUtf8[kPathField]      = "";
-        char  g_ReporterUtf8[kPathField] = "";
-        char* g_ReporterArgv[3]          = { nullptr, nullptr, nullptr };
-#endif
-        bool g_HasReporter = false;
-
-        std::atomic<bool> g_Installed{ false };
-        // Re-entry guard: a fault inside the handler must kill the process rather than recurse until
-        // the stack is gone. `exchange` and not a bool, because a second thread can fault while the
-        // first is still writing.
-        std::atomic<bool> g_InHandler{ false };
-
-        std::filesystem::path g_ReportRoot;
-
-        // ── The log ring ────────────────────────────────────────────────────────────────────────
-        // A plain array of fixed rows. The handler reads it with nothing but memcpy, so no sink
-        // mutex is taken and no allocator is entered while the process is dying.
-        char                       g_LogRing[kLogRingLines][kLogLineChars] = {};
-        std::atomic<std::uint32_t> g_LogWritten{ 0 };
-
-        void StoreLogLine( const char* inText, std::size_t inLength )
+        const std::uint32_t slot = g_LogWritten.load( std::memory_order_relaxed ) % kLogRingLines;
+        char*               row  = g_LogRing[slot];
+        const std::size_t   copy = inLength < ( kLogLineChars - 1 ) ? inLength : ( kLogLineChars - 1 );
+        std::memcpy( row, inText, copy );
+        // Newlines would break the one-field-per-line contract documented above.
+        for ( std::size_t i = 0; i < copy; ++i )
         {
-            const std::uint32_t slot = g_LogWritten.load( std::memory_order_relaxed ) % kLogRingLines;
-            char*               row  = g_LogRing[slot];
-            std::size_t         copy = inLength < ( kLogLineChars - 1 ) ? inLength : ( kLogLineChars - 1 );
-            std::memcpy( row, inText, copy );
-            // Newlines would break the one-field-per-line contract documented above.
-            for ( std::size_t i = 0; i < copy; ++i )
+            if ( row[i] == '\n' || row[i] == '\r' )
             {
-                if ( row[i] == '\n' || row[i] == '\r' )
-                {
-                    row[i] = ' ';
-                }
+                row[i] = ' ';
             }
-            row[copy] = '\0';
-            g_LogWritten.fetch_add( 1, std::memory_order_release );
+        }
+        row[copy] = '\0';
+        g_LogWritten.fetch_add( 1, std::memory_order_release );
+    }
+
+    class RingSink final : public spdlog::sinks::base_sink<std::mutex>
+    {
+    protected:
+        void sink_it_( const spdlog::details::log_msg& inMessage ) override
+        {
+            spdlog::memory_buf_t formatted;
+            base_sink<std::mutex>::formatter_->format( inMessage, formatted );
+            StoreLogLine( formatted.data(), formatted.size() );
         }
 
-        class RingSink final : public spdlog::sinks::base_sink<std::mutex>
+        void flush_() override
         {
-        protected:
-            void sink_it_( const spdlog::details::log_msg& inMessage ) override
-            {
-                spdlog::memory_buf_t formatted;
-                base_sink<std::mutex>::formatter_->format( inMessage, formatted );
-                StoreLogLine( formatted.data(), formatted.size() );
-            }
-
-            void flush_() override
-            {
-            }
-        };
-
-        void CopyIntoFixed( char* outBuffer, std::size_t inCapacity, std::string_view inValue )
-        {
-            const std::size_t copy = inValue.size() < ( inCapacity - 1 ) ? inValue.size() : ( inCapacity - 1 );
-            std::memcpy( outBuffer, inValue.data(), copy );
-            for ( std::size_t i = 0; i < copy; ++i )
-            {
-                if ( outBuffer[i] == '\n' || outBuffer[i] == '\r' )
-                {
-                    outBuffer[i] = ' ';
-                }
-            }
-            outBuffer[copy] = '\0';
         }
+    };
 
-        // ── The raw writer ──────────────────────────────────────────────────────────────────────
-        // Everything below formats by hand into one stack buffer and empties it with a single raw
-        // write syscall. No printf (not async-signal-safe, and it allocates for %s on some libcs),
-        // no std::string, no iostream.
-#if defined( DESERT_PLATFORM_WINDOWS )
-        using RawHandle = HANDLE;
-        // Not constexpr: INVALID_HANDLE_VALUE is a cast of -1 to a pointer, which is not a constant
-        // expression in C++ even though the macro reads like one.
-        const RawHandle kInvalidRawHandle = INVALID_HANDLE_VALUE;
-#else
-        using RawHandle                       = int;
-        constexpr RawHandle kInvalidRawHandle = -1;
-#endif
-
-        struct RawWriter
+    void CopyIntoFixed( char* outBuffer, std::size_t inCapacity, std::string_view inValue )
+    {
+        const std::size_t copy = inValue.size() < ( inCapacity - 1 ) ? inValue.size() : ( inCapacity - 1 );
+        std::memcpy( outBuffer, inValue.data(), copy );
+        for ( std::size_t i = 0; i < copy; ++i )
         {
-            RawHandle   handle               = kInvalidRawHandle;
-            char        buffer[kWriteBuffer] = {};
-            std::size_t used                 = 0;
-
-            void Flush()
+            if ( outBuffer[i] == '\n' || outBuffer[i] == '\r' )
             {
-                if ( used == 0 || handle == kInvalidRawHandle )
-                {
-                    used = 0;
-                    return;
-                }
+                outBuffer[i] = ' ';
+            }
+        }
+        outBuffer[copy] = '\0';
+    }
+
+    // ── The raw writer ──────────────────────────────────────────────────────────────────────
+    // Everything below formats by hand into one stack buffer and empties it with a single raw
+    // write syscall. No printf (not async-signal-safe, and it allocates for %s on some libcs),
+    // no std::string, no iostream.
 #if defined( DESERT_PLATFORM_WINDOWS )
-                DWORD written = 0;
-                ::WriteFile( handle, buffer, static_cast<DWORD>( used ), &written, nullptr );
+    using RawHandle = HANDLE;
+    // Not constexpr: INVALID_HANDLE_VALUE is a cast of -1 to a pointer, which is not a constant
+    // expression in C++ even though the macro reads like one.
+    const RawHandle kInvalidRawHandle = INVALID_HANDLE_VALUE;
 #else
-                std::size_t offset = 0;
-                while ( offset < used )
-                {
-                    const ssize_t n = ::write( handle, buffer + offset, used - offset );
-                    if ( n <= 0 )
-                    {
-                        break;
-                    }
-                    offset += static_cast<std::size_t>( n );
-                }
+    using RawHandle                       = int;
+    constexpr RawHandle kInvalidRawHandle = -1;
 #endif
+
+    struct RawWriter
+    {
+        RawHandle   handle               = kInvalidRawHandle;
+        char        buffer[kWriteBuffer] = {};
+        std::size_t used                 = 0;
+
+        void Flush()
+        {
+            if ( used == 0 || handle == kInvalidRawHandle )
+            {
                 used = 0;
+                return;
             }
-
-            void Raw( const char* inText, std::size_t inLength )
-            {
-                while ( inLength > 0 )
-                {
-                    if ( used == kWriteBuffer )
-                    {
-                        Flush();
-                    }
-                    const std::size_t room = kWriteBuffer - used;
-                    const std::size_t copy = inLength < room ? inLength : room;
-                    std::memcpy( buffer + used, inText, copy );
-                    used += copy;
-                    inText += copy;
-                    inLength -= copy;
-                }
-            }
-
-            void Str( const char* inText )
-            {
-                if ( inText != nullptr )
-                {
-                    Raw( inText, std::strlen( inText ) );
-                }
-            }
-
-            void Char( char inCharacter )
-            {
-                Raw( &inCharacter, 1 );
-            }
-
-            void Dec( std::uint64_t inValue )
-            {
-                char        digits[24];
-                std::size_t count = 0;
-                do
-                {
-                    digits[count++] = static_cast<char>( '0' + ( inValue % 10 ) );
-                    inValue /= 10;
-                } while ( inValue != 0 && count < sizeof( digits ) );
-                while ( count > 0 )
-                {
-                    Char( digits[--count] );
-                }
-            }
-
-            void Hex( std::uint64_t inValue )
-            {
-                static const char kDigits[] = "0123456789ABCDEF";
-                Str( "0x" );
-                char        digits[16];
-                std::size_t count = 0;
-                do
-                {
-                    digits[count++] = kDigits[inValue & 0xFu];
-                    inValue >>= 4u;
-                } while ( inValue != 0 && count < sizeof( digits ) );
-                while ( count > 0 )
-                {
-                    Char( digits[--count] );
-                }
-            }
-
-            void Field( const char* inKey, const char* inValue )
-            {
-                Str( inKey );
-                Char( '=' );
-                Str( inValue );
-                Char( '\n' );
-            }
-        };
-
-        // One resolved stack frame. Filled by the platform walker, printed by the shared writer.
-        struct ResolvedFrame
-        {
-            std::uint64_t address              = 0;
-            char          module[kSmallField]  = "";
-            char          function[kPathField] = "";
-            char          source[kPathField]   = "";
-            bool          inMainModule         = false;
-        };
-
-        ResolvedFrame g_Frames[kMaxStackFrames];
-        std::size_t   g_FrameCount = 0;
-
-        // ── Platform layer ──────────────────────────────────────────────────────────────────────
-#if defined( DESERT_PLATFORM_WINDOWS )
-        RawHandle RawCreateFile( const wchar_t* inPath )
-        {
-            return ::CreateFileW( inPath, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_NORMAL, nullptr );
-        }
-
-        void RawCloseFile( RawHandle inHandle )
-        {
-            if ( inHandle != kInvalidRawHandle )
-            {
-                ::CloseHandle( inHandle );
-            }
-        }
-
-        void RawCreateDirectory()
-        {
-            ::CreateDirectoryW( g_DirNative, nullptr );
-        }
-#else
-        RawHandle RawCreateFile( const char* inPath )
-        {
-            return ::open( inPath, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
-        }
-
-        void RawCloseFile( RawHandle inHandle )
-        {
-            if ( inHandle != kInvalidRawHandle )
-            {
-                ::close( inHandle );
-            }
-        }
-
-        void RawCreateDirectory()
-        {
-            ::mkdir( g_DirUtf8, 0755 );
-        }
-#endif
-
-        void WriteStderr( const char* inText )
-        {
 #if defined( DESERT_PLATFORM_WINDOWS )
             DWORD written = 0;
-            ::WriteFile( ::GetStdHandle( STD_ERROR_HANDLE ), inText, static_cast<DWORD>( std::strlen( inText ) ),
-                         &written, nullptr );
+            ::WriteFile( handle, buffer, static_cast<DWORD>( used ), &written, nullptr );
 #else
-            const ssize_t ignored = ::write( STDERR_FILENO, inText, std::strlen( inText ) );
-            (void)ignored;
+            std::size_t offset = 0;
+            while ( offset < used )
+            {
+                const ssize_t n = ::write( handle, buffer + offset, used - offset );
+                if ( n <= 0 )
+                {
+                    break;
+                }
+                offset += static_cast<std::size_t>( n );
+            }
 #endif
+            used = 0;
         }
-    } // namespace Detail
-} // namespace Common::Crash
+
+        void Raw( const char* inText, std::size_t inLength )
+        {
+            while ( inLength > 0 )
+            {
+                if ( used == kWriteBuffer )
+                {
+                    Flush();
+                }
+                const std::size_t room = kWriteBuffer - used;
+                const std::size_t copy = inLength < room ? inLength : room;
+                std::memcpy( buffer + used, inText, copy );
+                used += copy;
+                inText += copy;
+                inLength -= copy;
+            }
+        }
+
+        void Str( const char* inText )
+        {
+            if ( inText != nullptr )
+            {
+                Raw( inText, std::strlen( inText ) );
+            }
+        }
+
+        void Char( char inCharacter )
+        {
+            Raw( &inCharacter, 1 );
+        }
+
+        void Dec( std::uint64_t inValue )
+        {
+            char        digits[24];
+            std::size_t count = 0;
+            do
+            {
+                digits[count++] = static_cast<char>( '0' + ( inValue % 10 ) );
+                inValue /= 10;
+            } while ( inValue != 0 && count < sizeof( digits ) );
+            while ( count > 0 )
+            {
+                Char( digits[--count] );
+            }
+        }
+
+        void Hex( std::uint64_t inValue )
+        {
+            static const char kDigits[] = "0123456789ABCDEF";
+            Str( "0x" );
+            char        digits[16];
+            std::size_t count = 0;
+            do
+            {
+                digits[count++] = kDigits[inValue & 0xFu];
+                inValue >>= 4u;
+            } while ( inValue != 0 && count < sizeof( digits ) );
+            while ( count > 0 )
+            {
+                Char( digits[--count] );
+            }
+        }
+
+        void Field( const char* inKey, const char* inValue )
+        {
+            Str( inKey );
+            Char( '=' );
+            Str( inValue );
+            Char( '\n' );
+        }
+    };
+
+    // One resolved stack frame. Filled by the platform walker, printed by the shared writer.
+    struct ResolvedFrame
+    {
+        std::uint64_t address              = 0;
+        char          module[kSmallField]  = "";
+        char          function[kPathField] = "";
+        char          source[kPathField]   = "";
+        bool          inMainModule         = false;
+    };
+
+    ResolvedFrame g_Frames[kMaxStackFrames];
+    std::size_t   g_FrameCount = 0;
+
+    // ── Platform layer ──────────────────────────────────────────────────────────────────────
+#if defined( DESERT_PLATFORM_WINDOWS )
+    RawHandle RawCreateFile( const wchar_t* inPath )
+    {
+        return ::CreateFileW( inPath, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr );
+    }
+
+    void RawCloseFile( RawHandle inHandle )
+    {
+        if ( inHandle != kInvalidRawHandle )
+        {
+            ::CloseHandle( inHandle );
+        }
+    }
+
+    void RawCreateDirectory()
+    {
+        ::CreateDirectoryW( g_DirNative, nullptr );
+    }
+#else
+    RawHandle RawCreateFile( const char* inPath )
+    {
+        return ::open( inPath, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+    }
+
+    void RawCloseFile( RawHandle inHandle )
+    {
+        if ( inHandle != kInvalidRawHandle )
+        {
+            ::close( inHandle );
+        }
+    }
+
+    void RawCreateDirectory()
+    {
+        ::mkdir( g_DirUtf8, 0755 );
+    }
+#endif
+
+    void WriteStderr( const char* inText )
+    {
+#if defined( DESERT_PLATFORM_WINDOWS )
+        DWORD written = 0;
+        ::WriteFile( ::GetStdHandle( STD_ERROR_HANDLE ), inText, static_cast<DWORD>( std::strlen( inText ) ),
+                     &written, nullptr );
+#else
+        const ssize_t ignored = ::write( STDERR_FILENO, inText, std::strlen( inText ) );
+        (void)ignored;
+#endif
+    }
+} // namespace Common::Crash::Detail
 
 namespace Common::Crash::Detail
 {
@@ -397,7 +394,7 @@ namespace Common::Crash::Detail
 
     void WriteCrashText( const FaultDescription& inFault, std::uint64_t inThreadId )
     {
-        RawHandle file = RawCreateFile(
+        const RawHandle file = RawCreateFile(
 #if defined( DESERT_PLATFORM_WINDOWS )
              g_TxtNative
 #else
@@ -908,6 +905,10 @@ namespace Common::Crash::Detail
 // POSIX
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 #else
+// A crash report is made of addresses: program counters, module bases and the faulting address are
+// integers in the text and pointers to dladdr/backtrace, so converting between the two is this
+// section's job, not an escape from the type system.
+// NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast, performance-no-int-to-ptr)
 namespace Common::Crash::Detail
 {
     // The alternate stack: SIGSEGV from a stack overflow cannot be handled on the stack that
@@ -1089,6 +1090,7 @@ namespace Common::Crash::Detail
         }
     }
 } // namespace Common::Crash::Detail
+// NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast, performance-no-int-to-ptr)
 #endif
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1122,6 +1124,8 @@ namespace Common::Crash
             // matters more than the location, so this is reported rather than guessed around.
             return {};
 #else
+            // Read on the installing thread before any worker exists; nothing in the engine calls setenv.
+            // NOLINTNEXTLINE(concurrency-mt-unsafe)
             const char* home = std::getenv( "HOME" );
             if ( home != nullptr && home[0] != '\0' )
             {
@@ -1190,7 +1194,7 @@ namespace Common::Crash
 #if defined( DESERT_PLATFORM_WINDOWS )
         const std::uint64_t pid = ::GetCurrentProcessId();
 #else
-        const std::uint64_t pid = static_cast<std::uint64_t>( ::getpid() );
+        const auto pid = static_cast<std::uint64_t>( ::getpid() );
 #endif
         const std::filesystem::path directory = root / ( stamp + "-" + std::to_string( pid ) );
 
@@ -1354,7 +1358,7 @@ namespace Common::Crash
 
         [[noreturn]] void CrashTestPureCall()
         {
-            PureCallDerived derived;
+            const PureCallDerived derived;
             (void)derived;
             // If the purecall handler returned instead of terminating, say so rather than exiting
             // clean and letting the test read a missing report as a passing one.

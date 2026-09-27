@@ -31,7 +31,8 @@ namespace Desert::Project
         if ( !home )
             home = std::getenv( "USERPROFILE" );
 #endif
-        std::filesystem::path dir = Common::Settings::EngineUserDirectoryUnder( home ? home : "." );
+        const std::filesystem::path dir =
+             Common::Settings::EngineUserDirectoryUnder( home != nullptr ? home : "." );
         std::error_code       ec;
         std::filesystem::create_directories( dir, ec );
         return dir.string();

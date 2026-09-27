@@ -216,9 +216,15 @@ namespace Desert::Editor
         commands.reserve( navigation.Fields().size() + navigation.Pickers().size() );
         for ( const std::string& field : navigation.Fields() )
             commands.push_back( { "Details", "Show field: " + field,
+                                  // clang-tidy 18 reports the closure's implicit move constructor, which only
+                                  // moves a std::string (noexcept); nothing on this path can throw.
+                                  // NOLINTNEXTLINE(bugprone-exception-escape)
                                   [&navigation, field] { return navigation.RequestReveal( field ); } } );
         for ( const std::string& picker : navigation.Pickers() )
             commands.push_back( { "Details", "Open picker: " + picker,
+                                  // clang-tidy 18 reports the closure's implicit move constructor, which only
+                                  // moves a std::string (noexcept); nothing on this path can throw.
+                                  // NOLINTNEXTLINE(bugprone-exception-escape)
                                   [&navigation, picker] { return navigation.RequestPicker( picker ); } } );
         return commands;
     }

@@ -17,6 +17,17 @@ namespace Common::Text
         // An include chain deeper than this is a cycle in practice; reported instead of overflowing the stack.
         constexpr int kMaxIncludeDepth = 64;
 
+        // Three-way order as -1/0/1: the comparison filters report it and both numeric kinds share it.
+        template <typename T>
+        int ThreeWay( const T& a, const T& b )
+        {
+            if ( a < b )
+                return -1;
+            if ( b < a )
+                return 1;
+            return 0;
+        }
+
         struct Position
         {
             int Line   = 1;
@@ -170,7 +181,11 @@ namespace Common::Text
 
                     const char  kind     = m_Text[open + 1];
                     const bool  stripPrv = open + 2 < m_Text.size() && m_Text[open + 2] == '-';
-                    const char* close    = kind == '{' ? "}}" : ( kind == '%' ? "%}" : "#}" );
+                    const char* close    = "#}";
+                    if ( kind == '{' )
+                        close = "}}";
+                    else if ( kind == '%' )
+                        close = "%}";
                     if ( stripPrv )
                     {
                         const auto last = std::find_if_not( text.rbegin(), text.rend(), IsSpace );
@@ -204,7 +219,7 @@ namespace Common::Text
             }
 
         private:
-            std::size_t FindOpen( std::size_t from ) const
+            [[nodiscard]] std::size_t FindOpen( std::size_t from ) const
             {
                 for ( std::size_t i = from; i + 1 < m_Text.size(); ++i )
                     if ( m_Text[i] == '{' &&
@@ -258,6 +273,10 @@ namespace Common::Text
             Position    Where;
         };
 
+        // The template grammar nests (parenthesised expressions, blocks inside for/if, includes), so the
+        // parser and the renderer are recursive descent by design. Include depth is capped at
+        // kMaxIncludeDepth; expression and block nesting is bounded by the authored template's own text.
+        // NOLINTBEGIN(misc-no-recursion)
         class ExprParser
         {
         public:
@@ -293,25 +312,25 @@ namespace Common::Text
                         continue;
                     }
                     const Position start = at;
-                    if ( std::isalpha( static_cast<unsigned char>( c ) ) || c == '_' )
+                    if ( ( std::isalpha( static_cast<unsigned char>( c ) ) != 0 ) || c == '_' )
                     {
                         std::size_t j = i;
-                        while (
-                             j < m_Source.size() &&
-                             ( std::isalnum( static_cast<unsigned char>( m_Source[j] ) ) || m_Source[j] == '_' ) )
+                        while ( j < m_Source.size() &&
+                                ( ( std::isalnum( static_cast<unsigned char>( m_Source[j] ) ) != 0 ) ||
+                                  m_Source[j] == '_' ) )
                             ++j;
                         m_Tokens.push_back(
                              { TokenKind::Identifier, std::string( m_Source.substr( i, j - i ) ), start } );
                         step( j - i );
                     }
-                    else if ( std::isdigit( static_cast<unsigned char>( c ) ) ||
+                    else if ( ( std::isdigit( static_cast<unsigned char>( c ) ) != 0 ) ||
                               ( c == '-' && i + 1 < m_Source.size() &&
-                                std::isdigit( static_cast<unsigned char>( m_Source[i + 1] ) ) ) )
+                                ( std::isdigit( static_cast<unsigned char>( m_Source[i + 1] ) ) != 0 ) ) )
                     {
                         std::size_t j    = i + 1;
                         bool        real = false;
                         while ( j < m_Source.size() &&
-                                ( std::isdigit( static_cast<unsigned char>( m_Source[j] ) ) ||
+                                ( ( std::isdigit( static_cast<unsigned char>( m_Source[j] ) ) != 0 ) ||
                                   ( m_Source[j] == '.' && !real ) ) )
                         {
                             real = real || m_Source[j] == '.';
@@ -329,8 +348,13 @@ namespace Common::Text
                         {
                             if ( m_Source[j] == '\\' && j + 1 < m_Source.size() )
                             {
-                                const char e = m_Source[++j];
-                                value += e == 'n' ? '\n' : ( e == 't' ? '\t' : e );
+                                const char e       = m_Source[++j];
+                                char       decoded = e;
+                                if ( e == 'n' )
+                                    decoded = '\n';
+                                else if ( e == 't' )
+                                    decoded = '\t';
+                                value += decoded;
                             }
                             else
                                 value += m_Source[j];
@@ -359,7 +383,7 @@ namespace Common::Text
                 return MakeSuccess( true );
             }
 
-            const Token& Peek() const
+            [[nodiscard]] const Token& Peek() const
             {
                 return m_Tokens[m_Index];
             }
@@ -367,20 +391,20 @@ namespace Common::Text
             {
                 return m_Tokens[m_Index == m_Tokens.size() - 1 ? m_Index : m_Index++];
             }
-            bool IsIdentifier( std::string_view text ) const
+            [[nodiscard]] bool IsIdentifier( std::string_view text ) const
             {
                 return Peek().Kind == TokenKind::Identifier && Peek().Text == text;
             }
-            bool IsSymbol( std::string_view text ) const
+            [[nodiscard]] bool IsSymbol( std::string_view text ) const
             {
                 return Peek().Kind == TokenKind::Symbol && Peek().Text == text;
             }
-            bool AtEnd() const
+            [[nodiscard]] bool AtEnd() const
             {
                 return Peek().Kind == TokenKind::End;
             }
 
-            std::string ErrorAt( const Token& token, const std::string& message ) const
+            [[nodiscard]] std::string ErrorAt( const Token& token, const std::string& message ) const
             {
                 const std::string found = token.Kind == TokenKind::End ? "end of tag" : "'" + token.Text + "'";
                 return Located( m_Name, token.Where, message + ", found " + found );
@@ -393,7 +417,7 @@ namespace Common::Text
                 return MakeSuccess( std::string( Next().Text ) );
             }
 
-            BoolResultStr ExpectEnd()
+            BoolResultStr ExpectEnd() const
             {
                 if ( !AtEnd() )
                     return MakeError( ErrorAt( Peek(), "unexpected token" ) );
@@ -730,7 +754,7 @@ namespace Common::Text
                 return MakeSuccess( true );
             }
 
-            const std::string& Stop() const
+            [[nodiscard]] const std::string& Stop() const
             {
                 return m_Stop;
             }
@@ -839,7 +863,7 @@ namespace Common::Text
                 return MakeSuccess( true );
             }
 
-            BoolResultStr ParseInclude( ExprParser& parser, Position where, std::vector<Block>& out )
+            static BoolResultStr ParseInclude( ExprParser& parser, Position where, std::vector<Block>& out )
             {
                 if ( parser.Peek().Kind != TokenKind::String )
                     return MakeError( parser.ErrorAt( parser.Peek(), "include expects a quoted template name" ) );
@@ -962,7 +986,7 @@ namespace Common::Text
             }
 
         private:
-            std::string Error( Position where, const std::string& message ) const
+            [[nodiscard]] std::string Error( Position where, const std::string& message ) const
             {
                 return Located( m_Name, where, message );
             }
@@ -1009,7 +1033,7 @@ namespace Common::Text
                 if ( v.Missing )
                     return MakeError( Error( e.Where, "unknown variable '" + e.PathText + "'" ) );
                 const Json::Value& raw = v.Get();
-                switch ( Json::Kind kind = v.Kind() )
+                switch ( const Json::Kind kind = v.Kind() )
                 {
                     case Json::Kind::String:
                         out += std::get<std::string>( raw.variant() );
@@ -1155,7 +1179,7 @@ namespace Common::Text
                     case Json::Kind::Null:
                         return MakeSuccess( false );
                     case Json::Kind::Bool:
-                        return MakeSuccess( bool( std::get<bool>( raw.variant() ) ) );
+                        return MakeSuccess( std::get<bool>( raw.variant() ) );
                     case Json::Kind::Integer:
                     case Json::Kind::Real:
                         return MakeSuccess( NumberOf( raw ) != 0.0 );
@@ -1299,13 +1323,13 @@ namespace Common::Text
                     {
                         const std::int64_t a = IntegerOf( lhs );
                         const std::int64_t b = IntegerOf( rhs );
-                        order                = a < b ? -1 : ( a > b ? 1 : 0 );
+                        order                = ThreeWay( a, b );
                     }
                     else
                     {
                         const double a = NumberOf( lhs );
                         const double b = NumberOf( rhs );
-                        order          = a < b ? -1 : ( a > b ? 1 : 0 );
+                        order          = ThreeWay( a, b );
                     }
                     equal = order == 0;
                 }
@@ -1313,7 +1337,7 @@ namespace Common::Text
                 {
                     const int c =
                          std::get<std::string>( lhs.variant() ).compare( std::get<std::string>( rhs.variant() ) );
-                    order = c < 0 ? -1 : ( c > 0 ? 1 : 0 );
+                    order = ThreeWay( c, 0 );
                     equal = c == 0;
                 }
                 else
@@ -1367,9 +1391,9 @@ namespace Common::Text
                 auto               wrong = [&]( const char* needs )
                 {
                     static constexpr std::string_view kNames[] = { "upper", "lower", "join", "length", "default" };
-                    return MakeError<Value>( Error( e.Where, "filter '" + std::string( kNames[int( e.Filter )] ) +
-                                                                  "' needs " + needs + ", found " +
-                                                                  KindName( kind ) ) );
+                    return MakeError<Value>(
+                         Error( e.Where, "filter '" + std::string( kNames[static_cast<std::size_t>( e.Filter )] ) +
+                                              "' needs " + needs + ", found " + KindName( kind ) ) );
                 };
                 switch ( e.Filter )
                 {
@@ -1442,6 +1466,7 @@ namespace Common::Text
     {
         return Run( *tpl.Body(), out );
     }
+    // NOLINTEND(misc-no-recursion)
 
     const std::string& Template::Name() const
     {

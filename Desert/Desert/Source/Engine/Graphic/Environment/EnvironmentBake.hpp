@@ -67,7 +67,8 @@ namespace Desert::Graphic
     // it runs on an `AsyncAssetLoader` worker, and the asset layer does not link the device (AL1-3).
 
     [[nodiscard]] Common::ResultStr<std::shared_ptr<ImageCube>>
-    CreateBakedEnvironmentCube( Core::Formats::ImageCubeSpecification spec, const std::filesystem::path& path );
+    CreateBakedEnvironmentCube( const Core::Formats::ImageCubeSpecification& spec,
+                                const std::filesystem::path&                 path );
 
     /// What one cached cube is: where it goes and the provenance it records. @p SourceKey is the `.hdr`'s
     /// stable project key, recorded exactly as a cooked texture records its PNG.

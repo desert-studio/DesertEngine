@@ -124,6 +124,9 @@ namespace Desert::Editor
         commands.reserve( docked.size() );
         for ( const std::string& panel : docked )
             commands.push_back( { "Panel", "Maximize panel: " + panel,
+                                  // clang-tidy 18 reports the closure's implicit move constructor, which only
+                                  // moves a std::string (noexcept); nothing on this path can throw.
+                                  // NOLINTNEXTLINE(bugprone-exception-escape)
                                   [&state, panel] { return state.RequestMaximize( panel ); } } );
         return commands;
     }

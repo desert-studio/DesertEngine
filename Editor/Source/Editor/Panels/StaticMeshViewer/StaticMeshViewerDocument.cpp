@@ -128,7 +128,7 @@ namespace Desert::Editor
         for ( std::size_t lod = 0; lod < lods; ++lod )
             actions.push_back(
                  { std::format( "LOD {}", lod ), [this, lod]() { m_ForcedLOD = static_cast<int>( lod ); } } );
-        PreviewEnvironment::AppendActions( actions, m_Assets );
+        PreviewEnvironment::AppendActions( actions );
         return actions;
     }
 
@@ -212,7 +212,7 @@ namespace Desert::Editor
         // The editor-wide Preview Scene Settings, the same rows the Material Editor draws.
         ImGui::Separator();
         ImGui::TextUnformatted( "Environment" );
-        PreviewEnvironment::DrawEnvironmentRows( m_Assets );
+        PreviewEnvironment::DrawEnvironmentRows();
         PreviewEnvironment::DrawShowFloor( "Show Floor" );
     }
 

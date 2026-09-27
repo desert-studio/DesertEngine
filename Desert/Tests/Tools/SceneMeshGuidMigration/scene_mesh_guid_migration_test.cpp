@@ -86,8 +86,10 @@ TEST( SceneVersionRefusal, AV30SceneIsRefusedNamingItsVersionAndTheCurrentOne )
          << report.Refused;
     EXPECT_EQ( report.Refused.find( "git checkout" ), std::string::npos ) << "no route back to legacy is promised";
     EXPECT_FALSE( report.Changed() );
-    ASSERT_TRUE( scene.Header.has_value() );
-    EXPECT_EQ( scene.Header->Versions.at( "SCNE" ), 30u ) << "a refused file must not be stamped";
+    const auto& header = scene.Header;
+    if ( !header.has_value() )
+        FAIL() << "the refused scene lost its header";
+    EXPECT_EQ( header->Versions.at( "SCNE" ), 30u ) << "a refused file must not be stamped";
 }
 
 // SCNE 32 (MSH1): a mesh block that names a MeshPath and states NO MeshGuid - the key missing or "" - gains

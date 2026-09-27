@@ -27,13 +27,12 @@ namespace Desert::Editor::PreviewEnvironment
     void ApplyTo( PreviewViewport& preview, const Assets::AssetManager* assets );
 
     // The Environment rows (HDR picker, rotation, EV, Show Environment). Each finished edit is saved.
-    void DrawEnvironmentRows( const Assets::AssetManager* assets );
+    void DrawEnvironmentRows();
 
     // The Show Floor checkbox, over the shared setting rather than the preview's own copy — a checkbox on
     // SceneSetup::ShowFloor would be overwritten by ApplyTo on the next frame.
     bool DrawShowFloor( const char* label );
 
     // The same edits as commands, so DesertCtl and the palette can drive them without a mouse.
-    void AppendActions( std::vector<ISubjectDocument::DocumentAction>& actions,
-                        const Assets::AssetManager*                    assets );
+    void AppendActions( std::vector<ISubjectDocument::DocumentAction>& actions );
 } // namespace Desert::Editor::PreviewEnvironment

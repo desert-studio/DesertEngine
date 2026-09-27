@@ -77,11 +77,13 @@ namespace
         ::CloseHandle( process.hProcess );
         return static_cast<int>( code );
 #else
-        const std::string self   = g_SelfPath.string();
-        const std::string root   = inReportRoot.string();
-        char*             argv[] = { const_cast<char*>( self.c_str() ), const_cast<char*>( inMode ),
-                                     const_cast<char*>( inKind ), const_cast<char*>( root.c_str() ), nullptr };
-        pid_t             child  = 0;
+        // posix_spawn takes char* const[]; owned copies give it writable storage without casting const away.
+        std::string self   = g_SelfPath.string();
+        std::string root   = inReportRoot.string();
+        std::string mode   = inMode;
+        std::string kind   = inKind;
+        char*       argv[] = { self.data(), mode.data(), kind.data(), root.data(), nullptr };
+        pid_t       child  = 0;
         if ( ::posix_spawn( &child, self.c_str(), nullptr, nullptr, argv, environ ) != 0 )
         {
             return -1;
@@ -112,8 +114,8 @@ namespace
 
     std::string ReadWholeFile( const std::filesystem::path& inPath )
     {
-        std::ifstream     stream( inPath, std::ios::binary );
-        std::stringstream buffer;
+        const std::ifstream stream( inPath, std::ios::binary );
+        std::stringstream   buffer;
         buffer << stream.rdbuf();
         return buffer.str();
     }
@@ -223,6 +225,8 @@ TEST( CrashHandler, GameUserDirectoryWinsOverTheProjectRoot )
     std::filesystem::remove_all( user, cleanup );
 }
 
+// A test driver: an exception escaping main terminates the process, and the harness reports that as a failure.
+// NOLINTNEXTLINE(bugprone-exception-escape)
 int main( int argc, char** argv )
 {
     g_SelfPath = std::filesystem::absolute( argv[0] );

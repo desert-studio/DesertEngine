@@ -83,9 +83,9 @@ namespace Desert::Graphic
         const uint64_t               irradianceBake  = staged->IrradianceBake;
         const uint64_t               prefilterBake   = staged->PrefilterBake;
 
-        if ( staged->Cached )
+        if ( const auto& cached = staged->Cached; cached.has_value() )
         {
-            const auto& cubes      = *staged->Cached;
+            const auto& cubes      = *cached;
             auto        radiance   = CreateBakedEnvironmentCube( cubes[0], radiancePath );
             auto        irradiance = CreateBakedEnvironmentCube( cubes[1], irradiancePath );
             auto        prefilter  = CreateBakedEnvironmentCube( cubes[2], prefilterPath );
