@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Core/PanelMaximize.hpp>
+#include <Editor/Import/BackgroundCook.hpp>
 #include <Engine/Assets/ContentGate.hpp>
 
 #include <Engine/Core/BootTimeline.hpp>
@@ -518,6 +519,12 @@ namespace Desert::Editor
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
         std::unique_ptr<Assets::AssetPreloader>      m_AssetPreloader;
         std::unique_ptr<ImportManager>               m_ImportManager;
+        // The startup mesh cook, run after the reveal (AL1-11); see Editor/Import/BackgroundCook.hpp.
+        std::unique_ptr<BackgroundCookQueue>         m_BackgroundCook;
+        std::chrono::steady_clock::time_point        m_BackgroundCookStart;
+        std::size_t                                  m_BackgroundCookChanged  = 0;
+        std::size_t                                  m_BackgroundCookFailed   = 0;
+        bool                                         m_BackgroundCookReported = false;
         Runtime::AssetHotReload                      m_AssetHotReload; // .demat/.shader live reload
 
         FileExplorerPanel* m_FileExplorerPanel = nullptr; // non-owning (lives in m_Panels)
@@ -745,6 +752,9 @@ namespace Desert::Editor
         // Called at every presented frame; the first one presented after the start is over shows the
         // hidden main window and closes the splash. Until then the splash is the only window.
         void RevealWhenReady();
+        void StartBackgroundCook();
+        void DrainBackgroundCook();
+        void ReloadRecookedMesh( const std::filesystem::path& source );
         // KEPT after it is closed, until the layer goes: Close() only starts the crossfade, and the
         // object's destructor is what waits for its window and thread — at teardown, not on the frame
         // the editor has just appeared on.

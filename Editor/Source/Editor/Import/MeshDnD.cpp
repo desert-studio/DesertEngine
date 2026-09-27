@@ -263,11 +263,13 @@ namespace Desert::Editor::MeshDnD
         }
 
         // Cook on demand if neither cooked form exists yet (the cook decides static vs skinned by the rig).
-        if ( !std::filesystem::exists( staticStr ) && !std::filesystem::exists( skinnedStr ) )
-            Importer().Import( sourcePath );
+        // StaticMeshCookAvailable, not exists(): since AF4h an imported static mesh's envelope lives in the DDC
+        // and nothing is written at staticStr, so exists() read every fresh cook as "cook failed".
+        if ( !StaticMeshCookAvailable( staticStr, sourcePath ) && !std::filesystem::exists( skinnedStr ) )
+            (void)Importer().Import( sourcePath );
 
         const bool isSkinned = std::filesystem::exists( skinnedStr );
-        const bool isStatic  = std::filesystem::exists( staticStr );
+        const bool isStatic  = StaticMeshCookAvailable( staticStr, sourcePath );
         if ( !isSkinned && !isStatic )
             return { Common::UUID::Null(), false }; // cook failed
 
