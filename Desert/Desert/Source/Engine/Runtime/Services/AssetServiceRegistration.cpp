@@ -6,6 +6,7 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/ECS/Components.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -32,11 +33,10 @@ namespace Desert::Runtime
         if ( !service || !material || service->HasAsset( material->GetMetadata().Handle ) )
             return;
 
-        // The shell must carry its data before it is keyed: RegisterAsset indexes the material by the
-        // EXTERNAL id stored inside the file, and an unparsed shell reports a zero one.
-        if ( !material->IsReadyForUse() )
-            material->Load();
-
+        // REGISTERED UNREAD (AL1-5b). The service keys a material by its external id, and a file-backed
+        // `.demat` adopts that id from its header GUID when the shell is constructed (SurfaceMaterialAsset's
+        // constructor), so no payload is needed to key it. The read happens on a worker: at scene open
+        // through AwaitSceneMaterials, otherwise on the first Get.
         if ( const auto registered = service->RegisterAsset( material ); !registered )
         {
             LOG_ERROR( "[Materials] Material '{}' could not be registered: {}",
@@ -81,6 +81,34 @@ namespace Desert::Runtime
         std::sort( handles.begin(), handles.end() );
         handles.erase( std::unique( handles.begin(), handles.end() ), handles.end() );
         return service->AwaitResident( handles );
+    }
+
+    std::size_t AwaitSceneMaterials( const Core::Scene& owner )
+    {
+        auto* materials = ResourceRegistry::GetMaterialService();
+        if ( !materials )
+            return 0;
+        const auto*                      meshes = Meshes();
+        const auto&                      scene  = owner.GetRegistry();
+        std::vector<Assets::AssetHandle> handles;
+        // A mesh component with no slots draws with its mesh's own materials (MeshECSSystem fills the slots
+        // from them on its first tick), so those are part of the scene's closure too. The meshes were
+        // awaited first, so their payloads — and the material ids inside them — are already here.
+        const auto note = [&]( const Assets::AssetHandle& mesh, const std::vector<Assets::AssetHandle>& slots )
+        {
+            handles.insert( handles.end(), slots.begin(), slots.end() );
+            if ( !slots.empty() || !mesh || !meshes )
+                return;
+            if ( const auto* asset = meshes->GetAsset( mesh ) )
+                for ( const auto& external : asset->GetMaterialHandles() )
+                    handles.push_back( materials->GetAssetHandleByExternal( external ) );
+        };
+        scene.view<const ECS::StaticMeshComponent>().each( [&note]( const ECS::StaticMeshComponent& mesh ) { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
+        scene.view<const ECS::SkinnedMeshComponent>().each( [&note]( const ECS::SkinnedMeshComponent& mesh ) { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
+        scene.view<const ECS::InstancedStaticMeshComponent>().each( [&note]( const ECS::InstancedStaticMeshComponent& mesh ) { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
+        std::sort( handles.begin(), handles.end() );
+        handles.erase( std::unique( handles.begin(), handles.end() ), handles.end() );
+        return materials->AwaitResident( handles );
     }
 
     void EnsureTextureRegistered( const Assets::AssetManager& registry, uint64_t handle )

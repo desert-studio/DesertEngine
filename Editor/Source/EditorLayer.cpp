@@ -8503,6 +8503,10 @@ namespace Desert::Editor
         // whole and no read happens in a frame (AL1-5).
         const std::size_t meshes = Runtime::AwaitSceneMeshes( *m_MainScene );
         phases.Lap( "wait for the scene's meshes", meshes );
+        // Then their materials, by the same door: the slots and the meshes' own materials are only known
+        // once the meshes are read (AL1-5b).
+        const std::size_t materials = Runtime::AwaitSceneMaterials( *m_MainScene );
+        phases.Lap( "wait for the scene's materials", materials );
 
         if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
         {
