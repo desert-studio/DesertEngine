@@ -12,6 +12,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -88,18 +89,18 @@ namespace Desert::Editor::Core
         // one, cut or reflection, only when the transform is a similarity (rotation and uniform scale), so a
         // sheared or non-uniformly scaled AND rotated entity is refused rather than cut across a plane the
         // user did not pick.
-        Common::ResultStr<Geometry::CutPlane> AxisPlane( ECS::Entity entity, int axisIndex, bool inWorld,
-                                                         bool keepNegative, float offset, const char* what )
+        Common::ResultStr<Geometry::MeshPlane> AxisPlane( ECS::Entity entity, int axisIndex, bool inWorld,
+                                                          bool keepNegative, float offset, const char* what )
         {
             if ( axisIndex < 0 || axisIndex > 2 )
-                return Common::MakeFormattedError<Geometry::CutPlane>(
+                return Common::MakeFormattedError<Geometry::MeshPlane>(
                      "{}: the axis must be 0 (X), 1 (Y) or 2 (Z), not {}", what, axisIndex );
             glm::vec3 axis( 0.0f );
             axis[axisIndex] = keepNegative ? -1.0f : 1.0f;
             glm::vec3 origin( 0.0f );
             origin[axisIndex] = offset;
             if ( !inWorld )
-                return Common::MakeSuccess( Geometry::CutPlane{ origin, axis } );
+                return Common::MakeSuccess( Geometry::MeshPlane{ glm::dvec3( origin ), glm::dvec3( axis ) } );
             // The WORLD transform, parent chain included: a child's local one would put the world plane at
             // its parent-relative image.
             const glm::mat4 world = entity.GetWorldTransform();
@@ -109,19 +110,19 @@ namespace Desert::Editor::Core
             for ( int i = 0; i < 3; ++i )
                 for ( int j = 0; j < 3; ++j )
                     if ( std::abs( gram[i][j] - ( i == j ? s : 0.0f ) ) > 1e-4f * s )
-                        return Common::MakeFormattedError<Geometry::CutPlane>(
+                        return Common::MakeFormattedError<Geometry::MeshPlane>(
                              "{}: the entity's transform is not a rotation with a uniform scale (column "
                              "lengths {:.4f}, {:.4f}, {:.4f}) - a world plane has no image in its mesh; "
                              "work in local space or reset the scale",
                              what, std::sqrt( gram[0][0] ), std::sqrt( gram[1][1] ), std::sqrt( gram[2][2] ) );
             if ( !( s > 0.0f ) )
-                return Common::MakeFormattedError<Geometry::CutPlane>( "{}: the entity's transform has zero scale",
-                                                                       what );
+                return Common::MakeFormattedError<Geometry::MeshPlane>(
+                     "{}: the entity's transform has zero scale", what );
             const glm::mat4 toMesh = glm::inverse( world );
             // Normals map by the inverse transpose; for a similarity that is the inverse's rotation part.
             const glm::vec3 point  = glm::vec3( toMesh * glm::vec4( origin, 1.0f ) );
             const glm::vec3 normal = glm::transpose( linear ) * axis;
-            return Common::MakeSuccess( Geometry::CutPlane{ point, normal } );
+            return Common::MakeSuccess( Geometry::MeshPlane{ glm::dvec3( point ), glm::dvec3( normal ) } );
         }
 
         // A mesh-wide operation takes no selection and leaves none (every ID may change), in the mode the
@@ -265,6 +266,36 @@ namespace Desert::Editor::Core
             after                        = std::move( done.Mesh );
             outcome.Selection            = std::move( done.Selection );
         }
+        else if ( operation == MeshOperation::Mirror )
+        {
+            auto plane =
+                 AxisPlane( e, args.MirrorAxis, args.MirrorWorld, args.MirrorKeepNegative, 0.0f, "Mesh Mirror" );
+            if ( !plane.IsSuccess() )
+                return Common::MakeError<bool>( plane.GetError() );
+            auto mirrored = Geometry::MirrorMesh( *before, plane.GetValue(), args.MirrorMode, args.WeldTolerance,
+                                                  selection.Mode() );
+            if ( !mirrored.IsSuccess() )
+                return Common::MakeError<bool>( mirrored.GetError() );
+            Geometry::RegionOutcome done = mirrored.ExtractValue();
+            after                        = std::move( done.Mesh );
+            outcome.Selection            = std::move( done.Selection );
+        }
+        else if ( operation == MeshOperation::PlaneCut )
+        {
+            auto plane = AxisPlane( e, args.PlaneCutAxis, args.PlaneCutWorld, args.PlaneCutKeepNegative,
+                                    args.PlaneCutOffset, "Mesh Plane Cut" );
+            if ( !plane.IsSuccess() )
+                return Common::MakeError<bool>( plane.GetError() );
+            auto cut = Geometry::PlaneCutMesh( *before, plane.GetValue(), args.PlaneCutMode, args.PlaneCutFill );
+            if ( !cut.IsSuccess() )
+                return Common::MakeError<bool>( cut.GetError() );
+            Geometry::PlaneCutOutcome halves = cut.ExtractValue();
+            after                            = std::move( halves.Kept.Mesh );
+            outcome.Selection                = std::move( halves.Kept.Selection );
+            otherHalf                        = std::move( halves.OtherHalf );
+            // Loops left open through the mesh's own border are named in the operation's log, never dropped.
+            outcome.Report = std::move( halves.Report );
+        }
         else
         {
             auto view = Geometry::Bridge::EditMeshView( before );
@@ -291,6 +322,8 @@ namespace Desert::Editor::Core
                 case MeshOperation::FillHole:
                 case MeshOperation::WeldEdges:
                 case MeshOperation::InsertEdgeLoop:
+                case MeshOperation::Mirror:
+                case MeshOperation::PlaneCut:
                     return Common::MakeFormattedError<bool>( "Mesh {}: runs on DynamicMesh3, not the EditMesh",
                                                              ToString( operation ) );
                 case MeshOperation::Offset:
@@ -324,38 +357,6 @@ namespace Desert::Editor::Core
                          Geometry::SubdivideMesh( beforeMesh, args.SubdivideLevels, args.SubdivideScheme ),
                          editSelection.Mode() );
                     break;
-                case MeshOperation::Mirror:
-                {
-                    auto plane = AxisPlane( e, args.MirrorAxis, args.MirrorWorld, args.MirrorKeepNegative, 0.0f,
-                                            "Mesh Mirror" );
-                    if ( !plane.IsSuccess() )
-                        return Common::MakeError<bool>( plane.GetError() );
-                    result = WholeMesh(
-                         Geometry::MirrorMesh( beforeMesh, plane.GetValue(), args.MirrorMode, args.WeldTolerance ),
-                         editSelection.Mode() );
-                    break;
-                }
-                case MeshOperation::PlaneCut:
-                {
-                    auto plane = AxisPlane( e, args.PlaneCutAxis, args.PlaneCutWorld, args.PlaneCutKeepNegative,
-                                            args.PlaneCutOffset, "Mesh Plane Cut" );
-                    if ( !plane.IsSuccess() )
-                        return Common::MakeError<bool>( plane.GetError() );
-                    auto cut = Geometry::PlaneCutMesh( beforeMesh, plane.GetValue(), args.PlaneCutMode,
-                                                       args.PlaneCutFill );
-                    if ( !cut.IsSuccess() )
-                        return Common::MakeError<bool>( cut.GetError() );
-                    Geometry::PlaneCutOutcome halves = cut.ExtractValue();
-                    if ( halves.OtherHalf )
-                    {
-                        auto other = Geometry::Bridge::FromEditMesh( std::move( *halves.OtherHalf ) );
-                        if ( !other.IsSuccess() )
-                            return Common::MakeError<bool>( "Mesh Plane Cut, other half: " + other.GetError() );
-                        otherHalf = other.ExtractValue();
-                    }
-                    result = Common::MakeSuccess( std::move( halves.Kept ) );
-                    break;
-                }
                 case MeshOperation::Trim:
                 {
                     if ( args.TrimCutter.IsNull() )

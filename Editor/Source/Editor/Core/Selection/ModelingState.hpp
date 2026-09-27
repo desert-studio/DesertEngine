@@ -4,6 +4,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>

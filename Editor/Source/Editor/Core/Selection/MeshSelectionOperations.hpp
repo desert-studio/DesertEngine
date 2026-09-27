@@ -4,6 +4,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/Geometry/EditMeshBridge.hpp> // the EditMesh operations cross here until P11-P17
+#include <Engine/Geometry/MeshPlaneOperation.hpp>
 
 #include <cstdint>
 #include <optional>
