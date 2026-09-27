@@ -2264,7 +2264,7 @@ namespace Desert::Graphic::System
                                              singles.push_back( bucket[i] );
                                      continue;
                                  }
-                                 batches.push_back( ShadowBatch{ mesh, count, first, level } );
+                                 batches.push_back( ShadowBatch{ mesh, count, first, level, InstanceWindPush{} } );
                              }
                          }
                          else
