@@ -1,4 +1,6 @@
 #pragma once
+// Editor-only (UE: LandscapeEditor's heightmap file formats): it decodes a SOURCE PNG through stb_image, and the
+// runtime reads cooked landscape data only (Tests/Engine/RuntimeSourceDecoders holds that line).
 
 #include <Engine/World/Landscape/LandscapeEditCache.hpp>
 #include <Engine/World/Landscape/LandscapeGenerator.hpp>
