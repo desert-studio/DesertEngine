@@ -11,6 +11,7 @@
 //
 // Manual retain/release: this target is not built with -fobjc-arc (neither is Common's MacOS code).
 
+#include <Common/Core/EngineThread.hpp>
 #include <Editor/Splash/SplashControls.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashLayout.hpp>
@@ -338,7 +339,7 @@ namespace Desert::Editor::Splash
             }
 
             m_WindowId = static_cast<CGWindowID>( m_Window.windowNumber );
-            m_Thread   = std::thread( [this] { Run(); } );
+            m_Thread   = Common::StartEngineThread( [this] { Run(); } );
         }
 
         ~SplashScreenMacOS() override

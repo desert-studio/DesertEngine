@@ -12,6 +12,7 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -82,6 +83,38 @@ namespace Common::Crash
     // Common knows nothing of Vulkan — the host passes the adapter string once the device exists.
     void SetGpuDescription( std::string_view inGpuDescription );
 
+    // THE OS THREAD ID the report's `tid=` carries: GetCurrentThreadId on Windows, pthread_threadid_np
+    // on macOS, gettid on Linux — the number a debugger and the system's own crash log show, not
+    // std::thread::id (opaque) and not the pid. Safe to call from the fault handler.
+    std::uint64_t CurrentThreadId();
+
+    // EVERY THREAD THE ENGINE STARTS HOLDS ONE OF THESE FOR ITS WHOLE LIFE (UE's Unix pattern: each
+    // FRunnableThreadPThread gives itself a crash-handling stack before it runs, and frees it when it
+    // ends). On POSIX the fault handler runs on the ALTERNATE SIGNAL STACK, and that stack is per
+    // thread: a thread without one that overflows its stack takes SIGSEGV with no stack to run the
+    // handler on, the kernel kills the process and no report is written. The constructor maps a stack
+    // (with a guard page below it) and installs it for the calling thread; the destructor uninstalls
+    // it and unmaps it. A thread that already has an alternate stack (the main thread, given one by
+    // Install()) keeps it and the scope does nothing. On Windows the report is written by the report
+    // thread, not on the faulting stack (CR1b), so the scope has nothing to do there.
+    // Use Common::StartEngineThread (EngineThread.hpp) rather than holding one by hand; the JobSystem
+    // workers hold one directly.
+    class ThreadCrashStackScope
+    {
+    public:
+        ThreadCrashStackScope();
+        ~ThreadCrashStackScope();
+
+        ThreadCrashStackScope( const ThreadCrashStackScope& )            = delete;
+        ThreadCrashStackScope& operator=( const ThreadCrashStackScope& ) = delete;
+        ThreadCrashStackScope( ThreadCrashStackScope&& )                 = delete;
+        ThreadCrashStackScope& operator=( ThreadCrashStackScope&& )      = delete;
+
+    private:
+        void*       m_Mapping     = nullptr;
+        std::size_t m_MappingSize = 0;
+    };
+
     // A DELIBERATE CRASH, FOR PROVING THE HANDLER RATHER THAN HOPING. Reached from the editor's
     // "Debug > Crash (test)" command and from `--crash-test <kind>` in every host (kinds: kKnownTestKinds).
     enum class TestKind : std::uint8_t
@@ -90,13 +123,17 @@ namespace Common::Crash
         Abort,         // std::abort()     -> SIGABRT
         PureCall,      // a pure virtual called from a base constructor -> purecall handler / SIGABRT
         StackOverflow, // unbounded recursion -> EXCEPTION_STACK_OVERFLOW / SIGSEGV on the alternate stack
-        // The same recursion on a freshly started worker thread: no stack guarantee and (POSIX) no
-        // alternate stack, so it proves the report does not depend on the faulting thread's stack.
+        // The same recursion on a thread started by StartEngineThread: not the thread Install() ran on,
+        // so the report depends on that thread's own ThreadCrashStackScope (POSIX) / the report
+        // thread (Windows), and its `tid=` must name the worker.
         StackOverflowWorker,
+        // The same recursion inside a JobSystem job: proves the pool's workers are prepared too.
+        StackOverflowJob,
     };
 
     // Every spelling ParseTestKind accepts, for the hosts' "it knows: ..." error messages.
-    inline constexpr const char* kKnownTestKinds = "segv, abort, purecall, stackoverflow, stackoverflow-worker";
+    inline constexpr const char* kKnownTestKinds =
+         "segv, abort, purecall, stackoverflow, stackoverflow-worker, stackoverflow-job";
 
     // Parses the `--crash-test` argument. `nullopt` for an unknown word, so the caller can report the
     // word it did not understand instead of silently picking a default.
