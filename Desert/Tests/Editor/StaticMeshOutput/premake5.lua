@@ -67,9 +67,6 @@ project(test_name)
 
     links { "Common", "Optick", "MeshOptimizer" } -- Optick: Commons JobSystem; MeshOptimizer: the LOD builder
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-
     -- Common contains Objective-C (the MacOS file dialog), so the ObjC runtime + AppKit link too.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }

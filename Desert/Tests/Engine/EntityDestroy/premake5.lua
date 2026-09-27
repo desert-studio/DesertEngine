@@ -56,10 +56,6 @@ project(test_name)
 
     links { "Common", "Optick", "Jolt" }
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
-
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

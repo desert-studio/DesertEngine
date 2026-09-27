@@ -193,6 +193,18 @@ while ($emit -lt $records.Count)
                                     -RedirectStandardOutput $r.Out `
                                     -RedirectStandardError $r.Err `
                                     -NoNewWindow -PassThru
+
+            # Touching .Handle is what makes .ExitCode readable later, and it is required, not a
+            # nicety. Windows PowerShell 5.1's Start-Process closes the process handle it opened as
+            # soon as it hands the object back; System.Diagnostics.Process then has nothing to ask
+            # the kernel for, and .ExitCode comes back $null even after HasExited is $true and
+            # WaitForExit() has returned. Reading .Handle here caches a handle inside the object
+            # while the process is still alive, so the exit status survives the process itself.
+            # Without it EVERY suite printed "[FAIL] <Suite> (exit )" -- `$null -ne 0` is true --
+            # and the script exited 1 on a fully passing run. PowerShell 7 keeps the handle on its
+            # own, where this line is a harmless no-op.
+            [void]$r.Proc.Handle
+
             [void]$running.Add($r)
         }
         $next++
