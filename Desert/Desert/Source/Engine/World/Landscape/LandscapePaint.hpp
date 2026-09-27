@@ -90,7 +90,7 @@ namespace Desert::World::Landscape
 
         /// FLandscapeToolStrokePaint::Apply. @p invert is UE's bInvert (Shift): erase instead of paint.
         /// Refuses a target layer the rules do not name, a tile layer the rules do not name, and a tile that
-        /// would need a fifth layer — naming each. A touched tile that is not loaded is skipped, as UE's cache
+        /// would need a ninth layer — naming each. A touched tile that is not loaded is skipped, as UE's cache
         /// skips unloaded components.
         Common::BoolResultStr Apply( const LandscapeBrushWeights& weights, const LandscapeBrushSettings& brush,
                                      const LandscapePaintSettings& paint, bool invert );

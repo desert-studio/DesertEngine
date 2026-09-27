@@ -153,16 +153,71 @@ TEST( LandscapePaint, VersionOneBlobIsATileWithNoWeightLayers )
     EXPECT_EQ( v1.GetValue().Sample( 1, 1 ), 40000u );
 }
 
-TEST( LandscapePaint, FifthLayerIsRefusedByName )
+TEST( LandscapePaint, NinthLayerIsRefusedByName )
 {
+    // Owner decision O3: up to eight paint layers a tile.
     LandscapeTileData tile = Tile( 3 );
-    for ( const char* name : { "A", "B", "C", "D" } )
-        ASSERT_TRUE( tile.AddWeightLayer( name ).IsSuccess() );
-    auto fifth = tile.AddWeightLayer( "E" );
-    ASSERT_FALSE( fifth.IsSuccess() );
-    EXPECT_NE( fifth.GetError().find( "'E'" ), std::string::npos );
+    for ( const char* name : { "A", "B", "C", "D", "E", "F", "G", "H" } )
+        ASSERT_TRUE( tile.AddWeightLayer( name ).IsSuccess() ) << name;
+    auto ninth = tile.AddWeightLayer( "I" );
+    ASSERT_FALSE( ninth.IsSuccess() );
+    EXPECT_NE( ninth.GetError().find( "'I'" ), std::string::npos );
     auto again = tile.AddWeightLayer( "B" );
     EXPECT_EQ( again.GetValue(), 1u ); // an existing name is found, not refused
+
+    std::vector<LandscapeWeightLayer> nine = tile.WeightLayers();
+    nine.push_back( { "I", std::vector<uint8_t>( 9u, 0u ) } );
+    EXPECT_FALSE( tile.SetWeightLayers( nine ).IsSuccess() );
+    EXPECT_EQ( tile.WeightLayers().size(), 8u ); // the refusal wrote nothing
+}
+
+TEST( LandscapePaint, EightLayersRoundTripAndANinthInABlobIsRefused )
+{
+    LandscapeTileData tile    = Tile( 5 );
+    const char*       names[] = { "A", "B", "C", "D", "E", "F", "G", "H" };
+    for ( uint8_t l = 0; l < 8u; ++l )
+        Fill( tile, names[l], static_cast<uint8_t>( 10u + l ) );
+
+    const std::vector<unsigned char> blob = EncodeLandscapeTile( tile );
+    auto                             back = DecodeLandscapeTile( blob );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    ASSERT_EQ( back.GetValue().WeightLayers().size(), 8u );
+    for ( size_t l = 0; l < 8u; ++l )
+    {
+        EXPECT_EQ( back.GetValue().WeightLayers()[l].Name, names[l] );
+        EXPECT_EQ( back.GetValue().WeightLayers()[l].Weights, tile.WeightLayers()[l].Weights );
+    }
+
+    // The same blob claiming nine layers, with a checksum that matches: refused on the count, by number.
+    std::vector<unsigned char> nine  = blob;
+    const size_t               count = kLandscapeTileHeaderSize + 2u * 25u;
+    ASSERT_EQ( nine[count], 8u );
+    nine[count]         = 9u;
+    const size_t   body = nine.size() - kLandscapeTileTrailerSize;
+    const uint32_t crc  = Common::Utils::Crc32c( nine.data(), body );
+    for ( size_t b = 0; b < 4u; ++b )
+        nine[body + b] = static_cast<unsigned char>( crc >> ( 8u * b ) );
+    auto refused = DecodeLandscapeTile( nine );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "9 weight layers" ), std::string::npos ) << refused.GetError();
+}
+
+TEST( LandscapePaint, EightWeightBlendedLayersAlwaysSumToExactly255 )
+{
+    // Every layer painted to every value in turn, from an uneven start: the rounding residue of seven
+    // proportional shares must land somewhere every time, and never make the sum 254 or 256.
+    const std::vector<LandscapeLayerRule> rules = { { "A", 0.0f, false }, { "B", 0.2f, false }, { "C", 0.5f, false },
+                                                    { "D", 0.9f, false }, { "E", 1.0f, false }, { "F", 0.5f, false },
+                                                    { "G", 0.3f, false }, { "H", 0.7f, false } };
+    std::vector<uint8_t>                  w     = { 30u, 30u, 30u, 30u, 30u, 30u, 30u, 45u };
+    ASSERT_EQ( Sum( w ), 255 );
+    for ( size_t painted = 0; painted < 8u; ++painted )
+        for ( int value = 0; value <= 255; value += 13 )
+        {
+            LandscapeNormalizeWeights( w, rules, painted, static_cast<uint8_t>( value ) );
+            ASSERT_EQ( Sum( w ), 255 ) << "layer " << painted << " painted to " << value;
+            EXPECT_EQ( w[painted], value ) << "layer " << painted;
+        }
 }
 
 TEST( LandscapePaint, WeightWritesDirtyOnlyTheWeightConsumer )
@@ -277,7 +332,7 @@ TEST( LandscapePaint, UndoAndRedoDirtyTheWeightmapAndRestoreItsTexels )
                              LandscapeDirtyConsumer::Weights } )
                 tile.TakeDirtyRects( c );
     };
-    const std::vector<uint8_t> westBefore = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) );
+    const std::vector<uint8_t> westBefore = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u );
     drainAll();
 
     LandscapePaintStroke   stroke( root, lookup, { { "Grass", 0.5f, false }, { "Rock", 0.5f, false } } );
@@ -292,7 +347,7 @@ TEST( LandscapePaint, UndoAndRedoDirtyTheWeightmapAndRestoreItsTexels )
     for ( int step = 0; step < 5; ++step )
         ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
     ASSERT_FALSE( tiles.at( { 1, 0 } ).WeightLayers().empty() );
-    const std::vector<uint8_t> westStroke = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) );
+    const std::vector<uint8_t> westStroke = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u );
     ASSERT_NE( westStroke, westBefore ); // the stroke did change what the GPU shows
     auto record = stroke.Finish();
     ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
@@ -307,14 +362,14 @@ TEST( LandscapePaint, UndoAndRedoDirtyTheWeightmapAndRestoreItsTexels )
         EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() ) << "tile " << key.first;
         EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Physics ).empty() ) << "tile " << key.first;
     }
-    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) ), westBefore );
+    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u ), westBefore );
     EXPECT_TRUE( tiles.at( { 1, 0 } ).WeightLayers().empty() );
 
     drainAll();
     ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), false ).IsSuccess() );
     EXPECT_FALSE( tiles.at( { 0, 0 } ).DirtyRects( LandscapeDirtyConsumer::Weights ).empty() );
     EXPECT_FALSE( tiles.at( { 1, 0 } ).DirtyRects( LandscapeDirtyConsumer::Weights ).empty() );
-    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) ), westStroke );
+    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u ), westStroke );
 }
 
 TEST( LandscapePaint, UnknownTargetLayerIsRefused )
@@ -424,7 +479,7 @@ TEST( LandscapePaint, WeightmapTexelCarriesTheTileLayersInChannelOrder )
     ASSERT_TRUE(
          tile.WriteWeightRegion( 1u, LandscapeRect{ 2u, 1u, 3u, 2u }, std::vector<uint8_t>{ 77u } ).IsSuccess() );
 
-    const std::vector<uint8_t> texels = LandscapeWeightmapTexels( tile );
+    const std::vector<uint8_t> texels = LandscapeWeightmapTexels( tile, 0u );
     ASSERT_EQ( texels.size(), 9u * 4u );
     for ( uint32_t i = 0; i < 9u; ++i )
     {
@@ -450,7 +505,34 @@ TEST( LandscapePaint, ChannelsTakeTheirLookFromTheRootLayerOfTheSameName )
     EXPECT_EQ( channels.Colors[1], vec4( 0.0f ) ); // "Ghost" is not the root's: drawn as unpainted, reported
     EXPECT_EQ( channels.Colors[2], vec4( 0.1f, 0.5f, 0.1f, 1.0f ) );
     EXPECT_EQ( channels.Colors[3], vec4( 0.0f ) );
-    EXPECT_EQ( channels.AlphaBlend, vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
+    EXPECT_EQ( channels.AlphaBlend[0], 1.0f );
+    EXPECT_EQ( channels.AlphaBlend[1], 0.0f );
+    EXPECT_EQ( channels.AlphaBlend[2], 0.0f );
     ASSERT_EQ( channels.Unknown.size(), 1u );
     EXPECT_EQ( channels.Unknown[0], "Ghost" );
+}
+
+TEST( LandscapePaint, LayersFiveToEightFillTheSecondWeightmapPage )
+{
+    // UE's allocation: layer i in weightmap texture i / 4, channel i % 4.
+    LandscapeTileData tile = Tile( 2 );
+    for ( uint8_t l = 0; l < 6u; ++l )
+        Fill( tile, std::string( 1, static_cast<char>( 'A' + l ) ), static_cast<uint8_t>( 1u + l ) );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 0u ), 0u );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 4u ), 1u );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 5u ), 2u );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 8u ), 2u );
+
+    const std::vector<uint8_t> page0 = LandscapeWeightmapTexels( tile, 0u );
+    const std::vector<uint8_t> page1 = LandscapeWeightmapTexels( tile, 1u );
+    ASSERT_EQ( page1.size(), 4u * 4u );
+    for ( uint32_t t = 0; t < 4u; ++t )
+    {
+        EXPECT_EQ( page0[t * 4u + 0u], 1u );
+        EXPECT_EQ( page0[t * 4u + 3u], 4u );
+        EXPECT_EQ( page1[t * 4u + 0u], 5u ) << "texel " << t;
+        EXPECT_EQ( page1[t * 4u + 1u], 6u ) << "texel " << t;
+        EXPECT_EQ( page1[t * 4u + 2u], 0u ) << "texel " << t; // no seventh layer
+        EXPECT_EQ( page1[t * 4u + 3u], 0u ) << "texel " << t;
+    }
 }

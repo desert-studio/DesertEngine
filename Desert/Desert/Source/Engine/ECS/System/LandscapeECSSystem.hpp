@@ -77,6 +77,9 @@ namespace Desert::ECS
         // Weight-layer problems (a layer the root does not name, a weightmap that could not be created or
         // written), said once per tile until its weights are edited again.
         std::unordered_set<entt::entity> m_WarnedWeights;
+        // Tiles carrying more layers than the surface draws (one RGBA8 weightmap, four channels until LS-13's
+        // Texture2DArray), said once per tile until its weights are edited again.
+        std::unordered_set<entt::entity> m_WarnedPages;
 
         // Material handles already reported as unresolvable, so the warning is said once and not once a frame.
         std::unordered_set<uint64_t> m_WarnedMaterials;
