@@ -52,10 +52,13 @@ namespace Desert::WorldGen
         // enough that a suite can build it, parse it and round-trip it several times per run.
         //
         // `corpus` is the streaming-memory instrument (WP14): 16 x 16 cells of 20 m in districts of 4 x 4 cells
-        // (80 m, wider than the 40 m loading range the flight uses), each district furnished from ONE theme of
+        // (80 m), each district furnished from ONE theme of
         // real tracked assets, so a flight along a row crosses themes and resident asset memory has
         // something to rise and fall with. Cells are small because the corpus meshes are probes (tens of
-        // centimetres to a couple of metres) - a 256 m tile would hold them as specks. `corpus-smoke` is its
+        // centimetres to a couple of metres) - a 256 m tile would hold them as specks. The flight that measures
+        // it runs along a district row's centre line with --loading-range 3000: a range of half a district or more
+        // reaches the neighbouring row, whose themes are shifted by one (the stripes are diagonal), and every
+        // theme is then resident along the whole row - measured at 4000 (WP14b f6). `corpus-smoke` is its
         // suite-sized twin: same content table, four cells.
         constexpr Preset kPresets[] = {
              { "world", "World Grid 8 km", 32, 48, 25600, false, 1 },
