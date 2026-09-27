@@ -40,6 +40,7 @@
 #include <Engine/Assets/AssetMetadata.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -159,6 +160,10 @@ namespace
                &DeclaredTypeOf<Desert::Assets::CloudLayoutAsset> },
              { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset>,
                &MetadataTypeOf<Desert::Assets::UIThemeAsset>, &DeclaredTypeOf<Desert::Assets::UIThemeAsset> },
+             { AssetTypeID::LandscapeLayerInfo, "LandscapeLayerInfoAsset",
+               &HandleOf<Desert::Assets::LandscapeLayerInfoAsset>,
+               &MetadataTypeOf<Desert::Assets::LandscapeLayerInfoAsset>,
+               &DeclaredTypeOf<Desert::Assets::LandscapeLayerInfoAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1314,6 +1319,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::ShaderGraph,
          AssetTypeID::AnimGraph,
          AssetTypeID::Retarget,
+         AssetTypeID::LandscapeLayerInfo,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1469,6 +1475,22 @@ TEST( AssetHandleStability, AThemeHandleIsHandleForGuidOfItsHeader )
     const fs::path file = dir / "A.detheme";
     ASSERT_TRUE( Desert::Assets::UIThemeAsset::Save( file, Desert::Assets::UIThemeData{} ) );
     ExpectHeaderGuidIdentity<Desert::Assets::UIThemeAsset>( file, Common::Content::ContentKind::UITheme );
+    fs::remove_all( dir );
+}
+
+// LS-12b: a landscape names its layers by handle, so the handle must be the layer file's header GUID.
+TEST( AssetHandleStability, ALandscapeLayerInfoHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "LS12bLayerInfoHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path                                        file = dir / "Grass.delayerinfo";
+    Desert::Assets::Serialization::LandscapeLayerInfoData data;
+    data.LayerName = "Grass";
+    ASSERT_TRUE( Desert::Assets::LandscapeLayerInfoAsset::Save( file, data ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::LandscapeLayerInfoAsset>(
+         file, Common::Content::ContentKind::LandscapeLayerInfo );
     fs::remove_all( dir );
 }
 
