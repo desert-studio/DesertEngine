@@ -346,7 +346,7 @@ namespace Desert::Core::WorldCells
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( records, *scene.WorldPartition, BoundsFrom( registries ) );
         // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and
-        // names every one of them once, after the reference walk below has added its own.
+        // names every one of them once, after the reference walk and the HLOD build below have added theirs.
         Common::Json::Issues issues    = plan.Issues;
         const std::size_t unitCount = Rules::ResidencyUnitCount( plan );
 
@@ -424,8 +424,6 @@ namespace Desert::Core::WorldCells
                        std::string( reference.Field ) } );
             }
 
-        Common::Json::ReportIssues( issues, scene.SceneName );
-
         // One file per distinct name, in the order the units first name them: the always-loaded file (if any)
         // holds every always-loaded unit, a cell file holds its one cell.
         std::vector<std::string> fileOrder;
@@ -453,6 +451,70 @@ namespace Desert::Core::WorldCells
                  { name, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
             cooked.Files.push_back( std::move( file ) );
         }
+        // THE INSTANCING HLOD OF EVERY CELL (WP10), after the cells so a cell's file is written before the one
+        // that stands in for it and the index lists them in that order.
+        const std::vector<glm::mat4> world = Rules::Detail::ComposeWorld( records, byId );
+        std::set<std::uint64_t>      hlodIds;
+        for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < unitCount; ++unit )
+        {
+            const Rules::InstancingHLOD built = Rules::BuildInstancingHLOD( records, world, members[unit], issues );
+            if ( built.Batches.empty() && built.NotInstanced.empty() )
+                continue;
+            IndexHLOD row;
+            row.Unit      = static_cast<std::uint32_t>( unit );
+            row.Instances = built.Instances;
+            for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
+                row.NotInstanced.push_back(
+                     { static_cast<std::uint64_t>( *records[missing.Record].id ), missing.Reason } );
+            if ( !built.Batches.empty() )
+            {
+                const std::string name = HLODFileName( index.Units[unit].File );
+                CellPayload       payload;
+                payload.World = scene.SceneName;
+                payload.Units.push_back( "HLOD " + index.Units[unit].Name );
+                std::set<std::uint64_t> sources;
+                std::set<std::string>   keys;
+                for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
+                {
+                    // An id that is a function of the world, the file and the batch, as a file's GUID is, so a
+                    // re-cook reproduces it; one that meets a record's id or another HLOD's is refused.
+                    const std::string identity =
+                         scene.SceneName + "\nHLOD\n" + name + "\n" + std::to_string( batch );
+                    const std::uint64_t id = Common::Utils::PakContentHash( identity.data(), identity.size() );
+                    if ( id == 0 || byId.contains( Common::UUID( id ) ) || !hlodIds.insert( id ).second )
+                        return Common::MakeError<Result>( "the HLOD id " + std::to_string( id ) + " of batch " +
+                                                          std::to_string( batch ) + " in '" + name +
+                                                          "' is null or already taken; rename the world" );
+                    Assets::EntityData hlodRecord;
+                    hlodRecord.id  = Common::UUID( id );
+                    hlodRecord.Tag = "HLOD " + std::to_string( batch );
+                    hlodRecord.Components[std::string( Rules::kInstancePointsComponent )] =
+                         Common::Json::FromStruct( built.Batches[batch].Block );
+                    closure.Record( hlodRecord, keys );
+                    row.Ids.push_back( id );
+                    payload.Records.push_back( std::move( hlodRecord ) );
+                    for ( const std::size_t source : built.Batches[batch].Sources )
+                        sources.insert( static_cast<std::uint64_t>( *records[source].id ) );
+                }
+                for ( const std::size_t member : members[unit] )
+                    if ( sources.contains( static_cast<std::uint64_t>( *records[member].id ) ) )
+                        row.Sources.push_back( static_cast<std::uint64_t>( *records[member].id ) );
+                closure.Expand( keys );
+                row.Assets.assign( keys.begin(), keys.end() );
+                auto wrapped =
+                     Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
+                if ( !wrapped )
+                    return Common::MakeError<CookedWorld>( wrapped.GetError() );
+                CookedFile file{ name, wrapped.ExtractValue() };
+                index.Files.push_back(
+                     { name, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
+                cooked.Files.push_back( std::move( file ) );
+                row.File = name;
+            }
+            index.HLODs.push_back( std::move( row ) );
+        }
+        Common::Json::ReportIssues( issues, scene.SceneName );
+
         auto wrappedIndex =
              Wrap( CC::ContentKind::WorldIndex, scene.SceneName, kIndexFileName, Common::Json::Write( index ) );
         if ( !wrappedIndex )
@@ -493,7 +555,31 @@ namespace Desert::Core::WorldCells
                      "'" + name + "': a reference names unit " +
                      std::to_string( std::max( reference.FromUnit, reference.ToUnit ) ) + " of " +
                      std::to_string( index.Units.size() ) );
+        for ( const IndexHLOD& hlod : index.HLODs )
+        {
+            if ( hlod.Unit >= index.Units.size() || !index.Units[hlod.Unit].Level.has_value() )
+                return Common::MakeError<WorldIndex>( "'" + name + "': an HLOD stands in for unit " +
+                                                      std::to_string( hlod.Unit ) + ", which is not a cell of " +
+                                                      std::to_string( index.Units.size() ) + " unit(s)" );
+            const std::string& unitName = index.Units[hlod.Unit].Name;
+            if ( hlod.File.has_value() == hlod.Ids.empty() )
+                return Common::MakeError<WorldIndex>( "'" + name + "': the HLOD of " + unitName + " has " +
+                                                      std::to_string( hlod.Ids.size() ) + " record(s) and " +
+                                                      ( hlod.File ? "a" : "no" ) + " file" );
+            const bool listed =
+                 !hlod.File.has_value() ||
+                 std::any_of( index.Files.begin(), index.Files.end(),
+                              [&]( const IndexFile& file ) { return file.Name == *hlod.File; } );
+            if ( !listed )
+                return Common::MakeError<WorldIndex>( "'" + name + "': the HLOD of " + unitName + " names file '" +
+                                                      *hlod.File + "', which the index does not list" );
+        }
         return Common::MakeSuccess( std::move( index ) );
+    }
+
+    std::string HLODFileName( std::string_view cellFile )
+    {
+        return "HLOD_" + std::string( cellFile );
     }
 
     Common::ResultStr<CellPayload> ReadCellFile( const WorldIndex& index, std::string_view fileName,
@@ -534,6 +620,12 @@ namespace Desert::Core::WorldCells
             {
                 units.push_back( unit.Name );
                 ids.insert( ids.end(), unit.Ids.begin(), unit.Ids.end() );
+            }
+        for ( const IndexHLOD& hlod : index.HLODs )
+            if ( hlod.File == name )
+            {
+                units.push_back( "HLOD " + index.Units.at( hlod.Unit ).Name );
+                ids.insert( ids.end(), hlod.Ids.begin(), hlod.Ids.end() );
             }
         if ( cell.Units != units )
             return Common::MakeError<CellPayload>( "'" + name + "' holds " + std::to_string( cell.Units.size() ) +
@@ -638,6 +730,21 @@ namespace Desert::Core::WorldCells
     Common::ResultStr<SceneSerialized> AssembleWorld( const WorldIndex& index, const FileReader& reader )
     {
         return Assemble( index, reader, index.Units.size() );
+    }
+
+    Common::ResultStr<std::vector<Assets::EntityData>> HLODRecords( const WorldIndex& index, const FileReader& reader,
+                                                                    std::size_t hlod )
+    {
+        using Result = std::vector<Assets::EntityData>;
+        if ( hlod >= index.HLODs.size() )
+            return Common::MakeError<Result>( "world '" + index.SceneName + "' has no HLOD " + std::to_string( hlod ) +
+                                              " (it has " + std::to_string( index.HLODs.size() ) + ")" );
+        if ( !index.HLODs[hlod].File.has_value() )
+            return Common::MakeSuccess( Result{} );
+        auto cell = ReadUnitFile( index, reader, *index.HLODs[hlod].File );
+        if ( !cell )
+            return Common::MakeError<Result>( cell.GetError() );
+        return Common::MakeSuccess( cell.ExtractValue().Records );
     }
 
     Common::ResultStr<SceneSerialized> AssembleAlwaysLoaded( const WorldIndex& index, const FileReader& reader )
