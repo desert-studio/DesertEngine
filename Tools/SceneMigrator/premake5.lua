@@ -33,49 +33,49 @@ project "SceneMigrator"
         -- structs, with no Desert link behind it: the blob that step moves out of the entity IS this type
         -- serialized, so reading it with a hand-written parser here would be a second statement of the
         -- format — the fork this tool's own header forbids.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
         -- THE EDITMESH AND ITS SAVED FORM, for the v21 -> v22 step: the step welds the v21 render arrays with
         -- the editor's own Geometry::FromRenderMesh and writes Geometry::ToSerialized, so the block it stores
         -- is the one the loader reads - not a second statement of either format.
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
 
         -- THE PREFAB GATE AND THE ONE WRITER OF .deprefab TEXT, since И11. The tool converts prefabs
         -- too, and the bytes it writes must be the bytes the engine's saver produces and must pass the
         -- engine's own loader gate — so it calls WritePrefabJson / ParseLoadablePrefab rather than
         -- restating either. Pure over the parsed tree, like everything else in this project: no GPU, no
         -- asset manager.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
 
         -- THE CLOUD NOISE VOLUME DECODER, since T7g: the DCNV 1/2 -> 3 step wraps the payload in the AF1
         -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure
         -- bytes in, bytes out; no GPU.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         -- THE SCULPTED CLOUD VOLUME DECODER, likewise for the DCMV 2 -> 3 step (DecodeCloudModellingVolume).
         -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         -- THE MESH ASSET READER, since MIG1: a `.stmesh`/`.skmesh` stamped 'MSAS' (AF4d) is judged by the
         -- engine's own DecodeMeshSourceAsset rather than refused as "not DESTMESH"; pure bytes, no GPU.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
     }
 
     dependson { "Desert" }
 
     includedirs {
-        "%{wks.location}/Tools/Shared",
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
-        "%{wks.location}/Editor/Resources/Shaders",        -- LandscapeData.cpp compiles LandscapeHeight.glslh as C++
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",        -- LandscapeData.cpp compiles LandscapeHeight.glslh as C++
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

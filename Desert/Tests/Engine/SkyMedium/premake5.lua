@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Two units under test, both GPU-free:
     --   * Editor/Resources/Shaders/Common/SkyMedium.glslh — the physical atmosphere's medium sampling,
@@ -23,13 +23,13 @@ project(test_name)
         -- compiles the same SkyMedium.glslh, and it depends on nothing but glm and header-only payload
         -- structs — so the suite that owns the maths can assert on the function that ships, not on a
         -- listing that looks like it.
-        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/SkyGroundTransmittance.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/SkyGroundTransmittance.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

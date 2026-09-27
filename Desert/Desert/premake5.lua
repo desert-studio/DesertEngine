@@ -23,25 +23,25 @@ project "Desert"
         "Source/pch.hpp",
         "Source/Engine/**.cpp", 
         "Source/Engine/**.hpp",
-        "%{wks.location}/ThirdParty/VulkanAllocator/vk_mem_alloc.cpp",
-        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
-        "%{wks.location}/ThirdParty/stb/stb_truetype.cpp",
-        "%{wks.location}/ThirdParty/miniaudio/miniaudio.cpp",
-        "%{wks.location}/ThirdParty/pl_mpeg/pl_mpeg.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/VulkanAllocator/vk_mem_alloc.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/pl_mpeg/pl_mpeg.cpp",
     }
 
     includedirs {
         "Source/",
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         -- The SHADER ROOT, for the one engine translation unit that compiles a shared `.glslh` AS C++:
         -- Graphic/SkyGroundTransmittance.cpp includes Common/SkyMedium.glslh so the sun light's colour
         -- and the transmittance LUT's texels come from one text (the arrangement the test references
         -- established). Nothing else in the engine may include a `.glslh` — the rest of the shader
         -- contract travels as payload structs with static_asserted offsets.
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/pl_mpeg/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/pl_mpeg/include",
     }
     
     for name, path in pairs(deps.Common.IncludeDir) do

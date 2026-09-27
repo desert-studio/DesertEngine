@@ -11,7 +11,7 @@
 # waiter wins, with no race window that a test-then-create would leave open.
 #
 # Usage — wrap the whole build, keep your own -j and your own log:
-#     scripts/MacOS/BuildSlot.sh make Editor config=debug -j4 CC="ccache clang" CXX="ccache clang++"
+#     scripts/MacOS/BuildSlot.sh make -C build/Projects Editor config=debug -j4 CC="ccache clang" CXX="ccache clang++"
 #
 # The wrapped command's exit code is passed through unchanged, so `echo $? > my_rc.txt` still works
 # and still means what it meant.

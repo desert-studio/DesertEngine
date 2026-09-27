@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- A SOURCE-TEXT CENSUS, so nothing is linked and nothing is run. The subject is every place in the
     -- engine that turns an extent into a byte count, and the reason it cannot be a runtime test is the
@@ -18,8 +18,8 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

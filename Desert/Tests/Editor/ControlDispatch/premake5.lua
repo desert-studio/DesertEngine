@@ -17,19 +17,19 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
         -- Ranking the near misses in a refusal. std-only, compiled straight in — the same way the
         -- FuzzyMatch suite next door takes it.
-        "%{wks.location}/Editor/Source/Editor/Core/FuzzyMatch.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/FuzzyMatch.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

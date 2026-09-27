@@ -81,7 +81,7 @@ EDITOR="$ROOT/build/Bin/$CONFIG/Editor"
 DOMESHEET="$ROOT/build/Bin/$CONFIG/DomeSheet"
 for binary in "$EDITOR" "$DOMESHEET"; do
     if [ ! -x "$binary" ]; then
-        echo "DomeSweep: '$binary' is missing. Build it: make Editor config=$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]') -j8" >&2
+        echo "DomeSweep: '$binary' is missing. Build it: make -C build/Projects Editor config=$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]') -j8" >&2
         exit 1
     fi
 done

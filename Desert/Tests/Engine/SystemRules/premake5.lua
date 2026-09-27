@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Header-only rules (Engine/ECS/System/SystemRules.hpp): the gameplay DECISIONS without the Scene
     -- they normally hang off, so there is no renderer and nothing to link.
@@ -15,11 +15,11 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/", -- Components.hpp is an entt registry away
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/", -- Components.hpp is an entt registry away
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

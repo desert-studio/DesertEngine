@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The test cpp PLUS the loader's own translation unit, and nothing else. AsyncAssetLoader.cpp
     -- needs only Common (JobSystem, Logger); everything else it touches -- AssetBase, the ledger --
@@ -14,15 +14,15 @@ project(test_name)
     -- handoff depend on a device, which is how a cheap test becomes one nobody runs.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

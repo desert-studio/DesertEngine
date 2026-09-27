@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- One unit under test, GPU-free:
     --   * Editor/Resources/Shaders/Common/CloudField.glslh — the vertical profile, the coverage mapping
@@ -20,25 +20,25 @@ project(test_name)
     -- renders rather than on a copy of it that can drift.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
         -- The PRODUCER, because the seam's field is a fetch of the volume this bakes. A suite that
         -- stubbed the volume would be measuring the sampler and nothing else; what makes the double
         -- compilation worth anything is that the bytes under the mirror are the bytes the device gets.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp",
         -- The painted layout: CloudProceduralVolume.cpp reads it to decide a cell's coverage, so
         -- everything that compiles the bake compiles this too. It brings nothing with it -- no asset
         -- layer, no GPU, no filesystem -- which is the property that makes adding one line enough.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the type's file format is rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the type's file format is rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

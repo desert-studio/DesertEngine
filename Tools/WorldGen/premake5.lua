@@ -21,28 +21,28 @@ project "WorldGen"
         -- function that turns "no Settings block" into the exact bytes the saver produces; a second copy
         -- here would be a second statement of a 51-field format. Reflection.gen.cpp is emitted by
         -- DesertHeaderTool as a PREBUILD STEP of `Desert`, hence the dependson below.
-        "%{wks.location}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",        -- The partitioner places a landscape tile by its root's frame (LS-3), and those two functions live
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",        -- The partitioner places a landscape tile by its root's frame (LS-3), and those two functions live
         -- in pure translation units that link only Common.
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
     dependson { "Desert" }
 
     includedirs {
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
-        "%{wks.location}/Editor/Resources/Shaders",
-        "%{wks.location}/Tools/Shared",
-        "%{wks.location}/Tools/SceneMigrator/Source",
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

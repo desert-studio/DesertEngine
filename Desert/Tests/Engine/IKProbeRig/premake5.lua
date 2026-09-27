@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The subject is the SHIPPED IK rig, mesh, clip and the two scenes under Editor/, read through the
     -- engine's own reader — plus, unlike TwoBoneWitness next door, the ANIMATOR AND THE CONTROL. That is a
@@ -15,52 +15,52 @@ project(test_name)
     -- actually reached by the shipped solver from the shipped bytes. Nothing in this list pulls in Vulkan.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Animator.cpp",
         -- The section blend the Animator samples through (AnimationClip::SampleTrack). A header-inline
         -- call into a .cpp nobody linked is a LINK error and not a silent wrong answer, which is why
         -- ApplySection lives in a translation unit rather than in the header beside its caller.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
         -- A25: `Animator` owns an optional retarget, so every suite that compiles Animator.cpp links the
         -- retarget layer with it. Listed here rather than discovered at link time because premake
         -- enumerates sources EXPLICITLY: a dependency that is real but unlisted fails as an undefined
         -- symbol naming a function sitting in the working tree, which reads as a defect in the merge.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/BoneControl.cpp",
         -- Animator.cpp also runs the Rig stage (T5.4), which is a link edge and not a behaviour these
         -- suites exercise: none of them attaches a rig, which is what keeps "a pipeline with no rig
         -- produces exactly what it produced before" measurable HERE rather than only in the rig suite.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp",
         -- T5.5: the stage owns a forwards solve, so the walk links with the stage that runs it.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
         -- The tick grid every clip time now lives on (A5).
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
         -- Common/Core/Timestep.cpp IS NOT LISTED, unlike in AnimatorBlending and BoneControlContract:
         -- this suite LINKS Common (below), so Timestep is already in Common.lib, and compiling it here
         -- too gives the linker two definitions. Nothing said so until the Windows unity build, where
         -- Timestep shares its object file with Common symbols this suite does need, so the archive
         -- member gets pulled in beside the local copy (run 36260237438, LNK2005 -> LNK1169).
         -- The cooked-mesh container the fixtures are written in (B11).
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

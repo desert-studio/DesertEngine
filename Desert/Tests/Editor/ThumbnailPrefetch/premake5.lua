@@ -11,22 +11,22 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
-        "%{wks.location}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
-        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         -- CookPaths.hpp takes the cooked-texture path formula from Engine/Assets/CookedTexturePath.hpp
         -- (header-only: Common + std), so the engine's source root is on the path too.
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
         deps.DesertSpecific.IncludeDir.stb,
     }
 

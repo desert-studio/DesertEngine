@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- THE SWEEP WITHOUT A DEVICE. AssetEviction.cpp is deliberately free of the GPU layer — the four
     -- calls that reach it live in AssetEvictionServices.cpp, behind IEvictionSink, and this suite passes
@@ -15,51 +15,51 @@ project(test_name)
     -- decide which assets nothing reaches any more.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AssetEviction.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- TextureBinary's BlockCompressChain encodes through it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AssetEviction.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- TextureBinary's BlockCompressChain encodes through it
         -- A25: the closure marks the retarget's SOURCE RIG, which is reachable through nothing else,
         -- so the sweep has to link the type it probes for. The format comes with it because the asset
         -- parses its own file.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
         -- StaticMeshAsset loads its render form through the mesh DDC (AF4d), which reads the source asset.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/AnimationAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/AnimationAsset.cpp",
         -- AnimationAsset::Load delegates the channel-list -> clip step to this pure unit.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/EnvironmentStaging.cpp", -- SkyboxAsset stages the environment cache on the worker
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/EnvironmentStaging.cpp", -- SkyboxAsset stages the environment cache on the worker
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
         -- THE ASYNC LOADER, because the sweep now ASKS it a question: AssetEviction refuses to release an
         -- asset whose read is in flight, and it finds that out from AsyncAssetLoader::IsRequested. Without
         -- this line the suite stopped linking the moment that refusal was added -- which is the suite
         -- doing its job, and the reason the refusal gets asserted here rather than only in the renderer.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp",
         -- SkeletonAsset::Load builds an Animation::Skeleton, whose constructor computes the signature.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         -- PrefabAsset is deliberately ABSENT. Its CreateFromEntity reaches ECS::Entity and the scene
         -- serializer, i.e. the whole world layer, and dragging that in to assert one Unload body would
         -- make this suite need a scene. Its contract is held textually instead, in
@@ -67,12 +67,12 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

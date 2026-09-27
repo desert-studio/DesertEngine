@@ -5,21 +5,21 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
         -- Compile the serializer under test directly (self-contained; no GPU/engine link needed).
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",       -- <Engine/Reflection/...>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",       -- <Engine/Reflection/...>
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- <rflcpp/rfl/Generic.hpp>
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- <rflcpp/rfl/Generic.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

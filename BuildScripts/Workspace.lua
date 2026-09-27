@@ -3,9 +3,15 @@
 -- blocks live in Configurations.lua / PlatformWindows.lua / PlatformMacOS.lua.
 
 workspace "Desert"
-    -- The workspace is declared here but its files (Desert.sln / Makefile)
-    -- belong at the repo root, same as before the config split.
-    location ( _MAIN_SCRIPT_DIR )
+    -- Every generated build file — Makefile and one *.make per project for gmake, Desert.sln and the
+    -- *.vcxproj/.filters/.user for Visual Studio — goes into build/Projects/, never the repo root.
+    -- First-party projects inherit this location; the vendored ones (BuildScripts/ThirdParty/*.lua) sit
+    -- in their own build/Projects/<Name>/ subfolder, so nothing lands at the root or inside a submodule.
+    -- Every path premake writes into those files is emitted relative to where the file lives, so the
+    -- repo root is spelled `%{_MAIN_SCRIPT_DIR}` in project scripts — never `wks.location`, which is
+    -- this directory — and every script that drives the files runs `make -C build/Projects` or opens
+    -- build/Projects/Desert.sln.
+    location ( _MAIN_SCRIPT_DIR .. "/build/Projects" )
 
     -- THREE CONFIGURATIONS, AND THE THIRD IS THE ONE A PLAYER GETS.
     --

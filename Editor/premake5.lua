@@ -9,7 +9,7 @@ project "Editor"
 
     -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
     -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
-    debugdir "%{wks.location}/Editor"
+    debugdir "%{_MAIN_SCRIPT_DIR}/Editor"
     debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
 
     files { 
@@ -29,30 +29,30 @@ project "Editor"
         -- This does NOT put the old formats back into the engine. `Desert` and `Runtime` link none of
         -- this; the engine's loader still refuses a scene that is not at Core::kSceneVersion, and a
         -- packaged game never opens an autosave.
-        "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
-        "%{wks.location}/Tools/SceneMigrator/Source/MigratorMain.cpp",
-        "%{wks.location}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Desert/Source/",
-        "%{wks.location}/Editor/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/",
 
-        "%{wks.location}/Desert/Common/Source/",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
 
         -- <MigratorMain.hpp> / the migrator's own includes of its siblings (see the files list above).
-        "%{wks.location}/Tools/SceneMigrator/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
     }
     externalincludedirs {
 
-        "%{wks.location}/ThirdParty/spdlog/include/",
-        "%{wks.location}/ThirdParty/GLFW/include/",
-        "%{wks.location}/ThirdParty/Glad/include/",
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/ImGui/",
-        "%{wks.location}/ThirdParty/glm/",
-        "%{wks.location}/ThirdParty/optick/src/",
-        "%{wks.location}/ThirdParty/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/Glad/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/ImGui/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/glm/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/optick/src/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/",
     }
 
     for name, path in pairs(deps.EditorSpecific.IncludeDir) do
@@ -105,7 +105,7 @@ project "Editor"
     -- so CI and fresh checkouts build without it.
     if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
         defines     { "DESERT_WITH_DLIB" }
-        externalincludedirs { "%{wks.location}/ThirdParty/dlib/" }
+        externalincludedirs { "%{_MAIN_SCRIPT_DIR}/ThirdParty/dlib/" }
         links       { "Dlib" }
     end
 

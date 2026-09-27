@@ -12,13 +12,13 @@ project "DShaderTool"
     files {
         "Source/**.cpp",
         -- The parser depends only on Core/Formats headers + Common — no engine lib needed.
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Tools/Shared",
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

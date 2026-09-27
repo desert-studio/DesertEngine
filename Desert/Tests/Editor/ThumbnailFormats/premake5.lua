@@ -15,28 +15,28 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Widgets/CloudThumbnail.cpp",
-        "%{wks.location}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/CloudThumbnail.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
         -- The UI theme format: CloudThumbnail paints a `.detheme` by parsing it, so the parser is part of
         -- what this suite exercises.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/UIThemeData.cpp",
         -- STB_IMAGE_WRITE_IMPLEMENTATION lives here; CloudThumbnail::Write streams the PNG through it.
-        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

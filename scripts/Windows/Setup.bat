@@ -226,7 +226,7 @@ for %%P in (
     "Editor\ThirdParty\ImGuizmo\ImGuizmo.cpp"
     "Editor\ThirdParty\assimp\include\assimp\Importer.hpp"
     "Editor\ThirdParty\assimp\code\Common\ImporterRegistry.cpp"
-    "Desert.sln"
+    "build\Projects\Desert.sln"
 ) do (
     if not exist "%ROOT%\%%~P" (
         set /a MISSCOUNT+=1
@@ -243,7 +243,7 @@ echo.
 if "%FAILCOUNT%"=="0" if "%MISSCOUNT%"=="0" (
     echo === Setup complete ===
     echo Build with:  scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--with-tests]
-    echo              ^(or open Desert.sln^)
+    echo              ^(or open build\Projects\Desert.sln^)
     endlocal
     exit /b 0
 )
@@ -282,7 +282,7 @@ echo.
 echo   scripts\Windows\Setup.bat [--no-install] [--unity]
 echo.
 echo   Installs the Windows build dependencies, fetches the non-submodule third-party sources
-echo   and generates Desert.sln. Re-runnable.
+echo   and generates build\Projects\Desert.sln. Re-runnable.
 echo.
 echo   --no-install   Report what is missing and do not install anything. Everything that is a
 echo                  clone rather than an installer still runs.

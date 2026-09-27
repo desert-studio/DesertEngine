@@ -18,22 +18,22 @@ project "DesertCtl"
     -- facade's ResultStr needs fmt, which comes header-only from the vendored spdlog.
     files {
         "Source/**.cpp",
-        "%{wks.location}/Desert/Common/Source/Common/Json/Json.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Json/Json.cpp",
     }
     includedirs {
-        "%{wks.location}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
         -- For Common/Core/LocalSocket.hpp (header-only: the editor's end of this channel opens the same
         -- socket, and the platform differences are written once rather than once per end) and for the
         -- facade's Json.cpp compiled in above. No Common library is linked -- this tool builds where a
         -- renderer cannot.
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
     defines { "FMT_HEADER_ONLY" }
 
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
-        "%{wks.location}/ThirdParty/spdlog/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include",
     }
 
     -- ON EVERY PLATFORM, which it was not before. The Windows build of this tool used to be a dozen lines

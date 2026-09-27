@@ -5,15 +5,15 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Reads the tree as TEXT and compiles none of it: the whole point is to assert something about a
     -- compiler nobody here runs locally, which no amount of building on macOS could ever do.
     files { test_files }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

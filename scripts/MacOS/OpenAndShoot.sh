@@ -46,7 +46,7 @@ CTL="$ROOT/build/Bin/$CONFIG/DesertCtl"
 
 for binary in "$EDITOR_BIN" "$CTL"; do
     if [ ! -x "$binary" ]; then
-        echo "$0: $binary is not there. Build it: make Editor config=$(echo "$CONFIG" | tr 'A-Z' 'a-z') -j8" >&2
+        echo "$0: $binary is not there. Build it: make -C build/Projects Editor config=$(echo "$CONFIG" | tr 'A-Z' 'a-z') -j8" >&2
         exit 2
     fi
 done

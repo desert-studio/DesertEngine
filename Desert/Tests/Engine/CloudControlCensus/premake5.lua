@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Reflection.gen.cpp is written by DesertHeaderTool, which runs as a PREBUILD STEP OF `Desert`. This
     -- census derives its component populations from that table, so without this the parallel build can
@@ -16,21 +16,21 @@ project(test_name)
     files {
         test_files,
         -- The reflection table, compiled straight in: its registrations are static initializers.
-        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         -- The material population is derived by running the engine's own parser over the shipped
         -- shader. Compiled directly rather than linked: it depends only on Core/Formats headers and
         -- Common, which keeps this suite free of the graphics library.
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",       -- Components.hpp is an entt registry away
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- ReflectionTypes.hpp -> <rflcpp/rfl/Generic.hpp>
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",       -- Components.hpp is an entt registry away
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- ReflectionTypes.hpp -> <rflcpp/rfl/Generic.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

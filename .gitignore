@@ -30,10 +30,8 @@
 *.out
 *.app
 .vs
-*.vcxproj
-*.filters
-*.user
-*.sln
+# `build` also holds every premake-generated build file: Makefile/*.make and Desert.sln/*.vcxproj are
+# written to build/Projects/ (BuildScripts/Workspace.lua), never to the root.
 build
 # git on macOS ignores case, so `build` above also hid Editor/Source/Editor/Panels/Build (source, not output).
 !Editor/Source/Editor/Panels/Build/
@@ -194,10 +192,6 @@ dist/
 # Optional: cloned by the user to enable dlib face tracking (see BuildScripts/ThirdParty/Dlib.lua)
 ThirdParty/dlib/
 
-# Premake-generated build files (source of truth = premake5.lua; regenerate via
-# scripts/MacOS/Setup.sh / BuildMacOS.sh)
-*.make
-Makefile
 
 # Runtime logs
 *.log

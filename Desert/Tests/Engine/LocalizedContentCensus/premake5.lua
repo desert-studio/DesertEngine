@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- THE GATE (Ю15 decision 4). It reads the shipped CONTENT off the disk — every `.desce`, `.deprefab`
     -- and `.destrings` under Editor/Resources/Assets — rather than embedding anything, for the same reason
@@ -16,18 +16,18 @@ project(test_name)
     -- key exist"; the scene tree is parsed as rfl::Generic, so no engine, no renderer and no device.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

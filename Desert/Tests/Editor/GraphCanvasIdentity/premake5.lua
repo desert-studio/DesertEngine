@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
@@ -14,19 +14,19 @@ project(test_name)
         -- That is the whole reason those three units exist apart from their panels: a canvas identity
         -- defect cannot be reached through an `ed::EditorContext` on a build machine, and the defect this
         -- suite measures (an index used as an identity) lived inside a panel's draw call for that reason.
-        "%{wks.location}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
-        "%{wks.location}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
-        "%{wks.location}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp",
         -- The two FILE formats, so the fingerprints below are taken over the graphs this project ships
         -- rather than over graphs the test invented for itself.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 
     links { "Common", "Optick" } -- Common's JobSystem registers worker threads with Optick

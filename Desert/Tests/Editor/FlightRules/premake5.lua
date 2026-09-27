@@ -5,21 +5,21 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- FlightRules.hpp is pure; the suite also drives the command line that arms a flight, and
     -- CommandLine.hpp checks --language against the locale table, which these two units provide.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source", -- <Engine/Localization/LocaleFormat.hpp>
-        "%{wks.location}/Editor/Source",        -- <Editor/Core/FlightRules.hpp>, <Editor/Core/CommandLine.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source", -- <Engine/Localization/LocaleFormat.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",        -- <Editor/Core/FlightRules.hpp>, <Editor/Core/CommandLine.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

@@ -7,7 +7,7 @@ local imgui = _MAIN_SCRIPT_DIR .. "/ThirdParty/ImGui"
 project "ImGuiNodeEditor"
 	kind "StaticLib"
 	language "C++"
-	location ( root )
+	location ( _MAIN_SCRIPT_DIR .. "/build/Projects/ImGuiNodeEditor" )
 
 	files
 	{

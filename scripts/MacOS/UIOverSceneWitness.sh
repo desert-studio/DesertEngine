@@ -33,7 +33,7 @@ DIFF="$ROOT/build/Bin/$CONFIG/ImageDiff"
 
 for binary in "$EDITOR_BIN" "$CTL" "$DIFF"; do
     if [ ! -x "$binary" ]; then
-        echo "$0: $binary is not there. Build it: make Editor config=$(echo "$CONFIG" | tr 'A-Z' 'a-z') -j8" >&2
+        echo "$0: $binary is not there. Build it: make -C build/Projects Editor config=$(echo "$CONFIG" | tr 'A-Z' 'a-z') -j8" >&2
         echo "$0: ImageDiff and DesertCtl are TOOLS — the test sweep skips everything in ls Tools, so a" >&2
         echo "  stale one is possible and is worth rebuilding before believing this script." >&2
         exit 2

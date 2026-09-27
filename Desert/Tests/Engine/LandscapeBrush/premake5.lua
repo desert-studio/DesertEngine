@@ -5,23 +5,23 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The brush maths is PURE: it compiles the engine's landscape core and the brush on their own and links
     -- only Common. No Scene, no editor, no ImGui — the brush UI (L3) sits on top of this.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeBrush.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeBrush.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
-        "%{wks.location}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

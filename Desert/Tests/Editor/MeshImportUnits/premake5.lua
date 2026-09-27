@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- ImportUnits.cpp IS the subject, compiled here rather than restated, so a change to the rule
     -- reaches this suite. It is deliberately assimp-free: the rule is a function of what the file said
@@ -15,12 +15,12 @@ project(test_name)
     -- the formats this engine ships — so the rule and the register cannot drift apart.
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Import/ImportUnits.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/ImportUnits.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",  -- <Common/Core/Units.hpp>: the centimetre convention
-        "%{wks.location}/Editor/Source",         -- <Editor/Import/ImportUnits.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",  -- <Common/Core/Units.hpp>: the centimetre convention
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",         -- <Editor/Import/ImportUnits.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

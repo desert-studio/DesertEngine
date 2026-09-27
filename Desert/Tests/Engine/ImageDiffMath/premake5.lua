@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The subject is Tools/ImageDiff/Source/ImageDiffMath.hpp and nothing else: a header with no state
     -- and no I/O, compiled here, exactly as Tools/LatticePeak/Source/LatticePeakMath.hpp is compiled by
@@ -18,7 +18,7 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Tools/ImageDiff/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/ImageDiff/Source",
     }
 
     for name, path in pairs(deps.TestSpecific.IncludeDir) do

@@ -5,25 +5,25 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
         -- The asset wrapper and the JSON round trip it parses with. The EVALUATOR is here too, because
         -- this suite's load-bearing assertion is not "the bytes round-trip" -- it is that one file becomes
         -- ONE object that several entities share, and the thing that consumes that object is an evaluator.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
         -- The evaluator delegates its structure check to the validator (ONE spelling of "which
         -- conditions name an undeclared parameter"), so the two units link together everywhere.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
 
     -- LINKED, not compiled in: SaveControlRigFile goes through Common's atomic write primitive, so the

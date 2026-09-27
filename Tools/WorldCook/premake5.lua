@@ -16,25 +16,25 @@ project "WorldCook"
 
     files {
         "Source/**.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         -- The partitioner places a landscape tile by its root's frame (LS-3); both files are pure and link
         -- only Common.
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
     }
 
     includedirs {
         -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
-        "%{wks.location}/Editor/Resources/Shaders",
-        "%{wks.location}/Tools/Shared",
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

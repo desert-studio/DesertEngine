@@ -751,7 +751,7 @@ jobs:
         shell: cmd
         run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
-          msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal ^
+          msbuild build\Projects\Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal ^
             "-p:CustomBeforeMicrosoftCommonProps=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.props" ^
             "-p:CustomAfterMicrosoftCommonTargets=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.targets"
 

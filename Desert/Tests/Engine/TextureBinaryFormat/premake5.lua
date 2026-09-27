@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The unit under test is the COOKED TEXTURE CONTAINER. Listed as a source rather than linked for
     -- the reason MeshBinaryFormat gives: libDesert pulls in Vulkan and the whole renderer, and none of
@@ -18,19 +18,19 @@ project(test_name)
     -- the same place it appears in the engine: the import side.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- the source image lives inside the .detex (AF7)
-        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- the source image lives inside the .detex (AF7)
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/",
-        "%{wks.location}/ThirdParty/stb/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

@@ -17,7 +17,7 @@ Windows (MSVC, LunarG Vulkan SDK).
 ## Quick start (Windows)
 
 ```bat
-scripts\Windows\Setup.bat                       :: one-time: MSVC v143 + Vulkan SDK + submodules + Desert.sln
+scripts\Windows\Setup.bat                       :: one-time: MSVC v143 + Vulkan SDK + submodules + build\Projects\Desert.sln
 scripts\Windows\BuildWindows.bat Debug          :: generate project files and build everything
 scripts\Windows\RunEditor.bat    Debug          :: no --project = the built-in Desert Sandbox
 ```

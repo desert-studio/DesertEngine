@@ -26,7 +26,7 @@ dev_regen_makefiles "$LOG" || exit 2
 while pgrep -x make >/dev/null; do sleep 10; waited=$((waited + 10)); [ $waited -ge 1800 ] && { echo "migrate.sh: another make ran 30 min"; exit 3; }; done
 export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1 CCACHE_BASEDIR=/Users/daniilsavcenko/Desktop/Programming/C++
 for mk in Common SceneMigrator; do
-    if ! make -f "$mk.make" config=debug -j4 CC="ccache clang" CXX="ccache clang++" >>"$LOG/build.log" 2>&1; then
+    if ! make -C "$DEV_PROJECTS" -f "$mk.make" config=debug -j4 CC="ccache clang" CXX="ccache clang++" >>"$LOG/build.log" 2>&1; then
         echo "migrate.sh: building $mk FAILED; log $LOG/build.log"
         grep -m 5 -E "error:|Undefined symbols|No rule" "$LOG/build.log"
         exit 2
@@ -36,9 +36,9 @@ done
 # Staleness: make decides from .d files it may not have (a fresh objdir, a moved source); check independently.
 [ -x "$BINARY" ] || { echo "migrate.sh: $BINARY missing after build"; exit 2; }
 newer=$( { find Tools/SceneMigrator -maxdepth 3 -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) -newer "$BINARY" 2>/dev/null
-           [ Tools/SceneMigrator/premake5.lua -nt SceneMigrator.make ] && echo "Tools/SceneMigrator/premake5.lua (newer than SceneMigrator.make: run premake5 gmake)"
+           [ Tools/SceneMigrator/premake5.lua -nt "$DEV_PROJECTS/SceneMigrator.make" ] && echo "Tools/SceneMigrator/premake5.lua (newer than build/Projects/SceneMigrator.make: run premake5 gmake)"
            [ build/Bin/Debug/libCommon.a -nt "$BINARY" ] && echo build/Bin/Debug/libCommon.a
-           cat "$OBJ"/*.d 2>/dev/null | tr ' \\' '\n\n' | grep -E '\.(c|cc|cpp|h|hpp|inl|glslh)$' | sort -u |
+           cat "$OBJ"/*.d 2>/dev/null | tr ' \\' '\n\n' | grep -E '\.(c|cc|cpp|h|hpp|inl|glslh)$' | sed 's#^\.\./\.\./##' | sort -u |
                while read -r f; do [ -f "$f" ] && [ "$f" -nt "$BINARY" ] && echo "$f"; done; } | head -5)
 if [ -n "$newer" ]; then
     echo "migrate.sh: REFUSED — $BINARY is older than its inputs:"

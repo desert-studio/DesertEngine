@@ -18,14 +18,14 @@ project "FbxMeshSplitter"
         -- The JSON facade, compiled in as one source (the DesertCtl recipe): collection.json is written through
         -- Editor/Panels/Collections/CollectionManifest.hpp, the header the Collections panel reads it with.
         -- Linking Common instead would drag Optick and Cocoa into a CLI.
-        "%{wks.location}/Desert/Common/Source/Common/Json/Json.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Json/Json.cpp",
     }
 
     -- Header-only: Editor/Import/TextureSourceFormats.hpp, the single texture-source priority list this
     -- tool shares with AssimpImporter. Nothing from Editor is compiled or linked here.
     includedirs {
-        "%{wks.location}/Editor/Source",
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
     -- ResultStr needs fmt, header-only from the vendored spdlog.
@@ -36,12 +36,12 @@ project "FbxMeshSplitter"
     -- after `filter "configurations:Release"`, so it applied to RELEASE ONLY and the Debug build failed
     -- with "assimp/Importer.hpp file not found". A filter stays in force until the next one.
     externalincludedirs {
-        "%{wks.location}/Editor/ThirdParty/assimp/include",
-        "%{wks.location}/build/generated/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include",
-        "%{wks.location}/ThirdParty/spdlog/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include",
     }
     links { "Assimp" }
 

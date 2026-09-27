@@ -5,14 +5,14 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The unit under test is the header-only Editor/.../FileExplorer/AssetTooltipLayout.hpp: the size and
     -- placement rule of the Content Browser's hover tooltip, kept free of ImGui so it can be tested here.
     files { test_files }
 
-    includedirs { "%{wks.location}/Editor/Source" }
+    includedirs { "%{_MAIN_SCRIPT_DIR}/Editor/Source" }
 
     for name, path in pairs(deps.TestSpecific.IncludeDir) do
         externalincludedirs { path }
