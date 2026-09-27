@@ -33,8 +33,8 @@ namespace Desert::Editor
         auto* service = Runtime::ResourceRegistry::GetMeshService();
         auto* asset   = service->GetAsset( component.MeshHandle );
         if ( !asset )
-            return Common::MakeFormattedError<std::filesystem::path>( "static mesh asset {} is not loaded",
-                                                                      static_cast<uint64_t>( component.MeshHandle ) );
+            return Common::MakeFormattedError<std::filesystem::path>(
+                 "static mesh asset {} is not loaded", static_cast<uint64_t>( component.MeshHandle ) );
         const std::filesystem::path path = asset->GetMetadata().Filepath;
         if ( auto written = WriteEditedMeshAsset( path, *component.EditableMesh ); !written.IsSuccess() )
             return Common::MakeError<std::filesystem::path>( written.GetError() );

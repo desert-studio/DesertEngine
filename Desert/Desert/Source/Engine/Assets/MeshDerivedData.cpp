@@ -117,7 +117,8 @@ namespace Desert::Assets
         if ( !std::filesystem::is_regular_file( record, ec ) )
             return false;
         const auto recordHeader = Common::Content::ReadAssetHeaderIfStated( record, { {}, true } );
-        const auto assetHeader  = Common::Content::ReadAssetHeaderIfStated( assetPath, MeshAssetHeaderReadContext() );
+        const auto assetHeader =
+             Common::Content::ReadAssetHeaderIfStated( assetPath, MeshAssetHeaderReadContext() );
         if ( !recordHeader.IsSuccess() || !assetHeader.IsSuccess() || !recordHeader.GetValue().has_value() ||
              !assetHeader.GetValue().has_value() )
             return false;
