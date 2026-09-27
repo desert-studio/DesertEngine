@@ -797,9 +797,9 @@ namespace Desert::Core::Serialize
                      {
                          return type == "SkinnedMeshAsset"
                                      ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
-                                            Assets::AssetPriority::High, path ) )
+                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) )
                                      : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
-                                            Assets::AssetPriority::High, path ) );
+                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) );
                      },
                      [&m]( const Assets::Asset<Assets::MeshAsset>& mesh, ReferenceOrigin )
                      { Runtime::EnsureMeshRegistered( mesh, m ); } );
@@ -864,16 +864,15 @@ namespace Desert::Core::Serialize
             }
             if ( type == "StaticMeshAsset" || type == "SkinnedMeshAsset" || type == "MeshAsset" )
             {
-                auto a = mgr.FindByHandle<Assets::MeshAsset>( handle );
-                if ( !a )
-                    return 0;
-                // The SAME registration the path branch performs, through the SAME helper. The guard that
-                // stood here was `!svc->GetAsset( handle )`, which PARSES the `.stmesh` through
-                // EnsureLoaded before answering — asking "is it registered?" at the price of registering.
-                // The const_cast is the same one `FromPath` makes at its head and for the same reason: a
-                // resolver is handed the registry as const, and registering against it is a write.
-                Runtime::EnsureMeshRegistered( a, const_cast<Assets::AssetManager&>( mgr ) );
-                return guid;
+                // A shell already on record is registered; otherwise MeshService discovers the mesh from its
+                // registry row (AL1-5: no mesh shell is created at startup). Nothing is read here — the scene
+                // open waits for the scene's meshes afterwards (MeshService::AwaitResident).
+                if ( auto a = mgr.FindByHandle<Assets::MeshAsset>( handle ) )
+                {
+                    Runtime::EnsureMeshRegistered( a, const_cast<Assets::AssetManager&>( mgr ) );
+                    return guid;
+                }
+                return Runtime::DiscoverMesh( handle ) ? guid : 0;
             }
             if ( type == "SkyboxAsset" )
             {

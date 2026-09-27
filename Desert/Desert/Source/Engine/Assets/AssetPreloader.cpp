@@ -10,8 +10,6 @@
 #include <chrono>
 
 #include "Shader/ShaderAsset.hpp"
-#include "Mesh/StaticMeshAsset.hpp"
-#include "Mesh/SkinnedMeshAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
 #include "CloudTypeAsset.hpp"
 #include "UIThemeAsset.hpp"
@@ -46,10 +44,9 @@ namespace Desert::Assets
         // clips never arrived". It is deliberately not `[[nodiscard]]`: the other ten call sites have
         // nothing to do with the number, and a warning at each of them would be noise standing in for a
         // rule that applies to one of them.
-        // The kinds `PreloadCookedAssetsAndMaterials` creates, in its order: the stage's work, counted.
-        constexpr std::array kCookedAssetKinds = {
-             Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::Animation,
-             Common::Content::ContentKind::Skeleton, Common::Content::ContentKind::SkinnedMesh };
+        // The kinds `PreloadCookedAssetsAndMaterials` works over: since AL1-5 only the clip rows the
+        // animation library indexes (meshes and skeletons are discovered on demand by MeshService).
+        constexpr std::array kCookedAssetKinds = { Common::Content::ContentKind::Animation };
 
         // Progress across several ProcessAssetKind calls: one count of the whole call's rows.
         struct RowProgress
@@ -125,15 +122,10 @@ namespace Desert::Assets
 
     void AssetPreloader::PreloadCookedAssetsAndMaterials( const ItemProgress& progress )
     {
-        RowProgress rows{ &progress, 0, CookedAssetRowCount() };
-        // Meshes are scanned as UNPARSED shells (loadAfterCreate=false): the handle is path-derived in the
-        // ctor, so the big .stmesh parse + GPU build are deferred to the first Get (lazy).
-        ProcessAssetKind<StaticMeshAsset>( Common::Content::ContentKind::StaticMesh, m_AssetManager,
-                                           AssetPriority::Low, &rows,
-                                           /*loadAfterCreate=*/false );
-
         // TEXTURES AND MATERIALS ARE NOT HERE (AL1-4): TextureService and MaterialService discover a handle
-        // from its content-registry row on first use and read it through AsyncAssetLoader.
+        // from its content-registry row on first use and read it through AsyncAssetLoader. NEITHER ARE
+        // MESHES OR SKELETONS (AL1-5): MeshService discovers a mesh the same way, and its rig by the
+        // registry's Rig tag, so no shell of either kind is created here.
 
         // The count is kept because the animation library's population needs it, and needing it is what
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
@@ -142,50 +134,10 @@ namespace Desert::Assets
         // Clips are NOT created here: the library indexes their registry rows and the loader reads a
         // clip when an animator first names it (AL1-6).
         const size_t animationFilesFound = ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size();
-
-        ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
-                                         AssetPriority::Low, &rows );
-
-        ProcessAssetKind<SkinnedMeshAsset>( Common::Content::ContentKind::SkinnedMesh, m_AssetManager,
-                                            AssetPriority::Low, &rows,
-                                            /*loadAfterCreate=*/false );
+        ReportItem( progress, "animation library", 0, animationFilesFound );
 
         if ( auto manager = m_AssetManager.lock() )
         {
-            // WHAT THE MESH LOOP IS FOR, now that it is no longer "so that scene loading works".
-            //
-            // They register EVERY asset under the two content roots, including the great majority no scene
-            // references: that is what the Content Browser, the thumbnail sweep, the material and mesh
-            // pickers and the drag-and-drop targets read. A scene's OWN references are registered by the
-            // scene parse itself (Engine/Core/Serialize/ComponentRegistry.cpp — search
-            // EnsureMeshRegistered), which is where they belong, because that is the only place that knows
-            // a scene asked for them.
-            //
-            // IT USED TO BE BOTH, AND ONLY ONE OF THE TWO JOBS WAS WRITTEN DOWN. The parse registered a
-            // reference only when it CREATED the record, so every reference to an asset these loops had
-            // already created was resolved to a live handle no service could answer for — and nothing
-            // broke, only because `EditorLayer::OnUpdate` holds every scene load until these stages have
-            // run. That ordering is still true and still wanted; it is no longer LOAD-BEARING, and a
-            // safety net nobody can see is a safety net somebody removes.
-            //
-            // Register SHELLS only — the mesh buffers are built on the first Get (lazy, cascades from a
-            // spawned entity). Textures and materials left this loop set in AL1-4 (discovered on demand).
-            for ( const auto& [handle, meshAsset] : manager->FindAllByType<Assets::MeshAsset>() )
-            {
-                // The manager travels WITH the shell. A .skmesh names its skeleton by a signature stored
-                // inside the file, so the resolve CreateAsset already ran above saw a signature of 0 and
-                // bound nothing; the deferred load is the first moment the answer exists, and this is what
-                // lets it ask again. Without it a skinned mesh loaded from a scene is invisible and says
-                // "MeshFactory: Skeleton dependency invalid" once per frame forever.
-                if ( const auto registered = Runtime::ResourceRegistry::GetMeshService()->RegisterAsset(
-                          meshAsset, m_AssetManager ); // unparsed shell
-                     !registered )
-                {
-                    LOG_ERROR( "Mesh shell '{}' could not be registered: {}",
-                               meshAsset->GetMetadata().Filepath.string(), registered.GetError() );
-                }
-            }
-
             // THE FOURTH REGISTER LOOP, and the reason it is here rather than in a layer. The animation
             // library is an index over clip assets exactly as the three services above are indexes over
             // theirs; it was the only one a HOST published to, and that is how one host ended up with a

@@ -108,7 +108,7 @@ namespace Desert::Assets
                  failure = error;
              },
              [&] { failure = "the request was cancelled"; } );
-        AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle );
+        AsyncAssetLoader::Get().AwaitOne( asset->GetMetadata().Handle );
         if ( !loaded || !asset->IsReadyForUse() )
             return Common::MakeFormattedError<bool>( "'{}' could not be read: {}",
                                                      asset->GetMetadata().Filepath.string(), failure );

@@ -99,6 +99,7 @@ namespace Desert::Runtime
         GetCloudLayoutService()->BindAssetManager( assets );
         GetTextureService()->BindAssetManager( assets );
         GetMaterialService()->BindAssetManager( assets );
+        GetMeshService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()

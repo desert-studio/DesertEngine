@@ -572,7 +572,7 @@ TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
     }
 }
 
-TEST( AssetPreloadCensus, TheRigGraphAndRetargetKindsHaveNoBootStageButSkeletonsStillDo )
+TEST( AssetPreloadCensus, TheRigGraphAndRetargetKindsHaveNoBootStage )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -600,11 +600,11 @@ TEST( AssetPreloadCensus, TheRigGraphAndRetargetKindsHaveNoBootStageButSkeletons
         }
     }
 
-    // THE ONE ANIMATION KIND STILL CREATED AT BOOT, deliberately: a skinned mesh binds its skeleton by
-    // scanning every created SkeletonAsset for its signature (SkinnedMeshAsset::ResolveDependencies), so
-    // skeletons go on demand only with the meshes (AL1-5). When that lands this pin is expected to flip.
+    // MESHES AND SKELETONS HAVE NO BOOT SHELLS SINCE AL1-5: MeshService discovers a mesh from its registry
+    // row and names its rig by the registry's Rig tag, so the preloader creates neither kind.
     const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
-    EXPECT_NE( preloader.find( "ProcessAssetKind<SkeletonAsset>" ), std::string::npos )
-         << "skeletons stopped being created at boot while skinned meshes still bind theirs among the "
-            "created ones; every skinned character would lose its rig";
+    for ( const char* created : { "ProcessAssetKind<SkeletonAsset>", "ProcessAssetKind<StaticMeshAsset>",
+                                  "ProcessAssetKind<SkinnedMeshAsset>", "GetMeshService()->RegisterAsset" } )
+        EXPECT_EQ( preloader.find( created ), std::string::npos )
+             << "the preloader does " << created << " again; meshes and skeletons are on demand (AL1-5)";
 }

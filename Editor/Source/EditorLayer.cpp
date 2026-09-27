@@ -33,6 +33,7 @@
 #include <Editor/Import/MeshDnD.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/JobSystem.hpp>
 
 // 1. Engine Core
@@ -8497,6 +8498,11 @@ namespace Desert::Editor
         }
         const std::size_t incoming = m_MainScene->GetAllEntities().size();
         phases.Lap( "deserialize (its own phases are logged above)", incoming );
+
+        // The scene's meshes are read by the loader's workers while the open waits, so its first frame is
+        // whole and no read happens in a frame (AL1-5).
+        const std::size_t meshes = Runtime::AwaitSceneMeshes( *m_MainScene );
+        phases.Lap( "wait for the scene's meshes", meshes );
 
         if ( const auto inited = m_MainScene->Init(); !inited.IsSuccess() )
         {
