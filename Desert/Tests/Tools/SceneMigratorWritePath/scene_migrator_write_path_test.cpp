@@ -474,12 +474,12 @@ namespace
 // changes nothing.
 TEST( SceneMigratorWritePath, AStringTableIsSplitIntoAFilePerLanguageOnceAndASecondRunChangesNothing )
 {
-    const fs::path dir    = MakeTempDir( "AL17bSplit" );
-    const fs::path v1     = dir / "Old.destrings";
-    const fs::path v2     = dir / "Headed.destrings";
-    const char*    guid   = "0123456789abcdef0123456789abcdef";
-    const char*    rows   = R"("Entries":[{"Key":"menu.play","Comment":"A verb.","Forms":{"en":{"other":"PLAY"},)"
-                            R"("ru":{"other":"GO-RU"}}}])";
+    const fs::path dir  = MakeTempDir( "AL17bSplit" );
+    const fs::path v1   = dir / "Old.destrings";
+    const fs::path v2   = dir / "Headed.destrings";
+    const char*    guid = "0123456789abcdef0123456789abcdef";
+    const char*    rows = R"("Entries":[{"Key":"menu.play","Comment":"A verb.","Forms":{"en":{"other":"PLAY"},)"
+                          R"("ru":{"other":"GO-RU"}}}])";
     {
         std::ofstream out( v1, std::ios::binary );
         out << R"({"FormatVersion":1,"DisplayName":"Old",)" << rows << "}";
@@ -512,7 +512,8 @@ TEST( SceneMigratorWritePath, AStringTableIsSplitIntoAFilePerLanguageOnceAndASec
             ASSERT_EQ( parsed.GetValue().Entries.size(), 1u );
             const auto& row = parsed.GetValue().Entries[0];
             EXPECT_EQ( row.Forms.at( "other" ), std::string( language ) == "en" ? "PLAY" : "GO-RU" );
-            EXPECT_EQ( row.Comment.has_value(), std::string( language ) == "en" ) << "the note belongs to the source";
+            EXPECT_EQ( row.Comment.has_value(), std::string( language ) == "en" )
+                 << "the note belongs to the source";
             const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
             ASSERT_TRUE( header ) << header.GetError();
             ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
