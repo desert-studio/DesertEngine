@@ -34,9 +34,10 @@ editor_running() {
 }
 
 # capture <exe> <bench-id> <frames> <out.png> <logdir> [extra...] — one editor run in a fresh HOME; 0 = PNG written.
-# The editor's exit code alone does not decide: 3 is CrashHandler's (Common/Core/CrashHandler.cpp), raised by a crash
-# in teardown AFTER the capture was written; such a run counts as captured only when engine_log.txt says the PNG was
-# written and the file is newer than the start, and it is reported, never folded into success silently.
+# Any non-zero exit is a failed capture. 3 is CrashHandler's (Common/Core/CrashHandler.cpp): today every --shot run
+# ends in a teardown access violation (EditorUIPass dtor -> Scene::UnregisterExternalPass on a destroyed renderer,
+# fixed by FIX6). FRAMES_EQUAL_TOLERATE_EXIT3=1 accepts exactly that case as a DIAGNOSTIC until FIX6 is in the tree:
+# engine_log.txt must say the PNG was written, the file must be newer than the start, and every such run is listed.
 capture() {
     local exe=$1 id=$2 frames=$3 out=$4 logs=$5; shift 5
     local spec; spec=$(bench "$id") || return 2
@@ -63,7 +64,7 @@ capture() {
     printf "%s\t%s\t%s\t%s\n" "$tag" "$rc" "$(($(date +%s) - t0))" "$exe --scene $scene --shot-frames $frames $cam $*" >>"$logs/runs.tsv"
     [ -f "$out" ] && [ "$(date -r "$out" +%s)" -ge "$t0" ] || { echo "$scene: no PNG (exit $rc; $logs/$tag.out)" >&2; return 2; }
     [ $rc = 0 ] && return 0
-    if [ $rc = 3 ] && grep -q "\[Shot\] wrote" "$logs/$tag.engine_log.txt" 2>/dev/null; then
+    if [ $rc = 3 ] && [ "${FRAMES_EQUAL_TOLERATE_EXIT3:-0}" = 1 ] && grep -q "\[Shot\] wrote" "$logs/$tag.engine_log.txt" 2>/dev/null; then
         echo "$tag" >>"$logs/teardown_crash.txt"
         return 0
     fi
