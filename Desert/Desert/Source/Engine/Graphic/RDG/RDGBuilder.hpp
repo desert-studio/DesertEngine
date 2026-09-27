@@ -171,7 +171,7 @@ namespace Desert::Graphic::RDG
         Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
 
         // Compiles against the backend's memory requirements, has the backend acquire physical resources,
-        // then for every executed pass in order: label/timestamp, its one barrier batch, begin rendering
+        // then for every executed pass in order: label/timestamp, its one barrier batch, begin render pass
         // (raster with attachments), the exec lambda, end rendering. Finishes with the final barriers and
         // writes the final states (and an extracted transient's image) back into every external and
         // extraction target. Runs once per builder.

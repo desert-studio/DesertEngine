@@ -116,7 +116,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
             if ( system && system.value().validation_layers_available )
+            {
                 builder.request_validation_layers( true );
+                // Synchronization validation (RDG2): the render graph derives every barrier, and a missing
+                // or too-weak one shows up as nothing but an intermittent wrong picture unless the layer
+                // checks hazards. VK_EXT_validation_features is provided by the layer itself.
+                builder.add_validation_feature_enable(
+                     VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT );
+            }
             else
                 LOG_ERROR( "Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled" );
             builder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME )

@@ -19,7 +19,7 @@
 //
 // Execute stays in the core (pass order, what runs, the barrier batch, write-back of external states)
 // and hands every device operation to an IBackend: acquiring physical resources, one barrier batch per
-// pass, begin/end rendering, and the label + timestamp pair around each pass - so profiling and labels
+// pass, begin/end of the render pass, and the label + timestamp pair around each pass - so profiling and labels
 // live in exactly one place, the backend's BeginPass/EndPass.
 namespace Desert::Graphic::RDG
 {
@@ -65,12 +65,6 @@ namespace Desert::Graphic::RDG
         const CompileResult*          Result = nullptr;
     };
 
-    enum class BackendKind : uint8_t
-    {
-        Recording, // the suite's fake: records the call sequence, touches no device
-        Vulkan,
-    };
-
     class IBackend
     {
     public:
@@ -85,12 +79,12 @@ namespace Desert::Graphic::RDG
 
         // Label and timestamp open around the pass.
         virtual void BeginPass( const CompiledPass& pass ) = 0;
-        // ONE batch of transitions (one vkCmdPipelineBarrier2); never called with an empty batch.
+        // ONE batch of transitions (one vkCmdPipelineBarrier); never called with an empty batch.
         virtual void RecordBarriers( std::span<const Barrier> barriers ) = 0;
         // Only for a raster pass that declared attachments.
-        virtual Common::BoolResultStr BeginRendering( const CompiledPass& pass ) = 0;
-        virtual void                  EndRendering()                             = 0;
-        virtual void                  EndPass( const CompiledPass& pass )        = 0;
+        virtual Common::BoolResultStr BeginRenderPass( const CompiledPass& pass ) = 0;
+        virtual void                  EndRenderPass()                             = 0;
+        virtual void                  EndPass( const CompiledPass& pass )         = 0;
 
         // Final transitions (extraction / final accesses; may be empty), then the backend releases this
         // graph's hold on its transients.

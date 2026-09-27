@@ -365,9 +365,10 @@ namespace Desert::Graphic::RDG
                          "graph '{}': transient '{}' got unusable memory requirements (size {}, alignment {}, "
                          "memory types {:#x})",
                          m_Name, record.Name, req.Size, req.Alignment, req.MemoryTypeBits );
-                candidates.push_back( { l, { RdgAlignOffset( req.Size, req.Alignment ), req.Alignment,
-                                             req.MemoryTypeBits,
-                                             isTexture ? MemoryClass::Texture : MemoryClass::Buffer } } );
+                candidates.push_back(
+                     { l,
+                       { RdgAlignOffset( req.Size, req.Alignment ), req.Alignment, req.MemoryTypeBits,
+                         isTexture ? MemoryClass::Texture : MemoryClass::Buffer } } );
             }
             // First come, first placed; larger first on ties so big targets take the low offsets.
             std::sort( candidates.begin(), candidates.end(),
@@ -540,6 +541,12 @@ namespace Desert::Graphic::RDG
                 AttachmentDecision decision;
                 decision.Slot       = attachment.Slot;
                 decision.IsDepth    = attachment.IsDepth;
+                const int32_t attachmentIndex = static_cast<int32_t>( &attachment - pass.Attachments.data() );
+                for ( const ResourceUse& use : pass.Uses )
+                {
+                    if ( use.Attachment == attachmentIndex )
+                        decision.Usage = use.Usage;
+                }
                 decision.Resource   = attachment.Resource;
                 decision.Mip        = attachment.Mip;
                 decision.BaseLayer  = attachment.BaseLayer;

@@ -48,15 +48,15 @@ namespace
             {
                 const uint32_t width  = std::max( 1u, desc.Size.Width >> mip );
                 const uint32_t height = std::max( 1u, desc.Size.Height >> mip );
-                const uint32_t depth =
-                     desc.Dim == TextureDim::Tex3D ? std::max( 1u, desc.Size.Depth >> mip ) : 1u;
+                const uint32_t depth = desc.Dim == TextureDim::Tex3D ? std::max( 1u, desc.Size.Depth >> mip ) : 1u;
                 bytes += Desert::Core::Formats::CalculateImageSize( width, height, depth, desc.Format );
             }
             bytes *= desc.Layers;
-            return Common::MakeSuccess( MemoryRequirements{ AlignUp( bytes, kTextureAlignment ), kTextureAlignment,
-                                                            ~0u } );
+            return Common::MakeSuccess(
+                 MemoryRequirements{ AlignUp( bytes, kTextureAlignment ), kTextureAlignment, ~0u } );
         }
-        Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc, uint32_t ) const override
+        Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc,
+                                                                     uint32_t ) const override
         {
             return Common::MakeSuccess(
                  MemoryRequirements{ AlignUp( desc.Bytes, kBufferAlignment ), kBufferAlignment, ~0u } );
@@ -103,14 +103,14 @@ namespace
         {
             Calls.push_back( "Barriers " + std::to_string( barriers.size() ) );
         }
-        Common::BoolResultStr BeginRendering( const CompiledPass& pass ) override
+        Common::BoolResultStr BeginRenderPass( const CompiledPass& pass ) override
         {
-            Calls.push_back( "BeginRendering " + std::to_string( pass.Attachments.size() ) );
+            Calls.push_back( "BeginRenderPass " + std::to_string( pass.Attachments.size() ) );
             return Common::MakeSuccess( true );
         }
-        void EndRendering() override
+        void EndRenderPass() override
         {
-            Calls.push_back( "EndRendering" );
+            Calls.push_back( "EndRenderPass" );
         }
         void EndPass( const CompiledPass& pass ) override
         {
@@ -920,8 +920,8 @@ TEST( RenderGraphCompile, ExecuteDrivesTheBackendInPassOrder )
         };
     };
     graph.AddPass(
-         "Clear", PassFlags::Raster,
-         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, a, LoadOp::ClearColor( 1, 0, 0, 1 ) ); }, exec( "Clear" ) );
+         "Clear", PassFlags::Raster, [&]( PassBuilder& pass )
+         { pass.ColorTarget( 0, a, LoadOp::ClearColor( 1, 0, 0, 1 ) ); }, exec( "Clear" ) );
     graph.AddPass(
          "Unused", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( dead, Access::StorageWrite ); },
          exec( "Unused" ) );
@@ -944,10 +944,10 @@ TEST( RenderGraphCompile, ExecuteDrivesTheBackendInPassOrder )
         if ( !pass.Barriers.empty() )
             expected.push_back( "Barriers " + std::to_string( pass.Barriers.size() ) );
         if ( pass.Name == "Clear" )
-            expected.push_back( "BeginRendering 1" );
+            expected.push_back( "BeginRenderPass 1" );
         expected.push_back( "Exec " + pass.Name );
         if ( pass.Name == "Clear" )
-            expected.push_back( "EndRendering" );
+            expected.push_back( "EndRenderPass" );
         expected.push_back( "EndPass " + pass.Name );
     }
     expected.push_back( "EndGraph " + std::to_string( result.FinalBarriers.size() ) );
@@ -978,7 +978,7 @@ TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
     EXPECT_NE( executed.GetError().find( "Broken" ), std::string::npos ) << executed.GetError();
     ASSERT_FALSE( backend.Calls.empty() );
     EXPECT_EQ( backend.Calls.back(), "AbandonGraph" );
-    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRendering" ), 0 );
+    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 0 );
     // The external keeps the state it had: nothing was written back.
     EXPECT_EQ( out.SubresourceStates.front(), GetAccessState( Access::None ) );
 }
@@ -1005,10 +1005,10 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
         mutable std::vector<uint32_t> Masks;
     };
 
-    ExternalTexture out1( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
-    ExternalTexture out2( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
-    ExternalTexture out3( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
-    Builder         graph( "typed" );
+    ExternalTexture  out1( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture  out2( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture  out3( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    Builder          graph( "typed" );
     const TextureRef a  = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "A" );
     const TextureRef b  = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "B" );
     const TextureRef c  = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "C" );
@@ -1016,8 +1016,8 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
     const TextureRef o2 = graph.RegisterExternal( out2, "Out2" );
     const TextureRef o3 = graph.RegisterExternal( out3, "Out3" );
     graph.AddPass(
-         "WriteA", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.ColorTarget( 0, a, LoadOp::ClearColor( 0, 0, 0, 0 ) ); },
-         Ok );
+         "WriteA", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, a, LoadOp::ClearColor( 0, 0, 0, 0 ) ); }, Ok );
     graph.AddPass(
          "ReadA", PassFlags::Raster,
          [&]( PassBuilder& pass )
@@ -1037,8 +1037,8 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
          },
          Ok );
     graph.AddPass(
-         "WriteC", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.ColorTarget( 0, c, LoadOp::ClearColor( 0, 0, 0, 0 ) ); },
-         Ok );
+         "WriteC", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, c, LoadOp::ClearColor( 0, 0, 0, 0 ) ); }, Ok );
     graph.AddPass(
          "ReadC", PassFlags::Raster,
          [&]( PassBuilder& pass )

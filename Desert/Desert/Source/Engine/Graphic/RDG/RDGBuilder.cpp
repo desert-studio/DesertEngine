@@ -172,14 +172,13 @@ namespace Desert::Graphic::RDG
 
     PassBuilder Builder::BeginPass( std::string_view name, PassFlags flags )
     {
-        const int kinds = ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) +
-                          ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
-                          ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 ) +
-                          ( HasFlag( flags, PassFlags::Legacy ) ? 1 : 0 );
+        const int kinds =
+             ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) + ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
+             ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 ) + ( HasFlag( flags, PassFlags::Legacy ) ? 1 : 0 );
         if ( kinds != 1 )
             RecordError( fmt::format(
-                 "graph '{}': pass '{}' names {} of Raster/Compute/Copy/Legacy; exactly one is required",
-                              m_Name, name, kinds ) );
+                 "graph '{}': pass '{}' names {} of Raster/Compute/Copy/Legacy; exactly one is required", m_Name,
+                 name, kinds ) );
 
         PassRecord record;
         record.Name  = std::string( name );
@@ -498,7 +497,7 @@ namespace Desert::Graphic::RDG
                  HasFlag( compiledPass.Flags, PassFlags::Raster ) && !compiledPass.Attachments.empty();
             if ( rendering )
             {
-                Common::BoolResultStr started = backend.BeginRendering( compiledPass );
+                Common::BoolResultStr started = backend.BeginRenderPass( compiledPass );
                 if ( !started )
                 {
                     backend.AbandonGraph();
@@ -515,7 +514,7 @@ namespace Desert::Graphic::RDG
                                                    outcome.GetError() );
             }
             if ( rendering )
-                backend.EndRendering();
+                backend.EndRenderPass();
             backend.EndPass( compiledPass );
         }
 

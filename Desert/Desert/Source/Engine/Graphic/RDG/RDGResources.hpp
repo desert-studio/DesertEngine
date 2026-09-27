@@ -115,16 +115,24 @@ namespace Desert::Graphic::RDG
     // A backend's image / buffer. The core only moves these between the backend, externals and pass
     // bindings; what is inside is the backend's business. An external holds one by shared_ptr, so an
     // extracted transient outlives the graph that created it.
+    enum class BackendKind : uint8_t
+    {
+        Recording, // the suite's fake: records the call sequence, touches no device
+        Vulkan,
+    };
+
     class IPhysicalTexture
     {
     public:
-        virtual ~IPhysicalTexture() = default;
+        virtual ~IPhysicalTexture()                = default;
+        virtual BackendKind GetBackendKind() const = 0;
     };
 
     class IPhysicalBuffer
     {
     public:
-        virtual ~IPhysicalBuffer() = default;
+        virtual ~IPhysicalBuffer()                 = default;
+        virtual BackendKind GetBackendKind() const = 0;
     };
 
     // A texture that outlives the graph (swapchain image, history buffer, a baked cube). It carries its

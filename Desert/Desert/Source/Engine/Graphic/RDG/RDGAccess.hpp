@@ -42,7 +42,7 @@ namespace Desert::Graphic::RDG
 
     inline constexpr uint32_t kAccessCount = static_cast<uint32_t>( Access::Count );
 
-    // Pipeline stages at synchronization2 granularity (the engine has no path without sync2).
+    // Pipeline stages, finer than Vulkan 1.0 in one place (Copy; the Vulkan backend maps it to TRANSFER).
     enum PipelineStage : uint32_t
     {
         PipelineStage_None                  = 0,
@@ -196,8 +196,9 @@ namespace Desert::Graphic::RDG
            "UniformRead",
            { kAllShaderStages, MemoryAccess_UniformRead, ImageLayout::Undefined },
            AccessTarget_Buffer },
-         // The presentation engine is outside every pipeline stage: sync2 expresses the hand-off as stage
-         // NONE with access NONE, the layout change being the only thing the barrier does.
+         // The presentation engine is outside every pipeline stage: the hand-off is stage
+         // NONE with access NONE (BOTTOM_OF_PIPE in a Vulkan 1.0 barrier), the layout change being the only thing
+         // the barrier does.
          { Access::Present,
            "Present",
            { PipelineStage_None, MemoryAccess_None, ImageLayout::Present },
