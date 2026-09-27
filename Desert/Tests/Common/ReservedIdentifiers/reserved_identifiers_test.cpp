@@ -21,7 +21,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -609,7 +611,8 @@ TEST( ReservedIdentifiers, NoArrayIsInitialisedEmpty )
     std::vector<std::string> offenders;
     for ( const Source& s : Sources() )
     {
-        if ( s.Code.find( "[]" ) == std::string::npos && s.Code.find( "[ ]" ) == std::string::npos )
+        // clang-format keeps `]` and `=` on one line, so this is a safe cheap reject.
+        if ( s.Code.find( "] =" ) == std::string::npos && s.Code.find( "]=" ) == std::string::npos )
             continue;
         for ( const std::string& o : EachMatch( s, emptyArray ) )
             offenders.push_back( o );
@@ -688,4 +691,245 @@ TEST( ReservedIdentifiers, EveryPosixOnlyUseSitsInsideAPlatformConditional )
             "Put it under `#if !defined( _WIN32 )` (or DESERT_PLATFORM_*) and give Windows its own spelling "
             "(_putenv_s, _stricmp, CreateProcess, LoadLibrary, localtime_s, ...):"
          << Listed( offenders );
+}
+
+// UNITY BUILD: ONE TRANSLATION UNIT, MANY FILES. Windows CI compiles Common, Desert and Editor as MSBuild
+// unity files, 12 sources each (BuildScripts/UnityBuild.lua). Two sources that each define the same
+// internal-linkage name — an anonymous-namespace helper or a `static` constant — compile alone and
+// collide the day they land in one group, which depends on nothing but the order of the file list. On
+// 2026-09-26 one such pair (`SubjectTitle`) broke the Windows build while every macOS job was green.
+//
+// The census cannot know the grouping, so it asserts the relation that makes grouping irrelevant: a
+// name defined with internal linkage in two unity sources of one project is either (a) in a file the
+// opt-out list keeps out of unity files, or (b) a row of the register below — one named row per pair
+// that exists today, each still true (a renamed helper must take its row with it). A NEW duplicate
+// fails here, in milliseconds, before it is ever grouped with its twin.
+//
+// Scope is by enclosing named namespace: `Desert::Assets::Reader` and `Desert::Editor::Reader` do not
+// collide. Overloads with different parameters are legal and still reported — the census reads names,
+// not signatures — and the remedy for one is a register row, not a rename.
+namespace
+{
+    // "project name", where name is qualified by its enclosing named namespaces.
+    constexpr const char* kUnityDuplicateRegister[] = {
+         "Desert Desert::Assets::DecodeImportInfo",   // MeshSourceAsset.cpp, TextureSourceAsset.cpp
+         "Desert Desert::Assets::EncodeImportInfo",   // MeshSourceAsset.cpp, TextureSourceAsset.cpp
+         "Desert Desert::Assets::PutU32",             // MeshDerivedData.cpp, TextureSourceAsset.cpp
+         "Desert Desert::Assets::Reader",             // MeshSourceAsset.cpp, TextureSourceAsset.cpp
+         "Desert Desert::Assets::kImportInfoVersion", // MeshSourceAsset.cpp, TextureSourceAsset.cpp
+         "Desert Desert::Assets::kKnown",             // MeshSourceAsset.cpp, TextureSourceAsset.cpp
+         "Desert Desert::Assets::s_Builder",          // MeshDerivedData.cpp, TextureSourceAsset.cpp
+         "Desert Desert::Assets::s_BuilderMutex",     // MeshDerivedData.cpp, TextureSourceAsset.cpp
+         "Desert Desert::ECS::Landscape",             // LandscapeCollision.cpp, LandscapeECSSystem.cpp
+         "Desert Desert::Geometry::CopyLayer",      // EditMeshTopologyOperations.cpp, EditMeshXformOperations.cpp
+         "Desert Desert::Geometry::Outcome",        // EditMeshModelOperations.cpp, EditMeshTopologyOperations.cpp
+         "Desert Desert::Geometry::WriteOverlay",   // DynamicMeshSerialization.cpp, EditMeshSerialization.cpp
+         "Editor Desert::Editor::Lower",            // AssetReferencesScan.cpp, FuzzyMatch.cpp
+         "Editor Desert::Editor::RelativeToAssets", // EditorPreferences.cpp, CloudTypePanel.cpp
+         "Editor Desert::Editor::SanitizeName",     // GamePackager.cpp, CollectionsPanel.cpp
+         "Editor Desert::Editor::ToU32",            // SkyAtmosphereComponent.cpp, WorldPartitionPanel.cpp
+    };
+
+    std::string Trimmed( const std::string& s )
+    {
+        const std::size_t b = s.find_first_not_of( " \t\r\n" );
+        const std::size_t e = s.find_last_not_of( " \t\r\n" );
+        return b == std::string::npos ? std::string() : s.substr( b, e - b + 1 );
+    }
+
+    // The name a namespace-scope declaration or definition head introduces, or "" when it introduces none
+    // this census can see.
+    std::string DeclaredName( std::string head )
+    {
+        // Preprocessor lines inside the head are not part of the declaration.
+        std::string        kept;
+        std::istringstream lines( head );
+        std::string        line;
+        while ( std::getline( lines, line ) )
+        {
+            if ( Trimmed( line ).rfind( "#", 0 ) != 0 )
+                kept += line + "\n";
+        }
+        head = Trimmed( kept );
+        static const std::regex skip(
+             R"(^(using\s+namespace\b|using\s+[\w:]+::\w+$|friend\b|return\b|extern\b))" );
+        static const std::regex type(
+             R"(^(template\s*<[^>]*>\s*)?(struct|class|enum\s+class|enum|union)\s+(\w+))" );
+        static const std::regex alias( R"(^using\s+(\w+)\s*=)" );
+        static const std::regex lastWord( R"((\w+)\s*$)" );
+        static const std::regex variable( R"(^[^=]*?\b(\w+)\s*(\[[^\]]*\])?\s*(=|$))" );
+        std::smatch             m;
+        if ( head.empty() || std::regex_search( head, skip ) )
+            return {};
+        if ( std::regex_search( head, m, type ) )
+            return m[3];
+        if ( std::regex_search( head, m, alias ) )
+            return m[1];
+        const std::size_t paren = head.find( '(' );
+        if ( paren != std::string::npos && head.substr( 0, paren ).find( '=' ) == std::string::npos )
+        {
+            const std::string before = head.substr( 0, paren );
+            if ( !std::regex_search( before, m, lastWord ) )
+                return {};
+            const std::string name = m[1];
+            for ( const char* keyword : { "if", "for", "while", "switch", "sizeof", "decltype", "static_assert" } )
+            {
+                if ( name == keyword )
+                    return {};
+            }
+            return name;
+        }
+        const std::string upToParen = paren == std::string::npos ? head : head.substr( 0, paren );
+        if ( std::regex_search( upToParen, m, variable ) )
+            return m[1];
+        return {};
+    }
+
+    // Internal-linkage names a source defines at namespace scope, qualified by the named namespaces
+    // around them: everything inside an anonymous namespace, and `static` declarations outside classes.
+    std::set<std::string> InternalNames( const std::string& code )
+    {
+        enum class Scope
+        {
+            Anonymous,
+            Named,
+            Other
+        };
+        std::set<std::string>    names;
+        std::vector<Scope>       stack;
+        std::vector<std::string> path;
+        std::string              pending;
+        static const std::regex  anonymous( R"(\bnamespace\s*$)" );
+        static const std::regex  named( R"(\bnamespace\s+([\w:]+)\s*$)" );
+        auto inside = [&stack]( Scope s ) { return std::find( stack.begin(), stack.end(), s ) != stack.end(); };
+        auto record = [&]( const std::string& head )
+        {
+            const std::string name = DeclaredName( head );
+            if ( name.empty() )
+                return;
+            std::string qualified;
+            for ( const std::string& p : path )
+                qualified += p + "::";
+            names.insert( qualified + name );
+        };
+        for ( const char c : code )
+        {
+            if ( c == '{' )
+            {
+                std::smatch       m;
+                const std::string head = Trimmed( pending );
+                if ( std::regex_search( head, anonymous ) )
+                    stack.push_back( Scope::Anonymous );
+                else if ( std::regex_search( head, m, named ) )
+                {
+                    stack.push_back( Scope::Named );
+                    path.push_back( m[1] );
+                }
+                else
+                {
+                    if ( !inside( Scope::Other ) &&
+                         ( inside( Scope::Anonymous ) || head.rfind( "static ", 0 ) == 0 ) )
+                        record( head );
+                    stack.push_back( Scope::Other );
+                }
+                pending.clear();
+            }
+            else if ( c == '}' )
+            {
+                if ( !stack.empty() )
+                {
+                    if ( stack.back() == Scope::Named && !path.empty() )
+                        path.pop_back();
+                    stack.pop_back();
+                }
+                pending.clear();
+            }
+            else if ( c == ';' )
+            {
+                const std::string head = Trimmed( pending );
+                if ( !inside( Scope::Other ) && ( inside( Scope::Anonymous ) || head.rfind( "static ", 0 ) == 0 ) )
+                    record( head );
+                pending.clear();
+            }
+            else
+            {
+                pending += c;
+            }
+        }
+        return names;
+    }
+
+    // BuildScripts/UnityBuild.lua's opt-out patterns, with the leading `**` dropped: a source matching one
+    // is its own translation unit on Windows too, so it cannot collide.
+    std::vector<std::string> UnityOptOuts()
+    {
+        std::vector<std::string> out;
+        const std::string        lua = ReadAll( RepoRoot() / "BuildScripts" / "UnityBuild.lua" );
+        const std::regex         pattern( R"re(pattern\s*=\s*"\*\*([^"]+)")re" );
+        for ( auto it = std::sregex_iterator( lua.begin(), lua.end(), pattern ); it != std::sregex_iterator();
+              ++it )
+            out.push_back( ( *it )[1] );
+        return out;
+    }
+} // namespace
+
+TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
+{
+    const std::vector<std::string> optOuts = UnityOptOuts();
+    ASSERT_GT( optOuts.size(), 3u ) << "BuildScripts/UnityBuild.lua's opt-out list was not found or not parsed";
+
+    const std::pair<const char*, const char*>       kProjects[] = { { "Common", "Desert/Common/Source/" },
+                                                                    { "Desert", "Desert/Desert/Source/" },
+                                                                    { "Editor", "Editor/Source/" } };
+    std::map<std::string, std::vector<std::string>> definers; // "project name" -> sources
+    for ( const Source& s : Sources() )
+    {
+        if ( s.Name.size() < 4 || s.Name.compare( s.Name.size() - 4, 4, ".cpp" ) != 0 )
+            continue;
+        // Platform directories compile on one platform only, so a MacOS/Windows pair never meets.
+        if ( s.Name.find( "/Platform/MacOS/" ) != std::string::npos ||
+             s.Name.find( "/Platform/Linux/" ) != std::string::npos ||
+             s.Name.find( "lightweightvk" ) != std::string::npos )
+            continue;
+        bool optedOut = false;
+        for ( const std::string& o : optOuts )
+            optedOut = optedOut || s.Name.find( o ) != std::string::npos;
+        if ( optedOut )
+            continue;
+        for ( const auto& [project, prefix] : kProjects )
+        {
+            if ( s.Name.rfind( prefix, 0 ) != 0 )
+                continue;
+            for ( const std::string& name : InternalNames( s.Code ) )
+                definers[std::string( project ) + " " + name].push_back( s.Name );
+        }
+    }
+
+    std::set<std::string> registered( std::begin( kUnityDuplicateRegister ), std::end( kUnityDuplicateRegister ) );
+    std::vector<std::string> unregistered;
+    for ( const auto& [key, files] : definers )
+    {
+        if ( files.size() > 1 && registered.count( key ) == 0 )
+        {
+            std::string where;
+            for ( const std::string& f : files )
+                where += " " + f;
+            unregistered.push_back( key + " —" + where );
+        }
+    }
+    std::vector<std::string> stale;
+    for ( const std::string& row : registered )
+    {
+        const auto it = definers.find( row );
+        if ( it == definers.end() || it->second.size() < 2 )
+            stale.push_back( row );
+    }
+
+    EXPECT_TRUE( unregistered.empty() )
+         << "The same internal-linkage name is defined in two unity sources of one project. They compile "
+            "alone and collide in the MSBuild unity file the day they are grouped together (Windows only). "
+            "Rename one (prefer a name that says what it does), or — for an intended overload — add a row "
+            "to kUnityDuplicateRegister:"
+         << Listed( unregistered );
+    EXPECT_TRUE( stale.empty() ) << "Register rows that are no longer duplicates; delete them:" << Listed( stale );
 }
