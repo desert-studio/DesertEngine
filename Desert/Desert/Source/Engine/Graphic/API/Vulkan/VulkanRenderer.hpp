@@ -3,6 +3,9 @@
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+
+#include <memory>
 
 #include <vulkan/vulkan.h>
 
@@ -30,7 +33,9 @@ namespace Desert::Graphic::API::Vulkan
 
         virtual void BeginDebugLabel( const char* name ) override;
         virtual void EndDebugLabel() override;
-        
+        Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph ) override;
+        std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) override;
+
         virtual void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
                                  const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,
                                  uint32_t firstInstance = 0, uint64_t hiddenSubmeshMask = 0,
@@ -136,6 +141,13 @@ namespace Desert::Graphic::API::Vulkan
 #endif
 
         std::weak_ptr<Framebuffer> m_CompositeFramebuffer;
+
+        // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool
+        // holds transient images per frame in flight; the backend is re-pointed at the frame's command
+        // buffer on every graph.
+        VulkanRdgDevice                   m_RdgDevice;
+        std::unique_ptr<VulkanRdgPool>    m_RdgPool;
+        std::unique_ptr<VulkanRdgBackend> m_RdgBackend;
     };
 
 } // namespace Desert::Graphic::API::Vulkan

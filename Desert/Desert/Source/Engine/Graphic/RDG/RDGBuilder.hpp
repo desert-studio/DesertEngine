@@ -155,7 +155,7 @@ namespace Desert::Graphic::RDG
                             const std::vector<TextureRef>& writes, Exec&& exec )
         {
             AddPass(
-                 name, PassFlags::Legacy,
+                 name, PassFlags::Legacy | PassFlags::NeverCull,
                  [&]( PassBuilder& pass )
                  {
                      for ( const TextureRef read : reads )

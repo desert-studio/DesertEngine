@@ -21,6 +21,11 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class RendererAPI;
+    namespace RDG
+    {
+        class Builder;
+        class IPhysicalTexture;
+    } // namespace RDG
 
     class Renderer : public Common::Singleton<Renderer>
     {
@@ -36,6 +41,8 @@ namespace Desert::Graphic
 
         // Named region in the current command buffer (RenderDoc pass tree). Pair Begin/End.
         void BeginDebugLabel( const char* name );
+        Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph );
+        std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image );
         void EndDebugLabel();
         void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
                          const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,

@@ -5,6 +5,7 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RenderPhaseRegistry.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
@@ -22,6 +23,10 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <functional>
+#include <initializer_list>
+#include <map>
+#include <memory>
 #include <atomic>
 #include <chrono>
 #include <format>
@@ -40,6 +45,97 @@ namespace Desert::Graphic
         // different scene arrives. A prefix renamed in one of the two would leave the rebind matching
         // nothing while still compiling, and the previous scene's grid would keep drawing over the new one.
         constexpr std::string_view kExternalSystemPrefix = "External:";
+    } // namespace
+
+    // The graph's names for the engine images the legacy passes render into and sample, registered as
+    // external textures on first use. An image is only named when it sits in SHADER_READ_ONLY, the layout
+    // AddLegacyPass assumes before and after every legacy pass; one the old code keeps elsewhere (a depth
+    // attachment, a multisampled colour target) would have the graph issue barriers from a layout the image
+    // is not in, so it stays undeclared until its pass is ported (RDG4).
+    class LegacyFrameTextures
+    {
+    public:
+        explicit LegacyFrameTextures( RDG::Builder& graph ) : m_Graph( graph )
+        {
+        }
+
+        std::vector<RDG::TextureRef>
+        Refs( std::initializer_list<std::pair<std::shared_ptr<Image2D>, std::string_view>> images )
+        {
+            std::vector<RDG::TextureRef> refs;
+            for ( const auto& [image, name] : images )
+                if ( const RDG::TextureRef ref = Get( image, name ); ref.IsValid() )
+                    refs.push_back( ref );
+            return refs;
+        }
+
+        std::vector<RDG::TextureRef> Colors( const std::shared_ptr<Framebuffer>& framebuffer,
+                                             std::string_view                    name )
+        {
+            std::vector<RDG::TextureRef> refs;
+            if ( !framebuffer )
+                return refs;
+            for ( uint32_t i = 0; i < framebuffer->GetColorAttachmentCount(); ++i )
+                if ( const RDG::TextureRef ref =
+                          Get( framebuffer->GetColorAttachmentImage( i ), std::format( "{}.Color{}", name, i ) );
+                     ref.IsValid() )
+                    refs.push_back( ref );
+            return refs;
+        }
+
+    private:
+        RDG::TextureRef Get( const std::shared_ptr<Image2D>& image, std::string_view name )
+        {
+            if ( !image )
+                return {};
+            if ( const auto it = m_Refs.find( image.get() ); it != m_Refs.end() )
+                return it->second;
+
+            RDG::TextureRef                        ref;
+            std::shared_ptr<RDG::IPhysicalTexture> physical = Renderer::GetInstance().WrapLegacyImage( *image );
+            if ( physical )
+            {
+                const auto&      spec = image->GetImageSpecification();
+                RDG::TextureDesc desc;
+                desc.Size      = { image->GetWidth(), image->GetHeight(), 1 };
+                desc.Format    = spec.Format;
+                desc.Mips      = image->GetMipmapLevels();
+                desc.Layers    = 1;
+                auto& external = m_Storage.emplace_back(
+                     std::make_unique<RDG::ExternalTexture>( desc, RDG::Access::LegacyWrite ) );
+                external->Physical = std::move( physical );
+                ref                = m_Graph.RegisterExternal( *external, name );
+            }
+            m_Refs.emplace( image.get(), ref );
+            return ref;
+        }
+
+        RDG::Builder&                                      m_Graph;
+        std::vector<std::unique_ptr<RDG::ExternalTexture>> m_Storage; // outlive Execute: the graph points at them
+        std::map<const Image2D*, RDG::TextureRef>          m_Refs;
+    };
+
+    namespace
+    {
+        // What one legacy pass hands a later one inside the same frame graph (the passes run at Execute).
+        struct LegacyFrameValues
+        {
+            std::shared_ptr<Image2D> AoImage;
+            std::shared_ptr<Image2D> GiImage;
+            std::shared_ptr<Image2D> SceneCopy;
+            SunScreen                Sun{ glm::vec2( 0.5f ), 0.0f };
+        };
+
+        void AddLegacy( RDG::Builder& graph, std::string_view name, const std::vector<RDG::TextureRef>& reads,
+                        const std::vector<RDG::TextureRef>& writes, std::function<void()> body )
+        {
+            graph.AddLegacyPass( name, reads, writes,
+                                 [body = std::move( body )]( RDG::PassContext& ) -> Common::BoolResultStr
+                                 {
+                                     body();
+                                     return BOOLSUCCESS;
+                                 } );
+        }
     } // namespace
 
     void SceneRenderer::Init()
@@ -743,67 +839,76 @@ namespace Desert::Graphic
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
 
+        // THE FRAME IS A GRAPH (RDG3). Every GPU pass of this view from here on is one AddLegacyPass, added
+        // in exactly the order the frame used to record them; nothing is culled or reordered (that is RDG4,
+        // one pass at a time). A pass this frame does not run is not added. The lambdas run inside Execute,
+        // after the whole graph is built, so a value one pass hands a later one travels through `values`,
+        // which outlives Execute; everything else they need is captured by value.
+        RDG::Builder        graph( "SceneView" );
+        LegacyFrameTextures textures( graph );
+        const auto          values = std::make_shared<LegacyFrameValues>();
+
+        const auto sceneColor = [this, &textures]()
         {
-            DESERT_PROFILE_PASS( "ClearMainFramebuffer" );
-            ClearMainFramebuffer();
-        }
+            return textures.Refs(
+                 { { m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr,
+                     "SceneColor" } } );
+        };
+
+        AddLegacy( graph, "ClearMainFramebuffer", {}, textures.Colors( m_TargetFramebuffer, "SceneColor" ),
+                   [this]() { ClearMainFramebuffer(); } );
 
         // Particle simulation compute (outside any render pass) BEFORE the graph records the billboard draw,
         // so the freshly-integrated particle buffer is ready + visible to the vertex stage.
-        {
-            DESERT_PROFILE_PASS( "Particles: SimulateInFrame" );
-            UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->SimulateInFrame();
-        }
+        AddLegacy(
+             graph, "Particles: SimulateInFrame", {}, {},
+             [this]() {
+                 UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->SimulateInFrame();
+             } );
 
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of
-        // the frame, because its consumer is the DEFERRED LIGHTING pass — which runs immediately after
-        // the graph, long before ExecuteVolumetricClouds(). Sampling a map written after it was read
-        // would shade the world with the sun's position of one frame ago, and under a moving sun that is
-        // a shadow that lags its cloud.
-        //
-        // Nothing forces it later: it reads no scene depth, no G-buffer and no atmosphere LUT — only the
-        // cloud field, the sun direction and the camera position, all of which are final before the graph
-        // records. It is an in-frame compute dispatch and so must be outside any open render pass, which
-        // this point is.
-        {
-            DESERT_PROFILE_PASS( "CloudShadowMap" );
-            ExecuteCloudShadowMap();
-        }
+        // the frame, because its consumer is the DEFERRED LIGHTING pass. It reads no scene depth, no
+        // G-buffer and no atmosphere LUT, and it is an in-frame compute dispatch, so it must be outside any
+        // open render pass, which this point is.
+        AddLegacy( graph, "CloudShadowMap", {}, {}, [this]() { ExecuteCloudShadowMap(); } );
 
-        {
-            DESERT_PROFILE_PASS( "ExecuteRenderGraph" );
-            ExecuteRenderGraph();
-        }
+        // The registered systems' passes (and the editor's external passes) outside the overlay phases.
+        AddGraphPhasePasses(
+             graph, textures, []( RenderPhaseID phase ) { return !RenderPhase::IsDeferredOverlay( phase ); },
+             true );
 
-        // Deferred: fill the G-buffer (manual pass, outside the graph) then shade it (or show a debug channel)
-        // into the scene target before the post chain.
+        // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
+        // the post chain.
         if ( m_RenderPath == Core::RenderPath::Deferred && m_GBuffer )
         {
-            DESERT_PROFILE_PASS( "Deferred: Lighting" );
-
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            meshRenderer->RenderGBufferManual();
-            {
-                // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is
-                // the graph's "TerrainPass").
-                DESERT_PROFILE_PASS( "TerrainGBuffer" );
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
-                // type
-                // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
-                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->RenderGBufferManual();
-                // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-            }
+            const std::vector<RDG::TextureRef> gbuffer = textures.Colors( m_GBuffer, "GBuffer" );
+
+            AddLegacy( graph, "Deferred: GBuffer", {}, gbuffer,
+                       [meshRenderer]() { meshRenderer->RenderGBufferManual(); } );
+            // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the
+            // graph's "TerrainPass").
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            AddLegacy( graph, "TerrainGBuffer", {}, gbuffer,
+                       [this]() {
+                           UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                                ->RenderGBufferManual();
+                       } );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
 
             // Resolve the G-buffer depth (static opaque geometry) into the scene target depth. The deferred
-            // composite writes only colour, so without this the target depth stays empty and depth-tested
-            // overlays (grid, colliders) never get occluded by static meshes — they drew "through" them.
-            // Done here, outside any render pass, before the forward-over-composite draws so they too test
-            // against real geometry depth.
+            // composite writes only colour, so without this depth-tested overlays (grid, colliders) never get
+            // occluded by static meshes. Outside any render pass, before the forward-over-composite draws.
             if ( m_TargetFramebuffer && m_TargetFramebuffer->GetDepthAttachmentCount() > 0 &&
                  m_GBuffer->GetDepthAttachmentCount() > 0 )
             {
-                Renderer::GetInstance().CopyDepthImage( m_GBuffer->GetDepthAttachmentImage().get(),
-                                                        m_TargetFramebuffer->GetDepthAttachmentImage().get() );
+                AddLegacy( graph, "Deferred: DepthResolve", {}, {},
+                           [this]()
+                           {
+                               Renderer::GetInstance().CopyDepthImage(
+                                    m_GBuffer->GetDepthAttachmentImage().get(),
+                                    m_TargetFramebuffer->GetDepthAttachmentImage().get() );
+                           } );
             }
 
             glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );
@@ -824,341 +929,285 @@ namespace Desert::Graphic
             // SSAO first (reads the G-buffer world pos + normal into the AO buffer); the lighting pass below
             // multiplies its ambient term by this. Skipped when disabled (the shader uses AO=1 then).
             //
-            // The hemisphere radius and depth bias are WORLD distances (SSAO.shader offsets samples by
-            // TBN*dir*radius in world space), and a world unit is a centimetre. The classic recipe these
-            // numbers come from (John Chapman-style hemisphere SSAO, radius 0.5, bias 0.025) states them
-            // in METRES; they were passed bare, so the occlusion hemisphere was five MILLIMETRES wide and
-            // the pass returned ~1.0 for every pixel of every scene while costing a full-screen 16-tap
-            // pass per frame. The radius keeps the literature's 0.5 m after an A/B against 0.25 m and
-            // 1 m on CornellDemo's AO channel (corner-band p05 occlusion vs a flat wall's 0%): 0.25 m
-            // darkens only a narrow seam (8%), 1 m reaches 16% but smears a grainy gradient a third of
-            // the way up the wall — 16 samples spread over a metre read as dirt, not contact — and 0.5 m
-            // (12%) keeps the darkening at the corner with the sample noise still unobtrusive.
-            constexpr float          kSSAORadius = Common::Units::Metres( 0.5f );   // literature: 0.5 m
-            constexpr float          kSSAOBias   = Common::Units::Metres( 0.025f ); // literature: 0.025 m
-            std::shared_ptr<Image2D> aoImage;
+            // The hemisphere radius and depth bias are WORLD distances, and a world unit is a centimetre;
+            // the classic recipe (John Chapman-style hemisphere SSAO, radius 0.5, bias 0.025) states them in
+            // METRES.
+            constexpr float              kSSAORadius    = Common::Units::Metres( 0.5f );   // literature: 0.5 m
+            constexpr float              kSSAOBias      = Common::Units::Metres( 0.025f ); // literature: 0.025 m
+            std::vector<RDG::TextureRef> compositeReads = gbuffer;
             if ( m_EnableSSAO )
                 if ( auto* ssao = UNIQUE_GET_AS( System::SSAORenderer, m_RenderSystems["SSAOSystem"] ) )
                 {
-                    ssao->Execute( m_GBuffer, viewProj, cameraPos, kSSAORadius, kSSAOBias,
-                                   /*power*/ 1.5f, /*samples*/ 16 );
-                    aoImage = ssao->GetAOImage();
+                    const std::vector<RDG::TextureRef> ao = textures.Refs( { { ssao->GetAOImage(), "SSAO" } } );
+                    compositeReads.insert( compositeReads.end(), ao.begin(), ao.end() );
+                    AddLegacy( graph, "Deferred: SSAO", gbuffer, ao,
+                               [this, ssao, viewProj, cameraPos, values]()
+                               {
+                                   ssao->Execute( m_GBuffer, viewProj, cameraPos, kSSAORadius, kSSAOBias,
+                                                  /*power*/ 1.5f, /*samples*/ 16 );
+                                   values->AoImage = ssao->GetAOImage();
+                               } );
                 }
 
-            // RSM GI mode: rasterize the sun's G-buffer, then resolve one bounce out of it. The RSM is a
-            // LOW-FREQUENCY input to a temporally-accumulated resolve, so it is refreshed every Nth frame
-            // (and immediately when the sun moves) rather than every frame.
-            std::shared_ptr<Image2D> giImage;
             if ( m_GIMode == Core::GIMode::RSM && meshRenderer && EnsureGIResources() )
             {
-                const glm::vec3 sunDir( lightDir );
+                const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
+                const glm::vec3                    sunDir( lightDir );
                 if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
                 {
-                    DESERT_PROFILE_PASS( "Deferred: RSM" );
-                    meshRenderer->RenderRSMManual();
+                    AddLegacy( graph, "Deferred: RSM", {}, rsm,
+                               [meshRenderer]() { meshRenderer->RenderRSMManual(); } );
                     m_RSMLastSunDir = sunDir;
                 }
                 m_RSMFrameCounter = ( m_RSMFrameCounter + 1 ) % kRSMRefreshEvery;
 
                 if ( auto* gi = UNIQUE_GET_AS( System::GIResolveRenderer, m_RenderSystems["GISystem"] ) )
                 {
-                    DESERT_PROFILE_PASS( "Deferred: GIResolve" );
-                    gi->Execute( m_GBuffer, m_RSMBuffer->GetColorAttachmentImage( 0 ),
-                                 m_RSMBuffer->GetColorAttachmentImage( 1 ),
-                                 m_RSMBuffer->GetColorAttachmentImage( 2 ), meshRenderer->GetRSMViewProj(),
-                                 viewProj, lightColor, m_GIIntensity );
-                    giImage = gi->GetGIImage();
+                    std::vector<RDG::TextureRef> giReads = gbuffer;
+                    giReads.insert( giReads.end(), rsm.begin(), rsm.end() );
+                    const std::vector<RDG::TextureRef> giOut = textures.Refs( { { gi->GetGIImage(), "GI" } } );
+                    compositeReads.insert( compositeReads.end(), giOut.begin(), giOut.end() );
+                    AddLegacy( graph, "Deferred: GIResolve", giReads, giOut,
+                               [this, gi, meshRenderer, viewProj, lightColor, values]()
+                               {
+                                   gi->Execute( m_GBuffer, m_RSMBuffer->GetColorAttachmentImage( 0 ),
+                                                m_RSMBuffer->GetColorAttachmentImage( 1 ),
+                                                m_RSMBuffer->GetColorAttachmentImage( 2 ),
+                                                meshRenderer->GetRSMViewProj(), viewProj, lightColor,
+                                                m_GIIntensity );
+                                   values->GiImage = gi->GetGIImage();
+                               } );
                 }
             }
 
-            // Gather the same CSM data the forward material uses so the deferred sun casts identical shadows.
-            DeferredShadowInput shadow;
-            if ( meshRenderer )
+            AddLegacy(
+                 graph, "Deferred: Composite", compositeReads, sceneColor(),
+                 [this, meshRenderer, lightDir, lightColor, cameraPos, values]()
+                 {
+                     DeferredShadowInput shadow;
+                     if ( meshRenderer )
+                     {
+                         shadow.CascadeVP            = meshRenderer->GetCascadeViewProj();
+                         shadow.Count                = meshRenderer->GetValidCascadeCount();
+                         shadow.Bias                 = meshRenderer->GetShadowBias();
+                         shadow.Enabled              = meshRenderer->AreShadowsEnabled();
+                         shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
+                         for ( uint32_t c = 0; c < shadow.Count && c < 4u; ++c )
+                         {
+                             const auto img        = meshRenderer->GetCascadeShadowImage( c );
+                             shadow.CascadeMaps[c] = img ? img.get() : nullptr;
+                         }
+                     }
+
+                     const CloudShadowInput cloudShadow = GetCloudShadowInput();
+
+                     DeferredEnvironmentInput environment;
+                     {
+                         auto* imageService = Runtime::ResourceRegistry::GetImageService();
+                         if ( const auto& env = GetEnvironment(); env.has_value() )
+                         {
+                             environment.Look = env->Look;
+                             if ( env->IrradianceMap.IsValid() )
+                                 environment.Irradiance =
+                                      static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
+                             if ( env->PreFilteredMap.IsValid() )
+                                 environment.Prefiltered =
+                                      static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
+                         }
+                         if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
+                              brdf && brdf->GetImageHandle().IsValid() )
+                             environment.BrdfLut =
+                                  static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
+                     }
+
+                     const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
+                     UNIQUE_GET_AS( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
+                          ->Execute( m_GBuffer, lightDir, lightColor, cameraPos,
+                                     static_cast<int>( m_DebugView.DeferredDebug ), GetPointLights(),
+                                     GetSpotLights(), shadow, values->AoImage, giIntensity, m_EnableSSAO,
+                                     static_cast<int>( m_GIMode ), values->GiImage, cloudShadow, environment );
+                 } );
+
+            AddLegacy( graph, "Deferred: Generic", {}, sceneColor(),
+                       [meshRenderer]() { meshRenderer->RenderGenericManual(); } );
+            AddLegacy( graph, "Deferred: Skinned", {}, sceneColor(),
+                       [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
+
+            auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+            std::vector<RDG::TextureRef> copyReads;
+            if ( copy )
             {
-                shadow.CascadeVP = meshRenderer->GetCascadeViewProj();
-                // The count FITTED this frame, not the count allocated — the same number the forward path
-                // publishes (MeshRenderer::CaptureFrameState). The two paths shadow the same sun and a
-                // disagreement here is a deferred frame shading against matrices the forward one refused.
-                shadow.Count                = meshRenderer->GetValidCascadeCount();
-                shadow.Bias                 = meshRenderer->GetShadowBias();
-                shadow.Enabled              = meshRenderer->AreShadowsEnabled();
-                shadow.CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel();
-                for ( uint32_t c = 0; c < shadow.Count && c < 4u; ++c )
-                {
-                    const auto img        = meshRenderer->GetCascadeShadowImage( c );
-                    shadow.CascadeMaps[c] = img ? img.get() : nullptr;
-                }
+                copyReads = textures.Refs( { { copy->GetImage(), "SceneCopy" } } );
+                AddLegacy( graph, "Deferred: SceneCopy", sceneColor(), copyReads,
+                           [this, copy, values]()
+                           {
+                               copy->Execute( m_TargetFramebuffer->GetColorAttachmentImage( 0 ) );
+                               values->SceneCopy = copy->GetImage();
+                           } );
             }
 
-            // The cloud layer's shadow on the world — a SECOND occluder of the same sun, filled by
-            // ExecuteCloudShadowMap() before the graph recorded. The SAME payload the forward mesh
-            // materials and the terrain material are handed (GetCloudShadowInput), gathered once: this
-            // used to be gathered inline right here, and that is exactly why nothing outside this branch
-            // ever received a cloud shadow.
-            const CloudShadowInput cloudShadow = GetCloudShadowInput();
-
-            // The baked sky the composite shades its ambient with — resolved from the SAME Environment
-            // and the SAME BRDF LUT that MeshRenderer::CaptureFrameState hands the forward materials
-            // (through Graphic::PBRSceneFrame). One bake, one generation, both paths: gathering it a second
-            // way here would be the mirror that drifts, and the forward-drawn skinned/glass meshes
-            // composited over this pass a few lines below would eventually reflect a different sky from
-            // the wall behind them.
-            DeferredEnvironmentInput environment;
-            {
-                auto* imageService = Runtime::ResourceRegistry::GetImageService();
-                if ( const auto& env = GetEnvironment(); env.has_value() )
-                {
-                    environment.Look = env->Look;
-                    if ( env->IrradianceMap.IsValid() )
-                        environment.Irradiance =
-                             static_cast<ImageCube*>( imageService->Resolve( env->IrradianceMap ) );
-                    if ( env->PreFilteredMap.IsValid() )
-                        environment.Prefiltered =
-                             static_cast<ImageCube*>( imageService->Resolve( env->PreFilteredMap ) );
-                }
-                if ( const auto& brdf = Renderer::GetInstance().GetBRDFTexture();
-                     brdf && brdf->GetImageHandle().IsValid() )
-                    environment.BrdfLut = static_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
-            }
-
-            // The RSM path pre-applies its intensity in GIResolve, so pass 0 there to avoid scaling twice;
-            // the screen-space gather is scaled inside the lighting shader.
-            const float giIntensity = ( m_GIMode == Core::GIMode::ScreenSpace ) ? m_GIIntensity : 0.0f;
-            {
-                // The composite ALONE. "Deferred: Lighting" above spans the whole deferred stage — the
-                // G-buffer fill, SSAO, the RSM, the forward-over draws, the copy and SSR — so its slope
-                // cannot price a change to this pass, and a frame-to-frame delta prices the machine.
-                // Its siblings (RSM, GIResolve, SSR) were already itemised; this was the one full-screen
-                // pass in the stage with no line of its own, which made the cost of the ambient
-                // unmeasurable at exactly the moment it acquired two cube samples and a LUT fetch.
-                DESERT_PROFILE_PASS( "Deferred: Composite" );
-                UNIQUE_GET_AS( System::DeferredLightingRenderer, m_RenderSystems["DeferredLightingSystem"] )
-                     ->Execute( m_GBuffer, lightDir, lightColor, cameraPos,
-                                static_cast<int>( m_DebugView.DeferredDebug ), GetPointLights(), GetSpotLights(),
-                                shadow, aoImage, giIntensity, m_EnableSSAO, static_cast<int>( m_GIMode ), giImage,
-                                cloudShadow, environment );
-            }
-
-            // Custom-shader (generic) meshes have no G-buffer variant — draw them forward OVER
-            // the deferred composite (before the glass snapshot so glass refracts them too).
-            meshRenderer->RenderGenericManual();
-
-            // Skinned meshes also have no G-buffer variant (the G-buffer pass draws static only), so draw
-            // them forward over the composite too — otherwise they only show in the silhouette/outline pass.
-            meshRenderer->RenderSkinnedManual();
-
-            // Snapshot the composited opaque scene, then draw the transparent (glass) meshes over it. The
-            // snapshot lets the glass sample the scene BEHIND it for refraction without a read+write feedback
-            // loop on the target. Uses a dedicated glass material (no double-written per-frame UB ring).
-            std::shared_ptr<Image2D> sceneCopy;
-            if ( auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] ) )
-            {
-                copy->Execute( m_TargetFramebuffer->GetColorAttachmentImage( 0 ) );
-                sceneCopy = copy->GetImage();
-            }
-
-            // SSR reflects the COMPOSITED opaque scene, so it runs off that same snapshot — reading the
-            // target while writing it would be a feedback loop. Before glass, so glass refracts the
-            // reflections too.
-            if ( m_EnableSSR && sceneCopy && EnsureSSRResources() )
+            // The copy is made by the pass above, so whether SSR has an input is known only once that pass
+            // has run: SSR is added whenever a copy pass exists and records nothing when the copy is empty.
+            if ( m_EnableSSR && copy && EnsureSSRResources() )
                 if ( auto* ssr = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["SSRSystem"] ) )
                 {
-                    DESERT_PROFILE_PASS( "Deferred: SSR" );
-                    // Hit-acceptance band in WORLD units (SSR.shader compares the refined camera-radial
-                    // delta against it), and a world unit is a centimetre. The usual SSR thickness of
-                    // 0.5 m was passed bare — a 5 mm band — so rays that genuinely crossed geometry
-                    // refined to a delta wider than the band and were discarded as silhouette gaps.
-                    constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
-                    ssr->Execute( m_GBuffer, sceneCopy, viewProj, cameraPos, /*maxSteps*/ 32, m_SSRMaxDistance,
-                                  m_SSRIntensity, kSSRThickness );
+                    std::vector<RDG::TextureRef> ssrReads = gbuffer;
+                    ssrReads.insert( ssrReads.end(), copyReads.begin(), copyReads.end() );
+                    AddLegacy(
+                         graph, "Deferred: SSR", ssrReads, sceneColor(),
+                         [this, ssr, viewProj, cameraPos, values]()
+                         {
+                             if ( !values->SceneCopy )
+                                 return;
+                             constexpr float kSSRThickness = Common::Units::Metres( 0.5f ); // literature: 0.5 m
+                             ssr->Execute( m_GBuffer, values->SceneCopy, viewProj, cameraPos, /*maxSteps*/ 32,
+                                           m_SSRMaxDistance, m_SSRIntensity, kSSRThickness );
+                         } );
                 }
 
-            meshRenderer->RenderGlassManual( sceneCopy );
+            AddLegacy( graph, "Deferred: Glass", copyReads, sceneColor(),
+                       [meshRenderer, values]() { meshRenderer->RenderGlassManual( values->SceneCopy ); } );
         }
 
-        // The physical atmosphere's LUTs: the cached pair (transmittance + multi-scattering), the
-        // per-view Sky-View LUT and the per-view aerial-perspective volume. In-frame compute, outside any
-        // open render pass, and BEFORE the atmospheric-fog pass, which samples the AP volume this very
-        // frame. The cached pair is almost always a fingerprint compare and an immediate return; nothing
-        // here runs at all for SkyModel::ArtisticGradient.
-        {
-            DESERT_PROFILE_PASS( "SkyAtmosphereLuts" );
-            UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->ExecuteAtmosphereLuts();
-        }
+        AddLegacy(
+             graph, "SkyAtmosphereLuts", {}, {},
+             [this]() {
+                 UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )->ExecuteAtmosphereLuts();
+             } );
+        AddLegacy( graph, "AtmosphericFog", {}, sceneColor(), [this]() { ExecuteAtmosphericFog(); } );
+        AddLegacy( graph, "VolumetricClouds", {}, sceneColor(), [this]() { ExecuteVolumetricClouds(); } );
 
-        // Atmosphere and fog: aerial perspective on opaque, with the closed-form height fog over it.
-        // HERE and not earlier — it reads the finished scene depth, which only exists after the graph in
-        // Forward and after the G-buffer depth copy in Deferred, and an in-frame compute dispatch has to
-        // be issued outside an open render pass. Both hold at exactly this point, and it follows the LUT
-        // slot above, which just filled the AP volume it samples. Its apply is replayed by
-        // ExecuteTransparency at RenderPassOrder::AtmosphericFog, under the particles, so they are drawn
-        // OVER the fogged scene.
-        {
-            DESERT_PROFILE_PASS( "AtmosphericFog" );
-            ExecuteAtmosphericFog();
-        }
-
-        // Volumetric clouds, on the same terms as the fog above and immediately after it: an in-frame
-        // compute dispatch outside any render pass, at the one point where the scene depth is final in
-        // both paths and this frame's atmosphere is already evaluated. Its composite is replayed by
-        // ExecuteTransparency at RenderPassOrder::FarField — over the fog, under the particles.
-        {
-            DESERT_PROFILE_PASS( "VolumetricClouds" );
-            ExecuteVolumetricClouds();
-        }
-
-        // Transparent billboards (GPU particles) over the finished opaque scene. Runs in BOTH paths here,
-        // after the deferred composite (Deferred) / after the forward geometry graph (Forward), but BEFORE
-        // the post chain so particles are tonemapped + bloom'd like everything else. Deferred recorded them
-        // inside the graph and the composite painted over them wherever geometry existed (the top-down bug).
-        {
-            DESERT_PROFILE_PASS( "Transparency" );
-            ExecuteTransparency();
-        }
+        // Particles (Transparency phase), debug lines and the UI canvas run AFTER the deferred lighting
+        // composite so lit geometry does not paint over them, and as LOAD overlays so a CLEAR begin never
+        // wipes the depth later overlays test against (the particle top-down bug / grid-through-meshes).
+        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::Transparency ) &&
+                            RenderPhase::IsDeferredOverlay( RenderPhase::Debug ) &&
+                            RenderPhase::IsDeferredOverlay( RenderPhase::UI ),
+                       "the overlay phases added below must be the ones the main phase walk skips" );
+        AddGraphPhasePasses(
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Transparency; }, false );
 
 #if DESERT_DEV_INSTRUMENTS
-        // Overdraw debug view: re-rasterize all meshes additively into a heat map over the finished scene
-        // color. Path-independent (redraws geometry, ignores the G-buffer), so it runs for Forward too.
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )
         {
-            DESERT_PROFILE_PASS( "Debug: Overdraw" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RenderOverdrawManual();
+            AddLegacy(
+                 graph, "Debug: Overdraw", {}, sceneColor(),
+                 [this]() {
+                     UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RenderOverdrawManual();
+                 } );
         }
 #endif // DESERT_DEV_INSTRUMENTS
 
-        // Debug overlays (bounding boxes, colliders) drawn LAST over the finished scene color — in both
-        // paths, but critically in Deferred where the lighting composite above would otherwise cover any
-        // debug lines recorded inside the graph. Runs before the post chain so tonemap treats them uniformly.
-        {
-            DESERT_PROFILE_PASS( "Debug: Overlay" );
-            ExecuteDebugOverlay();
-        }
+        AddGraphPhasePasses(
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false );
 
-        // Backdrop blur for UI glass, BEFORE the UI overlay draws into this target. Only when the canvas
-        // asked for it last frame: a full mip pyramid every frame for a UI that has no glass is waste,
-        // and the one-frame delay is invisible (the first glass frame simply blurs the previous image).
         if ( m_BackdropBlurNeeded )
         {
-            DESERT_PROFILE_PASS( "UI: BackdropBlur" );
             if ( auto* backdrop =
                       UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] ) )
-                backdrop->Execute();
+                AddLegacy( graph, "UI: BackdropBlur", sceneColor(),
+                           textures.Refs( { { backdrop->GetImage(), "BackdropBlur" } } ),
+                           [backdrop]() { backdrop->Execute(); } );
         }
 
-        // UI canvas (Render2D) on top of the finished scene, as a LOAD overlay — see ExecuteUI(). Kept out of
-        // the main graph so its CLEAR begin can't wipe the depth the grid/overlays above load.
-        {
-            DESERT_PROFILE_PASS( "UI" );
-            ExecuteUI();
-        }
+        AddGraphPhasePasses(
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
 
-        // Explicit post-process chain (runs after the scene graph has produced the scene color and
-        // the silhouette mask): Jump Flood outline -> Tonemap.
-        {
-            DESERT_PROFILE_PASS( "PostFX: JumpFlood" );
-            const auto& jfa =
-                 UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-            // Skip the JFA step passes when nothing is outlined (sync is handled by render-pass layouts +
-            // the EndRenderPass barrier, not by the steps — see JumpFloodOutlineRenderer::Execute).
-            jfa->SetOutlineActive(
-                 UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
-            jfa->Execute();
-        }
+        AddLegacy( graph, "PostFX: JumpFlood", {}, {},
+                   [this]()
+                   {
+                       const auto& jfa =
+                            UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
+                       jfa->SetOutlineActive(
+                            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
+                       jfa->Execute();
+                   } );
 
-        // Eye adaptation: measure scene luminance into the 1x1 buffer, then point tonemap at the latest
-        // (the ping-pong target alternates each frame, so the reference must be refreshed here).
-        {
-            const auto& autoExp =
-                 UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
-            autoExp->Execute();
-            UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-                 ->SetAutoExposureImage( autoExp->GetAdaptedLuminanceImage() );
-        }
+        AddLegacy( graph, "PostFX: AutoExposure", sceneColor(), {},
+                   [this]()
+                   {
+                       const auto& autoExp =
+                            UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
+                       autoExp->Execute();
+                       UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
+                            ->SetAutoExposureImage( autoExp->GetAdaptedLuminanceImage() );
+                   } );
 
-        // Bloom (HDR scene color -> blurred bright) runs before tonemap, which adds it in.
         if ( m_BloomEnabled )
         {
-            DESERT_PROFILE_PASS( "PostFX: Bloom" );
-            UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )->Execute();
+            AddLegacy( graph, "PostFX: Bloom", sceneColor(), {}, [this]()
+                       { UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] )->Execute(); } );
         }
 
-        // Light shafts: the sun light's streaks, masked and radially blurred from the same HDR scene
-        // colour bloom reads. The intensity handed to tonemap carries the sun's screen-edge fade, and it
-        // is derived HERE, from the same numbers that decide whether the dispatches run — a zero
-        // intensity therefore always means the (possibly stale) shaft image is inert, the exact contract
-        // the bloom image has.
-        // Where the sun lands on screen, computed ONCE: the shafts stream from it and the flare is
-        // reflected about it, and two evaluations of one quantity is the defect class that has cost this
-        // project the most. Fade is 0 when the sun is behind the camera or far past the screen edge, and
-        // both effects multiply it — that, not a branch, is what stops either painting from a sun behind
-        // the viewer.
-        SunScreen            sun{ glm::vec2( 0.5f ), 0.0f };
-        const AtmosphereEnv& atmosphere = GetAtmosphere();
-        if ( m_SceneInfo.ActiveCamera && atmosphere.Valid )
-        {
-            const glm::mat4 viewProjection =
-                 m_SceneInfo.ActiveCamera->GetProjectionMatrix() * m_SceneInfo.ActiveCamera->GetViewMatrix();
-            sun = ComputeSunScreen( viewProjection, atmosphere.SunDirection );
-        }
+        AddLegacy( graph, "PostFX: LightShafts", sceneColor(), {},
+                   [this, values]()
+                   {
+                       const AtmosphereEnv& atmosphere = GetAtmosphere();
+                       if ( m_SceneInfo.ActiveCamera && atmosphere.Valid )
+                       {
+                           const glm::mat4 viewProjection = m_SceneInfo.ActiveCamera->GetProjectionMatrix() *
+                                                            m_SceneInfo.ActiveCamera->GetViewMatrix();
+                           values->Sun = ComputeSunScreen( viewProjection, atmosphere.SunDirection );
+                       }
+                       const SunScreen& sun = values->Sun;
 
-        {
-            DESERT_PROFILE_PASS( "PostFX: LightShafts" );
-            const auto& shafts  = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
-            const auto& tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+                       const auto& shafts =
+                            UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
+                       const auto& tonemap =
+                            UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
 
-            shafts->SetParams( System::LightShaftRenderer::Params{
-                 .Enabled       = m_SunLightFx.LightShaftBloom,
-                 .BloomScale    = m_SunLightFx.BloomScale,
-                 .Threshold     = m_SunLightFx.BloomThreshold,
-                 .MaxBrightness = m_SunLightFx.BloomMaxBrightness,
-                 .BloomTint     = m_SunLightFx.BloomTint,
-            } );
-            shafts->Execute( sun.Uv, sun.Fade );
+                       shafts->SetParams( System::LightShaftRenderer::Params{
+                            .Enabled       = m_SunLightFx.LightShaftBloom,
+                            .BloomScale    = m_SunLightFx.BloomScale,
+                            .Threshold     = m_SunLightFx.BloomThreshold,
+                            .MaxBrightness = m_SunLightFx.BloomMaxBrightness,
+                            .BloomTint     = m_SunLightFx.BloomTint,
+                       } );
+                       shafts->Execute( sun.Uv, sun.Fade );
 
-            const float intensity = m_SunLightFx.LightShaftBloom ? m_SunLightFx.BloomScale * sun.Fade : 0.0f;
-            tonemap->SetLightShaftImage( shafts->GetShaftImage() );
-            tonemap->SetLightShafts( intensity, m_SunLightFx.BloomTint );
-        }
+                       const float intensity =
+                            m_SunLightFx.LightShaftBloom ? m_SunLightFx.BloomScale * sun.Fade : 0.0f;
+                       tonemap->SetLightShaftImage( shafts->GetShaftImage() );
+                       tonemap->SetLightShafts( intensity, m_SunLightFx.BloomTint );
+                   } );
 
-        {
-            DESERT_PROFILE_PASS( "PostFX: LensFlare" );
-            const auto& flare   = UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
-            const auto& tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        AddLegacy( graph, "PostFX: LensFlare", sceneColor(), {},
+                   [this, values]()
+                   {
+                       const SunScreen& sun = values->Sun;
+                       const auto&      flare =
+                            UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
+                       const auto& tonemap =
+                            UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
 
-            flare->SetParams( m_LensFlare );
-            flare->Execute( sun.Uv, sun.Fade );
+                       flare->SetParams( m_LensFlare );
+                       flare->Execute( sun.Uv, sun.Fade );
 
-            // Derived HERE, from the same two numbers that decided whether the dispatches ran, so a zero
-            // intensity and a skipped dispatch can never disagree — the bloom image's contract.
-            const float intensity =
-                 m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
-            tonemap->SetLensFlareImage( flare->GetFlareImage() );
-            tonemap->SetLensFlare( intensity, m_LensFlareTint );
-        }
+                       // Derived HERE, from the same two numbers that decided whether the dispatches ran, so a
+                       // zero intensity and a skipped dispatch can never disagree — the bloom image's contract.
+                       const float intensity =
+                            m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
+                       tonemap->SetLensFlareImage( flare->GetFlareImage() );
+                       tonemap->SetLensFlare( intensity, m_LensFlareTint );
+                   } );
 
-        {
-            DESERT_PROFILE_PASS( "PostFX: Tonemap" );
-            UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Execute();
-        }
+        AddLegacy( graph, "PostFX: Tonemap", sceneColor(), {}, [this]()
+                   { UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->Execute(); } );
 
         if ( m_AAMode == Common::Settings::AntiAliasingMode::FXAA )
         {
-            DESERT_PROFILE_PASS( "PostFX: FXAA" );
-            UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Execute();
+            AddLegacy( graph, "PostFX: FXAA", {}, {}, [this]()
+                       { UNIQUE_GET_AS( System::FXAARenderer, m_RenderSystems["FXAASystem"] )->Execute(); } );
         }
         else if ( m_AAMode == Common::Settings::AntiAliasingMode::SMAA )
         {
-            DESERT_PROFILE_PASS( "PostFX: SMAA" );
-            UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Execute();
+            AddLegacy( graph, "PostFX: SMAA", {}, {}, [this]()
+                       { UNIQUE_GET_AS( System::SMAARenderer, m_RenderSystems["SMAASystem"] )->Execute(); } );
         }
 
-        // NO COMPOSITE PASS HERE, AND THE ABSENCE IS DELIBERATE. `CompositeRenderPass()` used to be called
-        // at this point inside its own profiler scope, and its entire body had been commented out — so the
-        // frame graph reported a pass that did nothing, and the two locals it still declared are what
-        // `-Wunused-variable` finally pointed at. The editor composites through the ImGui layer's swapchain
-        // pass; a build that renders WITHOUT ImGui has no compositing step at all and shows a black screen,
-        // and that is a missing feature to be written where the passes above live, not an empty function
-        // kept as a reminder.
+        if ( const auto executed = Renderer::GetInstance().ExecuteGraph( graph ); !executed )
+            LOG_ERROR( "SceneRenderer: frame graph '{}' did not execute: {}", graph.GetName(),
+                       executed.GetError() );
     }
 
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
@@ -1705,101 +1754,45 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::ExecuteRenderGraph()
+    void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures&      textures,
+                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst )
     {
-        const auto& sortedPasses = m_RenderGraphBuilder.GetSortedPasses();
+        std::vector<const RenderGraphBuilder::PassConfig*> passes;
+        for ( const auto& pass : m_RenderGraphBuilder.GetSortedPasses() )
+            if ( pass.CachedRenderPass && selects( pass.Phase ) )
+                passes.push_back( &pass );
 
-        auto& renderer = Renderer::GetInstance();
-
-        // Consecutive passes that share the same target framebuffer are merged into a single
-        // vkCmdBeginRenderPass/EndRenderPass pair.  The first pass in each group issues a
-        // CLEAR begin; subsequent passes in the same group just call ExecuteFunc() inside the
-        // already-open render pass.  This lets the skybox draw first and the geometry draw on
-        // top without either pass clearing the other's output.
-        std::shared_ptr<Framebuffer> currentFb;
-
-        for ( const auto& pass : sortedPasses )
+        // Consecutive passes that share a target framebuffer share ONE vkCmdBeginRenderPass/EndRenderPass:
+        // the first opens it (CLEAR on the main walk, so the skybox draws first and the geometry on top
+        // without either clearing the other; LOAD for the overlay phases), the last closes it. The render
+        // pass declares its attachments when it begins, so the group's opener carries the group's
+        // declarations; a barrier between two passes of one group would sit inside the render pass.
+        const auto targetOf = []( const RenderGraphBuilder::PassConfig* pass )
+        { return pass->CachedRenderPass->GetSpecification().TargetFramebuffer; };
+        for ( size_t i = 0; i < passes.size(); ++i )
         {
-            if ( !pass.CachedRenderPass )
-                continue;
+            const RenderGraphBuilder::PassConfig* pass   = passes[i];
+            const auto                            target = targetOf( pass );
+            const bool                            opens  = i == 0 || targetOf( passes[i - 1] ) != target;
+            const bool closes = i + 1 == passes.size() || targetOf( passes[i + 1] ) != target;
 
-            // Debug-phase passes (BB / colliders) are deferred to ExecuteDebugOverlay(), Transparency-phase
-            // (particles) to ExecuteTransparency(), and UI-phase (Render2D canvas) to ExecuteUI(): all run
-            // AFTER the deferred lighting composite so they aren't painted over by lit geometry, and as LOAD
-            // overlays so a CLEAR begin here never wipes the depth later overlays test against (the particle
-            // top-down bug / grid-through-meshes).
-            //
-            // THE SET IS NAMED ONCE, in RenderPhase.hpp. It used to be this disjunction plus one equality
-            // in each of the three Execute* functions below — four expressions of one policy, and nothing
-            // forced them to agree.
-            if ( RenderPhase::IsDeferredOverlay( pass.Phase ) )
-            {
-                continue;
-            }
-
-            const auto passFb = pass.CachedRenderPass->GetSpecification().TargetFramebuffer;
-
-            if ( passFb != currentFb )
-            {
-                DESERT_PROFILE_SCOPE( "RenderPass Begin/End" ); // driver vkCmdBeginRenderPass + layout transitions
-                if ( currentFb )
-                    renderer.EndRenderPass();
-                renderer.BeginRenderPass( pass.CachedRenderPass.get(), true );
-                currentFb = passFb;
-            }
-
-            DESERT_PROFILE_PASS_DYNAMIC( pass.Name.c_str() );
-
-            // Debug-utils region: RenderDoc/Xcode show every graph pass by name in the event tree.
-            renderer.BeginDebugLabel( pass.Name.c_str() );
-            pass.ExecuteFunc();
-            renderer.EndDebugLabel();
+            AddLegacy( graph, pass->Name, {},
+                       opens ? textures.Colors( target, pass->CachedRenderPass->GetSpecification().DebugName )
+                             : std::vector<RDG::TextureRef>{},
+                       [pass, opens, closes, clearFirst]()
+                       {
+                           auto& renderer = Renderer::GetInstance();
+                           if ( opens )
+                           {
+                               DESERT_PROFILE_SCOPE(
+                                    "RenderPass Begin/End" ); // vkCmdBeginRenderPass + transitions
+                               renderer.BeginRenderPass( pass->CachedRenderPass.get(), clearFirst );
+                           }
+                           pass->ExecuteFunc();
+                           if ( closes )
+                               renderer.EndRenderPass();
+                       } );
         }
-
-        if ( currentFb )
-            renderer.EndRenderPass();
-    }
-
-    void SceneRenderer::ExecuteDebugOverlay()
-    {
-        // The main graph loop skipped this phase for this function to draw it; if the register
-        // in RenderPhase.hpp ever stops naming it, the loop would draw it BEFORE the composite
-        // and this function would find nothing. That is a compile error rather than a frame.
-        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::Debug ),
-                       "ExecuteDebugOverlay draws RenderPhase::Debug, so the main loop must skip it" );
-
-        const auto& sortedPasses = m_RenderGraphBuilder.GetSortedPasses();
-
-        auto& renderer = Renderer::GetInstance();
-
-        // LOAD (clearFrame = false) each debug pass over the finished scene color so the lines sit on
-        // top of both the forward geometry and the deferred lighting composite. Depth-tested against the
-        // target's depth: in Forward that occludes lines behind meshes; in Deferred the target has no
-        // opaque-geometry depth (it lives in the G-buffer), so the debug lines read as a clear overlay —
-        // exactly what's wanted, since the point is to SEE the boxes even where they hug the mesh.
-        std::shared_ptr<Framebuffer> currentFb;
-        for ( const auto& pass : sortedPasses )
-        {
-            if ( !pass.CachedRenderPass || pass.Phase != RenderPhase::Debug )
-                continue;
-
-            const auto passFb = pass.CachedRenderPass->GetSpecification().TargetFramebuffer;
-            if ( passFb != currentFb )
-            {
-                if ( currentFb )
-                    renderer.EndRenderPass();
-                renderer.BeginRenderPass( pass.CachedRenderPass.get(), false );
-                currentFb = passFb;
-            }
-
-            DESERT_PROFILE_PASS_DYNAMIC( pass.Name.c_str() );
-            renderer.BeginDebugLabel( pass.Name.c_str() );
-            pass.ExecuteFunc();
-            renderer.EndDebugLabel();
-        }
-
-        if ( currentFb )
-            renderer.EndRenderPass();
     }
 
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
@@ -1862,49 +1855,6 @@ namespace Desert::Graphic
         return cloudShadow;
     }
 
-    void SceneRenderer::ExecuteTransparency()
-    {
-        // The main graph loop skipped this phase for this function to draw it; if the register
-        // in RenderPhase.hpp ever stops naming it, the loop would draw it BEFORE the composite
-        // and this function would find nothing. That is a compile error rather than a frame.
-        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::Transparency ),
-                       "ExecuteTransparency draws RenderPhase::Transparency, so the main loop must skip it" );
-
-        const auto& sortedPasses = m_RenderGraphBuilder.GetSortedPasses();
-
-        auto& renderer = Renderer::GetInstance();
-
-        // LOAD (clearFrame = false) each transparency pass over the finished scene color so billboards
-        // (particles) sit on top of the composited opaque scene instead of under it. In Deferred the
-        // lighting composite runs AFTER the graph, so recording these inside the graph made them show only
-        // against the sky (no geometry to overwrite them) and vanish against the ground — see the header.
-        // Depth against the target is intentionally NOT tested (the particle pipelines set DepthTest off),
-        // so glow/sparks read as "always on top"; a per-emitter occlude toggle can bring it back later.
-        std::shared_ptr<Framebuffer> currentFb;
-        for ( const auto& pass : sortedPasses )
-        {
-            if ( !pass.CachedRenderPass || pass.Phase != RenderPhase::Transparency )
-                continue;
-
-            const auto passFb = pass.CachedRenderPass->GetSpecification().TargetFramebuffer;
-            if ( passFb != currentFb )
-            {
-                if ( currentFb )
-                    renderer.EndRenderPass();
-                renderer.BeginRenderPass( pass.CachedRenderPass.get(), false );
-                currentFb = passFb;
-            }
-
-            DESERT_PROFILE_PASS_DYNAMIC( pass.Name.c_str() );
-            renderer.BeginDebugLabel( pass.Name.c_str() );
-            pass.ExecuteFunc();
-            renderer.EndDebugLabel();
-        }
-
-        if ( currentFb )
-            renderer.EndRenderPass();
-    }
-
     const std::shared_ptr<Desert::Graphic::Image2D>& SceneRenderer::GetBackdropBlurImage() const
     {
         static const std::shared_ptr<Image2D> kNone;
@@ -1918,46 +1868,6 @@ namespace Desert::Graphic
     {
         const auto it = m_RenderSystems.find( "BackdropBlurSystem" );
         return it == m_RenderSystems.end() ? 0u : SP_CAST( System::BackdropBlurRenderer, it->second )->GetMaxLod();
-    }
-
-    void SceneRenderer::ExecuteUI()
-    {
-        // The main graph loop skipped this phase for this function to draw it; if the register
-        // in RenderPhase.hpp ever stops naming it, the loop would draw it BEFORE the composite
-        // and this function would find nothing. That is a compile error rather than a frame.
-        static_assert( RenderPhase::IsDeferredOverlay( RenderPhase::UI ),
-                       "ExecuteUI draws RenderPhase::UI, so the main loop must skip it" );
-
-        const auto& sortedPasses = m_RenderGraphBuilder.GetSortedPasses();
-
-        auto& renderer = Renderer::GetInstance();
-
-        // LOAD (clearFrame = false) each UI pass over the finished scene so the Render2D canvas sits on top
-        // of everything. A CLEAR begin (as the main graph loop uses) would wipe the target's depth, which
-        // the grid/debug overlays LOAD afterwards — that clear was the grid-through-meshes regression.
-        std::shared_ptr<Framebuffer> currentFb;
-        for ( const auto& pass : sortedPasses )
-        {
-            if ( !pass.CachedRenderPass || pass.Phase != RenderPhase::UI )
-                continue;
-
-            const auto passFb = pass.CachedRenderPass->GetSpecification().TargetFramebuffer;
-            if ( passFb != currentFb )
-            {
-                if ( currentFb )
-                    renderer.EndRenderPass();
-                renderer.BeginRenderPass( pass.CachedRenderPass.get(), false );
-                currentFb = passFb;
-            }
-
-            DESERT_PROFILE_PASS_DYNAMIC( pass.Name.c_str() );
-            renderer.BeginDebugLabel( pass.Name.c_str() );
-            pass.ExecuteFunc();
-            renderer.EndDebugLabel();
-        }
-
-        if ( currentFb )
-            renderer.EndRenderPass();
     }
 
     void SceneRenderer::ClearMainFramebuffer()
