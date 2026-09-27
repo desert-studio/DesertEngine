@@ -570,6 +570,10 @@ TEST( LandscapeHeightmap, TheKeptSampleRangeIsAScanOfTheSamplesAfterEveryWrite )
     expectKept( "one peak widens the top" );
     tile.SetSample( 1u, 7u, 1000u );
     expectKept( "one pit widens the bottom" );
+    tile.SetSample( 6u, 2u, 55000u );
+    expectKept( "a sample from inside the range widens the top without a scan" );
+    tile.SetSample( 7u, 2u, 500u );
+    expectKept( "a sample from inside the range widens the bottom without a scan" );
     tile.SetSample( 4u, 4u, kLandscapeMidSample );
     expectKept( "the peak flattened narrows the top" );
     tile.SetSample( 1u, 7u, 40000u );
