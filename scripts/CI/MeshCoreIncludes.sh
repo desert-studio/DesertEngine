@@ -28,6 +28,7 @@ ALLOW=(
     "$G/MeshRegionOperation.cpp|adapter: drives the ported OffsetMeshRegion/InsetMeshRegion and their helpers"
     "$G/MeshPlaneOperation.hpp|adapter: Plane Cut / Mirror on a DynamicMesh3 (P14)"
     "$G/MeshPlaneOperation.cpp|adapter: drives the ported MeshPlaneCut/MeshMirror (P14)"
+    "$G/MeshBooleanOperation.hpp|adapter: RunMeshBoolean takes and returns DynamicMesh3 around the ported MeshBoolean (P17c)"
 )
 
 status=0

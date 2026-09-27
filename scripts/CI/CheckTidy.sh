@@ -233,8 +233,13 @@ fi
 # holds .cpp AND .mm — Common/Platform/MacOS is Objective-C++ — and the tree carries two .h alongside
 # its .hpp. An extension missing from this list is the quietest possible hole in the gate: the file
 # changes, nothing matches, and the script prints "no C++ files changed" and exits 0.
+# ThirdParty is out of scope HERE for the same reason it is out of the database: GenCompileCommands.sh
+# drops every source with a `ThirdParty/` path component, so a changed vendored file (vk-bootstrap,
+# VKF1) could only ever come back as an "orphan" and fail the job as an environment error. Vendored
+# code is not ours to lint; excluding it by the same path component keeps the two lists in step.
+THIRDPARTY_PATHSPEC=':(exclude,glob)**/ThirdParty/**'
 CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE" \
-          -- '*.cpp' '*.hpp' '*.mm' '*.h' | sed "s#^#$ROOT/#")
+          -- '*.cpp' '*.hpp' '*.mm' '*.h' "$THIRDPARTY_PATHSPEC" | sed "s#^#$ROOT/#")
 if [ -z "$CHANGED" ]; then
     echo "clang-tidy: no C++ files changed vs $BASE — nothing to analyse"
     exit 0
@@ -399,7 +404,7 @@ print(f"headers given the flags of a unit that includes them: {len(extra)} of {l
     exit 2
 fi
 
-OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' '*.mm' '*.h' $EXCLUDE_PATHSPEC \
+OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' '*.mm' '*.h' "$THIRDPARTY_PATHSPEC" $EXCLUDE_PATHSPEC \
       | python3 -W ignore "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$HDRDB" -j "$JOBS" \
                 -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
 RC=$?

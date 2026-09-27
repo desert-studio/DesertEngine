@@ -337,7 +337,8 @@ TEST( LandscapeRaycast, ARefusedTileIsTracedThroughAndTheHitNamesItsIndexInTheWh
     ASSERT_TRUE( low.IsSuccess() && high.IsSuccess() );
     const LandscapeTileData lowTile  = low.ExtractValue();
     const LandscapeTileData highTile = high.ExtractValue();
-    LandscapeFrame          lowFrame, highFrame;
+    const LandscapeFrame    lowFrame;
+    LandscapeFrame          highFrame;
     highFrame.BaseY = 300.0f; // the same rectangle, 3 m higher: a surface over the ground
     const std::vector<LandscapeRayTile> tiles{ { &highTile, highFrame }, { &lowTile, lowFrame } };
 
@@ -346,13 +347,13 @@ TEST( LandscapeRaycast, ARefusedTileIsTracedThroughAndTheHitNamesItsIndexInTheWh
 
     const auto all = RaycastLandscape( tiles, origin, down, 1e4f, {} );
     ASSERT_TRUE( all.has_value() );
-    EXPECT_EQ( all->Tile, 0u );
-    EXPECT_NEAR( all->Point.y, 300.0f, 1e-3f );
+    EXPECT_EQ( all.value().Tile, 0u );
+    EXPECT_NEAR( all.value().Point.y, 300.0f, 1e-3f );
 
     const auto through = RaycastLandscape( tiles, origin, down, 1e4f, []( size_t i ) { return i != 0u; } );
     ASSERT_TRUE( through.has_value() );
-    EXPECT_EQ( through->Tile, 1u ) << "the index in the whole set, not in the kept subset";
-    EXPECT_NEAR( through->Point.y, 0.0f, 1e-3f );
+    EXPECT_EQ( through.value().Tile, 1u ) << "the index in the whole set, not in the kept subset";
+    EXPECT_NEAR( through.value().Point.y, 0.0f, 1e-3f );
 
     EXPECT_FALSE( RaycastLandscape( tiles, origin, down, 1e4f, []( size_t ) { return false; } ) )
          << "every tile refused is a miss";
