@@ -4,6 +4,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <chrono>
+
 namespace Desert::Runtime
 {
     void SkyboxService::Request( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset )
@@ -41,7 +43,35 @@ namespace Desert::Runtime
                                 asset ? asset->GetMetadata().Filepath.string() : std::string( "<null>" ), error );
                      return;
                  }
-                 m_Skyboxes[handle] = std::make_shared<Graphic::MaterialSkybox>( skybox );
+                 auto material = std::make_shared<Graphic::MaterialSkybox>( skybox );
+                 if ( !material->IsConvolving() )
+                 {
+                     material->SettleConvolution();
+                     m_Skyboxes[handle] = std::move( material );
+                     return;
+                 }
+
+                 // A CACHE MISS: the cubes exist but the GPU is still convolving them. The skybox stays
+                 // pending — and the loader keeps counting it, which is what ContentGate reads — until the
+                 // batch's fence, and only then is the material handed out to be sampled.
+                 const auto submittedAt = std::chrono::steady_clock::now();
+                 auto       awaited     = Assets::AsyncAssetLoader::Get().Await(
+                      handle, [material]() { return !material->IsConvolving(); },
+                      [this, handle, material, submittedAt]()
+                      {
+                          m_Pending.erase( handle );
+                          material->SettleConvolution();
+                          LOG_INFO(
+                               "[Skybox] '{}' finished convolving on the GPU; seen {:.1f} ms after its submit.",
+                               material->GetEnvironment().Filepath.string(),
+                               std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                                    submittedAt )
+                                    .count() );
+                          m_Skyboxes[handle] = material;
+                      },
+                      [this, handle]() { m_Pending.erase( handle ); } );
+                 if ( awaited.IsValid() )
+                     m_Pending.emplace( handle, std::move( awaited ) );
              },
              [this, handle]() { m_Pending.erase( handle ); } );
         if ( request.IsValid() )

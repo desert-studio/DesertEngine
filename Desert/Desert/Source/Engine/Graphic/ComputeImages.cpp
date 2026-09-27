@@ -2,6 +2,7 @@
 #include "Shader.hpp"
 #include "Pipeline.hpp"
 #include "Renderer.hpp"
+#include "GpuBatch.hpp"
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -218,7 +219,8 @@ namespace Desert::Graphic
         return output;
     }
 
-    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCube( const ComputeImagesSpecification& spec )
+    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCube( GpuBatch&                         batch,
+                                                                    const ComputeImagesSpecification& spec )
     {
         const auto shader = GetComputeShader( spec.ShaderName );
         if ( !shader )
@@ -256,17 +258,18 @@ namespace Desert::Graphic
         // integrates 65536 samples, 4.8 billion samples per bake instead of 400 million, paid on every
         // 5-degree sun rotation. The spec naming the face is what makes that arithmetic impossible now.
         const uint32_t groups = DispatchGroupCount( spec.FaceSize, kComputeImagesWorkGroupSize );
-        pipeline->Dispatch( groups, groups, 6u );
+        pipeline->Record( batch, groups, groups, 6u );
+        batch.Retain( pipeline );
 
         // The compute writes only mip 0; a caller asking for a chain wants the lower levels FILLED, and a
-        // requested-but-empty mip is undefined memory behind a valid view (Dispatch above is the immediate
-        // fenced path, so the blits ordering after it is safe). Per-face 2D blit mips with clamp
-        // addressing are exactly what UE builds for its cubes; seam correctness across faces is the
+        // requested-but-empty mip is undefined memory behind a valid view (the dispatch's closing barrier
+        // makes its write visible to the blits recorded after it in the same batch). Per-face 2D blit mips with
+        // clamp addressing are exactly what UE builds for its cubes; seam correctness across faces is the
         // hardware's seamless-cubemap filtering, not ours.
         if ( spec.MipLevels > 1u )
         {
             const auto mipResult =
-                 MipMapCubeGenerator::Create( MipGenStrategy::TransferOps )->GenerateMips( output );
+                 MipMapCubeGenerator::Create( MipGenStrategy::TransferOps )->RecordMips( batch, output );
             if ( !mipResult.IsSuccess() )
                 LOG_ERROR( "[ComputeImages] '{}': mip generation failed ({}) — levels 1..{} are undefined.",
                            spec.Tag, mipResult.GetError(), spec.MipLevels - 1u );
@@ -275,7 +278,8 @@ namespace Desert::Graphic
         return output;
     }
 
-    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCubeMips( const ComputeImagesSpecification& spec )
+    std::shared_ptr<ImageCube> ComputeImages::ProccessForImageCubeMips( GpuBatch&                         batch,
+                                                                        const ComputeImagesSpecification& spec )
     {
         const auto shader = GetComputeShader( spec.ShaderName );
         if ( !shader )
@@ -327,8 +331,9 @@ namespace Desert::Graphic
             pipeline->SetInput( 0, radiance );
             pipeline->SetOutput( 1, output.get(), mip );
             pipeline->SetPushConstants( &roughness, sizeof( float ) );
-            pipeline->Dispatch( groups, groups, 6u );
+            pipeline->Record( batch, groups, groups, 6u );
         }
+        batch.Retain( pipeline );
 
         return output;
     }
