@@ -115,6 +115,9 @@ namespace
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard",
            Role::Shows, "RequestMesh", "the Collections card grid" },
 
+         { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "ThumbnailOf", Role::Shows, "RequestMesh",
+           "the Foliage palette's type tiles: each shows its type's mesh (FO-UI1)" },
+
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawPaintedThumbnail", Role::Shows, "RequestPainted",
            "the asset browser's tile for the four CLOUD formats, whose picture is PAINTED from the "
