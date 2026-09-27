@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 4
+            "FOLT": 5
         },
         "Dependencies": []
     },
@@ -42,5 +42,6 @@
         "Speed": 0.5,
         "Height": 100.0,
         "DirectionDegrees": 0.0
-    }
+    },
+    "IncludeInHLOD": true
 }

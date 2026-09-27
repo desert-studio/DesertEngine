@@ -22,6 +22,11 @@ namespace Desert::Assets
                 return Runtime::ResourceRegistry::GetMeshService()->EvictBuilt( handle );
             }
 
+            std::vector<Common::AssetHandle> BuiltMeshHandles() const override
+            {
+                return Runtime::ResourceRegistry::GetMeshService()->BuiltHandles();
+            }
+
             bool HasBuiltMaterial( const Common::AssetHandle& handle ) const override
             {
                 return Runtime::ResourceRegistry::GetMaterialService()->HasBuiltMaterial( handle );

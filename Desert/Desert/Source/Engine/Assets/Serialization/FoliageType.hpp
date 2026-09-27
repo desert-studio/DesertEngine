@@ -40,7 +40,10 @@ namespace Desert::Assets::Serialization
      *       (MigrateFoliageTypeV2ToV3) with {0, 0}, UE's default: never culled.
      *   4 - Wind joins (FO-7): how the instances sway (UE: a SimpleGrassWind world-position offset in the
      *       material). SceneMigrator raises a v3 file (MigrateFoliageTypeV3ToV4) with Strength 0: still, which
-     *       is what every v3 field drew. The engine reads v4 only.
+     *       is what every v3 field drew.
+     *   5 - IncludeInHLOD joins (FO-6, UE UFoliageType::bIncludeInHLOD): whether the type's instances stand in
+     *       a far cell's HLOD. SceneMigrator raises a v4 file (MigrateFoliageTypeV4ToV5) with true, UE's
+     *       default and what every v4 field got. The engine reads v5 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -128,6 +131,10 @@ namespace Desert::Assets::Serialization
         FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
         /// How the instances sway (FO-7). Strength 0 = still.
         FoliageWind Wind;
+        /// Whether the instances are part of their cell's HLOD (UE bIncludeInHLOD, default true). A type left out
+        /// is not drawn while its cell is far, and so holds its mesh only while a cell of it is resident; a type
+        /// in the HLOD keeps its mesh for as long as the HLOD stands in (Core::Rules::BuildInstancingHLOD).
+        bool IncludeInHLOD = true;
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
     };

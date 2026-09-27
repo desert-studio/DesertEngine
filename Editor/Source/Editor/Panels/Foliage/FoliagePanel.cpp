@@ -190,11 +190,10 @@ namespace Desert::Editor::Tools
                                            ref->get().GetComponent<ECS::FoliageComponent>().FoliageType );
             if ( !type )
                 continue;
-            expected +=
-                 Foliage::PreviewFoliageFootprint(
-                      type->GetData().Density, radius, Core::FoliagePaint::PaintDensity(),
-                      ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms, *hover )
-                      .Expected;
+            expected += Foliage::PreviewFoliageFootprint( type->GetData().Density, radius,
+                                                          Core::FoliagePaint::PaintDensity(),
+                                                          RowInstances( scene, uuid, *hover, radius ), *hover )
+                             .Expected;
         }
 
         const auto project = [&]( const glm::vec3& p, ImVec2& out )
@@ -325,7 +324,7 @@ namespace Desert::Editor::Tools
                     const auto one = Foliage::PreviewFoliageFootprint(
                          type->GetData().Density, Core::FoliagePaint::BrushRadius(),
                          Core::FoliagePaint::PaintDensity(),
-                         ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms, *hover );
+                         RowInstances( scene, uuid, *hover, Core::FoliagePaint::BrushRadius() ), *hover );
                     sum.Desired += one.Desired;
                     sum.Existing += one.Existing;
                     sum.Expected += one.Expected;
@@ -522,8 +521,10 @@ namespace Desert::Editor::Tools
                     const auto  type =
                          manager ? ResolveType( *manager, field.GetComponent<ECS::FoliageComponent>().FoliageType )
                                   : nullptr;
-                    const auto cost = Foliage::MeasureFoliageTypeCost(
-                         ism.InstanceTransforms,
+                    // FO-6: the row stands for the type's field in every cell.
+                    const auto instances = RowInstances( scene, uuid );
+                    const auto cost      = Foliage::MeasureFoliageTypeCost(
+                         instances,
                          type ? type->GetData().CullDistance : Assets::Serialization::FoliageFloatInterval{},
                          Core::FoliagePaint::ViewPosition(), TrianglesOf( assetManager, ism.MeshHandle ), hidden );
 
@@ -593,7 +594,7 @@ namespace Desert::Editor::Tools
                     dl->AddRect( at, ImVec2( at.x + tile, at.y + tile ),
                                  active ? IM_COL32( 60, 150, 255, 255 ) : IM_COL32( 20, 20, 20, 255 ), 3.0f, 0,
                                  active ? 2.0f : 1.0f );
-                    const std::string countText = Thousands( ism.InstanceTransforms.size() );
+                    const std::string countText = Thousands( RowInstances( scene, uuid ).size() );
                     dl->AddText( ImVec2( at.x + 4, at.y + tile - ImGui::GetTextLineHeight() - 2 ),
                                  IM_COL32( 230, 230, 230, 255 ), countText.c_str() );
                     ImGui::SetNextItemWidth( tile );

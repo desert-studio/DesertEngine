@@ -347,3 +347,49 @@ TEST( WorldPartitionHLODSwitch, TheHolesAreNamedByReason )
     EXPECT_EQ( Desert::Core::Rules::DescribeHLODHoles( holes ), "1 PrefabInstance, 2 SkinnedMesh" );
     EXPECT_EQ( Desert::Core::Rules::DescribeHLODHoles( {} ), "" );
 }
+
+TEST( WorldPartitionHLODSwitch, AFoliageTypeOutOfTheHLODIsLeftOutAndAnUnreadableOneIsAHole )
+{
+    // FO-6: UE bIncludeInHLOD. A field whose type says false has no stand-in (so its mesh is held only while a
+    // cell of it is resident), one whose type says true is batched, one whose type does not read is a named hole.
+    std::vector<Desert::Assets::EntityData> records;
+    const auto                              field = [&]( std::uint64_t id, const char* guid )
+    {
+        Desert::Assets::EntityData data;
+        data.id        = Common::UUID( id );
+        data.Tag       = "Foliage";
+        const auto ism = Common::Json::Parse(
+             R"({"MeshPath":"Meshes/Grass.stmesh","InstanceTransforms":[[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,10.0,0.0,10.0,1.0]]})" );
+        const auto type = Common::Json::Parse( std::string( R"({"FoliageTypeGuid":")" ) + guid +
+                                               R"(","FoliageTypePath":"Foliage/T.defoliage"})" );
+        data.Components["InstancedStaticMesh"] = ism.GetValue();
+        data.Components["Foliage"]             = type.GetValue();
+        records.push_back( data );
+    };
+    field( 1, "in" );
+    field( 2, "out" );
+    field( 3, "broken" );
+    const std::vector<glm::mat4>                 world( records.size(), glm::mat4( 1.0f ) );
+    const std::vector<std::size_t>               members = { 0, 1, 2 };
+    const Desert::Core::Rules::FoliageHLODSource source  = []( std::string_view guid,
+                                                              std::string_view ) -> Common::ResultStr<bool>
+    {
+        if ( guid == "broken" )
+            return Common::MakeError<bool>( "does not read" );
+        return Common::MakeSuccess( guid == "in" );
+    };
+    Common::Json::Issues issues;
+    const auto built = Desert::Core::Rules::BuildInstancingHLOD( records, world, members, {}, issues, source );
+    ASSERT_TRUE( issues.empty() );
+    ASSERT_EQ( built.Batches.size(), 1u );
+    EXPECT_EQ( built.Batches[0].Sources, ( std::vector<std::size_t>{ 0 } ) ) << "only the type in the HLOD";
+    EXPECT_EQ( built.FoliageLeftOut, 1u );
+    ASSERT_EQ( built.NotInstanced.size(), 1u );
+    EXPECT_EQ( built.NotInstanced[0].Record, 2u );
+
+    // No source: UE's default, every type stands in.
+    const auto all = Desert::Core::Rules::BuildInstancingHLOD( records, world, members, {}, issues );
+    ASSERT_EQ( all.Batches.size(), 1u );
+    EXPECT_EQ( all.Batches[0].Sources.size(), 3u );
+    EXPECT_EQ( all.FoliageLeftOut, 0u );
+}

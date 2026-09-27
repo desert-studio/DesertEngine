@@ -160,6 +160,11 @@ namespace Desert::Assets
         /// outlived its asset's release for the rest of the session - the payload went, the image stayed.
         virtual bool DropBuiltTexture( const Common::AssetHandle& handle ) = 0;
 
+        /// The key of every mesh with built GPU buffers right now. The sweep walks the REGISTRY for candidates;
+        /// this is the other side of the ledger, so a built mesh the registry walk cannot reach is named instead
+        /// of staying resident in silence (FO-6).
+        [[nodiscard]] virtual std::vector<Common::AssetHandle> BuiltMeshHandles() const = 0;
+
         /// Destroy what was parked, at a point where no frame is recording.
         virtual void CollectGarbage() = 0;
     };
@@ -204,6 +209,10 @@ namespace Desert::Assets
         /// bulk of asset GPU memory, so "why is this one still resident" is the question a memory graph that
         /// does not fall raises first (WP14b) - answered in the sweep's own line instead of by a debugger.
         std::vector<std::string> KeptTextures;
+
+        /// Every mesh still built after the sweep, with why: reachable (and the chain that keeps it) or a key the
+        /// registry does not hold. A built mesh is GPU memory; the flight's asset_gpu_bytes cannot fall past it.
+        std::vector<std::string> BuiltMeshesLeft;
 
         [[nodiscard]] std::string Describe() const;
     };

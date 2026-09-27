@@ -121,7 +121,7 @@ TEST( FoliageTypeAsset, WindIsAStillOrSwayingTypeWithAPositiveHeight )
 
 TEST( FoliageTypeAsset, AnotherVersionIsRefused )
 {
-    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":4", "\"FOLT\":5" );
+    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":5", "\"FOLT\":6" );
     const auto        parsed = ParseFoliageType( text );
     ASSERT_FALSE( parsed );
     EXPECT_NE( parsed.GetError().find( "FOLT 5" ), std::string::npos ) << parsed.GetError();

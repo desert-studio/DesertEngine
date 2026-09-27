@@ -58,7 +58,10 @@ namespace
         const auto toV3 = Migration::MigrateFoliageTypeV2ToV3( v2 );
         if ( !toV3 )
             return toV3;
-        return Migration::MigrateFoliageTypeV3ToV4( toV3.GetValue() );
+        const auto toV4 = Migration::MigrateFoliageTypeV3ToV4( toV3.GetValue() );
+        if ( !toV4 )
+            return toV4;
+        return Migration::MigrateFoliageTypeV4ToV5( toV4.GetValue() );
     }
 } // namespace
 
@@ -81,7 +84,7 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 
     // Everything else crosses as it was; the new fields take UE's defaults; the identity is kept.
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 4u );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 5u );
     EXPECT_EQ( data.Mesh.Guid, "11112222333344445555666677778888" );
     EXPECT_EQ( data.Mesh.Path, "Cooked/Meshes/Grass.stmesh" );
     EXPECT_FLOAT_EQ( data.ScaleX.Min, 0.11f );
@@ -169,9 +172,15 @@ TEST( FoliageTypeMigration, OnlyVersionThreeIsRaisedToFourAndKeepsItsCullDistanc
 
     const auto toV4 = Migration::MigrateFoliageTypeV3ToV4( v3 );
     ASSERT_TRUE( toV4 ) << toV4.GetError();
-    const auto parsed = Assets::Serialization::ParseFoliageType( toV4.GetValue() );
+    const auto toV5 = Migration::MigrateFoliageTypeV4ToV5( toV4.GetValue() );
+    ASSERT_TRUE( toV5 ) << toV5.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV5.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().Header->Versions.at( "FOLT" ), 4u );
+    EXPECT_EQ( parsed.GetValue().Header->Versions.at( "FOLT" ), 5u );
+    EXPECT_TRUE( parsed.GetValue().IncludeInHLOD ) << "FOLT 4 -> 5 must keep UE's default: in the HLOD";
+    const auto five = Migration::MigrateFoliageTypeV4ToV5( toV5.GetValue() );
+    ASSERT_FALSE( five );
+    EXPECT_NE( five.GetError().find( "FOLT 5" ), std::string::npos ) << five.GetError();
     EXPECT_EQ( parsed.GetValue().Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
     EXPECT_FLOAT_EQ( parsed.GetValue().CullDistance.Min, 1500.0f );
     EXPECT_FLOAT_EQ( parsed.GetValue().CullDistance.Max, 4000.0f );
