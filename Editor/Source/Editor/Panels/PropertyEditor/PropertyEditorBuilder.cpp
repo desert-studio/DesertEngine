@@ -8,6 +8,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Graphic/ColorTemperature.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
@@ -1024,24 +1025,23 @@ namespace Desert::Editor
                                  std::filesystem::path( path ).extension() ==
                                       Assets::Serialization::kControlRigExtension )
                             {
-                                // ONLY A RIG THE PROJECT HAS ALREADY SCANNED. The theme slot next door
-                                // const_casts the manager to create one on the spot; that is a hole this
-                                // slot does not need, because AssetPreloader::PreloadControlRigs walks the
-                                // project's Rigs/ folder at startup and a rig dropped from the Content
-                                // Browser is by definition inside the project. A `.derig` from anywhere
-                                // else is REFUSED BY NAME rather than bound to a handle nothing can
-                                // resolve after a restart.
-                                auto rig = assetMgr->FindByPath<Assets::ControlRigAsset>( path );
-                                if ( rig && rig->IsReadyForUse() )
+                                // ONLY A RIG THE CONTENT REGISTRY HAS A ROW FOR. The theme slot next door
+                                // const_casts the manager to create one on the spot; this slot binds the
+                                // row's handle instead, and the rig is created from that row when the
+                                // component is next evaluated (AL1-6: no boot stage creates rig shells). A
+                                // `.derig` from outside the project has no row and is REFUSED BY NAME rather
+                                // than bound to a handle nothing can resolve after a restart.
+                                if ( const auto row = Assets::ContentRegistry::RowAtPath(
+                                          Common::Content::ContentKind::ControlRig, path ) )
                                 {
-                                    *rigHandle = static_cast<uint64_t>( rig->GetMetadata().Handle );
+                                    *rigHandle = static_cast<uint64_t>( row->Handle );
                                     changed    = true;
                                 }
                                 else
                                 {
-                                    LOG_WARN( "[Animation] '{}' is not a control rig this project has "
-                                              "loaded; put it under the project's Rigs/ folder and restart, "
-                                              "or pick a rig from the list.",
+                                    LOG_WARN( "[Animation] '{}' is no control-rig row of the content registry; "
+                                              "put it under the project's Rigs/ folder, or pick a rig from "
+                                              "the list.",
                                               path );
                                 }
                             }
@@ -1130,16 +1130,18 @@ namespace Desert::Editor
                                  std::filesystem::path( path ).extension() ==
                                       Assets::Serialization::kRetargetExtension )
                             {
-                                auto retarget = assetMgr->FindByPath<Assets::RetargetAsset>( path );
-                                if ( retarget && retarget->IsReadyForUse() )
+                                // The registry row, as the rig slot above: no boot stage creates retarget
+                                // shells (AL1-6), so a lookup in the manager misses every retarget not yet named.
+                                if ( const auto row = Assets::ContentRegistry::RowAtPath(
+                                          Common::Content::ContentKind::Retarget, path ) )
                                 {
-                                    *retargetHandle = static_cast<uint64_t>( retarget->GetMetadata().Handle );
+                                    *retargetHandle = static_cast<uint64_t>( row->Handle );
                                     changed         = true;
                                 }
                                 else
                                 {
-                                    LOG_WARN( "[Animation] '{}' is not a retarget this project has loaded; "
-                                              "put it under the project's Retargets/ folder and restart, "
+                                    LOG_WARN( "[Animation] '{}' is no retarget row of the content registry; "
+                                              "put it under the project's Retargets/ folder, "
                                               "or pick one from the list.",
                                               path );
                                 }

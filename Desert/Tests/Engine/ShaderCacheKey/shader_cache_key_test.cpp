@@ -1490,7 +1490,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
             const auto& block = compiler.get_type( resource.base_type_id );
             ASSERT_FALSE( block.member_types.empty() );
             const uint32_t stride = compiler.type_struct_member_array_stride( block, 0 );
-            EXPECT_EQ( stride, 192u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
+            EXPECT_EQ( stride, 272u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
             found = true;
         }
         EXPECT_TRUE( found ) << "the vertex stage no longer reads TerrainInstances";
@@ -2546,6 +2546,111 @@ namespace
         return hash;
     }
 } // namespace
+
+// RQ1. A compute stage that traces a ray query, written in the DSL: the parser has to put the extension
+// right under the version line, glslang has to accept it at the engine's own target, and the reflection
+// has to hand the pipeline layout an ACCELERATION_STRUCTURE_KHR binding at the declared set and binding.
+TEST_F( ShaderRootFixture, ARayQueryStageCompilesAndReflectsAnAccelerationStructureBinding )
+{
+    const char* kProbe = R"(
+Shader "RayQueryProbe"
+{
+    Compute
+    {
+        layout(local_size_x = 8, local_size_y = 8) in;
+        layout(set = 1, binding = 2) uniform accelerationStructureEXT u_Scene;
+        layout(set = 0, binding = 0, r8) writeonly uniform image2D u_Mask;
+
+        void main()
+        {
+            rayQueryEXT query;
+            rayQueryInitializeEXT( query, u_Scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF,
+                                   vec3( gl_GlobalInvocationID ), 0.01, vec3( 0.0, 1.0, 0.0 ), 1000.0 );
+            rayQueryProceedEXT( query );
+            const bool lit = rayQueryGetIntersectionTypeEXT( query, true ) ==
+                             gl_RayQueryCommittedIntersectionNoneEXT;
+            imageStore( u_Mask, ivec2( gl_GlobalInvocationID.xy ), vec4( lit ? 1.0 : 0.0 ) );
+        }
+    }
+}
+)";
+    const auto  parsed = Desert::Core::Preprocess::DShaderParser::Parse( kProbe );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const std::string& source = parsed.GetValue().Stages.at( ShaderStage::Compute );
+    EXPECT_EQ( source.rfind( "#version 460\n#extension GL_EXT_ray_query : require\n", 0 ), 0u ) << source;
+
+    const auto spirv = CompileStage( source, "RayQueryProbe.shader", shaderc_glsl_compute_shader );
+    ASSERT_FALSE( spirv.empty() );
+
+    ShaderResource::ReflectionData data;
+    const auto diagnostics = ShaderReflection::ReflectStage( spirv, ShaderStage::Compute, data );
+    ASSERT_TRUE( diagnostics.empty() ) << diagnostics.front();
+
+    const auto set = data.ShaderDescriptorSets.find( 1 );
+    ASSERT_NE( set, data.ShaderDescriptorSets.end() ) << "the acceleration structure's set 1 was not reflected";
+    ASSERT_EQ( set->second.AccelerationStructures.size(), 1u );
+    const auto& as = set->second.AccelerationStructures.at( 2 );
+    EXPECT_EQ( as.Name, "u_Scene" );
+    EXPECT_EQ( as.DescriptorSet, 1u );
+    EXPECT_EQ( as.ShaderStage, ShaderStage::Compute );
+
+    const auto bindings = ShaderReflection::BuildLayoutBindings( set->second );
+    ASSERT_EQ( bindings.size(), 1u ) << DescribeBindings( bindings );
+    EXPECT_EQ( bindings[0].binding, 2u );
+    EXPECT_EQ( bindings[0].descriptorType, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR );
+    EXPECT_EQ( bindings[0].descriptorCount, 1u );
+    EXPECT_EQ( bindings[0].stageFlags, static_cast<VkShaderStageFlags>( ShaderStage::Compute ) );
+}
+
+// RQ1. The version header is shared by every stage of every program, so moving it is checked on all of
+// them: each shipped .shader, its default program and every named pass (the set PackageCook cooks and
+// ShaderService registers), compiled at the engine's target with warnings as errors, reflected with no
+// refusal. The count is printed so a run says how much it covered.
+TEST_F( ShaderRootFixture, EveryShippedShaderStageCompilesAndReflects )
+{
+    namespace Preprocess = Desert::Core::Preprocess;
+    size_t      files = 0, stages = 0;
+    std::string failures;
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( "Resources/Shaders" ) )
+    {
+        if ( entry.path().extension() != ".shader" )
+            continue;
+        ++files;
+        const std::string content = ReadFile( entry.path() );
+        if ( const auto parsed = Preprocess::DShaderParser::Parse( content ); !parsed.IsSuccess() )
+        {
+            failures += std::format( "{}: does not parse: {}\n", entry.path().string(), parsed.GetError() );
+            continue;
+        }
+        std::vector<std::string> passes = { "" };
+        const auto               meta   = Preprocess::ShaderPreprocess::ParseProgramMetaForPass( content, "" );
+        passes.insert( passes.end(), meta.PassNames.begin(), meta.PassNames.end() );
+        for ( const std::string& pass : passes )
+        {
+            for ( const auto& [stage, source] :
+                  Preprocess::ShaderPreprocess::PreProcessProgramPass( content, entry.path(), pass ) )
+            {
+                ++stages;
+                const shaderc_shader_kind kind  = stage == ShaderStage::Vertex     ? shaderc_glsl_vertex_shader
+                                                  : stage == ShaderStage::Fragment ? shaderc_glsl_fragment_shader
+                                                                                   : shaderc_glsl_compute_shader;
+                const auto                spirv = CompileStage( source, entry.path(), kind );
+                if ( spirv.empty() )
+                {
+                    failures += std::format( "{} pass '{}' stage {}: does not compile\n", entry.path().string(),
+                                             pass, static_cast<int>( stage ) );
+                    continue;
+                }
+                ShaderResource::ReflectionData data;
+                for ( const std::string& refusal : ShaderReflection::ReflectStage( spirv, stage, data ) )
+                    failures += std::format( "{} pass '{}': {}\n", entry.path().string(), pass, refusal );
+            }
+        }
+    }
+    std::cout << std::format( "[corpus] {} shader files, {} stages compiled and reflected\n", files, stages );
+    EXPECT_GT( files, 50u ) << "the corpus walk found almost nothing under Resources/Shaders";
+    EXPECT_TRUE( failures.empty() ) << failures;
+}
 
 // The shader map key hashes the program's text, so a change to the parser, the preprocessor or the metadata
 // types would otherwise keep serving maps the OLD code produced — on every machine with a warm cache and

@@ -3,6 +3,8 @@
 #include <Editor/Core/GizmoIconSet.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Editor/Core/Selection/LandscapeSculptState.hpp>
+#include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
@@ -20,6 +22,7 @@
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <optional>
@@ -204,6 +207,7 @@ namespace Desert::Editor
         RenderCameras( camera, width, height, xpos, ypos );
         RenderSpawnIcons( camera, width, height );
         RenderTextIcons( camera, width, height );
+        RenderLandscapeRamp( camera, width, height );
 
         // Collider wireframes moved to EditorColliderPass (true 3D, depth-tested) via the Editor Pass API.
 
@@ -969,6 +973,55 @@ namespace Desert::Editor
         };
 
         drawList->AddLine( toScreen( ca ), toScreen( cb ), color, thickness );
+    }
+
+    void LightGizmoRenderer::RenderLandscapeRamp( const std::shared_ptr<Desert::Core::Camera>& camera, float width,
+                                                  float height )
+    {
+        const auto& state = Core::LandscapeSculptState::Get();
+        if ( Core::ViewportMode::Get() != Core::EditorMode::Landscape ||
+             state.Mode != Core::LandscapeEdMode::Sculpt || state.Settings.Tool != Core::LandscapeTool::Ramp )
+            return;
+        const auto& ramp = state.RampPoints;
+        if ( ramp.NumPoints == 0 )
+            return;
+        ImDrawList*     drawList  = ImGui::GetWindowDrawList();
+        const ImVec2    windowPos = ImGui::GetWindowPos();
+        const glm::mat4 mvp       = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+
+        // UE: white lines, the centre ones solid and the falloff edges dashed; ours are solid and the edges
+        // dimmer, since an ImGui line has no dash.
+        if ( const auto outline = World::Landscape::LandscapeRampOutlineOf( ramp, state.Settings.Ramp ) )
+        {
+            const ImU32 inner = IM_COL32( 255, 255, 255, 230 );
+            const ImU32 outer = IM_COL32( 255, 255, 255, 110 );
+            for ( size_t i = 0; i < 4; ++i )
+                DrawWorldLine( drawList, outline->Inner[i], outline->Inner[( i + 1 ) % 4], mvp, width, height,
+                               windowPos.x, windowPos.y, inner, 2.0f );
+            // The outer rectangle's long sides; its ends lie on the inner ends' lines.
+            DrawWorldLine( drawList, outline->Outer[0], outline->Outer[3], mvp, width, height, windowPos.x,
+                           windowPos.y, outer, 1.5f );
+            DrawWorldLine( drawList, outline->Outer[1], outline->Outer[2], mvp, width, height, windowPos.x,
+                           windowPos.y, outer, 1.5f );
+        }
+        else if ( ramp.NumPoints == 2 )
+            DrawWorldLine( drawList, ramp.Points[0], ramp.Points[1], mvp, width, height, windowPos.x, windowPos.y,
+                           IM_COL32( 255, 255, 255, 230 ), 2.0f );
+
+        // UE: a sprite per point, the selected one in the selection colour (SelectedSpriteColor).
+        constexpr std::array<const char*, 2> kLabels = { "Start", "End" };
+        for ( int32_t i = 0; i < ramp.NumPoints; ++i )
+        {
+            glm::vec2 screen;
+            if ( !ProjectToScreen( ramp.Points[static_cast<size_t>( i )], mvp, width, height, screen ) )
+                continue;
+            const ImVec2 at( windowPos.x + screen.x, windowPos.y + screen.y );
+            const bool   selected = i == ramp.SelectedPoint;
+            const ImU32  fill     = selected ? IM_COL32( 255, 170, 40, 255 ) : IM_COL32( 255, 255, 255, 255 );
+            drawList->AddCircleFilled( at, 7.0f, fill, 16 );
+            drawList->AddCircle( at, 7.0f, IM_COL32( 0, 0, 0, 200 ), 16, 1.5f );
+            drawList->AddText( ImVec2( at.x + 10.0f, at.y - 8.0f ), fill, kLabels[static_cast<size_t>( i )] );
+        }
     }
 
     void LightGizmoRenderer::RenderSkeleton( const std::shared_ptr<Desert::Core::Camera>& camera, float width,

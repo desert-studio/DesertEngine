@@ -74,7 +74,12 @@ namespace Desert::Editor
         /// Its OWN type rather than sharing one: it has no producer in common with anything above (a
         /// theme is not painted from bytes the way a cloud is), and the browser's type filter has to be
         /// able to name it, which is the whole reason the cloud formats stopped being `Unknown`.
-        UITheme
+        UITheme,
+
+        /// A landscape layer info (`.delayerinfo`, UE ULandscapeLayerInfoObject): its own type so the
+        /// browser can colour it, give it an icon and filter by it; it has no producer in common with any
+        /// type above.
+        LandscapeLayerInfo
     };
 
     struct DirectoryInformation

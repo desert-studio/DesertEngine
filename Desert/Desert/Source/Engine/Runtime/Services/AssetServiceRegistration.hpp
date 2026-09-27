@@ -12,6 +12,7 @@ namespace Desert::Core
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -51,12 +52,10 @@ namespace Desert::Runtime
      *     capture refused with "built no drawable geometry", which is a true sentence about a skinned
      *     mesh and a false one about a mesh nothing had tried to build.
      *
-     * None of the three ever visibly broke, because `AssetPreloader` registers everything under the two
-     * content roots it walks before a scene may load or a browser tile may be drawn. THAT IS A SAFETY NET
-     * AND NOT A GUARANTEE: it is stated nowhere the callers can read, it covers only those roots, and it
-     * leaves with the first refactor by somebody who does not know it is load-bearing. Measured (Ф6): with
-     * the preloader's registration loop switched off, the scene path still renders byte-identically
-     * because the parse registers what it names — and did not, before that change.
+     * None of the three ever visibly broke while a boot stage created a shell for every scanned file
+     * before a scene could load. That stage is gone (AL1-9): a reference is now resolved from its
+     * content-registry row at the moment something names it, so these helpers are the only registration
+     * there is, not a second one behind a safety net.
      *
      * WHY THE GUARD IS `HasAsset` AND NOT `Get`. All three files asked "is it registered?" by calling the
      * service's `Get`, which BUILDS on a miss: the guard performed the work it was written to avoid. A
@@ -64,7 +63,7 @@ namespace Desert::Runtime
      * needed to register them.
      *
      * WHY REGISTRATION IS LAZY. The services register a SHELL and build on the first `Get` that asks; that
-     * is what `AssetPreloader` does for everything it scans, and it means a reference costs one map lookup
+     * is what every on-demand kind does on first reference, and it means a reference costs one map lookup
      * at resolve time. A caller that needs the mesh BUILT NOW (an import that must refuse a bad cook, a
      * thumbnail that is about to photograph it) asks for that explicitly through `EnsureMeshDrawable`,
      * which is the same registration followed by the build — so the two needs share one registration and
@@ -129,16 +128,18 @@ namespace Desert::Runtime
     /// first draw — building here would move every texture in a scene onto the load.
     void EnsureTextureRegistered( const Assets::AssetManager& registry, uint64_t handle );
 
-    /// Register @p skybox with the SkyboxService if it is not already there, loading it first. Idempotent.
-    ///
-    /// UNLIKE THE OTHER THREE THIS IS EAGER: `SkyboxService::Register` constructs the MaterialSkybox, whose
-    /// constructor runs `EnvironmentManager::Create` — the panorama upload and the radiance, irradiance and
-    /// prefilter bakes. The boot does not do it for every `.hdr` (AssetPreloader::PreloadSkyboxes only
-    /// scans), so a scene reference that resolves WITHOUT coming through here leaves the service empty,
-    /// the SkyboxCommand carries no cube and DeferredLighting shades with the black EMPTY environment.
-    /// That is what the GUID spelling of a skybox reference did from SCNE 31 on: it found the scanned
-    /// record and returned its handle, and nothing ever baked the sky. A refusal is logged with the file.
-    void EnsureSkyboxRegistered( const Assets::Asset<Assets::SkyboxAsset>& skybox );
+    /// A skybox named by its handle — a scene's SkyboxHandle, a picker row, a material's cube slot — made
+    /// known to the SkyboxService and requested. The shell comes from the content-registry row (AL1-9: no boot
+    /// stage creates skybox shells; `SkyboxService::Require`), the read runs on the loader's worker and a scene
+    /// being opened waits for it through ContentGate. Null, with the handle and file in the error, when the
+    /// registry has no skybox row under that number: a bound handle that nothing requests is a black sky and
+    /// an irradiance-MISSING line, which is what the GUID spelling did from SCNE 31 until RSKY3.
+    Assets::Asset<Assets::SkyboxAsset> RequireSkybox( const Assets::AssetHandle& handle );
+
+    /// The handle of the registry's skybox row whose file is @p path, compared by stable key so any spelling
+    /// of the path finds it; 0 when no skybox row names that file. What a dropped file or a path-spelled
+    /// reference resolves through — the row, not whichever shell somebody happened to create first.
+    NO_DISCARD Assets::AssetHandle SkyboxHandleAtPath( const std::filesystem::path& path );
 
     /// WHAT A MESH IS ONCE SOMEBODY HAS ASKED FOR IT — the four states, told apart in one place.
     ///

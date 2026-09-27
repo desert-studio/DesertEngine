@@ -21,12 +21,20 @@
 //
 // Either way a cell streamed back in is the cell as it was authored, not as Play left it: a record is not
 // written back when its cell leaves — UE's runtime cells have the same contract.
+//
+// THE HLODs (WP11). Every cell that draws something has an Instancing HLOD: the cook's HLOD file (BeginCooked)
+// or the same builder run over the snapshot (Begin). Its records are entities for the whole session, made
+// before the first frame, and only their Visibility changes — in the same Tick that activates or destroys the
+// cell (Serialize/WorldPartitionHLODSwitch.hpp), so a cell and its HLOD never both draw and never both miss.
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODSwitch.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
@@ -62,7 +70,7 @@ namespace Desert::Core
     [[nodiscard]] Common::ResultStr<std::optional<CookedWorldStart>>
     ReadCookedWorld( const std::string& scenePath );
 
-    class WorldStreamer final : public Rules::ResidencyWorld
+    class WorldStreamer final : public Rules::ResidencyWorld, public Rules::HLODVisibilityWorld
     {
     public:
         // Starts streaming @p scene, whose entities are the whole of @p snapshotJson right now. Returns nullptr —
@@ -90,7 +98,22 @@ namespace Desert::Core
             std::string          ActivatedUnits;     // Rules::DescribeResidencyUnit of each, space-separated
             std::size_t          LiveRecords   = 0;  // records held as entities after the tick
             std::size_t          LoadsInFlight = 0;  // cell reads still on a worker after the tick
+            // Whether streaming keeps up, and whether the game must wait (WorldPartitionStreamingPerformance.hpp).
+            Rules::StreamingAssessment Streaming;
         };
+
+        // True while a cell under the streaming source is not resident: the host stops gameplay time and
+        // draws the loading overlay, and keeps calling Tick — the loader reads on its workers meanwhile.
+        [[nodiscard]] bool BlocksPlay() const
+        {
+            return m_LastTick.Streaming.Blocks();
+        }
+
+#if DESERT_DEV_INSTRUMENTS
+        // DEV ONLY: every cell read is reported @p ticks Ticks late, so a flight can outrun streaming on
+        // purpose (the editor's --stream-delay-ticks). Ticks and not milliseconds, so a capture is reproducible.
+        void SetDebugLoadDelayTicks( std::uint32_t ticks );
+#endif
         [[nodiscard]] const TickReport& LastTick() const
         {
             return m_LastTick;
@@ -139,10 +162,28 @@ namespace Desert::Core
         void                                CancelLoad( std::size_t unit, std::uint64_t ticket ) override;
         void                                Unload( std::size_t unit ) override;
         [[nodiscard]] std::vector<Rules::LoadOutcome> TakeLoadOutcomes() override;
+        void                                          SetHLODVisible( std::size_t hlod, bool visible ) override;
+
+        // What stands in for the cells that are not drawn: nullopt only on a streamer that failed to begin.
+        [[nodiscard]] const std::optional<Rules::HLODRuntime>& HLODs() const
+        {
+            return m_HLODs;
+        }
 
     private:
         WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName );
         [[nodiscard]] Common::ResultStr<Rules::StreamingSource> Source() const;
+
+        // One HLOD as the streamer takes it: the cell unit it stands in for and its records.
+        struct CellHLOD
+        {
+            std::size_t                     Unit = 0;
+            std::vector<Assets::EntityData> Records;
+        };
+        // Makes every HLOD's records entities, then shows the ones whose cell is not visible now — before the
+        // first frame, so the first frame already has no hole and no double. @p holes are said once, by reason.
+        [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
+                                                        std::span<const Rules::HLODExclusion> holes );
 
         Scene*                m_Scene;
         Assets::AssetManager* m_Assets;
@@ -170,6 +211,11 @@ namespace Desert::Core
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;
+        std::uint32_t m_FramesWaiting = 0;
+
+        // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
+        std::vector<std::vector<Common::UUID>> m_HLODIds;
+        std::optional<Rules::HLODRuntime>      m_HLODs;
 
         // The one settings value both beginnings hand the executor, kept so the panel reads the same margin.
         Rules::ResidencySettings              m_Settings;

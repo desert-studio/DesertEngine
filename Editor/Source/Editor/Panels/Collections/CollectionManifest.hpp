@@ -18,6 +18,24 @@
 // and links nothing from Editor.
 namespace Desert::Editor
 {
+    /**
+     * @brief The manifest's generation.
+     *
+     *   1 - (unversioned) name, author, materials, items {name, category, mesh, thumbnail, material}.
+     *   2 - the Version member itself, and an item may name the foliage type it paints with (FO-2).
+     *
+     * Any other value, or a file without the member, is refused: there is no reader for an older shape.
+     */
+    inline constexpr int kCollectionManifestVersion = 2;
+
+    // An asset named the way every text asset of this project names another: GUID (identity) and path
+    // (relative to the assets root, forward slashes; what a reader shows when the GUID does not resolve).
+    struct CollectionManifestAssetRef
+    {
+        std::string Guid;
+        std::string Path;
+    };
+
     struct CollectionManifestItem
     {
         std::string                Name;
@@ -25,6 +43,9 @@ namespace Desert::Editor
         std::string                Mesh; // working-dir-relative source path, forward slashes
         std::optional<std::string> Thumbnail;
         std::optional<int>         Material; // index into CollectionManifest::Materials (the mesh's PBR material)
+        // The `.defoliage` this item paints with (UE: a collection of FoliageTypes). Recorded by the editor the
+        // first time the item reaches the foliage palette, so a type tuned later is the one the next drop reuses.
+        std::optional<CollectionManifestAssetRef> FoliageType;
     };
 
     // A PBR material the splitter detected from the pack's texture files (paths by filename suffix). The editor
@@ -40,6 +61,7 @@ namespace Desert::Editor
 
     struct CollectionManifest
     {
+        int                                                    Version = kCollectionManifestVersion;
         std::string                                            Name;
         std::optional<std::string>                             Author;
         std::optional<std::vector<CollectionManifestMaterial>> Materials;
@@ -52,8 +74,16 @@ namespace Desert::Editor
     }
 
     // Strict: an unknown key or a member of the wrong type refuses, and the error names the member.
+    // A Version other than kCollectionManifestVersion (or none) refuses, naming both numbers.
     [[nodiscard]] inline Common::ResultStr<CollectionManifest> ReadCollectionManifest( std::string_view json )
     {
-        return Common::Json::Read<CollectionManifest>( json );
+        auto read = Common::Json::Read<CollectionManifest>( json );
+        if ( !read )
+            return read;
+        if ( read.GetValue().Version != kCollectionManifestVersion )
+            return Common::MakeError<CollectionManifest>(
+                 "collection.json Version " + std::to_string( read.GetValue().Version ) + " is not " +
+                 std::to_string( kCollectionManifestVersion ) + "; re-run FbxMeshSplitter on the pack" );
+        return read;
     }
 } // namespace Desert::Editor

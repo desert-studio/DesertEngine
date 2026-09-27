@@ -31,7 +31,11 @@ namespace Desert::Editor::Tools
         Common::BoolResultStr Step( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool invert,
                                     float deltaSeconds );
         void                  End( ::Desert::Core::Scene& scene );
+        /// A palette ramp point at @p ray: the start begins the ramp over, the end lays or moves the second.
         void SetRampPoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool start );
+        /// UE's ramp in the viewport: a press picks a drawn point or lays / moves one at the landscape under the
+        /// cursor, the drag moves it, the release records the press as one undo step.
+        void UpdateRamp( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay, bool hovered );
         /// Serves a pending ramp request (a point, apply, reset); false when the request is not the ramp's.
         bool ServeRampRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& centreRay );
         /// Serves a Mirror or Copy/Paste request at @p ray (a point, a copy, a paste, the mirror itself).
@@ -41,6 +45,8 @@ namespace Desert::Editor::Tools
         std::optional<ECS::LandscapeEditTarget>                m_Target;
         std::optional<World::Landscape::LandscapeHeightStroke> m_Stroke;
         bool                                                   m_Failed = false;
+        /// The ramp points when the held press began; set from the press to the release.
+        std::optional<World::Landscape::LandscapeRampPoints> m_RampAtPress;
         /// The undo entry's name, fixed when the stroke begins.
         const char* m_ToolName = "";
     };

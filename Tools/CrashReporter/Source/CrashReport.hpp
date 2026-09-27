@@ -63,6 +63,11 @@ namespace CrashReporter
         std::string scene;
         std::string os;
         std::string gpu;
+        std::string gpuVendor; // CR1c: "0x10DE"; empty for a report written before the key existed
+        std::string gpuDevice;
+        std::string gpuDriver; // the vendor's own spelling, "591.86"
+        std::string gpuApi;
+        std::string game; // the game's Name, or "unread" when the process died before reading it
 
         std::vector<StackFrame>  frames;
         std::vector<std::string> log;

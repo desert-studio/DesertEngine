@@ -4,6 +4,7 @@
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Assets/ContentWork.hpp>
+#include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -60,6 +61,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp" // resolving a request to a palette entry
@@ -88,6 +90,7 @@
 #include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Engine/World/Landscape/LandscapeHeightmapIO.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -182,7 +185,9 @@
 #include <Editor/Core/DocumentPlacement.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/FoliagePaint.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
@@ -430,46 +435,12 @@ namespace Desert::Editor
         constexpr double kSecondsPerShader = 0.048; // 78 programs in 3.73 s
         // A texture whose cook is fresh costs its freshness check: 11 in 0.04 s.
         constexpr double kSecondsPerTextureCheck = 0.0036;
-        // A texture that IS cooked costs by its source's size, not by its count: with the artifact deleted,
-        // the 3.18 MB texture_diffuse.png (2048x2048, BC7) took the stage from 0.04 s to 4.30 s. The
-        // 3.11 MB 1k_Dissolve_Noise_Texture.png, kept uncompressed, took 1.3 s: BC7 is what is slow, and
-        // the rate that assumes it is the one a start full of colour textures actually waits for.
-        constexpr double kSecondsPerCookedSourceByte = 4.26 / 3177561.0;
-        constexpr double kSecondsPerAssetRow         = 0.0002; // 151 rows in 0.03 s
+        constexpr double kSecondsPerClipRow      = 0.0002; // indexing a registry row reads nothing
         // The settle costs its first frames whether or not a read is outstanding: 0.75 s with none. A read
         // outstanding at its start adds one shader's worth; no measured start has had one.
         constexpr double kSecondsSceneSettle  = 0.75;
         constexpr double kSecondsPerSceneRead = kSecondsPerShader;
 
-        // The BC7 derivation a first import used to pay inside "Importing textures" now runs where the platform
-        // data is first asked for: the preload, on a DDC miss (SetTexturePlatformDataBuilder). Importing a source
-        // only wraps its bytes, so the import stage weighs a freshness check per source, and the preload carries
-        // the bytes of every source that has no texture asset yet — the sources whose derivation is still owed.
-        // Asked before any stage runs, so "no asset yet" is the state the import is about to change.
-        double PendingTextureDerivationSeconds()
-        {
-            double seconds = 0.0;
-            for ( const std::filesystem::path& source : LooseTextureSources() )
-            {
-                std::error_code ec;
-                if ( std::filesystem::exists( TextureImporter::AssetPathFor( source ), ec ) )
-                    continue;
-                const std::uintmax_t bytes = std::filesystem::file_size( source, ec );
-                if ( !ec )
-                    seconds += static_cast<double>( bytes ) * kSecondsPerCookedSourceByte;
-            }
-            return seconds;
-        }
-
-        // One row each at the registry rate, then the owed derivations as one item: the preloader reaches the
-        // textures among its rows in the registry's order, which the plan cannot know before the stage runs.
-        std::vector<double> PreloadCosts()
-        {
-            std::vector<double> costs( Assets::AssetPreloader::CookedAssetRowCount(), kSecondsPerAssetRow );
-            if ( const double derivation = PendingTextureDerivationSeconds(); derivation > 0.0 )
-                costs.push_back( derivation );
-            return costs;
-        }
     } // namespace
 
     EditorLayer::EditorLayer( Engine::Application* application, const std::string& layerName,
@@ -482,7 +453,7 @@ namespace Desert::Editor
         m_ImportManager = std::make_unique<ImportManager>();
         // Cook only what's missing/stale (skips the expensive Assimp re-parse on every launch). Collections
         // hold packs (a character + its animation FBXs), so they're cooked too — their outputs land under
-        // Cooked/Meshes/Collections/... where the preloader discovers them (see CookPaths::CookedSkinned).
+        // Cooked/Meshes/Collections/... where the content registry gathers them (see CookPaths::CookedSkinned).
         //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
@@ -490,7 +461,7 @@ namespace Desert::Editor
         // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
         //
         // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
-        // JobSystem after the reveal (StartBackgroundCook) and the preload reads whatever cook is on the disk.
+        // JobSystem after the reveal (StartBackgroundCook) and the registry lists whatever cook is on the disk.
         // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
         // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
         // this repository then committed had no producer in any automatic path -- and a stale one (a container
@@ -516,17 +487,22 @@ namespace Desert::Editor
                                          Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
                                          (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                                      },
-                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); } } );
-        m_StartupStages.push_back( { "Preloading meshes, textures and materials...", [this]
-                                     { m_AssetPreloader->PreloadCookedAssetsAndMaterials( SplashItems() ); },
-                                     kSecondsPerAssetRow, nullptr, [] { return PreloadCosts(); } } );
+                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr,
+                                     0 } );
+        // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
+        // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
+        // names them, and the scene settle below waits for the ones the scene names.
         m_StartupStages.push_back(
-             { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
+             { "Indexing animation clips...",
+               [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); }, kSecondsPerClipRow,
+               [] { return Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size(); },
+               nullptr, 0 } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.
-        m_StartupStages.push_back(
-             { "Preloading string tables...", [this] { m_AssetPreloader->PreloadStringTables(); } } );
+        m_StartupStages.push_back( { "Requesting string tables...",
+                                     [this] { Assets::RequestStringTables( m_AssetManager ); }, kSecondsPerClipRow,
+                                     nullptr, nullptr, 0 } );
 
         // WHAT THIS MACHINE CAN AFFORD — a different file from editor.json and deliberately so (К3).
         // editor.json is one person's copy of the EDITOR and the packaged game never opens it, while every
@@ -541,11 +517,8 @@ namespace Desert::Editor
         Common::Settings::MachineSettings::Load( std::filesystem::path( ProjectContext::ConfigDirectory() ) /
                                                  "machine.json" );
 
-        // BEFORE the preloader, which now takes it and fills it at the tail of the scan that finds the
-        // clips. The editor used to fill it itself, in OnAttach — a whole startup stage BEFORE the scan
-        // ran — so with two `.anim` files on disk it reported the four procedural clips and nothing else.
+        // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
-        m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
         Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
@@ -756,9 +729,9 @@ namespace Desert::Editor
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;
         }
 
-        // THE COOKED ASSET REGISTRY, BEFORE ANY PRELOAD — including the shader one on the next line,
-        // which is the earliest scan this host runs. Every `Preload*` takes its candidates from the
-        // registry since T2.4, so a preload that ran before the file was read would find nothing; and
+        // THE COOKED ASSET REGISTRY, BEFORE ANY CONTENT IS ASKED FOR, including the engine shaders a few
+        // lines down, the earliest content this host creates. Every kind resolves its references through
+        // the registry rows, so anything asked before the file was read would come back empty; and
         // the boot's cook stages call `ContentRegistry::NoteFile` as they write, which would be writing
         // into rows that `Load` was about to replace.
         //
@@ -788,20 +761,14 @@ namespace Desert::Editor
         MakeSplashPlan();
         BeginSplashStage( m_ShaderStage );
         // The splash's close button, pressed during this one long call, stops it between programs.
-        m_AssetPreloader->PreloadShaders( SplashItems(),
-                                          [this]() { return m_Splash && m_Splash->CloseRequested(); } );
+        Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
+                                      [this]() { return m_Splash && m_Splash->CloseRequested(); } );
 
         BuildSceneSystems( *m_MainScene );
 
-        // THE ANIMATION LIBRARY IS NOT FILLED HERE ANY MORE, and its absence is the fix rather than an
-        // omission. A `FindAllByType<AnimationAsset>` loop and a `ProceduralCharacterAnimations::
-        // RegisterClips` call used to stand on these lines, and both were wrong in the same way: they ran
-        // in OnAttach, several startup stages BEFORE `PreloadCookedAssetsAndMaterials` scans `.anim` off
-        // disk, so they filled the library out of a manager that had not been shown a single clip file —
-        // measured at "4 clip(s) known" with three clips sitting in Cooked/Meshes. The runtime layer, which
-        // has no OnAttach loop of its own, had no clips at all. Both are now `Animation::PopulateLibrary`,
-        // called from the tail of that scan, and `Desert/Tests/Editor/AssetPreloadCensus` forbids either
-        // host from growing its own copy again.
+        // THE ANIMATION LIBRARY IS NOT FILLED HERE, and its absence is the fix rather than an omission: a fill
+        // loop in OnAttach once ran before the clips were known and reported only the procedural ones, and the
+        // runtime had none at all. Both hosts call `Assets::IndexAnimationClips` (BootContentCensus).
 
         // NOT INITIALISED WHEN A SCENE LOAD IS ALREADY QUEUED, and that condition is why the line moved
         // rather than why it is conditional. The constructor above has already called LoadScene() for
@@ -1303,6 +1270,18 @@ namespace Desert::Editor
 
         ServiceControlChannel();
 
+        // A New Landscape run that finished on the JobSystem is applied here, on the main thread and ahead of
+        // this frame's scene update, as one undo step. A cancel is the user's own act, so it is told, not flagged.
+        if ( auto created = Commands::FinishCreateLandscape() )
+        {
+            if ( created->IsSuccess() )
+                Editor::ToastManager::Push( "New Landscape created", Editor::ToastLevel::Info, 3.0f );
+            else if ( created->GetError() == World::Landscape::kLandscapeGenerateCancelled )
+                Editor::ToastManager::Push( "New Landscape cancelled", Editor::ToastLevel::Info, 3.0f );
+            else
+                Editor::ToastManager::Push( created->GetError(), Editor::ToastLevel::Error, 6.0f );
+        }
+
         // Staged startup loading: run ONE heavy stage per frame. While loading, the scene is NOT rendered
         // at all (shaders/assets aren't there yet — rendering before the preload stage crashed on the
         // missing StaticMeshPBR shader); the frame is ImGui-only and the window it goes to is still hidden.
@@ -1370,12 +1349,9 @@ namespace Desert::Editor
                     Assets::SyncLoadLedger::NoteBootFinished();
                     LOG_INFO( "[SyncLoad] boot finished — {}", Assets::SyncLoadLedger::Report() );
                     LOG_INFO( "[Memory] boot finished — {}", Graphic::MemoryReadout::Take().Report() );
-                    // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER. The
-                    // eager preloader's directory walk is what mints them, so this number IS the size
-                    // of the path->handle inverse the engine holds at that moment — and therefore the
-                    // exact quantity the demand-driven model has to reproduce some other way once the
-                    // walk stops happening (GAP_ANALYSIS T2.4). Beside the two lines above because it
-                    // answers the same question they do: what did the boot buy.
+                    // HOW MANY HANDLES CAN NAME THEIR OWN FILE BY THE TIME THE BOOT IS OVER: the registry's
+                    // rows publish them before anything is created (T2.4), so this is the size of the
+                    // path->handle inverse the engine holds without having created a single content shell.
                     LOG_INFO( "[AssetPathIndex] boot finished — {} handle(s) can name their own path",
                               Common::AssetPathIndex::Size() );
                     // AND WHAT IT COST TO MINT THEM. The line above is only an achievement next to this
@@ -2222,6 +2198,9 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
+        // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
+        // Create answers "started" at once and a client polls `state` until idle before photographing it.
+        quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
         m_FrameQuiescence = quiescence;
     }
 
@@ -2665,6 +2644,7 @@ namespace Desert::Editor
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
             snapshot.BudgetBytes                      = reading.CeilingBytes;
             snapshot.UsageBytes                       = reading.UsageBytes;
+            snapshot.IsmInstancesDrawn = m_SceneRenderer ? m_SceneRenderer->GetIsmInstancesDrawn() : 0u;
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
@@ -2879,7 +2859,11 @@ namespace Desert::Editor
 
         {
             DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
-            if ( auto frame = scene.OnUpdate( ts ); !frame )
+            // Play's time stops while streaming waits for the cell under the camera (WP12, decision O2); the
+            // streamer's Tick above goes on, so the loader keeps reading and the wait ends by itself.
+            const bool streamingWaits =
+                 m_WorldStreamer && m_WorldStreamer->Streams( scene ) && m_WorldStreamer->BlocksPlay();
+            if ( auto frame = scene.OnUpdate( streamingWaits ? Common::Timestep( 0.0f ) : ts ); !frame )
                 return Common::MakeError( frame.GetError() );
         }
 
@@ -4362,6 +4346,12 @@ namespace Desert::Editor
                                           Core::SelectionManager::SetSelected( uuid );
                                           return PaletteCommandDone();
                                       } } );
+                // Ctrl+click: a two-input tool (Boolean, Trim) reads A and B in selection order.
+                commands.push_back( { "Entity", "Add to selection " + name, [uuid]
+                                      {
+                                          Core::SelectionManager::AddToSelection( uuid );
+                                          return PaletteCommandDone();
+                                      } } );
 
                 // AND ITS EDITORS, because until now there was NO WAY TO OPEN ONE without a mouse. A
                 // subject document — the Sequencer, the AnimGraph — is opened by a button in the Details
@@ -4851,6 +4841,85 @@ namespace Desert::Editor
                                   Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Sculpt;
                                   return PaletteCommandDone();
                               } } );
+        // NEW LANDSCAPE (UE's Manage tab): the mode, the fill, the erosion passes and Create, so a generated
+        // landscape can be made and photographed unattended.
+        commands.push_back( { "Landscape", "Manage mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Manage;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Landscape", "New Landscape: noise fill with erosion and hydro erosion", []
+                              {
+                                  auto& s        = Core::LandscapeSculptState::Get().NewLandscape;
+                                  s.Fill         = World::Landscape::LandscapeGenerateFill::Noise;
+                                  s.Erosion      = true;
+                                  s.HydroErosion = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // The same fill without the passes: with the preset above, one seed photographed before and after erosion.
+        commands.push_back( { "Landscape", "New Landscape: noise fill without erosion", []
+                              {
+                                  auto& s        = Core::LandscapeSculptState::Get().NewLandscape;
+                                  s.Fill         = World::Landscape::LandscapeGenerateFill::Noise;
+                                  s.Erosion      = false;
+                                  s.HydroErosion = false;
+                                  return PaletteCommandDone();
+                              } } );
+        // Starts the background run and answers at once; `state` reports it (BackgroundWork::LandscapeGenerate).
+        commands.push_back( { "Landscape", "New Landscape: Create", [this] {
+                                 return Commands::StartCreateLandscape(
+                                      m_MainScene, Core::LandscapeSculptState::Get().NewLandscape );
+                             } } );
+        commands.push_back( { "Landscape", "New Landscape: Cancel", []
+                              {
+                                  if ( !Commands::IsCreatingLandscape() )
+                                      return PaletteCommandOutcome( false,
+                                                                    "new landscape: nothing is being generated" );
+                                  Commands::CancelCreateLandscape();
+                                  return PaletteCommandDone();
+                              } } );
+        // HEIGHTMAP IMPORT / EXPORT (UE's Manage mode, LS-11). PaletteCommand::Run takes no argument, so the path
+        // is in the label: one Import entry per 16-bit PNG / RAW file under Assets/Landscape/Heightmaps (as "Drop
+        // into the viewport:" names each mesh), and Export entries that name the file they write there.
+        {
+            const std::filesystem::path heightmaps =
+                 Common::Constants::Path::ASSETS_PATH / "Landscape" / "Heightmaps";
+            std::vector<std::filesystem::path> files;
+            std::error_code                    ec;
+            for ( const auto& entry : std::filesystem::directory_iterator( heightmaps, ec ) )
+                if ( entry.is_regular_file() &&
+                     World::Landscape::LandscapeHeightmapFormatOf( entry.path() ).IsSuccess() )
+                    files.push_back( entry.path() );
+            std::sort( files.begin(), files.end() );
+            for ( const auto& file : files )
+            {
+                const std::string rel =
+                     file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+                commands.push_back( { "Landscape", "Import heightmap as a new landscape: " + rel, [this, file]
+                                      {
+                                          auto made = Commands::ImportLandscapeHeightmapAsNew(
+                                               m_MainScene, file, Core::LandscapeSculptState::Get().NewLandscape );
+                                          return made.IsSuccess()
+                                                      ? PaletteCommandDone()
+                                                      : PaletteCommandOutcome( false, made.GetError() );
+                                      } } );
+                commands.push_back( { "Landscape", "Import heightmap into the landscape: " + rel, [this, file]
+                                      { return Commands::ImportLandscapeHeightmap( m_MainScene, file ); } } );
+            }
+            for ( const auto& [name, selected] : std::initializer_list<std::pair<const char*, bool>>{
+                       { "Landscape.png", false }, { "Landscape.r16", false }, { "SelectedTiles.png", true } } )
+            {
+                const std::filesystem::path file = heightmaps / name;
+                const std::string           rel =
+                     file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+                commands.push_back(
+                     { "Landscape",
+                       ( selected ? "Export heightmap of the selected tiles: " : "Export heightmap: " ) + rel,
+                       [this, file, selected]
+                       { return Commands::ExportLandscapeHeightmap( m_MainScene, file, selected ); } } );
+            }
+        }
         // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
         // Layers list, so a frame can show a list and a stroke unattended.
         for ( const char* label : { "Paint mode", "Tool: Paint" } )
@@ -4862,7 +4931,7 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
-        commands.push_back( { "Landscape", "Add layer", [this]
+        commands.push_back( { "Landscape", "Create Layer Info", [this]
                               {
                                   auto added = Commands::AddLandscapeLayer( m_MainScene );
                                   if ( !added.IsSuccess() )
@@ -4880,9 +4949,15 @@ namespace Desert::Editor
                  landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
             if ( root != entt::null )
             {
-                for ( const auto& layer : registry.get<ECS::LandscapeComponent>( root ).Layers )
+                // A layer whose `.delayerinfo` is not read yet has no name to offer; it appears once it is.
+                auto& layers = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                for ( const Assets::AssetHandle& handle : registry.get<ECS::LandscapeComponent>( root ).Layers )
                 {
-                    commands.push_back( { "Landscape", "Target layer: " + layer.Name, [this, name = layer.Name]
+                    const auto* info = layers.Get( handle );
+                    if ( !info )
+                        continue;
+                    commands.push_back( { "Landscape", "Target layer: " + info->LayerName,
+                                          [this, handle, name = info->LayerName]
                                           {
                                               auto&      reg   = m_MainScene->GetRegistry();
                                               const auto id    = ECS::FirstLandscape( reg );
@@ -4892,7 +4967,7 @@ namespace Desert::Editor
                                               if ( r != entt::null )
                                                   for ( const auto& l :
                                                         reg.get<ECS::LandscapeComponent>( r ).Layers )
-                                                      found = found || l.Name == name;
+                                                      found = found || l == handle;
                                               if ( !found )
                                                   return PaletteCommandOutcome( false, "landscape layer '" + name +
                                                                                             "' no longer exists" );
@@ -5026,7 +5101,7 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::Trim, Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {
@@ -5048,6 +5123,18 @@ namespace Desert::Editor
                                       return Core::ApplyXformOperation( *m_MainScene, op,
                                                                         Core::XformArgsFromModelingState() );
                                   } } );
+        }
+        // Boolean and Trim (UE's Boolean / Trim tools) on the scene selection's two entities, at the panel's
+        // values.
+        for ( const Core::BooleanTool tool : { Core::BooleanTool::Boolean, Core::BooleanTool::Trim } )
+        {
+            commands.push_back(
+                 { "Modeling", std::string( "Boolean tool: " ) + Core::ToString( tool ), [this, tool]
+                   {
+                       if ( !m_MainScene )
+                           return PaletteCommandOutcome( false, "no scene is open" );
+                       return Core::ApplyBooleanTool( *m_MainScene, tool, Core::BooleanArgsFromModelingState() );
+                   } } );
         }
         // THE REST OF THE MODELING PANEL (M30): every button, checkbox and closed choice ModelingPanel draws,
         // so a tool is usable - and photographable - with no mouse. Each entry writes what the widget writes
@@ -5080,6 +5167,15 @@ namespace Desert::Editor
         };
         modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
         modelingTool( "CubeGrid", "CubeGrid tool", MS::Tool::CubeGrid );
+        // Reopen CubeGrid on the selected blockout (UE: the tool takes the selected mesh as its target); the
+        // tool refuses, with a toast naming why, anything that does not carry its voxels.
+        commands.push_back( { "CubeGrid", "Edit selected blockout", []
+                              {
+                                  MS::Get().ActiveTool              = MS::Tool::CubeGrid;
+                                  MS::Get().ReqCubeGridEditSelected = true;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
 
         // CubeGrid's panel buttons are the tool's own one-shot requests; Cancel also ends the tool, as the
         // viewport tool bar's Cancel does (Tools::RaiseToolRequest).
@@ -5121,6 +5217,7 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         modelingOnOff( "CubeGrid", "Show Gizmo", []( MS& ms, bool on ) { ms.ShowGizmo = on; } );
+        modelingOnOff( "CubeGrid", "Crosswise Diagonal", []( MS& ms, bool on ) { ms.CornerCrosswise = on; } );
         modelingOnOff( "CubeGrid", "Hit Unrelated Geometry", []( MS& ms, bool on ) { ms.HitUnrelated = on; } );
         modelingOnOff( "CubeGrid", "Generate Collision", []( MS& ms, bool on ) { ms.GenerateCollision = on; } );
         // The mouse's part: aim from the viewport centre, a marquee of N x N blocks there, E / Q, and the
@@ -5147,13 +5244,62 @@ namespace Desert::Editor
                                       MS::Get().ReqCubeGridStep = dir;
                                       return PaletteCommandDone();
                                   } } );
+        for ( const auto& [label, dir] : std::initializer_list<std::pair<const char*, int>>{
+                   { "Slide selection back (Shift+E)", +1 }, { "Slide selection forward (Shift+Q)", -1 } } )
+            commands.push_back( { "CubeGrid", label, [dir, needCubeGrid]
+                                  {
+                                      if ( auto active = needCubeGrid(); !active )
+                                          return active;
+                                      MS::Get().ReqCubeGridSlide = dir;
+                                      return PaletteCommandDone();
+                                  } } );
+        commands.push_back( { "CubeGrid", "Grid pivot onto the aimed face corner (Ctrl+MMB)", [needCubeGrid]
+                              {
+                                  if ( auto active = needCubeGrid(); !active )
+                                      return active;
+                                  MS::Get().ReqCubeGridPivot = true;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "CubeGrid", "Paint the Quick Material onto the selection (Shift+B)", [needCubeGrid]
+                              {
+                                  if ( auto active = needCubeGrid(); !active )
+                                      return active;
+                                  MS::Get().ReqCubeGridPaint = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // Quick Material without the panel's list: the engine default, or the project's materials in the
+        // registry's order, one step per call.
+        commands.push_back( { "CubeGrid", "Quick Material: engine default", []
+                              {
+                                  MS::Get().QuickMaterial = Common::AssetHandle{};
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "CubeGrid", "Quick Material: next project material", []
+                              {
+                                  const auto rows =
+                                       Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material );
+                                  if ( rows.empty() )
+                                      return PaletteCommandOutcome( false, "the project has no material assets" );
+                                  auto&  current = MS::Get().QuickMaterial;
+                                  size_t next    = 0;
+                                  for ( size_t i = 0; i < rows.size(); ++i )
+                                      if ( rows[i].Handle == current )
+                                          next = ( i + 1 ) % rows.size();
+                                  current = rows[next].Handle;
+                                  LOG_INFO( "[CubeGrid] Quick Material: {}", rows[next].Key );
+                                  return PaletteCommandDone();
+                              } } );
         for ( const auto& [label, posts] :
               std::initializer_list<std::pair<const char*, int>>{ { "Corner posts: all", 0b1111 },
                                                                   { "Corner posts: none", 0b0000 },
                                                                   { "Corner posts: U+ edge", 0b1010 },
                                                                   { "Corner posts: U- edge", 0b0101 },
                                                                   { "Corner posts: V+ edge", 0b1100 },
-                                                                  { "Corner posts: V- edge", 0b0011 } } )
+                                                                  { "Corner posts: V- edge", 0b0011 },
+                                                                  { "Corner post: U- V-", 0b0001 },
+                                                                  { "Corner post: U+ V-", 0b0010 },
+                                                                  { "Corner post: U- V+", 0b0100 },
+                                                                  { "Corner post: U+ V+", 0b1000 } } )
             commands.push_back( { "CubeGrid", label, [posts]
                                   {
                                       if ( !MS::Get().CornerMode )
@@ -5166,14 +5312,46 @@ namespace Desert::Editor
 
         // Create Shape's closed choices.
         for ( const Geometry::ShapePolygroupMode mode :
-              { Geometry::ShapePolygroupMode::PerFace, Geometry::ShapePolygroupMode::PerQuad,
-                Geometry::ShapePolygroupMode::Single } )
+              { Geometry::ShapePolygroupMode::PerShape, Geometry::ShapePolygroupMode::PerFace,
+                Geometry::ShapePolygroupMode::PerQuad } )
             commands.push_back( { "Modeling",
                                   std::string( "Create shape polygroups: " ) + Geometry::ToString( mode ), [mode]
                                   {
                                       MS::Get().CreateShape.Groups = mode;
                                       return PaletteCommandDone();
                                   } } );
+        for ( const Geometry::StairsType type : { Geometry::StairsType::Linear, Geometry::StairsType::Floating,
+                                                  Geometry::StairsType::Curved, Geometry::StairsType::Spiral } )
+            commands.push_back( { "Modeling", std::string( "Create shape stairs: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().CreateShape.Stairs.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::SphereType type : { Geometry::SphereType::LatLong, Geometry::SphereType::Box } )
+            commands.push_back( { "Modeling", std::string( "Create shape sphere: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().CreateShape.Sphere.SubdivisionType = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::DiscType type : { Geometry::DiscType::Disc, Geometry::DiscType::PuncturedDisc } )
+            commands.push_back( { "Modeling", std::string( "Create shape disc: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().CreateShape.Disc.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::RectangleType type :
+              { Geometry::RectangleType::Rectangle, Geometry::RectangleType::RoundedRectangle } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Create shape rectangle: " ) + Geometry::ToString( type ), [type]
+                                  {
+                                      MS::Get().CreateShape.Rectangle.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Create shape: Maintain Dimension",
+                       []( MS& ms, bool on ) { ms.CreateShape.Rectangle.MaintainDimension = on; } );
         for ( const Geometry::ShapePivot pivot :
               { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre, Geometry::ShapePivot::Top } )
             commands.push_back( { "Modeling", std::string( "Create shape pivot: " ) + Geometry::ToString( pivot ),
@@ -5193,12 +5371,34 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
 
-        // Select Elements' options for Subdivide, Mirror, Plane Cut and Trim.
-        modelingOnOff( "Modeling", "Subdivide: Smooth (Loop)",
-                       []( MS& ms, bool on ) {
-                           ms.ElementSubdivideScheme =
-                                on ? Geometry::SubdivideScheme::Loop : Geometry::SubdivideScheme::Uniform;
-                       } );
+        // Select Elements' options for Subdivide, Mirror and Plane Cut.
+        for ( const auto scheme :
+              { Geometry::SubdivisionScheme::Bilinear, Geometry::SubdivisionScheme::CatmullClark,
+                Geometry::SubdivisionScheme::Loop } )
+            commands.push_back( { "Modeling", std::string( "Subdivide scheme: " ) + Geometry::ToString( scheme ),
+                                  [scheme]
+                                  {
+                                      MS::Get().ElementSubdivide.Scheme = scheme;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto boundary : { Geometry::SubdivisionBoundaryScheme::SmoothCorners,
+                                      Geometry::SubdivisionBoundaryScheme::SharpCorners } )
+            commands.push_back(
+                 { "Modeling", std::string( "Subdivide boundary: " ) + Geometry::ToString( boundary ), [boundary]
+                   {
+                       MS::Get().ElementSubdivide.Boundary = boundary;
+                       return PaletteCommandDone();
+                   } } );
+        for ( const auto normals :
+              { Geometry::SubdivisionOutputNormals::Interpolated, Geometry::SubdivisionOutputNormals::Generated } )
+            commands.push_back( { "Modeling", std::string( "Subdivide normals: " ) + Geometry::ToString( normals ),
+                                  [normals]
+                                  {
+                                      MS::Get().ElementSubdivide.Normals = normals;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Subdivide: New PolyGroups",
+                       []( MS& ms, bool on ) { ms.ElementSubdivide.NewPolyGroups = on; } );
         static constexpr std::array<const char*, 3> kAxisNames = { "X", "Y", "Z" };
         for ( int axis = 0; axis < 3; ++axis )
         {
@@ -5241,23 +5441,32 @@ namespace Desert::Editor
                            ms.ElementPlaneCutMode = on ? Geometry::PlaneCutMode::KeepBothHalves
                                                        : Geometry::PlaneCutMode::DiscardNegativeSide;
                        } );
-        modelingOnOff(
-             "Modeling", "Trim: Keep only the inside", []( MS& ms, bool on )
-             { ms.ElementTrimSide = on ? Geometry::TrimSide::RemoveOutside : Geometry::TrimSide::RemoveInside; } );
-        commands.push_back( { "Modeling", "Trim: Pick Cutter from the selection",
-                              [] { return Editor::ModelingPanel::PickTrimCutterFromSelection(); } } );
-        // The cutter named: one entry per entity with a Tag, as the "Entity" group's selection entries.
-        if ( m_MainScene )
+        // Boolean's and Trim's closed choices.
+        auto choice = [&commands]( const std::string& label, auto write )
         {
-            for ( const auto& entity : m_MainScene->GetAllEntities() )
-            {
-                if ( !entity.HasComponent<ECS::TagComponent>() || !entity.HasComponent<ECS::UUIDComponent>() )
-                    continue;
-                const Common::UUID uuid = entity.GetComponent<ECS::UUIDComponent>().UUID;
-                commands.push_back( { "Modeling", "Trim: cutter " + entity.GetComponent<ECS::TagComponent>().Tag,
-                                      [uuid] { return Editor::ModelingPanel::PickTrimCutter( uuid ); } } );
-            }
-        }
+            commands.push_back( { "Modeling", label, [write]
+                                  {
+                                      write( MS::Get().Boolean );
+                                      return PaletteCommandDone();
+                                  } } );
+        };
+        for ( const Core::CsgOperation op : { Core::CsgOperation::DifferenceAB, Core::CsgOperation::DifferenceBA,
+                                              Core::CsgOperation::Intersect, Core::CsgOperation::Union } )
+            choice( std::string( "Boolean operation: " ) + Core::ToString( op ),
+                    [op]( Core::BooleanToolArgs& b ) { b.Operation = op; } );
+        for ( const Core::TrimTarget which : { Core::TrimTarget::TrimA, Core::TrimTarget::TrimB } )
+            choice( std::string( "Trim: " ) + Core::ToString( which ),
+                    [which]( Core::BooleanToolArgs& b ) { b.Trimmed = which; } );
+        for ( const Core::TrimSide side : { Core::TrimSide::RemoveInside, Core::TrimSide::RemoveOutside } )
+            choice( std::string( "Trim: " ) + Core::ToString( side ),
+                    [side]( Core::BooleanToolArgs& b ) { b.Side = side; } );
+        for ( const Core::BooleanWriteTo to : { Core::BooleanWriteTo::NewObject, Core::BooleanWriteTo::Input } )
+            choice( std::string( "Boolean write to: " ) + Core::ToString( to ),
+                    [to]( Core::BooleanToolArgs& b ) { b.WriteTo = to; } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            choice( std::string( "Boolean inputs: " ) + Core::ToString( in ),
+                    [in]( Core::BooleanToolArgs& b ) { b.Inputs = in; } );
 
         // XForm's closed choices.
         for ( const auto& [label, pivot] : std::initializer_list<std::pair<const char*, Geometry::PivotLocation>>{
@@ -5375,6 +5584,101 @@ namespace Desert::Editor
                    } } );
             // NOLINTEND(bugprone-exception-escape)
         }
+        // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
+        // collection drop (FO-2), so a frame can show types that came from a collection unattended.
+        commands.push_back( { "Foliage", "Foliage mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                                  return PaletteCommandDone();
+                              } } );
+        {
+            std::error_code ec;
+            for ( const auto& dir :
+                  std::filesystem::directory_iterator( Common::Constants::Path::COLLECTIONS_PATH, ec ) )
+            {
+                const std::filesystem::path manifest = dir.path() / "collection.json";
+                if ( !dir.is_directory() || !std::filesystem::exists( manifest, ec ) )
+                    continue;
+                const std::string path = manifest.generic_string();
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Foliage", "Add collection to the palette: " + dir.path().filename().string(), [this, path]
+                       {
+                           if ( !m_MainScene || !m_AssetManager )
+                               return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                           Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                           return Tools::FoliagePaintTool::AddCollection( *m_MainScene, *m_AssetManager, path );
+                       } } );
+                // NOLINTEND(bugprone-exception-escape)
+            }
+        }
+        // FOLIAGE (FO-3): a type file into the palette, and the stroke a hand gives at the viewport centre.
+        {
+            std::error_code ec;
+            for ( auto it =
+                       std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( !it->is_regular_file() ||
+                     it->path().extension() != Assets::Serialization::kFoliageTypeExtension )
+                    continue;
+                const std::string path = it->path().generic_string();
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Foliage", "Add type to the palette: " + it->path().stem().string(), [this, path]
+                       {
+                           if ( !m_MainScene || !m_AssetManager )
+                               return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                           Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                           return Tools::FoliagePaintTool::AddTypeFile( *m_MainScene, *m_AssetManager, path );
+                       } } );
+                // NOLINTEND(bugprone-exception-escape)
+            }
+        }
+        commands.push_back( { "Foliage", "Stroke at viewport centre",
+                              [] { return ViewportPanel::StrokeFoliageInActiveViewport(); } } );
+        // FOLIAGE (FO-4): the tool the stroke above uses, and what UE does to the selected instances.
+        // NOLINTBEGIN(bugprone-exception-escape)
+        for ( const auto tool : { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
+                                  Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply,
+                                  Core::FoliageTool::Fill } )
+            commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
+                                  [tool]() -> Common::BoolResultStr
+                                  {
+                                      Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                                      Core::FoliagePaint::Tool() = tool;
+                                      return BOOLSUCCESS;
+                                  } } );
+        commands.push_back( { "Foliage", "Delete selected instances", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::RemoveSelected( *m_MainScene );
+                              } } );
+        commands.push_back(
+             { "Foliage", "Move selected instances by the panel offset", [this]() -> Common::BoolResultStr
+               {
+                   if ( !m_MainScene )
+                       return PaletteCommandOutcome( false, "no scene" );
+                   return Tools::FoliagePaintTool::MoveSelected( *m_MainScene, Core::FoliagePaint::MoveOffset() );
+               } } );
+        commands.push_back( { "Foliage", "Fill the selected mesh", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene || !m_AssetManager )
+                                      return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                                  const auto& selected = Core::SelectionManager::GetSelected();
+                                  if ( !selected )
+                                      return PaletteCommandOutcome( false, "no entity is selected" );
+                                  return Tools::FoliagePaintTool::FillEntity( *m_MainScene, *m_AssetManager,
+                                                                              *selected );
+                              } } );
+        commands.push_back( { "Foliage", "Select no instances", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::SelectNone( *m_MainScene );
+                              } } );
+        // NOLINTEND(bugprone-exception-escape)
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {
@@ -6627,8 +6931,9 @@ namespace Desert::Editor
             (void)m_ImportManager->ImportLooseTextures();
         }
 
-        if ( m_AssetPreloader )
-            m_AssetPreloader->ReloadCooked();
+        // The clip rows may have changed with the re-cook; everything else is re-read on demand.
+        if ( m_AnimationLibrary )
+            Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary );
 
         // Drop cached per-entity material instances so MeshECSSystem rebuilds them from the freshly
         // re-registered runtime materials (which now reference the reloaded texture images).
@@ -6758,8 +7063,8 @@ namespace Desert::Editor
     // lines below; a machine twice as fast halves every stage alike and the shares do not move.
     void EditorLayer::MakeSplashPlan()
     {
-        m_ShaderStage = m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader,
-                                             Assets::AssetPreloader::ShaderRowCount() );
+        m_ShaderStage =
+             m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader, Assets::EngineShaderCount() );
         for ( StartupStage& stage : m_StartupStages )
             stage.ProgressStage =
                  stage.ItemCosts ? m_Progress.AddStage( stage.Label, stage.SecondsPerItem, stage.ItemCosts() )
@@ -7715,6 +8020,7 @@ namespace Desert::Editor
             row.ActivationMs     = report.ActivationMs;
             row.ActivatedUnits   = report.ActivatedUnits;
         }
+        row.AssetGpuBytes = Graphic::ResourceLedger::Take().BytesForOwner( Graphic::ResourceOwner::AssetService );
         m_FlightLog.Append( std::move( row ) );
     }
 
@@ -8643,7 +8949,7 @@ namespace Desert::Editor
         // and says why, with the command that fixes the file.
         Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
 
-        const auto contentRead = Common::Utils::FileSystem::ReadFileContent( path );
+        const auto contentRead = Desert::Core::ExternalEntities::ReadSceneFileText( path );
         if ( !contentRead )
         {
             LOG_ERROR( "{0}", contentRead.GetError() );
@@ -9118,6 +9424,14 @@ namespace Desert::Editor
         }
         m_WorldStreamer    = streamer.ExtractValue();
         m_WorldStreamClock = 0.0;
+#if DESERT_DEV_INSTRUMENTS
+        if ( m_WorldStreamer && ShotOptions::Get().StreamDelayTicks > 0 )
+        {
+            m_WorldStreamer->SetDebugLoadDelayTicks( ShotOptions::Get().StreamDelayTicks );
+            LOG_WARN( "[WorldPartition] DEV: every cell read is reported {0} frame(s) late (--stream-delay-ticks)",
+                      ShotOptions::Get().StreamDelayTicks );
+        }
+#endif
         // Play-time changes are discarded on Stop anyway, and the Stop restore recreates every entity —
         // an undo stack recorded against the authored scene must not fire into either state.
         CommandHistory::Get().Clear();

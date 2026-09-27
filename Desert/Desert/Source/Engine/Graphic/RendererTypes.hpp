@@ -23,10 +23,9 @@ namespace Desert::Graphic
     // WHY DELETED RATHER THAN IMPLEMENTED, stated so it is not re-derived: a Vulkan backend does not
     // bind objects one at a time. It binds a descriptor SET, built once per material and bound once per
     // draw, and vertex/index buffers are named in the draw command itself. `RendererAPIType` has exactly
-    // two values — `None` and `Vulkan` — and the only other Vulkan-ish trees in ThirdParty are a
-    // vendored utility (`lightweightvk`, which lives INSIDE our Vulkan folder) and `NVRHI`, which no
-    // engine file references at all. There is no second backend for this seam to serve, and if one is
-    // ever written it will not want `Unbind` either.
+    // two values — `None` and `Vulkan` — and the tree carries no other rendering backend or RHI
+    // library. There is no second backend for this seam to serve, and if one is ever written it will
+    // not want `Unbind` either.
     //
     // What this cost to keep: five base interfaces each carried a method every implementer had to write
     // and could not omit, so the abstraction taxed every new backend object with a body that does

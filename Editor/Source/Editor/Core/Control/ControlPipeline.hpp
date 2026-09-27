@@ -73,6 +73,23 @@ namespace Desert::Editor::Control
                    "reply gate honest: a kind of outstanding work nobody named is a kind nothing waits for, "
                    "and the gate would open on a frame that had not caught up." );
 
+    /// WORK A COMMAND STARTS AND DOES NOT WAIT FOR. A background run answers its command at once ("started")
+    /// and is reported beside the census above, never in it: holding the reply until a run of seconds ends
+    /// would time the gate out (240 frames) on work that is going exactly as asked. A client that needs the
+    /// result polls `state` until Idle(). Closed at compile time the same way as PendingWork.
+    enum class BackgroundWork : std::size_t
+    {
+        LandscapeGenerate, ///< a New Landscape run is on the JobSystem and not yet applied to the scene
+        Count
+    };
+
+    inline constexpr const char* kBackgroundWorkNames[] = {
+         "a new landscape is being generated",
+    };
+
+    static_assert( std::size( kBackgroundWorkNames ) == static_cast<std::size_t>( BackgroundWork::Count ),
+                   "Every BackgroundWork enumerator needs a name beside it." );
+
     /// The editor's outstanding work, as one value. Held rather than queried so the SAMPLE that a frame
     /// was rendered under is the sample the gate later judges it by — asking again after the fact would
     /// answer about a different moment.
@@ -114,8 +131,43 @@ namespace Desert::Editor::Control
             return description;
         }
 
+        void Set( BackgroundWork kind, bool running ) noexcept
+        {
+            m_Background[static_cast<std::size_t>( kind )] = running;
+        }
+
+        [[nodiscard]] bool Get( BackgroundWork kind ) const noexcept
+        {
+            return m_Background[static_cast<std::size_t>( kind )];
+        }
+
+        /// Settled AND no background run: what a client polls for before it photographs a result.
+        [[nodiscard]] bool Idle() const noexcept
+        {
+            for ( bool running : m_Background )
+                if ( running )
+                    return false;
+            return Settled();
+        }
+
+        /// The background runs, in words. Empty when none runs. Never part of Describe(): no reply waits on them.
+        [[nodiscard]] std::string DescribeBackground() const
+        {
+            std::string description;
+            for ( std::size_t i = 0; i < m_Background.size(); ++i )
+            {
+                if ( !m_Background[i] )
+                    continue;
+                if ( !description.empty() )
+                    description += "; ";
+                description += kBackgroundWorkNames[i];
+            }
+            return description;
+        }
+
     private:
-        std::array<bool, static_cast<std::size_t>( PendingWork::Count )> m_Pending{};
+        std::array<bool, static_cast<std::size_t>( PendingWork::Count )>    m_Pending{};
+        std::array<bool, static_cast<std::size_t>( BackgroundWork::Count )> m_Background{};
     };
 
     /// What a presented frame did to the gate.

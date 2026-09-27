@@ -53,6 +53,14 @@ namespace Desert::Geometry
         }
 
         /**
+         * The connected components of the triangles in TriangleROI, connected only through ROI triangles; the
+         * components come in ascending order of their lowest triangle ID, as UE walks its ROI index range.
+         */
+        void
+        FindConnectedTriangles( const std::vector<int>&                        TriangleROI,
+                                const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate = nullptr );
+
+        /**
          * One component per seed that an earlier seed's component has not already absorbed. A seed that is not
          * a live triangle starts nothing. TrisConnectedPredicate(t0, t1), when set, must also hold for t1 to be
          * reached from its neighbour t0.

@@ -1,5 +1,5 @@
 // A landscape tile's painted weight layers over the ground its height/slope rules made — the surface stage's
-// half of UE's weightmap (the other half, the RGBA8 texture, is LandscapeWeightmapTexels on the C++ side).
+// half of UE's weightmap (the other half, the RGBA8 pages, is LandscapeWeightmapAtlasTexels on the C++ side).
 // Pure arithmetic, so the LandscapePaint suite compiles this file as C++ and checks the blend the GPU runs.
 //
 // Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeLayerBlend.cpp:
@@ -19,34 +19,56 @@ struct LandscapeWeightBlendResult
     float RuleShare;
 };
 
-// w          = the weightmap texel, one layer per channel, 0..1.
-// c0..c3     = each channel's root layer colour in rgb; a = 1 when the root names the layer, 0 when it does
-//              not (the channel is then not drawn at all, as if unpainted).
-// alphaBlend = 1 per channel whose layer is NoWeightBlend (UE's LB_AlphaBlend), 0 for weight-blended ones.
-LandscapeWeightBlendResult LandscapeWeightBlend( vec4 w, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 alphaBlend,
+// w0, w1     = the tile's two weightmap pages at this pixel (UE's weightmap textures: layer i is page i / 4,
+//              channel i % 4), 0..1; a page the tile does not have is vec4(0).
+// c0..c7     = each tile layer's root layer colour in rgb; a = 1 when the root names the layer, 0 when it does
+//              not (the layer is then not drawn at all, as if unpainted).
+// alpha0/1   = per page, 1 per channel whose layer is NoWeightBlend (UE's LB_AlphaBlend), 0 for weight-blended ones.
+LandscapeWeightBlendResult LandscapeWeightBlend( vec4 w0, vec4 w1, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 c4,
+                                                 vec4 c5, vec4 c6, vec4 c7, vec4 alpha0, vec4 alpha1,
                                                  vec3 ruleAlbedo )
 {
-    vec4 drawn    = w * vec4( c0.a, c1.a, c2.a, c3.a );
-    vec4 weighted = drawn * ( vec4( 1.0f ) - alphaBlend );
-    vec4 laidOver = drawn * alphaBlend;
+    vec4 drawn0    = w0 * vec4( c0.a, c1.a, c2.a, c3.a );
+    vec4 drawn1    = w1 * vec4( c4.a, c5.a, c6.a, c7.a );
+    vec4 weighted0 = drawn0 * ( vec4( 1.0f ) - alpha0 );
+    vec4 weighted1 = drawn1 * ( vec4( 1.0f ) - alpha1 );
+    vec4 laidOver0 = drawn0 * alpha0;
+    vec4 laidOver1 = drawn1 * alpha1;
 
-    // LB_WeightBlend: the layers add by weight, with no renormalisation (the painter keeps their sum at
-    // 255, LandscapeNormalizeWeights). Whatever they leave is the rules' ground.
-    float claimed = weighted.x + weighted.y + weighted.z + weighted.w;
+    // LB_WeightBlend: the layers of both pages add by weight, with no renormalisation (the painter keeps
+    // their sum at 255, LandscapeNormalizeWeights). Whatever they leave is the rules' ground.
+    float claimed = weighted0.x + weighted0.y + weighted0.z + weighted0.w + weighted1.x + weighted1.y +
+                    weighted1.z + weighted1.w;
     float rule    = claimed < 1.0f ? 1.0f - claimed : 0.0f;
 
     LandscapeWeightBlendResult r;
-    r.Albedo = vec3( c0 ) * weighted.x + vec3( c1 ) * weighted.y + vec3( c2 ) * weighted.z +
-               vec3( c3 ) * weighted.w + ruleAlbedo * rule;
+    r.Albedo = vec3( c0 ) * weighted0.x + vec3( c1 ) * weighted0.y + vec3( c2 ) * weighted0.z +
+               vec3( c3 ) * weighted0.w + vec3( c4 ) * weighted1.x + vec3( c5 ) * weighted1.y +
+               vec3( c6 ) * weighted1.z + vec3( c7 ) * weighted1.w + ruleAlbedo * rule;
 
-    // LB_AlphaBlend: blended last, each a lerp over everything below it, in channel order.
-    r.Albedo = mix( r.Albedo, vec3( c0 ), laidOver.x );
-    r.Albedo = mix( r.Albedo, vec3( c1 ), laidOver.y );
-    r.Albedo = mix( r.Albedo, vec3( c2 ), laidOver.z );
-    r.Albedo = mix( r.Albedo, vec3( c3 ), laidOver.w );
-    r.RuleShare = rule * ( 1.0f - laidOver.x ) * ( 1.0f - laidOver.y ) * ( 1.0f - laidOver.z ) *
-                  ( 1.0f - laidOver.w );
+    // LB_AlphaBlend: blended last, each a lerp over everything below it, in layer order.
+    r.Albedo = mix( r.Albedo, vec3( c0 ), laidOver0.x );
+    r.Albedo = mix( r.Albedo, vec3( c1 ), laidOver0.y );
+    r.Albedo = mix( r.Albedo, vec3( c2 ), laidOver0.z );
+    r.Albedo = mix( r.Albedo, vec3( c3 ), laidOver0.w );
+    r.Albedo = mix( r.Albedo, vec3( c4 ), laidOver1.x );
+    r.Albedo = mix( r.Albedo, vec3( c5 ), laidOver1.y );
+    r.Albedo = mix( r.Albedo, vec3( c6 ), laidOver1.z );
+    r.Albedo = mix( r.Albedo, vec3( c7 ), laidOver1.w );
+    r.RuleShare = rule * ( 1.0f - laidOver0.x ) * ( 1.0f - laidOver0.y ) * ( 1.0f - laidOver0.z ) *
+                  ( 1.0f - laidOver0.w ) * ( 1.0f - laidOver1.x ) * ( 1.0f - laidOver1.y ) *
+                  ( 1.0f - laidOver1.z ) * ( 1.0f - laidOver1.w );
     return r;
+}
+
+// Where page @p page of a tile's weightmap puts sample-space coordinate @p g (x along the tile, y along it in
+// Z, in samples) in the stacked image: page p occupies rows [p * rows, (p + 1) * rows) of a pages * rows
+// high image, and the texel centre of sample i is i + 0.5. A tile's samples run 0..rows-1, so the filter
+// never reaches across into the neighbouring page.
+vec2 LandscapeWeightmapPageUV( vec2 g, float page, vec2 imageSize, float pages )
+{
+    float rows = imageSize.y / pages;
+    return vec2( ( g.x + 0.5f ) / imageSize.x, ( g.y + 0.5f + page * rows ) / imageSize.y );
 }
 
 #endif // LANDSCAPE_WEIGHTS_GLSLH

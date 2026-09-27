@@ -115,10 +115,14 @@ namespace
             out.push_back(
                  { "box",
                    Shape( ShapeToEditMesh( MakeBox( glm::vec3( 200, 100, 50 ), glm::ivec3( 2, 1, 1 ) ) ), 1 ) } );
-            out.push_back( { "sphere", Shape( ShapeToEditMesh( MakeSphere( 100.0f ) ), 2 ) } );
-            out.push_back( { "cylinder", Shape( ShapeToEditMesh( MakeCylinder( 80.0f, 150.0f ) ), 1 ) } );
-            out.push_back( { "cone", Shape( ShapeToEditMesh( MakeCone( 80.0f, 150.0f ) ), 2 ) } );
-            out.push_back( { "capsule", Shape( ShapeToEditMesh( MakeCapsule( 60.0f, 180.0f ) ), 1 ) } );
+            out.push_back(
+                 { "sphere",
+                   Shape( ShapeToEditMesh( MakeSphere( { 50.0f, SphereType::LatLong, 1, 16, 24 } ) ), 2 ) } );
+            out.push_back(
+                 { "cylinder", Shape( ShapeToEditMesh( MakeCylinder( { 40.0f, 150.0f, 24, 1 } ) ), 1 ) } );
+            out.push_back( { "cone", Shape( ShapeToEditMesh( MakeCone( { 40.0f, 150.0f, 24, 1 } ) ), 2 ) } );
+            out.push_back(
+                 { "capsule", Shape( ShapeToEditMesh( MakeCapsule( { 30.0f, 120.0f, 8, 24, 1 } ) ), 1 ) } );
             out.push_back(
                  { "pyramid", Shape( ShapeToEditMesh( MakePyramid( glm::vec3( 100, 120, 100 ) ) ), 1 ) } );
             AddScenes( out );

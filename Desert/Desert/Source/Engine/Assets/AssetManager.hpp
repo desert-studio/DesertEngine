@@ -18,9 +18,9 @@ namespace Desert::Assets
     // Not decoration. `MeshService::RegisterAsset` requires a `weak_ptr<AssetManager>` because a lazily
     // registered `.stmesh` shell defers its parse, and the parse is the first moment a `.skmesh` learns
     // which skeleton it needs; without a registry to ask, that deferred load fails and the mesh is
-    // invisible. Until this line, the ONLY caller able to satisfy that requirement was `AssetPreloader`,
-    // which happens to hold the `weak_ptr` the layer gave it. Everybody else — including the scene parse,
-    // which is where a scene's own meshes are resolved — had a bare `const AssetManager&` and could
+    // invisible. Until this line, the ONLY caller able to satisfy that requirement was the boot scanner (since
+    // deleted), which happens to hold the `weak_ptr` the layer gave it. Everybody else — including the scene
+    // parse, which is where a scene's own meshes are resolved — had a bare `const AssetManager&` and could
     // therefore only use the EAGER `Register`, whose deferred-load path then failed for exactly the same
     // reason with `no AssetManager is bound`. MEASURED: with the preloader's registration loop switched
     // off, `M10_MeshSlot` renders no mesh and prints that error once per frame, ninety times.

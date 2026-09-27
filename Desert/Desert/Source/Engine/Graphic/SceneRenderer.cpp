@@ -1457,9 +1457,18 @@ namespace Desert::Graphic
                                     .VisibleSubmeshMask = visibleSubmeshMask } );
     }
 
+    uint32_t SceneRenderer::GetIsmInstancesDrawn() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return 0;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
+    }
+
     void SceneRenderer::SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                             bool                                                 castShadows )
+                                             bool castShadows, const InstanceCullDistance& cullDistance,
+                                             const InstanceWind& wind )
     {
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
@@ -1468,8 +1477,12 @@ namespace Desert::Graphic
         // as a StaticMesh (RenderMesh takes a Mesh), so nothing broke; the type simply claimed
         // something untrue, and a reader who believed it would reach for members that are not there.
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-             ->SubmitInstancedMesh(
-                  { .Mesh = mesh, .Material = material, .Transforms = transforms, .CastShadows = castShadows } );
+             ->SubmitInstancedMesh( { .Mesh         = mesh,
+                                      .Material     = material,
+                                      .Transforms   = transforms,
+                                      .CastShadows  = castShadows,
+                                      .CullDistance = cullDistance,
+                                      .Wind         = wind } );
     }
 
     void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )

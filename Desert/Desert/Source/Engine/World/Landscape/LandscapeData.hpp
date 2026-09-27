@@ -184,10 +184,22 @@ namespace Desert::World::Landscape
     };
     inline constexpr size_t kLandscapeDirtyConsumerCount = 3u;
 
-    /// How many weightmap layers one tile carries. UE packs a component's layers four to an RGBA8 weightmap
-    /// texture and adds textures as layers are added; we carry ONE texture a tile, so four layers. A fifth is
-    /// refused by name (AddWeightLayer, DecodeLandscapeTile), never dropped.
-    inline constexpr uint32_t kLandscapeMaxWeightLayers = 4u;
+    /// How many weightmap layers one tile carries — owner decision O3 of the landscape programme (up to eight
+    /// paint layers). A ninth is refused by name (AddWeightLayer, SetWeightLayers, DecodeLandscapeTile), never
+    /// dropped.
+    inline constexpr uint32_t kLandscapeMaxWeightLayers = 8u;
+
+    /// Layers per weightmap texture: UE packs a component's layers four to an RGBA8 texture and adds a
+    /// texture as a fifth layer is allocated (FWeightmapLayerAllocationInfo::WeightmapTextureIndex/Channel).
+    /// Layer i of a tile lives in page i / 4, channel i % 4 (LandscapeWeightmapTexels).
+    inline constexpr uint32_t kLandscapeWeightmapChannels = 4u;
+
+    /// Weightmap textures a tile of @p layers layers needs: 0 for none, 1 for 1..4, 2 for 5..8.
+    constexpr uint32_t LandscapeWeightmapPageCount( size_t layers )
+    {
+        return static_cast<uint32_t>( ( layers + kLandscapeWeightmapChannels - 1u ) /
+                                      kLandscapeWeightmapChannels );
+    }
 
     /// Longest weight-layer name a tile blob carries. Exists because the length comes from a file.
     inline constexpr uint32_t kLandscapeMaxWeightLayerName = 64u;
@@ -239,6 +251,18 @@ namespace Desert::World::Landscape
         [[nodiscard]] const std::vector<uint16_t>& Samples() const
         {
             return m_Samples;
+        }
+
+        /// The lowest and the highest sample of the tile, kept by every write. A ray's vertical slab reads
+        /// them per tile per ray (LandscapeRaycast); re-scanning the samples there cost the foliage brush 20 s
+        /// a dab on Terrain_Grass (848 rays x 25 tiles x 65,536 samples, FO-3b).
+        [[nodiscard]] uint16_t LowestSample() const
+        {
+            return m_LowestSample;
+        }
+        [[nodiscard]] uint16_t HighestSample() const
+        {
+            return m_HighestSample;
         }
 
         /// The whole tile as a rectangle.
@@ -299,7 +323,7 @@ namespace Desert::World::Landscape
 
         /// Allocates @p name on this tile with every weight zero and returns its index (UE: a component gets
         /// a layer allocation on the first stroke that paints it). Adding a name already present returns
-        /// that index. Refuses an empty or over-long name and a fifth layer, naming them.
+        /// that index. Refuses an empty or over-long name and a ninth layer, naming them.
         Common::ResultStr<size_t> AddWeightLayer( std::string name );
 
         /// One weight. Out of range is a caller defect and is asserted.
@@ -314,7 +338,7 @@ namespace Desert::World::Landscape
                                                  std::span<const uint8_t> values );
 
         /// Replaces every weight layer at once (a paint stroke's undo/redo) and marks the whole tile dirty for
-        /// the Weights consumer. Refuses planes of the wrong size, a bad or repeated name, or a fifth layer.
+        /// the Weights consumer. Refuses planes of the wrong size, a bad or repeated name, or a ninth layer.
         Common::BoolResultStr SetWeightLayers( std::vector<LandscapeWeightLayer> layers );
 
     private:
@@ -323,9 +347,14 @@ namespace Desert::World::Landscape
         /// Marks @p rect dirty for every consumer in @p consumers (a bit per LandscapeDirtyConsumer).
         void MarkDirty( LandscapeRect rect, uint32_t consumers );
 
+        /// Re-derives the lowest and highest sample from every sample.
+        void RescanSampleRange();
+
         uint32_t                   m_SamplesX = 0u;
         uint32_t                   m_SamplesZ = 0u;
         std::vector<uint16_t>      m_Samples;
+        uint16_t                                                             m_LowestSample  = 0u;
+        uint16_t                                                             m_HighestSample = 0u;
         std::array<std::vector<LandscapeRect>, kLandscapeDirtyConsumerCount> m_Dirty;
         std::vector<LandscapeWeightLayer>                                    m_WeightLayers;
     };
@@ -409,12 +438,13 @@ namespace Desert::World::Landscape
     /// 2 — v1, then between the samples and the trailer the weightmap section: layer count (u32, at most
     ///     kLandscapeMaxWeightLayers), and per layer its name length (u32), the name's bytes, and
     ///     SamplesX·SamplesZ weights, one byte each, row-major. The header's payload length still counts the
-    ///     height samples only. A v1 blob is read as a tile with no weight layers — that is exactly what it
-    ///     describes — and the next save writes it as v2.
-    inline constexpr uint32_t kLandscapeTileContainerVersion   = 2u;
-    inline constexpr uint32_t kLandscapeTileContainerVersionV1 = 1u;
+    ///     height samples only.
+    ///
+    /// Only the current version is read. A v1 blob is refused by its number: SceneMigrator raised the
+    /// committed corpus to v2 (LS-15) and the v1 reader was deleted with that step.
+    inline constexpr uint32_t kLandscapeTileContainerVersion = 2u;
 
-    /// Byte lengths of the v1 header and trailer. Exposed so the round-trip test can assert the total
+    /// Byte lengths of the header and trailer. Exposed so the round-trip test can assert the total
     /// size: a header that grew without this constant moving would pass a test that meant nothing.
     inline constexpr size_t kLandscapeTileHeaderSize  = 28u;
     inline constexpr size_t kLandscapeTileTrailerSize = 4u;

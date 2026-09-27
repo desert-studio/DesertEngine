@@ -38,6 +38,7 @@ namespace Desert::Editor
     {
         std::string                 Name;
         std::string                 Author;
+        std::string                 ManifestPath; // the collection.json, emitted as the Collection DnD payload
         std::vector<CollectionItem> Items;
     };
 

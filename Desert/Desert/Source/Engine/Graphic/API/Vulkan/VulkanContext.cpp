@@ -1,4 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <vk-bootstrap/VkBootstrap.h>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -10,12 +12,6 @@
 
 #include <string_view>
 #include <vulkan/vulkan.h>
-
-#if defined( DESERT_PLATFORM_WINDOWS )
-#ifndef VK_KHR_WIN32_SURFACE_EXTENSION_NAME
-#define VK_KHR_WIN32_SURFACE_EXTENSION_NAME "VK_KHR_win32_surface"
-#endif
-#endif
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -85,88 +81,58 @@ namespace Desert::Graphic::API::Vulkan
         DESERT_VERIFY( instance.IsSuccess(), "Vulkan instance could not be created: {}", instance.GetError() );
     }
 
+    namespace
+    {
+        // Held for the process: device selection (DeviceCapsProbe) is built from it, and it is what
+        // VulkanContext::GetVulkanInstance() hands out.
+        vkb::Instance s_BootstrapInstance;
+    } // namespace
+
+    const vkb::Instance& VulkanContext::GetBootstrapInstance()
+    {
+        return s_BootstrapInstance;
+    }
+
     Common::ResultStr<VkResult> VulkanContext::CreateVKInstance()
     {
         LOG_TRACE( "VulkanRenderingContext::CreateVKInstance()" );
         DESERT_VERIFY( glfwVulkanSupported(), "GLFW must support Vulkan API" );
-        VkApplicationInfo appInfo{};
-        appInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName   = "Hello Triangle";
-        appInfo.applicationVersion = VK_MAKE_VERSION( 1, 2, 0 );
-        appInfo.pEngineName        = "No Engine";
-        appInfo.engineVersion      = VK_MAKE_VERSION( 1, 3, 0 );
-        appInfo.apiVersion         = VK_API_VERSION_1_3;
 
-        std::vector<const char*> instanceExtensions = { VK_KHR_SURFACE_EXTENSION_NAME };
-#if defined( DESERT_PLATFORM_WINDOWS )
-        instanceExtensions.push_back( VK_KHR_WIN32_SURFACE_EXTENSION_NAME );
-#elif defined( DESERT_PLATFORM_MACOS )
-        // MoltenVK: the surface goes through Metal, and the implementation is a
-        // portability driver, so it must be enumerated explicitly.
-        instanceExtensions.push_back( "VK_EXT_metal_surface" );
-        instanceExtensions.push_back( "VK_KHR_portability_enumeration" );
-        instanceExtensions.push_back( VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME );
-#endif
-        if ( s_DebugValidation )
-        {
-            instanceExtensions.push_back( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
-            instanceExtensions.push_back( VK_EXT_DEBUG_REPORT_EXTENSION_NAME );
-#if !defined( DESERT_PLATFORM_MACOS ) // already added above
-            instanceExtensions.push_back( VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME );
-#endif
-        }
-
-        VkInstanceCreateInfo createInfo{};
-        createInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        createInfo.pApplicationInfo        = &appInfo;
-        createInfo.enabledExtensionCount   = (uint32_t)instanceExtensions.size();
-        createInfo.ppEnabledExtensionNames = instanceExtensions.data();
-        createInfo.enabledLayerCount       = 0;
-#if defined( DESERT_PLATFORM_MACOS )
-        createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-#endif
+        // vk-bootstrap adds what every windowed instance needs: VK_KHR_surface and the platform surface
+        // (win32 / metal), VK_KHR_portability_enumeration plus its create flag where the loader offers it
+        // (MoltenVK). The loader is linked, so its vkGetInstanceProcAddr is handed over instead of letting
+        // vk-bootstrap dlopen a second copy.
+        //
+        // API VERSION: 1.3 is what the engine is written against and what the instance advertises; the
+        // instance itself only has to be 1.1 (kMinimumDeviceApiVersion). A device older than 1.3 is still
+        // driven at its own version — VMA and routing use min(device, 1.3), see DeviceCaps.
+        vkb::InstanceBuilder builder( vkGetInstanceProcAddr );
+        builder.set_app_name( "Desert Engine" )
+             .set_engine_name( "Desert Engine" )
+             .require_api_version( kMaximumApiVersion )
+             .set_minimum_instance_version( kMinimumDeviceApiVersion );
 
         if ( s_DebugValidation )
         {
-            const char* validationLayers = "VK_LAYER_KHRONOS_validation";
-
-            // ZERO-INITIALISED, and that is a fix rather than a tidy-up. The result of the call below is
-            // one of the thirteen this tree still drops (see DeviceLostCensus), and a dropped result on a
-            // count-then-fill enumeration is only harmless if the count is defined when the call fails —
-            // this one was not, so a failed enumeration sized a vector from an uninitialised stack value.
-            // The sibling counters in VulkanDevice and VulkanSwapChain were already written this way.
-            uint32_t layerCount = 0;
-            vkEnumerateInstanceLayerProperties( &layerCount, nullptr );
-
-            std::vector<VkLayerProperties> availableLayers( layerCount );
-            vkEnumerateInstanceLayerProperties( &layerCount, availableLayers.data() );
-
-            bool validationLayerPresent = false;
-            LOG_INFO( "Vulkan Instance Layers:" );
-            // The inner loop that used to be here walked `availableLayers` a SECOND time and never touched
-            // its own loop variable: every iteration re-ran `strcmp( layer.layerName, validationLayers )`
-            // on the OUTER layer, so the whole thing was one comparison performed N times. That unused
-            // variable is what `-Wunused-variable` was pointing at. Behaviour is unchanged; the work is now
-            // O(N) instead of O(N^2).
-            for ( const VkLayerProperties& layer : availableLayers )
-            {
-                LOG_INFO( "  {0}", layer.layerName );
-                if ( strcmp( layer.layerName, validationLayers ) == 0 )
-                    validationLayerPresent = true;
-            }
-
-            if ( validationLayerPresent )
-            {
-                createInfo.ppEnabledLayerNames = &validationLayers;
-                createInfo.enabledLayerCount   = 1;
-            }
+            const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
+            if ( system && system.value().validation_layers_available )
+                builder.request_validation_layers( true );
             else
-            {
                 LOG_ERROR( "Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled" );
-            }
+            builder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME )
+                 .enable_extension( VK_EXT_DEBUG_REPORT_EXTENSION_NAME );
         }
 
-        VK_RETURN_RESULT_IF_FALSE( vkCreateInstance( &createInfo, nullptr, &s_VulkanInstance ) );
+        auto built = builder.build();
+        if ( !built )
+            return Common::MakeFormattedError<VkResult>(
+                 "vk-bootstrap could not create the Vulkan instance: {} ({})", built.error().message(),
+                 static_cast<int>( built.vk_result() ) );
+        s_BootstrapInstance = built.value();
+        s_VulkanInstance    = s_BootstrapInstance.instance;
+        LOG_INFO( "[Vulkan] instance created through vk-bootstrap (engine targets Vulkan {}, minimum device {})",
+                  FormatApiVersion( kMaximumApiVersion ), FormatApiVersion( kMinimumDeviceApiVersion ) );
+
         if ( s_DebugValidation )
         {
             auto vkCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(

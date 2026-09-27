@@ -61,7 +61,7 @@ namespace Desert::Editor::MeshDnD
 
         // Create + register a freshly-imported mesh's materials so their stable external id
         // (PBRSurfaceParams::MaterialId, baked into each submesh) resolves in MaterialService THIS session.
-        // Without this the materials would only register on the NEXT launch (AssetPreloader scan) and a
+        // Without this the materials would only register when something next names them and a
         // just-imported mesh shows "Unassigned material slot". Import writes them as editable content at
         // CookPaths::MaterialFolder(source) (see ImportManager::SerializeMaterialAsset).
         // Idempotent (skips already-registered).
@@ -106,7 +106,7 @@ namespace Desert::Editor::MeshDnD
         // ALREADY COOKED? Reuse it — and register it, which is what the question mark in the comment that
         // stood here ("Already cooked + registered?") was standing in for. Finding a record proves the
         // registry has it; it proves nothing about the mesh SERVICE, and the two are what a drop needs
-        // both of. It never showed because AssetPreloader had registered every cooked mesh before the
+        // both of. It never showed because a boot scanner (since deleted) registered every cooked mesh before the
         // editor could accept a drop — a safety net, not a guarantee.
         if ( auto existing = mgr.FindByPath<Assets::MeshAsset>( cookedStr ) )
         {

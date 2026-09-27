@@ -84,6 +84,57 @@ namespace Desert::Editor::Tools
                 return std::nullopt;
             return hit->Point;
         }
+
+        /// The ramp point pick's reach, radians from the cursor ray: about the gizmo dot's radius at a common
+        /// field of view (0.02 rad is ~18 px of a 1080 px, 60-degree view).
+        constexpr float kRampPickRadians = 0.02f;
+
+        /// One placement or drag of the ramp's points, undone as a whole. UE keeps the points on the tool
+        /// outside the transaction buffer; ours are undoable so a misplaced drag is one Ctrl+Z.
+        class RampPointsCommand final : public ICommand
+        {
+        public:
+            RampPointsCommand( const World::Landscape::LandscapeRampPoints& before,
+                               const World::Landscape::LandscapeRampPoints& after )
+                 : m_Before( before ), m_After( after )
+            {
+            }
+            bool Undo() override
+            {
+                Core::LandscapeSculptState::Get().RampPoints = m_Before;
+                return true;
+            }
+            bool Redo() override
+            {
+                Core::LandscapeSculptState::Get().RampPoints = m_After;
+                return true;
+            }
+            std::string GetLabel() const override
+            {
+                return "Landscape Ramp points";
+            }
+
+        private:
+            World::Landscape::LandscapeRampPoints m_Before;
+            World::Landscape::LandscapeRampPoints m_After;
+        };
+
+        /// Records @p before -> the state's current points as one undo step; nothing when they did not change.
+        void RecordRampPoints( World::Landscape::LandscapeRampPoints before )
+        {
+            auto after    = Core::LandscapeSculptState::Get().RampPoints;
+            before.Moving = false;
+            after.Moving  = false;
+            if ( before == after )
+                return;
+            CommandHistory::Get().PushCommand( std::make_unique<RampPointsCommand>( before, after ) );
+        }
+
+        std::optional<glm::vec3> RampHit( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
+        {
+            const auto landscape = ECS::FirstLandscape( scene.GetRegistry() );
+            return landscape ? TraceLandscape( scene, *landscape, ray ) : std::nullopt;
+        }
     } // namespace
 
     Common::BoolResultStr LandscapeSculptTool::Begin( ::Desert::Core::Scene& scene )
@@ -160,21 +211,57 @@ namespace Desert::Editor::Tools
     void LandscapeSculptTool::SetRampPoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
                                             bool start )
     {
-        auto&      state     = Core::LandscapeSculptState::Get();
-        const auto landscape = ECS::FirstLandscape( scene.GetRegistry() );
-        const auto point     = landscape ? TraceLandscape( scene, *landscape, ray ) : std::nullopt;
+        auto&      ramp  = Core::LandscapeSculptState::Get().RampPoints;
+        const auto point = RampHit( scene, ray );
         if ( !point )
         {
             ToastManager::Push( "landscape ramp: no landscape under the ray", ToastLevel::Error, 6.0f );
             return;
         }
-        if ( start )
+        if ( !start && ramp.NumPoints == 0 )
         {
-            state.RampStart = *point;
-            state.RampEnd.reset();
+            ToastManager::Push( "landscape ramp: set the start first", ToastLevel::Error, 6.0f );
+            return;
         }
-        else
-            state.RampEnd = *point;
+        const auto before = ramp;
+        // A palette point is a click: the start begins the ramp over, the end is the second point laid or moved.
+        if ( start )
+            World::Landscape::LandscapeRampReset( ramp );
+        else if ( ramp.NumPoints == 2 )
+            ramp.SelectedPoint = 1;
+        World::Landscape::LandscapeRampPress( ramp, -1, point );
+        World::Landscape::LandscapeRampRelease( ramp );
+        RecordRampPoints( before );
+    }
+
+    void LandscapeSculptTool::UpdateRamp( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
+                                          bool hovered )
+    {
+        auto& ramp = Core::LandscapeSculptState::Get().RampPoints;
+        if ( m_RampAtPress )
+        {
+            // UE: the release ends the move (InputKey's IE_Released / EndTool); the whole press is one step.
+            if ( !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+            {
+                World::Landscape::LandscapeRampRelease( ramp );
+                RecordRampPoints( *m_RampAtPress );
+                m_RampAtPress.reset();
+                return;
+            }
+            // UE's MouseMove: only a moved cursor moves the point, so a click without a drag lays one point.
+            const ImVec2 delta = ImGui::GetIO().MouseDelta;
+            if ( delta.x != 0.0f || delta.y != 0.0f )
+                World::Landscape::LandscapeRampMove( ramp, RampHit( scene, mouseRay ) );
+            return;
+        }
+        if ( !hovered || !ImGui::IsMouseClicked( ImGuiMouseButton_Left ) || ImGui::IsAnyItemActive() )
+            return;
+        const auto    before = ramp;
+        const int32_t picked = World::Landscape::PickLandscapeRampPoint( ramp, mouseRay.Origin, mouseRay.Direction,
+                                                                         kRampPickRadians );
+        if ( World::Landscape::LandscapeRampPress( ramp, picked,
+                                                   picked >= 0 ? std::nullopt : RampHit( scene, mouseRay ) ) )
+            m_RampAtPress = before;
     }
 
     bool LandscapeSculptTool::ServeRampRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& centreRay )
@@ -189,10 +276,13 @@ namespace Desert::Editor::Tools
                 SetRampPoint( scene, centreRay, request == Core::LandscapeStrokeRequest::RampStart );
                 return true;
             case Core::LandscapeStrokeRequest::RampReset:
-                state.Request = Core::LandscapeStrokeRequest::None;
-                state.RampStart.reset();
-                state.RampEnd.reset();
+            {
+                state.Request     = Core::LandscapeStrokeRequest::None;
+                const auto before = state.RampPoints;
+                World::Landscape::LandscapeRampReset( state.RampPoints );
+                RecordRampPoints( before );
                 return true;
+            }
             case Core::LandscapeStrokeRequest::RampApply:
                 break;
             case Core::LandscapeStrokeRequest::MirrorPoint:
@@ -211,16 +301,16 @@ namespace Desert::Editor::Tools
         }
         state.Request = Core::LandscapeStrokeRequest::None;
         // UE's CanApplyRamp: exactly two points.
-        if ( !state.RampStart || !state.RampEnd )
+        if ( state.RampPoints.NumPoints < 2 )
         {
             ToastManager::Push( "landscape ramp: set both the start and the end first", ToastLevel::Error, 6.0f );
             return true;
         }
         auto begun   = Begin( scene );
         m_ToolName   = Core::LandscapeToolName( Core::LandscapeTool::Ramp );
-        auto applied = begun.IsSuccess()
-                            ? m_Stroke->ApplyRamp( *state.RampStart, *state.RampEnd, state.Settings.Ramp )
-                            : begun;
+        auto applied = begun.IsSuccess() ? m_Stroke->ApplyRamp( state.RampPoints.Points[0],
+                                                                state.RampPoints.Points[1], state.Settings.Ramp )
+                                         : begun;
         if ( !applied.IsSuccess() )
             ToastManager::Push( applied.GetError(), ToastLevel::Error, 6.0f );
         End( scene );
@@ -311,19 +401,18 @@ namespace Desert::Editor::Tools
             return;
         }
 
+        // UE's ramp places and drags points instead of stroking; it owns the press from the click to the release.
+        if ( state.Settings.Tool == Core::LandscapeTool::Ramp && !m_Stroke )
+        {
+            UpdateRamp( scene, mouseRay, hovered );
+            return;
+        }
+        m_RampAtPress.reset();
         const bool pressed = hovered && ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive();
         if ( !pressed )
         {
             if ( m_Stroke )
                 End( scene );
-            return;
-        }
-        if ( state.Settings.Tool == Core::LandscapeTool::Ramp )
-        {
-            // UE's ramp places a point per click instead of stroking: the first press sets the start, the next
-            // the end, and a third starts over.
-            if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
-                SetRampPoint( scene, mouseRay, !state.RampStart || state.RampEnd );
             return;
         }
         if ( state.Settings.Tool == Core::LandscapeTool::Mirror ||

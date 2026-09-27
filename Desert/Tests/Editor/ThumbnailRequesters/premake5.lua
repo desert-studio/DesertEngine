@@ -3,7 +3,7 @@
 -- Nothing of the editor is compiled or linked: the census is READ FROM THE SOURCES at run time. It has to
 -- be — every drawing site in it needs ImGui, a Vulkan device and a live AssetManager to call, and not one
 -- of the five files is compiled by any suite in this repository. Same shape, and the same reason, as
--- MaterialPreviewRoute and AssetPreloadCensus beside it; the text machinery is the one shared reader,
+-- MaterialPreviewRoute and BootContentCensus beside it; the text machinery is the one shared reader,
 -- Tests/Engine/SettingConsumers/setting_consumers_reader.hpp, included by relative path.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 

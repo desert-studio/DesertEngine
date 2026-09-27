@@ -37,10 +37,24 @@ Shader "Shadow_Instanced"
             mat4 transforms[];
         };
 
+        // The shared material block's layout (Common/MaterialTransport.glslh) plus the instanced wind tail, so
+        // the wind sits at the same offset here as in the surface stages that draw the same instances.
+        PushConstant PushConstants
+        {
+            mat4 Transform;     // offset 0  — unused here
+            uint MaterialIndex; // offset 64 — unused here
+            vec4 WindA;         // offset 80 — Graphic::kInstancedWindPushOffset
+            vec4 WindB;         // offset 96
+        } m_PushConstants;
+
+        #include <Common/FoliageWind.glslh>
+
         void main()
         {
             mat4 model  = transforms[gl_InstanceIndex];
-            gl_Position = cameraUB.Projection * cameraUB.View * model * vec4(a_Position, 1.0);
+            vec3 worldPosition =
+                InstancedWorldPosition(model, a_Position, m_PushConstants.WindA, m_PushConstants.WindB);
+            gl_Position = cameraUB.Projection * cameraUB.View * vec4(worldPosition, 1.0);
         }
     }
 }

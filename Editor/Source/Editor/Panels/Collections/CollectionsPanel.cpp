@@ -447,7 +447,8 @@ namespace Desert::Editor
 
             LoadedCollection lc;
             lc.Name   = m.Name.empty() ? dir.path().filename().string() : m.Name;
-            lc.Author = m.Author.value_or( "" );
+            lc.Author       = m.Author.value_or( "" );
+            lc.ManifestPath = manifestPath.generic_string();
             for ( const auto& it : m.Items )
             {
                 CollectionItem ci;
@@ -548,10 +549,20 @@ namespace Desert::Editor
                       else
                           ImGui::Button( ICON_MDI_FOLDER, ImVec2( cardW, cardW ) );
 
-                      if ( ImGui::IsItemClicked() )
+                      // Double-click opens (UE's folder gesture): a press has to stay free to start the drag
+                      // that hands the whole collection to the foliage palette.
+                      if ( ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
                           m_OpenCollection = ci;
-                      if ( ImGui::IsItemHovered() )
-                          ImGui::SetTooltip( "%s\n%zu items", coll.Name.c_str(), coll.Items.size() );
+                      if ( ImGui::BeginDragDropSource( ImGuiDragDropFlags_None ) )
+                      {
+                          ImGui::SetDragDropPayload( ::Desert::Editor::DragPayloads::Collection,
+                                                     coll.ManifestPath.c_str(), coll.ManifestPath.size() + 1 );
+                          ImGui::Text( ICON_MDI_FOLDER " %s (%zu)", coll.Name.c_str(), coll.Items.size() );
+                          ImGui::EndDragDropSource();
+                      }
+                      else if ( ImGui::IsItemHovered() )
+                          ImGui::SetTooltip( "%s\n%zu items\nDouble-click to open; drag onto the Foliage palette",
+                                             coll.Name.c_str(), coll.Items.size() );
 
                       ImGui::PushTextWrapPos( ImGui::GetCursorPosX() + cardW );
                       ImGui::TextUnformatted( coll.Name.c_str() );

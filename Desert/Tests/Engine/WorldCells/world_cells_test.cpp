@@ -15,6 +15,7 @@
 //   6. THE TOOL. Tools/WorldCook's own RunWorldCook writes a directory, verifies it from disk, and removes what
 //      an earlier cook left.
 
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
@@ -22,6 +23,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Json/Carry.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -204,8 +206,9 @@ TEST( WorldCells, TwoCooksOfOneSourceAreTheSameBytes )
 {
     const auto first  = FilesOf( Cook( World() ) );
     const auto second = FilesOf( Cook( World() ) );
-    // The always-loaded file, the parent's, the shooter's, the target's, eight fillers' and the index.
-    EXPECT_EQ( first.size(), 13u );
+    // The always-loaded file, the parent's, the shooter's, the target's, eight fillers', the HLOD of the
+    // bystander's cube and the index.
+    EXPECT_EQ( first.size(), 14u );
     EXPECT_EQ( first, second );
 }
 
@@ -587,9 +590,12 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
     fs::remove_all( root );
     fs::create_directories( root / "cooked" );
     const fs::path source = root / "CookMe.desce";
+    // A partitioned world on disk is its header plus one file per entity (WP16), written by the engine's writer.
     {
-        std::ofstream file( source, std::ios::binary );
-        file << rfl::json::write( World() );
+        const auto document = Common::Json::TextDocument::Parse( rfl::json::write( World() ) );
+        ASSERT_TRUE( document ) << document.GetError();
+        const auto written = Desert::Core::ExternalEntities::WriteSceneFile( source, document.GetValue() );
+        ASSERT_TRUE( written ) << written.GetError();
     }
     // Left by an earlier cook of a bigger world: a cell this world no longer has.
     {

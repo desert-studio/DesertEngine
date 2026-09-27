@@ -1,13 +1,16 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/MeshBoundaryLoops.h:1-205 and
 // Private/MeshBoundaryLoops.cpp:62-90 (FindLoopContainingVertex/Edge), 92-366 (Compute), 368-449 (GetVertexNormal,
 // FindLeftTurnEdge), 450-686 (ExtractSubloops and its span helpers), adapted: namespace Desert::Geometry, UE Core
-// as std/glm, EdgeLoop carries no mesh pointer. Not ported: EdgeFilterFunc, SpanBehavior, FailureBehavior and
-// bOnlyComputeSpans - no caller sets them, so Compute runs UE's defaults (open spans are computed, a failed walk
-// is kept as a span, never an abort); the loop-index queries nothing here calls (GetMaxVerticesLoopIndex,
+// as std/glm, EdgeLoop carries no mesh pointer, EdgeFilterFunc is a std::function (Compute:140, 173-185, 232-235;
+// MeshPlaneCut walks only the cut's edges). Not ported: SpanBehavior, FailureBehavior and bOnlyComputeSpans - no
+// caller sets them, so Compute runs UE's defaults (open spans are computed, a failed walk is kept as a span, never
+// an abort); the loop-index queries nothing here calls (GetMaxVerticesLoopIndex,
 // GetLongestLoopIndex, FindVertexInLoop, FindLoop*Hint, FindSpanContainingEdge).
 #pragma once
 
 #include "Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.hpp"
+
+#include <functional>
 
 namespace Desert::Geometry
 {
@@ -22,6 +25,8 @@ namespace Desert::Geometry
         bool m_bSawOpenSpans = false;
         /** A loop with bowties could not be split into simple loops and was kept as a span. */
         bool m_bFellBackToSpansOnFailure = false;
+        /** If set, only boundary edges that pass this filter are walked (a filtered-out edge ends a span). */
+        std::function<bool( int )> EdgeFilterFunc;
 
         explicit MeshBoundaryLoops( const DynamicMesh3* MeshIn, bool bAutoCompute = true ) : m_Mesh( MeshIn )
         {
