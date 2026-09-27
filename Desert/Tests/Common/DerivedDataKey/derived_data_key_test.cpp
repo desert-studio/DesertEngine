@@ -13,8 +13,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <fstream>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -286,6 +289,181 @@ TEST( DerivedDataKey, GitIgnoresTheCacheAndNeverReIncludesIt )
                 EXPECT_TRUE( e.path().filename() != "DerivedDataCache" && e.path().filename() != "Saved" )
                      << e.path().lexically_relative( repo ).generic_string() << " is ignored by .gitignore";
     }
+}
+
+// ---- PK3 - the register of buckets a package ships is the ONLY source of what StageCookedEntries -----
+// ---- copies, and this census keeps it honest in both directions. ---------------------------------------
+//
+// kMeshDeriver's bucket ("StaticMesh") was a Common::DDC::Deriver like any other, but PackageCook.cpp's
+// shipped-bucket list was a second, hand-written array that nobody re-derived when the mesh deriver was
+// added - so a packaged game shipped every cooked texture, font and shader and no mesh render data. The
+// fix moved that list into Engine/Assets/DDCShipRegister.hpp's kDDCBucketRegister, which
+// ShippedDDCBuckets() (and therefore StageCookedEntries) reads; this census scans the engine tree for
+// every Common::DDC::Deriver declaration and checks it against that register, so a deriver added without
+// a row here fails a test instead of shipping an empty bucket.
+namespace
+{
+    struct DeclaredDeriverBucket
+    {
+        std::string Bucket;
+        std::string File; // repo-relative, for a failure message that names where to add the row
+    };
+
+    // Every `Common::DDC::Deriver k...{ "Bucket", ... }` in the engine tree, single- or multi-line (the
+    // std::regex `\s` class matches the newline between the brace and the bucket's string literal, which
+    // is exactly the shape MeshDerivedData.hpp's declaration uses).
+    std::vector<DeclaredDeriverBucket> DeclaredDeriverBuckets( const fs::path& repo )
+    {
+        static const std::regex            kPattern( R"re(DDC::Deriver\s+\w+\s*\{\s*"([A-Za-z0-9_]+)")re" );
+        std::vector<DeclaredDeriverBucket> out;
+        std::vector<std::string>           roots( kEngineSourceRoots.begin(), kEngineSourceRoots.end() );
+        roots.emplace_back( "Tools" );
+        for ( const std::string& root : roots )
+            for ( const fs::path& file : SourcesUnder( repo / root ) )
+            {
+                const std::string rel = file.lexically_relative( repo ).generic_string();
+                // The suite's own test deriver (kTestDeriver, "TestBucket") is fixture noise, not a real
+                // bucket a runtime or an editor tool reads - it never appears in any ship register.
+                if ( rel.find( "Tests/" ) != std::string::npos )
+                    continue;
+                const std::string text = ReadText( file );
+                std::smatch       m;
+                auto              begin = text.cbegin();
+                while ( std::regex_search( begin, text.cend(), m, kPattern ) )
+                {
+                    out.push_back( { m[1].str(), rel } );
+                    begin = m.suffix().first;
+                }
+            }
+        return out;
+    }
+
+    struct RegisteredBucket
+    {
+        std::string Bucket;
+        bool        Shipped; // false == DDCBucketReach::EditorOnly
+        bool        HasReason;
+    };
+
+    // The register itself, read as text - this suite links only Common, so it cannot call
+    // Desert::Assets::ShippedDDCBuckets() directly; reading the same header PackageCook.cpp compiles is
+    // exactly the relation this census exists to check (the register's TEXT, not a copy of its intent).
+    std::vector<RegisteredBucket> ReadDDCBucketRegister( const fs::path& repo )
+    {
+        static const std::regex kRow(
+             R"re(\{\s*"([A-Za-z0-9_]+)"\s*,\s*DDCBucketReach::(Shipped|EditorOnly)\s*,\s*"([^"]+)")re" );
+        const std::string text = ReadText( repo / "Desert/Desert/Source/Engine/Assets/DDCShipRegister.hpp" );
+        std::vector<RegisteredBucket> out;
+        std::smatch                   m;
+        auto                          begin = text.cbegin();
+        while ( std::regex_search( begin, text.cend(), m, kRow ) )
+        {
+            out.push_back( { m[1].str(), m[2].str() == "Shipped", !m[3].str().empty() } );
+            begin = m.suffix().first;
+        }
+        return out;
+    }
+
+    // The only buckets the DDC holds with no Common::DDC::Deriver at all (BucketDir() called on a bare
+    // string) - so DeclaredDeriverBuckets() cannot see them, and they are named here once, by hand, as
+    // the one list this whole census cannot derive.
+    const std::set<std::string> kNoDeriverEditorOnlyBuckets = { "Thumbnails" };
+} // namespace
+
+TEST( DerivedDataKey, EveryDDCDeriverBucketHasExactlyOneRegisterRow )
+{
+    const fs::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() );
+
+    const std::vector<DeclaredDeriverBucket> declared = DeclaredDeriverBuckets( repo );
+    ASSERT_GE( declared.size(), 5u ) << "the census found almost no Deriver declarations - the regex or "
+                                        "the search roots are broken, not the engine";
+
+    const std::vector<RegisteredBucket> registered = ReadDDCBucketRegister( repo );
+    ASSERT_FALSE( registered.empty() ) << "DDCShipRegister.hpp was not read - path moved?";
+
+    std::set<std::string> registeredNames;
+    for ( const RegisteredBucket& row : registered )
+        registeredNames.insert( row.Bucket );
+
+    // Direction 1: every deriver the engine declares owes exactly one row. A bucket declared twice (two
+    // derivers sharing a name) or missing entirely both fail here - this is the direction that would
+    // have caught "StaticMesh" before a player ever saw an empty mesh.
+    for ( const DeclaredDeriverBucket& d : declared )
+    {
+        const size_t count = std::count_if( registered.begin(), registered.end(),
+                                            [&]( const RegisteredBucket& r ) { return r.Bucket == d.Bucket; } );
+        EXPECT_EQ( count, 1u ) << d.File << " declares a Common::DDC::Deriver for bucket \"" << d.Bucket
+                               << "\", which has " << count
+                               << " row(s) in DDCShipRegister.hpp's kDDCBucketRegister - add exactly one "
+                                  "(Shipped or EditorOnly, with a reason) or the package silently drops it.";
+    }
+
+    // Direction 2: every row names a bucket that actually exists - either a declared deriver, or one of
+    // the explicit no-deriver editor-only buckets. A row for a deriver that was renamed or removed is a
+    // stale entry the register would otherwise carry forever.
+    std::set<std::string> declaredNames;
+    for ( const DeclaredDeriverBucket& d : declared )
+        declaredNames.insert( d.Bucket );
+    for ( const RegisteredBucket& row : registered )
+        EXPECT_TRUE( declaredNames.count( row.Bucket ) == 1 ||
+                     kNoDeriverEditorOnlyBuckets.count( row.Bucket ) == 1 )
+             << "DDCShipRegister.hpp registers \"" << row.Bucket
+             << "\", which names no Common::DDC::Deriver in the engine and is not in the explicit "
+                "no-deriver editor-only allowlist - stale row or a typo.";
+
+    // The totals are DERIVED from the two scans, not written as a literal count: this assertion cannot
+    // drift out of sync with either side because it has no number of its own.
+    EXPECT_EQ( registeredNames.size(), declaredNames.size() + kNoDeriverEditorOnlyBuckets.size() )
+         << "the register's row count no longer matches (declared derivers) + (explicit no-deriver "
+            "editor-only buckets) - one of the two directions above should also be failing.";
+}
+
+TEST( DerivedDataKey, EveryEditorOnlyBucketIsNamedExplicitlyAndJustified )
+{
+    const fs::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() );
+    const std::vector<RegisteredBucket> registered = ReadDDCBucketRegister( repo );
+    ASSERT_FALSE( registered.empty() );
+
+    std::set<std::string> editorOnly;
+    for ( const RegisteredBucket& row : registered )
+    {
+        if ( row.Shipped )
+            continue;
+        editorOnly.insert( row.Bucket );
+        EXPECT_TRUE( row.HasReason ) << row.Bucket
+                                     << " is marked EditorOnly with no reason string - an "
+                                        "exclusion a reader cannot see the justification for is exactly "
+                                        "the accident this row exists to rule out.";
+    }
+
+    // Named here, once, by hand - this IS the explicit list a reviewer checks; a bucket added to it
+    // without a matching edit to this test is exactly the silent omission the brief asked not to allow.
+    EXPECT_EQ( editorOnly, std::set<std::string>{ "Thumbnails" } )
+         << "the set of EditorOnly buckets changed - update this test's expectation and say why the new "
+            "bucket has no runtime reader.";
+}
+
+TEST( DerivedDataKey, PackageCookDerivesItsShippedBucketsFromTheRegisterNotALiteralList )
+{
+    const fs::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() );
+    const std::string cook = ReadText( repo / "Editor/Source/Editor/Packaging/PackageCook.cpp" );
+    ASSERT_FALSE( cook.empty() );
+
+    EXPECT_NE( cook.find( "ShippedDDCBuckets" ), std::string::npos )
+         << "PackageCook.cpp no longer calls Assets::ShippedDDCBuckets() - StageCookedEntries went back "
+            "to a hand-written list, the exact structure that missed \"StaticMesh\" the first time.";
+
+    const std::vector<RegisteredBucket> registered = ReadDDCBucketRegister( repo );
+    ASSERT_FALSE( registered.empty() );
+    for ( const RegisteredBucket& row : registered )
+        if ( row.Shipped )
+            EXPECT_EQ( cook.find( "\"" + row.Bucket + "\"" ), std::string::npos )
+                 << "PackageCook.cpp still spells the bucket \"" << row.Bucket
+                 << "\" as a literal - it should name only Assets::ShippedDDCBuckets() and let the "
+                    "register be the one place that string is written.";
 }
 
 int main( int argc, char** argv )
