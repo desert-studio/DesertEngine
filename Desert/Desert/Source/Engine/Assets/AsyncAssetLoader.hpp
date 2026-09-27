@@ -153,6 +153,22 @@ namespace Desert::Assets
          */
         void Pump();
 
+        /**
+         * @brief Keep @p handle OUTSTANDING until @p isDone answers true, then call @p onDone.
+         *
+         * THE SECOND HALF OF A LOAD WHOSE LAST STEP IS GPU WORK — a skybox whose cache missed hands its
+         * convolution to the GPU inside its completion delegate (AL1-3c) and is not usable until that
+         * batch's fence. Counted by `Outstanding()` and seen by `IsRequested()` exactly like a read in
+         * flight, so ContentGate cannot open on a sky the GPU is still convolving, and there is no second
+         * counter beside this one to disagree with it.
+         *
+         * @p isDone is polled by `Pump()` on the main thread, once per tick, and must never block. The
+         * handle rules are `Request`'s: `Cancel()` gets @p onCancel, `Release()` gets nothing, every
+         * delegate runs from `Pump()`. Null delegates are a refusal, as for `Request`.
+         */
+        [[nodiscard]] LoadRequest Await( const AssetHandle& handle, std::function<bool()> isDone,
+                                         std::function<void()> onDone, OnCancel onCancel );
+
         /// How many requests are still live — in flight, or finished but not yet pumped. A host waits on
         /// this to know its content has settled; a test waits on it to know the loader is quiet.
         [[nodiscard]] size_t Outstanding() const;

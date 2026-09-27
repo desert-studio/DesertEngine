@@ -8,6 +8,7 @@
 namespace Desert::Graphic
 {
     class ImageCube;
+    class GpuBatch;
 
     enum class MipGenStrategy : uint8_t
     {
@@ -27,6 +28,10 @@ namespace Desert::Graphic
         virtual ~MipMapCubeGenerator() = default;
 
         virtual Common::BoolResultStr GenerateMips( const std::shared_ptr<ImageCube>& image ) const = 0;
+
+        /// The same chain recorded into @p batch instead of a buffer of its own that the caller waits on.
+        /// Mip 0 must be written by earlier commands of the batch; the cube ends in SHADER_READ.
+        virtual Common::BoolResultStr RecordMips( GpuBatch& batch, const std::shared_ptr<ImageCube>& image ) const = 0;
 
         static std::unique_ptr<MipMapCubeGenerator> Create( MipGenStrategy strategy );
     };

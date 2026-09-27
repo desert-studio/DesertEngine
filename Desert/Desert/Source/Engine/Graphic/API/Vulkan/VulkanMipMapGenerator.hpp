@@ -12,6 +12,7 @@ namespace Desert::Graphic::API::Vulkan
     {
     public:
         virtual Common::BoolResultStr GenerateMips( const std::shared_ptr<ImageCube>& imageCube ) const override;
+        Common::BoolResultStr RecordMips( GpuBatch& batch, const std::shared_ptr<ImageCube>& imageCube ) const override;
     };
 
     // Transfer ops
@@ -20,5 +21,6 @@ namespace Desert::Graphic::API::Vulkan
     {
     public:
         virtual Common::BoolResultStr GenerateMips( const std::shared_ptr<ImageCube>& imageCube ) const override;
+        Common::BoolResultStr RecordMips( GpuBatch& batch, const std::shared_ptr<ImageCube>& imageCube ) const override;
     };
 } // namespace Desert::Graphic::API::Vulkan

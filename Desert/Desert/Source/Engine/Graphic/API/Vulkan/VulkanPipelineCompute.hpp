@@ -28,6 +28,7 @@ namespace Desert::Graphic::API::Vulkan
         ComputePipeline& SetStorageBuffer( uint32_t binding, ShaderResources::StorageBuffer* buffer ) override;
         ComputePipeline& SetPushConstants( const void* data, uint32_t size ) override;
         void             Dispatch( uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) override;
+        void             Record( GpuBatch& batch, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) override;
 
         // In-frame dispatch: records bind + descriptors + dispatch into an EXISTING (frame) command
         // buffer, outside any render pass. Unlike the immediate Dispatch() it neither submits nor
@@ -101,6 +102,11 @@ namespace Desert::Graphic::API::Vulkan
 
         // Lazily-created ring of descriptor sets for in-frame dispatches (one per dispatch so they
         // don't alias). Sized generously across frames-in-flight; reused round-robin.
+        // Outputs to GENERAL, the dispatch, outputs back to SHADER_READ — the body both Dispatch (persistent
+        // set, own buffer, waited) and Record (ring set, the batch's buffer) share.
+        void RecordTransitionedDispatch( VkCommandBuffer cmd, VkDescriptorSet descriptorSet, uint32_t groupsX,
+                                         uint32_t groupsY, uint32_t groupsZ );
+
         void                         EnsureInFrameRing();
         VkDescriptorPool             m_InFramePool = VK_NULL_HANDLE;
         std::vector<VkDescriptorSet> m_InFrameRing;

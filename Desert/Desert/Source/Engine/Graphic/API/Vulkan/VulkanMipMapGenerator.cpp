@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanGpuBatch.hpp>
 
 #include <vulkan/vulkan.h>
 
@@ -86,33 +87,53 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeError( "Not impl" );
     }
 
+    namespace
+    {
+        // The one recording of a cube's blit chain, shared by the waited path and the batched one. The
+        // two transitions around it carry explicit stages and access: inside a single command buffer the
+        // mip-0 compute write before it and the shader reads after it are ordered by nothing else.
+        void RecordCubeChain( VkCommandBuffer commandBuffer, VulkanImageCube& cube )
+        {
+            const auto& res = cube.GetResource();
+            cube.TransitionLayout( commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                   VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT );
+
+            GenerateMipmapsTO( commandBuffer, res.Image, res.Format, cube.GetWidth(), cube.GetHeight(),
+                               cube.GetMipmapLevels(), 0, 6, /*transitionToShaderRead=*/false );
+
+            cube.TransitionLayout( commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                   VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT );
+        }
+    } // namespace
+
+    Common::BoolResultStr VulkanMipMapCubeGeneratorCS::RecordMips( GpuBatch& /*batch*/,
+                                                                   const std::shared_ptr<ImageCube>& /*imageCube*/ ) const
+    {
+        return Common::MakeError( "Not impl" );
+    }
+
     Common::BoolResultStr
     VulkanMipMapCubeGeneratorTO::GenerateMips( const std::shared_ptr<ImageCube>& imageCube ) const
     {
-        const auto& vulkanImage    = SP_CAST( VulkanImageCube, imageCube );
-        const auto& res            = vulkanImage->GetResource();
-
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc ) return Common::MakeError( cmdAlloc.GetError() );
 
         VkCommandBuffer commandBuffer = cmdAlloc.GetValue();
-
-        // Both boundary transitions go through the image's OWN TransitionLayout so its tracked layout
-        // stays true. The raw-barrier version left the wrapper believing the pre-blit layout while the
-        // image actually sat in SHADER_READ_ONLY — and the compute dispatcher builds its next barrier
-        // and its descriptors from the TRACKED layout, so the lie would surface as a validation error
-        // (or silently wrong barrier) the first time the mipped cube is bound again.
-        vulkanImage->TransitionLayout( commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
-
-        GenerateMipmapsTO( commandBuffer, res.Image, res.Format, imageCube->GetWidth(), imageCube->GetHeight(),
-                           imageCube->GetMipmapLevels(), 0, 6, /*transitionToShaderRead=*/false );
-
-        // Every level is TRANSFER_SRC after the blit chain; move the whole image to the sampled layout
-        // the IBL chain reads it in, tracked.
-        vulkanImage->TransitionLayout( commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
-
+        RecordCubeChain( commandBuffer, *SP_CAST( VulkanImageCube, imageCube ) );
         CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( commandBuffer );
 
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanMipMapCubeGeneratorTO::RecordMips( GpuBatch&                         batch,
+                                                                   const std::shared_ptr<ImageCube>& imageCube ) const
+    {
+        const VkCommandBuffer commandBuffer = RecordingBuffer( batch );
+        if ( commandBuffer == VK_NULL_HANDLE )
+            return Common::MakeError( "the GPU batch was already submitted; the mip chain cannot join it." );
+        RecordCubeChain( commandBuffer, *SP_CAST( VulkanImageCube, imageCube ) );
         return Common::MakeSuccess( true );
     }
 
