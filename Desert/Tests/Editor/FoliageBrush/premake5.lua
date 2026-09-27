@@ -9,17 +9,22 @@ project(test_name)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- FO-3: the foliage brush (UE AddInstancesForBrush) is a pure function of the type, the dab and a traced
-    -- world, so the suite drives it with planes instead of a scene.
+    -- world, so the suite drives it with planes (and one landscape) instead of a scene.
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliageBrush.cpp",
+        -- FO-3b: a stroke over a Terrain_Grass-sized landscape through the engine's own landscape ray.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeRaycast.cpp",
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
+        -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
+        "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
     }
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",

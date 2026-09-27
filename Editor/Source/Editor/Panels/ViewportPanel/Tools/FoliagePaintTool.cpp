@@ -26,6 +26,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -564,9 +565,14 @@ namespace Desert::Editor::Tools
             }
             const std::vector<std::string>& names = layers.GetValue();
 
+            // The trace's own split (FO-3b): the scene raycast against the layer-weight sample at the hit.
+            using Clock       = std::chrono::steady_clock;
+            double raycastMs  = 0.0;
+            double hitLayerMs = 0.0;
+            const auto msSince = []( Clock::time_point at )
+            { return std::chrono::duration<double, std::milli>( Clock::now() - at ).count(); };
+
             FoliageBrushWorld world;
-            // UE FFoliagePaintingGeometryFilter: a surface the brush may not paint on is traced THROUGH, so a
-            // landscape-only brush reaches the ground under a mesh instead of losing the spot.
             world.Trace = [&]( const glm::vec3& start, const glm::vec3& end,
                                const FoliageSurfaceFilter& filter ) -> std::optional<FoliageTraceHit>
             {
@@ -582,8 +588,12 @@ namespace Desert::Editor::Tools
                 if ( len <= 0.0f )
                     return std::nullopt;
                 ::Desert::Core::RaycastHit hit;
-                if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept ) || hit.Distance > len )
+                const auto                 rayAt = Clock::now();
+                const bool found = scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept );
+                raycastMs += msSince( rayAt );
+                if ( !found || hit.Distance > len )
                     return std::nullopt;
+                const auto layerAt = Clock::now();
                 FoliageTraceHit out;
                 out.Point  = hit.Point;
                 out.Normal = hit.Normal;
@@ -596,6 +606,7 @@ namespace Desert::Editor::Tools
                 }
                 else
                     out.Surface = FoliageSurface::StaticMesh;
+                hitLayerMs += msSince( layerAt );
                 return out;
             };
             world.LayerWeightAt = [&]( const glm::vec3& p ) -> std::optional<float>
@@ -606,8 +617,16 @@ namespace Desert::Editor::Tools
                 return MaxLayerWeight( *tile->Tile, tile->Frame, names, p.x, p.z );
             };
 
-            auto added = FoliageBrushAdd( data, dab, ism.InstanceTransforms, m_Stroke->Random(), world );
+            FoliageBrushStats stats;
+            const auto        dabAt = Clock::now();
+            auto added = FoliageBrushAdd( data, dab, ism.InstanceTransforms, m_Stroke->Random(), world, &stats );
             ism.InstanceTransforms.insert( ism.InstanceTransforms.end(), added.begin(), added.end() );
+            LOG_INFO( "[Foliage] dab '{}': {} placed ({} candidates, {} hits, {} passed; field now {}) in {:.1f} "
+                      "ms: existing-layer {:.1f}, generate {:.1f}, trace {:.1f} (scene raycast {:.1f}, hit layer "
+                      "weight {:.1f}), filters {:.1f}, place {:.1f}",
+                      type->GetDisplayName(), stats.Placed, stats.Candidates, stats.Hits, stats.Passed,
+                      ism.InstanceTransforms.size(), msSince( dabAt ), stats.ExistingLayerMs, stats.GenerateMs,
+                      stats.TraceMs, raycastMs, hitLayerMs, stats.FilterMs, stats.PlaceMs );
         }
     }
 

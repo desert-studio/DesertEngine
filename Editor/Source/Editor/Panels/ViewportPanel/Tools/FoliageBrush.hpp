@@ -100,6 +100,20 @@ namespace Desert::Editor::Tools
     /// UE: BrushArea * Density * PaintDensity / (1000 * 1000) — instances the brush disk should hold.
     float FoliageBrushDesiredCount( float density, float radius, float paintDensity );
 
+    /// Where one dab's time went, stage by stage (the dab's log line; FO-3b found a 22 s stroke with it).
+    struct FoliageBrushStats
+    {
+        int    Candidates      = 0; ///< segments traced through the brush sphere
+        int    Hits            = 0; ///< segments the world answered on an allowed surface
+        int    Passed          = 0; ///< hits that passed height, slope and layer
+        int    Placed          = 0;
+        double ExistingLayerMs = 0.0; ///< layer weight under the instances already in the sphere
+        double GenerateMs      = 0.0; ///< candidate segments
+        double TraceMs         = 0.0; ///< world.Trace, including the layer weight at each hit
+        double FilterMs        = 0.0; ///< height, slope and layer-weight rules
+        double PlaceMs         = 0.0; ///< transforms of the placed instances
+    };
+
     /**
      * @brief The instances one dab adds (UE AddInstancesForBrush): none when the brush sphere already holds
      *        the desired count, otherwise candidates traced through the brush, filtered by surface, height,
@@ -109,7 +123,8 @@ namespace Desert::Editor::Tools
      */
     std::vector<glm::mat4> FoliageBrushAdd( const Assets::Serialization::FoliageTypeData& type,
                                             const FoliageBrushDab& dab, std::span<const glm::mat4> existing,
-                                            FoliageRandom& rng, const FoliageBrushWorld& world );
+                                            FoliageRandom& rng, const FoliageBrushWorld& world,
+                                            FoliageBrushStats* stats = nullptr );
 
     /// One field's instances before and after a stroke.
     struct FoliageStrokeField
