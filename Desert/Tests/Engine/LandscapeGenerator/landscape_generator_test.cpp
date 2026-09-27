@@ -249,7 +249,7 @@ TEST( LandscapeGenerator, JobRefusesASecondStartAndCancelsMidErosion )
     EXPECT_TRUE( job.Running() );
     auto second = job.Start( Eroded( 1u ) );
     ASSERT_FALSE( second.IsSuccess() );
-    EXPECT_NE( second.GetError().find( "already being generated" ), std::string::npos ) << second.GetError();
+    EXPECT_NE( second.GetError().find( "generation in progress" ), std::string::npos ) << second.GetError();
 
     // Past the fill (every row counted), so inside the erosion loops; then cancel.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 60 );

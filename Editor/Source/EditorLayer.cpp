@@ -2234,9 +2234,9 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
-        // Asked of the run itself: it stays pending until FinishCreateLandscape has applied it, so a shot after
-        // Create shows the terrain rather than the scene without it.
-        quiescence.Set( Control::PendingWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
+        // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
+        // Create answers "started" at once and a client polls `state` until idle before photographing it.
+        quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
         m_FrameQuiescence = quiescence;
     }
 
@@ -4891,7 +4891,7 @@ namespace Desert::Editor
                                   s.HydroErosion = false;
                                   return PaletteCommandDone();
                               } } );
-        // Starts the background run; the control channel's reply waits for it (PendingWork::LandscapeGenerate).
+        // Starts the background run and answers at once; `state` reports it (BackgroundWork::LandscapeGenerate).
         commands.push_back( { "Landscape", "New Landscape: Create", [this] {
                                  return Commands::StartCreateLandscape(
                                       m_MainScene, Core::LandscapeSculptState::Get().NewLandscape );

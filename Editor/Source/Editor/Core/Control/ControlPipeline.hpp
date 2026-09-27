@@ -42,16 +42,15 @@ namespace Desert::Editor::Control
     /// the hardest kind to see.
     enum class PendingWork : std::size_t
     {
-        StartupLoading,    ///< the staged boot is still running; the scene is not even rendered yet
-        SceneLoad,         ///< a scene load is queued for between frames
-        NewScene,          ///< Ctrl+N / File -> New, queued the same way
-        SceneView,         ///< a new scene view (viewport + renderer + slot) is being added
-        SceneStop,         ///< leaving Play, which tears down and recreates GPU render resources
-        DocumentCloses,    ///< documents dismissed but not yet destroyed behind the device-idle wait
-        AssetOpens,        ///< asset documents requested but not yet built
-        OpenRefusal,       ///< an open was refused and its dialog has not been raised yet
-        ControlNudge,      ///< a control-rig nudge is queued, or has been applied but not yet drawn
-        LandscapeGenerate, ///< a New Landscape run is on the JobSystem and not yet applied to the scene
+        StartupLoading, ///< the staged boot is still running; the scene is not even rendered yet
+        SceneLoad,      ///< a scene load is queued for between frames
+        NewScene,       ///< Ctrl+N / File -> New, queued the same way
+        SceneView,      ///< a new scene view (viewport + renderer + slot) is being added
+        SceneStop,      ///< leaving Play, which tears down and recreates GPU render resources
+        DocumentCloses, ///< documents dismissed but not yet destroyed behind the device-idle wait
+        AssetOpens,     ///< asset documents requested but not yet built
+        OpenRefusal,    ///< an open was refused and its dialog has not been raised yet
+        ControlNudge,   ///< a control-rig nudge is queued, or has been applied but not yet drawn
         Count
     };
 
@@ -67,13 +66,29 @@ namespace Desert::Editor::Control
          "asset documents are waiting to be opened",
          "a refused open has not shown its dialog yet",
          "a control-rig nudge has not reached a drawn frame yet",
-         "a new landscape is being generated",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),
                    "Every PendingWork enumerator needs a name beside it. This is the census that keeps the "
                    "reply gate honest: a kind of outstanding work nobody named is a kind nothing waits for, "
                    "and the gate would open on a frame that had not caught up." );
+
+    /// WORK A COMMAND STARTS AND DOES NOT WAIT FOR. A background run answers its command at once ("started")
+    /// and is reported beside the census above, never in it: holding the reply until a run of seconds ends
+    /// would time the gate out (240 frames) on work that is going exactly as asked. A client that needs the
+    /// result polls `state` until Idle(). Closed at compile time the same way as PendingWork.
+    enum class BackgroundWork : std::size_t
+    {
+        LandscapeGenerate, ///< a New Landscape run is on the JobSystem and not yet applied to the scene
+        Count
+    };
+
+    inline constexpr const char* kBackgroundWorkNames[] = {
+         "a new landscape is being generated",
+    };
+
+    static_assert( std::size( kBackgroundWorkNames ) == static_cast<std::size_t>( BackgroundWork::Count ),
+                   "Every BackgroundWork enumerator needs a name beside it." );
 
     /// The editor's outstanding work, as one value. Held rather than queried so the SAMPLE that a frame
     /// was rendered under is the sample the gate later judges it by — asking again after the fact would
@@ -116,8 +131,43 @@ namespace Desert::Editor::Control
             return description;
         }
 
+        void Set( BackgroundWork kind, bool running ) noexcept
+        {
+            m_Background[static_cast<std::size_t>( kind )] = running;
+        }
+
+        [[nodiscard]] bool Get( BackgroundWork kind ) const noexcept
+        {
+            return m_Background[static_cast<std::size_t>( kind )];
+        }
+
+        /// Settled AND no background run: what a client polls for before it photographs a result.
+        [[nodiscard]] bool Idle() const noexcept
+        {
+            for ( bool running : m_Background )
+                if ( running )
+                    return false;
+            return Settled();
+        }
+
+        /// The background runs, in words. Empty when none runs. Never part of Describe(): no reply waits on them.
+        [[nodiscard]] std::string DescribeBackground() const
+        {
+            std::string description;
+            for ( std::size_t i = 0; i < m_Background.size(); ++i )
+            {
+                if ( !m_Background[i] )
+                    continue;
+                if ( !description.empty() )
+                    description += "; ";
+                description += kBackgroundWorkNames[i];
+            }
+            return description;
+        }
+
     private:
-        std::array<bool, static_cast<std::size_t>( PendingWork::Count )> m_Pending{};
+        std::array<bool, static_cast<std::size_t>( PendingWork::Count )>    m_Pending{};
+        std::array<bool, static_cast<std::size_t>( BackgroundWork::Count )> m_Background{};
     };
 
     /// What a presented frame did to the gate.

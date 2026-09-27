@@ -284,7 +284,7 @@ namespace Desert::World::Landscape
     Common::BoolResultStr LandscapeGenerateJob::Start( const LandscapeGenerateSettings& settings )
     {
         if ( Running() )
-            return Common::MakeError( "new landscape: a landscape is already being generated (" +
+            return Common::MakeError( "new landscape: generation in progress (" +
                                       std::to_string( static_cast<int>( Fraction() * 100.0f ) ) +
                                       " %); wait for it or cancel it" );
         auto valid = ValidateLandscapeGenerate( settings );
