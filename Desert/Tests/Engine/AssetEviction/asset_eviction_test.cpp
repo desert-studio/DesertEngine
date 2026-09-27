@@ -84,6 +84,14 @@ namespace
         std::vector<uint64_t> DroppedTextures;
         int                   CollectGarbageCalls = 0;
 
+        std::vector<Common::AssetHandle> BuiltMeshHandles() const override
+        {
+            std::vector<Common::AssetHandle> handles;
+            for ( const uint64_t value : BuiltMeshes )
+                handles.emplace_back( value );
+            return handles;
+        }
+
         bool DropBuiltMesh( const Common::AssetHandle& handle ) override
         {
             const uint64_t value = static_cast<uint64_t>( handle );
@@ -315,6 +323,34 @@ TEST( AssetEviction, AnAssetNothingReferencesIsReleasedAndAReferencedOneIsNot )
     EXPECT_EQ( outcome.Refused, 0u );
     EXPECT_EQ( sink.CollectGarbageCalls, 1 )
          << "the graveyard was never collected, so nothing the sweep dropped was actually destroyed";
+}
+
+TEST( AssetEviction, EveryMeshStillBuiltAfterTheSweepIsNamedWithWhy )
+{
+    // FO-6: a flight whose asset_gpu_bytes did not fall had one question - which built mesh stays, and why.
+    // The sweep answers it for every mesh the sink still holds: kept by a root chain, or a key the registry
+    // does not hold at all (which no registry walk can ever release).
+    AssetManager manager;
+    const auto   kept    = Register( manager, "probe/kept.deprefab", true );
+    const auto   dropped = Register( manager, "probe/dropped.deprefab", true );
+    AssetRootSet roots;
+    roots.Mark( kept->GetMetadata().Handle, "an InstancedStaticMeshComponent draws it" );
+
+    RecordingSink  sink;
+    const uint64_t orphan = 4242;
+    sink.BuiltMeshes      = { static_cast<uint64_t>( kept->GetMetadata().Handle ),
+                              static_cast<uint64_t>( dropped->GetMetadata().Handle ), orphan };
+    const auto outcome    = AssetEviction::Run( manager, roots, sink );
+
+    EXPECT_EQ( outcome.MeshesDropped, 1u );
+    ASSERT_EQ( outcome.BuiltMeshesLeft.size(), 2u );
+    std::string all;
+    for ( const auto& line : outcome.BuiltMeshesLeft )
+        all += line + "\n";
+    EXPECT_NE( all.find( "kept.deprefab' <- an InstancedStaticMeshComponent draws it" ), std::string::npos )
+         << all;
+    EXPECT_NE( all.find( "4242 is a key the asset registry does not hold" ), std::string::npos ) << all;
+    EXPECT_NE( outcome.Describe().find( "built mesh left: " ), std::string::npos );
 }
 
 TEST( AssetEviction, ANotYetLoadedAssetIsCountedColdRatherThanReleased )

@@ -28,6 +28,8 @@ namespace Desert::Assets
             text += "\n  refused: " + refusal;
         for ( const std::string& kept : KeptTextures )
             text += "\n  kept texture: " + kept;
+        for ( const std::string& built : BuiltMeshesLeft )
+            text += "\n  built mesh left: " + built;
 
         return text;
     }
@@ -240,6 +242,24 @@ namespace Desert::Assets
         // a few frames later, when the frame loop collects (MeshService::RetireEvicted, CollectGarbage).
         // Collecting here still releases what earlier sweeps parked, and is free when nothing is due.
         sink.CollectGarbage();
+
+        // THE OTHER SIDE OF THE LEDGER: what is still built, and why. Asked of the sink, not the registry, so
+        // a built mesh whose key the registry walk above never met is named instead of silently resident.
+        for ( const Common::AssetHandle& built : sink.BuiltMeshHandles() )
+        {
+            std::string registered;
+            for ( const auto& [metadata, asset] : manager.RegisteredAssets() )
+                if ( metadata.Handle == built )
+                    registered = "'" + metadata.Filepath.string() + "'";
+            const std::string key = std::to_string( static_cast<uint64_t>( built ) );
+            if ( registered.empty() )
+                outcome.BuiltMeshesLeft.push_back( key + " is a key the asset registry does not hold" );
+            else if ( closure.Contains( built ) )
+                outcome.BuiltMeshesLeft.push_back( key + " " + registered + " <- " + closure.WhyKept( built ) );
+            else
+                outcome.BuiltMeshesLeft.push_back( key + " " + registered +
+                                                   " is unreachable and was not dropped" );
+        }
 
         outcome.LedgerRowsAfter = Graphic::ResourceLedger::Take().Live;
         return outcome;

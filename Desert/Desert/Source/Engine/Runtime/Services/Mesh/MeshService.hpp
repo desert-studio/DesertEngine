@@ -121,6 +121,16 @@ namespace Desert::Runtime
         // claiming those buffers to `ResourceOwner::Procedural`; this is the enforcement.
         bool EvictBuilt( const Assets::AssetHandle& handle );
 
+        // The key of every mesh built right now (AssetEviction's census of what is still resident).
+        [[nodiscard]] std::vector<Assets::AssetHandle> BuiltHandles() const
+        {
+            std::vector<Assets::AssetHandle> handles;
+            handles.reserve( m_Meshes.size() );
+            for ( const auto& [handle, mesh] : m_Meshes )
+                handles.push_back( handle );
+            return handles;
+        }
+
         // RELEASE THE DROPPED MESHES NO FRAME IN FLIGHT CAN STILL DRAW. EvictBuilt does not free the buffers: it
         // parks them (Assets::FrameRetireQueue states the margin), because a sweep asked for by world streaming
         // runs with frames of the cell that just left still on the GPU. Called once per frame by the frame loop;
