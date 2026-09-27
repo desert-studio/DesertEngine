@@ -146,8 +146,9 @@ namespace Desert::Editor
         /// on a machine with a large device: the refusal, its numbers and its modal are only reachable here.
         uint64_t ViewBudgetMiB = 0;
 
-        /// `--crash-test <segv|abort|purecall>`: crash on purpose, immediately after the crash handler is
-        /// installed and before any subsystem exists. Empty — the default — means no crash test.
+        /// `--crash-test <segv|abort|purecall|stackoverflow|stackoverflow-worker>`: crash on purpose, immediately
+        /// after the crash handler is installed and before any subsystem exists. Empty — the default — means no
+        /// crash test.
         ///
         /// IT IS A FLAG AND NOT ONLY A MENU ENTRY because the thing being proven is the HANDLER, and a
         /// handler can only be proven by a process that actually dies: a test has to be able to start the
@@ -356,7 +357,8 @@ namespace Desert::Editor
                 if ( !options.CrashTest.has_value() )
                 {
                     return Common::MakeFormattedError<CommandLineOptions>(
-                         "--crash-test '{}' is not a crash kind; it knows: segv, abort, purecall", value );
+                         "--crash-test '{}' is not a crash kind; it knows: {}", value,
+                         Common::Crash::kKnownTestKinds );
                 }
             }
             else if ( arg == "--language" )
