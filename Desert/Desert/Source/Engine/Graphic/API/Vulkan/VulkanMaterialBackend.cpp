@@ -324,7 +324,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         // See ApplyUniformBuffer. For textures this is the "second terrain keeps the first
-        // one's splat" path — the reason TerrainRenderer keys one material per texture set.
+        // one's layer textures" path — the reason TerrainRenderer keys one material per texture set.
         if ( sets->FlushedFrame == absoluteFrame )
         {
             ReportSwallowedRebind( *sets, binding, handle, "2D texture" );
