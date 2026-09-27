@@ -446,45 +446,9 @@ namespace
     constexpr const char* kRuntimeLayer  = "Runtime/Source/RuntimeLayer.cpp";
 
     constexpr Row kSceneSettingsRows[] = {
+         // THE GRADE AND THE SHADOW ROWS LEFT WITH THEIR FIELDS (SET1): the 35 grade fields are
+         // PostProcessSettings rows below, the three shadow fields DirectionalLightData rows.
          { "RenderingPath", kSceneRenderer },
-         { "EnableSSAO", kSceneRenderer },
-         { "GlobalIllumination", kSceneRenderer },
-         { "GIIntensity", kSceneRenderer },
-         { "EnableSSR", kSceneRenderer },
-         { "SSRIntensity", kSceneRenderer },
-         { "SSRMaxDistance", kSceneRenderer },
-         { "EnableShadows", kSceneRenderer },
-         { "ShadowBias", kSceneRenderer },
-         { "CascadeSplitLambda", kSceneRenderer },
-         { "Tonemapper", kSceneRenderer },
-         { "Exposure", kSceneRenderer },
-         { "Gamma", kSceneRenderer },
-         { "WhitePoint", kSceneRenderer },
-         { "AutoExposure", kSceneRenderer },
-         { "AutoExposureKey", kSceneRenderer },
-         { "AutoExposureSpeed", kSceneRenderer },
-         { "AutoExposureMin", kSceneRenderer },
-         { "AutoExposureMax", kSceneRenderer },
-         { "EnableBloom", kSceneRenderer },
-         { "BloomThreshold", kSceneRenderer },
-         { "BloomIntensity", kSceneRenderer },
-         { "LensDispersion", kSceneRenderer },
-         { "EnableLensFlare", kSceneRenderer },
-         { "LensFlareIntensity", kSceneRenderer },
-         { "LensFlareTint", kSceneRenderer },
-         { "LensFlareThreshold", kSceneRenderer },
-         { "LensFlareGhostCount", kSceneRenderer },
-         { "LensFlareGhostSpacing", kSceneRenderer },
-         { "LensFlareGhostSizeNear", kSceneRenderer },
-         { "LensFlareGhostSizeFar", kSceneRenderer },
-         { "LensFlareGhostTintInner", kSceneRenderer },
-         { "LensFlareGhostTintOuter", kSceneRenderer },
-         { "LensFlareHaloIntensity", kSceneRenderer },
-         { "LensFlareHaloRadius", kSceneRenderer },
-         { "LensFlareStreakIntensity", kSceneRenderer },
-         { "LensFlareStreakLength", kSceneRenderer },
-         { "LensFlareStreakAngle", kSceneRenderer },
-         { "LensFlareChromaShift", kSceneRenderer },
 
          // THE FIVE MACHINE-QUALITY ROWS THAT USED TO SIT HERE ARE GONE WITH THE FIELDS (К3): AA, MeshLOD,
          // TextureFilterMode, Anisotropy and CloudQualityTier. Every one was a CORRECT row about a field
@@ -559,6 +523,53 @@ namespace
          { "SnowMode", kLandscape, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.z" },
     };
 
+    constexpr const char* kViewSettings = "Desert/Desert/Source/Engine/Graphic/ViewSettings.cpp";
+
+    // The volume's own fields are read where volumes are blended; the grade it carries is read by the
+    // renderer from the ONE resolved copy (FinalViewSettings::Post), never from a volume.
+    constexpr Row kPostProcessVolumeRows[] = {
+         { "Unbound", kViewSettings },  { "Extent", kViewSettings },      { "BlendRadius", kViewSettings },
+         { "Priority", kViewSettings }, { "BlendWeight", kViewSettings }, { "Settings", kViewSettings },
+    };
+
+    constexpr Row kPostProcessSettingsRows[] = {
+         { "EnableSSAO", kSceneRenderer },
+         { "GlobalIllumination", kSceneRenderer },
+         { "GIIntensity", kSceneRenderer },
+         { "EnableSSR", kSceneRenderer },
+         { "SSRIntensity", kSceneRenderer },
+         { "SSRMaxDistance", kSceneRenderer },
+         { "Tonemapper", kSceneRenderer },
+         { "Exposure", kSceneRenderer },
+         { "Gamma", kSceneRenderer },
+         { "WhitePoint", kSceneRenderer },
+         { "AutoExposure", kSceneRenderer },
+         { "AutoExposureKey", kSceneRenderer },
+         { "AutoExposureSpeed", kSceneRenderer },
+         { "AutoExposureMin", kSceneRenderer },
+         { "AutoExposureMax", kSceneRenderer },
+         { "EnableBloom", kSceneRenderer },
+         { "BloomThreshold", kSceneRenderer },
+         { "BloomIntensity", kSceneRenderer },
+         { "LensDispersion", kSceneRenderer },
+         { "EnableLensFlare", kSceneRenderer },
+         { "LensFlareIntensity", kSceneRenderer },
+         { "LensFlareTint", kSceneRenderer },
+         { "LensFlareThreshold", kSceneRenderer },
+         { "LensFlareGhostCount", kSceneRenderer },
+         { "LensFlareGhostSpacing", kSceneRenderer },
+         { "LensFlareGhostSizeNear", kSceneRenderer },
+         { "LensFlareGhostSizeFar", kSceneRenderer },
+         { "LensFlareGhostTintInner", kSceneRenderer },
+         { "LensFlareGhostTintOuter", kSceneRenderer },
+         { "LensFlareHaloIntensity", kSceneRenderer },
+         { "LensFlareHaloRadius", kSceneRenderer },
+         { "LensFlareStreakIntensity", kSceneRenderer },
+         { "LensFlareStreakLength", kSceneRenderer },
+         { "LensFlareStreakAngle", kSceneRenderer },
+         { "LensFlareChromaShift", kSceneRenderer },
+    };
+
     constexpr Row kDirLightRows[] = {
          { "Color", kScene },
          { "Intensity", kScene },
@@ -570,6 +581,9 @@ namespace
          { "BloomThreshold", kCollector },
          { "BloomMaxBrightness", kCollector },
          { "BloomTint", kCollector },
+         { "CastShadows", kViewSettings },
+         { "ShadowBias", kViewSettings },
+         { "CascadeSplitLambda", kViewSettings },
     };
 
     constexpr Row kPointLightRows[] = {
@@ -938,6 +952,8 @@ namespace
          { "SceneSettings", nullptr, "GetSettings", CENSUS_ROWS( kSceneSettingsRows ) },
          { "SkyAtmosphereData", "SkyAtmosphereComponent", nullptr, CENSUS_ROWS( kSkyRows ) },
          { "ExponentialHeightFogData", "ExponentialHeightFogComponent", nullptr, CENSUS_ROWS( kFogRows ) },
+         { "PostProcessVolumeData", "PostProcessVolumeComponent", nullptr, CENSUS_ROWS( kPostProcessVolumeRows ) },
+         { "PostProcessSettings", nullptr, nullptr, CENSUS_ROWS( kPostProcessSettingsRows ) },
          { "VolumetricCloudData", "VolumetricCloudComponent", nullptr, CENSUS_ROWS( kCloudRows ) },
          { "HeroCloudData", "HeroCloudComponent", nullptr, CENSUS_ROWS( kHeroCloudRows ) },
 
@@ -1160,7 +1176,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // the only place an authored retarget handle becomes a source rig on the Animator — and before A25
     // there was no such place at all, which is the whole of what that task was. Read off THIS branch's
     // run; per the rule above the TOTAL does not survive a merge, the DELTA does.
-    EXPECT_EQ( all.size(), 45u );
+    //
+    // -> 47 with SET1's PostProcessVolumeData and PostProcessSettings: the grade left SceneSettings for a
+    // volume component, and the renderer reads it from the one resolved copy (Graphic::ResolveViewSettings).
+    EXPECT_EQ( all.size(), 47u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

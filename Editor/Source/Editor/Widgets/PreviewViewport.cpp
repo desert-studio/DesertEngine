@@ -230,8 +230,10 @@ namespace Desert::Editor
         // (Graphic::DebugViewState), default to off, and only the main editor loop pushes a user's flags
         // into one. Two tasks met in this block — one turned the shadows on, the other took the overlay
         // out — and both belong: the preview owns its lighting budget, and it no longer owns the overlay.
-        auto& settings       = m_Scene->GetSettings();
-        settings.EnableBloom = false;
+        // THE PANE'S GRADE IS ITS OWN UNBOUND VOLUME (SET1): bloom stays at the volume default (off), and
+        // the exposure is pushed into it every frame from the setup, below.
+        m_PostVolume = m_Scene->CreateNewEntity( "PreviewPostProcess" );
+        m_PostVolume.AddComponent<ECS::PostProcessVolumeComponent>();
 
         // The three quality lines that used to stand here are gone: two of them (`AA = FXAA`) merely
         // restated the default, and the third (`CloudQualityTier = Low`) was a real override of a value
@@ -434,12 +436,12 @@ namespace Desert::Editor
         // and not from a cascade. There is no object in a dome to cast a cascade shadow, and the preview
         // budget's cascade reaches 10 m into a scene whose nearest ground is several hundred metres away:
         // it would render an empty depth map every frame and every fragment would fall outside it.
-        auto& settings         = m_Scene->GetSettings();
-        settings.EnableShadows = m_Fill != Fill::SkyDome && m_Setup.ShowFloor && m_Setup.FloorReceivesShadow;
+        m_Light.GetComponent<ECS::DirectionLightComponent>().Data.CastShadows =
+             m_Fill != Fill::SkyDome && m_Setup.ShowFloor && m_Setup.FloorReceivesShadow;
         // THE GRADE, EVERY FRAME AND FROM THE SETUP, so the pane follows the row instead of holding
         // whatever SceneSettings was constructed with. See SceneSetup::Exposure for the census behind the
         // dome's value: a cloud material used to be authored four stops off every level that ships it.
-        settings.Exposure = m_Setup.Exposure;
+        m_PostVolume.GetComponent<ECS::PostProcessVolumeComponent>().Data.Settings.Exposure = m_Setup.Exposure;
         // THE GRID IS NOT A SCENE SETTING ANY MORE. К2 moved every debug overlay onto the RENDERER
         // (Graphic::DebugViewState), because a view preference in a level file is one person's opinion
         // travelling through git — and six of those flags reached the Runtime, one of them forcing the
@@ -820,7 +822,7 @@ namespace Desert::Editor
             m_Setup.LightIntensity = 22.0f;
             // AND THE GRADE THAT SUN IS SEEN THROUGH, on the same terms and from the same file: 0.26 is
             // what fifty of the fifty-one cloud scenes in this repository author, Clouds_ShadowsOnGround
-            // among them. The pane's own default of 1.0 is Core::SceneSettings' struct default and was
+            // among them. The pane's own default of 1.0 is Core::PostProcessSettings' struct default and was
             // never a decision; leaving it there made the preview 78 of 255 brighter on average than any
             // level that would ship the material. See SceneSetup::Exposure.
             m_Setup.Exposure = kDomeExposure;

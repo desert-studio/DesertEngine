@@ -729,6 +729,144 @@ namespace Desert::Migration
         }
     } // namespace
 
+    namespace
+    {
+        // The fields of Core::PostProcessSettings, spelled as the Settings block stated them before v36.
+        constexpr std::array<std::string_view, 35> kGradeKeys = {
+             "EnableSSAO",
+             "GlobalIllumination",
+             "GIIntensity",
+             "EnableSSR",
+             "SSRIntensity",
+             "SSRMaxDistance",
+             "Tonemapper",
+             "Exposure",
+             "Gamma",
+             "WhitePoint",
+             "AutoExposure",
+             "AutoExposureKey",
+             "AutoExposureSpeed",
+             "AutoExposureMin",
+             "AutoExposureMax",
+             "EnableBloom",
+             "BloomThreshold",
+             "BloomIntensity",
+             "LensDispersion",
+             "EnableLensFlare",
+             "LensFlareIntensity",
+             "LensFlareTint",
+             "LensFlareThreshold",
+             "LensFlareGhostCount",
+             "LensFlareGhostSpacing",
+             "LensFlareGhostSizeNear",
+             "LensFlareGhostSizeFar",
+             "LensFlareGhostTintInner",
+             "LensFlareGhostTintOuter",
+             "LensFlareHaloIntensity",
+             "LensFlareHaloRadius",
+             "LensFlareStreakIntensity",
+             "LensFlareStreakLength",
+             "LensFlareStreakAngle",
+             "LensFlareChromaShift",
+        };
+
+        // Settings key -> DirectionalLightData key.
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 3> kShadowKeys = { {
+             { "EnableShadows", "CastShadows" },
+             { "ShadowBias", "ShadowBias" },
+             { "CascadeSplitLambda", "CascadeSplitLambda" },
+        } };
+
+        bool IsGradeKey( std::string_view key )
+        {
+            return std::find( kGradeKeys.begin(), kGradeKeys.end(), key ) != kGradeKeys.end();
+        }
+
+        int StampLight( Common::Json::KeyedValues& components, const rfl::Generic::Object& shadow )
+        {
+            const auto payload = components.get( "DirectionLight" );
+            if ( !payload.has_value() )
+                return 0;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return 0;
+            rfl::Generic::Object light;
+            for ( const auto& [key, field] : fields.value() )
+                if ( !shadow.get( key ).has_value() )
+                    light[key] = field;
+            for ( const auto& [key, field] : shadow )
+                light[key] = field;
+            components["DirectionLight"] = rfl::Generic( std::move( light ) );
+            return 1;
+        }
+    } // namespace
+
+    SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene )
+    {
+        SceneSettingsHomesReport report;
+        if ( !scene.Settings.has_value() )
+            return report;
+        const auto stated = scene.Settings.value().to_object();
+        if ( !stated.has_value() )
+            return report;
+
+        rfl::Generic::Object kept;
+        rfl::Generic::Object grade;
+        rfl::Generic::Object shadow;
+        for ( const auto& [key, field] : stated.value() )
+        {
+            if ( IsGradeKey( key ) )
+            {
+                grade[key] = field;
+                ++report.PostKeysMoved;
+                continue;
+            }
+            const auto* shadowKey = std::find_if( kShadowKeys.begin(), kShadowKeys.end(),
+                                                  [&key]( const auto& pair ) { return pair.first == key; } );
+            if ( shadowKey != kShadowKeys.end() )
+            {
+                shadow[std::string( shadowKey->second )] = field;
+                ++report.ShadowKeysFound;
+                continue;
+            }
+            kept[key] = field;
+        }
+        scene.Settings = rfl::Generic( std::move( kept ) );
+
+        if ( report.ShadowKeysFound > 0 )
+            for ( auto& entity : scene.Entities )
+            {
+                report.LightsStamped += StampLight( entity.Components, shadow );
+                if ( entity.PrefabOverrides )
+                    for ( auto& overrideRecord : *entity.PrefabOverrides )
+                        report.LightsStamped += StampLight( overrideRecord.Components, shadow );
+            }
+
+        if ( report.PostKeysMoved == 0 )
+            return report;
+
+        uint32_t nextSibling = 0;
+        for ( const auto& entity : scene.Entities )
+            if ( !entity.parent && entity.siblingIndex )
+                nextSibling = std::max( nextSibling, *entity.siblingIndex + 1 );
+
+        const std::string  seed = ( scene.Header ? scene.Header->Guid : scene.SceneName ) + "/PostProcessVolume";
+        Assets::EntityData volume;
+        volume.id           = Common::UUID( Fnv1a64( seed, 0xcbf29ce484222325ull ) );
+        volume.siblingIndex = nextSibling;
+        volume.Tag          = "PostProcessVolume";
+        volume.Translation  = glm::vec3( 0.0f );
+        volume.Rotation     = glm::vec3( 0.0f );
+        volume.Scale        = glm::vec3( 1.0f );
+        rfl::Generic::Object data;
+        data["Unbound"]                        = rfl::Generic( true );
+        data["Settings"]                       = rfl::Generic( std::move( grade ) );
+        volume.Components["PostProcessVolume"] = rfl::Generic( std::move( data ) );
+        scene.Entities.push_back( std::move( volume ) );
+        report.VolumeCreated = true;
+        return report;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -763,6 +901,14 @@ namespace Desert::Migration
             return report; // unstamped: the file is FAILED by every caller and written by none
         if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
             report.EntitiesMovedOut = scene.Entities.size();
+
+        // Scene-only (it reads the Settings block a prefab does not have), so it runs here rather than in
+        // RunSteps, after every entity step of the chain.
+        if ( statedSceneVersion < kSceneVersionSceneSettingsHomes )
+        {
+            report.SceneSettingsHomesRaised = true;
+            report.SceneSettingsHomes       = MigrateSceneSettingsHomesV35ToV36( scene );
+        }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.

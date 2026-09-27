@@ -661,6 +661,7 @@ namespace Desert::Core
         r.prepare<ECS::SkyboxComponent>();
         r.prepare<ECS::SkyAtmosphereComponent>();
         r.prepare<ECS::ExponentialHeightFogComponent>();
+        r.prepare<ECS::PostProcessVolumeComponent>();
         r.prepare<ECS::VolumetricCloudComponent>();
         r.prepare<ECS::HeroCloudComponent>();
 

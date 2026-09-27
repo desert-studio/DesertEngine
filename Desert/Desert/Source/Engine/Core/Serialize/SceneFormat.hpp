@@ -49,7 +49,10 @@ namespace Desert::Core
     // v35 (WP16): a partitioned world keeps one file per entity (Serialize/ExternalEntities.hpp). The typed
     // tree did not change; the FILE LAYOUT did, and an older build reading the header alone would load a world
     // with no entities in it - so the number moves and that build refuses the file by name.
-    inline constexpr int kSceneVersion = 35;
+    //
+    // v36 (SET1): SceneSettings' grade and shadow fields moved to an Unbound PostProcessVolume entity and to
+    // the DirectionalLight (Tools/SceneMigrator, MigrateSceneSettingsHomesV35ToV36).
+    inline constexpr int kSceneVersion = 36;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

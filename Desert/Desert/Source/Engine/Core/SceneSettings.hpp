@@ -53,39 +53,6 @@ namespace Desert::Core
         Deferred = 1,
     };
 
-    // Source of the one-bounce indirect light (Deferred path only).
-    //  ScreenSpace — gathers from sun-lit G-buffer neighbours right inside the lighting pass. Cheap and
-    //                self-contained, but ONLY geometry currently on screen can bounce, and there is no
-    //                denoiser, so a wide radius reads as noise.
-    //  RSM         — bounces light off everything the SUN sees (off-screen geometry included) via a
-    //                reflective shadow map, resolved into its own buffer and temporally accumulated.
-    //                Better and stabler; costs one sun-view raster pass plus two fullscreen passes.
-    enum class GIMode : int
-    {
-        Off         = 0,
-        ScreenSpace = 1,
-        RSM         = 2,
-    };
-
-    // The curve that maps HDR scene luminance onto the 0..1 the display can show. Not a compatibility
-    // switch: both branches are authored features, and which one a scene is graded through is a property
-    // of the scene, the way film stock was a property of the shoot.
-    //
-    //  ACES     — the filmic curve Unreal ships as its default. It is OURS by default too (decision D-10,
-    //             Docs/Clouds/ANALYSIS_APPROACH.md §7) for one measurable reason: the reference frame this
-    //             programme calibrates the sky against was captured through it, so until both sides use
-    //             the same operator, every number in Docs/Clouds/CALIBRATION.md measures the difference
-    //             between two TONEMAPPERS and not between two skies. It takes no white point — the ODT
-    //             the fit reproduces carries its own.
-    //  Reinhard — extended Reinhard with an explicit WhitePoint (below). Every scene authored before
-    //             2026-08-19 had its Exposure and WhitePoint chosen by eye on this curve, which is why it
-    //             stays selectable and why the scene migration pins it onto files that predate the field.
-    enum class TonemapOperator : int
-    {
-        ACES     = 0,
-        Reinhard = 1,
-    };
-
     // Reflected (REFLECT/PROPERTY) so the whole block (de)serializes generically via the reflection
     // serializer (no hand-written mirror) and the editor can build its panel from the same metadata.
     struct SceneSettings
@@ -105,9 +72,15 @@ namespace Desert::Core
         // the outline is. Scene schema v12 -> v13 strips them from every file (Tools/SceneMigrator), and
         // Desert/Tests/Engine/SceneDebugFields keeps them out — of this struct AND of every .desce on disk.
         //
-        // WHAT THIS STRUCT IS, THEN. A LEVEL's rendering, lighting and physics policy: the render path, its
-        // screen-space effects, shadows, the grade, the lens, wind, gravity, the splash. Things a level
-        // designer authors and expects to travel with the level.
+        // WHAT THIS STRUCT IS, THEN. A LEVEL's world policy — UE's World Settings: the render path, gravity,
+        // the splash. Things a level designer authors and expects to travel with the level.
+        //
+        // AND WHAT LEFT IT FOR ITS UE HOMES (SET1, scene schema v36). The grade — tonemapper, exposure,
+        // bloom, lens flare, GI, SSR, SSAO — is ECS::PostProcessVolumeData::Settings on PostProcessVolume
+        // entities, blended per view by Graphic::ResolveViewSettings (UE's Post Process Volume and
+        // FFinalPostProcessSettings). The shadow policy — Shadows, Shadow Bias, Cascade Split Lambda — is
+        // on the DirectionalLight that casts them (UE: the light's Cascaded Shadow Maps section). The
+        // SceneMigrator step moved every scene's values into an Unbound volume and onto its light.
         //
         // In one sentence (К1): a .desce holds WHAT THE WORLD IS — its entities and the level-wide policy a
         // designer authors and expects to travel with the level. It does NOT hold what a VIEWER is doing on
@@ -127,210 +100,11 @@ namespace Desert::Core
         // why the answer had to be a store rather than a move. Scene schema v14 -> v15 strips them from
         // every file (Tools/SceneMigrator, Migration::kRetiredKeys).
         //
-        // AND THE FOUR THAT LOOK LIKE THEM AND ARE NOT — these stay, deliberately. RenderingPath,
-        // GlobalIllumination, EnableSSAO and EnableSSR each change the authored LOOK rather than degrading
-        // it, by К1's test: "set to its cheapest value, has the level been MIS-AUTHORED, or merely
-        // RENDERED WORSE?". Forward and Deferred disagree about cloud shadow on the ground; GI Off is a
-        // darker room, not a coarser one. EnableSSAO is the closest call and is called level data out
-        // loud: it is an on/off, not a fidelity ladder, and it is the first field to re-examine if
-        // MachineSettings ever grows a scalability LEVEL.
 
         // Rendering path. Default is Deferred — see the enum's own comment for what that costs.
         PROPERTY( DisplayName( "Render Path" ), Category( "Rendering" ) )
         RenderPath RenderingPath = RenderPath::Deferred;
 
-        // Deferred screen-space effects (Deferred path only). Both cost a full-screen multi-sample pass —
-        // turn off for maximum FPS.
-        PROPERTY( DisplayName( "Enable SSAO" ), Category( "Rendering" ) )
-        bool EnableSSAO = true;
-
-        PROPERTY( DisplayName( "Global Illumination" ), Category( "Rendering" ) )
-        GIMode GlobalIllumination = GIMode::ScreenSpace;
-        // ONE knob for both GI modes, but they are not on the same scale: the screen-space gather is
-        // bright at ~2, while the RSM gather is deliberately dim (32 taps, 1/d^2 with a distance floor)
-        // and wants ~6. Switching to RSM will look flat until this is raised — that is expected, not a bug.
-        PROPERTY( DisplayName( "GI Intensity" ), Category( "Rendering" ), Range( 0.0f, 20.0f ) )
-        float GIIntensity = 2.0f;
-
-        // Screen-space reflections: mirrors/metal/polished floors reflect what is on screen. One jittered
-        // ray per 2x2 pixels (half resolution) over the tiles that can reflect, then a full-resolution
-        // temporal resolve and a composite; still bound by the
-        // usual SSR limit (off-screen and occluded geometry cannot reflect).
-        //
-        // WHY THE DEFAULT IS OFF, measured twice on Apple M1 Pro / MoltenVK, GPU timestamps, Desert_Sandbox
-        // (--camera 0,250,700 --look 0,-0.3,-1), the "Deferred: SSR" pass line. It is the one thing that puts
-        // the floor into the lower half of a chrome sphere - below the horizon the sky IBL can only return the
-        // ground colour - so the look argues for ON; the price argues against.
-        //   SS1  (2026-09-23, RGBA32F targets, all passes fullscreen, 0.56 Mpx)   1.6 - 3.1 ms
-        //   SSR1 (2026-09-27, 996x504 = 0.50 Mpx):
-        //     RGBA16F targets (2249a6eaf), all passes fullscreen   0.67 / 0.71 / 0.71 ms
-        //     + 8 px tiles, trace/resolve/composite over marked tiles only (b43a22300)
-        //                                                          0.61 / 0.63 / 0.64 ms
-        //     + classify as compute (one workgroup per tile) + half-resolution trace (SSRRenderer, kept)
-        //                                                          0.37 / 0.36 / 0.36 ms
-        //       Classify 0.05, Trace 0.13, Resolve 0.08, Composite 0.04, ~0.07 outside the marks. Picture
-        //       against the fullscreen pass: 2488 of 0.5 M pixels differ by more than 1/255, max 24/255,
-        //       all inside the reflections on the spheres.
-        //     + 16 march steps instead of 32 (UE's quality 2)       0.37 / 0.34 / 0.33 ms, max 49/255 on
-        //       2955 px - the trace barely moved (0.10 - 0.14), so the change was not kept.
-        //     + classify and trace fused into one compute dispatch, SSR resolve 3x3 taps 2 px apart (ee0fc1306)
-        //                                                          0.25 / 0.29 / 0.28 ms - the condition below
-        //       is MET; against the previous row 271 px differ by at most 4/255. The default stays false only
-        //       until the scene schema step described at the end lands (it raises the scene version).
-        // Before the fusion, what was left was mostly fixed cost: four passes at 0.04 - 0.08 ms each whatever they
-        // draw (the composite over a few tiles is 0.04), plus ~0.07 of barriers/transitions between them. The
-        // roughness gate already matches UE's r.SSR.MaxRoughness 0.6 fade (full at 0.3, none at 0.6). RETURN
-        // CONDITION: the "Deferred: SSR" line on Desert_Sandbox (same camera, --gpu-profile) at or under 0.3 ms.
-        // Levers left: fold the passes together (trace + resolve as one compute dispatch over a tile list, the
-        // composite into the deferred composite) to shed the per-pass cost, and a hierarchical-Z march (UE's HZB)
-        // - this renderer has no HZB yet. Scenes then need a schema step: every file states `false`, and none ever
-        // stated `true` (git log -G), so the value is inherited everywhere - except where a frame comparison pins
-        // it.
-        PROPERTY( DisplayName( "Enable SSR" ), Category( "Rendering" ) )
-        bool EnableSSR = false;
-        PROPERTY( DisplayName( "SSR Intensity" ), Category( "Rendering" ), Range( 0.0f, 1.0f ) )
-        float SSRIntensity = 1.0f;
-        // How far the reflection ray may travel, in WORLD UNITS — and a world unit is a centimetre. The
-        // shader consumes this as a world distance (SSR.shader, u_SSRParams.y), so the metre-era
-        // Range(1, 200) / default 40 that used to sit here killed every reflection ray 40 CENTIMETRES out
-        // and capped the slider at two metres. 40 m is the metre-era default carried over at its intended
-        // magnitude; scene files were raised by SceneMigrator (scene v10 -> v11).
-        PROPERTY( DisplayName( "SSR Max Distance" ), Category( "Rendering" ), Length, Range( 100.0f, 20000.0f ) )
-        float SSRMaxDistance = Common::Units::Metres( 40.0f );
-
-        // Environment: skybox brightness now lives on the SkyboxComponent (entity) as
-        // SkyboxComponent::Intensity — applied in the Skybox pass. Procedural sky lives there too. The old
-        // EnvironmentMapIntensity / SkyboxLOD scene-global knobs were dead (no render consumer) and removed;
-        // stale copies in old scene files are simply ignored on load.
-        PROPERTY( DisplayName( "Enable Shadows" ), Category( "Shadows" ) )
-        bool  EnableShadows           = true;
-        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 0.05f ) )
-        float ShadowBias              = 0.005f;
-        PROPERTY( DisplayName( "Cascade Split Lambda" ), Category( "Shadows" ), Range( 0.0f, 1.0f ) )
-        float CascadeSplitLambda = 0.6f;
-
-        // Post-processing. The operator comes FIRST because it decides what the knobs under it mean:
-        // WhitePoint belongs to Reinhard alone and the editor hides it in the other mode.
-        PROPERTY( DisplayName( "Tonemapper" ), Category( "Post Processing" ) )
-        TonemapOperator Tonemapper = TonemapOperator::ACES;
-        PROPERTY( DisplayName( "Exposure" ), Category( "Post Processing" ), Range( 0.0f, 10.0f ) )
-        float Exposure       = 1.0f; // manual exposure (used when auto-exposure is off)
-        PROPERTY( DisplayName( "Gamma" ), Category( "Post Processing" ), Range( 1.0f, 3.0f ) )
-        float Gamma          = 2.2f;
-        // REINHARD ONLY — the luminance that tonemaps to pure white. 1.0 makes extended Reinhard the
-        // IDENTITY, which is what this pass used to hard-code, and why every HDR highlight clipped to a
-        // flat white silhouette instead of keeping its shading.
-        //
-        // The ACES branch does not read it and must not be given a version of it: the fit reproduces a
-        // specific ODT, whose white is part of the curve. Inventing a knob that slides that curve would
-        // make our "ACES" a different operator from the one the reference frame was shot through, which
-        // is precisely the confound D-10 exists to remove. So the editor shows this slider only in
-        // Reinhard mode — a slider that moves nothing in the current mode is the dead setting
-        // DEV_CONTRACT §1.3 forbids.
-        PROPERTY( DisplayName( "White Point (Reinhard)" ), Category( "Post Processing" ), Range( 1.0f, 20.0f ) )
-        float WhitePoint = 8.0f;
-
-        // Auto-exposure / eye adaptation.
-        PROPERTY( DisplayName( "Auto Exposure" ), Category( "Post Processing" ) )
-        bool  AutoExposure       = false;
-        PROPERTY( DisplayName( "Auto Exposure Key" ), Category( "Post Processing" ), Range( 0.0f, 1.0f ) )
-        float AutoExposureKey    = 0.18f; // middle-grey target
-        PROPERTY( DisplayName( "Auto Exposure Speed" ), Category( "Post Processing" ), Range( 0.0f, 10.0f ) )
-        float AutoExposureSpeed  = 1.5f;  // higher = adapts faster
-        PROPERTY( DisplayName( "Auto Exposure Min" ), Category( "Post Processing" ), Range( 0.0f, 5.0f ) )
-        float AutoExposureMin    = 0.02f; // luminance clamp
-        PROPERTY( DisplayName( "Auto Exposure Max" ), Category( "Post Processing" ), Range( 0.0f, 20.0f ) )
-        float AutoExposureMax    = 8.0f;
-        // "Anti-Aliasing" used to sit here (AA). It is machine quality — see the note at the top of this
-        // struct — and lives in Common::Settings::MachineSettings beside MSAASamples, which is the other
-        // half of the same question and was already per-machine.
-        PROPERTY( DisplayName( "Enable Bloom" ), Category( "Post Processing" ) )
-        bool  EnableBloom    = false; // off by default -> no glow out of the box
-        PROPERTY( DisplayName( "Bloom Threshold" ), Category( "Post Processing" ), Range( 0.0f, 10.0f ) )
-        float BloomThreshold = 2.0f;
-        PROPERTY( DisplayName( "Bloom Intensity" ), Category( "Post Processing" ), Range( 0.0f, 5.0f ) )
-        float BloomIntensity = 0.8f;
-        PROPERTY( DisplayName( "Lens Dispersion" ), Category( "Post Processing" ), Range( 0.0f, 3.0f ) )
-        float LensDispersion = 0.0f; // chromatic rainbow fringe on the bloom halo (glare); 0 = off
-
-        // Lens flare — the camera's response to a very bright source in frame (the sun disc above all).
-        // Its own category rather than more entries in Post Processing, which is already the longest
-        // section in the panel; UE groups these the same way, under Bloom on the post-process volume.
-        //
-        // These are the LENS's properties, not the sun's: the same glass flares whatever is bright, which
-        // is why they sit here beside Bloom and not on the directional light (where the light SHAFTS
-        // live, because a shaft is scattering in the world rather than in the optics).
-        //
-        // Every one of them is content. The pass hardcodes no colour, no ghost count and no spacing —
-        // authoring a different flare is a scene edit. Off by default, so no existing scene changes.
-        PROPERTY( DisplayName( "Enable Lens Flare" ), Category( "Lens Flare" ) )
-        bool EnableLensFlare = false;
-        PROPERTY( DisplayName( "Intensity" ), Category( "Lens Flare" ), Range( 0.0f, 5.0f ) )
-        float LensFlareIntensity = 0.35f;
-        PROPERTY( DisplayName( "Tint" ), Category( "Lens Flare" ), Color )
-        glm::vec3 LensFlareTint = glm::vec3( 1.0f );
-        // HDR luminance a pixel must exceed to flare at all. Authored high enough that in a physical sky
-        // only the sun disc qualifies — this, not a radial mask, is what makes it a SUN flare.
-        PROPERTY( DisplayName( "Threshold" ), Category( "Lens Flare" ), Range( 0.0f, 50.0f ) )
-        float LensFlareThreshold = 4.0f;
-
-        // Ghosts: internal reflections, spaced along the sun->screen-centre axis. Spacing is the fraction
-        // of that axis between one ghost and the next, so counts past 1/Spacing land beyond the centre —
-        // which is where the second half of a real ghost train sits.
-        PROPERTY( DisplayName( "Ghost Count" ), Category( "Lens Flare" ), Range( 0.0f, 8.0f ) )
-        int LensFlareGhostCount = 4;
-        PROPERTY( DisplayName( "Ghost Spacing" ), Category( "Lens Flare" ), Range( 0.05f, 1.5f ) )
-        float LensFlareGhostSpacing = 0.35f;
-        // Magnification, not a screen size: a ghost is an IMAGE of the source, so 1.0 draws it the size
-        // the sun already is (a few pixels) and the useful range is well above that. Near/far are the two
-        // ends of the train's ramp.
-        PROPERTY( DisplayName( "Ghost Size Near" ), Category( "Lens Flare" ), Range( 0.05f, 16.0f ) )
-        float LensFlareGhostSizeNear = 1.0f;
-        PROPERTY( DisplayName( "Ghost Size Far" ), Category( "Lens Flare" ), Range( 0.05f, 16.0f ) )
-        float LensFlareGhostSizeFar = 3.0f;
-        // The ghost train's authored tint ramp: ghost i takes mix(Inner, Outer, i/(count-1)), so any
-        // count gets a full ramp and no palette lives in the shader.
-        PROPERTY( DisplayName( "Ghost Tint Inner" ), Category( "Lens Flare" ), Color )
-        glm::vec3 LensFlareGhostTintInner = glm::vec3( 1.0f, 0.86f, 0.62f );
-        PROPERTY( DisplayName( "Ghost Tint Outer" ), Category( "Lens Flare" ), Color )
-        glm::vec3 LensFlareGhostTintOuter = glm::vec3( 0.45f, 0.68f, 1.0f );
-
-        // Halo: the ring the front element scatters, centred on the sun. Radius is in aspect-corrected
-        // screen UV, so it stays a circle at any window shape.
-        PROPERTY( DisplayName( "Halo Intensity" ), Category( "Lens Flare" ), Range( 0.0f, 3.0f ) )
-        float LensFlareHaloIntensity = 0.25f;
-        PROPERTY( DisplayName( "Halo Radius" ), Category( "Lens Flare" ), Range( 0.02f, 1.0f ) )
-        float LensFlareHaloRadius = 0.18f;
-
-        // Anamorphic streak: a cylindrical element smearing the source along one axis. Angle in degrees,
-        // 0 = horizontal (the blue horizontal streak anamorphic lenses are known for).
-        //
-        // Its intensity range is an order above the others on purpose: the streak is an AVERAGE over its
-        // taps, so a source covering a few of 64 taps arrives ~20x weaker than a ghost, which is a direct
-        // sample. Both are honest; they just meet the authored number at different scales.
-        PROPERTY( DisplayName( "Streak Intensity" ), Category( "Lens Flare" ), Range( 0.0f, 30.0f ) )
-        float LensFlareStreakIntensity = 8.0f;
-        PROPERTY( DisplayName( "Streak Length" ), Category( "Lens Flare" ), Range( 0.0f, 1.0f ) )
-        float LensFlareStreakLength = 0.35f;
-        PROPERTY( DisplayName( "Streak Angle" ), Category( "Lens Flare" ), Range( -180.0f, 180.0f ) )
-        float LensFlareStreakAngle = 0.0f;
-
-        // Chromatic shift: how far apart the three channels are read within each feature. The fringe is
-        // the SCENE dispersed, not a colour painted on, so 0 gives a perfectly neutral flare.
-        PROPERTY( DisplayName( "Chromatic Shift" ), Category( "Lens Flare" ), Range( 0.0f, 1.0f ) )
-        float LensFlareChromaShift = 0.15f;
-
-        // The "Textures" category used to be here: TextureFilterMode and Anisotropy, the sampler's filter
-        // and its anisotropy. Both are the same picture, blurrier — machine quality, not level data — and
-        // they are in Common::Settings::MachineSettings with their three siblings.
-
-        // The "Debug" category used to be here: ten fields naming what the viewport was drawing on top of
-        // the world. It is gone, not renamed and not hidden — see the note at the top of this struct and
-        // Graphic::DebugViewState, which owns them now. Two of them (ShowNormals, LightingDebug) had
-        // already been demoted to un-reflected plain members "so they neither serialize nor show in a
-        // panel", which was the right instinct applied to two of ten and left the other eight in the file.
-
-        // Other scene-wide settings
         PROPERTY( DisplayName( "Gravity" ), Category( "Physics" ), Range( 0.0f, 5000.0f ) )
         float Gravity = 981.0f; // For physics simulation (cm/s^2 — 1 unit = 1 cm)
         // "Pause Simulation" used to sit here. It was reflected, serialized and shown beside Gravity, and
