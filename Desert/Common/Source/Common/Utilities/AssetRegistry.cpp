@@ -282,8 +282,8 @@ namespace Common::Utils
                           one[kTagRig.size()] == '=' )
                 {
                     const std::string_view number = one.substr( kTagRig.size() + 1 );
-                    const auto parsed = std::from_chars( number.data(), number.data() + number.size(),
-                                                         entry.RigSignature );
+                    const auto             parsed =
+                         std::from_chars( number.data(), number.data() + number.size(), entry.RigSignature );
                     if ( parsed.ec != std::errc() || parsed.ptr != number.data() + number.size() ||
                          entry.RigSignature == 0 )
                         return false;
@@ -761,9 +761,10 @@ namespace Common::Utils
             }
 
             if ( tagsText != kNone && !ParseTags( tagsText, entry ) )
-                return MakeFormattedError<AssetRegistry>( "line {}: '{}' is neither '-' nor 'Name=<%XX-escaped "
-                                                          "text>', 'Skinned' and/or 'Rig=<signature>', comma separated",
-                                                          lineNo, std::string( tagsText ) );
+                return MakeFormattedError<AssetRegistry>(
+                     "line {}: '{}' is neither '-' nor 'Name=<%XX-escaped "
+                     "text>', 'Skinned' and/or 'Rig=<signature>', comma separated",
+                     lineNo, std::string( tagsText ) );
 
             if ( const auto inserted = registry.Insert( std::move( entry ) ); !inserted )
                 return MakeFormattedError<AssetRegistry>( "line {}: {}", lineNo, inserted.GetError() );

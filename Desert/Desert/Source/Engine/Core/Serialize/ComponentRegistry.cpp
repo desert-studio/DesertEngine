@@ -757,7 +757,7 @@ namespace Desert::Core::Serialize
                 // scene load and lands on a worker while ContentGate holds the loading screen. The shell
                 // exists already, so a theme outside the shipped library is requested the same way; a
                 // read that fails is reported by UIThemeService with the file's path.
-                ( void )Runtime::ResourceRegistry::GetUIThemeService()->Get( a->GetMetadata().Handle );
+                (void)Runtime::ResourceRegistry::GetUIThemeService()->Get( a->GetMetadata().Handle );
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
             // The three SERVICE-REGISTRY types. `path` here is the file's ROOT-TAGGED KEY (I10), so it

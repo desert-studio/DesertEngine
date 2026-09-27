@@ -339,7 +339,7 @@ TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorker
     SyncLoadLedger::NoteBootFinished();
     const uint64_t inFrameBefore = SyncLoadLedger::InFrameLoads();
 
-    const auto                  manager = std::make_shared<Desert::Assets::AssetManager>();
+    const auto                        manager = std::make_shared<Desert::Assets::AssetManager>();
     Desert::Runtime::CloudTypeService service;
     service.BindAssetManager( manager );
     const uint32_t generationBefore = service.GetGeneration();

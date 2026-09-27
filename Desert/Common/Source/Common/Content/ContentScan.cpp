@@ -485,8 +485,8 @@ namespace Common::Content
         }
         if ( file.HeaderBounds && file.HeaderBounds->Stated )
             entry.Bounds = file.HeaderBounds->Bounds;
-        entry.DisplayName = file.DisplayName;
-        entry.Skinned     = file.Skinned;
+        entry.DisplayName  = file.DisplayName;
+        entry.Skinned      = file.Skinned;
         entry.RigSignature = file.RigSignature;
         return MakeSuccess( std::move( entry ) );
     }

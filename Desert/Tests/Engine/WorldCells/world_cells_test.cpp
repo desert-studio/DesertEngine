@@ -676,8 +676,9 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
     ASSERT_TRUE( registry.Insert( mesh ).IsSuccess() );
 
     const std::vector<Common::Utils::AssetRegistry> meshesOnly{ registry };
-    Common::Json::Issues statedIssues;
-    const auto stated = Rules::PrefabBounds( body, Common::UUID( 900 ), Cells::BoundsFrom( meshesOnly ), statedIssues );
+    Common::Json::Issues                            statedIssues;
+    const auto                                      stated =
+         Rules::PrefabBounds( body, Common::UUID( 900 ), Cells::BoundsFrom( meshesOnly ), statedIssues );
     EXPECT_TRUE( statedIssues.empty() );
     ASSERT_TRUE( stated.has_value() ) << "a body holding a cube and a mesh states no box";
     // By hand, in the root's frame: the cube is 200 +- 100 on x and z, +-100 on y; the crate, turned a
@@ -750,7 +751,7 @@ TEST( WorldCells, TheCorpusPrefabStatesTheBoxItsBodyHas )
     Common::Json::Issues bodyIssues;
     const auto body = Rules::PrefabBounds( prefab.Entities, prefab.Root, Cells::BoundsFrom( {} ), bodyIssues );
     EXPECT_TRUE( bodyIssues.empty() );
-    const auto row  = Common::Content::RegistryRowFor(
+    const auto row = Common::Content::RegistryRowFor(
          "assets:Prefabs/UI_Card.deprefab",
          Common::Content::DescribeContentFile( file, Common::Content::ContentKind::Prefab ) );
     ASSERT_TRUE( row ) << row.GetError();

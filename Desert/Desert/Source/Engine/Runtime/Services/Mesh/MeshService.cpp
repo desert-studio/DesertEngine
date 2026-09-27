@@ -168,8 +168,9 @@ namespace Desert::Runtime
         return &entry;
     }
 
-    void MeshService::RequestRead( const Assets::AssetHandle& owner, const std::shared_ptr<Assets::AssetBase>& asset,
-                                   Assets::LoadRequest& slot ) const
+    void MeshService::RequestRead( const Assets::AssetHandle&                owner,
+                                   const std::shared_ptr<Assets::AssetBase>& asset,
+                                   Assets::LoadRequest&                      slot ) const
     {
         // One read per file: another consumer's request for the same rig (or this mesh's own, not pumped
         // yet) is already the read, and `Arrived` looks at readiness rather than at who asked.
@@ -205,15 +206,16 @@ namespace Desert::Runtime
         // mesh, before either file is read, and no other skeleton is touched.
         if ( !entry.Rig )
         {
-            const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::SkinnedMesh,
-                                                             static_cast<uint64_t>( handle ) );
+            const auto     row       = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::SkinnedMesh,
+                                                                       static_cast<uint64_t>( handle ) );
             const uint64_t signature = row ? row->RigSignature : 0;
             const auto     rig       = Assets::ContentRegistry::RigRow( signature );
             if ( !rig )
             {
-                Fail( handle, fmt::format( "the skinned mesh '{}' names rig signature {} and no Skeleton row of the "
-                                           "content registry states it (re-cook the mesh or its skeleton)",
-                                           entry.Asset->GetMetadata().Filepath.string(), signature ) );
+                Fail( handle,
+                      fmt::format( "the skinned mesh '{}' names rig signature {} and no Skeleton row of the "
+                                   "content registry states it (re-cook the mesh or its skeleton)",
+                                   entry.Asset->GetMetadata().Filepath.string(), signature ) );
                 return false;
             }
             auto created = Assets::CreateFromRegistryRow<Assets::SkeletonAsset>(
@@ -240,10 +242,11 @@ namespace Desert::Runtime
                 skinned.ResolveDependencies( *manager );
             if ( !skinned.GetSkeletonDependency().IsValid() )
             {
-                Fail( handle, fmt::format( "'{}' is resident with its registry rig '{}' (signature {}) and the two "
-                                           "do not match; the registry's Rig tag is stale — re-scan",
-                                           entry.Asset->GetMetadata().Filepath.string(),
-                                           entry.Rig->GetMetadata().Filepath.string(), entry.Rig->GetSignature() ) );
+                Fail( handle,
+                      fmt::format( "'{}' is resident with its registry rig '{}' (signature {}) and the two "
+                                   "do not match; the registry's Rig tag is stale — re-scan",
+                                   entry.Asset->GetMetadata().Filepath.string(),
+                                   entry.Rig->GetMetadata().Filepath.string(), entry.Rig->GetSignature() ) );
                 return false;
             }
         }

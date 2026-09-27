@@ -142,11 +142,11 @@ namespace Desert::Runtime
         // loader requests that read them, and whether it failed — a failure is logged once and not retried.
         struct Entry
         {
-            std::shared_ptr<Assets::MeshAsset>     Asset;
-            Assets::Asset<Assets::SkeletonAsset>   Rig;
-            Assets::LoadRequest                    MeshRead;
-            Assets::LoadRequest                    RigRead;
-            bool                                   Failed = false;
+            std::shared_ptr<Assets::MeshAsset>   Asset;
+            Assets::Asset<Assets::SkeletonAsset> Rig;
+            Assets::LoadRequest                  MeshRead;
+            Assets::LoadRequest                  RigRead;
+            bool                                 Failed = false;
         };
 
         Entry* FindOrDiscover( const Assets::AssetHandle& handle ) const;

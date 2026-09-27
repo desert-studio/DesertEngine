@@ -51,13 +51,13 @@ namespace Desert::Editor::MeshDnD
             namespace fs = std::filesystem;
             Assets::ContentRegistry::Update( skinned );
             std::error_code ec;
-            for ( const auto& f : fs::recursive_directory_iterator( Common::Constants::Path::MESH_PATH_COOKED, ec ) )
+            for ( const auto& f :
+                  fs::recursive_directory_iterator( Common::Constants::Path::MESH_PATH_COOKED, ec ) )
             {
                 if ( f.is_regular_file( ec ) && f.path().extension() == kSkeletonExtension )
                     Assets::ContentRegistry::Update( f.path() );
             }
         }
-
 
         // Create + register a freshly-imported mesh's materials so their stable external id
         // (PBRSurfaceParams::MaterialId, baked into each submesh) resolves in MaterialService THIS session.
@@ -127,7 +127,7 @@ namespace Desert::Editor::MeshDnD
 
         // Create + register + load the cooked static mesh, return its handle.
         auto created = mgr.CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High, cookedStr,
-                                                                /*loadAfterCreate=*/false );
+                                                                 /*loadAfterCreate=*/false );
         if ( !created )
             return Common::UUID::Null();
 
@@ -150,7 +150,8 @@ namespace Desert::Editor::MeshDnD
         // registry's Rig tag) from the loader, and the entity draws from the frame after they land (AL1-5).
         // The cooked materials beside it are registered only after a fresh import, which is the one case that
         // has just written them; their textures are discovered from the content registry on first bind.
-        Assets::AssetHandle FinalizeSkinned( Assets::AssetManager& mgr, const std::shared_ptr<Assets::MeshAsset>& asset )
+        Assets::AssetHandle FinalizeSkinned( Assets::AssetManager&                     mgr,
+                                             const std::shared_ptr<Assets::MeshAsset>& asset )
         {
             Runtime::EnsureMeshRegistered( asset, mgr );
             return asset->GetMetadata().Handle;
@@ -199,7 +200,7 @@ namespace Desert::Editor::MeshDnD
         }
 
         auto created = mgr.CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High, staticStr,
-                                                                /*loadAfterCreate=*/false );
+                                                                 /*loadAfterCreate=*/false );
         if ( !created )
             return { Common::UUID::Null(), false };
 

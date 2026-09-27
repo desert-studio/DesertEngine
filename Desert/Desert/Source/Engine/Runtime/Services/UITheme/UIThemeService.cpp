@@ -107,8 +107,8 @@ namespace Desert::Runtime
         // AL1-7: no boot stage reads every `.detheme` any more. The first canvas that names one creates it
         // from its registry row and requests the read; the host's ContentGate holds the loading screen until
         // it lands, and the canvas draws its authored colours in the frames nobody is shown.
-        auto created = Assets::CreateFromRegistryRow<Assets::UIThemeAsset>( m_Assets, handle,
-                                                                           Common::Content::ContentKind::UITheme );
+        auto created = Assets::CreateFromRegistryRow<Assets::UIThemeAsset>(
+             m_Assets, handle, Common::Content::ContentKind::UITheme );
         if ( !created )
         {
             m_Reported.insert( handle );

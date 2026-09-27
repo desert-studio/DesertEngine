@@ -505,8 +505,8 @@ namespace Desert::Assets
             // The Name tag: what the file states as its display name, read by the scan without loading it;
             // empty when the file states none (then a list shows the stem, as the asset itself does).
             std::string DisplayName;
-            bool        Skinned = false; // the Skinned tag: a mesh whose header flags a skeleton
-            uint64_t    RigSignature = 0; // the Rig tag (AssetRegistryEntry::RigSignature)
+            bool        Skinned      = false; // the Skinned tag: a mesh whose header flags a skeleton
+            uint64_t    RigSignature = 0;     // the Rig tag (AssetRegistryEntry::RigSignature)
         };
 
         // The rows of one kind in registry order — the SAME order `FilesOfKind` hands the preloader, so a

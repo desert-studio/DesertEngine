@@ -546,9 +546,7 @@ TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
     ASSERT_FALSE( root.empty() );
 
     constexpr const char* kRemovedStages[] = {
-         "PreloadCloudNoiseVolumes",
-         "PreloadCloudModellingVolumes",
-         "PreloadCloudLayouts",
+         "PreloadCloudNoiseVolumes", "PreloadCloudModellingVolumes", "PreloadCloudLayouts",
          "PreloadCloudTypes", // AL1-7: CloudTypeService reads a type from its registry row when first named
          "PreloadUIThemes",   // AL1-7: UIThemeService, the same for a theme
     };
