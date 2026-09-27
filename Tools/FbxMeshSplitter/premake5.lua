@@ -45,8 +45,12 @@ project "FbxMeshSplitter"
     }
     links { "Assimp" }
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
+    -- ON EVERY PLATFORM, as DesertCtl does for the same compiled-in Json.cpp. The `system:not windows`
+    -- filter this replaced dates from the prebuilt reflectcpp.lib; the Windows build reached no rfl code
+    -- until Json.cpp was compiled in, and then failed with 24 LNK2001 on rfl::json::Writer and yyjson_*
+    -- (run 36297409433). No Common is linked here, so nothing else carries the edge.
+    links { "ReflectCpp" }
+
     filter "system:windows"
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
