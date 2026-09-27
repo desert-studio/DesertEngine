@@ -151,7 +151,7 @@ namespace Desert::Runtime
         Common::BoolResultStr BuildAndCache( const std::shared_ptr<Assets::MeshAsset>& meshAsset ) const;
 
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Mesh>>      m_Meshes;
-        Assets::FrameRetireQueue<std::shared_ptr<Mesh>>                              m_Retiring;
+        Assets::FrameRetireQueue<std::shared_ptr<Mesh>>                             m_Retiring;
         // One mesh the service knows: its shell, its rig (skinned only; found by the registry's Rig tag), the
         // loader requests that read them, and whether it failed — a failure is logged once and not retried.
         struct Entry

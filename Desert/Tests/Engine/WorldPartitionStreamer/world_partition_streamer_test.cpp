@@ -385,7 +385,8 @@ TEST( WorldPartitionStreamer, AFailedActivationIsAnErrorNamingTheUnit )
 TEST( WorldPartitionStreamer, EveryTickThatLetsACellGoAsksForAnAssetSweep )
 {
     // WP13: a cell's entities (and a Loaded cell's records) hold its assets; the tick that lets them go is the
-    // tick the streamer asks for an eviction sweep on. Asked for on no other tick, so standing still costs nothing.
+    // tick the streamer asks for an eviction sweep on. Asked for on no other tick, so standing still costs
+    // nothing.
     const std::vector<EntityData> records = World();
     SetWorld                      world( records.size() );
     StreamingSource               source{ CellCentre( 0, 1 ) };
@@ -396,10 +397,10 @@ TEST( WorldPartitionStreamer, EveryTickThatLetsACellGoAsksForAnAssetSweep )
     std::size_t unloaded = 0;
     for ( float x = CellCentre( 0, 1 ).x; x <= CellCentre( kColumns - 1, 1 ).x; x += 50.0f )
     {
-        source.Position.x               = x;
-        const std::size_t   destroyed   = world.DestroyCalls;
-        const ResidencyTick tick        = Tick( executor, source, now += kFrame, world );
-        const bool          letCellsGo  = world.DestroyCalls > destroyed || tick.UnitsUnloaded > 0;
+        source.Position.x              = x;
+        const std::size_t   destroyed  = world.DestroyCalls;
+        const ResidencyTick tick       = Tick( executor, source, now += kFrame, world );
+        const bool          letCellsGo = world.DestroyCalls > destroyed || tick.UnitsUnloaded > 0;
         EXPECT_EQ( ReleasesCellAssets( tick ), letCellsGo )
              << "at x=" << x << ": " << tick.UnitsDeactivated << " deactivated, " << tick.UnitsUnloaded
              << " unloaded";

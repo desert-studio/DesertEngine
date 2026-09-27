@@ -263,9 +263,9 @@ namespace Desert::Core
         }
         if ( Rules::ReleasesCellAssets( done ) )
         {
-            Assets::AssetEvictionSchedule::Request( "world '" + m_SceneName + "': " +
-                                                    std::to_string( done.UnitsDeactivated ) + " cell(s) deactivated, " +
-                                                    std::to_string( done.UnitsUnloaded ) + " unloaded" );
+            Assets::AssetEvictionSchedule::Request(
+                 "world '" + m_SceneName + "': " + std::to_string( done.UnitsDeactivated ) +
+                 " cell(s) deactivated, " + std::to_string( done.UnitsUnloaded ) + " unloaded" );
         }
         m_Scene->GetRegistry().set<WorldStreamingWait>(
              WorldStreamingWait{ m_LastTick.Streaming, m_FramesWaiting } );
