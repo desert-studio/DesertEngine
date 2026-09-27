@@ -642,6 +642,9 @@ namespace Desert::Core
         r.prepare<ECS::StaticMeshComponent>();
         r.prepare<ECS::SkinnedMeshComponent>();
         r.prepare<ECS::InstancedStaticMeshComponent>();
+        // MeshECSSystem asks `try_get<FoliageComponent>` of every instanced mesh for its cull distance and wind,
+        // so a level with no foliage field would otherwise create this pool inside the parallel phase.
+        r.prepare<ECS::FoliageComponent>();
         r.prepare<ECS::MaterialComponent>();
         r.prepare<ECS::AnimationComponent>();
         // Skeletal controls. AnimationECSSystem asks `has<TwoBoneIKComponent>` for every animated entity,
