@@ -218,8 +218,8 @@ namespace Desert::Graphic::API::Vulkan
 
         // CR1c: a crash report names the GPU this process renders on, from the device just created (not a
         // DXGI adapter guess). Before this line a report says gpu=unknown, which is then the truth.
-        VkPhysicalDeviceProperties props;
-        vkGetPhysicalDeviceProperties( device->m_PhysicalDevice->GetVulkanPhysicalDevice(), &props );
+        // vk-bootstrap already queried the properties when it selected the device (VKF1); no second query.
+        const VkPhysicalDeviceProperties& props = device->m_PhysicalDevice->GetBootstrapDevice().properties;
         Common::Crash::SetGpu( { .name          = props.deviceName,
                                  .vendorId      = props.vendorID,
                                  .deviceId      = props.deviceID,
