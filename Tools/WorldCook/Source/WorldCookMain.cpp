@@ -182,14 +182,23 @@ namespace Desert::WorldCook
         std::size_t alwaysUnit = 0;
         for ( const auto& unit : index.Units )
             alwaysUnit += unit.Level.has_value() ? 0 : 1;
+        std::size_t hlodFiles = 0, hlodInstances = 0, notInstanced = 0;
+        for ( const auto& hlod : index.HLODs )
+        {
+            hlodFiles += hlod.File.has_value() ? 1 : 0;
+            hlodInstances += hlod.Instances;
+            notInstanced += hlod.NotInstanced.size();
+        }
         out << "WorldCook: '" << index.SceneName << "' -> " << options.Out.string() << "\n"
             << "  records      : " << index.Records << "\n"
             << "  units        : " << index.Units.size() << " (" << index.Units.size() - alwaysUnit << " cells, "
             << alwaysUnit << " always-loaded)\n"
-            << "  files        : " << files.size() << " (" << files.size() - 1 << " cell files + index), "
-            << totalBytes << " bytes\n"
+            << "  files        : " << files.size() << " (" << files.size() - 1 - hlodFiles << " cell files + "
+            << hlodFiles << " HLOD files + index), " << totalBytes << " bytes\n"
             << "  index        : " << files.back().Bytes.size() << " bytes\n"
             << "  largest cell : " << largestName << ", " << largest << " bytes\n"
+            << "  HLOD         : " << index.HLODs.size() << " cells, " << hlodInstances << " instances, "
+            << notInstanced << " drawing record(s) without a stand-in\n"
             << "  references   : " << index.References.size() << " crossing a unit\n"
             << "  assets       : "
             << ( index.AssetClosureKnown ? "closure per unit from the registry" : "UNKNOWN (--no-registry)" )

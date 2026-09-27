@@ -1,4 +1,5 @@
 #include <Engine/Assets/AssetEviction.hpp>
+#include <Engine/Assets/EvictionDeadline.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -50,62 +51,25 @@ namespace Desert::Assets
 
     namespace
     {
-        /// FRAMES OF QUIET BEFORE THE SWEEP RUNS, and this number is the whole of the debounce.
-        ///
-        /// It was NOT there in the first working version, and the log said why it had to be. Loading a
-        /// level is not one event: the editor builds an empty scene and initialises it, then deserialises
-        /// the file into it and initialises it again, and on a big level those land in DIFFERENT frames.
-        /// A sweep fired on the first of them sees a world with almost nothing in it, releases what the
-        /// half-loaded level is about to ask for, and the load pays to read it all back. Measured on a
-        /// sixteen-scene session: two sweeps 106 ms apart for one scene change, the first seeing 17 roots
-        /// and the second 5 — two different answers to one question, and the smaller one won.
-        ///
-        /// Every request RE-ARMS the countdown, so a load that spans five frames sweeps once, after it.
-        /// Two frames rather than one because the second Init of a load lands in the frame after the
-        /// first, and one would still fire between them.
-        constexpr int kQuietFramesBeforeSweep = 2;
-
-        // A countdown and a reason. Function-local statics so the schedule is usable from a static
-        // initialiser, and so a headless suite can drive it without an Application.
-        int& FramesUntilSweep()
+        // Function-local static so the schedule is usable from a static initialiser. The rule is in
+        // EvictionDeadline.hpp, where the suite holds it.
+        EvictionDeadline& Deadline()
         {
-            static int frames = 0; // 0 = nothing pending
-            return frames;
-        }
-
-        std::string& SweepReason()
-        {
-            static std::string reason;
-            return reason;
+            static EvictionDeadline deadline;
+            return deadline;
         }
     } // namespace
 
     void AssetEvictionSchedule::Request( std::string why )
     {
-        // The FIRST reason wins, for the same reason AssetRootSet keeps the first: several scene loads can
-        // land between two frames (opening a level closes the previous one), and the one that started the
-        // sequence is the one a reader is looking for.
-        if ( FramesUntilSweep() == 0 )
-            SweepReason() = std::move( why );
-        FramesUntilSweep() = kQuietFramesBeforeSweep;
+        Deadline().Request( std::move( why ) );
     }
 
     void AssetEvictionSchedule::RunIfDue( const std::function<AssetRootSet()>& collectRoots )
     {
-        if ( FramesUntilSweep() == 0 )
+        std::string why;
+        if ( !Deadline().Due( why ) )
             return;
-
-        // The quiet frames the debounce above is about. A request during one of them starts the count
-        // again, so this only reaches zero when nothing has asked for a sweep for two whole frames.
-        if ( --FramesUntilSweep() > 0 )
-            return;
-
-        // Cleared BEFORE the sweep, not after. A sweep that threw or that a future author made re-entrant
-        // would otherwise run for ever, and "the editor froze after changing scenes" is a much worse
-        // failure than one missed sweep.
-        FramesUntilSweep()    = 0;
-        const std::string why = std::move( SweepReason() );
-        SweepReason()         = std::string();
 
         if ( !collectRoots )
             return;

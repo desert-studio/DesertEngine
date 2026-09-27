@@ -204,8 +204,9 @@ TEST( WorldCells, TwoCooksOfOneSourceAreTheSameBytes )
 {
     const auto first  = FilesOf( Cook( World() ) );
     const auto second = FilesOf( Cook( World() ) );
-    // The always-loaded file, the parent's, the shooter's, the target's, eight fillers' and the index.
-    EXPECT_EQ( first.size(), 13u );
+    // The always-loaded file, the parent's, the shooter's, the target's, eight fillers', the HLOD of the
+    // bystander's cube and the index.
+    EXPECT_EQ( first.size(), 14u );
     EXPECT_EQ( first, second );
 }
 

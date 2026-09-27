@@ -1,5 +1,7 @@
 #include <Engine/Core/WorldStreamer.hpp>
 
+#include <Engine/Assets/AssetEviction.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 
@@ -9,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -111,6 +114,46 @@ namespace Desert::Core
         streamer->m_Snapshot   = snapshot;
         streamer->m_Loader     = std::make_unique<WorldCellLoader>(
              std::make_shared<Rules::MemoryCellSource>( streamer->Executor().Plan(), snapshot->Entities ) );
+        {
+            // The HLODs the cook would write, built from the snapshot by the same builder: editor Play shows
+            // what a cooked game shows while a cell is away.
+            const Rules::WorldPartitionPlan&              plan = streamer->Executor().Plan();
+            std::unordered_map<Common::UUID, std::size_t> byId;
+            for ( std::size_t record = 0; record < snapshot->Entities.size(); ++record )
+                byId.emplace( streamer->m_RecordIds[record], record );
+            const std::vector<glm::mat4>      world = Rules::Detail::ComposeWorld( snapshot->Entities, byId );
+            Common::Json::Issues              issues;
+            std::vector<CellHLOD>             hlods;
+            std::vector<Rules::HLODExclusion> holes;
+            // The editor's registry is the one the cook reads, so Play excludes what the cook excludes.
+            const Rules::CustomShaderSource customShader =
+                 WorldCells::CustomShaderFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
+            for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
+            {
+                const Rules::InstancingHLOD built = Rules::BuildInstancingHLOD(
+                     snapshot->Entities, world, Rules::ResidencyUnitMembers( plan, unit ), customShader, issues );
+                for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
+                    holes.push_back( missing.Reason );
+                if ( built.Batches.empty() )
+                    continue;
+                CellHLOD          hlod{ unit, {} };
+                const std::string name = "HLOD " + Rules::DescribeResidencyUnit( plan, unit );
+                for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
+                {
+                    const Common::UUID id = Rules::HLODRecordId( snapshot->SceneName, name, batch );
+                    if ( id.IsNull() || byId.contains( id ) )
+                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                          "': the id of batch " + std::to_string( batch ) +
+                                                          " of " + name +
+                                                          " is null or a record's; rename the world" );
+                    hlod.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
+                }
+                hlods.push_back( std::move( hlod ) );
+            }
+            Common::Json::ReportIssues( issues, "the HLODs of the Play snapshot" );
+            if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
+                return Common::MakeError<Result>( begun.GetError() );
+        }
         streamer->m_MostResident = streamer->Executor().LiveRecords();
         LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around ({3:.0f}, "
                   "{4:.0f}) cm, the rest destroyed until their cell is wanted ({5:.1f} ms to parse, plan and "
@@ -144,6 +187,28 @@ namespace Desert::Core
         streamer->m_Index     = world.Index;
         streamer->m_Loader    = std::make_unique<WorldCellLoader>(
              std::make_shared<WorldCells::CookedCellSource>( *world.Index, VfsReader( world.Directory ) ) );
+        {
+            // Every HLOD file is read now, on this thread: HLODs stand in for the whole world from the first
+            // frame (their own streaming, UE's HLOD grid, is not this round's).
+            const WorldCells::FileReader      reader = VfsReader( world.Directory );
+            std::vector<CellHLOD>             hlods;
+            std::vector<Rules::HLODExclusion> holes;
+            for ( std::size_t hlod = 0; hlod < world.Index->HLODs.size(); ++hlod )
+            {
+                const WorldCells::IndexHLOD& row = world.Index->HLODs[hlod];
+                for ( const WorldCells::IndexNotInstanced& missing : row.NotInstanced )
+                    holes.push_back( missing.Reason );
+                if ( !row.File.has_value() )
+                    continue;
+                auto records = WorldCells::HLODRecords( *world.Index, reader, hlod );
+                if ( !records )
+                    return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
+                                                      "': " + records.GetError() );
+                hlods.push_back( { row.Unit, records.ExtractValue() } );
+            }
+            if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
+                return Common::MakeError<Result>( begun.GetError() );
+        }
         streamer->m_MostResident = streamer->Executor().LiveRecords();
         LOG_INFO( "[WorldPartition] '{0}': a cooked world of {1} record(s) in {2} unit(s) from '{3}'; {4} "
                   "always-loaded record(s) are entities, every cell is read on a worker when first wanted.",
@@ -171,7 +236,9 @@ namespace Desert::Core
 
         m_LastTick   = TickReport{};
         m_LastSource = source;
-        auto tick    = Executor().Tick( std::span( &source, 1 ), nowSeconds, *this );
+        // The HLODs switch on the state this very tick leaves, before the frame is drawn.
+        auto tick = Rules::TickWithHLODs( Executor(), *m_HLODs, // NOLINT(bugprone-unchecked-optional-access)
+                                          std::span( &source, 1 ), nowSeconds, *this, *this );
         if ( !tick )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + tick.GetError() );
 
@@ -180,6 +247,28 @@ namespace Desert::Core
         m_LastTick.LiveRecords           = Executor().LiveRecords();
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
+        m_LastTick.Streaming =
+             Rules::AssessStreaming( Executor().Plan(), m_Settings, Executor().State(), std::span( &source, 1 ) );
+        const bool wasWaiting = m_FramesWaiting > 0;
+        m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
+        if ( m_FramesWaiting == 1 )
+        {
+            LOG_INFO( "[WorldPartition] '{0}': the cell under the camera ({1}) is not resident; play waits for it",
+                      m_SceneName,
+                      Rules::DescribeResidencyUnit( Executor().Plan(), m_LastTick.Streaming.UnderSource ) );
+        }
+        else if ( wasWaiting && m_FramesWaiting == 0 )
+        {
+            LOG_INFO( "[WorldPartition] '{0}': the cell under the camera is resident; play resumes", m_SceneName );
+        }
+        if ( Rules::ReleasesCellAssets( done ) )
+        {
+            Assets::AssetEvictionSchedule::Request(
+                 "world '" + m_SceneName + "': " + std::to_string( done.UnitsDeactivated ) +
+                 " cell(s) deactivated, " + std::to_string( done.UnitsUnloaded ) + " unloaded" );
+        }
+        m_Scene->GetRegistry().set<WorldStreamingWait>(
+             WorldStreamingWait{ m_LastTick.Streaming, m_FramesWaiting } );
         // A reference across a cell boundary is legal and its reader handles the absence — but it is SAID.
         if ( done.DeferredReferences > 0 || done.UnboundReferences > 0 )
         {
@@ -190,6 +279,13 @@ namespace Desert::Core
         }
         return BOOLSUCCESS;
     }
+
+#if DESERT_DEV_INSTRUMENTS
+    void WorldStreamer::SetDebugLoadDelayTicks( std::uint32_t ticks )
+    {
+        m_Loader->SetDebugDelayTicks( ticks );
+    }
+#endif
 
     void WorldStreamer::StartLoad( std::size_t unit, std::uint64_t ticket )
     {
@@ -255,8 +351,66 @@ namespace Desert::Core
         }
     }
 
+    Common::BoolResultStr WorldStreamer::BeginHLODs( std::vector<CellHLOD>                 hlods,
+                                                     std::span<const Rules::HLODExclusion> holes )
+    {
+        std::vector<std::size_t>        units;
+        std::vector<Assets::EntityData> records;
+        m_HLODIds.clear();
+        for ( CellHLOD& hlod : hlods )
+        {
+            units.push_back( hlod.Unit );
+            std::vector<Common::UUID>& ids = m_HLODIds.emplace_back();
+            for ( Assets::EntityData& record : hlod.Records )
+            {
+                if ( !record.id.has_value() || record.id->IsNull() )
+                    return Common::MakeError( "world streaming of '" + m_SceneName +
+                                              "': a record of the HLOD of " +
+                                              Rules::DescribeResidencyUnit( Executor().Plan(), hlod.Unit ) +
+                                              " has no id, so it could not be shown or hidden" );
+                ids.push_back( *record.id );
+                records.push_back( std::move( record ) );
+            }
+        }
+        auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), units );
+        if ( !runtime )
+            return Common::MakeError( "world streaming of '" + m_SceneName + "': " + runtime.GetError() );
+        m_HLODs = runtime.ExtractValue();
+        if ( auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( records, m_SceneName, nullptr );
+             !made )
+            return Common::MakeError( "world streaming of '" + m_SceneName +
+                                      "': making the HLODs failed: " + made.GetError() );
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
+        if ( auto synced = m_HLODs->Sync( Executor().State(), *this ); !synced )
+            return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
+        // THE HOLES: a drawing record the builder could not batch has no stand-in (WorldPartitionHLODSwitch.hpp).
+        const std::string holesText =
+             holes.empty() ? std::string( "every drawing record has its stand-in" )
+                           : std::to_string( holes.size() ) +
+                                  " drawing record(s) have none and leave a hole while their cell is not drawn: " +
+                                  Rules::DescribeHLODHoles( holes );
+        LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
+                  m_SceneName, units.size(), records.size(), holesText );
+        return BOOLSUCCESS;
+    }
+
+    void WorldStreamer::SetHLODVisible( std::size_t hlod, bool visible )
+    {
+        for ( const Common::UUID& id : m_HLODIds.at( hlod ) )
+        {
+            // An HLOD entity gameplay destroyed has nothing left to show or hide.
+            const auto entity = m_Scene->FindEntityByID( id );
+            if ( entity.has_value() )
+                m_Scene->SetVisibleRecursive( entity->get(), visible );
+        }
+    }
+
     WorldStreamer::~WorldStreamer()
     {
+        // The scene outlives its streamer (hosts reset the streamer before clearing the scene); what the
+        // streamer said about it must not outlive the streamer.
+        if ( m_Scene != nullptr )
+            m_Scene->GetRegistry().unset<WorldStreamingWait>();
         if ( !m_Executor.has_value() )
             return;
         LOG_INFO( "[WorldPartition] '{0}': streamed {1} activation(s), {2} record(s) in {3:.2f} ms on the main "

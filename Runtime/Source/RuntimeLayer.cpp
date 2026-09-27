@@ -76,6 +76,8 @@
 #include <Common/Core/Events/KeyEvents.hpp>
 #include <Common/Core/KeyCodes.hpp>
 
+#include <Engine/UI/LoadingOverlay.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -572,28 +574,11 @@ namespace Desert::Player
         if ( auto* img = ResolveSpriteImage( sprite ) )
             DrawFittedSprite( dl, *img, w, h, 1.0f );
 
-        // AND SOMETHING THAT MOVES. A still loading screen is indistinguishable from a hung game -- the
-        // editor's overlay solves this with a label, and this host has no font it can rely on (fonts are
-        // assets, and the point of this screen is that the assets are not here yet). So: a track and a
-        // block sliding along it, driven by the PRESENTED frame count rather than by a clock, so that an
-        // unattended capture of frame N is reproducible.
-        constexpr float kTrackFraction = 0.34f;
-        constexpr float kBlockFraction = 0.18f;
-        constexpr float kPeriodFrames  = 48.0f;
-
-        const float trackW = w * kTrackFraction;
-        const float blockW = trackW * kBlockFraction;
-        const float x0     = ( w - trackW ) * 0.5f;
-        const float y0     = h * 0.82f;
-        const float thick  = std::max( 2.0f, h * 0.004f );
-
-        dl.AddRectFilled( { x0, y0 }, { x0 + trackW, y0 + thick }, glm::vec4( 1.0f, 1.0f, 1.0f, 0.16f ) );
-
-        // A ping-pong rather than a wrap, so the block is never cut in half at the ends of the track.
-        const float phase = std::fmod( static_cast<float>( m_LoadingFramesPresented ), kPeriodFrames * 2.0f );
-        const float tri   = phase < kPeriodFrames ? phase / kPeriodFrames : 2.0f - phase / kPeriodFrames;
-        const float bx    = x0 + tri * ( trackW - blockW );
-        dl.AddRectFilled( { bx, y0 }, { bx + blockW, y0 + thick }, glm::vec4( 1.0f, 1.0f, 1.0f, 0.85f ) );
+        // AND SOMETHING THAT MOVES. A still loading screen is indistinguishable from a hung game, and this
+        // cover cannot rely on a font (fonts are assets, and the point of this screen is that the assets are not
+        // here yet). The strip is the engine's one (Engine/UI/LoadingOverlay.hpp), driven by the PRESENTED frame
+        // count so an unattended capture of frame N is reproducible.
+        UI::DrawLoadingStrip( dl, w, h, m_LoadingFramesPresented );
     }
 
     Common::BoolResultStr RuntimeLayer::OnUpdate( const Common::Timestep& ts )
@@ -684,7 +669,12 @@ namespace Desert::Player
             }
         }
 
-        if ( const auto frame = m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts ); !frame )
+        // Time also stops while streaming waits for the cell under the camera (WP12): the loader keeps reading
+        // on its workers and Tick above keeps collecting, but no script or physics step runs over a hole.
+        const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
+        if ( const auto frame =
+                  m_Scene->OnUpdate( m_Content.Loading() || streamingWaits ? Common::Timestep( 0.0f ) : ts );
+             !frame )
             return Common::MakeError( frame.GetError() );
 
         return BOOLSUCCESS;
@@ -870,6 +860,13 @@ namespace Desert::Player
                             DrawFittedSprite( dl, *img, w, h, a );
                     }
                 }
+
+                // WORLD STREAMING WAITS FOR THE CELL UNDER THE CAMERA (WP12, decision O2): over the game's UI, so
+                // the player reads "loading" rather than a frozen HUD. Only while the level itself is shown.
+                if ( !loading )
+                    if ( const auto* wait = m_Scene->GetRegistry().try_ctx<Core::WorldStreamingWait>();
+                         wait != nullptr && wait->Assessment.Blocks() )
+                        UI::DrawStreamingWaitOverlay( dl, w, h, wait->FramesWaiting );
 
                 m_Render2D->Flush();
             }
