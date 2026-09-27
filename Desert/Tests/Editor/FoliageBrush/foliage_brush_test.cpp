@@ -3,10 +3,16 @@
 // stroke record that makes a stroke one undo step.
 
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -278,6 +284,115 @@ TEST( FoliageBrush, AStrokeIsOneUndoStepHoldingThePressState )
         replay.insert( replay.end(), added.begin(), added.end() );
     }
     EXPECT_EQ( replay, grassField );
+}
+
+namespace
+{
+    namespace Landscape = Desert::World::Landscape;
+
+    // Terrain_Grass's landscape: 5 x 5 tiles of 255 quads at 23.53 cm, rolling hills, centred on the origin.
+    struct GrassLandscape
+    {
+        std::vector<Landscape::LandscapeTileData> Tiles;
+        std::vector<Landscape::LandscapeRayTile>  RayTiles;
+
+        GrassLandscape()
+        {
+            constexpr uint32_t kQuads   = 255u;
+            constexpr float    kSpacing = 23.52941131591797f;
+            constexpr float    kSpan    = kSpacing * static_cast<float>( kQuads );
+            Tiles.reserve( 25u );
+            for ( int tz = 0; tz < 5; ++tz )
+                for ( int tx = 0; tx < 5; ++tx )
+                {
+                    Landscape::LandscapeFrame frame;
+                    frame.OriginX   = ( static_cast<float>( tx ) - 2.5f ) * kSpan;
+                    frame.OriginZ   = ( static_cast<float>( tz ) - 2.5f ) * kSpan;
+                    frame.SpacingCm = kSpacing;
+                    std::vector<uint16_t> samples( ( kQuads + 1u ) * ( kQuads + 1u ) );
+                    for ( uint32_t z = 0; z <= kQuads; ++z )
+                        for ( uint32_t x = 0; x <= kQuads; ++x )
+                        {
+                            const float wx = frame.OriginX + kSpacing * static_cast<float>( x );
+                            const float wz = frame.OriginZ + kSpacing * static_cast<float>( z );
+                            const float h  = 900.0f * std::sin( wx * 0.0011f ) * std::cos( wz * 0.0007f );
+                            samples[z * ( kQuads + 1u ) + x] =
+                                 static_cast<uint16_t>( static_cast<float>( Landscape::kLandscapeMidSample ) +
+                                                        h * 128.0f / frame.ZScale );
+                        }
+                    auto tile = Landscape::LandscapeTileData::FromSamples( kQuads + 1u, kQuads + 1u,
+                                                                           std::move( samples ) );
+                    EXPECT_TRUE( tile.IsSuccess() );
+                    Tiles.push_back( std::move( tile.GetValue() ) );
+                    RayTiles.push_back( { nullptr, frame } );
+                }
+            for ( size_t i = 0; i < Tiles.size(); ++i )
+                RayTiles[i].Heights = &Tiles[i];
+        }
+
+        // The editor's trace: the landscape ray over the segment, a layer painted west of x = 0.
+        FoliageBrushWorld World() const
+        {
+            FoliageBrushWorld world;
+            world.Trace = [this]( const glm::vec3& a, const glm::vec3& b,
+                                  const FoliageSurfaceFilter& ) -> std::optional<FoliageTraceHit>
+            {
+                const glm::vec3 d   = b - a;
+                const float     len = glm::length( d );
+                const auto      hit = Landscape::RaycastLandscape( RayTiles, a, d / len, len );
+                if ( !hit )
+                    return std::nullopt;
+                return FoliageTraceHit{ hit->Point, hit->Normal, FoliageSurface::Landscape,
+                                        hit->Point.x < 0.0f ? 1.0f : 0.3f };
+            };
+            world.LayerWeightAt = []( const glm::vec3& p )
+            { return std::optional<float>( p.x < 0.0f ? 1.0f : 0.3f ); };
+            return world;
+        }
+    };
+
+    uint64_t Fnv1a( const std::vector<glm::mat4>& transforms )
+    {
+        uint64_t    h     = 1469598103934665603ull;
+        const auto* bytes = reinterpret_cast<const unsigned char*>( transforms.data() );
+        for ( size_t i = 0; i < transforms.size() * sizeof( glm::mat4 ); ++i )
+            h = ( h ^ bytes[i] ) * 1099511628211ull;
+        return h;
+    }
+} // namespace
+
+// FO-3b: the editor's default dab (300 cm) of the frame's layered type (3000 per 1000 x 1000 cm) on a landscape
+// the size of Terrain_Grass. The hash was recorded BEFORE the stroke was made fast; any speed-up that changes
+// one byte of one placed transform fails here.
+TEST( FoliageBrush, ALandscapeStrokeFromOneSeedPlacesTheRecordedInstancesByteForByte )
+{
+    const GrassLandscape land;
+    FoliageTypeData      type = Grass();
+    type.Density              = 3000.0f;
+    type.ScaleX               = { 0.3f, 0.5f };
+    type.RandomYaw            = true;
+    type.AlignToNormal        = true;
+    type.MinimumLayerWeight   = 0.2f;
+    type.LandscapeLayers.push_back( { "0123456789abcdef0123456789abcdef", "Landscape/Layers/Grass.delayerinfo" } );
+
+    std::vector<glm::mat4> field;
+    FoliageStroke          stroke( 0xF03Bu, false );
+    FoliageBrushStats      stats;
+    const auto             at = std::chrono::steady_clock::now();
+    for ( float x = -600.0f; x <= 600.0f; x += 300.0f )
+    {
+        const auto added = FoliageBrushAdd( type, DabAt( { x, 0.0f, 150.0f }, 300.0f ), field, stroke.Random(),
+                                            land.World(), &stats );
+        field.insert( field.end(), added.begin(), added.end() );
+    }
+    const double ms = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - at ).count();
+    std::printf(
+         "[ landscape stroke ] 5 dabs: %d candidates, %d placed in %.1f ms (trace %.1f ms), hash %016llx\n",
+         stats.Candidates, stats.Placed, ms, stats.TraceMs, static_cast<unsigned long long>( Fnv1a( field ) ) );
+
+    EXPECT_GT( stats.Placed, 100 );
+    EXPECT_EQ( stats.Placed, static_cast<int>( field.size() ) );
+    EXPECT_EQ( Fnv1a( field ), 0xfa8d00c62198be7eull );
 }
 
 int main( int argc, char** argv )

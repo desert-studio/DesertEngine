@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 
 namespace Desert::Editor::Tools
@@ -15,6 +16,13 @@ namespace Desert::Editor::Tools
         constexpr float kTwoPi   = 2.0f * kPi;
         constexpr float kSmall   = 1.0e-8f; // UE SMALL_NUMBER
         constexpr int   kBuckets = 10;      // UE NUM_INSTANCE_BUCKETS
+
+        using Clock = std::chrono::steady_clock;
+
+        double MsSince( Clock::time_point start )
+        {
+            return std::chrono::duration<double, std::milli>( Clock::now() - start ).count();
+        }
 
         struct PotentialInstance
         {
@@ -47,6 +55,20 @@ namespace Desert::Editor::Tools
         {
             const float needed = std::max( kSmall, std::max( minimum, rng.Next01() ) );
             return weight < needed;
+        }
+
+        // The type's height, slope and landscape-layer rules on one traced hit (UE
+        // CheckLocationForPotentialInstance_ThreadSafe + IsFilteredByWeight); the layer draw consumes the
+        // stream only for a layered hit, as before.
+        bool PassesTypeRules( const Assets::Serialization::FoliageTypeData& type, const FoliageTraceHit& hit,
+                              bool layered, FoliageRandom& rng )
+        {
+            if ( hit.Point.y < type.Height.Min || hit.Point.y > type.Height.Max )
+                return false;
+            if ( !IsWithinSlopeAngle( hit.Normal.y, type.GroundSlopeAngle.Min, type.GroundSlopeAngle.Max ) )
+                return false;
+            return !( layered && hit.LayerWeight &&
+                      IsFilteredByWeight( *hit.LayerWeight, type.MinimumLayerWeight, rng ) );
         }
 
         int BucketOf( float weight )
@@ -119,9 +141,12 @@ namespace Desert::Editor::Tools
 
     std::vector<glm::mat4> FoliageBrushAdd( const Assets::Serialization::FoliageTypeData& type,
                                             const FoliageBrushDab& dab, std::span<const glm::mat4> existing,
-                                            FoliageRandom& rng, const FoliageBrushWorld& world )
+                                            FoliageRandom& rng, const FoliageBrushWorld& world,
+                                            FoliageBrushStats* stats )
     {
         std::vector<glm::mat4> placed;
+        FoliageBrushStats      local;
+        FoliageBrushStats&     st = stats ? *stats : local;
 
         // UE ApplyBrush: "allow a single instance with a random chance, if the brush is smaller than the
         // density".
@@ -135,6 +160,7 @@ namespace Desert::Editor::Tools
         std::array<int, kBuckets> existingBuckets{};
         int                       numExisting = 0;
         const float               r2          = dab.Radius * dab.Radius;
+        const auto                existingAt  = Clock::now();
         for ( const glm::mat4& m : existing )
         {
             const glm::vec3 p = glm::vec3( m[3] );
@@ -146,6 +172,7 @@ namespace Desert::Editor::Tools
                 if ( const auto w = world.LayerWeightAt( p ) )
                     ++existingBuckets[BucketOf( *w )];
         }
+        st.ExistingLayerMs += MsSince( existingAt );
         if ( !layered )
             existingBuckets[kBuckets - 1] = numExisting;
 
@@ -160,6 +187,7 @@ namespace Desert::Editor::Tools
         std::array<std::vector<PotentialInstance>, kBuckets> potential;
         for ( int i = 0; i < desired; ++i )
         {
+            auto stageAt = Clock::now();
             // UE GetRandomVectorInBrush: a point of the unit disk, and the segment through the sphere there.
             const float     ru    = 2.0f * rng.Next01() - 1.0f;
             const float     rv    = ( 2.0f * rng.Next01() - 1.0f ) * std::sqrt( 1.0f - ru * ru );
@@ -168,24 +196,29 @@ namespace Desert::Editor::Tools
             const glm::vec3 start = dab.Center + dab.Radius * ( point + rw );
             const glm::vec3 end   = dab.Center + dab.Radius * ( point - rw );
 
+            st.GenerateMs += MsSince( stageAt );
+            ++st.Candidates;
+
+            stageAt        = Clock::now();
             const auto hit = world.Trace( start, end, dab.Filter );
+            st.TraceMs += MsSince( stageAt );
             if ( !hit || !dab.Filter.Allows( hit->Surface ) )
                 continue;
-            if ( hit->Point.y < type.Height.Min || hit->Point.y > type.Height.Max )
-                continue;
-            if ( !IsWithinSlopeAngle( hit->Normal.y, type.GroundSlopeAngle.Min, type.GroundSlopeAngle.Max ) )
-                continue;
-            float weight = 1.0f;
-            if ( layered && hit->LayerWeight )
+            ++st.Hits;
+            stageAt = Clock::now();
+            if ( !PassesTypeRules( type, *hit, layered, rng ) )
             {
-                weight = *hit->LayerWeight;
-                if ( IsFilteredByWeight( weight, type.MinimumLayerWeight, rng ) )
-                    continue;
+                st.FilterMs += MsSince( stageAt );
+                continue;
             }
+            st.FilterMs += MsSince( stageAt );
+            ++st.Passed;
+            const float weight = layered && hit->LayerWeight ? *hit->LayerWeight : 1.0f;
             potential[BucketOf( weight )].push_back( { hit->Point, glm::normalize( hit->Normal ) } );
         }
 
         // UE AddInstancesImp: per bucket, the share of what passed that is still missing.
+        const auto placeAt = Clock::now();
         for ( int b = 0; b < kBuckets; ++b )
         {
             const auto& bucket   = potential[b];
@@ -198,6 +231,8 @@ namespace Desert::Editor::Tools
             for ( int i = 0; i < count; ++i )
                 placed.push_back( PlaceInstance( type, bucket[i], rng ) );
         }
+        st.PlaceMs += MsSince( placeAt );
+        st.Placed += static_cast<int>( placed.size() );
         return placed;
     }
 

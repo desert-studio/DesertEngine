@@ -26,9 +26,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -444,24 +446,98 @@ namespace Desert::Editor::Tools
                                                                      tile.TileX, tile.TileZ ) };
         }
 
-        // The tile whose frame covers world (x, z), for the layer weight under an existing instance.
-        std::optional<TileSample> TileAt( ::Desert::Core::Scene& scene, float x, float z )
+        // UE ULandscapeInfo::XYtoComponentMap: the drawn tiles, gathered once per dab and found by entity or by
+        // the tile coordinate a world (x, z) falls in. Walking every entity per question cost 43 ms for the
+        // 828 instances under a second dab on Terrain_Grass (FO-3b).
+        class LandscapeTileIndex
         {
-            for ( const auto& entity : scene.GetAllEntities() )
+        public:
+            explicit LandscapeTileIndex( ::Desert::Core::Scene& scene )
             {
-                if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
-                    continue;
-                auto sample = TileOf( scene, entity.GetComponent<ECS::UUIDComponent>().UUID );
-                if ( !sample )
-                    continue;
-                const float spanX = sample->Frame.SpacingCm * static_cast<float>( sample->Tile->SamplesX() - 1u );
-                const float spanZ = sample->Frame.SpacingCm * static_cast<float>( sample->Tile->SamplesZ() - 1u );
-                if ( x >= sample->Frame.OriginX && x <= sample->Frame.OriginX + spanX &&
-                     z >= sample->Frame.OriginZ && z <= sample->Frame.OriginZ + spanZ )
-                    return sample;
+                for ( const auto& entity : scene.GetAllEntities() )
+                {
+                    if ( !entity.HasComponent<ECS::LandscapeTileComponent>() )
+                        continue;
+                    const Common::UUID id     = entity.GetComponent<ECS::UUIDComponent>().UUID;
+                    const auto         sample = TileOf( scene, id );
+                    if ( !sample )
+                        continue;
+                    const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
+                    m_ByEntity.emplace( id, *sample );
+                    LandscapeTiles& landscape = LandscapeOf( scene, tile.Landscape );
+                    landscape.ByCoord.emplace( Key( tile.TileX, tile.TileZ ), *sample );
+                }
             }
-            return std::nullopt;
-        }
+
+            [[nodiscard]] const TileSample* OfEntity( const Common::UUID& entity ) const
+            {
+                const auto it = m_ByEntity.find( entity );
+                return it == m_ByEntity.end() ? nullptr : &it->second;
+            }
+
+            // The tile whose rectangle holds (x, z), both edges inclusive; a point on a shared edge is also
+            // looked for in the tile below it, so the last tile's far edge is found too.
+            [[nodiscard]] const TileSample* At( float x, float z ) const
+            {
+                for ( const auto& landscape : m_Landscapes )
+                {
+                    const auto tx =
+                         static_cast<int32_t>( std::floor( ( x - landscape.OriginX ) / landscape.ExtentCm ) );
+                    const auto tz =
+                         static_cast<int32_t>( std::floor( ( z - landscape.OriginZ ) / landscape.ExtentCm ) );
+                    for ( const int32_t dz : { 0, -1 } )
+                        for ( const int32_t dx : { 0, -1 } )
+                        {
+                            const auto it = landscape.ByCoord.find( Key( tx + dx, tz + dz ) );
+                            if ( it != landscape.ByCoord.end() && Holds( it->second, x, z ) )
+                                return &it->second;
+                        }
+                }
+                return nullptr;
+            }
+
+        private:
+            struct LandscapeTiles
+            {
+                Common::UUID                            Root;
+                float                                   OriginX  = 0.0f;
+                float                                   OriginZ  = 0.0f;
+                float                                   ExtentCm = 1.0f; // one tile's side
+                std::unordered_map<int64_t, TileSample> ByCoord;
+            };
+
+            static int64_t Key( int32_t tileX, int32_t tileZ )
+            {
+                return ( static_cast<int64_t>( tileX ) << 32 ) ^
+                       static_cast<int64_t>( static_cast<uint32_t>( tileZ ) );
+            }
+
+            static bool Holds( const TileSample& sample, float x, float z )
+            {
+                const float spanX = sample.Frame.SpacingCm * static_cast<float>( sample.Tile->SamplesX() - 1u );
+                const float spanZ = sample.Frame.SpacingCm * static_cast<float>( sample.Tile->SamplesZ() - 1u );
+                return x >= sample.Frame.OriginX && x <= sample.Frame.OriginX + spanX &&
+                       z >= sample.Frame.OriginZ && z <= sample.Frame.OriginZ + spanZ;
+            }
+
+            // TileOf has already checked that the root exists and is a landscape.
+            LandscapeTiles& LandscapeOf( ::Desert::Core::Scene& scene, const Common::UUID& root )
+            {
+                for ( auto& landscape : m_Landscapes )
+                    if ( landscape.Root == root )
+                        return landscape;
+                const auto layout = ECS::LandscapeRootOf( scene.FindEntityByID( root )->get() );
+                auto&      added  = m_Landscapes.emplace_back();
+                added.Root        = root;
+                added.OriginX     = layout.Origin.x;
+                added.OriginZ     = layout.Origin.z;
+                added.ExtentCm    = static_cast<float>( layout.QuadsPerTile ) * layout.SpacingCm;
+                return added;
+            }
+
+            std::unordered_map<Common::UUID, TileSample> m_ByEntity;
+            std::vector<LandscapeTiles>                  m_Landscapes;
+        };
 
         /// One press of the foliage brush, undone and redone as a whole (UE: one FScopedTransaction per
         /// stroke, "Foliage Paint" / "Foliage Erase").
@@ -538,6 +614,7 @@ namespace Desert::Editor::Tools
         dab.PaintDensity      = Core::FoliagePaint::PaintDensity();
         dab.Filter.Landscape  = Core::FoliagePaint::FilterLandscape();
         dab.Filter.StaticMesh = Core::FoliagePaint::FilterStaticMesh();
+        const LandscapeTileIndex tiles( scene );
 
         for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
         {
@@ -569,9 +646,14 @@ namespace Desert::Editor::Tools
             }
             const std::vector<std::string>& names = layers.GetValue();
 
+            // The trace's own split (FO-3b): the scene raycast against the layer-weight sample at the hit.
+            using Clock           = std::chrono::steady_clock;
+            double     raycastMs  = 0.0;
+            double     hitLayerMs = 0.0;
+            const auto msSince    = []( Clock::time_point at )
+            { return std::chrono::duration<double, std::milli>( Clock::now() - at ).count(); };
+
             FoliageBrushWorld world;
-            // UE FFoliagePaintingGeometryFilter: a surface the brush may not paint on is traced THROUGH, so a
-            // landscape-only brush reaches the ground under a mesh instead of losing the spot.
             world.Trace = [&]( const glm::vec3& start, const glm::vec3& end,
                                const FoliageSurfaceFilter& filter ) -> std::optional<FoliageTraceHit>
             {
@@ -579,7 +661,7 @@ namespace Desert::Editor::Tools
                 // a landscape-only brush reaches the ground under a mesh instead of losing the spot.
                 const auto accept = [&]( const Common::UUID& id )
                 {
-                    const bool landscape = TileOf( scene, id ).has_value();
+                    const bool landscape = tiles.OfEntity( id ) != nullptr;
                     return filter.Allows( landscape ? FoliageSurface::Landscape : FoliageSurface::StaticMesh );
                 };
                 const glm::vec3 d   = end - start;
@@ -587,12 +669,16 @@ namespace Desert::Editor::Tools
                 if ( len <= 0.0f )
                     return std::nullopt;
                 ::Desert::Core::RaycastHit hit;
-                if ( !scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept ) || hit.Distance > len )
+                const auto                 rayAt = Clock::now();
+                const bool found = scene.Raycast( Common::Math::Ray( start, d / len ), hit, accept );
+                raycastMs += msSince( rayAt );
+                if ( !found || hit.Distance > len )
                     return std::nullopt;
+                const auto      layerAt = Clock::now();
                 FoliageTraceHit out;
                 out.Point  = hit.Point;
                 out.Normal = hit.Normal;
-                if ( const auto tile = TileOf( scene, hit.Entity ) )
+                if ( const auto* tile = tiles.OfEntity( hit.Entity ) )
                 {
                     out.Surface = FoliageSurface::Landscape;
                     if ( !names.empty() )
@@ -601,18 +687,27 @@ namespace Desert::Editor::Tools
                 }
                 else
                     out.Surface = FoliageSurface::StaticMesh;
+                hitLayerMs += msSince( layerAt );
                 return out;
             };
             world.LayerWeightAt = [&]( const glm::vec3& p ) -> std::optional<float>
             {
-                const auto tile = TileAt( scene, p.x, p.z );
+                const auto* tile = tiles.At( p.x, p.z );
                 if ( !tile )
                     return std::nullopt;
                 return MaxLayerWeight( *tile->Tile, tile->Frame, names, p.x, p.z );
             };
 
-            auto added = FoliageBrushAdd( data, dab, ism.InstanceTransforms, m_Stroke->Random(), world );
+            FoliageBrushStats stats;
+            const auto        dabAt = Clock::now();
+            auto added = FoliageBrushAdd( data, dab, ism.InstanceTransforms, m_Stroke->Random(), world, &stats );
             ism.InstanceTransforms.insert( ism.InstanceTransforms.end(), added.begin(), added.end() );
+            LOG_INFO( "[Foliage] dab '{}': {} placed ({} candidates, {} hits, {} passed; field now {}) in {:.1f} "
+                      "ms: existing-layer {:.1f}, generate {:.1f}, trace {:.1f} (scene raycast {:.1f}, hit layer "
+                      "weight {:.1f}), filters {:.1f}, place {:.1f}",
+                      type->GetDisplayName(), stats.Placed, stats.Candidates, stats.Hits, stats.Passed,
+                      ism.InstanceTransforms.size(), msSince( dabAt ), stats.ExistingLayerMs, stats.GenerateMs,
+                      stats.TraceMs, raycastMs, hitLayerMs, stats.FilterMs, stats.PlaceMs );
         }
     }
 
