@@ -59,7 +59,8 @@ namespace Desert::ECS
             uint32_t                          SamplesX = 0u;
             uint32_t                          SamplesZ = 0u;
             uint32_t                          NeighbourMask = 0u; // whose ring rows the copy carries
-            // The RGBA8 copy of the tile's weight layers (LandscapeWeightmap.hpp); null while it has none.
+            // The RGBA8 copy of the tile's weight layers, pages stacked along the height
+            // (LandscapeWeightmapAtlasTexels); null while it has none. WeightmapZ counts the stacked rows.
             // Updated IN PLACE per stroke: its address keys the tile's terrain material (TerrainTextureKey),
             // so a new image per stroke would be a new material per stroke.
             std::shared_ptr<Graphic::Image2D> Weightmap;
@@ -77,9 +78,6 @@ namespace Desert::ECS
         // Weight-layer problems (a layer the root does not name, a weightmap that could not be created or
         // written), said once per tile until its weights are edited again.
         std::unordered_set<entt::entity> m_WarnedWeights;
-        // Tiles carrying more layers than the surface draws (one RGBA8 weightmap, four channels until LS-13's
-        // Texture2DArray), said once per tile until its weights are edited again.
-        std::unordered_set<entt::entity> m_WarnedPages;
 
         // Material handles already reported as unresolvable, so the warning is said once and not once a frame.
         std::unordered_set<uint64_t> m_WarnedMaterials;

@@ -61,20 +61,21 @@ namespace Desert::ECS
             return Graphic::Image2D::Create( spec );
         }
 
-        // The tile's weight layers as one RGBA8 texel per sample (LandscapeWeightmapTexels): no neighbour
-        // ring — the surface samples it at the vertex's own sample, which every tile holds for its edges.
+        // The tile's weight layers as one RGBA8 texel per sample, its pages stacked along the height
+        // (LandscapeWeightmapAtlasTexels): no neighbour ring — the surface samples it at the vertex's own
+        // sample, which every tile holds for its edges.
         std::shared_ptr<Graphic::Image2D> CreateWeightmap( const Landscape::LandscapeTileData& tile, int32_t tileX,
                                                            int32_t tileZ, std::vector<unsigned char> texels )
         {
             Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "LandscapeWeights(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
-                 .Width      = tile.SamplesX(),
-                 .Height     = tile.SamplesZ(),
-                 .Format     = Core::Formats::ImageFormat::RGBA8F,
-                 .Mips       = 1,
-                 .Samples    = 1,
-                 .Data       = Core::Formats::EmptyPixelData{},
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                 .Tag     = "LandscapeWeights(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
+                 .Width   = tile.SamplesX(),
+                 .Height  = tile.SamplesZ() * Landscape::LandscapeWeightmapPageCount( tile.WeightLayers().size() ),
+                 .Format  = Core::Formats::ImageFormat::RGBA8F,
+                 .Mips    = 1,
+                 .Samples = 1,
+                 .Data    = Core::Formats::EmptyPixelData{},
+                 .Usage   = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::ImageProperties::Sample,
                  .MipLevels  = {},
             };
@@ -253,7 +254,6 @@ namespace Desert::ECS
             if ( d.WeightsDirty )
             {
                 m_WarnedWeights.erase( d.Entity );
-                m_WarnedPages.erase( d.Entity );
             }
             UpdateWeightmap( gpu, heights, d.Entity, tileComp, d.WeightsDirty );
 
@@ -278,25 +278,10 @@ namespace Desert::ECS
             {
                 const Landscape::LandscapeWeightChannels channels =
                      Landscape::ResolveLandscapeWeightChannels( heights, surface.Layers );
-                // The terrain shader reads ONE RGBA8 weightmap (page 0, the tile's first four layers); pages
-                // past it wait for the Texture2DArray surface (LS-13), and the layers on them are reported below.
-                const uint32_t drawn = std::min( channels.Count, Landscape::kLandscapeWeightmapChannels );
-                weights.Weightmap    = gpu.Weightmap.get();
-                weights.LayerCount   = drawn;
-                for ( uint32_t c = 0; c < drawn; ++c )
-                {
-                    weights.Colors[c]                                   = channels.Colors[c];
-                    weights.AlphaBlend[static_cast<glm::length_t>( c )] = channels.AlphaBlend[c];
-                }
-                if ( channels.Count > drawn && m_WarnedPages.insert( d.Entity ).second )
-                {
-                    std::string names;
-                    for ( uint32_t c = drawn; c < channels.Count; ++c )
-                        names += ( names.empty() ? "" : ", " ) + heights.WeightLayers()[c].Name;
-                    LOG_WARN( "[Landscape] tile ({}, {}) carries {} weight layers; the terrain surface draws the "
-                              "first {} (one RGBA8 weightmap), so {} are kept on the tile but not drawn",
-                              tileComp.TileX, tileComp.TileZ, channels.Count, drawn, names );
-                }
+                weights.Weightmap  = gpu.Weightmap.get();
+                weights.LayerCount = channels.Count;
+                weights.Colors     = channels.Colors;
+                weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
                      m_WarnedWeights.insert( d.Entity ).second )
                 {
@@ -325,8 +310,6 @@ namespace Desert::ECS
             it = registry.valid( *it ) ? std::next( it ) : m_Warned.erase( it );
         for ( auto it = m_WarnedWeights.begin(); it != m_WarnedWeights.end(); )
             it = registry.valid( *it ) ? std::next( it ) : m_WarnedWeights.erase( it );
-        for ( auto it = m_WarnedPages.begin(); it != m_WarnedPages.end(); )
-            it = registry.valid( *it ) ? std::next( it ) : m_WarnedPages.erase( it );
     }
 
     void LandscapeECSSystem::UpdateWeightmap( TileGpu& gpu, const Landscape::LandscapeTileData& heights,
@@ -340,8 +323,9 @@ namespace Desert::ECS
         }
         // In place per stroke, like the heightmap: the weightmap's address keys the tile's material too.
         const auto weightmap = RefreshLandscapeTileImage(
-             gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(), heights.SamplesZ(), weightsDirty,
-             [&] { return Landscape::LandscapeWeightmapTexels( heights, 0u ); },
+             gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(),
+             heights.SamplesZ() * Landscape::LandscapeWeightmapPageCount( heights.WeightLayers().size() ),
+             weightsDirty, [&] { return Landscape::LandscapeWeightmapAtlasTexels( heights ); },
              [&]( std::vector<unsigned char> texels )
              { return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
         if ( weightmap.IsSuccess() )

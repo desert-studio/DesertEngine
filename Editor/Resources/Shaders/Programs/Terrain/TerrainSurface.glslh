@@ -42,9 +42,10 @@
         Uniform(3) sampler2D u_RockTex;
         Uniform(4) sampler2D u_SnowTex;
 
-        // The tile's painted weight layers, one per RGBA8 channel (LandscapeECSSystem's copy of the tile's
-        // LandscapeWeightLayer weights, one texel per sample, no neighbour ring). Read only when the row says
-        // the tile has layers (Params2.y > 0); otherwise the binding holds the backend's white fallback.
+        // The tile's painted weight layers, one per RGBA8 channel, four to a page and the pages stacked along
+        // the image's height (LandscapeECSSystem's copy of the tile's LandscapeWeightLayer weights, one texel
+        // per sample, no neighbour ring; Params2.z pages). Read only when the row says the tile has layers
+        // (Params2.y > 0); otherwise the binding holds the backend's white fallback.
         Uniform(10) sampler2D u_Weightmap;
 
         #include <Common/LandscapeWeights.glslh>
@@ -143,11 +144,16 @@
             // i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh interpolates them.
             if ( u_T.Params2.y > 0.5 )
             {
-                vec2 g  = ( v_WorldPos.xz - u_T.LandscapeFrame.xz ) / u_T.LandscapeFrame.w - u_T.LandscapeTile.xy;
-                vec2 uv = ( g + 0.5 ) / vec2( textureSize( u_Weightmap, 0 ) );
-                LandscapeWeightBlendResult painted =
-                     LandscapeWeightBlend( texture( u_Weightmap, uv ), u_T.LayerColors[0], u_T.LayerColors[1],
-                                           u_T.LayerColors[2], u_T.LayerColors[3], u_T.LayerAlphaBlend, albedo );
+                vec2  g     = ( v_WorldPos.xz - u_T.LandscapeFrame.xz ) / u_T.LandscapeFrame.w - u_T.LandscapeTile.xy;
+                vec2  size  = vec2( textureSize( u_Weightmap, 0 ) );
+                float pages = u_T.Params2.z;
+                vec4  w0    = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
+                vec4  w1    = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( g, 1.0, size, pages ) )
+                                          : vec4( 0.0 );
+                LandscapeWeightBlendResult painted = LandscapeWeightBlend(
+                     w0, w1, u_T.LayerColors[0], u_T.LayerColors[1], u_T.LayerColors[2], u_T.LayerColors[3],
+                     u_T.LayerColors[4], u_T.LayerColors[5], u_T.LayerColors[6], u_T.LayerColors[7],
+                     u_T.LayerAlphaBlend[0], u_T.LayerAlphaBlend[1], albedo );
                 albedo = painted.Albedo;
                 // Snow is the one glossy layer; paint that covers it must not keep its shine.
                 wSnow *= painted.RuleShare;

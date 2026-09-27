@@ -34,6 +34,25 @@ namespace Desert::World::Landscape
         return texels;
     }
 
+    /**
+     * @brief Every page of @p tile's weightmap in one RGBA8 image, stacked along its height: page p is rows
+     * [p * SamplesZ, (p + 1) * SamplesZ), each row-major as LandscapeWeightmapTexels lays it out. The terrain
+     * surface reads page p there (LandscapeWeightmapPageUV); UE binds each page as its own texture, and one
+     * image per tile keeps the tile at one weightmap binding and one in-place upload per stroke.
+     * SamplesX x (SamplesZ * LandscapeWeightmapPageCount) texels; empty for a tile with no layers.
+     */
+    inline std::vector<uint8_t> LandscapeWeightmapAtlasTexels( const LandscapeTileData& tile )
+    {
+        const uint32_t       pages = LandscapeWeightmapPageCount( tile.WeightLayers().size() );
+        std::vector<uint8_t> texels;
+        for ( uint32_t page = 0; page < pages; ++page )
+        {
+            const std::vector<uint8_t> one = LandscapeWeightmapTexels( tile, page );
+            texels.insert( texels.end(), one.begin(), one.end() );
+        }
+        return texels;
+    }
+
     /// What the surface shader needs per channel of a tile's weightmap (LandscapeWeights.glslh).
     struct LandscapeWeightChannels
     {
@@ -76,5 +95,17 @@ namespace Desert::World::Landscape
                 out.Unknown.push_back( layers[c].Name );
         }
         return out;
+    }
+    /// @p channels' AlphaBlend flags packed four to a vec4 the way the pages pack the weights (layer i in
+    /// element i / 4, component i % 4) — the shape LandscapeWeightBlend takes them in.
+    inline std::array<glm::vec4, 2> LandscapeAlphaBlendPages( const LandscapeWeightChannels& channels )
+    {
+        static_assert( kLandscapeMaxWeightLayers == 2u * kLandscapeWeightmapChannels,
+                       "two pages hold every layer a tile may carry" );
+        std::array<glm::vec4, 2> pages{};
+        for ( uint32_t c = 0; c < channels.Count; ++c )
+            pages[c / kLandscapeWeightmapChannels][static_cast<glm::length_t>( c % kLandscapeWeightmapChannels )] =
+                 channels.AlphaBlend[c];
+        return pages;
     }
 } // namespace Desert::World::Landscape
