@@ -244,6 +244,10 @@ namespace Desert::Player
                                   [&] { return serializer.DeserializeFromJson( sceneJson, scenePath ); } );
                  !loaded )
                 return Common::MakeError( loaded.GetError() );
+            // The first level's meshes and then their materials are read by the loader's workers while the
+            // boot waits, exactly as a scene switch does, so the game's first frame is whole (AL1-5b).
+            (void)Runtime::AwaitSceneMeshes( *m_Scene );
+            (void)Runtime::AwaitSceneMaterials( *m_Scene );
             if ( const auto init =
                       m_Boot.Run( "Initialising the loaded scene", [this] { return m_Scene->Init(); } );
                  !init )
@@ -408,6 +412,8 @@ namespace Desert::Player
         }
         // The level's meshes are read by the loader's workers while the switch waits (AL1-5).
         (void)Runtime::AwaitSceneMeshes( *m_Scene );
+        // Then their materials, which the meshes name (AL1-5b).
+        (void)Runtime::AwaitSceneMaterials( *m_Scene );
         if ( const auto init = m_Scene->Init(); !init )
         {
             LOG_ERROR( "[Runtime] Scene switch init failed: {}", init.GetError() );

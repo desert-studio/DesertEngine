@@ -9,7 +9,6 @@
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
-#include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/Constants.hpp>
@@ -38,39 +37,6 @@ namespace Desert::Editor::MeshDnD
         std::filesystem::path CookedSkinnedMeshPath( const std::string& sourcePath )
         {
             return CookPaths::CookedSkinned( sourcePath, ".skmesh" );
-        }
-
-        // Register every texture asset (`.detex` of kind Texture under the assets root) into the AssetManager +
-        // TextureService so a just-imported material's texture handles RESOLVE this session. MaterialFactory binds
-        // textures EAGERLY at material-register time (GetTextureService()->Get(handle)), so textures MUST be
-        // registered BEFORE the materials — otherwise the bind silently no-ops and the slot shows "missing" until
-        // the next launch (when AssetPreloader scans them). Idempotent (skips already-registered). Mirrors the
-        // preloader's texture loop. The mesh's cook already imported these assets via ExtractMaterials.
-        void RegisterCookedTextures( Assets::AssetManager& mgr )
-        {
-            namespace fs = std::filesystem;
-            std::error_code ec;
-            const fs::path  root = Common::Constants::Path::ASSETS_PATH;
-            if ( !fs::exists( root, ec ) )
-                return;
-
-            for ( const auto& f : fs::recursive_directory_iterator( root, ec ) )
-            {
-                if ( !f.is_regular_file( ec ) ||
-                     Common::Content::KindOfContentFile( f.path() ) != Common::Content::ContentKind::Texture )
-                    continue;
-                const std::string p = f.path().generic_string();
-                auto asset = mgr.FindByPath<Assets::TextureAsset>( p );
-                if ( !asset )
-                    asset = mgr.CreateAsset<Assets::TextureAsset>( Assets::AssetPriority::Low, p );
-                if ( !asset )
-                    continue;
-                if ( !asset->IsReadyForUse() )
-                    asset->Load(); // syncs metadata handle to the asset header's handle (material refs key by it)
-                // Was `if ( !GetTextureService()->Get( h ) ) Register( a )`: the guard UPLOADED the texture
-                // it was asking about, and the registration behind it uploaded it again. One shell write.
-                Runtime::EnsureTextureRegistered( mgr, static_cast<uint64_t>( asset->GetMetadata().Handle ) );
-            }
         }
 
         // The cook's own suffix for a rig, spelled here because Common::Constants::Extensions has no entry
@@ -121,13 +87,13 @@ namespace Desert::Editor::MeshDnD
                 const std::string matPath = f.path().generic_string();
                 auto asset = mgr.FindByPath<Assets::SurfaceMaterialAsset>( matPath );
                 if ( !asset )
-                    asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, matPath );
+                    asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, matPath,
+                                                                           /*loadAfterCreate=*/false );
                 if ( !asset )
                     continue;
-                // The load is inside EnsureMaterialRegistered now, for the reason the comment that stood
-                // here gave: Load reads MaterialId, which is the key the service maps the material under.
-                // The `!Get( h )` guard is gone with it — it BUILT the runtime material, textures and all,
-                // to decide whether the material needed registering.
+                // Registered UNREAD (AL1-5b): the shell's key is its header GUID, and the first Get starts
+                // the read on a worker. The `!Get( h )` guard that stood here BUILT the runtime material,
+                // textures and all, to decide whether the material needed registering.
                 Runtime::EnsureMaterialRegistered( asset );
             }
         }
@@ -171,9 +137,9 @@ namespace Desert::Editor::MeshDnD
         // only ever run once an empty mesh had been cached.)
         Runtime::EnsureMeshRegistered( created, mgr ); // read by the loader, drawn when it lands
 
-        // UE-style: a just-imported mesh's materials + textures are immediately available (no restart/Save).
-        // Order matters: textures FIRST (materials bind them eagerly at register time), then materials.
-        RegisterCookedTextures( mgr );
+        // UE-style: a just-imported mesh's materials are immediately available (no restart/Save). Its
+        // textures need no step here: TextureImporter noted each `.detex` in the content registry, and
+        // TextureService discovers and reads them on a worker when a material first binds them (AL1-5b).
         RegisterCookedMaterials( mgr, sourcePath );
         return created->GetMetadata().Handle;
     }
@@ -182,8 +148,8 @@ namespace Desert::Editor::MeshDnD
     {
         // A skinned mesh is REGISTERED here, not read: MeshService requests it and its rig (named by the
         // registry's Rig tag) from the loader, and the entity draws from the frame after they land (AL1-5).
-        // The cooked textures and materials beside it are registered only after a fresh import, which is
-        // the one case that has just written them.
+        // The cooked materials beside it are registered only after a fresh import, which is the one case that
+        // has just written them; their textures are discovered from the content registry on first bind.
         Assets::AssetHandle FinalizeSkinned( Assets::AssetManager& mgr, const std::shared_ptr<Assets::MeshAsset>& asset )
         {
             Runtime::EnsureMeshRegistered( asset, mgr );
@@ -228,7 +194,6 @@ namespace Desert::Editor::MeshDnD
                                                                       /*loadAfterCreate=*/false );
             if ( !created )
                 return { Common::UUID::Null(), false };
-            RegisterCookedTextures( mgr );
             RegisterCookedMaterials( mgr, sourcePath );
             return { FinalizeSkinned( mgr, created ), true };
         }
@@ -239,7 +204,6 @@ namespace Desert::Editor::MeshDnD
             return { Common::UUID::Null(), false };
 
         Runtime::EnsureMeshRegistered( created, mgr ); // read by the loader, drawn when it lands
-        RegisterCookedTextures( mgr );
         RegisterCookedMaterials( mgr, sourcePath );
         return { created->GetMetadata().Handle, false };
     }

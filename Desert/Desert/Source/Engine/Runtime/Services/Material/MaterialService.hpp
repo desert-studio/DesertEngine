@@ -9,6 +9,7 @@
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 #include <array>
+#include <span>
 #include <unordered_set>
 
 namespace Desert::Graphic
@@ -49,6 +50,14 @@ namespace Desert::Runtime
         /// The manager on-demand discovery creates `.demat` shells in (AL1-4): a handle nobody registered is
         /// found by its content-registry row on first use. Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+
+        /// THE SCENE-OPEN DOOR (AL1-5b, plan §2.4(b)), the material half of MeshService::AwaitResident:
+        /// every `.demat` in @p handles and every parent its instance chain names is requested, and this
+        /// thread blocks until the WORKERS have read them (AsyncAssetLoader::AwaitOne), so the scene's first
+        /// frame builds its materials from read shells and SyncLoadLedger counts no in-frame load. Builds
+        /// nothing: the cell a material is drawn in is the renderer's to name. Returns how many of the
+        /// materials (parents included) are read.
+        std::size_t AwaitResident( std::span<const Assets::AssetHandle> handles );
         // Lazy: register the asset SHELL + the external->internal map only; the runtime Material (which binds
         // its textures) is built on the first Get. Refuses a colliding identity on the same terms as
         // Register above.

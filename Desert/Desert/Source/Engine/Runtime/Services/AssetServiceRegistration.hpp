@@ -66,11 +66,10 @@ namespace Desert::Runtime
      * MAIN THREAD ONLY: every function here touches the runtime services.
      */
 
-    /// Register @p material with the MaterialService if it is not already there. Idempotent; parses the
-    /// shell first, because the service keys a material by the external id stored inside the file and an
-    /// unparsed shell reports a zero one. A refusal (another `.demat` already holds this MaterialId) is
-    /// logged with both filenames — the slot is about to fall back to the default material and this is
-    /// the only place that knows why.
+    /// Register @p material with the MaterialService if it is not already there. Idempotent; reads
+    /// nothing — a file-backed shell carries its external id from its header GUID. A refusal (another `.demat`
+    /// already holds this MaterialId) is logged with both filenames — the slot is about to fall back to the
+    /// default material and this is the only place that knows why.
     void EnsureMaterialRegistered( const Assets::Asset<Assets::MaterialAsset>& material );
 
     /// Register @p mesh with the MeshService as a LAZY SHELL if it is not already there. Idempotent.
@@ -86,6 +85,12 @@ namespace Desert::Runtime
     /// while the WORKERS read them, then built, so the first frame of the scene is complete and
     /// SyncLoadLedger counts no in-frame load. Returns how many distinct meshes are drawable.
     std::size_t AwaitSceneMeshes( const Core::Scene& scene );
+
+    /// THE SCENE OPEN WAITS FOR ITS MATERIALS (AL1-5b). Called after AwaitSceneMeshes: every `.demat` a mesh
+    /// component's slots name — or, for a component with no slots, its mesh's own materials — and each
+    /// instance's parent chain is read by the loader's WORKERS while this thread waits, so the scene's first
+    /// frame builds its materials without a read. Returns how many materials are read.
+    std::size_t AwaitSceneMaterials( const Core::Scene& scene );
 
     /// A mesh named only by its handle (a scene's MeshGuid): known to MeshService, or discoverable from its
     /// content-registry row. Creates the shell; reads nothing.
