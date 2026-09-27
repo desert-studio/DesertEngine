@@ -1595,7 +1595,7 @@ namespace Desert::Editor
             }
         }
 
-        // --- Foliage paint mode: type panel + LMB scatter/erase (FoliagePaintTool) ---
+        // --- Foliage mode: type panel + LMB for the chosen tool (FoliagePaintTool) ---
         if ( foliageMode )
         {
             m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos );
@@ -1610,7 +1610,7 @@ namespace Desert::Editor
                      { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
-                m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing );
+                m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing, ImGui::GetIO().KeyShift );
             }
         }
 

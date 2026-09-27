@@ -238,12 +238,12 @@ TEST( FoliageBrush, SlopeAndHeightRangesRefuseGroundOutsideThem )
     EXPECT_FALSE( FoliageBrushAdd( type, DabAt( { 0.0f, 500.0f, 0.0f }, 400.0f ), {}, rng, high ).empty() );
 }
 
-TEST( FoliageBrush, EraseRemovesWhatTheSphereHolds )
+TEST( FoliageBrush, RemoveTakesWhatTheSphereHolds )
 {
     FoliageRandom          rng( 2u );
     std::vector<glm::mat4> field = FoliageBrushAdd( Grass(), DabAt( {}, 1000.0f ), {}, rng, kGround );
     const size_t           all   = field.size();
-    const size_t           gone  = FoliageBrushErase( field, {}, 400.0f );
+    const size_t           gone  = FoliageBrushRemove( field, {}, 400.0f );
     EXPECT_GT( gone, 0u );
     EXPECT_EQ( field.size(), all - gone );
     for ( const auto& m : field )
@@ -257,7 +257,7 @@ TEST( FoliageBrush, AStrokeIsOneUndoStepHoldingThePressState )
     std::vector<glm::mat4> rockField;
     const auto             original = grassField;
 
-    FoliageStroke stroke( 77u, false );
+    FoliageStroke stroke( 77u );
     for ( float x = 0.0f; x < 2000.0f; x += 400.0f ) // five dabs, one stroke
     {
         stroke.Touch( grass, grassField );
@@ -276,7 +276,7 @@ TEST( FoliageBrush, AStrokeIsOneUndoStepHoldingThePressState )
 
     // Replaying the stroke from its seed places the same instances.
     std::vector<glm::mat4> replay = original;
-    FoliageStroke          again( 77u, false );
+    FoliageStroke          again( 77u );
     for ( float x = 0.0f; x < 2000.0f; x += 400.0f )
     {
         const auto added =
@@ -376,7 +376,7 @@ TEST( FoliageBrush, ALandscapeStrokeFromOneSeedPlacesTheRecordedInstancesByteFor
     type.LandscapeLayers.push_back( { "0123456789abcdef0123456789abcdef", "Landscape/Layers/Grass.delayerinfo" } );
 
     std::vector<glm::mat4> field;
-    FoliageStroke          stroke( 0xF03Bu, false );
+    FoliageStroke          stroke( 0xF03Bu );
     FoliageBrushStats      stats;
     const auto             at = std::chrono::steady_clock::now();
     for ( float x = -600.0f; x <= 600.0f; x += 300.0f )

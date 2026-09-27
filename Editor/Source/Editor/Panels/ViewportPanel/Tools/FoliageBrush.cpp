@@ -236,37 +236,246 @@ namespace Desert::Editor::Tools
         return placed;
     }
 
-    void FoliageStroke::Touch( const Common::UUID& entity, const std::vector<glm::mat4>& current )
+    void FoliageStroke::Touch( const Common::UUID& entity, const std::vector<glm::mat4>& current,
+                               const FoliageSelection& selected )
     {
         for ( const auto& field : m_Touched )
             if ( field.Entity == entity )
                 return;
-        m_Touched.push_back( { entity, current, {} } );
+        m_Touched.push_back( { entity, current, {}, selected, {} } );
     }
 
-    std::vector<FoliageStrokeField> FoliageStroke::Finish(
-         const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current ) const
+    std::vector<glm::vec3>& FoliageStroke::Readjusted( const Common::UUID& entity )
+    {
+        for ( auto& [id, origins] : m_Readjusted )
+            if ( id == entity )
+                return origins;
+        return m_Readjusted.emplace_back( entity, std::vector<glm::vec3>{} ).second;
+    }
+
+    std::vector<FoliageStrokeField>
+    FoliageStroke::Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
+                           const std::function<FoliageSelection( const Common::UUID& )>&            selected ) const
     {
         std::vector<FoliageStrokeField> changed;
         for ( const auto& field : m_Touched )
         {
             const auto* now = current( field.Entity );
-            if ( now && *now != field.Before )
-                changed.push_back( { field.Entity, field.Before, *now } );
+            if ( !now )
+                continue;
+            FoliageSelection nowSelected = selected ? selected( field.Entity ) : field.SelectedBefore;
+            if ( *now != field.Before || nowSelected != field.SelectedBefore )
+                changed.push_back(
+                     { field.Entity, field.Before, *now, field.SelectedBefore, std::move( nowSelected ) } );
         }
         return changed;
     }
 
-    size_t FoliageBrushErase( std::vector<glm::mat4>& instances, const glm::vec3& center, float radius )
+    namespace
     {
-        const float  r2     = radius * radius;
-        const size_t before = instances.size();
-        std::erase_if( instances,
-                       [&]( const glm::mat4& m )
-                       {
-                           const glm::vec3 d = glm::vec3( m[3] ) - center;
-                           return glm::dot( d, d ) <= r2;
-                       } );
-        return before - instances.size();
+        // Drops the instances @p gone marks and renumbers @p selected to the survivors (UE removes by index
+        // and rebuilds SelectedIndices the same way).
+        size_t RemoveMarked( std::vector<glm::mat4>& instances, const std::vector<bool>& gone,
+                             FoliageSelection* selected )
+        {
+            std::vector<uint32_t> newIndex( instances.size(), UINT32_MAX );
+            size_t                kept = 0;
+            for ( size_t i = 0; i < instances.size(); ++i )
+            {
+                if ( gone[i] )
+                    continue;
+                newIndex[i]       = static_cast<uint32_t>( kept );
+                instances[kept++] = instances[i];
+            }
+            const size_t removed = instances.size() - kept;
+            instances.resize( kept );
+            if ( selected )
+            {
+                FoliageSelection renumbered;
+                for ( const uint32_t i : *selected )
+                    if ( i < newIndex.size() && newIndex[i] != UINT32_MAX )
+                        renumbered.push_back( newIndex[i] );
+                *selected = std::move( renumbered );
+            }
+            return removed;
+        }
+
+        bool InSphere( const glm::mat4& m, const glm::vec3& center, float r2 )
+        {
+            const glm::vec3 d = glm::vec3( m[3] ) - center;
+            return glm::dot( d, d ) <= r2;
+        }
+    } // namespace
+
+    size_t FoliageBrushRemove( std::vector<glm::mat4>& instances, const glm::vec3& center, float radius,
+                               FoliageSelection* selected )
+    {
+        const float       r2 = radius * radius;
+        std::vector<bool> gone( instances.size(), false );
+        for ( size_t i = 0; i < instances.size(); ++i )
+            gone[i] = InSphere( instances[i], center, r2 );
+        return RemoveMarked( instances, gone, selected );
+    }
+
+    std::optional<glm::mat4> FoliageBrushSingle( const Assets::Serialization::FoliageTypeData& type,
+                                                 const FoliageBrushDab& dab, FoliageRandom& rng,
+                                                 const FoliageBrushWorld& world )
+    {
+        if ( !world.Trace )
+            return std::nullopt;
+        // UE: "simply generate a start/end around the brush location so the line check will hit the brush
+        // location" - BrushLocation +- BrushNormal.
+        const glm::vec3 n   = glm::normalize( dab.Normal );
+        const auto      hit = world.Trace( dab.Center + n, dab.Center - n, dab.Filter );
+        if ( !hit || !dab.Filter.Allows( hit->Surface ) )
+            return std::nullopt;
+        if ( !PassesTypeRules( type, *hit, !type.LandscapeLayers.empty(), rng ) )
+            return std::nullopt;
+        return PlaceInstance( type, { hit->Point, glm::normalize( hit->Normal ) }, rng );
+    }
+
+    size_t FoliageSelectInSphere( std::span<const glm::mat4> instances, const glm::vec3& center, float radius,
+                                  bool select, FoliageSelection& selected )
+    {
+        const float       r2 = radius * radius;
+        std::vector<bool> in( instances.size(), false );
+        for ( const uint32_t i : selected )
+            if ( i < in.size() )
+                in[i] = true;
+        size_t changed = 0;
+        for ( size_t i = 0; i < instances.size(); ++i )
+            if ( in[i] != select && InSphere( instances[i], center, r2 ) )
+            {
+                in[i] = select;
+                ++changed;
+            }
+        selected.clear();
+        for ( size_t i = 0; i < in.size(); ++i )
+            if ( in[i] )
+                selected.push_back( static_cast<uint32_t>( i ) );
+        return changed;
+    }
+
+    std::optional<uint32_t> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
+                                                 const glm::vec3& rayDirection, float pickRadius )
+    {
+        const glm::vec3         dir = glm::normalize( rayDirection );
+        std::optional<uint32_t> best;
+        float                   bestT = 0.0f;
+        for ( size_t i = 0; i < instances.size(); ++i )
+        {
+            const glm::mat4& m      = instances[i];
+            const float      radius = pickRadius * glm::length( glm::vec3( m[1] ) );
+            const glm::vec3  oc     = glm::vec3( m[3] ) - rayOrigin;
+            const float      along  = glm::dot( oc, dir );
+            const float      d2     = glm::dot( oc, oc ) - along * along;
+            if ( d2 > radius * radius )
+                continue;
+            const float t = along - std::sqrt( std::max( radius * radius - d2, 0.0f ) );
+            if ( along < 0.0f || ( best && t >= bestT ) )
+                continue;
+            best  = static_cast<uint32_t>( i );
+            bestT = t;
+        }
+        return best;
+    }
+
+    size_t FoliageRemoveSelected( std::vector<glm::mat4>& instances, FoliageSelection& selected )
+    {
+        std::vector<bool> gone( instances.size(), false );
+        for ( const uint32_t i : selected )
+            if ( i < gone.size() )
+                gone[i] = true;
+        const size_t removed = RemoveMarked( instances, gone, nullptr );
+        selected.clear();
+        return removed;
+    }
+
+    void FoliageMoveSelected( std::vector<glm::mat4>& instances, const FoliageSelection& selected,
+                              const glm::vec3& offset )
+    {
+        for ( const uint32_t i : selected )
+            if ( i < instances.size() )
+                instances[i][3] += glm::vec4( offset, 0.0f );
+    }
+
+    FoliageReapplyResult FoliageBrushReapply( const Assets::Serialization::FoliageTypeData& type,
+                                              const FoliageReapplySettings& settings, const FoliageBrushDab& dab,
+                                              std::vector<glm::mat4>& instances, std::vector<glm::vec3>& readjusted,
+                                              FoliageRandom& rng, const FoliageBrushWorld& world,
+                                              FoliageSelection* selected )
+    {
+        FoliageReapplyResult result;
+        const float          r2      = dab.Radius * dab.Radius;
+        const bool           layered = !type.LandscapeLayers.empty();
+        std::vector<bool>    gone( instances.size(), false );
+        for ( size_t i = 0; i < instances.size(); ++i )
+        {
+            glm::mat4&      m      = instances[i];
+            const glm::vec3 origin = glm::vec3( m[3] );
+            if ( !InSphere( m, dab.Center, r2 ) ||
+                 std::find( readjusted.begin(), readjusted.end(), origin ) != readjusted.end() )
+                continue;
+
+            // The instance as PlaceInstance built it: origin = ground + align * (0, offset, 0), rotation =
+            // align * yaw (* pitch), uniform scale.
+            const float     scale = glm::length( glm::vec3( m[1] ) );
+            const glm::mat3 rot   = glm::mat3( m ) / std::max( scale, kSmall );
+            const glm::vec3 up    = glm::normalize( rot[1] );
+
+            // UE traces along the mesh's Z axis; the offset is not stored per instance here, so the segment
+            // spans the brush radius both ways instead of UE's 16 cm around the un-offset location.
+            if ( !world.Trace )
+                return result;
+            const auto hit = world.Trace( origin + dab.Radius * up, origin - dab.Radius * up, dab.Filter );
+            if ( !hit || !dab.Filter.Allows( hit->Surface ) )
+            {
+                ++result.Skipped;
+                continue;
+            }
+            const glm::vec3 ground = hit->Point;
+            const glm::vec3 normal = glm::normalize( hit->Normal );
+
+            if ( ( settings.GroundSlope &&
+                   !IsWithinSlopeAngle( normal.y, type.GroundSlopeAngle.Min, type.GroundSlopeAngle.Max ) ) ||
+                 ( settings.LandscapeLayers && layered && hit->LayerWeight &&
+                   IsFilteredByWeight( *hit->LayerWeight, type.MinimumLayerWeight, rng ) ) ||
+                 ( settings.Height && ( ground.y < type.Height.Min || ground.y > type.Height.Max ) ) )
+            {
+                gone[i] = true;
+                ++result.Removed;
+                continue;
+            }
+
+            // What is kept: the up axis (align), the yaw about it, the offset above the ground, the scale.
+            const glm::quat keptAlign = AlignUpToNormal( up );
+            const glm::mat3 local     = glm::mat3_cast( glm::inverse( keptAlign ) ) * rot;
+            const float     keptYaw   = std::atan2( -local[0].z, local[0].x );
+            const float     keptZ     = glm::dot( origin - ground, up );
+
+            const glm::quat align    = settings.AlignToNormal
+                                            ? ( type.AlignToNormal ? AlignUpToNormal( normal ) : glm::quat( 1, 0, 0, 0 ) )
+                                            : keptAlign;
+            const float     newScale = settings.Scale ? glm::mix( type.ScaleX.Min, type.ScaleX.Max, rng.Next01() )
+                                                      : scale;
+            const float     zOffset  = settings.ZOffset ? glm::mix( type.ZOffset.Min, type.ZOffset.Max, rng.Next01() )
+                                                        : keptZ;
+            const float     yaw      = settings.RandomYaw ? ( type.RandomYaw ? rng.Next01() * kTwoPi : 0.0f ) : keptYaw;
+
+            glm::mat4 out = glm::translate( glm::mat4( 1.0f ), ground ) * glm::mat4_cast( align );
+            out           = glm::translate( out, glm::vec3( 0.0f, zOffset, 0.0f ) );
+            out           = glm::rotate( out, yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+            if ( settings.RandomPitch && type.RandomPitchAngle > 0.0f )
+            {
+                const float pitch   = glm::radians( type.RandomPitchAngle ) * rng.Next01();
+                const float heading = rng.Next01() * kTwoPi;
+                out = glm::rotate( out, pitch, glm::vec3( std::cos( heading ), 0.0f, std::sin( heading ) ) );
+            }
+            m = glm::scale( out, glm::vec3( newScale ) );
+            readjusted.push_back( glm::vec3( m[3] ) );
+            ++result.Updated;
+        }
+        RemoveMarked( instances, gone, selected );
+        return result;
     }
 } // namespace Desert::Editor::Tools

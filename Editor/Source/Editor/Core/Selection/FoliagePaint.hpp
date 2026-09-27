@@ -1,18 +1,51 @@
 #pragma once
 
 #include <Common/Core/UUID.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
 
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Editor::Core
 {
+    // UE FFoliageUISettings' tool switches, one at a time: what LMB does in the viewport.
+    enum class FoliageTool : uint8_t
+    {
+        Paint,   ///< top up the checked types to their density under the brush
+        Single,  ///< one instance per click (UE "Single")
+        Select,  ///< click picks one instance; Shift adds (UE "Select")
+        Lasso,   ///< the brush selects what it passes over; Shift deselects (UE "Lasso")
+        Remove,  ///< every instance of a checked type under the brush (UE "Remove")
+        Reapply, ///< re-roll / re-check existing instances from the type's current numbers (UE "Reapply")
+    };
+
+    inline const char* FoliageToolName( FoliageTool tool )
+    {
+        switch ( tool )
+        {
+            case FoliageTool::Paint:
+                return "Paint";
+            case FoliageTool::Single:
+                return "Single";
+            case FoliageTool::Select:
+                return "Select";
+            case FoliageTool::Lasso:
+                return "Lasso";
+            case FoliageTool::Remove:
+                return "Remove";
+            case FoliageTool::Reapply:
+                return "Reapply";
+        }
+        return "?";
+    }
+
     // Shared state for the UE5-style Foliage paint tool (active in ViewportMode::Foliage). Multiple foliage
     // TYPES can be CHECKED for painting at once (all checked types scatter under one dab); one type is the
     // "editing" selection whose detailed settings are shown. Per-type scatter params live on
-    // ECS::FoliageComponent. Brush state (radius, paint density, erase, surface filters, the stroke seed) is here.
+    // ECS::FoliageComponent. Brush state (radius, paint density, the tool, surface filters, the stroke seed) is here.
     class FoliagePaint final
     {
     public:
@@ -46,7 +79,25 @@ namespace Desert::Editor::Core
         // --- brush --------------------------------------------------------------------------------------
         static float& BrushRadius() { return s_Radius; }
         static float& PaintDensity() { return s_PaintDensity; } // 0..1 multiplier on each type's Density
-        static bool&  Erase() { return s_Erase; }
+        static FoliageTool& Tool() { return s_Tool; }
+        static Tools::FoliageReapplySettings& Reapply() { return s_Reapply; }
+        // The panel's "Move by" offset for the selected instances, cm.
+        static glm::vec3& MoveOffset() { return s_MoveOffset; }
+
+        // --- selected instances, per foliage entity (UE FFoliageInfo::SelectedIndices) -----------------
+        static std::unordered_map<Common::UUID, Tools::FoliageSelection>& Selection() { return s_Selection; }
+        static Tools::FoliageSelection SelectionOf( const Common::UUID& u )
+        {
+            const auto it = s_Selection.find( u );
+            return it == s_Selection.end() ? Tools::FoliageSelection{} : it->second;
+        }
+        static size_t SelectedCount()
+        {
+            size_t n = 0;
+            for ( const auto& [id, selected] : s_Selection )
+                n += selected.size();
+            return n;
+        }
         // UE FFoliageUISettings bFilterLandscape / bFilterStaticMesh: the surfaces the brush may place on.
         static bool& FilterLandscape()
         {
@@ -73,7 +124,10 @@ namespace Desert::Editor::Core
         static inline std::optional<Common::UUID> s_Editing;
         static inline float                       s_Radius       = 300.0f; // world units (cm) = 3 m
         static inline float                       s_PaintDensity = 1.0f;
-        static inline bool                        s_Erase        = false;
+        static inline FoliageTool                 s_Tool         = FoliageTool::Paint;
+        static inline Tools::FoliageReapplySettings s_Reapply;
+        static inline glm::vec3                     s_MoveOffset = glm::vec3( 0.0f, 100.0f, 0.0f );
+        static inline std::unordered_map<Common::UUID, Tools::FoliageSelection> s_Selection;
         static inline bool                        s_FilterLandscape  = true;
         static inline bool                        s_FilterStaticMesh = true;
         static inline uint64_t                    s_StrokeCounter    = 0u;

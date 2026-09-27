@@ -4,9 +4,11 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Common/Core/Math/Ray.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
+#include <Editor/Core/Selection/FoliagePaint.hpp>
 
 #include <glm/glm.hpp>
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -29,8 +31,17 @@ namespace Desert::Editor::Tools
         // One tick of the brush while @p pressing: every CHECKED type is topped up to its density under the
         // cursor (FoliageBrush, UE AddInstancesForBrush) or erased. A stroke runs from press to release, draws
         // from one seeded stream and is ONE undo step; releasing (pressing = false) ends it.
+        // The tool is Core::FoliagePaint::Tool() at press: Paint tops up, Single places one per click, Select
+        // picks the instance the ray enters first, Lasso selects under the brush, Remove clears the brush,
+        // Reapply rebuilds the instances under it. @p shift: Select adds, Lasso deselects.
         void Update( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
-                     const Common::Math::Ray& ray, bool pressing );
+                     const Common::Math::Ray& ray, bool pressing, bool shift = false );
+
+        // UE RemoveSelectedInstances / TransformSelectedInstances / deselect, each ONE undo step. An error when
+        // nothing is selected.
+        static Common::BoolResultStr RemoveSelected( ::Desert::Core::Scene& scene );
+        static Common::BoolResultStr MoveSelected( ::Desert::Core::Scene& scene, const glm::vec3& offset );
+        static Common::BoolResultStr SelectNone( ::Desert::Core::Scene& scene );
 
         [[nodiscard]] bool IsStroking() const
         {
@@ -63,8 +74,18 @@ namespace Desert::Editor::Tools
 
     private:
         void EndStroke( ::Desert::Core::Scene& scene );
+        void PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift );
+        static Common::BoolResultStr
+        EditSelection( ::Desert::Core::Scene& scene, const std::string& label,
+                       const std::function<void( std::vector<glm::mat4>&, FoliageSelection& )>& edit );
+
+        // The Select tool's pick sphere per unit of instance scale, cm (UE picks by hit proxy; an instance here
+        // is a bare transform, so a sphere of this radius stands for its mesh).
+        static constexpr float kPickRadius = 50.0f;
 
         std::optional<FoliageStroke>     m_Stroke;
+        Core::FoliageTool                m_StrokeTool = Core::FoliageTool::Paint; ///< the tool at press
+        bool                             m_Applied    = false; ///< Single / Select: this click already acted
         std::unordered_set<Common::UUID> m_Refused; ///< types already told why they cannot paint, this stroke
 
         // A dropped mesh finds the `.defoliage` already holding it with default numbers, or becomes a new one

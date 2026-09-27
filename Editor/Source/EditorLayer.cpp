@@ -183,6 +183,7 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/FoliagePaint.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
@@ -5435,6 +5436,38 @@ namespace Desert::Editor
         }
         commands.push_back( { "Foliage", "Stroke at viewport centre",
                               [] { return ViewportPanel::StrokeFoliageInActiveViewport(); } } );
+        // FOLIAGE (FO-4): the tool the stroke above uses, and what UE does to the selected instances.
+        // NOLINTBEGIN(bugprone-exception-escape)
+        for ( const auto tool : { Core::FoliageTool::Paint, Core::FoliageTool::Single, Core::FoliageTool::Select,
+                                  Core::FoliageTool::Lasso, Core::FoliageTool::Remove, Core::FoliageTool::Reapply } )
+            commands.push_back( { "Foliage", std::string( "Tool: " ) + Core::FoliageToolName( tool ),
+                                  [tool]() -> Common::BoolResultStr
+                                  {
+                                      Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                                      Core::FoliagePaint::Tool() = tool;
+                                      return BOOLSUCCESS;
+                                  } } );
+        commands.push_back( { "Foliage", "Delete selected instances", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::RemoveSelected( *m_MainScene );
+                              } } );
+        commands.push_back( { "Foliage", "Move selected instances by the panel offset",
+                              [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::MoveSelected( *m_MainScene,
+                                                                                Core::FoliagePaint::MoveOffset() );
+                              } } );
+        commands.push_back( { "Foliage", "Select no instances", [this]() -> Common::BoolResultStr
+                              {
+                                  if ( !m_MainScene )
+                                      return PaletteCommandOutcome( false, "no scene" );
+                                  return Tools::FoliagePaintTool::SelectNone( *m_MainScene );
+                              } } );
+        // NOLINTEND(bugprone-exception-escape)
         for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
                                                                   Common::Constants::Path::ASSETS_PATH ) )
         {

@@ -29,6 +29,8 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <functional>
+#include <optional>
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
@@ -40,7 +42,7 @@ namespace Desert::Editor::Tools
 
     namespace
     {
-        // A toggle-style button that looks pressed when `active` (for the Paint/Erase tool tabs).
+        // A toggle-style button that looks pressed when `active` (for the tool tabs).
         bool ToolTabButton( const char* label, bool active, float width )
         {
             if ( active )
@@ -539,8 +541,8 @@ namespace Desert::Editor::Tools
             std::vector<LandscapeTiles>                  m_Landscapes;
         };
 
-        /// One press of the foliage brush, undone and redone as a whole (UE: one FScopedTransaction per
-        /// stroke, "Foliage Paint" / "Foliage Erase").
+        /// One press of a foliage tool, undone and redone as a whole - instances and selection (UE: one
+        /// FScopedTransaction per stroke, "Foliage Paint" / "Foliage Remove" / ...).
         class FoliageStrokeCommand final : public ICommand
         {
         public:
@@ -578,6 +580,7 @@ namespace Desert::Editor::Tools
                     }
                     ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms =
                          before ? field.Before : field.After;
+                    Core::FoliagePaint::Selection()[field.Entity] = before ? field.SelectedBefore : field.SelectedAfter;
                 }
                 return all;
             }
@@ -589,7 +592,7 @@ namespace Desert::Editor::Tools
     } // namespace
 
     void FoliagePaintTool::Update( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
-                                   const Common::Math::Ray& ray, bool pressing )
+                                   const Common::Math::Ray& ray, bool pressing, bool shift )
     {
         if ( !pressing || !Core::FoliagePaint::HasActive() || !assetManager )
         {
@@ -598,10 +601,22 @@ namespace Desert::Editor::Tools
         }
         if ( !m_Stroke )
         {
-            m_Stroke.emplace( Core::FoliagePaint::NextStrokeSeed(), Core::FoliagePaint::Erase() );
+            m_Stroke.emplace( Core::FoliagePaint::NextStrokeSeed() );
+            m_StrokeTool = Core::FoliagePaint::Tool();
+            m_Applied    = false;
             m_Refused.clear();
         }
+        // UE: Single places and Select picks once per click, not once per tick of a held button.
+        if ( m_Applied )
+            return;
         auto& manager = const_cast<Assets::AssetManager&>( *assetManager );
+
+        if ( m_StrokeTool == Core::FoliageTool::Select )
+        {
+            PickAlongRay( scene, ray, shift );
+            m_Applied = true;
+            return;
+        }
 
         ::Desert::Core::RaycastHit centre;
         if ( !scene.Raycast( ray, centre ) )
@@ -622,13 +637,19 @@ namespace Desert::Editor::Tools
             if ( !ref || !ref->get().HasComponent<ECS::FoliageComponent>() ||
                  !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
-            auto& e   = ref->get();
-            auto& ism = e.GetComponent<ECS::InstancedStaticMeshComponent>();
-            m_Stroke->Touch( uuid, ism.InstanceTransforms );
+            auto& e        = ref->get();
+            auto& ism      = e.GetComponent<ECS::InstancedStaticMeshComponent>();
+            auto& selected = Core::FoliagePaint::Selection()[uuid];
+            m_Stroke->Touch( uuid, ism.InstanceTransforms, selected );
 
-            if ( m_Stroke->Erase() )
+            if ( m_StrokeTool == Core::FoliageTool::Remove )
             {
-                FoliageBrushErase( ism.InstanceTransforms, dab.Center, dab.Radius );
+                FoliageBrushRemove( ism.InstanceTransforms, dab.Center, dab.Radius, &selected );
+                continue;
+            }
+            if ( m_StrokeTool == Core::FoliageTool::Lasso )
+            {
+                FoliageSelectInSphere( ism.InstanceTransforms, dab.Center, dab.Radius, !shift, selected );
                 continue;
             }
 
@@ -698,6 +719,22 @@ namespace Desert::Editor::Tools
                 return MaxLayerWeight( *tile->Tile, tile->Frame, names, p.x, p.z );
             };
 
+            if ( m_StrokeTool == Core::FoliageTool::Single )
+            {
+                if ( const auto placed = FoliageBrushSingle( data, dab, m_Stroke->Random(), world ) )
+                    ism.InstanceTransforms.push_back( *placed );
+                continue;
+            }
+            if ( m_StrokeTool == Core::FoliageTool::Reapply )
+            {
+                const auto r = FoliageBrushReapply( data, Core::FoliagePaint::Reapply(), dab, ism.InstanceTransforms,
+                                                    m_Stroke->Readjusted( uuid ), m_Stroke->Random(), world,
+                                                    &selected );
+                LOG_INFO( "[Foliage] reapply '{}': {} rebuilt, {} removed, {} without ground; field now {}",
+                          type->GetDisplayName(), r.Updated, r.Removed, r.Skipped, ism.InstanceTransforms.size() );
+                continue;
+            }
+
             FoliageBrushStats stats;
             const auto        dabAt = Clock::now();
             auto added = FoliageBrushAdd( data, dab, ism.InstanceTransforms, m_Stroke->Random(), world, &stats );
@@ -722,11 +759,98 @@ namespace Desert::Editor::Tools
                  if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                      return nullptr;
                  return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-             } );
+             },
+             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
         if ( !fields.empty() )
             CommandHistory::Get().PushCommand( std::make_unique<FoliageStrokeCommand>(
-                 scene, std::move( fields ), m_Stroke->Erase() ? "Foliage Erase" : "Foliage Paint" ) );
+                 scene, std::move( fields ), std::string( "Foliage " ) + Core::FoliageToolName( m_StrokeTool ) ) );
         m_Stroke.reset();
+    }
+
+    void FoliagePaintTool::PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift )
+    {
+        // UE SelectInstanceAtLocation over every checked type: the instance the ray enters first wins; a plain
+        // click replaces the selection of the checked types, Shift adds to it.
+        std::optional<std::pair<Common::UUID, uint32_t>> best;
+        float                                            bestDistance = std::numeric_limits<float>::max();
+        for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
+        {
+            auto ref = scene.FindEntityByID( uuid );
+            if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                continue;
+            const auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            m_Stroke->Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
+            if ( !shift )
+                Core::FoliagePaint::Selection()[uuid].clear();
+            const auto picked = FoliagePickInstance( instances, ray.Origin, ray.Direction, kPickRadius );
+            if ( !picked )
+                continue;
+            const float distance = glm::length( glm::vec3( instances[*picked][3] ) - ray.Origin );
+            if ( distance < bestDistance )
+            {
+                best         = std::make_pair( uuid, *picked );
+                bestDistance = distance;
+            }
+        }
+        if ( !best )
+            return;
+        auto& selected = Core::FoliagePaint::Selection()[best->first];
+        if ( std::find( selected.begin(), selected.end(), best->second ) == selected.end() )
+        {
+            selected.push_back( best->second );
+            std::sort( selected.begin(), selected.end() );
+        }
+    }
+
+    Common::BoolResultStr FoliagePaintTool::EditSelection(
+         ::Desert::Core::Scene& scene, const std::string& label,
+         const std::function<void( std::vector<glm::mat4>&, FoliageSelection& )>& edit )
+    {
+        if ( Core::FoliagePaint::SelectedCount() == 0 )
+            return Common::MakeError( "foliage " + label + ": no instance is selected" );
+        FoliageStroke stroke( 0u );
+        for ( auto& [uuid, selected] : Core::FoliagePaint::Selection() )
+        {
+            auto ref = scene.FindEntityByID( uuid );
+            if ( selected.empty() || !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                continue;
+            auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            stroke.Touch( uuid, instances, selected );
+            edit( instances, selected );
+        }
+        auto fields = stroke.Finish(
+             [&]( const Common::UUID& uuid ) -> const std::vector<glm::mat4>*
+             {
+                 const auto ref = scene.FindEntityByID( uuid );
+                 if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
+                     return nullptr;
+                 return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+             },
+             []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); } );
+        if ( !fields.empty() )
+            CommandHistory::Get().PushCommand(
+                 std::make_unique<FoliageStrokeCommand>( scene, std::move( fields ), "Foliage " + label ) );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr FoliagePaintTool::RemoveSelected( ::Desert::Core::Scene& scene )
+    {
+        return EditSelection( scene, "Remove Selected",
+                              []( std::vector<glm::mat4>& instances, FoliageSelection& selected )
+                              { FoliageRemoveSelected( instances, selected ); } );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::MoveSelected( ::Desert::Core::Scene& scene, const glm::vec3& offset )
+    {
+        return EditSelection( scene, "Move Selected",
+                              [&]( std::vector<glm::mat4>& instances, FoliageSelection& selected )
+                              { FoliageMoveSelected( instances, selected, offset ); } );
+    }
+
+    Common::BoolResultStr FoliagePaintTool::SelectNone( ::Desert::Core::Scene& scene )
+    {
+        return EditSelection( scene, "Select None",
+                              []( std::vector<glm::mat4>&, FoliageSelection& selected ) { selected.clear(); } );
     }
 
     void FoliagePaintTool::DrawPanel( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
@@ -743,14 +867,73 @@ namespace Desert::Editor::Tools
             return;
         }
 
-        // ----- Tool: Paint / Erase --------------------------------------------------------------------
-        bool&       erase = Core::FoliagePaint::Erase();
-        const float halfW = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
-        if ( ToolTabButton( ICON_MDI_BRUSH " Paint", !erase, halfW ) )
-            erase = false;
-        ImGui::SameLine();
-        if ( ToolTabButton( ICON_MDI_ERASER " Erase", erase, halfW ) )
-            erase = true;
+        // ----- Tool (UE FoliageEdMode's tool bar), three to a row ---------------------------------------
+        struct ToolTab
+        {
+            Core::FoliageTool Tool;
+            const char*       Label;
+        };
+        static constexpr ToolTab kTabs[] = {
+             { Core::FoliageTool::Paint, ICON_MDI_BRUSH " Paint" },
+             { Core::FoliageTool::Single, ICON_MDI_SPROUT " Single" },
+             { Core::FoliageTool::Reapply, ICON_MDI_REFRESH " Reapply" },
+             { Core::FoliageTool::Select, ICON_MDI_CURSOR_DEFAULT_CLICK " Select" },
+             { Core::FoliageTool::Lasso, ICON_MDI_LASSO " Lasso" },
+             { Core::FoliageTool::Remove, ICON_MDI_ERASER " Remove" },
+        };
+        Core::FoliageTool& tool  = Core::FoliagePaint::Tool();
+        const float        thirdW = ( ImGui::GetContentRegionAvail().x - 2.0f * ImGui::GetStyle().ItemSpacing.x ) / 3.0f;
+        for ( size_t i = 0; i < std::size( kTabs ); ++i )
+        {
+            if ( i % 3 != 0 )
+                ImGui::SameLine();
+            if ( ToolTabButton( kTabs[i].Label, tool == kTabs[i].Tool, thirdW ) )
+                tool = kTabs[i].Tool;
+        }
+        if ( tool == Core::FoliageTool::Select || tool == Core::FoliageTool::Lasso )
+            ImGui::TextDisabled( "Shift: %s", tool == Core::FoliageTool::Select ? "add to the selection" : "deselect" );
+
+        // ----- Selection: what UE does to selected instances (delete, move) --------------------------------
+        if ( tool == Core::FoliageTool::Select || tool == Core::FoliageTool::Lasso ||
+             Core::FoliagePaint::SelectedCount() > 0 )
+        {
+            ImGui::TextDisabled( "SELECTION  %zu instances", Core::FoliagePaint::SelectedCount() );
+            const float halfW = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+            if ( ImGui::Button( ICON_MDI_DELETE " Delete", ImVec2( halfW, 0 ) ) )
+                if ( auto done = RemoveSelected( scene ); !done )
+                    ToastManager::Push( done.GetError(), ToastLevel::Warning, 4.0f );
+            ImGui::SameLine();
+            if ( ImGui::Button( "Select None", ImVec2( halfW, 0 ) ) )
+                if ( auto done = SelectNone( scene ); !done )
+                    ToastManager::Push( done.GetError(), ToastLevel::Warning, 4.0f );
+            ImGui::SetNextItemWidth( halfW );
+            ImGui::DragFloat3( "##MoveOffset", &Core::FoliagePaint::MoveOffset().x, 1.0f, -100000.0f, 100000.0f,
+                               "%.0f" );
+            ImGui::SameLine();
+            if ( ImGui::Button( ICON_MDI_ARROW_ALL " Move by (cm)", ImVec2( halfW, 0 ) ) )
+                if ( auto done = MoveSelected( scene, Core::FoliagePaint::MoveOffset() ); !done )
+                    ToastManager::Push( done.GetError(), ToastLevel::Warning, 4.0f );
+        }
+
+        // ----- Reapply: which of the type's properties the brush re-rolls or re-checks ----------------------
+        if ( tool == Core::FoliageTool::Reapply )
+        {
+            auto& r = Core::FoliagePaint::Reapply();
+            ImGui::TextDisabled( "REAPPLY" );
+            ImGui::Checkbox( "Scale", &r.Scale );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Z Offset", &r.ZOffset );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Align", &r.AlignToNormal );
+            ImGui::Checkbox( "Yaw", &r.RandomYaw );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Pitch", &r.RandomPitch );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Slope", &r.GroundSlope );
+            ImGui::Checkbox( "Height", &r.Height );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Layers", &r.LandscapeLayers );
+        }
 
         // ----- Brush ----------------------------------------------------------------------------------
         ImGui::Dummy( ImVec2( 0, 2 ) );
@@ -869,13 +1052,16 @@ namespace Desert::Editor::Tools
                     auto e = ref->get();
                     if ( Core::FoliagePaint::IsActive( *editing ) )
                         Core::FoliagePaint::ToggleActive( *editing );
+                    Core::FoliagePaint::Selection().erase( *editing );
                     scene.DestroyEntity( e );
                 }
             }
         }
 
         ImGui::Separator();
-        ImGui::TextDisabled( "LMB drag: %s  -  check types to include", erase ? "erase" : "paint" );
+        static constexpr const char* kHints[] = { "LMB drag: paint", "LMB click: place one", "LMB click: select one",
+                                                  "LMB drag: select", "LMB drag: remove", "LMB drag: reapply" };
+        ImGui::TextDisabled( "%s  -  on the checked types", kHints[static_cast<size_t>( tool )] );
         ImGui::End();
     }
 } // namespace Desert::Editor::Tools

@@ -3,14 +3,17 @@
 // Ported from UE 5.8 Engine/Source/Editor/FoliageEdit/Private/FoliageEdMode.cpp:1007-1030
 // (GetRandomVectorInBrush), 1033-1045 (CheckLocationForPotentialInstance_ThreadSafe), 1192-1205
 // (IsFilteredByWeight), 1247-1272 (LandscapeLayerCheck), 1273-1316 (CalculatePotentialInstances), 1468-1560
-// (AddInstancesImp), 1571-1625 (AddInstancesForBrush), 2736-2745 (the paint branch of ApplyBrush) and
+// (AddInstancesImp), 1571-1625 (AddInstancesForBrush), 2736-2745 (the paint branch of ApplyBrush),
+// 1550-1568 (AddSingleInstanceForBrush), 1718-1760 (SelectInstanceAtLocation, SelectInstancesForBrush),
+// 1980-2120 (TransformSelectedInstances, RemoveSelectedInstances), 2292-2560 (ReapplyInstancesForBrush) and
 // 261-285 (FFoliagePaintingGeometryFilter), adapted: no UWorld / IFA / FHitResult — the world is two
 // callbacks (a segment trace and a layer weight at a point) so the brush is a pure function of its inputs;
 // instances are the field's InstancedStaticMesh transforms; Y is up and units are centimetres; FMath::FRand
 // is a seeded PCG32 stream (one per stroke) so a stroke replays to the same instances on every platform;
 // the geometry filter keeps Landscape and StaticMesh and is applied by the trace (no BSP in this engine;
 // translucency is a material property Scene::Raycast does not see); no vertex-colour mask, no AlignMaxAngle, no
-// overlap radius (UFoliageType fields this project's type does not carry).
+// overlap radius (UFoliageType fields this project's type does not carry); an instance is a bare transform, so
+// Reapply recovers its offset, yaw and scale from the matrix instead of per-instance flags.
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 
@@ -23,6 +26,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor::Tools
@@ -126,12 +130,18 @@ namespace Desert::Editor::Tools
                                             FoliageRandom& rng, const FoliageBrushWorld& world,
                                             FoliageBrushStats* stats = nullptr );
 
-    /// One field's instances before and after a stroke.
+    /// A field's selected instances: indices into its InstanceTransforms, ascending, each once (UE
+    /// FFoliageInfo::SelectedIndices).
+    using FoliageSelection = std::vector<uint32_t>;
+
+    /// One field's instances and selection before and after a stroke.
     struct FoliageStrokeField
     {
         Common::UUID           Entity;
         std::vector<glm::mat4> Before;
         std::vector<glm::mat4> After;
+        FoliageSelection       SelectedBefore;
+        FoliageSelection       SelectedAfter;
     };
 
     /**
@@ -141,7 +151,7 @@ namespace Desert::Editor::Tools
     class FoliageStroke
     {
     public:
-        FoliageStroke( uint64_t seed, bool erase ) : m_Random( seed ), m_Erase( erase )
+        explicit FoliageStroke( uint64_t seed ) : m_Random( seed )
         {
         }
 
@@ -149,26 +159,96 @@ namespace Desert::Editor::Tools
         {
             return m_Random;
         }
-        [[nodiscard]] bool Erase() const
-        {
-            return m_Erase;
-        }
 
-        /// Remembers @p current as the field's state at press, the first time the stroke touches it.
-        void Touch( const Common::UUID& entity, const std::vector<glm::mat4>& current );
+        /// Remembers @p current (and its selection) as the field's state at press, the first time the stroke
+        /// touches it.
+        void Touch( const Common::UUID& entity, const std::vector<glm::mat4>& current,
+                    const FoliageSelection& selected = {} );
 
-        /// The touched fields whose instances differ from press, in the order first touched. @p current
-        /// answers a field's instances now, or null when the field is gone (it is then left out).
+        /// The instance origins Reapply already readjusted in this stroke, per field (UE FOLIAGE_Readjusted: a
+        /// dab passing over an instance twice must not re-roll it twice).
+        std::vector<glm::vec3>& Readjusted( const Common::UUID& entity );
+
+        /// The touched fields whose instances or selection differ from press, in the order first touched.
+        /// @p current answers a field's instances now, or null when the field is gone (it is then left out);
+        /// @p selected its selection now (none given: the selection is not part of this stroke).
         std::vector<FoliageStrokeField>
-        Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current ) const;
+        Finish( const std::function<const std::vector<glm::mat4>*( const Common::UUID& )>& current,
+                const std::function<FoliageSelection( const Common::UUID& )>&            selected = {} ) const;
 
     private:
-        FoliageRandom                   m_Random;
-        bool                            m_Erase = false;
-        std::vector<FoliageStrokeField> m_Touched; // After unused until Finish
+        FoliageRandom                                          m_Random;
+        std::vector<FoliageStrokeField>                        m_Touched; // After unused until Finish
+        std::vector<std::pair<Common::UUID, std::vector<glm::vec3>>> m_Readjusted;
     };
 
-    /// UE RemoveInstancesForBrush at UnpaintDensity 0: every instance whose origin lies in the brush sphere.
-    /// Returns how many were removed.
-    size_t FoliageBrushErase( std::vector<glm::mat4>& instances, const glm::vec3& center, float radius );
+    /// UE's Remove tool (RemoveInstancesForBrush at a desired count of 0): every instance whose origin lies in
+    /// the brush sphere. @p selected, when given, is renumbered to the instances that remain. Returns how many
+    /// were removed.
+    size_t FoliageBrushRemove( std::vector<glm::mat4>& instances, const glm::vec3& center, float radius,
+                               FoliageSelection* selected = nullptr );
+
+    /**
+     * @brief UE's Single tool (AddSingleInstanceForBrush): one instance where the brush centre lies, traced
+     *        through a 1 cm segment along the brush normal, kept only when its surface and the type's height,
+     *        slope and layer rules pass. No density limit.
+     */
+    std::optional<glm::mat4> FoliageBrushSingle( const Assets::Serialization::FoliageTypeData& type,
+                                                 const FoliageBrushDab& dab, FoliageRandom& rng,
+                                                 const FoliageBrushWorld& world );
+
+    /// UE SelectInstancesForBrush (the Lasso tool): the instances whose origin lies in the sphere join the
+    /// selection (@p select) or leave it. Returns how many changed state.
+    size_t FoliageSelectInSphere( std::span<const glm::mat4> instances, const glm::vec3& center, float radius,
+                                  bool select, FoliageSelection& selected );
+
+    /// UE SelectInstanceAtLocation (the Select tool's click), without hit proxies: the instance whose
+    /// bounding sphere — @p pickRadius cm times the instance's scale around its origin — the ray enters
+    /// first. nullopt when the ray passes every instance.
+    std::optional<uint32_t> FoliagePickInstance( std::span<const glm::mat4> instances, const glm::vec3& rayOrigin,
+                                                 const glm::vec3& rayDirection, float pickRadius );
+
+    /// UE RemoveSelectedInstances: the selected instances leave the field and the selection is emptied.
+    size_t FoliageRemoveSelected( std::vector<glm::mat4>& instances, FoliageSelection& selected );
+
+    /// UE TransformSelectedInstances (a drag): the selected instances move by @p offset cm.
+    void FoliageMoveSelected( std::vector<glm::mat4>& instances, const FoliageSelection& selected,
+                              const glm::vec3& offset );
+
+    /// UFoliageType's Reapply* switches, as tool settings (the pattern, not the letter: this project keeps them
+    /// with the brush so the `.defoliage` format does not grow for an editor-only choice). Each set switch
+    /// re-rolls or re-checks that property from the type's CURRENT numbers; a clear one keeps the instance's.
+    struct FoliageReapplySettings
+    {
+        bool Scale         = true;  ///< UE ReapplyScaling: a new uniform scale from ScaleX
+        bool ZOffset       = false; ///< UE ReapplyZOffset: a new offset from ZOffset
+        bool AlignToNormal = true;  ///< UE ReapplyAlignToNormal: align to the ground, or stand upright
+        bool RandomYaw     = false; ///< UE ReapplyRandomYaw: a new yaw, or yaw 0 when the type has none
+        bool RandomPitch   = false; ///< UE ReapplyRandomPitchAngle: a new tilt up to RandomPitchAngle
+        bool GroundSlope   = true;  ///< UE ReapplyGroundSlope: remove where the ground is outside the slope range
+        bool Height        = true;  ///< UE ReapplyHeight: remove where the ground is outside the height range
+        bool LandscapeLayers = true; ///< UE ReapplyLandscapeLayers: remove where the layer weight filters it out
+    };
+
+    struct FoliageReapplyResult
+    {
+        size_t Updated = 0; ///< rebuilt from the current settings
+        size_t Removed = 0; ///< failed a re-checked filter
+        size_t Skipped = 0; ///< no ground under the instance along its up axis: left as it was
+    };
+
+    /**
+     * @brief UE's Reapply tool (ReapplyInstancesForBrush): each instance in the sphere not yet readjusted this
+     *        stroke finds its ground along its own up axis, is removed when a re-checked filter refuses the
+     *        ground, and is otherwise rebuilt with the switched properties re-rolled from @p type and the rest
+     *        kept (scale, yaw, Z offset above the ground, up axis).
+     *
+     * @p readjusted holds the origins already rebuilt this stroke (FoliageStroke::Readjusted); @p selected, when
+     * given, is renumbered past removals. Deterministic in @p rng.
+     */
+    FoliageReapplyResult FoliageBrushReapply( const Assets::Serialization::FoliageTypeData& type,
+                                              const FoliageReapplySettings& settings, const FoliageBrushDab& dab,
+                                              std::vector<glm::mat4>& instances, std::vector<glm::vec3>& readjusted,
+                                              FoliageRandom& rng, const FoliageBrushWorld& world,
+                                              FoliageSelection* selected = nullptr );
 } // namespace Desert::Editor::Tools
