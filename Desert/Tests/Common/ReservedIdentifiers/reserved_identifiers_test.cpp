@@ -1038,7 +1038,9 @@ TEST( ReservedIdentifiers, NoIdentifierIsANameWindowsHDefinesAway )
 // one tick are indistinguishable by (write time, size). FIX2 met it in the thumbnail memo, the shader include
 // cache met it before that, and ModelingToolTarget keyed a lift on it. Every reader of a write time therefore
 // either applies the racy rule (Common::Utils::IsRacyWriteTime, in the same file) or has a row here that says
-// why an equal stamp cannot serve stale content. A row that stops matching fails as well.
+// why an equal stamp cannot serve stale content. A row that stops matching fails as well. A POLLER - "has this
+// file changed since I last looked?" - asks Common::Utils::WriteWatch rather than reading a stamp of its own
+// (CIW7: the asset and script hot reloaders and the decoded-thumbnail memo were the three OPEN rows here).
 namespace
 {
     struct WriteTimeRow
@@ -1047,20 +1049,12 @@ namespace
         const char* Why;
     };
     constexpr WriteTimeRow kWriteTimeRegister[] = {
-         { "Desert/Desert/Source/Engine/Runtime/AssetHotReload.cpp",
-           "a watcher, not a memo: OPEN - a second same-size write inside one tick is picked up only at the "
-           "file's next write" },
-         { "Desert/Desert/Source/Engine/ECS/System/ScriptSystem.hpp",
-           "a watcher, not a memo: OPEN - as AssetHotReload, for Lua sources" },
          { "Editor/Source/Editor/Panels/Logs/LogsPanel.cpp",
            "a tail follower: the log only grows, so a missed tick is read with the next append" },
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", "display and sort order only" },
          { "Editor/Source/Editor/Core/CrashRecovery.cpp", "picks the newest autosave: ordering, not identity" },
          { "Editor/Source/Editor/Import/ImportManager.cpp", "source-newer-than-cook ordering, not identity" },
          { "Editor/Source/Editor/Import/Blend/BlendImporter.hpp", "blend-newer-than-fbx ordering, not identity" },
-         { "Editor/Source/Editor/Widgets/ThumbnailCache.cpp",
-           "decoded-PNG memo: OPEN - FIX2's class; a PNG rewritten inside one tick keeps the old image until "
-           "its next write" },
          { "Editor/Source/Editor/Widgets/ThumbnailFreshness.hpp",
            "FIX2: the record's writer tells the memo what it wrote, so the stamp is never the only witness" },
     };

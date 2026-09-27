@@ -55,20 +55,22 @@ namespace Desert::Editor
 
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )
     {
-        std::error_code stampEc;
-        const auto      stamp = std::filesystem::last_write_time( sourcePath, stampEc );
-        if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
-        {
-            const auto seen = m_Stamps.find( sourcePath );
-            if ( stampEc || ( seen != m_Stamps.end() && seen->second == stamp ) )
-                return it->second; // may be null (decode previously failed)
-            m_Cache.erase( it );   // the file was rewritten since it was decoded
-        }
-
-        if ( m_Cache.size() >= kMaxEntries )
+        if ( m_Cache.size() >= kMaxEntries && !m_Cache.contains( sourcePath ) )
         {
             m_Cache.clear(); // simple bound; thumbnails re-decode lazily
-            m_Stamps.clear();
+            m_Watch.Clear();
+        }
+
+        // Observed BEFORE the decode reads the file, so a write that lands between the two makes the next Get()
+        // decode again rather than keep the older picture. A same-size rewrite inside one tick of the file
+        // system's clock is a change too: the watch hashes the content while the stamp is racy (FIX2's class).
+        const auto seen = m_Watch.Observe( sourcePath, sourcePath );
+        if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
+        {
+            using Seen = Common::Utils::WriteWatch::Seen;
+            if ( seen == Seen::Unchanged || seen == Seen::Missing )
+                return it->second; // may be null (decode previously failed)
+            m_Cache.erase( it );   // the file was rewritten since it was decoded
         }
 
         std::shared_ptr<Graphic::Image2D> result;
@@ -189,23 +191,19 @@ namespace Desert::Editor
             stbi_image_free( pixels );
 
         m_Cache[sourcePath] = result; // cache success or failure (null)
-        if ( !stampEc )
-            m_Stamps[sourcePath] = stamp;
-        else
-            m_Stamps.erase( sourcePath );
         return result;
     }
 
     void ThumbnailCache::Invalidate( const std::string& sourcePath )
     {
         m_Cache.erase( sourcePath );
-        m_Stamps.erase( sourcePath );
+        m_Watch.Forget( sourcePath );
     }
 
     void ThumbnailCache::Clear()
     {
         m_Cache.clear();
-        m_Stamps.clear();
+        m_Watch.Clear();
     }
 
     std::unordered_set<ThumbnailCache*>& ThumbnailCache::Live()
