@@ -102,16 +102,19 @@ namespace Desert::Graphic
         /// finished write with one line naming the file and its latency.
         void Pump();
         /// Host teardown, while the device is alive: finishes every write in flight and releases the readbacks.
-        void Drain();
-        [[nodiscard]] size_t InFlight() const { return m_InFlight.size(); }
+        void                 Drain();
+        [[nodiscard]] size_t InFlight() const
+        {
+            return m_InFlight.size();
+        }
 
     private:
         struct Write
         {
-            EnvironmentCacheEntry                    Entry;
-            std::shared_ptr<ImageReadback>           Readback;
-            std::future<Common::BoolResultStr>       Encoded;
-            std::chrono::steady_clock::time_point    StartedAt;
+            EnvironmentCacheEntry                 Entry;
+            std::shared_ptr<ImageReadback>        Readback;
+            std::future<Common::BoolResultStr>    Encoded;
+            std::chrono::steady_clock::time_point StartedAt;
         };
         static void Finish( Write& write );
 

@@ -39,7 +39,7 @@
 
 namespace
 {
-    constexpr const char* kLoaderHeader    = "Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.hpp";
+    constexpr const char* kLoaderHeader = "Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.hpp";
 
     /// The two files that start the engine. There is no third.
     constexpr const char* kLayers[] = { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp" };

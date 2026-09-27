@@ -167,11 +167,11 @@ namespace Desert::Graphic
                 auto* cube  = dynamic_cast<ImageCube*>( image );
                 if ( cube == nullptr )
                     continue;
-                if ( const auto begun = EnvironmentCacheWriter::Get().Begin(
-                          *cube, { .Path            = entry.Path,
-                                   .SourceKey       = sourceKey,
-                                   .SourceSignature = sourceSignature,
-                                   .BakeSignature   = entry.Bake } );
+                if ( const auto begun =
+                          EnvironmentCacheWriter::Get().Begin( *cube, { .Path            = entry.Path,
+                                                                        .SourceKey       = sourceKey,
+                                                                        .SourceSignature = sourceSignature,
+                                                                        .BakeSignature   = entry.Bake } );
                      !begun )
                 {
                     LOG_ERROR( "[SceneEnvironment] '{}' was baked but will not be cached to '{}': {}",
@@ -183,7 +183,8 @@ namespace Desert::Graphic
         LOG_INFO(
              "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms ({:.1f} ms reading and convolving, "
              "{:.1f} ms "
-             "submitting the cache readbacks) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
+             "submitting the cache readbacks) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} "
+             "MiB resident.",
              meta.Filepath.string(),
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
              std::chrono::duration<double, std::milli>( convolvedAt - startedAt ).count(),

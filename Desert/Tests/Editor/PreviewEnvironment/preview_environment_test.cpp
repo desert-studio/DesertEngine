@@ -48,8 +48,9 @@ namespace
     {
         Settings PreviewScene;
     };
-    DESERT_JSON_LENIENT( InEditorJson, "stands in for EditorPreferences, whose editor.json is shared by every build "
-                                       "and a field an older build has not got yet is normal output" )
+    DESERT_JSON_LENIENT( InEditorJson,
+                         "stands in for EditorPreferences, whose editor.json is shared by every build "
+                         "and a field an older build has not got yet is normal output" )
 } // namespace
 
 TEST( PreviewEnvironment, RoundTripsThroughTheSameJsonWriterAsEditorJson )

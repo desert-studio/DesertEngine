@@ -1056,7 +1056,8 @@ namespace
          { "Editor/Source/Editor/Import/ImportManager.cpp", "source-newer-than-cook ordering, not identity" },
          { "Editor/Source/Editor/Import/Blend/BlendImporter.hpp", "blend-newer-than-fbx ordering, not identity" },
          { "Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
-           "TH2: the stamp only matches decoded pixels to ThumbnailCache's request; the cache applies the racy rule "
+           "TH2: the stamp only matches decoded pixels to ThumbnailCache's request; the cache applies the racy "
+           "rule "
            "to what it takes" },
          { "Editor/Source/Editor/Widgets/ThumbnailFreshness.hpp",
            "FIX2: the record's writer tells the memo what it wrote, so the stamp is never the only witness" },
