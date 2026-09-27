@@ -227,7 +227,7 @@ namespace
          { "VulkanMaterialBackend.cpp", "vkUpdateDescriptorSets", 1, "void" },
          { "VulkanPipelineCompute.cpp", "vkUpdateDescriptorSets", 1, "void" },
 
-         // ---- returns VkResult and the result is DROPPED. Thirteen, each with its reason ------------
+         // ---- returns VkResult and the result is DROPPED. Eleven, each with its reason --------------
          // The count-then-fill enumeration idiom, at startup. Both halves can only fail with
          // OUT_OF_HOST_MEMORY or an unusable driver, and in every case the caller's next line already
          // refuses on the count being zero -- VulkanDevice's "no physical devices" verify, and
@@ -239,14 +239,11 @@ namespace
          { "VulkanSwapChain.cpp", "vkGetPhysicalDeviceSurfacePresentModesKHR", 2, "dropped: startup enumeration" },
          { "VulkanSwapChain.cpp", "vkGetPhysicalDeviceSurfaceFormatsKHR", 2, "dropped: startup enumeration" },
 
-         // Teardown waits. All three are already behind DeviceLost::AllowWork(), so on a lost device they
-         // are not issued at all; on a live one the only failure they can report is a loss that the next
-         // call would report anyway, and there is nothing an exiting process would do differently.
+         // The device's own teardown wait. It is already behind DeviceLost::AllowWork(), so on a lost device
+         // it is not issued at all; on a live one the only failure it can report is a loss that the next
+         // call would report anyway, and there is nothing an exiting process would do differently. The
+         // swapchain's and the ImGui layer's waits go through VulkanLogicalDevice::WaitIdle, which reads it.
          { "VulkanDevice.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
-         { "VulkanSwapChain.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
-         // In Editor/Source/Editor/ImGuiIntegration/ since the toolkit left the engine; the scan reaches
-         // that tree for exactly this reason (see ScanStatementPositionCalls).
-         { "VulkanImGuiLayer.cpp", "vkDeviceWaitIdle", 1, "dropped: teardown wait, already gated" },
     };
 
     struct Found
@@ -431,7 +428,7 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
              << ", and it does not any more. Delete the row -- a census that pins nothing passes silently.";
     }
 
-    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Thirteen VkResults
+    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Eleven VkResults
     // are dropped in the whole Vulkan backend; it was eighteen before this change, and every survivor is
     // either a startup enumeration whose caller refuses on the count, or a teardown wait that is already
     // behind the gate.
@@ -439,7 +436,7 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
     for ( const auto& row : k_Census )
         if ( std::string( row.Verdict ) != "void" )
             droppedResults += row.Count;
-    EXPECT_EQ( droppedResults, 13 )
+    EXPECT_EQ( droppedResults, 11 )
          << "the number of Vulkan calls whose result nobody reads has changed. Up is a regression; down is "
             "welcome, and this line moves with it.";
 }

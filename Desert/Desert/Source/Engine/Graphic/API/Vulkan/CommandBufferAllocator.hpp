@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 #include <cstddef>
+#include <mutex>
 #include <unordered_map>
 
 namespace Desert::Graphic::API::Vulkan
@@ -68,6 +69,14 @@ namespace Desert::Graphic::API::Vulkan
     private:
         /// Frees @p commandBuffer from the pool it was actually allocated from, after its fence.
         Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue );
+        /// vkAllocateCommandBuffers and the pool record, under m_PoolMutex.
+        VkResult AllocateOneShot( const VkCommandBufferAllocateInfo& allocateInfo,
+                                  VkCommandBuffer&                   commandBuffer );
+
+        /// GUARDS m_OneShotPools AND vkAllocate/vkFreeCommandBuffers on the nine pools. One-off uploads are
+        /// flushed from whichever thread creates the texture or mesh; an unordered_map written from two
+        /// threads is undefined behaviour, and a VkCommandPool must be externally synchronised as well.
+        mutable std::mutex m_PoolMutex;
 
         /// WHICH POOL EACH ONE-OFF BUFFER CAME FROM. Not recomputed at flush time from the current frame
         /// index, which is what the three Flush functions used to do: the index can advance between the
@@ -85,5 +94,8 @@ namespace Desert::Graphic::API::Vulkan
         VkQueue m_TransferOpsQueue;
 
         VkDevice m_LogicalDevice;
+        /// The owner of the queues, for SubmitToQueue. Outlives this allocator: VulkanContext::Shutdown
+        /// destroys the allocator while the device is still alive.
+        const VulkanLogicalDevice* m_Device = nullptr;
     };
 } // namespace Desert::Graphic::API::Vulkan

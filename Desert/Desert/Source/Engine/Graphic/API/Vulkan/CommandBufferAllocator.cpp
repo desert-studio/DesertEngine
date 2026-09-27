@@ -6,14 +6,16 @@
 
 #include <format>
 #include <functional>
+#include <mutex>
 #include <string>
 
 namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        Common::ResultStr<VkResult> FlushCommandBuffer( VkDevice device, VkCommandPool commandPool,
-                                                        VkCommandBuffer commandBuffer, VkQueue queue )
+        Common::ResultStr<VkResult> FlushCommandBuffer( const VulkanLogicalDevice& owner,
+                                                        VkCommandPool commandPool, VkCommandBuffer commandBuffer,
+                                                        VkQueue queue, std::mutex& poolMutex )
         {
             if ( commandBuffer == VK_NULL_HANDLE )
             {
@@ -29,6 +31,7 @@ namespace Desert::Graphic::API::Vulkan
                      "the device is lost; the one-off command buffer is dropped rather than submitted." );
             }
 
+            const VkDevice device = owner.GetVulkanLogicalDevice();
             VK_RETURN_RESULT_IF_FALSE_TYPE( VkResult, vkEndCommandBuffer( commandBuffer ) )
 
             VkSubmitInfo submitInfo       = {};
@@ -42,7 +45,7 @@ namespace Desert::Graphic::API::Vulkan
             fenceCreateInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             fenceCreateInfo.flags             = 0;
             VK_RETURN_RESULT_IF_FALSE( vkCreateFence( device, &fenceCreateInfo, nullptr, &fence ) );
-            VK_RETURN_RESULT_IF_FALSE_TYPE( VkResult, vkQueueSubmit( queue, 1, &submitInfo, fence ) );
+            VK_RETURN_RESULT_IF_FALSE_TYPE( VkResult, owner.SubmitToQueue( queue, 1, &submitInfo, fence ) );
 
             // Wait for the fence to signal that command buffer has finished executing
             VK_CHECK_RESULT( vkWaitForFences( device, 1, &fence, VK_TRUE, UINT64_MAX ) );
@@ -54,7 +57,10 @@ namespace Desert::Graphic::API::Vulkan
             // so the count only ever went up: 211 of them were still alive at vkDestroyDevice on a session
             // that merely opened the default scene and quit. The fence above already proves the GPU is
             // done with it, which is exactly the condition vkFreeCommandBuffers requires.
-            vkFreeCommandBuffers( device, commandPool, 1, &commandBuffer );
+            {
+                const std::scoped_lock pools( poolMutex );
+                vkFreeCommandBuffers( device, commandPool, 1, &commandBuffer );
+            }
 
             return Common::MakeSuccess( VK_SUCCESS );
         }
@@ -114,6 +120,7 @@ namespace Desert::Graphic::API::Vulkan
         m_TransferOpsQueue = device->m_TransferQueue;
 
         m_LogicalDevice = device->m_LogicalDevice;
+        m_Device        = device.get();
     }
 
     Common::ResultStr<VkCommandBuffer> CommandBufferAllocator::RT_GetCommandBufferCompute( bool begin /*= false */ )
@@ -130,9 +137,7 @@ namespace Desert::Graphic::API::Vulkan
         allocateInfo.pNext              = VK_NULL_HANDLE;
 
         VkCommandBuffer cmdBuffer;
-        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer,
-                                        vkAllocateCommandBuffers( m_LogicalDevice, &allocateInfo, &cmdBuffer ) );
-        m_OneShotPools[cmdBuffer] = allocateInfo.commandPool;
+        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer, AllocateOneShot( allocateInfo, cmdBuffer ) );
 
         if ( begin )
         {
@@ -165,9 +170,7 @@ namespace Desert::Graphic::API::Vulkan
         allocateInfo.commandPool        = m_CommandGraphicPool[frame];
 
         VkCommandBuffer cmdBuffer;
-        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer,
-                                        vkAllocateCommandBuffers( m_LogicalDevice, &allocateInfo, &cmdBuffer ) );
-        m_OneShotPools[cmdBuffer] = allocateInfo.commandPool;
+        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer, AllocateOneShot( allocateInfo, cmdBuffer ) );
 
         if ( begin )
         {
@@ -180,10 +183,21 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( cmdBuffer );
     }
 
+    VkResult CommandBufferAllocator::AllocateOneShot( const VkCommandBufferAllocateInfo& allocateInfo,
+                                                      VkCommandBuffer&                   commandBuffer )
+    {
+        const std::scoped_lock pools( m_PoolMutex );
+        const VkResult allocated = vkAllocateCommandBuffers( m_LogicalDevice, &allocateInfo, &commandBuffer );
+        if ( allocated == VK_SUCCESS )
+            m_OneShotPools[commandBuffer] = allocateInfo.commandPool;
+        return allocated;
+    }
+
     Common::ResultStr<VkResult> CommandBufferAllocator::FlushOneShot( VkCommandBuffer commandBuffer,
                                                                       VkQueue         queue )
     {
-        const auto entry = m_OneShotPools.find( commandBuffer );
+        std::unique_lock pools( m_PoolMutex );
+        const auto       entry = m_OneShotPools.find( commandBuffer );
         if ( entry == m_OneShotPools.end() )
         {
             // A buffer this allocator did not hand out, or one already flushed. Freeing it against a
@@ -206,8 +220,9 @@ namespace Desert::Graphic::API::Vulkan
         // freed on the success path only, so leaving the row in place on a refusal would make the next
         // flush of a recycled handle free a buffer that is still being recorded into.
         m_OneShotPools.erase( entry );
+        pools.unlock();
 
-        return FlushCommandBuffer( m_LogicalDevice, pool, commandBuffer, queue );
+        return FlushCommandBuffer( *m_Device, pool, commandBuffer, queue, m_PoolMutex );
     }
 
     Common::ResultStr<VkResult>
@@ -299,9 +314,7 @@ namespace Desert::Graphic::API::Vulkan
         allocateInfo.commandPool        = m_TransferOpsCommandPool[frame];
 
         VkCommandBuffer cmdBuffer;
-        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer,
-                                        vkAllocateCommandBuffers( m_LogicalDevice, &allocateInfo, &cmdBuffer ) );
-        m_OneShotPools[cmdBuffer] = allocateInfo.commandPool;
+        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer, AllocateOneShot( allocateInfo, cmdBuffer ) );
 
         if ( begin )
         {
@@ -322,6 +335,7 @@ namespace Desert::Graphic::API::Vulkan
 
     std::size_t CommandBufferAllocator::OutstandingOneShotCount() const
     {
+        const std::scoped_lock pools( m_PoolMutex );
         return m_OneShotPools.size();
     }
 

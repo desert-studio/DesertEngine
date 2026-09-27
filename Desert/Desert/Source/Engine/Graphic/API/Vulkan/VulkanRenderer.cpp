@@ -775,10 +775,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
-        const VkResult idle = vkDeviceWaitIdle(
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice() );
-        if ( idle != VK_SUCCESS && !NoteIfDeviceLost( idle, "vkDeviceWaitIdle", __FILE__, __LINE__ ) )
-            LOG_ERROR( "[Renderer] vkDeviceWaitIdle failed: {}", VkResultToString( idle ) );
+        // Through the device, not vkDeviceWaitIdle here: it must hold the queue lock (VK1).
+        EngineContext::GetInstance().GetDevice()->WaitIdle();
     }
     std::shared_ptr<Framebuffer> VulkanRendererAPI::GetCompositeFramebuffer() const
     {

@@ -337,7 +337,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
-        const VkResult idle = vkDeviceWaitIdle( m_LogicalDevice );
+        const std::scoped_lock queues( m_QueueMutex );
+        const VkResult         idle = vkDeviceWaitIdle( m_LogicalDevice );
         if ( idle != VK_SUCCESS && !NoteIfDeviceLost( idle, "vkDeviceWaitIdle", __FILE__, __LINE__ ) )
             LOG_ERROR( "[Device] vkDeviceWaitIdle failed: {}", VkResultToString( idle ) );
     }
@@ -419,6 +420,24 @@ namespace Desert::Graphic::API::Vulkan
         return ( features & required ) == required;
     }
 
+    VkResult VulkanLogicalDevice::SubmitToQueue( VkQueue queue, uint32_t submitCount, const VkSubmitInfo* submits,
+                                                 VkFence fence ) const
+    {
+        const std::scoped_lock queues( m_QueueMutex );
+        return vkQueueSubmit( queue, submitCount, submits, fence );
+    }
+
+    VkResult VulkanLogicalDevice::PresentToQueue( VkQueue queue, const VkPresentInfoKHR& present ) const
+    {
+        const std::scoped_lock queues( m_QueueMutex );
+        return vkQueuePresentKHR( queue, &present );
+    }
+
+    std::unique_lock<std::mutex> VulkanLogicalDevice::LockQueues() const
+    {
+        return std::unique_lock<std::mutex>( m_QueueMutex );
+    }
+
     void VulkanLogicalDevice::Destroy()
     {
         if ( m_LogicalDevice != VK_NULL_HANDLE )
@@ -426,7 +445,10 @@ namespace Desert::Graphic::API::Vulkan
             // Same reason as WaitIdle above; vkDestroyPipelineCache and vkDestroyDevice below stay legal on
             // a lost device, which is what makes an orderly close possible at all.
             if ( Graphic::DeviceLost::AllowWork() )
+            {
+                const std::scoped_lock queues( m_QueueMutex );
                 vkDeviceWaitIdle( m_LogicalDevice );
+            }
 
             // THE LAST MOMENT AT WHICH THIS DEVICE IS STILL ALIVE, and therefore the only place from which
             // every one of its children can be released. The order below this line was already correct and

@@ -7,6 +7,7 @@
 #include <vulkan/vulkan.h>
 
 #include <chrono>
+#include <mutex>
 #include <optional>
 #include <unordered_set>
 
@@ -146,6 +147,22 @@ namespace Desert::Graphic::API::Vulkan
             return m_ComputeQueue;
         }
 
+        /// THE ONLY vkQueueSubmit OF THE ENGINE. A VkQueue must be externally synchronised (VUID-vkQueueSubmit-
+        /// queue-parameter): two threads submitting to it at once is undefined behaviour, and the validation
+        /// layer reports it as a THREADING ERROR. Uploads flush through CommandBufferAllocator from whatever
+        /// thread creates the resource, while the frame submits from the main thread, so the lock lives here,
+        /// with the queues, and not in either caller. Pattern of UE's FVulkanQueue (one queue, one mutex).
+        [[nodiscard]] VkResult SubmitToQueue( VkQueue queue, uint32_t submitCount, const VkSubmitInfo* submits,
+                                              VkFence fence ) const;
+        /// vkQueuePresentKHR under the same lock: the present queue is the graphics queue.
+        [[nodiscard]] VkResult PresentToQueue( VkQueue queue, const VkPresentInfoKHR& present ) const;
+        /// The same lock, held by a caller whose queue calls live in code it does not own: the ImGui Vulkan
+        /// backend submits, presents and waits for the detached platform windows itself. The main thread holds
+        /// this across UpdatePlatformWindows + RenderPlatformWindowsDefault so an upload flushing from another
+        /// thread cannot meet those raw calls on the shared queue. Nothing reached while holding it may call
+        /// SubmitToQueue / PresentToQueue / WaitIdle -- the mutex is not recursive.
+        [[nodiscard]] std::unique_lock<std::mutex> LockQueues() const;
+
         void Destroy();
 
         Common::ResultStr<bool> CreateDevice();
@@ -177,6 +194,11 @@ namespace Desert::Graphic::API::Vulkan
         VkQueue m_GraphicsQueue;
         VkQueue m_ComputeQueue;
         VkQueue m_TransferQueue;
+
+        /// ONE LOCK FOR ALL THREE QUEUES, not one per queue: on MoltenVK (and any device with a single
+        /// family) graphics, compute and transfer are the SAME VkQueue, and vkDeviceWaitIdle requires every
+        /// queue of the device to be externally synchronised at once (VUID-vkDeviceWaitIdle-device).
+        mutable std::mutex m_QueueMutex;
 
         friend class CommandBufferAllocator;
     };

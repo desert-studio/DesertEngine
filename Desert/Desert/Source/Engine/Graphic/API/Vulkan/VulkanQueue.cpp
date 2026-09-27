@@ -88,7 +88,8 @@ namespace Desert::Graphic::API::Vulkan
         submitInfo.pCommandBuffers         = &m_DrawCommandBuffers[currentIndex];
         submitInfo.commandBufferCount      = 1;
 
-        VK_CHECK_RESULT( vkQueueSubmit( queue, 1, &submitInfo, m_WaitFences[currentIndex] ) );
+        VK_CHECK_RESULT( SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                              ->SubmitToQueue( queue, 1, &submitInfo, m_WaitFences[currentIndex] ) );
     }
 
     void VulkanQueue::Present()
@@ -152,7 +153,8 @@ namespace Desert::Graphic::API::Vulkan
             presentInfo.pWaitSemaphores    = &waitSemaphore;
             presentInfo.waitSemaphoreCount = 1;
         }
-        auto res = ( vkQueuePresentKHR( queue, &presentInfo ) );
+        auto res = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                        ->PresentToQueue( queue, presentInfo );
         if ( res == VK_SUCCESS )
         {
             return Common::MakeSuccess( VK_SUCCESS );
