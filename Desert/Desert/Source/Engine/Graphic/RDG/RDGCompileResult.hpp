@@ -88,6 +88,7 @@ namespace Desert::Graphic::RDG
         uint64_t    Offset    = 0;
         uint64_t    Size      = 0;
         uint64_t    Alignment = 1;
+        uint32_t    MemoryTypeBits = ~0u; // from the IMemoryRequirementsProvider
         // Earlier transients whose bytes this one reuses (their lifetimes ended before it starts).
         std::vector<uint32_t> AliasPredecessors;
     };

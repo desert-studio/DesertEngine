@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <vector>
 
 // Resource descriptions, handles and externally owned resources of the render graph. Device-free: a
@@ -111,6 +112,21 @@ namespace Desert::Graphic::RDG
         constexpr bool operator==( const BufferRef& ) const = default;
     };
 
+    // A backend's image / buffer. The core only moves these between the backend, externals and pass
+    // bindings; what is inside is the backend's business. An external holds one by shared_ptr, so an
+    // extracted transient outlives the graph that created it.
+    class IPhysicalTexture
+    {
+    public:
+        virtual ~IPhysicalTexture() = default;
+    };
+
+    class IPhysicalBuffer
+    {
+    public:
+        virtual ~IPhysicalBuffer() = default;
+    };
+
     // A texture that outlives the graph (swapchain image, history buffer, a baked cube). It carries its
     // own synchronisation state PER SUBRESOURCE: the graph reads it when the texture is registered and
     // writes the final state back when Execute finishes, so the next graph (next frame, or a GpuBatch)
@@ -121,6 +137,9 @@ namespace Desert::Graphic::RDG
     {
         TextureDesc              Desc;
         std::vector<AccessState> SubresourceStates; // Desc.SubresourceCount() entries, layer-major
+        // The image itself. Set by whoever owns the texture before registering it; for an extraction
+        // target, Execute sets it to the transient's image.
+        std::shared_ptr<IPhysicalTexture> Physical;
 
         ExternalTexture() = default;
         ExternalTexture( const TextureDesc& desc, Access initial )
@@ -131,8 +150,9 @@ namespace Desert::Graphic::RDG
 
     struct ExternalBuffer
     {
-        BufferDesc  Desc;
-        AccessState State;
+        BufferDesc                       Desc;
+        AccessState                      State;
+        std::shared_ptr<IPhysicalBuffer> Physical;
 
         ExternalBuffer() = default;
         ExternalBuffer( const BufferDesc& desc, Access initial ) : Desc( desc ), State( GetAccessState( initial ) )
@@ -199,6 +219,9 @@ namespace Desert::Graphic::RDG
         Compute   = 1u << 1,
         Copy      = 1u << 2,
         NeverCull = 1u << 3, // a culling root even if nothing reads what it writes (readbacks, debug capture)
+        // Old code recorded through Builder::AddLegacyPass: it records its own render passes and expects
+        // every image it touches in SHADER_READ_ONLY before and leaves them there. Removed in RDG-Z.
+        Legacy = 1u << 4,
     };
 
     constexpr PassFlags operator|( PassFlags a, PassFlags b )
@@ -221,16 +244,4 @@ namespace Desert::Graphic::RDG
     };
 
     inline constexpr uint32_t kMemoryClassCount = static_cast<uint32_t>( MemoryClass::Count );
-
-    struct MemoryFootprint
-    {
-        uint64_t    Size      = 0;
-        uint64_t    Alignment = 1;
-        MemoryClass Class     = MemoryClass::Texture;
-    };
-
-    // Device-free footprint of a transient, used by the aliasing plan to compute a view's memory peak
-    // before any device exists. See RDGResources.cpp for the alignment the estimate assumes.
-    MemoryFootprint EstimateFootprint( const TextureDesc& desc );
-    MemoryFootprint EstimateFootprint( const BufferDesc& desc );
 } // namespace Desert::Graphic::RDG

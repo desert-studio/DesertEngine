@@ -113,7 +113,7 @@ namespace Desert::Graphic::RDG
         }
     } // namespace
 
-    Common::ResultStr<CompileResult> Builder::Compile() const
+    Common::ResultStr<CompileResult> Builder::Compile( const IMemoryRequirementsProvider& memory ) const
     {
         if ( !m_DeclarationError.empty() )
             return Common::MakeError<CompileResult>( m_DeclarationError );
@@ -330,10 +330,17 @@ namespace Desert::Graphic::RDG
         // ── 6. Aliasing plan: interval packing per memory class ───────────────────────────────────────
         // Extracted transients outlive the graph and so never share memory.
         {
+            struct Footprint
+            {
+                uint64_t    Size;
+                uint64_t    Alignment;
+                uint32_t    MemoryTypeBits;
+                MemoryClass Class;
+            };
             struct Candidate
             {
-                uint32_t        Lifetime;
-                MemoryFootprint Footprint;
+                uint32_t  Lifetime;
+                Footprint Footprint;
             };
             std::vector<Candidate> candidates;
             for ( uint32_t l = 0; l < result.Lifetimes.size(); ++l )
@@ -341,9 +348,26 @@ namespace Desert::Graphic::RDG
                 const ResourceRecord& record = m_Resources[result.Lifetimes[l].Resource];
                 if ( record.IsExtracted() )
                     continue;
-                candidates.push_back( { l, record.Kind == ResourceKind::Texture
-                                                ? EstimateFootprint( record.Texture )
-                                                : EstimateFootprint( record.Buffer ) } );
+                const bool isTexture = record.Kind == ResourceKind::Texture;
+                // Lifetimes and Usages are pushed together, so index l names the same resource in both.
+                const uint32_t                        usage = result.Usages[l].AccessMask;
+                Common::ResultStr<MemoryRequirements> requirements =
+                     isTexture ? memory.GetTextureRequirements( record.Texture, usage )
+                               : memory.GetBufferRequirements( record.Buffer, usage );
+                if ( !requirements )
+                    return Common::MakeFormattedError<CompileResult>(
+                         "graph '{}': no memory requirements for transient '{}': {}", m_Name, record.Name,
+                         requirements.GetError() );
+                const MemoryRequirements& req = requirements.GetValue();
+                if ( req.Size == 0 || req.Alignment == 0 || ( req.Alignment & ( req.Alignment - 1 ) ) != 0 ||
+                     req.MemoryTypeBits == 0 )
+                    return Common::MakeFormattedError<CompileResult>(
+                         "graph '{}': transient '{}' got unusable memory requirements (size {}, alignment {}, "
+                         "memory types {:#x})",
+                         m_Name, record.Name, req.Size, req.Alignment, req.MemoryTypeBits );
+                candidates.push_back( { l, { RdgAlignOffset( req.Size, req.Alignment ), req.Alignment,
+                                             req.MemoryTypeBits,
+                                             isTexture ? MemoryClass::Texture : MemoryClass::Buffer } } );
             }
             // First come, first placed; larger first on ties so big targets take the low offsets.
             std::sort( candidates.begin(), candidates.end(),
@@ -362,14 +386,17 @@ namespace Desert::Graphic::RDG
             for ( const Candidate& candidate : candidates )
             {
                 const ResourceLifetime& lifetime = result.Lifetimes[candidate.Lifetime];
-                const MemoryFootprint&  fp       = candidate.Footprint;
+                const Footprint&        fp       = candidate.Footprint;
 
+                // Bytes can be shared only by resources that could live in one memory type: a placed
+                // allocation with a disjoint type set conflicts for its whole lifetime, as if always alive.
                 std::vector<const Allocation*> conflicts;
                 for ( size_t a = 0; a < result.Aliasing.Allocations.size(); ++a )
                 {
                     const Allocation& placed = result.Aliasing.Allocations[a];
                     if ( placed.Class == fp.Class &&
-                         RdgLifetimesIntersect( result.Lifetimes[placedLifetime[a]], lifetime ) )
+                         ( ( placed.MemoryTypeBits & fp.MemoryTypeBits ) == 0 ||
+                           RdgLifetimesIntersect( result.Lifetimes[placedLifetime[a]], lifetime ) ) )
                         conflicts.push_back( &placed );
                 }
                 uint64_t offset  = 0;
@@ -393,10 +420,11 @@ namespace Desert::Graphic::RDG
                 allocation.Offset    = offset;
                 allocation.Size      = fp.Size;
                 allocation.Alignment = fp.Alignment;
+                allocation.MemoryTypeBits = fp.MemoryTypeBits;
                 for ( size_t a = 0; a < result.Aliasing.Allocations.size(); ++a )
                 {
                     const Allocation& placed = result.Aliasing.Allocations[a];
-                    if ( placed.Class == fp.Class &&
+                    if ( placed.Class == fp.Class && ( placed.MemoryTypeBits & fp.MemoryTypeBits ) != 0 &&
                          result.Lifetimes[placedLifetime[a]].LastPosition < lifetime.FirstPosition &&
                          RdgBytesIntersect( offset, fp.Size, placed.Offset, placed.Size ) )
                         allocation.AliasPredecessors.push_back( placed.Resource );
