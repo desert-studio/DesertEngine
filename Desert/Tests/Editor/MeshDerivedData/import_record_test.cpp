@@ -164,7 +164,7 @@ TEST( ImportRecord, TheRecordStatesTheImportedBoxAndTheRegistryReadsItWithoutThe
 // No legacy: a version-1 record (no box) is refused, naming the record, and is re-imported - never read.
 TEST( ImportRecord, AVersionOneRecordIsRefusedByItsPath )
 {
-    const Project project( "v1" );
+    const Project  project( "v1" );
     const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
     std::ofstream( record ) << R"({ "Header": { "Kind": "StaticMesh", "Guid": "56916479183d19ac580f5e8f62a520c4",
         "Versions": { "DIMP": 1 }, "Dependencies": [] }, "Source": "Rock.fbx" })";

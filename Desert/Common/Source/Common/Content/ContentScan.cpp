@@ -311,7 +311,7 @@ namespace Common::Content
             if ( const auto record = ImportRecordStandingFor( file ) )
                 return DescribeContentFile( *record, kind );
         ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
-        const bool importRecord = kind == ContentKind::StaticMesh && IsImportRecord( file );
+        const bool  importRecord = kind == ContentKind::StaticMesh && IsImportRecord( file );
         if ( kind == ContentKind::StaticMesh && !importRecord )
             described.HeaderBounds = ReadMeshAssetMetaBounds( file );
         else if ( kind == ContentKind::SkinnedMesh )
