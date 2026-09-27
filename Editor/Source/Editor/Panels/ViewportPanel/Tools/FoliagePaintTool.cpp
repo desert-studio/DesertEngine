@@ -5,6 +5,12 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 
+#include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Common/Core/Constants.hpp>
+#include <Common/Core/Logger.hpp>
+
 #include <ImGui/imgui.h>
 
 #include <glm/gtc/quaternion.hpp>
@@ -15,6 +21,7 @@
 #include <filesystem>
 #include <limits>
 #include <random>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Editor::Tools
@@ -47,29 +54,172 @@ namespace Desert::Editor::Tools
         }
     } // namespace
 
-    void FoliagePaintTool::CreateType( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
-                                       const std::string& meshSourcePath )
+    Assets::Asset<Assets::FoliageTypeAsset> FoliagePaintTool::ResolveType( Assets::AssetManager&      manager,
+                                                                           const Assets::AssetHandle& handle )
     {
-        if ( !assetManager )
-            return;
-        const auto handle =
-             MeshDnD::ResolveOrImport( const_cast<Assets::AssetManager&>( *assetManager ), meshSourcePath );
-        if ( !handle ) // skinned source / cook failure
-            return;
+        if ( !handle )
+            return nullptr;
+        auto type = manager.FindByHandle<Assets::FoliageTypeAsset>( handle );
+        if ( type && !type->IsReadyForUse() )
+        {
+            if ( const auto loaded = Assets::LoadThroughLoader( manager, type ); !loaded )
+            {
+                static std::unordered_set<uint64_t> s_Reported;
+                if ( s_Reported.insert( static_cast<uint64_t>( handle ) ).second )
+                    LOG_ERROR( "[Foliage] Foliage type '{}' could not be loaded: {}",
+                               type->GetMetadata().Filepath.string(), loaded.GetError() );
+                return nullptr;
+            }
+        }
+        return type;
+    }
 
-        auto& e = scene.CreateNewEntity(
-             std::string( "Foliage_" ) + std::filesystem::path( meshSourcePath ).stem().string() );
-        e.AddComponent<ECS::FoliageComponent>();
-        e.AddComponent<ECS::InstancedStaticMeshComponent>().MeshHandle = handle;
+    Assets::Asset<Assets::FoliageTypeAsset> FoliagePaintTool::OpenTypeFile( Assets::AssetManager& manager,
+                                                                            const std::string&    path )
+    {
+        const std::filesystem::path named( path );
+        const std::filesystem::path full =
+             named.is_absolute() ? named : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+        auto type = manager.FindByPath<Assets::FoliageTypeAsset>( full );
+        if ( !type )
+            type = manager.CreateAsset<Assets::FoliageTypeAsset>( Assets::AssetPriority::Medium, full,
+                                                                  /*loadAfterCreate=*/false );
+        if ( !type )
+            return nullptr;
+        if ( const auto loaded = Assets::LoadThroughLoader( manager, type ); !loaded )
+        {
+            LOG_ERROR( "[Foliage] Foliage type '{}' could not be loaded: {}", full.string(), loaded.GetError() );
+            return nullptr;
+        }
+        return type;
+    }
+
+    void FoliagePaintTool::AddField( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                     const Assets::Asset<Assets::FoliageTypeAsset>& type )
+    {
+        const Assets::AssetHandle meshHandle = type->GetMeshHandle();
+        if ( meshHandle )
+        {
+            // The ISM draws the type's mesh, so the mesh must be known to the mesh service the way a scene
+            // load makes it known (ComponentRegistry's FromGuid).
+            if ( auto mesh = manager.FindByHandle<Assets::MeshAsset>( meshHandle ) )
+                Runtime::EnsureMeshRegistered( mesh, manager );
+            else if ( !Runtime::DiscoverMesh( meshHandle ) )
+                LOG_ERROR( "[Foliage] Foliage type '{}' names mesh {} ('{}') that this project has not scanned",
+                           type->GetMetadata().Filepath.string(), type->GetData().Mesh.Guid,
+                           type->GetData().Mesh.Path );
+        }
+
+        auto& e = scene.CreateNewEntity( "Foliage_" + type->GetDisplayName() );
+        e.AddComponent<ECS::FoliageComponent>().FoliageType             = type->GetMetadata().Handle;
+        e.AddComponent<ECS::InstancedStaticMeshComponent>().MeshHandle = meshHandle;
         const auto newUuid = e.GetComponent<ECS::UUIDComponent>().UUID;
         Core::FoliagePaint::SetActiveOnly( newUuid );
         Core::FoliagePaint::SetEditingType( newUuid );
     }
 
-    void FoliagePaintTool::Paint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
+    void FoliagePaintTool::CreateTypeFromMesh( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                               const std::string& meshSourcePath )
     {
-        if ( !Core::FoliagePaint::HasActive() )
+        const auto handle = MeshDnD::ResolveOrImport( manager, meshSourcePath );
+        if ( !handle ) // skinned source / cook failure
             return;
+        const auto mesh = manager.FindByHandle<Assets::MeshAsset>( handle );
+        if ( !mesh || mesh->Guid().IsNull() )
+        {
+            LOG_ERROR( "[Foliage] Mesh '{}' has no header GUID, so no foliage type can name it", meshSourcePath );
+            return;
+        }
+
+        Assets::Serialization::FoliageTypeData data;
+        data.Mesh.Guid = Common::Content::AssetGuidToText( mesh->Guid() );
+        data.Mesh.Path = mesh->GetMetadata()
+                              .Filepath.lexically_normal()
+                              .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
+                              .generic_string();
+
+        const std::string    stem = std::filesystem::path( meshSourcePath ).stem().string();
+        std::filesystem::path file =
+             Common::Constants::Path::FOLIAGE_TYPE_PATH / ( stem + Assets::Serialization::kFoliageTypeExtension );
+        for ( int n = 1; std::filesystem::exists( file ); ++n )
+            file = Common::Constants::Path::FOLIAGE_TYPE_PATH /
+                   ( stem + "_" + std::to_string( n ) + Assets::Serialization::kFoliageTypeExtension );
+
+        if ( const auto saved = Assets::FoliageTypeAsset::Save( file, data ); !saved )
+        {
+            LOG_ERROR( "[Foliage] {}", saved.GetError() );
+            return;
+        }
+        if ( auto type = OpenTypeFile( manager, file.string() ) )
+            AddField( scene, manager, type );
+    }
+
+    void FoliagePaintTool::DrawTypeSettings( Assets::AssetManager&                          manager,
+                                             const Assets::Asset<Assets::FoliageTypeAsset>& type )
+    {
+        // The widgets edit a COPY that lives across frames while a drag is in flight; the file is written
+        // once when an edit ends, then read back, so the asset stays the one source of the numbers.
+        static Assets::AssetHandle            s_EditHandle;
+        static Assets::Serialization::FoliageTypeData s_Edit;
+        static bool                           s_Editing = false;
+        if ( !s_Editing || s_EditHandle != type->GetMetadata().Handle )
+        {
+            s_EditHandle = type->GetMetadata().Handle;
+            s_Edit       = type->GetData();
+        }
+        auto& f      = s_Edit;
+        bool  commit = false;
+        bool  active = false;
+        const auto track = [&]()
+        {
+            active = active || ImGui::IsItemActive();
+            commit = commit || ImGui::IsItemDeactivatedAfterEdit();
+        };
+
+        ImGui::TextDisabled( "%s", type->GetMetadata().Filepath.filename().string().c_str() );
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 80.0f, "Density:  %.0f / dab" );
+        track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloatRange2( "##Scale", &f.ScaleX.Min, &f.ScaleX.Max, 0.01f, 0.02f, 10.0f, "Scale %.2f", "%.2f" );
+        track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloatRange2( "##ZOffset", &f.ZOffset.Min, &f.ZOffset.Max, 0.5f, -500.0f, 500.0f, "Z Off %.0f",
+                                "%.0f cm" );
+        track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::SliderFloat( "##Pitch", &f.RandomPitchAngle, 0.0f, 90.0f, "Random Pitch:  %.0f deg" );
+        track();
+        ImGui::SetNextItemWidth( -1 );
+        ImGui::DragFloatRange2( "##Slope", &f.GroundSlopeAngle.Min, &f.GroundSlopeAngle.Max, 0.5f, 0.0f, 90.0f,
+                                "Slope %.0f", "%.0f deg" );
+        track();
+        commit = ImGui::Checkbox( "Align to Normal", &f.AlignToNormal ) || commit;
+        ImGui::SameLine();
+        commit = ImGui::Checkbox( "Random Yaw", &f.RandomYaw ) || commit;
+        s_Editing = active;
+
+        if ( commit && !( f == type->GetData() ) )
+        {
+            if ( const auto saved = Assets::FoliageTypeAsset::Save( type->GetMetadata().Filepath, f ); !saved )
+            {
+                LOG_ERROR( "[Foliage] {}", saved.GetError() );
+                s_Edit = type->GetData();
+                return;
+            }
+            (void)type->Unload();
+            if ( const auto loaded = Assets::LoadThroughLoader( manager, type ); !loaded )
+                LOG_ERROR( "[Foliage] Foliage type '{}' could not be read back: {}",
+                           type->GetMetadata().Filepath.string(), loaded.GetError() );
+        }
+    }
+
+    void FoliagePaintTool::Paint( ::Desert::Core::Scene& scene, const Assets::AssetManager* assetManager,
+                                  const Common::Math::Ray& ray )
+    {
+        if ( !Core::FoliagePaint::HasActive() || !assetManager )
+            return;
+        auto& manager = const_cast<Assets::AssetManager&>( *assetManager );
 
         ::Desert::Core::RaycastHit hit;
         if ( !scene.Raycast( ray, hit ) )
@@ -97,7 +247,6 @@ namespace Desert::Editor::Tools
                  !e.HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
 
-            auto& fol = e.GetComponent<ECS::FoliageComponent>();
             auto& ism = e.GetComponent<ECS::InstancedStaticMeshComponent>();
 
             if ( erase )
@@ -115,8 +264,13 @@ namespace Desert::Editor::Tools
                 continue;
             }
 
+            const auto type = ResolveType( manager, e.GetComponent<ECS::FoliageComponent>().FoliageType );
+            if ( !type )
+                continue;
+            const auto& fol = type->GetData();
+
             // Per-type slope filter (uses the brush-centre surface).
-            if ( slopeDeg < fol.SlopeMinDeg || slopeDeg > fol.SlopeMaxDeg )
+            if ( slopeDeg < fol.GroundSlopeAngle.Min || slopeDeg > fol.GroundSlopeAngle.Max )
                 continue;
 
             const int count = glm::max(
@@ -126,17 +280,17 @@ namespace Desert::Editor::Tools
                 const float ang = u01( rng ) * 6.2831853f;
                 const float rr  = radius * std::sqrt( u01( rng ) ); // uniform disk
                 glm::vec3   pos = hitPos + glm::vec3( std::cos( ang ) * rr, 0.0f, std::sin( ang ) * rr );
-                pos.y += glm::mix( fol.ZOffsetMin, fol.ZOffsetMax, u01( rng ) );
-                const float scl = glm::mix( fol.ScaleMin, fol.ScaleMax, u01( rng ) );
+                pos.y += glm::mix( fol.ZOffset.Min, fol.ZOffset.Max, u01( rng ) );
+                const float scl = glm::mix( fol.ScaleX.Min, fol.ScaleX.Max, u01( rng ) );
 
                 glm::mat4 m = glm::translate( glm::mat4( 1.0f ), pos );
                 if ( fol.AlignToNormal )
                     m *= glm::mat4_cast( AlignUpToNormal( hitN ) );
                 if ( fol.RandomYaw )
                     m = glm::rotate( m, u01( rng ) * 6.2831853f, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-                if ( fol.MaxPitchDeg > 0.01f )
+                if ( fol.RandomPitchAngle > 0.01f )
                 {
-                    const float     pitch = glm::radians( fol.MaxPitchDeg ) * u01( rng );
+                    const float     pitch = glm::radians( fol.RandomPitchAngle ) * u01( rng );
                     const glm::vec3 axis =
                          glm::normalize( glm::vec3( usym( rng ), 0.0f, usym( rng ) ) + glm::vec3( 1e-3f, 0, 0 ) );
                     m = glm::rotate( m, pitch, axis );
@@ -182,11 +336,19 @@ namespace Desert::Editor::Tools
         ImGui::Dummy( ImVec2( 0, 2 ) );
         ImGui::TextDisabled( "FOLIAGE TYPES" );
 
-        ImGui::Button( ICON_MDI_PLUS " Add Foliage Type  (drop a mesh)", ImVec2( -1, 0 ) );
-        if ( ImGui::BeginDragDropTarget() )
+        ImGui::Button( ICON_MDI_PLUS " Add Foliage Type  (drop a mesh or .defoliage)", ImVec2( -1, 0 ) );
+        if ( assetManager && ImGui::BeginDragDropTarget() )
         {
+            auto& manager = const_cast<Assets::AssetManager&>( *assetManager );
             if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::MeshAsset ) )
-                CreateType( scene, assetManager, std::string( static_cast<const char*>( p->Data ) ) );
+                CreateTypeFromMesh( scene, manager, std::string( static_cast<const char*>( p->Data ) ) );
+            if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+            {
+                const std::string path( static_cast<const char*>( p->Data ) );
+                if ( std::filesystem::path( path ).extension() == Assets::Serialization::kFoliageTypeExtension )
+                    if ( auto type = OpenTypeFile( manager, path ) )
+                        AddField( scene, manager, type );
+            }
             ImGui::EndDragDropTarget();
         }
 
@@ -199,7 +361,7 @@ namespace Desert::Editor::Tools
 
         if ( types.empty() )
         {
-            ImGui::TextDisabled( "Drag a mesh here or from a Collection." );
+            ImGui::TextDisabled( "Drag a mesh or a .defoliage here." );
         }
         else
         {
@@ -250,28 +412,15 @@ namespace Desert::Editor::Tools
             if ( auto ref = scene.FindEntityByID( *editing );
                  ref && ref->get().HasComponent<ECS::FoliageComponent>() )
             {
-                auto& f = ref->get().GetComponent<ECS::FoliageComponent>();
                 ImGui::Dummy( ImVec2( 0, 2 ) );
                 ImGui::TextDisabled( "TYPE SETTINGS" );
-
-                ImGui::SetNextItemWidth( -1 );
-                ImGui::SliderFloat( "##Density", &f.Density, 1.0f, 80.0f, "Density:  %.0f / dab" );
-
-                ImGui::SetNextItemWidth( ImGui::GetContentRegionAvail().x * 0.5f - 4.0f );
-                ImGui::DragFloatRange2( "##Scale", &f.ScaleMin, &f.ScaleMax, 0.01f, 0.02f, 10.0f, "Scale %.2f",
-                                        "%.2f" );
-                ImGui::SetNextItemWidth( -1 );
-                ImGui::DragFloatRange2( "##ZOffset", &f.ZOffsetMin, &f.ZOffsetMax, 0.01f, -2.0f, 2.0f,
-                                        "Z Off %.2f", "%.2f" );
-                ImGui::SetNextItemWidth( -1 );
-                ImGui::SliderFloat( "##Pitch", &f.MaxPitchDeg, 0.0f, 45.0f, "Random Tilt:  %.0f deg" );
-                ImGui::SetNextItemWidth( -1 );
-                ImGui::DragFloatRange2( "##Slope", &f.SlopeMinDeg, &f.SlopeMaxDeg, 0.5f, 0.0f, 90.0f, "Slope %.0f",
-                                        "%.0f deg" );
-
-                ImGui::Checkbox( "Align to Normal", &f.AlignToNormal );
-                ImGui::SameLine();
-                ImGui::Checkbox( "Random Yaw", &f.RandomYaw );
+                auto type = assetManager ? ResolveType( const_cast<Assets::AssetManager&>( *assetManager ),
+                                                        ref->get().GetComponent<ECS::FoliageComponent>().FoliageType )
+                                         : nullptr;
+                if ( type )
+                    DrawTypeSettings( const_cast<Assets::AssetManager&>( *assetManager ), type );
+                else
+                    ImGui::TextDisabled( "No foliage type (drop a .defoliage on the entity's Details)." );
 
                 ImGui::Dummy( ImVec2( 0, 2 ) );
                 if ( ImGui::Button( ICON_MDI_DELETE " Remove Type", ImVec2( -1, 0 ) ) )

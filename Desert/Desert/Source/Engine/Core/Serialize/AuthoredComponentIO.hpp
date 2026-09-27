@@ -43,7 +43,7 @@
 //      reader here takes a Json::Node rooted at the component's place in the scene and an Issues list:
 //      a value of the wrong type — or a number the field cannot hold, like 1e300 for a float, which a
 //      cast would have made infinity — becomes an Issue naming the full path
-//      ("Entities[id=4127].Foliage.Density"), and the field keeps the value it had.
+//      ("Entities[id=4127].Locomotion.WalkSpeed"), and the field keeps the value it had.
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -87,41 +87,6 @@ namespace Desert::Core::Serialize
                 out = std::move( read );
         }
     } // namespace AuthoredIO
-
-    // ── FOLIAGE TYPE ───────────────────────────────────────────────────────────────────────────────
-    // The scatter parameters the paint brush reads (Editor/.../Tools/FoliagePaintTool.cpp). Losing
-    // these is the most visible of the five: the next paint dab after a reload scatters at a density
-    // and a scale nobody asked for, and the instances already on the terrain do not match it.
-    inline Common::Json::Object WriteComponent( const ECS::FoliageComponent& c )
-    {
-        return Common::Json::ObjectBuilder()
-             .Set( "Density", c.Density )
-             .Set( "ScaleMin", c.ScaleMin )
-             .Set( "ScaleMax", c.ScaleMax )
-             .Set( "ZOffsetMin", c.ZOffsetMin )
-             .Set( "ZOffsetMax", c.ZOffsetMax )
-             .Set( "MaxPitchDeg", c.MaxPitchDeg )
-             .Set( "SlopeMinDeg", c.SlopeMinDeg )
-             .Set( "SlopeMaxDeg", c.SlopeMaxDeg )
-             .Set( "AlignToNormal", c.AlignToNormal )
-             .Set( "RandomYaw", c.RandomYaw )
-             .Build();
-    }
-
-    inline void ReadComponent( const Common::Json::Node& from, ECS::FoliageComponent& c,
-                               Common::Json::Issues& issues )
-    {
-        from.ReadInto( "Density", c.Density, issues );
-        from.ReadInto( "ScaleMin", c.ScaleMin, issues );
-        from.ReadInto( "ScaleMax", c.ScaleMax, issues );
-        from.ReadInto( "ZOffsetMin", c.ZOffsetMin, issues );
-        from.ReadInto( "ZOffsetMax", c.ZOffsetMax, issues );
-        from.ReadInto( "MaxPitchDeg", c.MaxPitchDeg, issues );
-        from.ReadInto( "SlopeMinDeg", c.SlopeMinDeg, issues );
-        from.ReadInto( "SlopeMaxDeg", c.SlopeMaxDeg, issues );
-        from.ReadInto( "AlignToNormal", c.AlignToNormal, issues );
-        from.ReadInto( "RandomYaw", c.RandomYaw, issues );
-    }
 
     // ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────
     // The state -> clip mapping LocomotionSystem reads. The clip NAMES are the whole point: a lost

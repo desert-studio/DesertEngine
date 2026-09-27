@@ -230,21 +230,14 @@ namespace Desert::ECS
         std::shared_ptr<const std::vector<glm::mat4>> RuntimeInstanceSnapshot;
     };
 
-    // A FOLIAGE type (UE5-style). Sits alongside an InstancedStaticMeshComponent (the mesh + per-instance
-    // WORLD transforms, drawn instanced). The Foliage paint tool scatters instances of this type onto surfaces
-    // (raycast brush). These are the per-type scatter params.
+    // A FOLIAGE FIELD (UE: one FFoliageInfo of an AInstancedFoliageActor). Sits beside an
+    // InstancedStaticMeshComponent that holds the painted instances; WHAT is painted — the mesh and the scatter
+    // numbers — is the `.defoliage` named here (Assets::FoliageTypeAsset), shared by every field painted with
+    // the same type. Saved as {FoliageTypeGuid, FoliageTypePath}; a type the project does not have refuses the
+    // scene's load with both (ComponentRegistry.cpp) instead of painting with defaults.
     struct FoliageComponent
     {
-        float Density       = 6.0f; // instances scattered per paint dab (in the brush disk)
-        float ScaleMin      = 0.8f;
-        float ScaleMax      = 1.3f;
-        float ZOffsetMin    = 0.0f; // sink(-)/raise(+) along world up, randomized per instance
-        float ZOffsetMax    = 0.0f;
-        float MaxPitchDeg   = 0.0f; // random tilt off the up/normal axis (0 = upright)
-        float SlopeMinDeg   = 0.0f; // only paint where the surface slope is within [min,max] degrees
-        float SlopeMaxDeg   = 90.0f;
-        bool  AlignToNormal = true; // tilt instances to the surface normal
-        bool  RandomYaw     = true; // random rotation about the up axis
+        Assets::AssetHandle FoliageType;
     };
 
     // A landscape surface layer's switch. Auto = weighted by the Terrain program's height/slope rules;

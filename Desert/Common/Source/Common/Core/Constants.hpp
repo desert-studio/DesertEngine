@@ -68,6 +68,7 @@ namespace Common::Constants
             ShaderGraph,
             AnimGraph,
             Retarget,
+            FoliageType,
             Cooked,
             MeshCooked,
             COUNT
@@ -143,6 +144,9 @@ namespace Common::Constants
              // because it is the same kind of thing one level up — a `.derig` is a statement about one rig,
              // a `.retarget` is a statement about a PAIR of them.
              /* Retarget      */ { "Retargets/", DirRoot::Assets },
+             // Foliage types (`.defoliage`) get their own folder for the retarget's reason: the paint
+             // panel's type slot offers only what is scanned from here.
+             /* FoliageType   */ { "Foliage/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
         } };
@@ -362,6 +366,7 @@ namespace Common::Constants
         inline const std::filesystem::path& SHADER_GRAPH_PATH   = Dir( ContentDir::ShaderGraph );
         inline const std::filesystem::path& ANIM_GRAPH_PATH     = Dir( ContentDir::AnimGraph );
         inline const std::filesystem::path& RETARGET_PATH       = Dir( ContentDir::Retarget );
+        inline const std::filesystem::path& FOLIAGE_TYPE_PATH   = Dir( ContentDir::FoliageType );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
     } // namespace Path
