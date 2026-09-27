@@ -38,7 +38,7 @@ namespace Desert::Graphic
     // refuses a second write to the same (frame x slot x set) and calls `ReportSwallowedRebind`: a
     // descriptor set written twice in one frame would have the LAST batch's textures under every draw
     // recorded before it. One material per texture set is the only shape Vulkan allows here, which is
-    // the same conclusion TerrainRenderer reached for its splat maps.
+    // the same conclusion TerrainRenderer reached for its per-landscape layer textures.
     //
     // The answer is therefore a PROPERTY OF THE GROUP, not of the renderer, and it is this enum.
     enum class InstancedRecorder : uint8_t
