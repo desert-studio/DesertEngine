@@ -52,9 +52,6 @@ namespace Desert::Assets
         // against images that are about to be replaced). Splitting it would move that ordering
         // constraint out into two startup sequences in two different layers, where nothing states it.
         //
-        // NOT the same walk as the editor's thumbnail sweep (Editor/Widgets/ThumbnailSweep.hpp), which
-        // covers overlapping directories and is deliberately not derived from this one. The difference
-        // is written down there, in one place, beside the walk that came second.
         // @p progress names each registry row as it is created (the splash's item line).
         void PreloadCookedAssetsAndMaterials( const ItemProgress& progress = {} );
         // The number of registry rows `PreloadCookedAssetsAndMaterials` works through — the splash weighs

@@ -65,16 +65,25 @@ TEST( SplashRevealGate, TheHandOverHappensOnceAndOnlyFromASplash )
     EXPECT_FALSE( Splash::MayReveal( headless ) );
 }
 
-// Thumbnails are background work: held while the splash is up, free once it has handed over, and never
-// held by a splash that does not exist (headless shots have none).
-TEST( SplashRevealGate, BackgroundWorkWaitsForTheHandOver )
+// Thumbnails come in two halves with two gates (TH2). Decoding a PNG already in the disk cache is allowed in
+// every state — during the splash is the point, so the first frame after the hand-over only uploads.
+// CAPTURING one waits for the hand-over, and is never held by a splash that does not exist (headless shots).
+TEST( SplashRevealGate, ACachedThumbnailIsDecodedBeforeTheHandOverAndACaptureIsNot )
 {
     Splash::RevealState s;
     s.HasSplash = true;
-    EXPECT_FALSE( Splash::BackgroundWorkAllowed( s ) );
-    s.Revealed = true;
-    EXPECT_TRUE( Splash::BackgroundWorkAllowed( s ) );
+    EXPECT_TRUE( Splash::ThumbnailDiskDecodeAllowed( s ) ) << "a cached PNG must be decoded during the splash";
+    EXPECT_FALSE( Splash::ThumbnailCaptureAllowed( s ) ) << "a capture must not share the settle's frames";
+    s.ContentSettling = true;
+    EXPECT_TRUE( Splash::ThumbnailDiskDecodeAllowed( s ) );
+    EXPECT_FALSE( Splash::ThumbnailCaptureAllowed( s ) );
+
+    s.ContentSettling = false;
+    s.Revealed        = true;
+    EXPECT_TRUE( Splash::ThumbnailDiskDecodeAllowed( s ) );
+    EXPECT_TRUE( Splash::ThumbnailCaptureAllowed( s ) );
 
     Splash::RevealState headless;
-    EXPECT_TRUE( Splash::BackgroundWorkAllowed( headless ) );
+    EXPECT_TRUE( Splash::ThumbnailDiskDecodeAllowed( headless ) );
+    EXPECT_TRUE( Splash::ThumbnailCaptureAllowed( headless ) );
 }

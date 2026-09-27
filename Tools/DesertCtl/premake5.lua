@@ -13,20 +13,27 @@ project "DesertCtl"
     language "C++"
     cppdialect "C++20"
 
+    -- The reply is read through the JSON facade (Common::Json), compiled in here as one source rather than by
+    -- linking Common: Common drags Optick and Cocoa into a tool whose whole job is one socket round-trip. The
+    -- facade's ResultStr needs fmt, which comes header-only from the vendored spdlog.
     files {
         "Source/**.cpp",
+        "%{wks.location}/Desert/Common/Source/Common/Json/Json.cpp",
     }
     includedirs {
         "%{wks.location}/Tools/Shared",
-        -- For Common/Core/LocalSocket.hpp ALONE, which is header-only: the editor's end of this channel
-        -- opens the same socket, and the platform differences are written once rather than once per end.
-        -- No Common library is linked -- see above, this tool builds where a renderer cannot.
+        -- For Common/Core/LocalSocket.hpp (header-only: the editor's end of this channel opens the same
+        -- socket, and the platform differences are written once rather than once per end) and for the
+        -- facade's Json.cpp compiled in above. No Common library is linked -- this tool builds where a
+        -- renderer cannot.
         "%{wks.location}/Desert/Common/Source",
     }
 
+    defines { "FMT_HEADER_ONLY" }
 
     externalincludedirs {
         "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{wks.location}/ThirdParty/spdlog/include",
     }
 
     -- ON EVERY PLATFORM, which it was not before. The Windows build of this tool used to be a dozen lines

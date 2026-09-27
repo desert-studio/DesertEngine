@@ -43,7 +43,6 @@
 #include <Common/Core/Constants.hpp>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <cctype>
 #include <cstring>
@@ -201,60 +200,64 @@ namespace
     // block sits at an unknown depth inside the entity list, and hard-coding the depth is how the next
     // format change makes this census pass over nothing.
     //
-    // The recursion is silenced rather than removed: the document IS recursive, and an explicit worklist
-    // would have to copy every subtree because `to_array`/`to_object` return by VALUE. The directive has
-    // to be the LAST comment line before the statement — one more line of prose under it and clang-tidy
-    // does not see it, which is how the first attempt at this went red with the comment already written.
-    // NOLINTNEXTLINE(misc-no-recursion)
-    void CollectPairs( const Common::Json::Value& node, const std::string& scene,
+    // Every string element of an array node, in order; an element that is not a string reads as nullopt so
+    // the zip below still lines paths up against guids by position.
+    std::vector<std::optional<std::string>> CollectStrings( const Common::Json::Node& array )
+    {
+        std::vector<std::optional<std::string>> out;
+        array.ForEachElement(
+             [&]( std::size_t, const Common::Json::Node& element )
+             {
+                 const auto text = element.AsString();
+                 out.push_back( text ? std::optional<std::string>( text.GetValue() ) : std::nullopt );
+             } );
+        return out;
+    }
+
+    // A worklist rather than recursion: the recursion ran through the lambda handed to the facade's
+    // ForEachMember, so a directive on this function could not reach the template instantiation in
+    // Document.hpp that clang-tidy also names. Children are pushed in reverse so pairs come out in
+    // document order, as the recursive walk produced them.
+    void CollectPairs( const Common::Json::Node& root, const std::string& scene,
                        std::vector<PathAndGuid>& materials )
     {
-        if ( const auto array = node.to_array() )
+        std::vector<Common::Json::Node> pending{ root };
+        std::vector<Common::Json::Node> children;
+        while ( !pending.empty() )
         {
-            for ( const auto& element : array.value() )
-                CollectPairs( element, scene, materials );
-            return;
-        }
-
-        const auto object = node.to_object();
-        if ( !object )
-            return;
-
-        const auto& fields = object.value();
-
-        // `rfl::Object::find` returns an INDEX, not an iterator, so the pairs are walked instead.
-        const auto valueOf = [&fields]( const char* name ) -> const Common::Json::Value*
-        {
-            for ( const auto& [key, value] : fields )
+            const Common::Json::Node node = pending.back();
+            pending.pop_back();
+            children.clear();
+            if ( node.GetKind() == Common::Json::Kind::Array )
             {
-                if ( key == name )
-                    return &value;
+                node.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                     { children.push_back( element ); } );
+                pending.insert( pending.end(), children.rbegin(), children.rend() );
+                continue;
             }
-            return nullptr;
-        };
-        const Common::Json::Value* paths = valueOf( "MaterialPaths" );
-        const Common::Json::Value* guids = valueOf( "MaterialGuids" );
-        if ( paths != nullptr && guids != nullptr )
-        {
-            const auto pathArray = paths->to_array();
-            const auto guidArray = guids->to_array();
-            if ( pathArray && guidArray )
+
+            if ( node.GetKind() != Common::Json::Kind::Object )
+                continue;
+
+            const auto paths = node.Find( "MaterialPaths" );
+            const auto guids = node.Find( "MaterialGuids" );
+            if ( paths && guids && paths->GetKind() == Common::Json::Kind::Array &&
+                 guids->GetKind() == Common::Json::Kind::Array )
             {
-                const auto& p = pathArray.value();
-                const auto& g = guidArray.value();
+                const auto p = CollectStrings( *paths );
+                const auto g = CollectStrings( *guids );
                 for ( size_t at = 0; at < p.size() && at < g.size(); ++at )
                 {
-                    const auto text  = p[at].to_string();
-                    const auto value = g[at].to_string();
-                    if ( !text || !value || text->empty() || value->empty() )
+                    if ( !p[at] || !g[at] || p[at]->empty() || g[at]->empty() )
                         continue;
-                    materials.push_back( { scene, "MaterialPaths/MaterialGuids", *text, *value } );
+                    materials.push_back( { scene, "MaterialPaths/MaterialGuids", *p[at], *g[at] } );
                 }
             }
-        }
 
-        for ( const auto& [name, value] : fields )
-            CollectPairs( value, scene, materials );
+            node.ForEachMember( [&]( std::string_view, const Common::Json::Node& value )
+                                { children.push_back( value ); } );
+            pending.insert( pending.end(), children.rbegin(), children.rend() );
+        }
     }
 
     void CollectPairsInScenes( const fs::path& scenesRoot, std::vector<PathAndGuid>& materials,
@@ -271,7 +274,7 @@ namespace
                     *parseError = entry.path().filename().string() + ": " + parsed.GetError();
                 continue;
             }
-            CollectPairs( parsed.GetValue(), entry.path().filename().string(), materials );
+            CollectPairs( Common::Json::Root( parsed.GetValue() ), entry.path().filename().string(), materials );
         }
     }
 
@@ -377,8 +380,8 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
     const ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( root + "Editor", "Resources/Assets" );
 
-    std::vector<PathAndGuid>   materials;
-    std::string                parseError;
+    std::vector<PathAndGuid> materials;
+    std::string              parseError;
     CollectPairsInScenes( scenes, materials, &parseError );
     ASSERT_TRUE( parseError.empty() ) << "a shipped scene did not parse: " << parseError;
 

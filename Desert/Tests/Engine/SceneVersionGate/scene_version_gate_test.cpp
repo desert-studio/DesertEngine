@@ -29,7 +29,7 @@
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -76,14 +76,14 @@ namespace
     SceneSerialized At( int sceneVersion, int unitVersion )
     {
         SceneSerialized scene;
-        scene.SceneName    = "Fixture";
-        scene.Header       = FixtureHeader( Common::Content::ContentKind::Scene, sceneVersion, unitVersion );
+        scene.SceneName = "Fixture";
+        scene.Header    = FixtureHeader( Common::Content::ContentKind::Scene, sceneVersion, unitVersion );
         return scene;
     }
 
     std::string JsonAt( int sceneVersion, int unitVersion )
     {
-        return rfl::json::write( At( sceneVersion, unitVersion ) );
+        return Common::Json::Write( At( sceneVersion, unitVersion ) );
     }
 
     bool Mentions( const std::string& haystack, const std::string& needle )
@@ -386,15 +386,16 @@ TEST( SceneVersionGateCorpus, EverySceneStatesBothVersionIntegersExplicitly )
 {
     for ( const auto& path : RepositoryScenes() )
     {
-        const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string();
+        const auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( path ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << path.string() << ": " << ( parsed ? "" : parsed.GetError() );
 
-        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
-        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
-        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kSceneSchemaTag ),
+        ASSERT_TRUE( parsed.GetValue().Header.has_value() ) << path.string() << " states no header";
+        ASSERT_TRUE( parsed.GetValue().Header.has_value() ) << path.string() << " states no header";
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed.GetValue().Header, Desert::Assets::kSceneSchemaTag ),
                    kSceneVersion )
              << path.string();
-        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion )
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed.GetValue().Header, Desert::Assets::kUnitSchemaTag ),
+                   kUnitVersion )
              << path.string();
     }
 }

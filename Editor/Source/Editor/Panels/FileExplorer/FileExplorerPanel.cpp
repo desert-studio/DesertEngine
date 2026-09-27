@@ -29,7 +29,7 @@
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
-#include <Editor/Widgets/ThumbnailSweep.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
@@ -42,9 +42,9 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
-#include <Engine/Core/Scene.hpp>            // GetFinalImage (Capture Thumbnail from viewport)
-#include <Engine/Graphic/Renderer.hpp>      // WaitDeviceIdle before readback
-#include <Engine/Graphic/Image.hpp>         // Image2D::ReadPixelsRGBA8
+#include <Engine/Core/Scene.hpp>       // GetFinalImage (Capture Thumbnail from viewport)
+#include <Engine/Graphic/Renderer.hpp> // WaitDeviceIdle before readback
+#include <Engine/Graphic/Image.hpp>    // Image2D::ReadPixelsRGBA8
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -63,8 +63,8 @@
 #include <system_error>
 
 #ifdef DESERT_PLATFORM_WINDOWS
-    #include <windows.h>
-    #include <shellapi.h>
+#include <windows.h>
+#include <shellapi.h>
 #endif
 
 namespace Desert::Editor
@@ -266,7 +266,6 @@ namespace Desert::Editor
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
         m_Thumbnails = std::make_unique<ThumbnailCache>();
-        m_Sweeper    = std::make_unique<ThumbnailSweeper>();
         ThumbnailCache::PurgeOldVersions(); // drop stale-renderer thumbnails so they regenerate cleanly
 
         // NO LOAD STEP FOR THE PINNED FOLDERS ANY MORE (К5). They are read out of EditorPreferences where
@@ -296,7 +295,7 @@ namespace Desert::Editor
 
         if ( rootPath.empty() )
         {
-            m_BasePath = "Assets"; 
+            m_BasePath = "Assets";
         }
         else
         {
@@ -367,14 +366,6 @@ namespace Desert::Editor
         // future nobody polls is a thread whose result is thrown away at shutdown.
         PollCloudAssetBake();
 
-        // THE BACKGROUND SWEEP, ahead of the throttle below and unconditional. It has a period of its
-        // own (ThumbnailSweeper::kFramesBetweenScans) and paces itself; putting it behind this panel's
-        // directory-poll throttle would make one background rate depend on another for no reason, and
-        // putting it after the `!m_CurrentDir` return would stop the whole project's previews the moment
-        // the browser had no directory selected.
-        if ( m_Sweeper )
-            m_Sweeper->Tick( m_AssetManager, m_BasePath );
-
         // Throttle to ~every 30 frames (~0.5s @60fps) — directory_iterator is cheap but not free.
         if ( ++m_PollCounter < 30 )
             return;
@@ -405,6 +396,8 @@ namespace Desert::Editor
             ProcessDirectory( m_CurrentDir->AssetPath, m_CurrentDir->Parent, true );
         }
 
+        PrefetchCurrentFolderThumbnails();
+
         // Record in the back/forward history, unless this navigation IS a back/forward.
         if ( !m_NavigatingHistory )
         {
@@ -416,6 +409,43 @@ namespace Desert::Editor
                 m_NavPos = static_cast<int>( m_NavHistory.size() ) - 1;
             }
         }
+    }
+
+    void FileExplorerPanel::PrefetchCurrentFolderThumbnails()
+    {
+        if ( m_CurrentDir == nullptr )
+            return;
+
+        // The same picture each Draw*Thumbnail below will pass to ThumbnailCache::Get, and the same
+        // freshness subject it judges — a mismatch here would only cost a wasted decode (Get takes nothing
+        // it was not asked for), never a wrong picture.
+        std::vector<ThumbnailPrefetch::Item> items;
+        for ( const DirectoryInformation* entry : m_CurrentDir->Children )
+        {
+            if ( entry == nullptr || !entry->IsFile || entry->Hidden )
+                continue;
+            switch ( entry->Type )
+            {
+                case FileType::Texture:
+                    items.push_back( { entry->AssetPath, {} } );
+                    break;
+                case FileType::Material:
+                case FileType::Cloud:
+                case FileType::UITheme:
+                case FileType::Cubemap:
+                    items.push_back( { ThumbnailKey::DiskPath( entry->AssetPath ), entry->AssetPath } );
+                    break;
+                case FileType::Model:
+                {
+                    const std::string cooked = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
+                    items.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        ThumbnailPrefetch::Get().Request( std::move( items ) );
     }
 
     bool FileExplorerPanel::NavigateToPath( const std::string& path )
@@ -491,8 +521,7 @@ namespace Desert::Editor
 
         auto prefab = m_AssetManager->FindByPath<Assets::PrefabAsset>( prefabPath );
         if ( !prefab )
-            prefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High,
-                                                                       prefabPath );
+            prefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High, prefabPath );
         if ( !prefab )
             return;
         if ( !prefab->IsReadyForUse() )
@@ -531,8 +560,7 @@ namespace Desert::Editor
             return;
         const std::string ext( Common::Constants::Extensions::MATERIAL_EXTENSION );
         const std::string name = AssetFileOps::UniqueName(
-             "NewMaterial", ext,
-             [&]( const std::string& n )
+             "NewMaterial", ext, [&]( const std::string& n )
              { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
         const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
         // Minimal valid material: no params, no textures — the engine derives a stable id from the path.
@@ -540,7 +568,7 @@ namespace Desert::Editor
         // there is a file to show: a refresh over a failed write just redraws the old listing and the
         // user is left believing the "New Material" menu item did nothing at all.
         if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, "{\"Params\":[],\"Textures\":[]}" );
+                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, R"({"Params":[],"Textures":[]})" );
              !written )
         {
             LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), written.GetError() );
@@ -830,9 +858,8 @@ namespace Desert::Editor
                  std::filesystem::exists( stdPath ) ? std::filesystem::file_size( stdPath ) : 0;
             {
                 std::error_code wec;
-                const auto      t = std::filesystem::last_write_time( stdPath, wec );
-                directoryInfo->LastWriteTime =
-                     wec ? 0 : static_cast<uint64_t>( t.time_since_epoch().count() );
+                const auto      t            = std::filesystem::last_write_time( stdPath, wec );
+                directoryInfo->LastWriteTime = wec ? 0 : static_cast<uint64_t>( t.time_since_epoch().count() );
             }
             directoryInfo->Hidden = std::filesystem::exists( stdPath ) ? IsHidden( stdPath ) : true;
             directoryInfo->Opened = true;
@@ -1007,7 +1034,7 @@ namespace Desert::Editor
         // pending material; see AssetThumbnailRenderer).
         // Thumbnail capture is driven editor-wide by EditorLayer via ThumbnailService.
         {
-            FileIndex              = 0;
+            FileIndex = 0;
             if ( m_Refresh )
             {
                 RefreshCurrentDirectory(); // in-place: keeps navigation (watcher / import / rebuild)
@@ -1020,8 +1047,8 @@ namespace Desert::Editor
             constexpr float kMinContentWidth = 220.0f;
             constexpr float kSplitterW       = 6.0f;
             const float     totalAvail       = ImGui::GetContentRegionAvail().x;
-            m_TreeWidth = std::clamp( m_TreeWidth, kMinTreeWidth,
-                                      std::max( kMinTreeWidth, totalAvail - kMinContentWidth - kSplitterW ) );
+            m_TreeWidth                      = std::clamp( m_TreeWidth, kMinTreeWidth,
+                                                           std::max( kMinTreeWidth, totalAvail - kMinContentWidth - kSplitterW ) );
 
             // LEFT PANE.
             ImGui::BeginChild( "##cb_left", ImVec2( m_TreeWidth, 0.0f ), true );
@@ -1061,7 +1088,7 @@ namespace Desert::Editor
             if ( ImGui::BeginDragDropTarget() )
             {
                 if ( auto data = ImGui::AcceptDragDropPayload( "selectable",
-                                                              ImGuiDragDropFlags_AcceptNoDrawDefaultRect ) )
+                                                               ImGuiDragDropFlags_AcceptNoDrawDefaultRect ) )
                 {
                     std::string* file = (std::string*)data->Data;
                     MoveFileTo( *file, m_MovePath );
@@ -1082,7 +1109,8 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() || ImGui::IsItemActive() )
                 ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
             {
-                const ImVec2 mn  = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+                const ImVec2 mn  = ImGui::GetItemRectMin();
+                const ImVec2 mx  = ImGui::GetItemRectMax();
                 const bool   hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
                 ImGui::GetWindowDrawList()->AddRectFilled(
                      ImVec2( ( mn.x + mx.x ) * 0.5f - 1.0f, mn.y ), ImVec2( ( mn.x + mx.x ) * 0.5f + 1.0f, mx.y ),
@@ -1096,9 +1124,8 @@ namespace Desert::Editor
             // Toolbar strip (settings / search / sort / filter / nav / import + breadcrumb) inside the right pane.
             {
                 {
-                    ImGui::BeginChild( "##cb_toolbar",
-                                       ImVec2( 0.0f, ImGui::GetFrameHeightWithSpacing() * 2.0f ), false,
-                                       ImGuiWindowFlags_NoScrollbar );
+                    ImGui::BeginChild( "##cb_toolbar", ImVec2( 0.0f, ImGui::GetFrameHeightWithSpacing() * 2.0f ),
+                                       false, ImGuiWindowFlags_NoScrollbar );
 
                     ImGui::AlignTextToFramePadding();
                     // Button for advanced settings
@@ -1157,7 +1184,7 @@ namespace Desert::Editor
                     // Sort mode + ascending/descending toggle.
                     ImGui::SetNextItemWidth( 130.0f );
                     const char* const sortNames[] = { "Name", "Date Modified", "Type", "Size" };
-                    int               sortIdx      = static_cast<int>( m_SortMode );
+                    int               sortIdx     = static_cast<int>( m_SortMode );
                     if ( ImGui::Combo( "##AssetSort", &sortIdx, sortNames, IM_ARRAYSIZE( sortNames ) ) )
                         m_SortMode = static_cast<SortMode>( sortIdx );
                     ImGui::SameLine();
@@ -1387,8 +1414,9 @@ namespace Desert::Editor
                         for ( size_t idx : displayOrder )
                         {
                             ImGui::TableNextColumn();
-                            const bool doubleClicked = RenderFile(
-                                 (int)idx, !m_CurrentDir->Children[idx]->IsFile, shownIndex, !m_IsInListView );
+                            const bool doubleClicked =
+                                 RenderFile( static_cast<int>( idx ), !m_CurrentDir->Children[idx]->IsFile,
+                                             shownIndex, !m_IsInListView );
                             if ( doubleClicked )
                                 break;
                             shownIndex++;
@@ -1434,8 +1462,8 @@ namespace Desert::Editor
                             {
                                 auto createGraph = [&]( ShaderGraph::Domain domain )
                                 {
-                                    const auto path = NodeGraphPanel::CreateNewGraphFile(
-                                         m_CurrentDir->AssetPath, domain );
+                                    const auto path =
+                                         NodeGraphPanel::CreateNewGraphFile( m_CurrentDir->AssetPath, domain );
                                     if ( path.empty() ) // not written — nothing to open, nothing new to list
                                         return;
                                     // Through the SAME opener the double-click uses, so a graph created
@@ -1559,7 +1587,7 @@ namespace Desert::Editor
         if ( ImGui::BeginDragDropSource( ImGuiDragDropFlags_SourceAllowNullID ) )
         {
             const std::string& assetPath = entry.AssetPath;
-            const char*         type      = "AssetFile";
+            const char*        type      = "AssetFile";
             if ( entry.Type == FileType::Prefab )
                 type = ::Desert::Editor::DragPayloads::PrefabFile;
             else if ( entry.Type == FileType::Texture )
@@ -1602,8 +1630,7 @@ namespace Desert::Editor
             else
             {
                 const char*  icon = entry.IsFile ? IconForType( entry.Type ) : ICON_MDI_FOLDER;
-                const ImVec4 col =
-                     entry.IsFile ? entry.FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );
+                const ImVec4 col  = entry.IsFile ? entry.FileTypeColour : ImVec4( 0.95f, 0.82f, 0.42f, 1.0f );
                 ImGui::PushFont( EditorResources::GetBigIconFont() );
                 ImGui::TextColored( col, "%s", icon );
                 ImGui::PopFont();
@@ -1682,10 +1709,9 @@ namespace Desert::Editor
         // No picture of this material exists yet: the albedo colour is the placeholder.
         const glm::vec3 albedo =
              glm::vec3( a->Data().GetParam( "AlbedoColor", glm::vec4( 0.8f, 0.8f, 0.8f, 1.0f ) ) );
-        ImGui::ColorButton( "##matswatch", ImVec4( albedo.r, albedo.g, albedo.b, 1.0f ),
-                            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop |
-                                 ImGuiColorEditFlags_NoBorder,
-                            size );
+        ImGui::ColorButton(
+             "##matswatch", ImVec4( albedo.r, albedo.g, albedo.b, 1.0f ),
+             ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoBorder, size );
         return true;
     }
 
@@ -1786,8 +1812,8 @@ namespace Desert::Editor
 
     void FileExplorerPanel::ImportExternalTexture()
     {
-        const auto picked =
-             Common::Utils::FileSystem::OpenFileDialog( "Images\0*.png;*.tga;*.jpg;*.jpeg;*.bmp;*.hdr\0All\0*.*\0" );
+        const auto picked = Common::Utils::FileSystem::OpenFileDialog(
+             "Images\0*.png;*.tga;*.jpg;*.jpeg;*.bmp;*.hdr\0All\0*.*\0" );
         if ( !picked.empty() )
             ImportExternalFile( picked );
     }
@@ -1802,7 +1828,7 @@ namespace Desert::Editor
         // Copy into the current dir (assets must live under Resources/ so the cook paths stay project-relative).
         const std::filesystem::path texDir = Common::Constants::Path::TEXTUREDIR_PATH;
         std::filesystem::path       destDir =
-             m_CurrentDir ? std::filesystem::path( m_CurrentDir->AssetPath ) : texDir;
+             m_CurrentDir != nullptr ? std::filesystem::path( m_CurrentDir->AssetPath ) : texDir;
         if ( !std::filesystem::is_directory( destDir ) )
             destDir = texDir;
         std::filesystem::create_directories( destDir, ec );
@@ -1862,8 +1888,7 @@ namespace Desert::Editor
                 continue;
             if ( !search.empty() )
             {
-                const std::string name =
-                     ToLowerCopy( std::filesystem::path( c->AssetPath ).filename().string() );
+                const std::string name = ToLowerCopy( std::filesystem::path( c->AssetPath ).filename().string() );
                 if ( name.find( search ) == std::string::npos )
                     continue;
             }
@@ -1883,22 +1908,27 @@ namespace Desert::Editor
                        switch ( mode )
                        {
                            case SortMode::DateModified:
-                               cmp = ( ca->LastWriteTime < cb->LastWriteTime )   ? -1
-                                     : ( ca->LastWriteTime > cb->LastWriteTime ) ? 1
-                                                                                 : 0;
+                               cmp = static_cast<int>( ca->LastWriteTime > cb->LastWriteTime ) -
+                                     static_cast<int>( ca->LastWriteTime < cb->LastWriteTime );
                                break;
-                           case SortMode::Type: cmp = static_cast<int>( ca->Type ) - static_cast<int>( cb->Type ); break;
+                           case SortMode::Type:
+                               cmp = static_cast<int>( ca->Type ) - static_cast<int>( cb->Type );
+                               break;
                            case SortMode::Size:
-                               cmp = ( ca->FileSize < cb->FileSize ) ? -1 : ( ca->FileSize > cb->FileSize ) ? 1 : 0;
+                               cmp = static_cast<int>( ca->FileSize > cb->FileSize ) -
+                                     static_cast<int>( ca->FileSize < cb->FileSize );
                                break;
                            case SortMode::Name:
-                           default: break;
+                           default:
+                               break;
                        }
                        if ( cmp == 0 ) // Name mode + tiebreak: case-insensitive filename
                        {
-                           const auto na = ToLowerCopy( std::filesystem::path( ca->AssetPath ).filename().string() );
-                           const auto nb = ToLowerCopy( std::filesystem::path( cb->AssetPath ).filename().string() );
-                           cmp           = na.compare( nb );
+                           const auto na =
+                                ToLowerCopy( std::filesystem::path( ca->AssetPath ).filename().string() );
+                           const auto nb =
+                                ToLowerCopy( std::filesystem::path( cb->AssetPath ).filename().string() );
+                           cmp = na.compare( nb );
                        }
                        return desc ? cmp > 0 : cmp < 0;
                    } );
@@ -2007,7 +2037,7 @@ namespace Desert::Editor
             BuildProjectAssetReferenceIndex( idx );
             for ( const auto& p : sel )
             {
-                std::error_code ec;
+                std::error_code   ec;
                 const std::string rel =
                      std::filesystem::relative( p, Common::Constants::Path::ASSETS_PATH, ec ).generic_string();
                 for ( const auto& r : idx.ReferencersOf( rel ) )
@@ -2079,18 +2109,17 @@ namespace Desert::Editor
         if ( ImGui::BeginPopupModal( "Delete?##assetDelete", nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
         {
             if ( m_PendingDeleteList.size() == 1 )
-                ImGui::Text(
-                     "Delete \"%s\"?",
-                     std::filesystem::path( m_PendingDeleteList.front() ).filename().string().c_str() );
+                ImGui::Text( "Delete \"%s\"?",
+                             std::filesystem::path( m_PendingDeleteList.front() ).filename().string().c_str() );
             else
                 ImGui::Text( "Delete %zu items?", m_PendingDeleteList.size() );
 
             if ( !m_DeleteReferencers.empty() )
             {
                 ImGui::Spacing();
-                ImGui::TextColored( ImVec4( 1.0f, 0.6f, 0.3f, 1.0f ),
-                                    "Warning: %zu asset(s) still reference the selection:",
-                                    m_DeleteReferencers.size() );
+                ImGui::TextColored(
+                     ImVec4( 1.0f, 0.6f, 0.3f, 1.0f ),
+                     "Warning: %zu asset(s) still reference the selection:", m_DeleteReferencers.size() );
                 ImGui::BeginChild( "##delrefs", ImVec2( 360.0f, 90.0f ), true );
                 for ( const auto& r : m_DeleteReferencers )
                     ImGui::BulletText( "%s", r.c_str() );
@@ -2385,8 +2414,7 @@ namespace Desert::Editor
                 std::string shown = fileName;
                 if ( ImGui::CalcTextSize( shown.c_str() ).x > cellW )
                 {
-                    while ( shown.size() > 1 &&
-                            ImGui::CalcTextSize( ( shown + "..." ).c_str() ).x > cellW )
+                    while ( shown.size() > 1 && ImGui::CalcTextSize( ( shown + "..." ).c_str() ).x > cellW )
                         shown.pop_back();
                     shown += "...";
                 }
@@ -2406,9 +2434,11 @@ namespace Desert::Editor
             const bool   hover = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect( cmin, cmax );
             if ( hover )
                 m_TileHovered = true; // consumed by the empty-click deselect in the body loop
-            const ImU32  bg    = sel     ? IM_COL32( 52, 92, 160, 150 )
-                                 : hover ? IM_COL32( 255, 255, 255, 24 )
-                                         : IM_COL32( 255, 255, 255, 10 );
+            ImU32 bg = IM_COL32( 255, 255, 255, 10 );
+            if ( sel )
+                bg = IM_COL32( 52, 92, 160, 150 );
+            else if ( hover )
+                bg = IM_COL32( 255, 255, 255, 24 );
             dl->ChannelsSetCurrent( 0 );
             dl->AddRectFilled( cmin, cmax, bg, 8.0f );
             if ( sel )
@@ -2477,8 +2507,11 @@ namespace Desert::Editor
 
     void FileExplorerPanel::RefreshCurrentDirectory()
     {
-        if ( m_Thumbnails )
-            m_Thumbnails->Clear();
+        // The thumbnail cache is NOT cleared here: it checks each picture's file stamp on every Get, so a
+        // rewritten picture is re-read anyway, and this runs on every rescan — including the one the
+        // directory poll makes ~0.5 s after a folder is opened. Clearing here dropped every picture on screen
+        // and put all of them back through the decoder at once (the Materials folder's 36-42 main-thread
+        // decodes, TH2).
         if ( !m_CurrentDir )
             return;
 
@@ -2558,7 +2591,7 @@ namespace Desert::Editor
             return;
 
         const std::filesystem::path path( entry->AssetPath );
-        const std::string           name = path.filename().string();
+        const std::string           name     = path.filename().string();
         const auto                  typeIt   = s_FileTypesToString.find( entry->Type );
         const char*                 typeName = !entry->IsFile                        ? "Folder"
                                                : typeIt != s_FileTypesToString.end() ? typeIt->second.c_str()

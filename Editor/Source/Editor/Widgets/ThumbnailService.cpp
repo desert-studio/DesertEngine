@@ -1,6 +1,7 @@
 #include "ThumbnailService.hpp"
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
@@ -133,6 +134,9 @@ namespace Desert::Editor
 
     void ThumbnailService::Shutdown()
     {
+        // A worker decode must not outlive the process's teardown of the store it reports to.
+        ThumbnailPrefetch::Get().Clear();
+
         // THE PAINT QUEUE IS DRAINED FIRST AND UNCONDITIONALLY, and the "unconditionally" is the part
         // worth writing down: this function used to open with `if ( !m_Renderer ) return;`, on the sound
         // reasoning that a session which previewed nothing had nothing to release. That stopped being
@@ -159,7 +163,7 @@ namespace Desert::Editor
         if ( !m_Renderer )
             return;
 
-        // The queue goes first, so the state left behind is one a Tick() could legitimately act on rather
+        // The queue goes first, so the state left behind is one a TickCapture() could legitimately act on rather
         // than a half-cancelled capture: an in-flight PNG that no longer has a renderer behind it would be
         // reported as "never completed" by the give-up path if the service were ever ticked again.
         m_Queue.clear();
@@ -282,7 +286,12 @@ namespace Desert::Editor
              } );
     }
 
-    void ThumbnailService::Tick()
+    void ThumbnailService::TickDiskAndDecode()
+    {
+        ThumbnailPrefetch::Get().Tick();
+    }
+
+    void ThumbnailService::TickCapture()
     {
         // The slot-free half runs FIRST and unconditionally: every early return below is a statement
         // about a renderer, and a paint has no renderer to be blocked by. Putting it after them is how a

@@ -51,7 +51,7 @@
 // rfl serialization environment (the same three the mesh slot editor pulls in for the same reason) — a
 // fresh landscape material is written to disk with its stable GUID before the asset is created + registered.
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Editor/Core/AssetOpen.hpp>
 #include <Common/Core/Logger.hpp>
@@ -209,7 +209,7 @@ namespace Desert::Editor
             // means CreateAsset loads defaults, the material is not a Terrain material at all, and the
             // handle is not the one any future run will resolve.
             if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path.generic_string(),
-                                                                                     rfl::json::write( data ) );
+                                                                                     Common::Json::Write( data ) );
                  !written )
             {
                 LOG_ERROR( "[Landscape] could not write the landscape material '{}': {} — the landscape's "

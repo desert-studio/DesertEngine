@@ -1,9 +1,8 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -252,13 +251,13 @@ namespace Desert::Editor::Control
         /// A string field, or empty when absent. Absent and empty-string are the same thing to every
         /// consumer here, so they are not distinguished — a client that omits `group` and a client that
         /// sends `"group": ""` have both failed to name a command, and get the same refusal.
-        [[nodiscard]] inline std::string ReadString( const rfl::Generic::Object& object, const char* key )
+        [[nodiscard]] inline std::string ReadString( const Common::Json::Node& fields, const char* key )
         {
-            const auto field = object.get( key );
+            const auto field = fields.Find( key );
             if ( !field )
                 return {};
-            const auto text = field.value().to_string();
-            return text ? text.value() : std::string{};
+            const auto text = field->AsString();
+            return text ? text.GetValue() : std::string{};
         }
 
         /// An integer field, or @p fallback.
@@ -268,40 +267,39 @@ namespace Desert::Editor::Control
         /// Asking only for a double made every `"id": 7` read as the fallback — which meant every reply
         /// came back with id 0 and a client that pipelined could not match one answer to its question.
         /// Measured, not reasoned about: the round-trip test caught it on the first run.
-        [[nodiscard]] inline int64_t ReadInt( const rfl::Generic::Object& object, const char* key,
-                                              int64_t fallback )
+        [[nodiscard]] inline int64_t ReadInt( const Common::Json::Node& fields, const char* key, int64_t fallback )
         {
-            const auto field = object.get( key );
+            const auto field = fields.Find( key );
             if ( !field )
                 return fallback;
 
-            if ( const auto whole = field.value().to_int64() )
-                return whole.value();
-            if ( const auto real = field.value().to_double() )
-                return static_cast<int64_t>( real.value() );
+            if ( const auto whole = field->AsInteger() )
+                return whole.GetValue();
+            if ( const auto real = field->AsNumber() )
+                return static_cast<int64_t>( real.GetValue() );
             return fallback;
         }
 
         /// An array-of-strings field, or empty. Anything in the array that is not a string is DROPPED
         /// rather than stringified: a section name is matched against a known set downstream, so a number
         /// here would be reported as an unknown section, which is a clearer message than a coerced "3".
-        [[nodiscard]] inline std::vector<std::string> ReadStringArray( const rfl::Generic::Object& object,
-                                                                       const char*                 key )
+        [[nodiscard]] inline std::vector<std::string> ReadStringArray( const Common::Json::Node& fields,
+                                                                       const char*               key )
         {
             std::vector<std::string> values;
-            const auto               field = object.get( key );
+            const auto               field = fields.Find( key );
             if ( !field )
                 return values;
 
-            const auto array = field.value().to_array();
-            if ( !array )
+            if ( field->GetKind() != Common::Json::Kind::Array )
                 return values;
 
-            for ( const auto& element : array.value() )
-            {
-                if ( const auto text = element.to_string() )
-                    values.push_back( text.value() );
-            }
+            field->ForEachElement(
+                 [&values]( std::size_t, const Common::Json::Node& element )
+                 {
+                     if ( const auto text = element.AsString() )
+                         values.push_back( text.GetValue() );
+                 } );
             return values;
         }
 
@@ -323,31 +321,38 @@ namespace Desert::Editor::Control
         /// A non-number ANYWHERE in the array fails the whole field rather than being skipped: dropping
         /// one element of `[1,"x",0]` would silently turn a three-component write into a two-component
         /// one, and the document would refuse it with a count the client never sent.
-        [[nodiscard]] inline NumberArray ReadFloatArray( const rfl::Generic::Object& object, const char* key,
+        [[nodiscard]] inline NumberArray ReadFloatArray( const Common::Json::Node& fields, const char* key,
                                                          std::vector<float>& out )
         {
-            const auto field = object.get( key );
+            const auto field = fields.Find( key );
             if ( !field )
                 return NumberArray::Absent;
 
-            const auto array = field.value().to_array();
-            if ( !array )
+            if ( field->GetKind() != Common::Json::Kind::Array )
                 return NumberArray::NotNumbers;
 
             out.clear();
-            out.reserve( array.value().size() );
-            for ( const auto& element : array.value() )
+            bool allNumbers = true;
+            field->ForEachElement(
+                 [&]( std::size_t, const Common::Json::Node& element )
+                 {
+                     if ( !allNumbers )
+                         return;
+                     if ( const auto whole = element.AsInteger() )
+                     {
+                         out.push_back( static_cast<float>( whole.GetValue() ) );
+                         return;
+                     }
+                     if ( const auto real = element.AsNumber() )
+                     {
+                         out.push_back( static_cast<float>( real.GetValue() ) );
+                         return;
+                     }
+                     allNumbers = false;
+                 } );
+
+            if ( !allNumbers )
             {
-                if ( const auto whole = element.to_int64() )
-                {
-                    out.push_back( static_cast<float>( whole.value() ) );
-                    continue;
-                }
-                if ( const auto real = element.to_double() )
-                {
-                    out.push_back( static_cast<float>( real.value() ) );
-                    continue;
-                }
                 out.clear();
                 return NumberArray::NotNumbers;
             }
@@ -369,21 +374,20 @@ namespace Desert::Editor::Control
     {
         using namespace ProtocolDetail;
 
-        const auto parsed = rfl::json::read<rfl::Generic>( std::string( line ) );
+        const auto parsed = Common::Json::Parse( line );
         if ( !parsed )
         {
-            return Common::MakeFormattedError<Request>( "the request is not JSON: {}", parsed.error().what() );
+            return Common::MakeFormattedError<Request>( "the request is not JSON: {}", parsed.GetError() );
         }
 
-        const auto object = parsed.value().to_object();
-        if ( !object )
+        const Common::Json::Value& document = parsed.GetValue();
+        const Common::Json::Node   fields   = Common::Json::Root( document );
+        if ( fields.GetKind() != Common::Json::Kind::Object )
         {
             return Common::MakeError<Request>(
                  "the request is JSON but not an object; every request is a single object with an 'op' "
                  "field." );
         }
-
-        const rfl::Generic::Object& fields = object.value();
 
         const std::string opName = ReadString( fields, "op" );
         if ( opName.empty() )
@@ -541,7 +545,7 @@ namespace Desert::Editor::Control
     class Response
     {
     public:
-        [[nodiscard]] static Response Success( int64_t id, rfl::Generic::Object payload = {} )
+        [[nodiscard]] static Response Success( int64_t id, Common::Json::Object payload = {} )
         {
             Response response;
             response.m_Id      = id;
@@ -577,7 +581,7 @@ namespace Desert::Editor::Control
         {
             return m_Error;
         }
-        [[nodiscard]] const rfl::Generic::Object& Payload() const noexcept
+        [[nodiscard]] const Common::Json::Object& Payload() const noexcept
         {
             return m_Payload;
         }
@@ -588,7 +592,7 @@ namespace Desert::Editor::Control
         int64_t              m_Id = 0;
         bool                 m_Ok = false;
         std::string          m_Error;
-        rfl::Generic::Object m_Payload;
+        Common::Json::Object m_Payload;
     };
 
     /// The three keys the outcome owns. A payload may not carry them, whatever it thinks it is doing.
@@ -608,7 +612,7 @@ namespace Desert::Editor::Control
      */
     [[nodiscard]] inline std::string FormatResponse( const Response& response )
     {
-        rfl::Generic::Object object;
+        Common::Json::Object object;
 
         for ( const auto& [key, value] : response.Payload() )
         {
@@ -623,12 +627,12 @@ namespace Desert::Editor::Control
         // double comes back out as `1.0` — and a client that matched its request id against the reply's
         // would have been comparing 1 with 1.0. The request side accepts both spellings (ReadInt); the
         // reply side emits the one the request used.
-        object["id"] = rfl::Generic( response.Id() );
-        object["ok"] = rfl::Generic( response.Ok() );
+        object["id"] = Common::Json::Value( response.Id() );
+        object["ok"] = Common::Json::Value( response.Ok() );
         if ( !response.Ok() )
-            object["error"] = rfl::Generic( response.Error() );
+            object["error"] = Common::Json::Value( response.Error() );
 
-        std::string text = rfl::json::write( rfl::Generic( object ) );
+        std::string text = Common::Json::Write( Common::Json::Value( object ) );
         std::erase( text, '\n' );
         std::erase( text, '\r' );
         return text;

@@ -29,8 +29,8 @@ namespace Desert::Editor::ThumbnailSubject
      * built geometry is empty must be refused rather than captured as a picture of empty sky.
      *
      * All of that lived once, inside `FileExplorerPanel`, when the browser tile was the only thing that
-     * ever asked. It is not any more: the background sweep (Editor/Widgets/ThumbnailSweep.hpp) asks the
-     * same question about assets no panel has walked past. Two copies of this resolution would be two
+     * ever asked. It is not any more: the Details rows (StaticMeshComponent, MaterialsPanelComponent) ask
+     * the same question through ThumbnailService about the same assets. Two copies of this resolution would be two
      * answers to "which file is photographed" and "when is a mesh not photographable" — and the FIRST of
      * those two questions has already been got wrong in this subsystem once, when the browser filed a
      * mesh's picture under its source while the Details row filed it under the cooked form and the same
