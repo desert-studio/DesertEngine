@@ -90,7 +90,7 @@
 #include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
-#include "Engine/World/Landscape/LandscapeHeightmapIO.hpp"
+#include <Editor/Import/LandscapeHeightmapIO.hpp>
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
