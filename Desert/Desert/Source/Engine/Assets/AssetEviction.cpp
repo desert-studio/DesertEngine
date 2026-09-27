@@ -21,11 +21,13 @@ namespace Desert::Assets
                 std::to_string( Released ) + ", already cold " + std::to_string( AlreadyCold ) + ", refused " +
                 std::to_string( Refused ) + ", project-scoped " + std::to_string( ProjectScoped ) + ". Dropped " +
                 std::to_string( MeshesDropped ) + " built mesh(es) and " + std::to_string( MaterialsDropped ) +
-                " built material(s). GPU rows " + std::to_string( LedgerRowsBefore ) + " -> " +
-                std::to_string( LedgerRowsAfter ) + ".";
+                " built material(s) and " + std::to_string( TexturesDropped ) + " built texture(s). GPU rows " +
+                std::to_string( LedgerRowsBefore ) + " -> " + std::to_string( LedgerRowsAfter ) + ".";
 
         for ( const std::string& refusal : Refusals )
             text += "\n  refused: " + refusal;
+        for ( const std::string& kept : KeptTextures )
+            text += "\n  kept texture: " + kept;
 
         return text;
     }
@@ -149,7 +151,12 @@ namespace Desert::Assets
             if ( !asset || !metadata.IsValid() )
                 continue;
             if ( closure.Contains( metadata.Handle ) )
+            {
+                if ( metadata.AssetType == AssetTypeID::Texture2D )
+                    outcome.KeptTextures.push_back( "'" + metadata.Filepath.string() + "' <- " +
+                                                    closure.WhyKept( metadata.Handle ) );
                 continue;
+            }
             // NOT EVERY ASSET BELONGS TO A WORLD. A project-scoped type is named by no component, so the
             // root walk can never reach one and "unreachable" says nothing about whether it is in use —
             // see Assets::IsProjectScopedAsset for the measurement that put this line here.
@@ -181,6 +188,9 @@ namespace Desert::Assets
 
             if ( sink.DropBuiltMesh( handle ) )
                 outcome.MeshesDropped++;
+
+            if ( sink.DropBuiltTexture( handle ) )
+                outcome.TexturesDropped++;
 
             // A READ IS IN FLIGHT FOR THIS HANDLE, OR ITS COMPLETION HAS NOT BEEN PUMPED YET.
             //

@@ -160,6 +160,17 @@ namespace Desert::Core
                   "destroy).",
                   streamer->m_SceneName, snapshot->Entities.size(), streamer->m_MostResident, source.Position.x,
                   source.Position.z, MsSince( started ) );
+        // THE PLAY START IS THE LARGEST DEPARTURE OF ALL. The editor had the whole world open; the executor has
+        // just destroyed every record outside the resident cells, and what those records drew - built meshes,
+        // materials, textures - stayed resident until the first cell happened to leave. Measured (WP14 flight):
+        // six corpus textures, 21.3 MB, resident from frame 0 in a world whose first resident cells name none.
+        if ( streamer->m_MostResident < snapshot->Entities.size() )
+        {
+            Assets::AssetEvictionSchedule::Request(
+                 "world '" + streamer->m_SceneName + "': Play began, " +
+                 std::to_string( snapshot->Entities.size() - streamer->m_MostResident ) +
+                 " record(s) outside the resident cells destroyed" );
+        }
         return Common::MakeSuccess( std::move( streamer ) );
     }
 

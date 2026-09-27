@@ -58,6 +58,50 @@ namespace Desert::WorldGen
         int PerCell = 48;
 
         uint64_t Seed = 1;
+
+        // Corpus worlds only: cells per side of a DISTRICT, the square that shares one PropTheme. It has to be
+        // wider than the loading range, or every theme is resident everywhere and nothing a flight passes is
+        // ever released - which is what a per-cell theme measured (0 of 105 assets released on the first run).
+        int DistrictCells = 1;
+    };
+
+    // One mesh a generated world may name, spelled the way a scene spells it: the path relative to the PROJECT
+    // root (a tracked scene says `Cooked/Meshes/SkinProbe.skmesh`, `Resources/Assets/Meshes/StaticProbe.stmesh`)
+    // and the file's header GUID as text (SCNE 28). Read from the file by the caller, like MaterialRef, so the
+    // generator never holds a second statement of an asset's identity.
+    struct MeshRef
+    {
+        std::string Path;
+        std::string Guid;
+        bool        Skinned = false;
+        // -Lo.y of the bounds the file's own Meta section states: the lift that puts the mesh's lowest point on
+        // y = 0 at scale 1. From the file, because a probe authored around its centre and one authored at its
+        // feet would otherwise sink into or float above the ground tile by a number nobody wrote down.
+        float BaseLiftCm = 0.0f;
+        // The ground footprint of those bounds (x and z, at scale 1): what keeps a jittered prop inside its slot,
+        // so inside its tile, so on partition level 0.
+        float LoXCm = 0.0f;
+        float HiXCm = 0.0f;
+        float LoZCm = 0.0f;
+        float HiZCm = 0.0f;
+    };
+
+    // One thing a corpus cell may hold: a real mesh drawn with a real material.
+    struct PropRef
+    {
+        MeshRef     Mesh;
+        MaterialRef Material;
+        // Whole percent, so the scale that reaches the file is a short exact decimal.
+        int ScalePercent = 100;
+    };
+
+    // A THEME: the props one district of a corpus world is furnished from. Districts cycle through the themes
+    // along both axes (from an offset the seed picks), so any straight flight crosses every theme in turn and
+    // leaves each behind - which is what makes resident asset memory rise AND fall instead of saturating.
+    struct PropTheme
+    {
+        std::string          Name;
+        std::vector<PropRef> Props;
     };
 
     // What a generated world is made of, reported rather than recomputed by the caller.
@@ -67,6 +111,9 @@ namespace Desert::WorldGen
         int     Cells       = 0;
         int     Buildings   = 0;
         int     GroundTiles = 0;
+        int     Props        = 0; // corpus props (themes non-empty), skinned ones included
+        int     SkinnedProps = 0;
+        int     PropsOverhanging = 0; // corpus props whose footprint is wider than their slot (the tool refuses)
         int64_t ExtentCm    = 0; // edge of the square world
     };
 
@@ -87,9 +134,14 @@ namespace Desert::WorldGen
     //   * each cell is seeded from (Seed, cx, cz) alone, not from a stream advanced in iteration order. So
     //     a cell's contents do not depend on how many cells were generated before it - which keeps the
     //     file stable under a change of Cells, and is the property a per-cell regeneration would need.
+    //
+    // TWO KINDS OF WORLD, ONE LAYOUT. With @p themes empty a cell holds PerCell primitive-cube buildings (the
+    // draw-call instrument). With themes, a cell draws one PropTheme and holds PerCell props from it - real
+    // meshes, skinned and static, with textured and custom-shader materials from the tracked corpus: the
+    // streaming-memory instrument (WP14), whose cells hold assets a cell departure can actually free.
     Core::SceneSerialized BuildWorld( const WorldSpec& spec, const std::vector<MaterialRef>& buildingMaterials,
-                                      const MaterialRef& groundMaterial, const Common::Content::AssetGuid& guid,
-                                      WorldStats& stats );
+                                      const MaterialRef& groundMaterial, const std::vector<PropTheme>& themes,
+                                      const Common::Content::AssetGuid& guid, WorldStats& stats );
 
     // The GUID a REGENERATION of `outputFile` must keep: parsed from that file's own header when it
     // already exists and the header is well-formed. Absent otherwise (no file yet, or one this build

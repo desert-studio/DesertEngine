@@ -50,6 +50,31 @@ TEST( FrameRetireQueue, AMeshIsNotFreedWhileAFrameThatCouldDrawItIsInFlight )
     EXPECT_EQ( retiring.Size(), 0u );
 }
 
+// WP14b: the same rule for a texture's image, observed the same way. The sweep at frame 20 drops the texture while
+// frame 19 - which sampled it - may still be executing; the image must outlive every frame that could sample it,
+// and must go once none can.
+TEST( FrameRetireQueue, ATextureDroppedBySweepOutlivesEveryFrameThatCouldSampleIt )
+{
+    struct StandInImage
+    {
+        int Mips = 11;
+    };
+    FrameRetireQueue<std::shared_ptr<StandInImage>> retiring;
+    auto                                            image    = std::make_shared<StandInImage>();
+    const std::weak_ptr<StandInImage>               observed = image;
+
+    constexpr std::uint64_t kSweepFrame = 20;
+    retiring.Park( std::move( image ), kSweepFrame );
+    for ( std::uint64_t frame = kSweepFrame; frame <= kSweepFrame + kFramesInFlight; ++frame )
+    {
+        EXPECT_EQ( retiring.Collect( frame, kFramesInFlight ), 0u );
+        ASSERT_FALSE( observed.expired() )
+             << "the image was freed at frame " << frame << " while a frame that sampled it can be in flight";
+    }
+    EXPECT_EQ( retiring.Collect( kSweepFrame + kFramesInFlight + 1, kFramesInFlight ), 1u );
+    EXPECT_TRUE( observed.expired() ) << "the image outlived every frame that could sample it";
+}
+
 TEST( FrameRetireQueue, EachMeshWaitsForItsOwnSweepNotTheLatest )
 {
     FrameRetireQueue<std::shared_ptr<StandInMesh>> retiring;
@@ -130,7 +155,7 @@ TEST( FrameRetireQueue, NeitherGpuServiceIdlesTheDeviceToReleaseWhatEvictionDrop
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the working directory";
     const std::string services = root + "Desert/Desert/Source/Engine/Runtime/Services/";
-    for ( const char* service : { "Mesh/MeshService", "Material/MaterialService" } )
+    for ( const char* service : { "Mesh/MeshService", "Material/MaterialService", "Texture/TextureService" } )
     {
         const std::string header = CodeOf( services + service + ".hpp" );
         const std::string source = CodeOf( services + service + ".cpp" );
@@ -140,6 +165,17 @@ TEST( FrameRetireQueue, NeitherGpuServiceIdlesTheDeviceToReleaseWhatEvictionDrop
         EXPECT_EQ( source.find( "WaitDeviceIdle" ), std::string::npos )
              << service << ".cpp idles the device again";
     }
+
+    // WP14b: the texture service parks what it drops (not resets it), the engine sink forwards the drop to it, and
+    // the frame loop collects its queue every frame - each link of the chain that frees a texture's image.
+    const std::string texture = CodeOf( services + "Texture/TextureService.cpp" );
+    EXPECT_NE( texture.find( "m_Retiring.Park(" ), std::string::npos ) << "TextureService drops without parking";
+    const std::string sink = CodeOf( root + "Desert/Desert/Source/Engine/Assets/AssetEvictionServices.cpp" );
+    EXPECT_NE( sink.find( "GetTextureService()->EvictBuilt(" ), std::string::npos )
+         << "the engine sink no longer forwards a texture drop to TextureService";
+    const std::string loop = CodeOf( root + "Desert/Desert/Source/Engine/Core/Application.cpp" );
+    EXPECT_NE( loop.find( "GetTextureService()->RetireEvicted()" ), std::string::npos )
+         << "the frame loop never collects the textures eviction parked, so none is ever freed";
 }
 
 TEST( EvictionDeadline, RequestsEveryFrameDoNotPostponeTheSweep )

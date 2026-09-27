@@ -32,6 +32,11 @@ namespace Desert::Assets
                 Runtime::ResourceRegistry::GetMaterialService()->Invalidate( handle );
             }
 
+            bool DropBuiltTexture( const Common::AssetHandle& handle ) override
+            {
+                return Runtime::ResourceRegistry::GetTextureService()->EvictBuilt( handle );
+            }
+
             void CollectGarbage() override
             {
                 Runtime::ResourceRegistry::GetMaterialService()->CollectGarbage();
