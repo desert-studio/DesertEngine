@@ -191,18 +191,11 @@ namespace Desert::Assets::Serialization
         FoliageTypeData key = wanted;
         key.Header.reset();
 
-        std::error_code                    ec;
+        // Through the one content enumeration: a packaged project's types live in a mounted .dpak.
         std::vector<std::filesystem::path> files;
-        if ( std::filesystem::exists( dir, ec ) )
-        {
-            for ( auto it = std::filesystem::recursive_directory_iterator( dir, ec );
-                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
-                if ( it->is_regular_file() && it->path().extension() == kFoliageTypeExtension )
-                    files.push_back( it->path() );
-            if ( ec )
-                return Common::MakeFormattedError<FoliageTypeFile>( "cannot list foliage types under '{}': {}",
-                                                                    dir.string(), ec.message() );
-        }
+        for ( const std::filesystem::path& file : Common::Utils::FileSystem::ListFilesRecursive( dir ) )
+            if ( file.extension() == kFoliageTypeExtension )
+                files.push_back( file );
         std::sort( files.begin(), files.end() );
 
         for ( const auto& file : files )
@@ -222,6 +215,7 @@ namespace Desert::Assets::Serialization
                 return Common::MakeSuccess( FoliageTypeFile{ file, guid, false } );
         }
 
+        std::error_code       ec;
         std::filesystem::path file = dir / ( stem + kFoliageTypeExtension );
         for ( int n = 1; std::filesystem::exists( file, ec ); ++n )
             file = dir / ( stem + "_" + std::to_string( n ) + kFoliageTypeExtension );

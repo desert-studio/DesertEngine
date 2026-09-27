@@ -166,6 +166,11 @@ namespace
            "" },
          { "Editor/Source/Editor/Import/MeshMaterial.cpp", Verdict::NotContent,
            "same: textures beside a source mesh, resolved during import.", "" },
+         { "Editor/Source/EditorLayer.cpp", Verdict::NotContent,
+           "the command palette lists installed collection FOLDERS (as CollectionsPanel does) and the "
+           "heightmap SOURCES under Assets/Landscape/Heightmaps awaiting import; its foliage entries go "
+           "through ListFilesRecursive.",
+           "" },
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", Verdict::NotContent,
            "enumerates installed collection FOLDERS, not files - it looks for directories that contain a "
            "collection.json. The shared enumeration returns files and cannot answer that question.",
