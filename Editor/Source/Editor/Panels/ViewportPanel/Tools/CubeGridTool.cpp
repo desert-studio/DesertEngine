@@ -143,7 +143,8 @@ namespace Desert::Editor::Tools
         return static_cast<uint8_t>( m_Materials.size() - 1 );
     }
 
-    void CubeGridTool::ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds )
+    void CubeGridTool::ApplyMaterialSlots( ::Desert::Core::Scene&  scene,
+                                           const std::vector<int>& submeshMaterialIds )
     {
         auto ref = scene.FindEntityByID( m_Entity );
         if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
@@ -223,9 +224,9 @@ namespace Desert::Editor::Tools
         // re-scales the new volume — the geometry built before never moves or re-subdivides again.
         // (m_HoverValid = last frame's targeting, so a click on empty sky doesn't commit anything.)
         // A palette selection (ReqCubeGridSelectBlocks) is a marquee too, and commits the same way.
-        const bool marqueeStarts = ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) &&
-                                     !::ImGui::GetIO().KeyCtrl ) ||
-                                   ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
+        const bool marqueeStarts =
+             ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && !::ImGui::GetIO().KeyCtrl ) ||
+             ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
         if ( marqueeStarts && !m_CornerMode && m_HoverValid && !m_Volume.m_Cells.empty() )
             FreezeActive();
 
@@ -743,10 +744,10 @@ namespace Desert::Editor::Tools
         //     dragging back undoes a pull block by block. ---
         if ( interact && m_HasSel && ::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
         {
-            const int na = m_Plane.Na;
-            const int ua = ( na + 1 ) % 3;
-            const int va = ( na + 2 ) % 3;
-            m_DragOrigin = glm::vec3( 0.0f );
+            const int na     = m_Plane.Na;
+            const int ua     = ( na + 1 ) % 3;
+            const int va     = ( na + 2 ) % 3;
+            m_DragOrigin     = glm::vec3( 0.0f );
             m_DragOrigin[na] = planeWorldOf( na, m_Plane.Sign, m_Plane.Cell );
             m_DragOrigin[ua] = static_cast<float>( m_Sel.UMin + m_Sel.UMax + 1 ) * 0.5f * u;
             m_DragOrigin[va] = static_cast<float>( m_Sel.VMin + m_Sel.VMax + 1 ) * 0.5f * u;
@@ -763,7 +764,8 @@ namespace Desert::Editor::Tools
             else
             {
                 const float delta =
-                     LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction ) - m_DragStart;
+                     LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction ) -
+                     m_DragStart;
                 if ( m_CornerMode )
                 {
                     // Corner posts move in snap steps: one step is cornerStep / CornerDen of a base cell.
@@ -781,7 +783,8 @@ namespace Desert::Editor::Tools
                         if ( const auto material = OpMaterialId() )
                         {
                             const int diff = target - m_DragApplied;
-                            m_Volume.PushPull( m_Plane, m_Sel, diff > 0 ? +1 : -1, std::abs( diff ) * K, *material );
+                            m_Volume.PushPull( m_Plane, m_Sel, diff > 0 ? +1 : -1, std::abs( diff ) * K,
+                                               *material );
                             m_DragApplied = target;
                             RegenMesh( scene );
                         }
@@ -791,8 +794,8 @@ namespace Desert::Editor::Tools
 
         // --- Marquee selection (Block-aligned): LMB drag a rectangle; start requires hover, the drag is
         //     latched to the physical button and locked to the plane picked at the press. ---
-        if ( interact && !m_CornerMode && !::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) &&
-             tHas )
+        if ( interact && !m_CornerMode && !::ImGui::GetIO().KeyCtrl &&
+             ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) && tHas )
         {
             m_Selecting = true;
             m_HasSel    = false;

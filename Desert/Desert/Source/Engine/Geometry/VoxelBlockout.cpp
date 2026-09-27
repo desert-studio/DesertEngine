@@ -500,8 +500,8 @@ namespace Desert::Geometry::VoxelBlockout
         plane.Cell += plane.Sign * baseCells;
     }
 
-    float LineParameterClosestToRay( const glm::vec3& lineOrigin, const glm::vec3& lineDir, const glm::vec3& rayOrigin,
-                                     const glm::vec3& rayDir )
+    float LineParameterClosestToRay( const glm::vec3& lineOrigin, const glm::vec3& lineDir,
+                                     const glm::vec3& rayOrigin, const glm::vec3& rayDir )
     {
         const glm::vec3 rd   = glm::normalize( rayDir );
         const glm::vec3 diff = lineOrigin - rayOrigin;

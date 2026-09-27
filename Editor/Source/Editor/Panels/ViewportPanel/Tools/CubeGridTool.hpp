@@ -46,8 +46,8 @@ namespace Desert::Editor::Tools
         // the reason logged, when the set is full (a face stores its ID in a byte).
         std::optional<uint8_t> OpMaterialId();
         // Point the entity's material slots at m_Materials in the order the bake's submeshes use them.
-        void ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
-        void ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
+        void        ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
+        void        ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
         static bool WorldToScreen( const glm::vec3& world, const glm::mat4& vp, const glm::vec2& pos,
                                    const glm::vec2& size, glm::vec2& out );
 

@@ -343,12 +343,13 @@ TEST( VoxelBlockoutMaterials, PaintFacesRepaintsOnlyTheSelectedFacesInAnyLayerAn
     v.PushPull( plane, Rect{ 0, 1, 0, 1 }, +1, 1, 0 ); // 2 x 1 x 2 slab
     ASSERT_TRUE( v.Freeze() );
     EXPECT_EQ( v.PaintFaces( WorkPlane{ 1, 1, 1 }, Rect{}, 1 ), 0 ) << "no active base chosen yet";
-    v.m_Unit                  = 100.0f; // the tool re-bases the next volume every frame
-    const Measure before      = MeasuredAll( v.Bake() );
+    v.m_Unit             = 100.0f; // the tool re-bases the next volume every frame
+    const Measure before = MeasuredAll( v.Bake() );
 
     EXPECT_EQ( v.PaintFaces( WorkPlane{ 1, 1, 2 }, Rect{ 0, 1, 0, 1 }, 1 ), 0 ) << "a plane above the surface";
     EXPECT_EQ( v.PaintFaces( WorkPlane{ 1, -1, 1 }, Rect{ 0, 1, 0, 1 }, 1 ), 0 ) << "the top, facing down";
-    ASSERT_EQ( v.PaintFaces( WorkPlane{ 1, 1, 1 }, Rect{ 0, 0, 0, 0 }, 1 ), 1 ) << "one top face of the frozen slab";
+    ASSERT_EQ( v.PaintFaces( WorkPlane{ 1, 1, 1 }, Rect{ 0, 0, 0, 0 }, 1 ), 1 )
+         << "one top face of the frozen slab";
 
     const auto mesh = v.Bake();
     ExpectSubmeshesConsistent( mesh );

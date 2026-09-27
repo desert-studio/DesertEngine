@@ -173,8 +173,8 @@ namespace Desert::Geometry::VoxelBlockout
     // (origin, dir; t >= 0): the drag is measured by projecting the cursor ray onto the selection's normal.
     // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Distance/DistLine3Ray3.h:52-98, adapted:
     // glm, float, only the line parameter is returned (the ray direction is normalised here).
-    float LineParameterClosestToRay( const glm::vec3& lineOrigin, const glm::vec3& lineDir, const glm::vec3& rayOrigin,
-                                     const glm::vec3& rayDir );
+    float LineParameterClosestToRay( const glm::vec3& lineOrigin, const glm::vec3& lineDir,
+                                     const glm::vec3& rayOrigin, const glm::vec3& rayDir );
     // Blocks a drag of `paramDelta` along the normal means: rounded to whole steps of Blocks Per Step.
     // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:2033-2035 (OnClickDrag), adapted: int
     // result, no preview op.
