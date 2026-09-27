@@ -48,6 +48,22 @@ for _, premake_file in ipairs(test_premake_files) do
         removeconfigurations { "Shipping" }
 end
 
+-- /bigobj FOR EVERY TEST SUITE, NOT JUST THE ONE THAT HAPPENED TO HIT THE CAP FIRST.
+--
+-- Same reason Editor/premake5.lua and Desert/Desert/premake5.lua already carry this: MSVC caps an
+-- object file at 65279 COFF sections, and a non-unity Debug build of a suite with enough templates or
+-- reflected types in one translation unit blows past it (error C1128) -- world_cells_test.cpp did,
+-- because it compiles WorldCells.cpp, WorldCellLoader.cpp and SceneFormat.cpp's reflection together
+-- with gtest into one binary. The next suite to grow past the cap should not need its own fix, so this
+-- is set once, here, for every project this script generates, the same way removeconfigurations is set
+-- above. /bigobj lifts the format cap and costs nothing at runtime.
+for _, premake_file in ipairs(test_premake_files) do
+    project( path.getname( path.getdirectory( premake_file ) ) )
+        filter "system:windows"
+            buildoptions { "/bigobj" }
+        filter {}
+end
+
 -- THE LIST OF EXPECTED TEST BINARIES IS A FILE, WRITTEN HERE, AT GENERATION TIME.
 --
 -- It used to be ~1900 `echo` lines in a postbuild event, one per line of a batch file this script
