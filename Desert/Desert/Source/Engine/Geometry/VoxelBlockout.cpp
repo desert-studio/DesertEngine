@@ -642,6 +642,113 @@ namespace Desert::Geometry::VoxelBlockout
             const auto it = cells.find( Pack( c + kNeighbor[f] ) );
             return it == cells.end() ? -1 : ColumnAxis( cell, it->second, f );
         };
+        // Mixed Block Sizes (M10c). A coarse face that a FINER layer's blocks sit against is neither hidden nor
+        // shown whole: SolidAt reads the coarser layers only, so the fine blocks' faces towards it are culled
+        // while it stayed whole underneath them - doubled where they touch, and their side walls ending on its
+        // inside with no partner edge. UE's Cube Grid keeps one grid per piece and joins pieces at commit
+        // through a mesh boolean (CubeGridBooleanOp); on our lattices that union is exact without one: the
+        // finer lattice divides the coarse one, so the coarse face is cut into fine squares and only the
+        // squares no fine flat block covers are shown. The T-junction pass below then conforms the edges.
+        struct LayerView
+        {
+            const CellMap* Cells;
+            float          Unit;
+            GridFrame      Frame;
+        };
+        std::vector<LayerView> layers;
+        layers.push_back( { &m_Cells, m_Unit, m_Frame } );
+        for ( const Layer& l : m_Frozen )
+            layers.push_back( { &l.Cells, l.Unit, l.Frame } );
+
+        // Face f of the flat cell c of a layer (edge lu, frame lf), split into R x R squares on the finest
+        // lattice that divides lu among the other layers of that frame: `covered` gets one flag per square
+        // (U fastest). Returns 0 when nothing finer touches the face, 1 when part of it is covered, 2 when all
+        // of it is. A fine DEFORMED block covers nothing - its face towards us is not culled either.
+        struct Coverage
+        {
+            int               State = 0;
+            int               R     = 1;
+            std::vector<bool> Covered;
+        };
+        auto coverage = [&]( const glm::ivec3& c, int f, float lu, const GridFrame& lf )
+        {
+            Coverage out;
+            float    finest = lu;
+            for ( const LayerView& l : layers )
+                if ( !l.Cells->empty() && l.Unit > 0.0f && l.Unit < lu * 0.999f && l.Frame.SameAs( lf ) )
+                    finest = std::min( finest, l.Unit );
+            if ( finest >= lu )
+                return out;
+            const int R = static_cast<int>( std::lround( lu / finest ) );
+            if ( std::abs( lu - static_cast<float>( R ) * finest ) > 0.001f * lu )
+                return out;
+            out.R = R;
+            out.Covered.assign( static_cast<size_t>( R ) * R, false );
+
+            const VoxelFaceAxes ax    = FaceAxes( f );
+            const glm::vec3     unitP = kFace[f][0].P + 0.5f;
+            glm::ivec3          g     = c * R;
+            g[ax.Normal]              = unitP[ax.Normal] > 0.5f ? ( c[ax.Normal] + 1 ) * R : c[ax.Normal] * R - 1;
+            int count                 = 0;
+            for ( int j = 0; j < R; ++j )
+                for ( int i = 0; i < R; ++i )
+                {
+                    glm::ivec3 q = g;
+                    q[ax.U] += i;
+                    q[ax.V] += j;
+                    for ( const LayerView& l : layers )
+                    {
+                        if ( l.Cells->empty() || l.Unit >= lu * 0.999f || !l.Frame.SameAs( lf ) )
+                            continue;
+                        const int Rl = static_cast<int>( std::lround( l.Unit / finest ) );
+                        if ( Rl < 1 || std::abs( l.Unit - static_cast<float>( Rl ) * finest ) > 0.001f * l.Unit )
+                            continue;
+                        const auto it = l.Cells->find(
+                             Pack( { FloorDiv( q.x, Rl ), FloorDiv( q.y, Rl ), FloorDiv( q.z, Rl ) } ) );
+                        if ( it != l.Cells->end() && it->second.IsFlat() )
+                        {
+                            out.Covered[static_cast<size_t>( j ) * R + i] = true;
+                            ++count;
+                            break;
+                        }
+                    }
+                }
+            out.State = count == 0 ? 0 : ( count == R * R ? 2 : 1 );
+            return out;
+        };
+        // The uncovered squares of a partly covered face, one quad per run along U in each row of V.
+        auto emitUncovered =
+             [&]( const glm::ivec3& c, int f, const Coverage& cov, float lu, const GridFrame& lf, int material )
+        {
+            const VoxelFaceAxes ax = FaceAxes( f );
+            const int           R  = cov.R;
+            for ( int j = 0; j < R; ++j )
+                for ( int i = 0; i < R; )
+                {
+                    if ( cov.Covered[static_cast<size_t>( j ) * R + i] )
+                    {
+                        ++i;
+                        continue;
+                    }
+                    int end = i;
+                    while ( end < R && !cov.Covered[static_cast<size_t>( j ) * R + end] )
+                        ++end;
+                    glm::vec3 p[4];
+                    for ( int k = 0; k < 4; ++k )
+                    {
+                        const glm::vec3 unitP = kFace[f][k].P + 0.5f;
+                        glm::vec3       gp( c );
+                        gp[ax.Normal] += unitP[ax.Normal];
+                        gp[ax.U] += ( static_cast<float>( i ) + unitP[ax.U] * static_cast<float>( end - i ) ) /
+                                    static_cast<float>( R );
+                        gp[ax.V] += ( static_cast<float>( j ) + unitP[ax.V] ) / static_cast<float>( R );
+                        p[k] = gp * lu;
+                    }
+                    emitQuad( material, p, kFace[f][0].N, UvFrame( f ), lf, false );
+                    i = end;
+                }
+        };
+
         auto emitLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
         {
             // FLAT cells go through greedy meshing: a 20x8 blockout wall becomes ONE quad instead of 160.
@@ -659,7 +766,7 @@ namespace Desert::Geometry::VoxelBlockout
                  {
                      const auto it = cells.find( Pack( c ) );
                      return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lf ) &&
-                            columnAxis( cells, c, it->second, f ) < 0;
+                            columnAxis( cells, c, it->second, f ) < 0 && coverage( c, f, lu, lf ).State == 0;
                  },
                  [&]( const glm::ivec3& c, int f ) -> uint64_t { return cells.at( Pack( c ) ).Mat[f]; } );
 
@@ -698,7 +805,12 @@ namespace Desert::Geometry::VoxelBlockout
                         continue;
                     }
                     if ( cell.IsFlat() )
-                        continue; // greedy-meshed above
+                    {
+                        // Greedy-meshed above, unless finer blocks cover part of it.
+                        if ( const Coverage cov = coverage( c, f, lu, lf ); cov.State == 1 )
+                            emitUncovered( c, f, cov, lu, lf, cell.Mat[f] );
+                        continue;
+                    }
                     // Corner Mode can slant a quad, so the normal comes from the actual corners.
                     glm::vec3 p[4];
                     for ( int k = 0; k < 4; ++k )
