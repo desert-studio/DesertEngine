@@ -181,7 +181,8 @@ namespace Desert::Editor
 
         // --stream-delay-ticks N (with --play): every world-partition cell read is reported N frames late, so a
         // flight outruns streaming on purpose — the WP12 overload policy's witness (HLOD far, the loading
-        // overlay only over an empty cell underfoot). Development builds only (WorldStreamer::SetDebugLoadDelayTicks).
+        // overlay only over an empty cell underfoot). Development builds only
+        // (WorldStreamer::SetDebugLoadDelayTicks).
         std::uint32_t StreamDelayTicks = 0;
 
         // --- The pointer a headless capture has, and does not otherwise have (Ю12) -------------------
