@@ -216,7 +216,8 @@ namespace Desert::Editor
             if ( ImGui::InputInt( "Seed", &seed ) )
                 s.Seed = static_cast<uint32_t>( std::max( seed, 0 ) );
             ImGui::DragFloat( "Noise Height (cm)", &s.NoiseHeightCm, 10.0f, 0.0f, 100000.0f );
-            ImGui::SliderFloat( "Noise Scale", &s.NoiseScale, L::kLandscapeMinNoiseScale, L::kLandscapeMaxNoiseScale );
+            ImGui::SliderFloat( "Noise Scale", &s.NoiseScale, L::kLandscapeMinNoiseScale,
+                                L::kLandscapeMaxNoiseScale );
         }
         ImGui::Checkbox( "Erosion", &s.Erosion );
         if ( s.Erosion )
@@ -228,7 +229,8 @@ namespace Desert::Editor
         if ( s.HydroErosion )
         {
             ImGui::SliderInt( "Rain Amount", &s.HydroSettings.RainAmount, 1, L::kLandscapeMaxRainAmount );
-            ImGui::SliderInt( "Hydro Iterations", &s.HydroSettings.Iterations, 1, L::kLandscapeMaxErosionIterations );
+            ImGui::SliderInt( "Hydro Iterations", &s.HydroSettings.Iterations, 1,
+                              L::kLandscapeMaxErosionIterations );
         }
         if ( s.Erosion || s.HydroErosion )
             ImGui::SliderFloat( "Erosion Strength", &s.ErosionStrength, 0.0f, 1.0f );

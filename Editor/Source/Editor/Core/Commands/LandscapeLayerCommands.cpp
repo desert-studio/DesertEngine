@@ -72,8 +72,8 @@ namespace Desert::Editor::Commands
         {
         public:
             CreateLandscapeCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
-                                    World::Landscape::LandscapeGenerated generated, uint32_t quads, Common::UUID root,
-                                    std::vector<Common::UUID> tiles )
+                                    World::Landscape::LandscapeGenerated generated, uint32_t quads,
+                                    Common::UUID root, std::vector<Common::UUID> tiles )
                  : m_Scene( scene ), m_Generated( std::move( generated ) ), m_Quads( quads ), m_Root( root ),
                    m_Tiles( std::move( tiles ) )
             {
@@ -195,7 +195,7 @@ namespace Desert::Editor::Commands
         return Common::MakeSuccess( name );
     }
 
-    Common::ResultStr<Common::UUID> CreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&     scene,
+    Common::ResultStr<Common::UUID> CreateLandscape( const std::shared_ptr<::Desert::Core::Scene>&      scene,
                                                      const World::Landscape::LandscapeGenerateSettings& settings )
     {
         if ( !scene )

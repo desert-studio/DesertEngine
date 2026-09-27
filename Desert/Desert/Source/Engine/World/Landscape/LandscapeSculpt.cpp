@@ -175,9 +175,9 @@ namespace Desert::World::Landscape
 
         using Complex = std::complex<double>;
 
-        /// e^(sign·2πi·m/count) for m in [0, count): the factor the DFT multiplies sample n of output k by is entry
-        /// (k·n) mod count. Computed by the same expression the loop used to evaluate per product, so the table
-        /// changes no bit of any result — it removes count² cos/sin calls per row.
+        /// e^(sign·2πi·m/count) for m in [0, count): the factor the DFT multiplies sample n of output k by is
+        /// entry (k·n) mod count. Computed by the same expression the loop used to evaluate per product, so the
+        /// table changes no bit of any result — it removes count² cos/sin calls per row.
         std::vector<Complex> Twiddles( size_t count, double sign )
         {
             const double         kTwoPi = 6.283185307179586476925;

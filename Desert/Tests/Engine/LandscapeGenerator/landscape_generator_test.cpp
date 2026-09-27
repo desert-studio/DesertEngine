@@ -139,7 +139,7 @@ TEST( LandscapeGenerator, NeighbouringTilesAgreeOnTheirSharedEdge )
 TEST( LandscapeGenerator, ThermalErosionFlattensTheSteepest )
 {
     auto rough                       = Eroded( 11u );
-    rough.NoiseScale                 = 8.0f; // steep: 4 samples per quarter period
+    rough.NoiseScale                 = 8.0f;    // steep: 4 samples per quarter period
     rough.NoiseHeightCm              = 1000.0f; // inside the 16-bit range: no clamped plateaus
     rough.Erosion                    = false;
     rough.HydroErosion               = false;
