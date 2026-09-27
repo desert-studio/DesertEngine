@@ -163,7 +163,7 @@ TEST( VoxelBlockout, CornerModeBuildsABilinearRampAndReadsItBack )
     v.PushPull( plane, sel, +1, 1, 0 );
 
     // Raise the two posts at vMax (the +X edge) by a whole cell: one ramp over both cells.
-    ASSERT_TRUE( v.ApplyCornerHeights( plane, sel, { 0, 0, CornerDen, CornerDen } ) );
+    ASSERT_TRUE( v.ApplyCornerHeights( plane, sel, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
     const CornerHeights back = v.ReadCornerHeights( plane, sel );
     EXPECT_EQ( back, ( CornerHeights{ 0, 0, CornerDen, CornerDen } ) );
     for ( const auto& [key, cell] : v.m_Cells )
@@ -185,20 +185,9 @@ TEST( VoxelBlockout, CornerModeBuildsABilinearRampAndReadsItBack )
     WorkPlane  hp;
     const Rect sq{ 0, 1, 0, 1 };
     h.PushPull( hp, sq, +1, 1, 0 );
-    ASSERT_TRUE( h.ApplyCornerHeights( hp, sq, { 0, 0, 0, CornerDen } ) );
+    ASSERT_TRUE( h.ApplyCornerHeights( hp, sq, { 0, 0, 0, CornerDen }, false ).IsSuccess() );
     EXPECT_EQ( h.m_Cells.at( Pack( { 0, 0, 0 } ) ).V[2 | 1 | 4], CornerDen / 4 );
     ExpectClosed( Measured( h.Bake() ) );
-}
-
-TEST( VoxelBlockout, CornerModeOnlyAppliesToAGroundFacingPlane )
-{
-    Volume    v = Ground();
-    WorkPlane side{ 0, 1, 0 };
-    v.PushPull( side, Rect{}, +1, 1, 0 );
-    EXPECT_FALSE( v.ApplyCornerHeights( side, Rect{}, { 60, 60, 60, 60 } ) );
-    EXPECT_EQ( v.ReadCornerHeights( side, Rect{} ), CornerHeights{} );
-    for ( const auto& [key, cell] : v.m_Cells )
-        EXPECT_TRUE( cell.IsFlat() );
 }
 
 TEST( VoxelBlockout, DeformedNeighboursOnlyHideTheSharedFaceWhenTheirCornersAgree )
@@ -249,7 +238,7 @@ TEST( VoxelBlockout, RefineSplitsEveryCellAndKeepsTheGeometry )
     Volume    v = Ground();
     WorkPlane plane;
     v.PushPull( plane, Rect{ 0, 1, 0, 0 }, +1, 1, 0 );
-    ASSERT_TRUE( v.ApplyCornerHeights( plane, Rect{ 0, 1, 0, 0 }, { 0, 0, 0, 0 } ) );
+    ASSERT_TRUE( v.ApplyCornerHeights( plane, Rect{ 0, 1, 0, 0 }, { 0, 0, 0, 0 }, false ).IsSuccess() );
     const Measure before = Measured( v.Bake() );
 
     v.Refine( 2 );
@@ -730,7 +719,7 @@ TEST( VoxelBlockoutReedit, SaveLoadKeepsCornersMaterialsFramesAndUnits )
     const Rect sel{ 0, 1, 0, 1 };
     v.PushPull( plane, sel, +1, 1, 3 );
     WorkPlane top{ 1, 1, 1 };
-    ASSERT_TRUE( v.ApplyCornerHeights( top, sel, { 0, 0, CornerDen, CornerDen } ) );
+    ASSERT_TRUE( v.ApplyCornerHeights( top, sel, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
     ASSERT_TRUE( v.Freeze() );
     v.m_Unit  = 50.0f;
     v.m_Frame = MakeGridFrame( { 10.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 20.0f } );
@@ -825,4 +814,214 @@ TEST( VoxelBlockoutReedit, AFrameThroughAnEntityAndBackIsTheSameFrame )
     const glm::vec3 p( 7.0f, 8.0f, 9.0f );
     const glm::vec3 w = entity.Compose( piece ).ToWorldPoint( p );
     EXPECT_LT( glm::length( w - entity.ToWorldPoint( piece.ToWorldPoint( p ) ) ), 1e-3f );
+}
+
+// --- M12: the rest of Corner Mode - any face, the odd-corner diagonal and its crosswise flip, slopes next to
+//     flat blocks that stay watertight, and all of it in a turned frame. ---
+namespace
+{
+    // A 3 x 3 floor one cell tall, top plane at y = 1.
+    Volume Floor3( const GridFrame& frame = {} )
+    {
+        Volume v  = Ground();
+        v.m_Frame = frame;
+        WorkPlane p;
+        v.PushPull( p, Rect{ 0, 2, 0, 2 }, +1, 1, 0 );
+        return v;
+    }
+    const WorkPlane kFloorTop{ 1, 1, 1 };
+} // namespace
+
+TEST( VoxelBlockoutCornerMode, AWallSlopesAlongItsOwnNormalOnEitherSide )
+{
+    for ( const int sign : { +1, -1 } )
+    {
+        Volume     v = Ground();
+        WorkPlane  side{ 0, sign, 0 }; // u is Y, v is Z
+        const Rect sel{ 0, 1, 0, 0 };  // two cells stacked up the wall
+        v.PushPull( side, sel, +1, 1, 0 );
+        const CornerHeights lean{ 0, 0, CornerDen, CornerDen }; // the +Z edge leans out of the wall
+        const auto          r = v.ApplyCornerHeights( side, sel, lean, false );
+        ASSERT_TRUE( r.IsSuccess() ) << r.GetError();
+        EXPECT_EQ( v.ReadCornerHeights( side, sel ), lean ) << "sign " << sign;
+        for ( const auto& [key, cell] : v.m_Cells )
+        {
+            EXPECT_EQ( cell.Axis, 0 );
+            for ( int i = 0; i < 8; ++i )
+            {
+                const bool outer = sign > 0 ? ( i & 1 ) != 0 : ( i & 1 ) == 0;
+                EXPECT_EQ( cell.V[i], outer && ( i & 4 ) != 0 ? sign * CornerDen : 0 )
+                     << "sign " << sign << " corner " << i;
+            }
+        }
+        const auto    mesh = v.Bake();
+        const Measure m    = Measured( mesh );
+        ExpectClosed( m );
+        EXPECT_NEAR( m.Volume, 2.0 * 1.5e6, 2.0 ) << "sign " << sign;
+        EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "sign " << sign;
+    }
+}
+
+TEST( VoxelBlockoutCornerMode, ACellSlopesAlongOneAxisAndASecondIsRefusedUnchanged )
+{
+    Volume     v = Ground();
+    WorkPlane  ground;
+    const Rect one{ 0, 0, 0, 0 };
+    v.PushPull( ground, one, +1, 1, 0 );
+    WorkPlane top{ 1, 1, 1 };
+    ASSERT_TRUE( v.ApplyCornerHeights( top, one, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
+    const Cell before = v.m_Cells.at( Pack( { 0, 0, 0 } ) );
+
+    WorkPlane  east{ 0, 1, 1 };
+    const auto r = v.ApplyCornerHeights( east, one, { CornerDen, 0, 0, 0 }, false );
+    ASSERT_FALSE( r.IsSuccess() );
+    EXPECT_NE( r.GetError().find( "(0, 0, 0) already slopes along axis 1" ), std::string::npos ) << r.GetError();
+    const Cell& after = v.m_Cells.at( Pack( { 0, 0, 0 } ) );
+    EXPECT_TRUE( std::equal( std::begin( after.V ), std::end( after.V ), std::begin( before.V ) ) );
+    EXPECT_EQ( after.Axis, 1 );
+    EXPECT_EQ( v.ReadCornerHeights( east, one ), CornerHeights{} ) << "another axis reads as no slope";
+
+    // Back to flat, the cell takes the other axis.
+    ASSERT_TRUE( v.ApplyCornerHeights( top, one, {}, false ).IsSuccess() );
+    EXPECT_TRUE( v.ApplyCornerHeights( east, one, { CornerDen, 0, 0, 0 }, false ).IsSuccess() );
+    EXPECT_EQ( v.m_Cells.at( Pack( { 0, 0, 0 } ) ).Axis, 0 );
+}
+
+TEST( VoxelBlockoutCornerMode, TheDiagonalRunsThroughTheOddCornerAndCrosswiseFlipsIt )
+{
+    const int top = 2; // +Y, corners { 2, 6, 7, 3 }
+    for ( int k = 0; k < 4; ++k )
+    {
+        Cell c;
+        c.V[kFaceCorner[top][k]] = 30;
+        EXPECT_EQ( SplitsAlong13( c, top ), k % 2 == 1 ) << "one corner raised: the diagonal through it, k " << k;
+        c.V[kFaceCorner[top][k]] = -30;
+        EXPECT_EQ( SplitsAlong13( c, top ), k % 2 == 1 ) << "one corner lowered, k " << k;
+        c.Crosswise = true;
+        EXPECT_EQ( SplitsAlong13( c, top ), k % 2 == 0 ) << "crosswise, k " << k;
+    }
+    Cell ridge;
+    ridge.V[kFaceCorner[top][1]] = ridge.V[kFaceCorner[top][3]] = 30;
+    EXPECT_TRUE( SplitsAlong13( ridge, top ) ) << "a checkerboard is a ridge along its raised corners";
+    Cell three;
+    three.V[kFaceCorner[top][1]] = three.V[kFaceCorner[top][2]] = three.V[kFaceCorner[top][3]] = 30;
+    EXPECT_FALSE( SplitsAlong13( three, top ) ) << "three raised: the diagonal through the welded one (k 0)";
+}
+
+TEST( VoxelBlockoutCornerMode, ADentInOneCellOfAFloorIsWatertightAndCrosswiseChangesItsShape )
+{
+    // One post of a one-cell selection in the middle of the floor lowered half a cell: the pit is the
+    // cell's own top, and the three flat neighbours' walls show exactly the part the lowered corner uncovers.
+    const Rect   mid{ 1, 1, 1, 1 };
+    const double h    = 50.0;  // cm
+    const double base = 9.0e6; // nine 100 cm cells
+    for ( const bool crosswise : { false, true } )
+    {
+        Volume     v = Floor3();
+        const auto r = v.ApplyCornerHeights( kFloorTop, mid, { -CornerDen / 2, 0, 0, 0 }, crosswise );
+        ASSERT_TRUE( r.IsSuccess() ) << r.GetError();
+        const auto    mesh = v.Bake();
+        const Measure m    = Measured( mesh );
+        ExpectClosed( m );
+        EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "crosswise " << crosswise;
+        // Through the lowered corner both triangles slope (a square-based pit, h/3 of a cell's area deep on
+        // average); across it only one does (h/6).
+        EXPECT_NEAR( m.Volume, base - h * 1.0e4 / ( crosswise ? 6.0 : 3.0 ), 2.0 ) << "crosswise " << crosswise;
+    }
+}
+
+TEST( VoxelBlockoutCornerMode, ARampStripInAFloorShowsOnlyTheWallAboveItsNeighbours )
+{
+    // The middle row raised toward +X: its sides stand above the flat rows beside it. Each side must show
+    // only the triangle above the neighbour, and the neighbour's wall none of itself.
+    Volume     v = Floor3();
+    const Rect row{ 1, 1, 0, 2 }; // z = 1, x = 0..2
+    ASSERT_TRUE( v.ApplyCornerHeights( kFloorTop, row, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
+    const auto    mesh = v.Bake();
+    const Measure m    = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, 9.0e6 + 1.5e6, 2.0 ); // a 300 cm wedge rising 0 -> 100 over one 100 cm row
+    // The two side triangles are the only area added besides the slope: 2 x (300 x 100 / 2).
+    const double top   = 300.0 * 100.0 * std::sqrt( 1.0 + 1.0 / 9.0 ) + 2.0 * 300.0 * 100.0;
+    const double sides = 2.0 * 300.0 * 100.0 + 2.0 * 300.0 * 100.0 + 2.0 * 15000.0 + 100.0 * 100.0;
+    EXPECT_NEAR( m.Area, top + sides + 300.0 * 300.0, 1.0 );
+}
+
+TEST( VoxelBlockoutCornerMode, ARampInAFrameTurned30DegreesIsTheSameRampTurned )
+{
+    const GridFrame turned = MakeGridFrame( { 40.0f, 0.0f, -25.0f }, { 0.0f, 30.0f, 0.0f } );
+    const Rect      row{ 1, 1, 0, 2 };
+    Volume          flat = Floor3();
+    Volume          v    = Floor3( turned );
+    for ( Volume* each : { &flat, &v } )
+        ASSERT_TRUE(
+             each->ApplyCornerHeights( kFloorTop, row, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
+
+    const auto    mesh = v.Bake();
+    const Measure m    = Measured( mesh );
+    const Measure m0   = Measured( flat.Bake() );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, m0.Volume, 2.0 );
+    EXPECT_NEAR( m.Area, m0.Area, 1.0 );
+    // The slope's normal, rising toward +X in the frame, in the world.
+    const glm::vec3 slope = turned.ToWorldVector( glm::normalize( glm::vec3( -1.0f, 3.0f, 0.0f ) ) );
+    bool            found = false;
+    for ( const auto& vert : mesh.Vertices )
+        found |= glm::length( vert.Normal - slope ) < 1e-4f;
+    EXPECT_TRUE( found ) << "no vertex carries the turned slope's normal";
+}
+
+TEST( VoxelBlockoutCornerMode, SaveLoadKeepsTheSlopeAxisAndTheDiagonalAndRefusesBadOnes )
+{
+    Volume     v = Ground();
+    WorkPlane  side{ 2, -1, 0 }; // the -Z wall
+    const Rect sel{ 0, 0, 0, 0 };
+    v.PushPull( side, sel, +1, 1, 0 );
+    ASSERT_TRUE( v.ApplyCornerHeights( side, sel, { CornerDen / 2, 0, 0, 0 }, true ).IsSuccess() );
+    const SavedBlockout saved = Save( v, 1 );
+    ASSERT_EQ( saved.Layers.size(), 1u );
+    ASSERT_EQ( saved.Layers[0].Deformed.size(), kSavedDeformedStride );
+    auto loaded = Load( saved );
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    const Cell& back = loaded.GetValue().m_Frozen[0].Cells.begin()->second;
+    const Cell& orig = v.m_Cells.begin()->second;
+    EXPECT_EQ( back.Axis, 2 );
+    EXPECT_TRUE( back.Crosswise );
+    EXPECT_TRUE( std::equal( std::begin( back.V ), std::end( back.V ), std::begin( orig.V ) ) );
+
+    auto refused = [&saved]( size_t at, int32_t value, const char* why )
+    {
+        SavedBlockout bad          = saved;
+        bad.Layers[0].Deformed[at] = value;
+        auto r                     = Load( bad );
+        ASSERT_FALSE( r.IsSuccess() ) << why;
+        EXPECT_NE( r.GetError().find( why ), std::string::npos ) << r.GetError();
+    };
+    refused( 17, 3, "axis 3" );
+    refused( 18, 2, "crosswise 2" );
+    SavedBlockout shifted = saved; // an old 17-wide cell must not be read shifted
+    shifted.Layers[0].Deformed.resize( 17 );
+    auto r = Load( shifted );
+    ASSERT_FALSE( r.IsSuccess() );
+    EXPECT_NE( r.GetError().find( "Deformed 17, not whole cells of 9 / 19" ), std::string::npos ) << r.GetError();
+}
+
+TEST( VoxelBlockoutCornerMode, ACommittedSlabIsThawedAndSlopesAsTheActiveOneDoes )
+{
+    // The editor's order: push a slab out, start a new marquee on top of it (which commits the slab), then
+    // Corner Mode. The row under the selection must come back into the active volume and slope.
+    Volume v = Floor3();
+    ASSERT_TRUE( v.Freeze() );
+    v.m_Unit = 100.0f; // the new marquee's base
+    const Rect row{ 1, 1, 0, 2 };
+    EXPECT_EQ( v.ReadCornerHeights( kFloorTop, row ), CornerHeights{} );
+    ASSERT_TRUE( v.ApplyCornerHeights( kFloorTop, row, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
+    EXPECT_EQ( v.ReadCornerHeights( kFloorTop, row ), ( CornerHeights{ 0, 0, CornerDen, CornerDen } ) );
+    const auto    mesh = v.Bake();
+    const Measure m    = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, 9.0e6 + 1.5e6, 2.0 );
 }

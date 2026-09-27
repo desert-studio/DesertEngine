@@ -83,8 +83,131 @@ namespace Desert::Geometry::VoxelBlockout
     };
     const int kFaceAxisBit[6] = { 4, 4, 2, 2, 1, 1 };
 
-    const RectPost kPosts[4] = {
-         { false, false, 2 }, { true, false, 2 | 4 }, { false, true, 2 | 1 }, { true, true, 2 | 1 | 4 } };
+    const RectPost kPosts[4] = { { false, false }, { true, false }, { false, true }, { true, true } };
+
+    int PostCorner( const WorkPlane& plane, int k )
+    {
+        const int ua = ( plane.Na + 1 ) % 3;
+        const int va = ( plane.Na + 2 ) % 3;
+        return ( plane.Sign > 0 ? 1 << plane.Na : 0 ) | ( kPosts[k].AtUMax ? 1 << ua : 0 ) |
+               ( kPosts[k].AtVMax ? 1 << va : 0 );
+    }
+
+    bool SplitsAlong13( const Cell& cell, int f )
+    {
+        bool welded[4];
+        for ( int k = 0; k < 4; ++k )
+            welded[k] = cell.V[kFaceCorner[f][k]] == 0;
+        const bool across13 = welded[1] != welded[3] || ( !welded[1] && welded[0] && welded[2] );
+        return across13 != cell.Crosswise;
+    }
+
+    namespace
+    {
+        // The lattice axis face f looks along.
+        int FaceNormalAxis( int f )
+        {
+            return f < 2 ? 2 : ( f < 4 ? 1 : 0 );
+        }
+
+        // Is corner i of `a` where corner j of `b` is? Offsets along different axes only agree at zero.
+        bool SameCorner( const Cell& a, int i, const Cell& b, int j )
+        {
+            return a.V[i] == b.V[j] && ( a.V[i] == 0 || a.Axis == b.Axis );
+        }
+
+        // Face f of `a` and the opposite face of its same-layer neighbour `b` lie in one plane, and when the
+        // offset axis runs IN that plane each is a column between two straight lines along it: a ramp's side
+        // next to a flat block, the wall of a sloped wall's neighbour. Those two faces overlap only partly, so
+        // neither is hidden nor shown whole - the bake shows each one's part the other does not cover
+        // (ColumnPieces). Returns that axis, or -1 when the all-or-nothing rule of FaceHidden applies.
+        int ColumnAxis( const Cell& a, const Cell& b, int f )
+        {
+            const bool da = !a.IsFlat();
+            const bool db = !b.IsFlat();
+            if ( ( !da && !db ) || ( da && db && a.Axis != b.Axis ) )
+                return -1;
+            const int axis = da ? a.Axis : b.Axis;
+            return axis == FaceNormalAxis( f ) ? -1 : axis;
+        }
+
+        // The part of face f of `a` (at cell `c`, edge `unit`, FRAME space) that `b`'s opposite face does not
+        // cover, as quads in f's winding; `axis` is ColumnAxis. Along the plane's other axis s both faces'
+        // bottoms and tops are straight lines, so the uncovered part is at most one piece below `b` and one
+        // above it per stretch of s between the points where two of those four lines cross.
+        std::vector<std::array<glm::vec3, 4>> ColumnPieces( const glm::ivec3& c, const Cell& a, const Cell& b,
+                                                            int f, int axis, float unit )
+        {
+            const int n    = FaceNormalAxis( f );
+            const int sAx  = 3 - n - axis;
+            const int nBit = 1 << n;
+            const int side = ( kFaceCorner[f][0] & nBit ) != 0 ? nBit : 0;
+            auto      off  = []( const Cell& cell, int i )
+            { return static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen ); };
+            auto corner = [&]( int s, int t )
+            { return side | ( s != 0 ? 1 << sAx : 0 ) | ( t != 0 ? 1 << axis : 0 ); };
+            // Lines over s in [0, 1] as (value at 0, value at 1): bottom and top of a, then of b.
+            std::array<glm::vec2, 4> line;
+            for ( int t = 0; t < 2; ++t )
+            {
+                line[t]     = { static_cast<float>( t ) + off( a, corner( 0, t ) ),
+                                static_cast<float>( t ) + off( a, corner( 1, t ) ) };
+                line[2 + t] = { static_cast<float>( t ) + off( b, corner( 0, t ) ^ nBit ),
+                                static_cast<float>( t ) + off( b, corner( 1, t ) ^ nBit ) };
+            }
+            auto at = [&]( int l, float s ) { return glm::mix( line[l].x, line[l].y, s ); };
+
+            std::vector<float> cuts{ 0.0f, 1.0f };
+            for ( int i = 0; i < 4; ++i )
+                for ( int j = i + 1; j < 4; ++j )
+                {
+                    const float d0 = line[i].x - line[j].x;
+                    const float d1 = line[i].y - line[j].y;
+                    if ( ( d0 < 0.0f ) != ( d1 < 0.0f ) && d0 != d1 )
+                        if ( const float s = d0 / ( d0 - d1 ); s > 1e-5f && s < 1.0f - 1e-5f )
+                            cuts.push_back( s );
+                }
+            std::ranges::sort( cuts );
+
+            auto point = [&]( float s, float t )
+            {
+                glm::vec3 p( c );
+                p[n] += side != 0 ? 1.0f : 0.0f;
+                p[sAx] += s;
+                p[axis] += t;
+                return p * unit;
+            };
+            const glm::vec3                       outward = kFace[f][0].N;
+            std::vector<std::array<glm::vec3, 4>> pieces;
+            for ( size_t k = 0; k + 1 < cuts.size(); ++k )
+            {
+                const float s0 = cuts[k];
+                const float s1 = cuts[k + 1];
+                if ( s1 - s0 < 1e-5f )
+                    continue;
+                const float sm = 0.5f * ( s0 + s1 );
+                // Below b: a's bottom up to the lower of a's top and b's bottom. Above b: the higher of a's bottom
+                // and b's top up to a's top. No two lines cross inside the stretch, so the line picked at its
+                // middle is the bound along all of it.
+                const int belowTop = at( 1, sm ) < at( 2, sm ) ? 1 : 2;
+                const int aboveBot = at( 0, sm ) > at( 3, sm ) ? 0 : 3;
+                for ( const auto& [lo, hi] : { std::pair{ 0, belowTop }, std::pair{ aboveBot, 1 } } )
+                {
+                    if ( at( hi, sm ) - at( lo, sm ) <= 1e-5f )
+                        continue;
+                    std::array<glm::vec3, 4> q{ point( s0, at( lo, s0 ) ), point( s1, at( lo, s1 ) ),
+                                                point( s1, std::max( at( hi, s1 ), at( lo, s1 ) ) ),
+                                                point( s0, std::max( at( hi, s0 ), at( lo, s0 ) ) ) };
+                    const glm::vec3          nrm =
+                         glm::cross( q[1] - q[0], q[3] - q[0] ) + glm::cross( q[3] - q[2], q[1] - q[2] );
+                    if ( glm::dot( nrm, outward ) < 0.0f )
+                        std::swap( q[1], q[3] );
+                    pieces.push_back( q );
+                }
+            }
+            return pieces;
+        }
+    } // namespace
 
     uint64_t Pack( const glm::ivec3& c )
     {
@@ -162,7 +285,7 @@ namespace Desert::Geometry::VoxelBlockout
         glm::vec3 p( c.x + ( ( ( i & 1 ) != 0 ) ? 1 : 0 ), c.y + ( ( ( i & 2 ) != 0 ) ? 1 : 0 ),
                      c.z + ( ( ( i & 4 ) != 0 ) ? 1 : 0 ) );
         p *= unit;
-        p.y += static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen ) * unit;
+        p[cell.Axis] += static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen ) * unit;
         return p;
     }
 
@@ -220,7 +343,7 @@ namespace Desert::Geometry::VoxelBlockout
             for ( int k = 0; k < 4; ++k )
             {
                 const int i = kFaceCorner[f][k];
-                if ( data.V[i] != it->second.V[i ^ bit] )
+                if ( !SameCorner( data, i, it->second, i ^ bit ) )
                     return false;
             }
             return true;
@@ -322,64 +445,103 @@ namespace Desert::Geometry::VoxelBlockout
         }
     }
 
-    bool Volume::ApplyCornerHeights( const WorkPlane& plane, const Rect& sel, const CornerHeights& heights )
+    Common::BoolResultStr Volume::ApplyCornerHeights( const WorkPlane& plane, const Rect& sel,
+                                                      const CornerHeights& heights, bool crosswise )
     {
-        if ( plane.Na != 1 || plane.Sign <= 0 )
-            return false;
-        const int ua      = ( plane.Na + 1 ) % 3;
-        const int va      = ( plane.Na + 2 ) % 3;
-        const int topCell = plane.Cell - 1; // the cell whose top face is the work-plane
+        const int na     = plane.Na;
+        const int ua     = ( na + 1 ) % 3;
+        const int va     = ( na + 2 ) % 3;
+        const int inside = plane.Cell - plane.Sign; // the cell row whose outer face is the work-plane (PushPull)
+        const int outer  = plane.Sign > 0 ? 1 << na : 0;
 
         const auto spanU = static_cast<float>( sel.UMax + 1 - sel.UMin );
         const auto spanV = static_cast<float>( sel.VMax + 1 - sel.VMin );
         if ( spanU <= 0.0f || spanV <= 0.0f )
-            return false;
+            return Common::MakeFormattedError<bool>(
+                 "CubeGrid Corner Mode: the selection {}..{} x {}..{} is empty", sel.UMin, sel.UMax, sel.VMin,
+                 sel.VMax );
 
+        // The blend never leaves the posts' range, so checking the posts checks every corner it writes.
+        for ( const int h : heights )
+            if ( h < std::numeric_limits<int16_t>::min() || h > std::numeric_limits<int16_t>::max() )
+                return Common::MakeFormattedError<bool>(
+                     "CubeGrid Corner Mode: post height {} does not fit 16 bits", h );
         auto heightAt = [&]( int lu, int lv )
         {
             const float fu = ( static_cast<float>( lu - sel.UMin ) ) / spanU;
             const float fv = ( static_cast<float>( lv - sel.VMin ) ) / spanV;
             const float a  = glm::mix( static_cast<float>( heights[0] ), static_cast<float>( heights[1] ), fu );
             const float b  = glm::mix( static_cast<float>( heights[2] ), static_cast<float>( heights[3] ), fu );
-            return static_cast<int16_t>( std::lround( glm::mix( a, b, fv ) ) );
+            return static_cast<int>( std::lround( glm::mix( a, b, fv ) ) );
         };
 
+        ThawUnder( InsideRow( plane, sel ) );
+        std::vector<std::pair<glm::ivec3, Cell*>> under;
         for ( int uu = sel.UMin; uu <= sel.UMax; ++uu )
             for ( int vv = sel.VMin; vv <= sel.VMax; ++vv )
             {
                 glm::ivec3 c{ 0 };
-                c[plane.Na] = topCell;
-                c[ua]       = uu;
-                c[va]       = vv;
-                auto it     = m_Cells.find( Pack( c ) );
+                c[na]   = inside;
+                c[ua]   = uu;
+                c[va]   = vv;
+                auto it = m_Cells.find( Pack( c ) );
                 if ( it == m_Cells.end() )
                     continue; // nothing pushed out under this column yet
-                for ( int i = 0; i < 8; ++i )
-                {
-                    if ( ( i & 2 ) == 0 ) // bottom corners stay on the lattice so the cell below still meets it
-                        continue;
-                    it->second.V[i] =
-                         heightAt( uu + ( ( ( i & 4 ) != 0 ) ? 1 : 0 ), vv + ( ( ( i & 1 ) != 0 ) ? 1 : 0 ) );
-                }
+                if ( !it->second.IsFlat() && it->second.Axis != na )
+                    return Common::MakeFormattedError<bool>(
+                         "CubeGrid Corner Mode: cell ({}, {}, {}) already slopes along axis {}; a cell slopes "
+                         "along one axis, and this face moves its corners along axis {}",
+                         c.x, c.y, c.z, it->second.Axis, na );
+                under.emplace_back( c, &it->second );
             }
-        return true;
+
+        for ( auto& [c, cell] : under )
+        {
+            cell->Axis      = static_cast<uint8_t>( na );
+            cell->Crosswise = crosswise;
+            for ( int i = 0; i < 8; ++i )
+            {
+                if ( ( i & ( 1 << na ) ) != outer ) // the inner corners stay on the lattice, so the cell behind
+                    continue;                       // the sloped row still meets it
+                cell->V[i] =
+                     static_cast<int16_t>( plane.Sign * heightAt( c[ua] + ( ( i & ( 1 << ua ) ) != 0 ? 1 : 0 ),
+                                                                  c[va] + ( ( i & ( 1 << va ) ) != 0 ? 1 : 0 ) ) );
+            }
+        }
+        return Common::MakeSuccess( true );
     }
 
-    CornerHeights Volume::ReadCornerHeights( const WorkPlane& plane, const Rect& sel ) const
+    std::vector<glm::ivec3> Volume::InsideRow( const WorkPlane& plane, const Rect& sel )
     {
+        std::vector<glm::ivec3> row;
+        const int               ua = ( plane.Na + 1 ) % 3;
+        const int               va = ( plane.Na + 2 ) % 3;
+        for ( int uu = sel.UMin; uu <= sel.UMax; ++uu )
+            for ( int vv = sel.VMin; vv <= sel.VMax; ++vv )
+            {
+                glm::ivec3 c{ 0 };
+                c[plane.Na] = plane.Cell - plane.Sign;
+                c[ua]       = uu;
+                c[va]       = vv;
+                row.push_back( c );
+            }
+        return row;
+    }
+
+    CornerHeights Volume::ReadCornerHeights( const WorkPlane& plane, const Rect& sel )
+    {
+        ThawUnder( InsideRow( plane, sel ) );
         CornerHeights h{};
-        if ( plane.Na != 1 || plane.Sign <= 0 )
-            return h;
-        const int ua = ( plane.Na + 1 ) % 3;
-        const int va = ( plane.Na + 2 ) % 3;
+        const int     ua = ( plane.Na + 1 ) % 3;
+        const int     va = ( plane.Na + 2 ) % 3;
         for ( int k = 0; k < 4; ++k )
         {
             glm::ivec3 c{ 0 };
-            c[plane.Na] = plane.Cell - 1;
+            c[plane.Na] = plane.Cell - plane.Sign;
             c[ua]       = kPosts[k].AtUMax ? sel.UMax : sel.UMin;
             c[va]       = kPosts[k].AtVMax ? sel.VMax : sel.VMin;
-            if ( auto it = m_Cells.find( Pack( c ) ); it != m_Cells.end() )
-                h[k] = it->second.V[kPosts[k].Corner];
+            if ( auto it = m_Cells.find( Pack( c ) ); it != m_Cells.end() && it->second.Axis == plane.Na )
+                h[k] = plane.Sign * it->second.V[PostCorner( plane, k )];
         }
         return h;
     }
@@ -452,16 +614,34 @@ namespace Desert::Geometry::VoxelBlockout
         {
             int                      Material;
             std::array<glm::vec3, 4> P;
+            int                      Count;  // 3 when two corners of the quad fell together
+            bool                     Diag13; // split along corners 1-3 instead of 0-2 (SplitsAlong13)
             glm::vec3                N;
             FaceUvFrame              Uv;
             GridFrame                Frame;
         };
         std::vector<PendingQuad> quads;
         float                    minUnit = std::numeric_limits<float>::max();
+        // A corner pulled onto its neighbour (a slope down to nothing, a piece ending in a point) leaves a
+        // triangle; a doubled corner would make a zero-area triangle whose edges have no partner.
         auto emitQuad = [&]( int material, const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv,
-                             const GridFrame& frame )
-        { quads.push_back( { material, { p[0], p[1], p[2], p[3] }, nrm, uv, frame } ); };
+                             const GridFrame& frame, bool diag13 )
+        {
+            PendingQuad q{ material, {}, 0, diag13, nrm, uv, frame };
+            for ( int k = 0; k < 4; ++k )
+                if ( q.Count == 0 || glm::length( p[k] - q.P[q.Count - 1] ) > 1e-4f )
+                    q.P[q.Count++] = p[k];
+            if ( q.Count > 1 && glm::length( q.P[q.Count - 1] - q.P[0] ) <= 1e-4f )
+                --q.Count;
+            if ( q.Count >= 3 )
+                quads.push_back( q );
+        };
 
+        auto columnAxis = []( const CellMap& cells, const glm::ivec3& c, const Cell& cell, int f )
+        {
+            const auto it = cells.find( Pack( c + kNeighbor[f] ) );
+            return it == cells.end() ? -1 : ColumnAxis( cell, it->second, f );
+        };
         auto emitLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
         {
             // FLAT cells go through greedy meshing: a 20x8 blockout wall becomes ONE quad instead of 160.
@@ -478,7 +658,8 @@ namespace Desert::Geometry::VoxelBlockout
                  [&]( const glm::ivec3& c, int f )
                  {
                      const auto it = cells.find( Pack( c ) );
-                     return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lf );
+                     return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lf ) &&
+                            columnAxis( cells, c, it->second, f ) < 0;
                  },
                  [&]( const glm::ivec3& c, int f ) -> uint64_t { return cells.at( Pack( c ) ).Mat[f]; } );
 
@@ -499,19 +680,25 @@ namespace Desert::Geometry::VoxelBlockout
                     g[ax.V] += unitP[ax.V] * static_cast<float>( q.SizeV );
                     p[k] = g * lu;
                 }
-                emitQuad( cells.at( Pack( q.Cell ) ).Mat[q.Face], p, kFace[q.Face][0].N, uv, lf );
+                emitQuad( cells.at( Pack( q.Cell ) ).Mat[q.Face], p, kFace[q.Face][0].N, uv, lf, false );
             }
 
             for ( const auto& [key, cell] : cells )
             {
-                if ( cell.IsFlat() )
-                    continue; // already meshed above
-
                 const glm::ivec3 c = Unpack( key );
                 for ( int f = 0; f < 6; ++f )
                 {
                     if ( FaceHidden( cells, c, cell, f, lu, lf ) ) // only Solid/Empty borders
                         continue;
+                    if ( const int axis = columnAxis( cells, c, cell, f ); axis >= 0 )
+                    {
+                        const Cell& other = cells.at( Pack( c + kNeighbor[f] ) );
+                        for ( const auto& piece : ColumnPieces( c, cell, other, f, axis, lu ) )
+                            emitQuad( cell.Mat[f], piece.data(), kFace[f][0].N, UvFrame( f ), lf, false );
+                        continue;
+                    }
+                    if ( cell.IsFlat() )
+                        continue; // greedy-meshed above
                     // Corner Mode can slant a quad, so the normal comes from the actual corners.
                     glm::vec3 p[4];
                     for ( int k = 0; k < 4; ++k )
@@ -520,7 +707,7 @@ namespace Desert::Geometry::VoxelBlockout
                          glm::cross( p[1] - p[0], p[3] - p[0] ) + glm::cross( p[3] - p[2], p[1] - p[2] );
                     nrm = glm::dot( nrm, nrm ) > 1e-12f ? glm::normalize( nrm ) : kFace[f][0].N;
 
-                    emitQuad( cell.Mat[f], p, nrm, UvFrame( f ), lf );
+                    emitQuad( cell.Mat[f], p, nrm, UvFrame( f ), lf, SplitsAlong13( cell, f ) );
                 }
             }
         };
@@ -554,10 +741,10 @@ namespace Desert::Geometry::VoxelBlockout
         for ( const PendingQuad& q : quads )
         {
             ring.clear();
-            for ( int k = 0; k < 4; ++k )
+            for ( int k = 0; k < q.Count; ++k )
             {
                 const glm::vec3& la = q.P[k];
-                const glm::vec3& lb = q.P[( k + 1 ) % 4];
+                const glm::vec3& lb = q.P[( k + 1 ) % q.Count];
                 const glm::vec3  a  = q.Frame.ToWorldPoint( la );
                 const glm::vec3  d  = q.Frame.ToWorldPoint( lb ) - a;
                 const float      l2 = glm::dot( d, d );
@@ -601,17 +788,30 @@ namespace Desert::Geometry::VoxelBlockout
                 v.TexCoord  = { glm::dot( p, q.Uv.T ) * kUvPerUnit, glm::dot( p, q.Uv.B ) * kUvPerUnit };
                 b.Verts.push_back( v );
             };
-            if ( ring.size() == 4 )
+            if ( ring.size() == static_cast<size_t>( q.Count ) )
             {
                 for ( const glm::vec3& p : ring )
                     vertex( p );
-                b.Inds.push_back( { base + 0, base + 1, base + 2 } );
-                b.Inds.push_back( { base + 2, base + 3, base + 0 } );
+                if ( q.Count == 3 )
+                    b.Inds.push_back( { base + 0, base + 1, base + 2 } );
+                else if ( q.Diag13 )
+                {
+                    b.Inds.push_back( { base + 0, base + 1, base + 3 } );
+                    b.Inds.push_back( { base + 1, base + 2, base + 3 } );
+                }
+                else
+                {
+                    b.Inds.push_back( { base + 0, base + 1, base + 2 } );
+                    b.Inds.push_back( { base + 2, base + 3, base + 0 } );
+                }
                 continue;
             }
             // A split quad: a fan from its centre keeps every outline segment an edge of its own triangle, in
             // the quad's winding.
-            vertex( ( q.P[0] + q.P[1] + q.P[2] + q.P[3] ) * 0.25f );
+            glm::vec3 centre( 0.0f );
+            for ( int k = 0; k < q.Count; ++k )
+                centre += q.P[k];
+            vertex( centre / static_cast<float>( q.Count ) );
             for ( const glm::vec3& p : ring )
                 vertex( p );
             const auto n = static_cast<uint32_t>( ring.size() );
@@ -750,8 +950,11 @@ namespace Desert::Geometry::VoxelBlockout
                 for ( const uint8_t m : cell->Mat )
                     out.push_back( m );
                 if ( !cell->IsFlat() )
+                {
                     for ( const int16_t o : cell->V )
                         out.push_back( o );
+                    out.insert( out.end(), { cell->Axis, cell->Crosswise ? 1 : 0 } );
+                }
             }
             saved.Layers.push_back( std::move( l ) );
         };
@@ -773,7 +976,7 @@ namespace Desert::Geometry::VoxelBlockout
                                                            s.Unit );
             if ( s.Flat.size() % kSavedFlatStride != 0 || s.Deformed.size() % kSavedDeformedStride != 0 )
                 return Common::MakeFormattedError<Volume>(
-                     "CubeGrid layer {}: {} flat / {} deformed values are not whole cells of {} / {}", li,
+                     "CubeGrid layer {}: Flat holds {} values and Deformed {}, not whole cells of {} / {}", li,
                      s.Flat.size(), s.Deformed.size(), kSavedFlatStride, kSavedDeformedStride );
             const glm::quat q( s.Rotation[0], s.Rotation[1], s.Rotation[2], s.Rotation[3] );
             if ( !std::isfinite( glm::length( q ) ) || std::abs( glm::length( q ) - 1.0f ) > 1e-3f )
@@ -812,6 +1015,17 @@ namespace Desert::Geometry::VoxelBlockout
                                      li, c.x, c.y, c.z, o );
                             cell.V[i] = static_cast<int16_t>( o );
                         }
+                    if ( stride == kSavedDeformedStride )
+                    {
+                        const int32_t axis      = values[at + 17];
+                        const int32_t crosswise = values[at + 18];
+                        if ( axis < 0 || axis > 2 || crosswise < 0 || crosswise > 1 )
+                            return Common::MakeFormattedError<bool>(
+                                 "CubeGrid layer {}: cell ({}, {}, {}) axis {} / crosswise {} is not 0..2 / 0..1",
+                                 li, c.x, c.y, c.z, axis, crosswise );
+                        cell.Axis      = static_cast<uint8_t>( axis );
+                        cell.Crosswise = crosswise != 0;
+                    }
                     if ( !l.Cells.emplace( Pack( c ), cell ).second )
                         return Common::MakeFormattedError<bool>(
                              "CubeGrid layer {}: cell ({}, {}, {}) is stored twice", li, c.x, c.y, c.z );

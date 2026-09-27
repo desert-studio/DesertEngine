@@ -89,10 +89,16 @@ namespace Desert::Editor::Tools
         bool       m_HasSel = false;
         Geometry::VoxelBlockout::Rect m_Sel;
 
-        // Corner Mode (Z): the selection rectangle's four corner posts. Heights are in the same
-        // 1/CornerDen base-cell units as Cell::V; index order is (uMin,vMin) (uMax,vMin) (uMin,vMax)
-        // (uMax,vMax).
+        // Corner Mode (Z): the selection rectangle's four corner posts, on whichever face the selection lies.
+        // Heights are in the same 1/CornerDen base-cell units as Cell::V, out of the work-plane; index order is
+        // (uMin,vMin) (uMax,vMin) (uMin,vMax) (uMax,vMax).
         bool m_CornerMode = false;
+        // The Crosswise Diagonal the cells under the selection were last shaped with; a change re-applies.
+        bool m_Crosswise = false;
+        // UE's corner drag-selection: while LMB is held, every post the cursor passes over takes the opposite
+        // of what it had when the press began, so one sweep picks an edge or a single post.
+        bool m_CornerSweep = false;
+        bool m_CornerSelBefore[4]{};
 
         // The blockout's material set: a face's material ID indexes it. ID 0 is the engine default, so a
         // blockout nobody picked a material for bakes to one submesh with an empty slot, as before.
