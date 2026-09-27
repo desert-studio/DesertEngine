@@ -70,6 +70,16 @@ namespace Desert::ShaderResources::ShaderLayout
         Core::Formats::ShaderStage ShaderStage = Core::Formats::ShaderStage::Fragment;
     };
 
+    // `uniform accelerationStructureEXT` (GL_EXT_ray_query) — a top-level acceleration structure the
+    // shader traces against; bound as VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR.
+    struct AccelerationStructure
+    {
+        uint32_t                   BindingPoint  = 0;
+        uint32_t                   DescriptorSet = 0;
+        std::string                Name;
+        Core::Formats::ShaderStage ShaderStage = Core::Formats::ShaderStage::None;
+    };
+
     struct PushConstantRange
     {
         uint32_t                   Offset = 0;

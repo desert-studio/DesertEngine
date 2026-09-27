@@ -653,7 +653,11 @@ namespace
                         CrashReporter::FormatCrashTime( inReport ) + "  (started " + inReport.started + ")",
                         nullptr );
             SummaryRow( "Machine", inReport.machine + "  -  " + inReport.os, nullptr );
-            SummaryRow( "GPU", inReport.gpu, nullptr );
+            SummaryRow( "GPU",
+                        inReport.gpuDriver.empty() ? inReport.gpu
+                                                   : inReport.gpu + "  -  driver " + inReport.gpuDriver +
+                                                          "  -  Vulkan " + inReport.gpuApi,
+                        nullptr );
             SummaryRow( "Scene", inReport.scene, nullptr );
             ImGui::EndTable();
         }
@@ -917,7 +921,25 @@ int main( int inArgc, char** inArgv )
             const float textBlock    = status.empty() ? lineHeight : ( lineHeight * 2.0f );
             const float buttonHeight = ImGui::GetFrameHeight();
 
+            const std::string copyLabel    = std::string( kIconCopy ) + "  Copy report";
+            const std::string folderLabel  = std::string( kIconFolder ) + "  Open folder";
+            const std::string restartLabel = std::string( kIconRedo ) + "  Restart " +
+                                             ( report.host.empty() ? std::string( "Editor" ) : report.host );
+            const float padding   = ImGui::GetStyle().FramePadding.x * 2.0f;
+            const float spacing   = ImGui::GetStyle().ItemSpacing.x;
+            const float widths[3] = { ImGui::CalcTextSize( copyLabel.c_str() ).x + padding,
+                                      ImGui::CalcTextSize( folderLabel.c_str() ).x + padding,
+                                      ImGui::CalcTextSize( restartLabel.c_str() ).x + padding };
+            const float total     = widths[0] + widths[1] + widths[2] + ( spacing * 2.0f );
+
             ImGui::SetCursorPosY( ( footerHeight - textBlock ) * 0.5f );
+            // The path is as long as the user's temp directory makes it; at the default width it ran
+            // under the buttons. Clip it to the space left of them; the clipped line still opens the
+            // folder on click, and widening the window shows the rest.
+            const ImVec2 bandOrigin = ImGui::GetWindowPos();
+            const float  pathRight =
+                 bandOrigin.x + ImGui::GetWindowWidth() - ( kPadX * dpiScale ) - total - spacing;
+            ImGui::PushClipRect( bandOrigin, ImVec2( pathRight, bandOrigin.y + footerHeight ), true );
             ImGui::BeginGroup();
             ImGui::TextColored( ToVec4( kColMuted ), "%s",
                                 report.sourcePath.empty() ? "(no report path)" : report.sourcePath.c_str() );
@@ -934,17 +956,7 @@ int main( int inArgc, char** inArgv )
                 ImGui::TextColored( ToVec4( kColAccent ), "%s", status.c_str() );
             }
             ImGui::EndGroup();
-
-            const std::string copyLabel    = std::string( kIconCopy ) + "  Copy report";
-            const std::string folderLabel  = std::string( kIconFolder ) + "  Open folder";
-            const std::string restartLabel = std::string( kIconRedo ) + "  Restart " +
-                                             ( report.host.empty() ? std::string( "Editor" ) : report.host );
-            const float padding   = ImGui::GetStyle().FramePadding.x * 2.0f;
-            const float spacing   = ImGui::GetStyle().ItemSpacing.x;
-            const float widths[3] = { ImGui::CalcTextSize( copyLabel.c_str() ).x + padding,
-                                      ImGui::CalcTextSize( folderLabel.c_str() ).x + padding,
-                                      ImGui::CalcTextSize( restartLabel.c_str() ).x + padding };
-            const float total     = widths[0] + widths[1] + widths[2] + ( spacing * 2.0f );
+            ImGui::PopClipRect();
 
             ImGui::SetCursorPos( ImVec2( ImGui::GetWindowWidth() - ( kPadX * dpiScale ) - total,
                                          ( footerHeight - buttonHeight ) * 0.5f ) );

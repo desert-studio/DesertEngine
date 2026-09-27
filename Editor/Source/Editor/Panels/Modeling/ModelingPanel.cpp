@@ -1,6 +1,8 @@
 #include "ModelingPanel.hpp"
 
+#include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
@@ -16,6 +18,8 @@
 
 #include <algorithm>
 #include <array>
+#include <initializer_list>
+#include <type_traits>
 
 namespace Desert::Editor
 {
@@ -40,6 +44,14 @@ namespace Desert::Editor
                     return ICON_MDI_TRIANGLE_OUTLINE;
                 case S::Stairs:
                     return ICON_MDI_STAIRS;
+                case S::Torus:
+                    return ICON_MDI_RING;
+                case S::Arrow:
+                    return ICON_MDI_ARROW_UP_BOLD;
+                case S::Disc:
+                    return ICON_MDI_CIRCLE_OUTLINE;
+                case S::Rectangle:
+                    return ICON_MDI_RECTANGLE_OUTLINE;
             }
             return ICON_MDI_SHAPE_PLUS;
         }
@@ -184,6 +196,18 @@ namespace Desert::Editor
             LOG_WARN( "{0}", done.GetError() );
     }
 
+    void ModelingPanel::RunBoolean( Core::BooleanTool tool )
+    {
+        if ( !m_Scene )
+        {
+            LOG_WARN( "{0}: the Modeling panel has no scene", Core::ToString( tool ) );
+            return;
+        }
+        if ( const auto done = Core::ApplyBooleanTool( *m_Scene, tool, Core::BooleanArgsFromModelingState() );
+             !done )
+            LOG_WARN( "{0}", done.GetError() );
+    }
+
     void ModelingPanel::Transform( Core::XformOperation op )
     {
         if ( !m_Scene )
@@ -253,8 +277,8 @@ namespace Desert::Editor
             ImGui::TextDisabled( "Pick a shape above to place it." );
     }
 
-    // UE's Create palette: of its tools we have Merge (UE's Combine Meshes) and Pattern, both operations on the
-    // scene selection that run on one click; in UE each is a tool with its own Accept.
+    // UE's Create palette: of its tools we have Boolean, Merge (UE's Combine Meshes) and Pattern, all operations
+    // on the scene selection that run on one click; in UE each is a tool with its own Accept.
     void ModelingPanel::DrawCreatePalette()
     {
         auto&       ms       = Core::ModelingState::Get();
@@ -262,6 +286,21 @@ namespace Desert::Editor
         const char* axes[]   = { "X", "Y", "Z" };
         using XO             = Core::XformOperation;
         const auto transform = [this]( XO op ) { Transform( op ); };
+        if ( Utils::ImGuiUtilities::SectionHeader( "Boolean" ) )
+        {
+            static constexpr std::array<const char*, 4> kOps = { "Difference A - B", "Difference B - A",
+                                                                 "Intersect", "Union" };
+            int                                         op   = static_cast<int>( ms.Boolean.Operation );
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( ImGui::Combo( "##BooleanOperation", &op, kOps.data(), static_cast<int>( kOps.size() ) ) )
+                ms.Boolean.Operation = static_cast<Core::CsgOperation>( op );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Of the two selected entities, A is the first selected and B the second.\n"
+                                   "Both must be closed solids." );
+            DrawBooleanOutput();
+            if ( ImGui::Button( Core::ToString( Core::BooleanTool::Boolean ), ImVec2( -1.0f, 0.0f ) ) )
+                RunBoolean( Core::BooleanTool::Boolean );
+        }
         if ( Utils::ImGuiUtilities::SectionHeader( "Merge" ) )
         {
             if ( ImGui::Button( Core::ToString( XO::Merge ), ImVec2( -1.0f, 0.0f ) ) )
@@ -346,14 +385,36 @@ namespace Desert::Editor
             const float half   = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
             using MO           = Core::MeshOperation;
             const auto operate = [this]( MO op ) { Operate( op ); };
+            // UE's Subdivide tool settings (SubdividePolyTool.h:44-62); the Boundary is greyed out for Bilinear,
+            // as UE's EditCondition does.
+            Geometry::SubdivideSettings& subdivide = ms.ElementSubdivide;
             ImGui::SetNextItemWidth( half );
-            ImGui::SliderInt( "##ElementSubdivideLevels", &ms.ElementSubdivideLevels, 1,
-                              Geometry::kMaxSubdivideLevels, "Levels %d" );
+            ImGui::SliderInt( "##ElementSubdivideLevels", &subdivide.Level, 1, Geometry::kMaxSubdivisionLevel,
+                              "Levels %d" );
             ImGui::SameLine();
-            bool loop = ms.ElementSubdivideScheme == Geometry::SubdivideScheme::Loop;
-            if ( ImGui::Checkbox( "Smooth (Loop)", &loop ) )
-                ms.ElementSubdivideScheme =
-                     loop ? Geometry::SubdivideScheme::Loop : Geometry::SubdivideScheme::Uniform;
+            ImGui::SetNextItemWidth( half );
+            int                                         scheme   = static_cast<int>( subdivide.Scheme );
+            static constexpr std::array<const char*, 3> kSchemes = { "Bilinear", "Catmull-Clark", "Loop" };
+            if ( ImGui::Combo( "##ElementSubdivideScheme", &scheme, kSchemes.data(),
+                               static_cast<int>( kSchemes.size() ) ) )
+                subdivide.Scheme = static_cast<Geometry::SubdivisionScheme>( scheme );
+            ImGui::SetNextItemWidth( half );
+            ImGui::BeginDisabled( subdivide.Scheme == Geometry::SubdivisionScheme::Bilinear );
+            int                                         boundary    = static_cast<int>( subdivide.Boundary );
+            static constexpr std::array<const char*, 2> kBoundaries = { "Smooth Corners", "Sharp Corners" };
+            if ( ImGui::Combo( "##ElementSubdivideBoundary", &boundary, kBoundaries.data(),
+                               static_cast<int>( kBoundaries.size() ) ) )
+                subdivide.Boundary = static_cast<Geometry::SubdivisionBoundaryScheme>( boundary );
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( half );
+            int                                         normals  = static_cast<int>( subdivide.Normals );
+            static constexpr std::array<const char*, 2> kNormals = { "Normals: Interpolated",
+                                                                     "Normals: Generated" };
+            if ( ImGui::Combo( "##ElementSubdivideNormals", &normals, kNormals.data(),
+                               static_cast<int>( kNormals.size() ) ) )
+                subdivide.Normals = static_cast<Geometry::SubdivisionOutputNormals>( normals );
+            ImGui::Checkbox( "New PolyGroups", &subdivide.NewPolyGroups );
             if ( ImGui::Button( Core::ToString( MO::Subdivide ), ImVec2( -1.0f, 0.0f ) ) )
                 operate( MO::Subdivide );
         }
@@ -374,7 +435,8 @@ namespace Desert::Editor
     }
 
     // UE's TriModel palette: Mirror, Plane Cut and Trim (UE's Mesh Trim). In UE each is a tool with a gizmo and
-    // its own Accept; here each is an operation on the Select Elements mesh that runs on one click.
+    // its own Accept; here each runs on one click - Mirror and Plane Cut on the Select Elements mesh, Trim on
+    // the scene selection's two entities.
     void ModelingPanel::DrawTriModelPalette()
     {
         auto&       ms      = Core::ModelingState::Get();
@@ -414,23 +476,22 @@ namespace Desert::Editor
         if ( ImGui::Button( Core::ToString( MO::PlaneCut ), ImVec2( -1.0f, 0.0f ) ) )
             operate( MO::PlaneCut );
 
-        // Trim (UE's Trim tool): another entity's closed convex mesh cuts this one; the cut stays open.
-        if ( ImGui::Button( "Pick Cutter", ImVec2( half, 0.0f ) ) )
-        {
-            if ( const auto picked = PickTrimCutterFromSelection(); !picked )
-                LOG_WARN( "Mesh Trim: {}", picked.GetError() );
-        }
-        ImGui::SameLine();
-        if ( ms.ElementTrimCutter.IsNull() )
-            ImGui::TextDisabled( "no cutter" );
-        else
-            ImGui::Text( "cutter %llu",
-                         static_cast<unsigned long long>( static_cast<uint64_t>( ms.ElementTrimCutter ) ) );
-        bool outside = ms.ElementTrimSide == Geometry::TrimSide::RemoveOutside;
-        if ( ImGui::Checkbox( "Keep only the inside", &outside ) )
-            ms.ElementTrimSide = outside ? Geometry::TrimSide::RemoveOutside : Geometry::TrimSide::RemoveInside;
-        if ( ImGui::Button( Core::ToString( MO::Trim ), ImVec2( -1.0f, 0.0f ) ) )
-            operate( MO::Trim );
+        // Trim (UE's Trim tool): of the scene selection's two entities, one is cut by the other's closed surface
+        // (any shape, dents included); the cut stays open.
+        auto&                                       boolean  = ms.Boolean;
+        static constexpr std::array<const char*, 2> kTrimmed = { "Trim A (first selected)", "Trim B (second)" };
+        int                                         trimmed  = static_cast<int>( boolean.Trimmed );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##TrimWhich", &trimmed, kTrimmed.data(), static_cast<int>( kTrimmed.size() ) ) )
+            boolean.Trimmed = static_cast<Core::TrimTarget>( trimmed );
+        static constexpr std::array<const char*, 2> kSides = { "Remove Inside", "Remove Outside" };
+        int                                         side   = static_cast<int>( boolean.Side );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##TrimSide", &side, kSides.data(), static_cast<int>( kSides.size() ) ) )
+            boolean.Side = static_cast<Core::TrimSide>( side );
+        DrawBooleanOutput();
+        if ( ImGui::Button( Core::ToString( Core::BooleanTool::Trim ), ImVec2( -1.0f, 0.0f ) ) )
+            RunBoolean( Core::BooleanTool::Trim );
     }
 
     // UE's Transform palette: Edit Pivot, Bake Transform and Split. In UE each is a tool with its own Accept;
@@ -488,15 +549,19 @@ namespace Desert::Editor
             if ( ImGui::Button( "Reset Grid from Actor", ImVec2( -1.0f, 0.0f ) ) )
                 ms.ReqResetFromActor = true;
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Put the grid origin on the SELECTED object's origin, so every block\n"
-                                   "size stays flush with its corners instead of tiling from (0,0,0)." );
+                ImGui::SetTooltip( "Put the grid frame on the SELECTED object's origin and orientation, so every\n"
+                                   "block size stays flush with its corners and faces instead of tiling from\n"
+                                   "(0,0,0) along the world axes. Ctrl+MMB puts the pivot on the nearest corner\n"
+                                   "of the face under the cursor." );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Options" ) )
         {
             // Moving the frame commits the current piece (cells are lattice indices) and re-tiles from
-            // the new origin — already-built geometry keeps the frame it was made in and never moves.
+            // the new origin and axes — already-built geometry keeps the frame it was made in and never moves.
             ImGui::SetNextItemWidth( -1.0f );
             ImGui::DragFloat3( "Grid Frame Origin", &ms.GridOrigin.x, 1.0f, 0.0f, 0.0f, "%.0f" );
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::DragFloat3( "Grid Frame Orientation", &ms.GridRotation.x, 0.5f, -180.0f, 180.0f, "%.1f deg" );
             ImGui::Checkbox( "Show Gizmo", &ms.ShowGizmo );
 
             // Grid Power: block size = 1 m >> power (Power 2 = 25 cm), like UE's slider. Typing a free
@@ -528,8 +593,11 @@ namespace Desert::Editor
             if ( ImGui::Combo( "Snap Size", &cur, snaps, 3 ) )
                 ms.CornerSnapDiv = divs[cur];
 
-            ImGui::TextDisabled( "Select a rectangle, press Z, click the" );
-            ImGui::TextDisabled( "corner posts (Shift adds), then E / Q." );
+            // UE's Crosswise Diagonal: which way a non-planar sloped quad is split.
+            ImGui::Checkbox( "Crosswise Diagonal (X)", &ms.CornerCrosswise );
+
+            ImGui::TextDisabled( "Select a rectangle on any face, press Z," );
+            ImGui::TextDisabled( "sweep over posts to flip them, then E / Q." );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Block Selection" ) )
         {
@@ -537,6 +605,32 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Target other objects in the scene too, so you can start a grid on\n"
                                    "top of an existing mesh (bounding-box level)." );
+        }
+        // Quick Materials (UE's Material property on the Cube Grid Tool): what Push/Pull gives the faces it
+        // creates and Shift+B paints onto the selection. Picked from the project's materials.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Material" ) )
+        {
+            std::string current = "Engine default";
+            const auto  rows    = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material );
+            for ( const auto& row : rows )
+                if ( row.Handle == ms.QuickMaterial )
+                    current = ::Desert::Editor::PickerDisplayName( row );
+            ImGui::SetNextItemWidth( 200.0f );
+            if ( ImGui::BeginCombo( "Quick Material", current.c_str() ) )
+            {
+                if ( ImGui::Selectable( "Engine default", ms.QuickMaterial == Common::AssetHandle{} ) )
+                    ms.QuickMaterial = Common::AssetHandle{};
+                for ( const auto& row : rows )
+                {
+                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
+                    if ( ImGui::Selectable( ( name + "##" + row.Key ).c_str(), row.Handle == ms.QuickMaterial ) )
+                        ms.QuickMaterial = row.Handle;
+                }
+                ImGui::EndCombo();
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Push / Pull give every face they create this material;\n"
+                                   "Shift+B paints it onto the selected faces without changing the shape." );
         }
         // UE titles this section "Output Type"; ours has no type choice yet (Accept makes one kind of
         // mesh), so the section is named for what it does hold.
@@ -583,8 +677,10 @@ namespace Desert::Editor
                 const char* Keys;
             } shortcuts[] = {
                  { "Select blocks", "LMB drag on the surface" },
-                 { "Push / Pull", "E / Q" },
-                 { "Corner Mode", "Z (then E / Q on posts)" },
+                 { "Push / Pull", "E / Q, or Ctrl + LMB drag" },
+                 { "Slide selection", "Shift + E / Q" },
+                 { "Paint Quick Material", "Shift + B" },
+                 { "Corner Mode", "Z (sweep posts, E / Q, X diagonal)" },
                  { "Resize Grid", "Ctrl + E / Q" },
                  { "Shift work-plane", "Ctrl + Mouse Wheel" },
                  { "Snap grid to surface", "Ctrl + MMB" },
@@ -621,13 +717,14 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "%s\nDrag 1..1000 cm; Ctrl+click to type up to 1000000.", tip );
         };
-        const auto count = []( const char* label, int* value, int uiLowest, int uiHighest, int clampHighest )
+        const auto count =
+             []( const char* label, int* value, int uiLowest, int uiHighest, int clampLowest, int clampHighest )
         {
             ImGui::SetNextItemWidth( 110.0f );
             if ( ImGui::SliderInt( label, value, uiLowest, uiHighest ) )
-                *value = std::clamp( *value, uiLowest, clampHighest );
+                *value = std::clamp( *value, clampLowest, clampHighest );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Drag %d..%d; Ctrl+click to type up to %d.", uiLowest, uiHighest,
+                ImGui::SetTooltip( "Drag %d..%d; Ctrl+click to type %d..%d.", uiLowest, uiHighest, clampLowest,
                                    clampHighest );
         };
 
@@ -635,33 +732,143 @@ namespace Desert::Editor
         ImGui::Spacing();
         if ( Utils::ImGuiUtilities::SectionHeader( "Shape" ) )
         {
-            // Only the fields the chosen shape reads: a field shown here always moves the shape.
-            const bool round = s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Cylinder ||
-                               s.Kind == MS::Shape::Cone || s.Kind == MS::Shape::Capsule;
-            cm( round ? "Diameter" : "Width", &s.Width, round ? "Full width across the axis." : "X extent." );
-            if ( s.Kind == MS::Shape::Box || s.Kind == MS::Shape::Pyramid )
-                cm( "Depth", &s.Depth, "Z extent." );
-            if ( s.Kind != MS::Shape::Sphere && s.Kind != MS::Shape::Stairs )
-                cm( "Height", &s.Height,
-                    s.Kind == MS::Shape::Capsule ? "End to end, never less than the diameter." : "Y extent." );
-            if ( s.Kind == MS::Shape::Box )
-                count( "Subdivisions", &s.Subdivisions, 1, 100, 500 );
-            if ( round )
-                count( "Slices", &s.Slices, 3, 128, 500 );
-            if ( s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Capsule )
-                count( "Stacks", &s.Stacks, 4, 100, 500 );
-            if ( s.Kind == MS::Shape::Stairs )
+            // Only the chosen shape's own property set, with UE's names, UI ranges and clamps
+            // (AddPrimitiveTool.h): every field shown here moves the shape.
+            using Shape      = MS::Shape;
+            const auto combo = []( const char* label, auto& current,
+                                   std::initializer_list<std::decay_t<decltype( current )>> values )
             {
-                count( "Steps", &s.Steps, 2, 100, 1000000 );
-                cm( "Step Depth", &s.StepDepth, "Tread depth, along +Z." );
-                cm( "Step Height", &s.StepHeight, "Riser height." );
+                ImGui::SetNextItemWidth( 110.0f );
+                if ( ImGui::BeginCombo( label, Geometry::ToString( current ) ) )
+                {
+                    for ( const auto type : values )
+                        if ( ImGui::Selectable( Geometry::ToString( type ), type == current ) )
+                            current = type;
+                    ImGui::EndCombo();
+                }
+            };
+            switch ( s.Kind )
+            {
+                case Shape::Box:
+                    cm( "Width", &s.Box.Width, "Width of the box (X)." );
+                    cm( "Depth", &s.Box.Depth, "Depth of the box (Z)." );
+                    cm( "Height", &s.Box.Height, "Height of the box (Y)." );
+                    count( "Width Subdivisions", &s.Box.WidthSubdivisions, 1, 100, 1, 500 );
+                    count( "Depth Subdivisions", &s.Box.DepthSubdivisions, 1, 100, 1, 500 );
+                    count( "Height Subdivisions", &s.Box.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Sphere:
+                    cm( "Radius", &s.Sphere.Radius, "Radius of the sphere." );
+                    combo( "Subdivision Type", s.Sphere.SubdivisionType,
+                           { Geometry::SphereType::LatLong, Geometry::SphereType::Box } );
+                    if ( s.Sphere.SubdivisionType == Geometry::SphereType::Box )
+                        count( "Subdivisions", &s.Sphere.Subdivisions, 1, 100, 1, 500 );
+                    else
+                    {
+                        count( "Horizontal Slices", &s.Sphere.HorizontalSlices, 3, 100, 4, 500 );
+                        count( "Vertical Slices", &s.Sphere.VerticalSlices, 3, 100, 4, 500 );
+                    }
+                    break;
+                case Shape::Cylinder:
+                    cm( "Radius", &s.Cylinder.Radius, "Radius of the cylinder." );
+                    cm( "Height", &s.Cylinder.Height, "Height of the cylinder." );
+                    count( "Radial Slices", &s.Cylinder.RadialSlices, 3, 128, 3, 500 );
+                    count( "Height Subdivisions", &s.Cylinder.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Cone:
+                    cm( "Radius", &s.Cone.Radius, "Radius of the cone's base." );
+                    cm( "Height", &s.Cone.Height, "Height of the cone." );
+                    count( "Radial Slices", &s.Cone.RadialSlices, 3, 128, 3, 500 );
+                    count( "Height Subdivisions", &s.Cone.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Capsule:
+                    cm( "Radius", &s.Capsule.Radius, "Radius of the capsule." );
+                    cm( "Cylinder Length", &s.Capsule.CylinderLength,
+                        "Length of the middle; the capsule is this plus two radii." );
+                    count( "Hemisphere Slices", &s.Capsule.HemisphereSlices, 2, 100, 2, 500 );
+                    count( "Cylinder Slices", &s.Capsule.CylinderSlices, 3, 100, 3, 500 );
+                    count( "Cylinder Subdivisions", &s.Capsule.CylinderSubdivisions, 0, 100, 0, 500 );
+                    break;
+                case Shape::Pyramid:
+                    cm( "Width", &s.Pyramid.Width, "X extent (not a UE shape: this engine's own)." );
+                    cm( "Depth", &s.Pyramid.Depth, "Z extent." );
+                    cm( "Height", &s.Pyramid.Height, "Y extent." );
+                    break;
+                case Shape::Stairs:
+                {
+                    auto&      st = s.Stairs;
+                    const bool curved =
+                         st.Type == Geometry::StairsType::Curved || st.Type == Geometry::StairsType::Spiral;
+                    combo( "Stairs Type", st.Type,
+                           { Geometry::StairsType::Linear, Geometry::StairsType::Floating,
+                             Geometry::StairsType::Curved, Geometry::StairsType::Spiral } );
+                    count( "Num Steps", &st.Steps, 2, 100, 2, 1000000 );
+                    cm( "Step Width", &st.StepWidth, curved ? "Outer radius minus inner radius." : "X extent." );
+                    cm( "Step Height", &st.StepHeight, "Riser height." );
+                    if ( !curved )
+                        cm( "Step Depth", &st.StepDepth, "Tread depth, along +Z." );
+                    if ( curved )
+                    {
+                        cm( "Inner Radius", &st.InnerRadius, "From the axis to the inner wall." );
+                        // UE's ranges: a curve turns up to 360 degrees, a spiral as many turns as it likes.
+                        const bool  spiral = st.Type == Geometry::StairsType::Spiral;
+                        const float span   = spiral ? 720.0f : 360.0f;
+                        ImGui::SetNextItemWidth( 110.0f );
+                        if ( ImGui::DragFloat( "Curve Angle", &st.CurveAngle, 1.0f, -span, span, "%.1f deg" ) )
+                            st.CurveAngle = std::clamp( st.CurveAngle, spiral ? -360000.0f : -360.0f,
+                                                        spiral ? 360000.0f : 360.0f );
+                        if ( ImGui::IsItemHovered() )
+                            ImGui::SetTooltip( "Degrees the whole flight turns; negative turns the other way." );
+                    }
+                    break;
+                }
+                case Shape::Torus:
+                    cm( "Major Radius", &s.Torus.MajorRadius, "From the axis to the middle of the tube." );
+                    cm( "Minor Radius", &s.Torus.MinorRadius, "Radius of the tube." );
+                    count( "Major Slices", &s.Torus.MajorSlices, 3, 128, 3, 500 );
+                    count( "Minor Slices", &s.Torus.MinorSlices, 3, 128, 3, 500 );
+                    break;
+                case Shape::Arrow:
+                    cm( "Shaft Radius", &s.Arrow.ShaftRadius, "Radius of the shaft." );
+                    cm( "Shaft Height", &s.Arrow.ShaftHeight, "Height of the shaft." );
+                    cm( "Head Radius", &s.Arrow.HeadRadius, "Radius of the head's base." );
+                    cm( "Head Height", &s.Arrow.HeadHeight, "Height of the head." );
+                    count( "Radial Slices", &s.Arrow.RadialSlices, 3, 100, 3, 500 );
+                    count( "Height Subdivisions", &s.Arrow.HeightSubdivisions, 1, 100, 1, 500 );
+                    break;
+                case Shape::Disc:
+                    combo( "Disc Type", s.Disc.Type,
+                           { Geometry::DiscType::Disc, Geometry::DiscType::PuncturedDisc } );
+                    cm( "Radius", &s.Disc.Radius, "Radius of the disc." );
+                    count( "Radial Slices", &s.Disc.RadialSlices, 3, 128, 3, 500 );
+                    count( "Radial Subdivisions", &s.Disc.RadialSubdivisions, 1, 100, 1, 500 );
+                    if ( s.Disc.Type == Geometry::DiscType::PuncturedDisc )
+                        cm( "Hole Radius", &s.Disc.HoleRadius, "Radius of the hole; kept inside the rim." );
+                    break;
+                case Shape::Rectangle:
+                    combo( "Rectangle Type", s.Rectangle.Type,
+                           { Geometry::RectangleType::Rectangle, Geometry::RectangleType::RoundedRectangle } );
+                    cm( "Width", &s.Rectangle.Width, "Width of the rectangle (X)." );
+                    cm( "Depth", &s.Rectangle.Depth, "Depth of the rectangle (Z)." );
+                    count( "Width Subdivisions", &s.Rectangle.WidthSubdivisions, 1, 100, 1, 500 );
+                    count( "Depth Subdivisions", &s.Rectangle.DepthSubdivisions, 1, 100, 1, 500 );
+                    if ( s.Rectangle.Type == Geometry::RectangleType::RoundedRectangle )
+                    {
+                        ImGui::Checkbox( "Maintain Dimension", &s.Rectangle.MaintainDimension );
+                        if ( ImGui::IsItemHovered() )
+                            ImGui::SetTooltip(
+                                 "Width and Depth stay the outer size; the corners come out of them." );
+                        cm( "Corner Radius", &s.Rectangle.CornerRadius, "Radius of the rounded corners." );
+                        count( "Corner Slices", &s.Rectangle.CornerSlices, 3, 128, 3, 500 );
+                    }
+                    break;
             }
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Polygroups and Pivot" ) )
         {
-            constexpr Geometry::ShapePolygroupMode modes[] = { Geometry::ShapePolygroupMode::PerFace,
-                                                               Geometry::ShapePolygroupMode::PerQuad,
-                                                               Geometry::ShapePolygroupMode::Single };
+            constexpr Geometry::ShapePolygroupMode modes[] = { Geometry::ShapePolygroupMode::PerShape,
+                                                               Geometry::ShapePolygroupMode::PerFace,
+                                                               Geometry::ShapePolygroupMode::PerQuad };
             ImGui::SetNextItemWidth( 110.0f );
             if ( ImGui::BeginCombo( "Polygroups", Geometry::ToString( s.Groups ) ) )
             {
@@ -697,22 +904,19 @@ namespace Desert::Editor
     }
 
     // UE's "Output Type" section (UCreateMeshObjectTypeProperties), shared by the creating tools.
-    Common::BoolResultStr ModelingPanel::PickTrimCutterFromSelection()
+    void ModelingPanel::DrawBooleanOutput()
     {
-        // The first selected entity that is not the one being edited.
-        Core::ModelingState::Get().ElementTrimCutter = Common::UUID::Null();
-        for ( const Common::UUID& id : Core::SelectionManager::GetSelection() )
-            if ( id != Core::MeshElementSelection::Get().Entity() )
-                return PickTrimCutter( id );
-        return Common::MakeError<bool>( "select the cutter entity (besides the edited one) before Pick Cutter" );
-    }
-
-    Common::BoolResultStr ModelingPanel::PickTrimCutter( const Common::UUID& cutter )
-    {
-        if ( cutter == Core::MeshElementSelection::Get().Entity() )
-            return Common::MakeError<bool>( "the entity being edited cannot be its own Trim cutter" );
-        Core::ModelingState::Get().ElementTrimCutter = cutter;
-        return Common::MakeSuccess( true );
+        auto&                                       boolean  = Core::ModelingState::Get().Boolean;
+        static constexpr std::array<const char*, 2> kWriteTo = { "Write To: New Object", "Write To: Input" };
+        int                                         writeTo  = static_cast<int>( boolean.WriteTo );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##BooleanWriteTo", &writeTo, kWriteTo.data(), static_cast<int>( kWriteTo.size() ) ) )
+            boolean.WriteTo = static_cast<Core::BooleanWriteTo>( writeTo );
+        static constexpr std::array<const char*, 3> kInputs = { "Delete Inputs", "Hide Inputs", "Keep Inputs" };
+        int                                         inputs  = static_cast<int>( boolean.Inputs );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::Combo( "##BooleanInputs", &inputs, kInputs.data(), static_cast<int>( kInputs.size() ) ) )
+            boolean.Inputs = static_cast<Core::BooleanInputs>( inputs );
     }
 
     void ModelingPanel::DrawOutputType()

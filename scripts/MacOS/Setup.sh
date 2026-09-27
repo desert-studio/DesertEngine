@@ -5,7 +5,7 @@
 #
 # There is deliberately no `set -e`. The steps below are independent of one
 # another, and this script used to abort on the first one that failed. A single
-# unhappy submodule therefore took the optick / volk / meshoptimizer fetches
+# unhappy submodule therefore took the optick / meshoptimizer fetches
 # down with it, and the only symptom anybody ever saw was premake5 refusing to
 # run — which reads as "the worktree is broken", not as "setup stopped halfway".
 # Every step now reports its own failure by name, the run continues, and the
@@ -240,12 +240,6 @@ clone_dep "$ROOT/ThirdParty/optick/src/optick.h" \
     "$ROOT/ThirdParty/optick" \
     https://github.com/bombomby/optick.git
 
-# volk (Vulkan meta-loader) headers — shipped by the LunarG SDK on Windows,
-# vendored here since Homebrew has no formula for it.
-clone_dep "$ROOT/ThirdParty/volk/volk.h" \
-    "$ROOT/ThirdParty/volk" \
-    https://github.com/zeux/volk.git
-
 # meshoptimizer (mesh simplification / LOD generation).
 clone_dep "$ROOT/ThirdParty/meshoptimizer/src/meshoptimizer.h" \
     "$ROOT/ThirdParty/meshoptimizer" \
@@ -291,17 +285,15 @@ echo "--- Verifying the paths the build reads"
 # and emits a project with no source files — the failure only surfaces later as
 # "No rule to make target ...". Name them here instead.
 #
-# Three submodules are deliberately absent from this list because no premake
-# file and no source in the tree refers to them: ThirdParty/NVRHI,
-# ThirdParty/lightweightvk and Editor/ThirdParty/ImGuiColorTextEdit. They are
-# still initialised above, and a failure to initialise one is still reported —
-# but the build does not need them, so their absence must not be reported as a
-# missing build input.
+# One submodule is deliberately absent from this list because no premake file
+# and no source in the tree refers to it: Editor/ThirdParty/ImGuiColorTextEdit.
+# It is still initialised above, and a failure to initialise it is still
+# reported — but the build does not need it, so its absence must not be
+# reported as a missing build input.
 REQUIRED_PATHS=(
     "ThirdParty/optick/src/optick.h"
     "ThirdParty/meshoptimizer/src/meshoptimizer.h"
     "ThirdParty/reflect-cpp/src/reflectcpp.cpp"
-    "ThirdParty/volk/volk.h"
     "ThirdParty/GLFW/include/GLFW/glfw3.h"
     "ThirdParty/ImGui/imgui.cpp"
     "ThirdParty/imgui-node-editor/imgui_node_editor.cpp"

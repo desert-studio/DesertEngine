@@ -27,11 +27,13 @@
 
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -225,6 +227,376 @@ namespace Desert::Migration
         return report;
     }
 
+    std::vector<std::string> MigrateLandscapeLayerRefsV33ToV34( const std::vector<Assets::EntityData>& entities )
+    {
+        std::vector<std::string> inline_layers;
+        const auto scan = [&]( const rfl::ExtraFields<rfl::Generic>& components, const std::string& tag )
+        {
+            const auto payload = components.get( "Landscape" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return;
+            const auto layers = fields.value().get( "Layers" );
+            if ( !layers.has_value() )
+                return;
+            const auto list = layers.value().to_array();
+            if ( !list.has_value() )
+                return;
+            for ( std::size_t i = 0; i < list.value().size(); ++i )
+            {
+                const auto layer = list.value()[i].to_object();
+                if ( !layer.has_value() || layer.value().get( "Guid" ).has_value() )
+                    continue;
+                const auto name = layer.value().get( "Name" );
+                inline_layers.push_back( tag + " > Landscape.Layers[" + std::to_string( i ) + "] = '" +
+                                         ( name.has_value() ? name.value().to_string().value_or( "?" ) : "?" ) +
+                                         "'" );
+            }
+        };
+        for ( const auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            scan( entity.Components, tag );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
+                scan( ( *entity.PrefabOverrides )[i].Components,
+                      tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+        }
+        return inline_layers;
+    }
+
+    namespace
+    {
+        // The v32 reader's rule: an absent key kept the struct default, so an absent key here means that
+        // default (the numbers ECS::FoliageComponent carried before FO-1).
+        Common::BoolResultStr ReadInlineFloat( const rfl::Generic::Object& fields, const char* key, float& out )
+        {
+            const auto value = fields.get( key );
+            if ( !value.has_value() )
+                return BOOLSUCCESS;
+            if ( const auto real = value.value().to_double(); real.has_value() )
+            {
+                out = static_cast<float>( real.value() );
+                return BOOLSUCCESS;
+            }
+            if ( const auto whole = value.value().to_int(); whole.has_value() )
+            {
+                out = static_cast<float>( whole.value() );
+                return BOOLSUCCESS;
+            }
+            return Common::MakeFormattedError<bool>( "{} is {}, not a number", key, Describe( value.value() ) );
+        }
+
+        Common::BoolResultStr ReadInlineBool( const rfl::Generic::Object& fields, const char* key, bool& out )
+        {
+            const auto value = fields.get( key );
+            if ( !value.has_value() )
+                return BOOLSUCCESS;
+            if ( const auto flag = value.value().to_bool(); flag.has_value() )
+            {
+                out = flag.value();
+                return BOOLSUCCESS;
+            }
+            return Common::MakeFormattedError<bool>( "{} is {}, not a bool", key, Describe( value.value() ) );
+        }
+
+        std::string SafeStem( std::string text )
+        {
+            for ( char& ch : text )
+                if ( !std::isalnum( static_cast<unsigned char>( ch ) ) && ch != '_' && ch != '-' )
+                    ch = '_';
+            return text.empty() ? std::string( "Foliage" ) : text;
+        }
+
+        struct FoliageTypeWriter
+        {
+            const std::string&           OwnerName;
+            const std::filesystem::path& AssetsRoot;
+            FoliageTypesMigrationReport& Report;
+            // Canonical payload (header aside) -> the relative path already minted for it in this file.
+            std::map<std::string, std::string> Minted;
+
+            void Raise( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag )
+            {
+                const auto payload = components.get( "Foliage" );
+                if ( !payload.has_value() )
+                    return;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                {
+                    Report.UnknownNames.push_back( tag + " > Foliage is " + Describe( payload.value() ) +
+                                                   ", not an object" );
+                    return;
+                }
+                const auto& f = fields.value();
+
+                Assets::Serialization::FoliageTypeData data;
+                float scaleMin = 0.8f, scaleMax = 1.3f, zMin = 0.0f, zMax = 0.0f, slopeMin = 0.0f,
+                      slopeMax = 90.0f;
+                for ( const auto& check :
+                      { ReadInlineFloat( f, "Density", data.Density ), ReadInlineFloat( f, "ScaleMin", scaleMin ),
+                        ReadInlineFloat( f, "ScaleMax", scaleMax ), ReadInlineFloat( f, "ZOffsetMin", zMin ),
+                        ReadInlineFloat( f, "ZOffsetMax", zMax ),
+                        ReadInlineFloat( f, "MaxPitchDeg", data.RandomPitchAngle ),
+                        ReadInlineFloat( f, "SlopeMinDeg", slopeMin ),
+                        ReadInlineFloat( f, "SlopeMaxDeg", slopeMax ),
+                        ReadInlineBool( f, "AlignToNormal", data.AlignToNormal ),
+                        ReadInlineBool( f, "RandomYaw", data.RandomYaw ) } )
+                {
+                    if ( !check )
+                    {
+                        Report.UnknownNames.push_back( tag + " > Foliage." + check.GetError() );
+                        return;
+                    }
+                }
+                // The inline number was per dab, as v1 of the type file was: the file this step writes is the
+                // current generation, so it states UE's areal density (the FOLT 1 -> 2 conversion).
+                data.Density          = FoliageDensityFromPerDab( data.Density );
+                data.ScaleX           = { scaleMin, scaleMax };
+                data.ZOffset          = { zMin, zMax };
+                data.GroundSlopeAngle = { slopeMin, slopeMax };
+
+                // The field's mesh was the ISM beside it; the type now names it (UE: FoliageType::Mesh).
+                if ( const auto ism = components.get( "InstancedStaticMesh" ); ism.has_value() )
+                    if ( const auto ismFields = ism.value().to_object(); ismFields.has_value() )
+                    {
+                        const auto guid = ismFields.value().get( "MeshGuid" );
+                        const auto path = ismFields.value().get( "MeshPath" );
+                        if ( guid.has_value() && path.has_value() )
+                        {
+                            data.Mesh.Guid = guid.value().to_string().value_or( "" );
+                            data.Mesh.Path = path.value().to_string().value_or( "" );
+                        }
+                    }
+
+                if ( auto valid = Assets::Serialization::ValidateFoliageTypeData( data ); !valid )
+                {
+                    Report.UnknownNames.push_back( tag + " > Foliage: " + valid.GetError() );
+                    return;
+                }
+
+                std::string relative;
+                // One file per distinct set of numbers and mesh within this scene.
+                std::string dataKey = std::to_string( data.Density ) + "|" + std::to_string( scaleMin ) + "|" +
+                                      std::to_string( scaleMax ) + "|" + std::to_string( zMin ) + "|" +
+                                      std::to_string( zMax ) + "|" + std::to_string( data.RandomPitchAngle ) +
+                                      "|" + std::to_string( slopeMin ) + "|" + std::to_string( slopeMax ) + "|" +
+                                      ( data.AlignToNormal ? "1" : "0" ) + ( data.RandomYaw ? "1" : "0" ) + "|" +
+                                      data.Mesh.Guid;
+                if ( const auto it = Minted.find( dataKey ); it != Minted.end() )
+                    relative = it->second;
+                else
+                {
+                    const std::string stem = SafeStem( OwnerName ) + "_" + SafeStem( tag );
+                    relative               = "Foliage/" + stem + Assets::Serialization::kFoliageTypeExtension;
+                    Common::Content::TextAssetHeaderSerialized header;
+                    header.Guid = Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) );
+                    data.Header = header;
+                    Report.NewTypes.emplace_back( ( AssetsRoot / relative ).lexically_normal(),
+                                                  Assets::Serialization::WriteFoliageType( data ) );
+                    Minted.emplace( dataKey, relative );
+                }
+
+                rfl::Generic::Object raised;
+                raised["FoliageTypeGuid"] =
+                     rfl::Generic( Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) ) );
+                raised["FoliageTypePath"] = rfl::Generic( relative );
+                components["Foliage"]     = rfl::Generic( std::move( raised ) );
+                ++Report.Rewritten;
+            }
+        };
+    } // namespace
+
+    float FoliageDensityFromPerDab( float perDab )
+    {
+        constexpr float kPi   = 3.14159265358979f;
+        const float     discA = kPi * kFoliageV1ReferenceBrushRadiusCm * kFoliageV1ReferenceBrushRadiusCm;
+        return perDab * ( 1000.0f * 1000.0f ) / discA;
+    }
+
+    namespace
+    {
+        // FOLT 2's body, member for member: v3 added CullDistance, and the engine's struct is v4.
+        struct FoliageTypeDataV2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+        };
+
+        // FOLT 3's body, member for member: the engine's struct is v4 and refuses a file without Wind.
+        struct FoliageTypeDataV3
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
+        };
+
+        // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
+        struct FoliageTypeDataV1
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 6.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+        };
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )
+    {
+        const auto v1 = Common::Json::Read<FoliageTypeDataV1>( text );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "FOLT 1 body does not read: {}", v1.GetError() );
+        const FoliageTypeDataV1& old = v1.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        const auto stated = old.Header->Versions.find( "FOLT" );
+        if ( stated == old.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 1 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
+
+        // v2 text, not the engine's struct: the engine is v4, and the chain raises each generation in turn.
+        // v1 names no landscape layer, so its Dependencies (the mesh's GUID) are v2's as they stand.
+        FoliageTypeDataV2 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 2u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = FoliageDensityFromPerDab( old.Density );
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        std::string written           = Common::Json::Write( data );
+        // What the step writes, the next step must read: a v1 number v2 refuses fails HERE, naming the field.
+        if ( auto next = MigrateFoliageTypeV2ToV3( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 2: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV2ToV3( const std::string& text )
+    {
+        // The generation first: a v1 or v3 body would otherwise be named by its fields, not by what it is.
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 2 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v2 = Common::Json::Read<FoliageTypeDataV2>( text );
+        if ( !v2 )
+            return Common::MakeFormattedError<std::string>( "FOLT 2 body does not read: {}", v2.GetError() );
+        const FoliageTypeDataV2& old = v2.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+
+        // v3 text, not the engine's struct: the engine is v4, and v3 -> v4 is the chain's next step.
+        FoliageTypeDataV3 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 3u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = old.Density;
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        data.Height                   = old.Height;
+        data.LandscapeLayers          = old.LandscapeLayers;
+        data.MinimumLayerWeight       = old.MinimumLayerWeight;
+        // UE's default CullDistance {0, 0}: never culled, which is what every v2 field drew.
+        data.CullDistance   = { 0.0f, 0.0f };
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV3ToV4( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 3: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV3ToV4( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 3u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 3 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v3 = Common::Json::Read<FoliageTypeDataV3>( text );
+        if ( !v3 )
+            return Common::MakeFormattedError<std::string>( "FOLT 3 body does not read: {}", v3.GetError() );
+        const FoliageTypeDataV3& old = v3.GetValue();
+
+        Assets::Serialization::FoliageTypeData data;
+        data.Header             = old.Header;
+        data.Mesh               = old.Mesh;
+        data.Density            = old.Density;
+        data.ScaleX             = old.ScaleX;
+        data.ZOffset            = old.ZOffset;
+        data.AlignToNormal      = old.AlignToNormal;
+        data.RandomYaw          = old.RandomYaw;
+        data.RandomPitchAngle   = old.RandomPitchAngle;
+        data.GroundSlopeAngle   = old.GroundSlopeAngle;
+        data.Height             = old.Height;
+        data.LandscapeLayers    = old.LandscapeLayers;
+        data.MinimumLayerWeight = old.MinimumLayerWeight;
+        data.CullDistance       = old.CullDistance;
+        // Strength 0: the instances stand still, which is what every v3 field drew.
+        data.Wind = Assets::Serialization::FoliageWind{};
+
+        std::string written = Assets::Serialization::WriteFoliageType( data );
+        if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 4: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    FoliageTypesMigrationReport MigrateInlineFoliageV32ToV33( std::vector<Assets::EntityData>& entities,
+                                                              const std::string&               ownerName,
+                                                              const std::filesystem::path&     assetsRoot )
+    {
+        FoliageTypesMigrationReport report;
+        FoliageTypeWriter           writer{ ownerName, assetsRoot, report, {} };
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            writer.Raise( entity.Components, tag );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                writer.Raise( overrides[i].Components, tag + "_Override" + std::to_string( i ) );
+        }
+        return report;
+    }
+
     namespace
     {
         // THE STEP CHAIN. LEG1 deleted every step below kSceneVersionShaderGuids along with the legacy
@@ -233,6 +605,10 @@ namespace Desert::Migration
         void RunSteps( std::vector<Assets::EntityData>& entities, const std::string& name, int statedSceneVersion,
                        const std::filesystem::path& assetsRoot, FileMigrationReport& report )
         {
+            // v35 moves no key: it is the file layout of a partitioned world, which the caller writes.
+            if ( statedSceneVersion < kSceneVersionExternalEntities )
+                report.ExternalEntitiesRaised = true;
+
             // Adds MeshGuid where a StaticMesh/SkinnedMesh/InstancedStaticMesh block names a MeshPath but
             // states no MeshGuid; no step above writes one it lacks.
             if ( statedSceneVersion < kSceneVersionPathOnlyMeshGuids )
@@ -248,6 +624,41 @@ namespace Desert::Migration
                                      "': " + std::to_string( report.PathOnlyMeshGuids.UnknownNames.size() ) +
                                      " path-only mesh reference(s) cannot be given a header GUID: " + names +
                                      ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Moves inline Foliage numbers into `.defoliage` files; every file below v33 is restamped.
+            if ( statedSceneVersion < kSceneVersionFoliageTypes )
+            {
+                report.FoliageTypesRaised = true;
+                report.FoliageTypes       = MigrateInlineFoliageV32ToV33( entities, name, assetsRoot );
+                if ( !report.FoliageTypes.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.FoliageTypes.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused =
+                         "'" + name + "': " + std::to_string( report.FoliageTypes.UnknownNames.size() ) +
+                         " Foliage block(s) cannot become a foliage type: " + names + ". Nothing was written.";
+                    return;
+                }
+            }
+            // A landscape's inline layers become `.delayerinfo` references (LS-12b). Nothing to rewrite in
+            // the corpus; an inline layer refuses the file.
+            if ( statedSceneVersion < kSceneVersionLandscapeLayerRefs )
+            {
+                report.LandscapeLayerRefsRaised = true;
+                const auto inline_layers        = MigrateLandscapeLayerRefsV33ToV34( entities );
+                if ( !inline_layers.empty() )
+                {
+                    std::string names;
+                    for ( const auto& layer : inline_layers )
+                        names += ( names.empty() ? "" : "; " ) + layer;
+                    report.Refused = "'" + name + "': " + std::to_string( inline_layers.size() ) +
+                                     " inline landscape layer(s) must become .delayerinfo assets first (create "
+                                     "them in the Landscape panel and re-link): " +
+                                     names + ". Nothing was written.";
                     return;
                 }
             }
@@ -488,6 +899,8 @@ namespace Desert::Migration
         RunSteps( scene.Entities, scene.SceneName, statedSceneVersion, assetsRoot, report );
         if ( !report.Refused.empty() )
             return report; // unstamped: the file is FAILED by every caller and written by none
+        if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
+            report.EntitiesMovedOut = scene.Entities.size();
 
         // Scene-only (it reads the Settings block a prefab does not have), so it runs here rather than in
         // RunSteps, after every entity step of the chain.

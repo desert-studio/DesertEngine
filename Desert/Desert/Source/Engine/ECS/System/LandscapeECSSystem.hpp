@@ -59,7 +59,8 @@ namespace Desert::ECS
             uint32_t                          SamplesX = 0u;
             uint32_t                          SamplesZ = 0u;
             uint32_t                          NeighbourMask = 0u; // whose ring rows the copy carries
-            // The RGBA8 copy of the tile's weight layers (LandscapeWeightmap.hpp); null while it has none.
+            // The RGBA8 copy of the tile's weight layers, pages stacked along the height
+            // (LandscapeWeightmapAtlasTexels); null while it has none. WeightmapZ counts the stacked rows.
             // Updated IN PLACE per stroke: its address keys the tile's terrain material (TerrainTextureKey),
             // so a new image per stroke would be a new material per stroke.
             std::shared_ptr<Graphic::Image2D> Weightmap;

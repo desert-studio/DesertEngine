@@ -89,7 +89,7 @@ namespace
     // ── THE FIELD CENSUS ───────────────────────────────────────────────────────────────────────────
     //
     // Comparing the keys the writer emits against the fields the STRUCT declares. Without this, adding
-    // a field to FoliageComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
+    // a field to LocomotionComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
     // round-trips, the suite still passes, and one slider out of eleven stops being saved.
 
     std::string RepoRoot()
@@ -206,6 +206,10 @@ namespace
          { "Heights",
            "LandscapeTileComponent's loaded tile: what HeightFile decodes to. The samples live in the DLHT "
            "file beside the scene, and writing them into the block too would be two copies of one terrain." },
+         { "Layers",
+           "LandscapeComponent's target layers are `.delayerinfo` references: resolving their GUIDs needs the "
+           "asset manager, so ComponentRegistry's Landscape serializer (MakeLandscapeRoot) writes and reads "
+           "them, not the hand-mapped block (LS-12b)." },
     };
 
     // Asserts that every declared field of @p structName is a key of @p written, except the ones
@@ -255,40 +259,6 @@ namespace
         EXPECT_TRUE( orphaned.empty() ) << orphaned;
     }
 } // namespace
-
-// ── FOLIAGE ────────────────────────────────────────────────────────────────────────────────────────
-TEST( AuthoredComponentRoundTrip, EveryFoliageFieldComesBack )
-{
-    ECS::FoliageComponent written;
-    written.Density       = 23.0f;
-    written.ScaleMin      = 0.11f;
-    written.ScaleMax      = 4.75f;
-    written.ZOffsetMin    = -12.5f;
-    written.ZOffsetMax    = 37.25f;
-    written.MaxPitchDeg   = 18.5f;
-    written.SlopeMinDeg   = 7.0f;
-    written.SlopeMaxDeg   = 62.5f;
-    written.AlignToNormal = false; // both bools default TRUE, so false is the value a marker would eat
-    written.RandomYaw     = false;
-
-    const ECS::FoliageComponent read = RoundTrip( written );
-
-    EXPECT_FLOAT_EQ( read.Density, written.Density );
-    EXPECT_FLOAT_EQ( read.ScaleMin, written.ScaleMin );
-    EXPECT_FLOAT_EQ( read.ScaleMax, written.ScaleMax );
-    EXPECT_FLOAT_EQ( read.ZOffsetMin, written.ZOffsetMin );
-    EXPECT_FLOAT_EQ( read.ZOffsetMax, written.ZOffsetMax );
-    EXPECT_FLOAT_EQ( read.MaxPitchDeg, written.MaxPitchDeg );
-    EXPECT_FLOAT_EQ( read.SlopeMinDeg, written.SlopeMinDeg );
-    EXPECT_FLOAT_EQ( read.SlopeMaxDeg, written.SlopeMaxDeg );
-    EXPECT_FALSE( read.AlignToNormal );
-    EXPECT_FALSE( read.RandomYaw );
-}
-
-TEST( AuthoredComponentRoundTrip, TheFoliageBlockNamesEveryFoliageField )
-{
-    ExpectEveryFieldIsWritten( "FoliageComponent", WriteComponent( ECS::FoliageComponent{} ) );
-}
 
 // ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────────
 TEST( AuthoredComponentRoundTrip, EveryLocomotionFieldComesBack )
@@ -448,15 +418,6 @@ TEST( AuthoredComponentRoundTrip, TheProjectileBlockNamesEveryProjectileField )
 // property that lets a field be ADDED to one of these blocks with no scene version bump.
 TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 {
-    ECS::FoliageComponent foliage;
-    foliage.Density       = 42.0f;
-    foliage.AlignToNormal = false;
-    ReadAt( Common::Json::Object{}, foliage );
-    EXPECT_FLOAT_EQ( foliage.Density, 42.0f ) << "an empty block reset a float to its struct default";
-    EXPECT_FALSE( foliage.AlignToNormal )
-         << "an empty block turned a false flag back to true — the exact way a marker registration "
-            "counterfeits persistence";
-
     ECS::LocomotionComponent locomotion;
     locomotion.RunClip  = "Anim_Sprint";
     locomotion.RunSpeed = 999.0f;
@@ -486,17 +447,17 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZeroing )
 {
     Common::Json::Object block;
-    block["Density"]       = Common::Json::Value( std::string( "lots" ) );
-    block["AlignToNormal"] = Common::Json::Value( 3.5 );
-    block["ScaleMax"]      = Common::Json::Value( 8.5 ); // a good key beside the bad ones still lands
+    block["WalkSpeed"] = Common::Json::Value( std::string( "lots" ) );
+    block["IdleClip"]  = Common::Json::Value( 3.5 );
+    block["RunSpeed"]  = Common::Json::Value( 8.5 ); // a good key beside the bad ones still lands
 
-    ECS::FoliageComponent foliage;
-    foliage.Density = 42.0f;
-    ReadAt( ThroughJsonText( block ), foliage );
+    ECS::LocomotionComponent locomotion;
+    locomotion.WalkSpeed = 42.0f;
+    ReadAt( ThroughJsonText( block ), locomotion );
 
-    EXPECT_FLOAT_EQ( foliage.Density, 42.0f );
-    EXPECT_TRUE( foliage.AlignToNormal );
-    EXPECT_FLOAT_EQ( foliage.ScaleMax, 8.5f );
+    EXPECT_FLOAT_EQ( locomotion.WalkSpeed, 42.0f );
+    EXPECT_EQ( locomotion.IdleClip, "Idle" );
+    EXPECT_FLOAT_EQ( locomotion.RunSpeed, 8.5f );
 }
 
 // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────────
@@ -515,84 +476,20 @@ TEST( AuthoredComponentRoundTrip, EveryLandscapeFieldComesBack )
     EXPECT_FLOAT_EQ( read.ZScale, written.ZScale );
 }
 
-namespace
+// The hand-mapped block does not own the layer list (kNotWritten above says who does): a "Layers" key in
+// the block must neither be written by it nor read by it, or two readers would disagree about one list.
+TEST( AuthoredComponentRoundTrip, TheLandscapeBlockLeavesLayersToTheRegistry )
 {
-    ECS::LandscapeComponent TwoLayerLandscape()
-    {
-        ECS::LandscapeComponent c;
-        c.Layers.push_back( { "Grass", 0.25f, false, glm::vec3( 0.1f, 0.8f, 0.2f ) } );
-        c.Layers.push_back( { "Puddles", 1.0f, true, glm::vec3( 0.0f, 0.3f, 0.9f ) } );
-        return c;
-    }
-} // namespace
+    ECS::LandscapeComponent with;
+    with.Layers = { Desert::Assets::AssetHandle( 11u ), Desert::Assets::AssetHandle( 22u ) };
+    const Common::Json::Object written = WriteComponent( with );
+    EXPECT_FALSE( written.get( "Layers" ).has_value() );
 
-// Every field of every layer, off its default, in order: the order is the panel's and the paint rules'.
-TEST( AuthoredComponentRoundTrip, EveryLandscapeLayerFieldComesBackInOrder )
-{
-    const ECS::LandscapeComponent written = TwoLayerLandscape();
-    const ECS::LandscapeComponent read    = RoundTrip( written );
-    ASSERT_EQ( read.Layers.size(), 2u );
-    for ( size_t i = 0; i < 2; ++i )
-    {
-        EXPECT_EQ( read.Layers[i].Name, written.Layers[i].Name );
-        EXPECT_FLOAT_EQ( read.Layers[i].Hardness, written.Layers[i].Hardness );
-        EXPECT_EQ( read.Layers[i].NoWeightBlend, written.Layers[i].NoWeightBlend );
-        EXPECT_EQ( read.Layers[i].Color, written.Layers[i].Color );
-    }
-}
-
-// A scene written before layers existed has no "Layers" key and loads with none.
-TEST( AuthoredComponentRoundTrip, AnOldLandscapeBlockReadsNoLayers )
-{
-    Common::Json::Object block;
-    block["QuadsPerTile"] = Common::Json::Value( static_cast<int64_t>( 63 ) );
-    ECS::LandscapeComponent read;
-    ReadAt( ThroughJsonText( block ), read );
-    EXPECT_EQ( read.QuadsPerTile, 63u );
-    EXPECT_TRUE( read.Layers.empty() );
-}
-
-// Undo restores the block written BEFORE a layer was added: that block must empty the list, so the empty
-// list is written, not omitted (an absent key keeps the current value).
-TEST( AuthoredComponentRoundTrip, AnEmptyLayerListReplacesTheCurrentOne )
-{
-    ECS::LandscapeComponent current = TwoLayerLandscape();
-    ReadAt( ThroughJsonText( WriteComponent( ECS::LandscapeComponent{} ) ), current );
-    EXPECT_TRUE( current.Layers.empty() );
-}
-
-// A name is the key a tile's weight plane is found by: an empty, over-long or repeated one, or a Hardness
-// outside 0..1, refuses the WHOLE list, and the component keeps the layers it had.
-TEST( AuthoredComponentRoundTrip, ABadLayerListIsRefusedWhole )
-{
-    const auto withLayers = []( std::vector<ECS::LandscapeLayerInfo> layers )
-    {
-        ECS::LandscapeComponent c;
-        c.Layers = std::move( layers );
-        return WriteComponent( c );
-    };
-    const std::string longName( Desert::World::Landscape::kLandscapeMaxWeightLayerName + 1, 'x' );
-    const std::vector<Common::Json::Object> bad = {
-         withLayers( { { "Rock", 0.5f, false, glm::vec3( 1.0f ) }, { "Rock", 0.5f, false, glm::vec3( 1.0f ) } } ),
-         withLayers( { { "", 0.5f, false, glm::vec3( 1.0f ) } } ),
-         withLayers( { { longName, 0.5f, false, glm::vec3( 1.0f ) } } ),
-         withLayers( { { "Rock", 1.5f, false, glm::vec3( 1.0f ) } } ),
-    };
-    for ( const auto& block : bad )
-    {
-        ECS::LandscapeComponent current = TwoLayerLandscape();
-        ReadAt( ThroughJsonText( block ), current );
-        ASSERT_EQ( current.Layers.size(), 2u );
-        EXPECT_EQ( current.Layers[0].Name, "Grass" );
-        EXPECT_EQ( current.Layers[1].Name, "Puddles" );
-    }
-    // The longest legal name is accepted: the limit is inclusive, as the tile blob's is.
-    ECS::LandscapeComponent current;
-    ReadAt( ThroughJsonText(
-                 withLayers( { { std::string( Desert::World::Landscape::kLandscapeMaxWeightLayerName, 'x' ), 0.5f,
-                                 false, glm::vec3( 1.0f ) } } ) ),
-            current );
-    EXPECT_EQ( current.Layers.size(), 1u );
+    Common::Json::Object block      = written;
+    block["Layers"]                 = Common::Json::Value( Common::Json::Value::Array{} );
+    ECS::LandscapeComponent current = with;
+    ReadAt( ThroughJsonText( block ), current );
+    EXPECT_EQ( current.Layers, with.Layers );
 }
 
 TEST( AuthoredComponentRoundTrip, TheLandscapeBlockNamesEveryLandscapeField )
@@ -673,13 +570,13 @@ TEST( AuthoredComponentRoundTrip, ANegativeIdIsRefusedNotWrappedToTheLargestId )
 
 TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfinity )
 {
-    ECS::FoliageComponent foliage;
-    const float           density = foliage.Density;
-    Common::Json::Object  block;
-    block["Density"]  = Common::Json::Value( 1e300 );
-    const auto issues = ReadAt( ThroughJsonText( block ), foliage );
-    EXPECT_EQ( foliage.Density, density );
+    ECS::LocomotionComponent locomotion;
+    const float              walk = locomotion.WalkSpeed;
+    Common::Json::Object     block;
+    block["WalkSpeed"] = Common::Json::Value( 1e300 );
+    const auto issues  = ReadAt( ThroughJsonText( block ), locomotion );
+    EXPECT_EQ( locomotion.WalkSpeed, walk );
     ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Density" ).ToString() );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "WalkSpeed" ).ToString() );
     EXPECT_EQ( issues[0].Expected, "number" );
 }

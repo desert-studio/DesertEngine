@@ -94,9 +94,10 @@ namespace Desert::Geometry
         void SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal ) const;
         bool AddTriangleFan_OrderedVertexLoop( int CenterVertex, const std::vector<int>& VertexLoop, int GroupID,
                                                DynamicMeshEditResult& ResultOut ) const;
-        /** UE's overload with Frame3d(Origin, Normal), bShiftToOrigin = true, UV layer 0. */
+        /** UE's overload with Frame3d(Origin, Normal), bShiftToOrigin = true, on UV layer @p UVLayerIndex. */
         void SetTriangleUVsFromProjection( const std::vector<int>& Triangles, const glm::dvec3& Origin,
-                                           const glm::dvec3& Normal, float UVScaleFactor ) const;
+                                           const glm::dvec3& Normal, float UVScaleFactor,
+                                           int UVLayerIndex = 0 ) const;
         void SetQuadUVsFromProjection( const Index2i& QuadTris, const glm::dvec3& AxisX, const glm::dvec3& AxisY,
                                        float UVScaleFactor, const glm::vec2& UVTranslation ) const;
         void ReverseTriangleOrientations( const std::vector<int>& Triangles, bool bInvertNormals ) const;

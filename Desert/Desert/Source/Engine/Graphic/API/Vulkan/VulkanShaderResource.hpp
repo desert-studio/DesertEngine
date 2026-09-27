@@ -40,6 +40,8 @@ namespace Desert::Graphic::API::Vulkan
                  std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::ImageCubeSampler>;
             using StorageBufferMap =
                  std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::StorageBuffer>;
+            using AccelerationStructureMap =
+                 std::unordered_map<BindingPoint, ShaderResources::ShaderLayout::AccelerationStructure>;
 
             UniformBufferMap    UniformBuffers;
             ImageSampler2DMap   Image2DSamplers;
@@ -48,6 +50,9 @@ namespace Desert::Graphic::API::Vulkan
             StorageBufferMap    StorageBuffers;
             ImageSampler2DMap   StorageImage2DSamplers; // storage image2D AND imageCube
             ImageSampler3DMap   StorageImage3DSamplers;
+            // Nothing is seeded into these: a fallback acceleration structure would be a traced scene the
+            // author never asked for, so the pass that declares one writes it before it dispatches.
+            AccelerationStructureMap AccelerationStructures;
 
             operator bool()
             {

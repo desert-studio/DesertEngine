@@ -24,6 +24,9 @@ project "Desert"
         "Source/Engine/**.cpp", 
         "Source/Engine/**.hpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/VulkanAllocator/vk_mem_alloc.cpp",
+        -- vk-bootstrap v1.3.290 (MIT, ThirdParty/vk-bootstrap/LICENSE.txt): instance, physical-device
+        -- selection and logical-device creation. Vendored as its three source files, like VMA above.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/vk-bootstrap/VkBootstrap.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp",
@@ -62,6 +65,7 @@ project "Desert"
         "Lua",
         "Optick",
         "MeshOptimizer",
+        "OpenSubdiv",
     }
     
     for _, define in ipairs(deps.Common.Defines) do

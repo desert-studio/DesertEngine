@@ -14,6 +14,8 @@ project(test_name)
     
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        -- RuntimeCrashTest.hpp: header-only, it depends on nothing but this module (PKG1c).
+        "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

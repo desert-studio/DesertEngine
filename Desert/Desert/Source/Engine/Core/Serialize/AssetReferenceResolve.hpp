@@ -21,7 +21,7 @@ namespace Desert::Core::Serialize
     /// a correct lookup; registering a record you have just created is a correct registration. The
     /// disagreement was that only the CREATED route registered, so a reference to an asset somebody else
     /// had already created resolved to a live handle that no service could answer for. Nothing was ever
-    /// seen to break, because `AssetPreloader` registers every mesh and material it scans before any scene
+    /// seen to break, because a boot scanner (since deleted) registered every mesh and material before any scene
     /// is allowed to load (`EditorLayer::OnUpdate`: "Scene loads wait until the startup stages finished").
     /// THAT IS A SAFETY NET AND NOT A GUARANTEE: it is stated nowhere the parse can read, it covers only
     /// the two content roots the preloader walks, and it disappears with any refactor by somebody who does

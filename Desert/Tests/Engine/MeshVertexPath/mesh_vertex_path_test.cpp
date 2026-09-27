@@ -31,6 +31,7 @@
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
@@ -519,7 +520,10 @@ TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesI
 
     const Expectation expectations[] = {
          { MeshVertexPath::Static, MeshPass::Forward, MaterialPBR::kPushSizeWithoutBones },
-         { MeshVertexPath::Instanced, MeshPass::Forward, MaterialPBR::kPushSizeWithoutBones },
+         // The instanced cells carry the wind tail after the shared block (FO-7, Graphic/InstanceWind.hpp).
+         { MeshVertexPath::Instanced, MeshPass::Forward, Desert::Graphic::kInstancedPushSize },
+         { MeshVertexPath::Instanced, MeshPass::GBuffer, Desert::Graphic::kInstancedPushSize },
+         { MeshVertexPath::Instanced, MeshPass::ShadowDepth, Desert::Graphic::kInstancedPushSize },
          { MeshVertexPath::Skinned, MeshPass::Forward, MaterialPBR::kPushSizeWithBones },
          { MeshVertexPath::Skinned, MeshPass::ShadowDepth, MaterialShadowSkinned::kPushSize },
     };
@@ -534,6 +538,41 @@ TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesI
         EXPECT_EQ( data.PushConstantRanges->Size, expected.Size )
              << name << "'s push block is " << data.PushConstantRanges->Size
              << " bytes, and the renderer writes its last field at offset " << ( expected.Size - 4 );
+    }
+}
+
+// ---- Foliage wind: one offset for every pass that draws an instance (FO-7) --------------------------
+
+// The shadow and the depth a swaying plant leaves must be the shadow and the depth of the plant that is
+// drawn. That holds only if every instanced vertex stage reaches its position through the SAME function,
+// so this asserts it three ways per cell: the stage includes Common/FoliageWind.glslh, calls
+// InstancedWorldPosition with the push block's wind, and projects THAT position (no second
+// `model * a_Position` path beside it); and the compiled SPIR-V really contains the function.
+TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFunction )
+{
+    for ( const MeshPass pass : { MeshPass::Forward, MeshPass::GBuffer, MeshPass::ShadowDepth } )
+    {
+        const char* name = MeshShaderFor( MeshVertexPath::Instanced, pass );
+        ASSERT_NE( name, nullptr );
+        const auto        file   = ShaderFileFor( name );
+        const std::string vertex = StageSource( file, ShaderStage::Vertex );
+
+        EXPECT_NE( vertex.find( "#include <Common/FoliageWind.glslh>" ), std::string::npos ) << name;
+        EXPECT_NE( vertex.find( "InstancedWorldPosition(model, a_Position, m_PushConstants.WindA, "
+                                "m_PushConstants.WindB)" ),
+                   std::string::npos )
+             << name << " does not position its vertex through the shared wind function";
+        EXPECT_NE( vertex.find( "gl_Position = cameraUB.Projection * cameraUB.View * vec4(worldPosition, 1.0);" ),
+                   std::string::npos )
+             << name << " projects something other than the wind-displaced position";
+        EXPECT_EQ( vertex.find( "model * vec4(a_Position" ), std::string::npos )
+             << name << " still computes an undisplaced position beside the shared one";
+
+        const auto        spirv = CompileStage( vertex, file, shaderc_vertex_shader );
+        const std::string words( reinterpret_cast<const char*>( spirv.data() ),
+                                 spirv.size() * sizeof( uint32_t ) );
+        EXPECT_NE( words.find( "FoliageWindOffset(" ), std::string::npos )
+             << name << "'s SPIR-V has no FoliageWindOffset";
     }
 }
 

@@ -64,6 +64,7 @@ namespace Desert::Runtime
         // And the same again for a UI theme: the canvas walk asks UIThemeService for it by handle every
         // frame, so re-registering the flattened table IS the whole of the reload — no scene to refresh.
         void PollUIThemes( Assets::AssetManager& assetManager );
+        void PollLandscapeLayerInfos( Assets::AssetManager& assetManager );
 
         // Reports whether @p path CHANGED since the last poll (Common::Utils::WriteWatch: a moved stamp, or a
         // racy stamp over different content). A file seen for the first time returns false: the first

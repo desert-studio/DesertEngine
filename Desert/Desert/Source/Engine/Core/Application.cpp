@@ -4,6 +4,7 @@
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 
 #include <Common/Core/EventRegistry.hpp>
@@ -47,8 +48,20 @@ namespace Desert::Engine
         EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
 
         // 3. Create Device
-        m_Device = Device::Create();
-        
+        // A REFUSED DEVICE IS AN ERROR WITH A LIST, NOT A CRASH. DeviceCaps names every required capability
+        // the GPU lacks; construction stops here, EntryPoint sees StartupRefusal() and skips OnCreate/Run,
+        // and the process ends with that message and a failing exit code. Not std::exit: worker threads
+        // already exist (TeardownOrder.StdExitAppearsOnlyBeforeTheApplicationExists).
+        auto device = Device::Create();
+        if ( !device )
+        {
+            m_StartupRefusal = device.GetError();
+            LOG_ERROR( "[Device] cannot start: {}", m_StartupRefusal );
+            Close( EXIT_FAILURE );
+            return;
+        }
+        m_Device = device.ExtractValue();
+
         // 4. Register Device
         EngineContext::GetInstance().SetDevice( m_Device );
 
@@ -85,6 +98,10 @@ namespace Desert::Engine
 
     Application::~Application()
     {
+        // A refused start built no device and no renderer, so there is nothing below to wait on or release.
+        if ( !m_StartupRefusal.empty() )
+            return;
+
         // Nothing below may be recorded into, or referenced by, a command buffer the GPU has not finished
         // with. Run() has already presented its last frame, but presentation only queues the work.
         if ( m_Device )
@@ -253,6 +270,12 @@ namespace Desert::Engine
             //
             // Free when nothing is due: RunIfDue tests one bool and does not build the root set.
             Assets::AssetEvictionSchedule::RunIfDue( [] { return Core::CollectAssetRootsFromLiveScenes(); } );
+
+            // The meshes and textures a sweep dropped are freed here, frames later, once no frame in flight can
+            // still draw them (Assets::FrameRetireQueue). Every frame, because the margin is counted in frames
+            // begun.
+            Runtime::ResourceRegistry::GetMeshService()->RetireEvicted();
+            Runtime::ResourceRegistry::GetTextureService()->RetireEvicted();
 
             // 3. Start recording commands for this frame
             const auto frameBegun = Graphic::Renderer::GetInstance().BeginFrame();

@@ -106,6 +106,7 @@ namespace Desert::Editor
            "--play --flight line:0,200,0:1000,200,0 --flight-csv /tmp/flight.csv" },
          { "--flight-csv", true, "/tmp/flight.csv",
            "--play --flight line:0,200,0:1000,200,0 --flight-speed 1000" },
+         { "--stream-delay-ticks", true, "30", "--play" },
     };
 
     /// Everything the command line resolved to. Held by value and copied into the process-wide singletons
@@ -145,8 +146,9 @@ namespace Desert::Editor
         /// on a machine with a large device: the refusal, its numbers and its modal are only reachable here.
         uint64_t ViewBudgetMiB = 0;
 
-        /// `--crash-test <segv|abort|purecall>`: crash on purpose, immediately after the crash handler is
-        /// installed and before any subsystem exists. Empty — the default — means no crash test.
+        /// `--crash-test <segv|abort|purecall|stackoverflow|stackoverflow-worker>`: crash on purpose, immediately
+        /// after the crash handler is installed and before any subsystem exists. Empty — the default — means no
+        /// crash test.
         ///
         /// IT IS A FLAG AND NOT ONLY A MENU ENTRY because the thing being proven is the HANDLER, and a
         /// handler can only be proven by a process that actually dies: a test has to be able to start the
@@ -355,7 +357,8 @@ namespace Desert::Editor
                 if ( !options.CrashTest.has_value() )
                 {
                     return Common::MakeFormattedError<CommandLineOptions>(
-                         "--crash-test '{}' is not a crash kind; it knows: segv, abort, purecall", value );
+                         "--crash-test '{}' is not a crash kind; it knows: {}", value,
+                         Common::Crash::kKnownTestKinds );
                 }
             }
             else if ( arg == "--language" )
@@ -481,6 +484,17 @@ namespace Desert::Editor
                          value );
                 }
                 options.Shot.FlightSpeed = speed;
+            }
+            else if ( arg == "--stream-delay-ticks" )
+            {
+                char*               end   = nullptr;
+                const unsigned long ticks = std::strtoul( value.c_str(), &end, 10 );
+                if ( value.empty() || end != value.c_str() + value.size() || ticks > 100000ul )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--stream-delay-ticks '{}' is not a number of frames (0..100000).", value );
+                }
+                options.Shot.StreamDelayTicks = static_cast<std::uint32_t>( ticks );
             }
             else if ( arg == "--flight-csv" )
             {

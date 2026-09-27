@@ -2,13 +2,14 @@
 // :593-808 (Sculpt), :878-1000 (Smooth), :1049-1350 (Flatten), :1533-1650 (Noise), :29-46 (noise permutations),
 // LandscapeEdModeTools.h:29-160 (FNoiseParameter), :168-280 (LowPassFilter), :474-516 (GetValue / GetNormal) and
 // :1134-1142 (StrengthMultiplier), LandscapeEditorObject.h:85-99 (NoiseModeConversion),
-// LandscapeEdModeRampTool.cpp:29-75 (FLandscapeRampToolHeightRasterPolicy) and :486-613 (ApplyRamp),
+// LandscapeEdModeRampTool.cpp:29-75 (FLandscapeRampToolHeightRasterPolicy), :139-247 (the points: BeginTool,
+// MouseMove, InputKey's pick, ResetRamp), :335-406 (Render's outline) and :486-613 (ApplyRamp),
 // LandscapeEditorObject.h:396-403 with LandscapeEditorObject.cpp:57-58 (RampWidth / RampSideFalloff),
 // LandscapeEdModeErosionTools.cpp:61-257 (Erosion) and :265-523 (Hydraulic Erosion) with LandscapeEditorObject.h
 // :423-474 and LandscapeEditorObject.cpp:64-77 (their settings), adapted: no paint-layer weight transfer or
 // hardness, float-to-uint16 casts clamp instead of wrapping, the landscape's outermost ring sheds nothing,
-// Runtime/Engine/ Public/Raster.h (FTriangleRasterizer), adapted: the ramp's two points come from palette
-// commands, not a hit proxy; UObject/ULandscapeEditorObject settings become plain structs, the stroke writes
+// Runtime/Engine/ Public/Raster.h (FTriangleRasterizer), adapted: the ramp's point pick is an angle to the cursor
+// ray instead of a hit proxy; UObject/ULandscapeEditorObject settings become plain structs, the stroke writes
 // through LandscapeHeightCache (L2) on the global sample lattice, kissfft is replaced by a separable DFT, the clay
 // brush, tablet pressure, the flatten target and edit layers are not ported, and the stroke records its own
 // before/after snapshot for undo.
@@ -23,7 +24,9 @@
 
 #include <glm/vec3.hpp>
 
+#include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -255,12 +258,19 @@ namespace Desert::World::Landscape
     };
 
     /**
+     * @brief Called before each iteration of the two erosion loops; false stops the loop there (the hydraulic pass
+     * then skips its detail smooth too). The whole-map generator counts progress and honours a cancel through it —
+     * a brush stroke passes none. Not called at all leaves the loops exactly UE's.
+     */
+    using LandscapeErosionIterationHook = std::function<bool()>;
+
+    /**
      * @brief FLandscapeToolStrokeErosion::Apply's thermal loop, without the noise pass: every sample steeper
      * than the threshold towards a lower 4-neighbour sheds height to it, until an iteration changes nothing.
      * @return the number of iterations run.
      */
     int32_t LandscapeThermalErosion( LandscapeErosionField& field, const LandscapeErosionSettings& settings,
-                                     float strength );
+                                     float strength, const LandscapeErosionIterationHook& beforeIteration = {} );
 
     /// The noise pass that closes FLandscapeToolStrokeErosion::Apply (amplitude BrushValue · Threshold ·
     /// strength · BrushSizeAdjust).
@@ -275,7 +285,7 @@ namespace Desert::World::Landscape
      * @return the number of iterations run.
      */
     int32_t LandscapeHydraulicErosion( LandscapeErosionField& field, const LandscapeHydroErosionSettings& settings,
-                                       float strength );
+                                       float strength, const LandscapeErosionIterationHook& beforeIteration = {} );
 
     /**
      * @brief UE's SculptStrength for one step, in height steps at brush weight 1:
@@ -464,4 +474,59 @@ namespace Desert::World::Landscape
     Common::BoolResultStr WriteLandscapeHeights( const LandscapeRoot& root, LandscapeTileLookup lookup,
                                                  const LandscapeSampleBounds& rect,
                                                  const std::vector<uint16_t>& values );
+    /**
+     * @brief FLandscapeToolRamp's two points and the mouse state that places and drags them (BeginTool, MouseMove,
+     * InputKey's point pick, EndTool, ResetRamp). World cm. Pure: the editor feeds it the point under the cursor
+     * and the landscape hit, and draws what it holds.
+     */
+    struct LandscapeRampPoints
+    {
+        std::array<glm::vec3, 2> Points{};
+        int32_t                  NumPoints = 0;
+        /// UE's SelectedPoint; -1 is INDEX_NONE.
+        int32_t SelectedPoint = -1;
+        /// UE's bMovingPoint: the button went down on a point and moves carry it along.
+        bool Moving = false;
+
+        bool operator==( const LandscapeRampPoints& ) const = default;
+    };
+
+    /// UE's ResetRamp.
+    void LandscapeRampReset( LandscapeRampPoints& ramp );
+
+    /**
+     * @brief The left button goes down. @p picked is the point drawn under the cursor, -1 for none: UE's hit proxy
+     * is asked first and a hit selects that point and starts moving it. Otherwise UE's BeginTool at @p hit (the
+     * landscape under the cursor): fewer than two points lays the next one, two points move the selected one
+     * there.
+     * @return whether the press was taken (false: nothing picked and no landscape under the cursor).
+     */
+    bool LandscapeRampPress( LandscapeRampPoints& ramp, int32_t picked, const std::optional<glm::vec3>& hit );
+
+    /// UE's MouseMove while moving: the selected point follows @p hit; dragging off the first point lays the
+    /// second. False when not moving or nothing is under the cursor.
+    bool LandscapeRampMove( LandscapeRampPoints& ramp, const std::optional<glm::vec3>& hit );
+
+    /// UE's EndTool / the button's release.
+    void LandscapeRampRelease( LandscapeRampPoints& ramp );
+
+    /**
+     * @brief Our stand-in for UE's HLandscapeRampToolPointHitProxy: the point whose direction from @p rayOrigin
+     * lies within @p toleranceRadians of @p rayDirection (unit), the nearest angle winning; -1 for none. An angle
+     * rather than pixels keeps the pick independent of the viewport's size; the gizmo's dot covers about it.
+     */
+    int32_t PickLandscapeRampPoint( const LandscapeRampPoints& ramp, glm::vec3 rayOrigin, glm::vec3 rayDirection,
+                                    float toleranceRadians );
+
+    /// FLandscapeToolRamp::Render's outline: the inner rectangle (full ramp height, half width · (1 - falloff))
+    /// and the outer one (the falloff's edge, half width), each start-left, start-right, end-right, end-left.
+    struct LandscapeRampOutline
+    {
+        std::array<glm::vec3, 4> Inner{};
+        std::array<glm::vec3, 4> Outer{};
+    };
+
+    /// The outline of two distinct points; nullopt with fewer, or when they coincide in plan (no side direction).
+    std::optional<LandscapeRampOutline> LandscapeRampOutlineOf( const LandscapeRampPoints&   ramp,
+                                                                const LandscapeRampSettings& settings );
 } // namespace Desert::World::Landscape

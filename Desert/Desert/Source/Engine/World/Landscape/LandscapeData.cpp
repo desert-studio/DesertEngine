@@ -125,7 +125,17 @@ namespace Desert::World::Landscape
     LandscapeTileData::LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples )
          : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
     {
+        RescanSampleRange();
         MarkDirty( Bounds(), kAllConsumers );
+    }
+
+    void LandscapeTileData::RescanSampleRange()
+    {
+        if ( m_Samples.empty() )
+            return;
+        const auto [lowest, highest] = std::minmax_element( m_Samples.begin(), m_Samples.end() );
+        m_LowestSample               = *lowest;
+        m_HighestSample              = *highest;
     }
 
     Common::ResultStr<LandscapeTileData> LandscapeTileData::Create( uint32_t samplesX, uint32_t samplesZ )
@@ -163,7 +173,17 @@ namespace Desert::World::Landscape
         uint16_t& slot = m_Samples[static_cast<size_t>( z ) * m_SamplesX + x];
         if ( slot == value )
             return;
-        slot = value;
+        // Overwriting the lowest or highest sample may narrow the range, which only a scan can tell; any other
+        // write can only widen it.
+        const bool heldABound = slot == m_LowestSample || slot == m_HighestSample;
+        slot                  = value;
+        if ( heldABound )
+            RescanSampleRange();
+        else
+        {
+            m_LowestSample  = std::min( m_LowestSample, value );
+            m_HighestSample = std::max( m_HighestSample, value );
+        }
         MarkDirty( { x, z, x + 1u, z + 1u }, kHeightConsumers );
     }
 
@@ -189,19 +209,35 @@ namespace Desert::World::Landscape
         if ( values.size() != rect.Area() )
             return Common::MakeFormattedError<bool>( "Landscape region {} x {} needs {} values, got {}",
                                                      rect.Width(), rect.Depth(), rect.Area(), values.size() );
-        bool changed = false;
+        bool     changed    = false;
+        bool     lostABound = false; // a changed sample held the lowest or highest value (SetSample)
+        uint16_t lowest     = m_LowestSample;
+        uint16_t highest    = m_HighestSample;
         for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
         {
             uint16_t*       row = m_Samples.data() + static_cast<size_t>( z ) * m_SamplesX + rect.X0;
             const uint16_t* src = values.data() + static_cast<size_t>( z - rect.Z0 ) * rect.Width();
             for ( uint32_t i = 0; i < rect.Width(); ++i )
             {
-                changed = changed || row[i] != src[i];
-                row[i]  = src[i];
+                if ( row[i] == src[i] )
+                    continue;
+                changed    = true;
+                lostABound = lostABound || row[i] == m_LowestSample || row[i] == m_HighestSample;
+                lowest     = std::min( lowest, src[i] );
+                highest    = std::max( highest, src[i] );
+                row[i]     = src[i];
             }
         }
-        if ( changed )
-            MarkDirty( rect, kHeightConsumers );
+        if ( !changed )
+            return Common::MakeSuccess( true );
+        if ( lostABound )
+            RescanSampleRange();
+        else
+        {
+            m_LowestSample  = lowest;
+            m_HighestSample = highest;
+        }
+        MarkDirty( rect, kHeightConsumers );
         return Common::MakeSuccess( true );
     }
 
@@ -552,11 +588,10 @@ namespace Desert::World::Landscape
                                                        "expected 'DLHT'",
                                                        at[0], at[1], at[2], at[3] );
         const uint32_t version = Assets::ReadU32( at + 4 );
-        if ( version != kLandscapeTileContainerVersion && version != kLandscapeTileContainerVersionV1 )
-            return Common::MakeFormattedError<Result>( "Landscape tile blob version {} is not one of the "
-                                                       "supported {} and {}",
-                                                       version, kLandscapeTileContainerVersionV1,
-                                                       kLandscapeTileContainerVersion );
+        if ( version != kLandscapeTileContainerVersion )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob version {} is not the supported {} "
+                                                       "(older tiles are not read)",
+                                                       version, kLandscapeTileContainerVersion );
 
         // The checksum before any field is believed: a header bit flip that keeps every length consistent
         // is exactly what the checks below cannot see.
@@ -583,9 +618,7 @@ namespace Desert::World::Landscape
             return Common::MakeFormattedError<Result>( "Landscape tile blob of {} x {} states {} payload bytes, "
                                                        "the dimensions need {}",
                                                        samplesX, samplesZ, payloadBytes, expected );
-        const bool hasWeights = version >= 2u;
-        if ( hasWeights ? covered < kLandscapeTileHeaderSize + expected + 4u
-                        : covered != kLandscapeTileHeaderSize + expected )
+        if ( covered < kLandscapeTileHeaderSize + expected + 4u )
             return Common::MakeFormattedError<Result>(
                  "Landscape tile blob is {} bytes, header + payload + trailer "
                  "is {}",
@@ -596,7 +629,7 @@ namespace Desert::World::Landscape
         for ( size_t i = 0; i < samples.size(); ++i )
             samples[i] = static_cast<uint16_t>( payload[2u * i] | ( payload[2u * i + 1u] << 8 ) );
         auto tile = LandscapeTileData::FromSamples( samplesX, samplesZ, std::move( samples ) );
-        if ( !tile || !hasWeights )
+        if ( !tile )
             return tile;
 
         // The weight section: every length is checked against the bytes that remain before it is used.

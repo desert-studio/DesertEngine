@@ -131,16 +131,6 @@ workspace "Desert"
         warnings "Off"
     filter {}
 
-    -- AND ONE VENDORED TREE THAT IS NOT UNDER `ThirdParty/`. LightweightVK (MIT, and it still carries its
-    -- upstream licence header) was copied into the engine's own Vulkan utilities as
-    -- `Graphic/API/Vulkan/VulkanUtils/lightweightvk`, so the rule above walks straight past it while it
-    -- reports ten diagnostics we have no standing to fix. Its headers are included only by its own four
-    -- sources, so a file rule reaches all ten. If it ever moves under `ThirdParty/` this block becomes
-    -- redundant rather than wrong.
-    filter "files:**/lightweightvk/**"
-        warnings "Off"
-    filter {}
-
     -- NO `MultiProcessorCompile` HERE, AND THE ABSENCE IS THE MEASUREMENT.
     --
     -- It was added on 2026-09-05 on a reading that looked airtight: `msbuild -m`, which CI passes,

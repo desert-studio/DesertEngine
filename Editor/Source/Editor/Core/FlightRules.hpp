@@ -27,6 +27,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -311,6 +312,9 @@ namespace Desert::Editor::Flight
         std::size_t RecordsDestroyed = 0;
         double      ActivationMs     = 0.0; // the streamer's own timing of this frame's activations
         std::string ActivatedUnits;         // which cells, e.g. "L1(3,-2) L1(4,-2)"
+        // GPU bytes the asset services hold after this frame (meshes, textures, material buffers) — the resource
+        // ledger's AssetService owner. What a departed cell's eviction gives back shows here (WP13b).
+        std::uint64_t AssetGpuBytes = 0;
     };
 
     // THE ALIGNMENT, which is the whole difficulty of a per-frame timing: the profiler publishes a frame's
@@ -481,7 +485,8 @@ namespace Desert::Editor::Flight
     [[nodiscard]] inline std::string CsvHeader()
     {
         return "frame,phase,distance_cm,x,y,z,cpu_ms,gpu_ms,stream_ms,entities,resident_records,units_activated,"
-               "units_deactivated,records_activated,records_destroyed,activation_ms,activated_units\n";
+               "units_deactivated,records_activated,records_destroyed,activation_ms,asset_gpu_bytes,activated_"
+               "units\n";
     }
 
     // A value that is not measured is an EMPTY field, not 0: a zero GPU time would be a very fast frame. The
@@ -495,8 +500,8 @@ namespace Desert::Editor::Flight
                Number( row.StreamMs, 3 ) + "," + std::to_string( row.Entities ) + "," +
                std::to_string( row.ResidentRecords ) + "," + std::to_string( row.UnitsActivated ) + "," +
                std::to_string( row.UnitsDeactivated ) + "," + std::to_string( row.RecordsActivated ) + "," +
-               std::to_string( row.RecordsDestroyed ) + "," + Number( row.ActivationMs, 3 ) + ",\"" +
-               row.ActivatedUnits + "\"\n";
+               std::to_string( row.RecordsDestroyed ) + "," + Number( row.ActivationMs, 3 ) + "," +
+               std::to_string( row.AssetGpuBytes ) + ",\"" + row.ActivatedUnits + "\"\n";
     }
 
     [[nodiscard]] inline std::string Csv( std::span<const FrameRow> rows )

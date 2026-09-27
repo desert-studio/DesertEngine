@@ -140,6 +140,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             remember( descriptorSet.StorageBuffers );
             remember( descriptorSet.StorageImage2DSamplers );
             remember( descriptorSet.StorageImage3DSamplers );
+            remember( descriptorSet.AccelerationStructures );
         }
 
         const auto claimSlot = [&]( const spirv_cross::Resource& resource )
@@ -166,6 +167,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         for ( const auto& resource : resources.storage_buffers )
             claimSlot( resource );
         for ( const auto& resource : resources.storage_images )
+            claimSlot( resource );
+        for ( const auto& resource : resources.acceleration_structures )
             claimSlot( resource );
 
         // Uniform Buffers
@@ -292,6 +295,25 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             }
         }
 
+        // Acceleration structures (GL_EXT_ray_query). An array of them is refused like an array of images:
+        // the layout below gives every binding a descriptorCount of 1.
+        for ( const auto& resource : resources.acceleration_structures )
+        {
+            const uint32_t set     = compiler.get_decoration( resource.id, spv::DecorationDescriptorSet );
+            const uint32_t binding = compiler.get_decoration( resource.id, spv::DecorationBinding );
+            if ( !compiler.get_type( resource.type_id ).array.empty() )
+            {
+                diagnostics.push_back( std::format( "resource '{}' (set {}, binding {}) is an array of "
+                                                    "accelerationStructureEXT; arrays of descriptors are not "
+                                                    "supported — declare separate bindings",
+                                                    resource.name, set, binding ) );
+                continue;
+            }
+            auto& as         = data.ShaderDescriptorSets[set].AccelerationStructures[binding];
+            as.DescriptorSet = set;
+            FillResource( as, binding, resource.name, stage );
+        }
+
         // Push Constants
         if ( !resources.push_constant_buffers.empty() )
         {
@@ -350,6 +372,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             add( binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, resource.ShaderStage );
         for ( const auto& [binding, resource] : set.StorageImage3DSamplers )
             add( binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, resource.ShaderStage );
+        for ( const auto& [binding, resource] : set.AccelerationStructures )
+            add( binding, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, resource.ShaderStage );
 
         // Sorted because the buckets above are unordered_maps: the same shader would otherwise produce
         // the same SET of bindings in a different ORDER from run to run. Vulkan does not care, but a

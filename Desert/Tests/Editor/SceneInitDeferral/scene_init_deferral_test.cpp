@@ -16,7 +16,7 @@
 // shape this project keeps paying for (DEV_CONTRACT §2.3.1).
 //
 // The relation is between two statements in one .cpp that no header includes, so it is read out of the
-// source, as AssetPreloadCensus next door does for the same reason.
+// source, as BootContentCensus next door does for the same reason.
 
 #include <gtest/gtest.h>
 

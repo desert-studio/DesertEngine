@@ -41,8 +41,12 @@ namespace Desert::ECS
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                     const Common::Timestep& /*ts*/ ) override
+                     const Common::Timestep& ts ) override
         {
+            // Foliage wind's clock (FO-7): the GAMEPLAY step the scene hands every system - the fixed step
+            // under --play, zero while editing - accumulated, never a wall clock, so one time is one pose.
+            m_WindSeconds += static_cast<double>( ts.GetSeconds() );
+
             // Frame-constant invalidation stamp: cached instance sets built against an older stamp
             // rebuild below (their parent Material may have been graveyarded by Invalidate()).
             const uint32_t materialsVersion =
@@ -446,8 +450,25 @@ namespace Desert::ECS
                              ism.RuntimeInstanceSnapshot =
                                   std::make_shared<const std::vector<glm::mat4>>( ism.InstanceTransforms );
 
+                         // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
+                         // (one source: the paint panel's edit re-reads into the same asset). A type still being
+                         // read culls nothing for those frames; one that failed says why once, in the service.
+                         // Its wind (FO-7) comes from the same file, at this frame's gameplay time.
+                         Graphic::InstanceCullDistance cullDistance;
+                         Graphic::InstanceWind         wind;
+                         if ( const auto* foliage = registry.try_get<FoliageComponent>( entity );
+                              foliage != nullptr && foliage->FoliageType )
+                             if ( const auto* type = Runtime::ResourceRegistry::GetFoliageTypeService()->Get(
+                                       foliage->FoliageType ) )
+                             {
+                                 cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
+                                 wind         = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed,
+                                                                           type->Wind.Height, type->Wind.DirectionDegrees,
+                                                                           m_WindSeconds );
+                             }
                          renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows );
+                              targetMesh, ismInstancePtr, ism.RuntimeInstanceSnapshot, ism.CastShadows,
+                              cullDistance, wind );
                      } );
             }
 
@@ -575,5 +596,8 @@ namespace Desert::ECS
     private:
         std::shared_ptr<Graphic::MaterialPBR> m_DefaultMaterial;
         std::shared_ptr<Graphic::MaterialPBR> m_DefaultSkinnedMaterial;
+        // Gameplay seconds since the scene's systems started (FO-7). Double: a float clock loses the sway's
+        // sub-frame steps after a few hours of play; MakeInstanceWind wraps it to the sway period.
+        double m_WindSeconds = 0.0;
     };
 } // namespace Desert::ECS

@@ -73,7 +73,7 @@ namespace OperationsTest
     // volume is the 12-gon prism's, 30000 cm^2 x 200 cm).
     inline EditMesh MakeCylinder12()
     {
-        EditMesh mesh = Import( MakeCylinder( 200.0f, 200.0f, 12 ) );
+        EditMesh mesh = Import( MakeCylinder( { 100.0f, 200.0f, 12, 1 } ) );
         EXPECT_EQ( GeneratePolyGroupsByAngle( mesh, 45.0f ), 3 );
         EXPECT_NEAR( SignedVolume( mesh ), 6.0e6, 1.0 );
         return mesh;

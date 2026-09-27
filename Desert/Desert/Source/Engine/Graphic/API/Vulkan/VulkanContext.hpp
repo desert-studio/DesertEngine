@@ -5,6 +5,11 @@
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 
+namespace vkb
+{
+    struct Instance;
+} // namespace vkb
+
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanAllocator;
@@ -31,6 +36,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             return s_VulkanInstance;
         }
+
+        // The vk-bootstrap view of the same instance; device selection (DeviceCapsProbe) is built from it.
+        [[nodiscard]] static const vkb::Instance& GetBootstrapInstance();
 
         [[nodiscard]] Common::ResultStr<VkResult> CreateVKInstance();
 

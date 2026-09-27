@@ -5,19 +5,22 @@
 
 namespace Desert::Engine
 {
-    std::shared_ptr<Device> Device::Create()
+    Common::ResultStr<std::shared_ptr<Device>> Device::Create()
     {
         switch ( Graphic::RendererAPI::GetAPIType() )
         {
             case Graphic::RendererAPIType::None:
-                return nullptr;
+                return Common::MakeError<std::shared_ptr<Device>>( "no rendering API is selected" );
             case Graphic::RendererAPIType::Vulkan:
             {
-                return std::make_shared<Graphic::API::Vulkan::VulkanLogicalDevice>();
+                auto device = Graphic::API::Vulkan::VulkanLogicalDevice::Create();
+                if ( !device )
+                    return Common::MakeError<std::shared_ptr<Device>>( device.GetError() );
+                return Common::MakeSuccess<std::shared_ptr<Device>>( device.ExtractValue() );
             }
         }
         DESERT_VERIFY( false, "Unknown RenderingAPI" );
-        return nullptr;
+        return Common::MakeError<std::shared_ptr<Device>>( "unknown rendering API" );
     }
 
 } // namespace Desert::Engine

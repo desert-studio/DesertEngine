@@ -15,9 +15,9 @@ namespace Common::Content
     // ── WHY IT EXISTS, AND WHAT IT REPLACED ───────────────────────────────────────────────────────
     //
     // These seventeen (root, extension) pairs were sixteen `ProcessAssetFiles<T>( ROOT, EXTENSIONS, ... )`
-    // call sites in `AssetPreloader.cpp` and nowhere else. That was survivable while the boot walked
-    // the directories itself — the call site WAS the list. It stopped being survivable with the cooked
-    // registry (GAP_ANALYSIS T2.4): the cook now enumerates content and the boot reads a file, so the
+    // call sites in the boot scanner (the deleted `AssetPreloader.cpp`) and nowhere else. That was survivable
+    // while the boot walked the directories itself — the call site WAS the list. It stopped being survivable with
+    // the cooked registry (GAP_ANALYSIS T2.4): the cook now enumerates content and the boot reads a file, so the
     // producer and the consumer are in different programs, and a kind known to one and not the other
     // is content that exists in the editor and is absent from the shipped game. That is precisely the
     // shape `PackagedContentTrees.hpp` was written for after the packager forgot fonts and icons and
@@ -66,6 +66,8 @@ namespace Common::Content
         ControlRig,
         AnimGraph,
         Retarget,
+        FoliageType,
+        LandscapeLayerInfo,
         StringTable,
         WorldCell,
         WorldIndex,
@@ -137,6 +139,8 @@ namespace Common::Content
              /* ControlRig           */ { "ControlRig", ".derig", &P::CONTROL_RIG_PATH, "Name" },
              /* AnimGraph            */ { "AnimGraph", ".danimgraph", &P::ANIM_GRAPH_PATH, "Name" },
              /* Retarget             */ { "Retarget", ".retarget", &P::RETARGET_PATH, "Name" },
+             /* FoliageType          */ { "FoliageType", ".defoliage", &P::FOLIAGE_TYPE_PATH },
+             /* LandscapeLayerInfo   */ { "LandscapeLayerInfo", ".delayerinfo", &P::LANDSCAPE_LAYER_INFO_PATH },
              /* StringTable          */ { "StringTable", ".destrings", &P::LOCALIZATION_PATH },
              // A partitioned world's cooked cells and its index (WP8, in the AF1 envelope since AF2) sit beside
              // their scene, in `Worlds/X.dwworld/` (WorldCells::CookedWorldDirectory). Derived by the cook and
