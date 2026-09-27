@@ -381,9 +381,9 @@ TEST( LandscapeScene, PaintedWeightLayersSurviveSaveAndLoadExactly )
     const fs::path dir       = Workspace( "weights" );
     const fs::path scenePath = dir / "Painted.desce";
 
-    LandscapeScene original = TwoByTwo();
-    const uint32_t samples  = original.Root.QuadsPerTile + 1u;
-    const size_t   plane    = static_cast<size_t>( samples ) * samples;
+    LandscapeScene                original = TwoByTwo();
+    const uint32_t                samples  = original.Root.QuadsPerTile + 1u;
+    const size_t                  plane    = static_cast<size_t>( samples ) * samples;
     const std::array<uint32_t, 4> layerCounts{ 0u, 3u, kLandscapeMaxWeightLayers, 1u };
     for ( size_t index = 0; index < original.Tiles.size(); ++index )
     {
@@ -394,10 +394,11 @@ TEST( LandscapeScene, PaintedWeightLayersSurviveSaveAndLoadExactly )
             painted.Name = "Layer" + std::to_string( layer );
             painted.Weights.resize( plane );
             for ( size_t sample = 0; sample < plane; ++sample )
-                painted.Weights[sample] = static_cast<uint8_t>( ( sample * 7u + layer * 31u + index * 101u ) & 0xFFu );
+                painted.Weights[sample] =
+                     static_cast<uint8_t>( ( sample * 7u + layer * 31u + index * 101u ) & 0xFFu );
             layers.push_back( std::move( painted ) );
         }
-        auto& heights = original.Tiles[index].Tile.Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
+        auto& heights  = original.Tiles[index].Tile.Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
         const auto set = heights.SetWeightLayers( std::move( layers ) );
         ASSERT_TRUE( set.IsSuccess() ) << set.GetError();
     }
