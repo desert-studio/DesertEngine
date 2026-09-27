@@ -441,28 +441,21 @@ namespace Desert::Geometry::VoxelBlockout
         };
         std::map<int, Bucket> buckets;
 
-        // One quad -> 4 vertices + 2 triangles. `p` and `nrm` are in the layer's FRAME: the UVs are taken
-        // there (frame-aligned, so the texture turns with the grid) with a tangent frame that matches them (a
-        // normal map on a merged quad lines up with its texture), and everything is then carried into the
-        // world by the frame.
+        // Quads are collected first and written out once every layer is meshed: an edge can only be checked
+        // for T-junctions against the corners of ALL quads (see below). `P` and `N` are in the layer's FRAME.
+        struct PendingQuad
+        {
+            int                      Material;
+            std::array<glm::vec3, 4> P;
+            glm::vec3                N;
+            FaceUvFrame              Uv;
+            GridFrame                Frame;
+        };
+        std::vector<PendingQuad> quads;
+        float                    minUnit = std::numeric_limits<float>::max();
         auto emitQuad = [&]( int material, const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv,
                              const GridFrame& frame )
-        {
-            Bucket&    b    = buckets[material];
-            const auto base = static_cast<uint32_t>( b.Verts.size() );
-            for ( int k = 0; k < 4; ++k )
-            {
-                Vertex v{};
-                v.Position  = frame.ToWorldPoint( p[k] );
-                v.Normal    = frame.ToWorldVector( nrm );
-                v.Tangent   = frame.ToWorldVector( uv.T );
-                v.Bitangent = frame.ToWorldVector( uv.B );
-                v.TexCoord  = { glm::dot( p[k], uv.T ) * kUvPerUnit, glm::dot( p[k], uv.B ) * kUvPerUnit };
-                b.Verts.push_back( v );
-            }
-            b.Inds.push_back( { base + 0, base + 1, base + 2 } );
-            b.Inds.push_back( { base + 2, base + 3, base + 0 } );
-        };
+        { quads.push_back( { material, { p[0], p[1], p[2], p[3] }, nrm, uv, frame } ); };
 
         auto emitLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
         {
@@ -526,9 +519,100 @@ namespace Desert::Geometry::VoxelBlockout
                 }
             }
         };
+        if ( !m_Cells.empty() )
+            minUnit = m_Unit;
         emitLayer( m_Cells, m_Unit, m_Frame );
         for ( const Layer& l : m_Frozen )
+        {
+            if ( !l.Cells.empty() )
+                minUnit = std::min( minUnit, l.Unit );
             emitLayer( l.Cells, l.Unit, l.Frame );
+        }
+
+        // T-junctions. Greedy merging, and a layer meshed beside another, leave quad corners lying INSIDE a
+        // neighbouring quad's edge: the floor ring around a block pushed out of it is the everyday case (its
+        // long strip runs past the block's corners). Welded by position, such an edge has a triangle on one
+        // side only and its end vertices are bowties, which the editable mesh refuses
+        // (DynamicMesh3::CheckValidity: a vertex's triangle count must equal its edge count, or one less).
+        // So every quad edge is split at each corner of any quad lying on it, and a quad with a split edge is
+        // fanned from its centre - the surface and its attributes stay exactly the same, only conforming.
+        std::vector<glm::vec3> corners; // world, sorted by x for a range lookup per edge
+        corners.reserve( quads.size() * 4 );
+        for ( const PendingQuad& q : quads )
+            for ( const glm::vec3& p : q.P )
+                corners.push_back( q.Frame.ToWorldPoint( p ) );
+        std::ranges::sort( corners, []( const glm::vec3& a, const glm::vec3& b ) { return a.x < b.x; } );
+        const float eps = 1e-3f * minUnit;
+
+        std::vector<glm::vec3> ring;  // frame-space outline of the quad being written, split points included
+        std::vector<float>     split; // parameters along one edge
+        for ( const PendingQuad& q : quads )
+        {
+            ring.clear();
+            for ( int k = 0; k < 4; ++k )
+            {
+                const glm::vec3& la = q.P[k];
+                const glm::vec3& lb = q.P[( k + 1 ) % 4];
+                const glm::vec3  a  = q.Frame.ToWorldPoint( la );
+                const glm::vec3  d  = q.Frame.ToWorldPoint( lb ) - a;
+                const float      l2 = glm::dot( d, d );
+                ring.push_back( la );
+                if ( l2 <= eps * eps )
+                    continue;
+                const float tEps = eps / std::sqrt( l2 );
+                split.clear();
+                const float xLo = std::min( a.x, a.x + d.x ) - eps;
+                const float xHi = std::max( a.x, a.x + d.x ) + eps;
+                auto it = std::ranges::lower_bound( corners, xLo, {}, []( const glm::vec3& c ) { return c.x; } );
+                for ( ; it != corners.end() && it->x <= xHi; ++it )
+                {
+                    const float t = glm::dot( *it - a, d ) / l2;
+                    if ( t <= tEps || t >= 1.0f - tEps || glm::length( a + d * t - *it ) > eps )
+                        continue;
+                    split.push_back( t );
+                }
+                std::ranges::sort( split );
+                float last = 0.0f;
+                for ( const float t : split )
+                    if ( t - last > tEps ) // the same corner appears once per quad that owns it
+                    {
+                        ring.push_back( glm::mix( la, lb, t ) );
+                        last = t;
+                    }
+            }
+
+            // UVs are taken in the frame (frame-aligned, so the texture turns with the grid) with a tangent
+            // frame that matches them (a normal map on a merged quad lines up with its texture); everything
+            // is then carried into the world by the frame.
+            Bucket&    b      = buckets[q.Material];
+            const auto base   = static_cast<uint32_t>( b.Verts.size() );
+            auto       vertex = [&]( const glm::vec3& p )
+            {
+                Vertex v{};
+                v.Position  = q.Frame.ToWorldPoint( p );
+                v.Normal    = q.Frame.ToWorldVector( q.N );
+                v.Tangent   = q.Frame.ToWorldVector( q.Uv.T );
+                v.Bitangent = q.Frame.ToWorldVector( q.Uv.B );
+                v.TexCoord  = { glm::dot( p, q.Uv.T ) * kUvPerUnit, glm::dot( p, q.Uv.B ) * kUvPerUnit };
+                b.Verts.push_back( v );
+            };
+            if ( ring.size() == 4 )
+            {
+                for ( const glm::vec3& p : ring )
+                    vertex( p );
+                b.Inds.push_back( { base + 0, base + 1, base + 2 } );
+                b.Inds.push_back( { base + 2, base + 3, base + 0 } );
+                continue;
+            }
+            // A split quad: a fan from its centre keeps every outline segment an edge of its own triangle, in
+            // the quad's winding.
+            vertex( ( q.P[0] + q.P[1] + q.P[2] + q.P[3] ) * 0.25f );
+            for ( const glm::vec3& p : ring )
+                vertex( p );
+            const auto n = static_cast<uint32_t>( ring.size() );
+            for ( uint32_t i = 0; i < n; ++i )
+                b.Inds.push_back( { base, base + 1 + i, base + 1 + ( i + 1 ) % n } );
+        }
 
         RenderMeshData out;
         for ( auto& [material, b] : buckets )

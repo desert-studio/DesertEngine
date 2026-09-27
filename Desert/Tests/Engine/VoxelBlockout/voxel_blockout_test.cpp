@@ -8,6 +8,8 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <map>
+#include <tuple>
 #include <vector>
 
 using namespace Desert::Geometry::VoxelBlockout;
@@ -42,6 +44,34 @@ namespace
         EXPECT_NEAR( m.AreaSum.x, 0.0, 1e-3 );
         EXPECT_NEAR( m.AreaSum.y, 0.0, 1e-3 );
         EXPECT_NEAR( m.AreaSum.z, 0.0, 1e-3 );
+    }
+
+    // Directed welded edges that have no opposite partner, or that repeat.
+    int NonConformingEdges( const Desert::Geometry::RenderMeshData& m )
+    {
+        using Key = std::tuple<long, long, long>;
+        auto key  = []( const glm::vec3& p )
+        { return Key( std::lround( p.x * 100.0f ), std::lround( p.y * 100.0f ), std::lround( p.z * 100.0f ) ); };
+        std::map<std::pair<Key, Key>, int> directed;
+        // Indices are submesh-local: every submesh's triangles index from its own VertexOffset.
+        for ( const auto& sm : m.Submeshes )
+            for ( uint32_t i = sm.IndexOffset / 3; i < ( sm.IndexOffset + sm.IndexCount ) / 3; ++i )
+            {
+                const auto& t    = m.Indices[i];
+                const Key   k[3] = { key( m.Vertices[sm.VertexOffset + t.V1].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V2].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V3].Position ) };
+                for ( int e = 0; e < 3; ++e )
+                    ++directed[{ k[e], k[( e + 1 ) % 3] }];
+            }
+        int bad = 0;
+        for ( const auto& [edge, count] : directed )
+        {
+            const auto back = directed.find( { edge.second, edge.first } );
+            if ( count != 1 || back == directed.end() || back->second != 1 )
+                ++bad;
+        }
+        return bad;
     }
 
     // A ground grid of 100 cm cells at the origin; u is Z, v is X.
@@ -313,7 +343,10 @@ TEST( VoxelBlockoutMaterials, PullGivesEveryNewFaceTheOpMaterialAndBakeSplitsOne
     ExpectSubmeshesConsistent( mesh );
     ASSERT_EQ( mesh.SubmeshMaterialIds, ( std::vector<int>{ 0, 2 } ) ) << "ascending material IDs";
     EXPECT_EQ( TrianglesOf( mesh, 2 ), 5u * 2u ) << "the cube: five faces, its bottom sits on the slab";
-    EXPECT_EQ( TrianglesOf( mesh, 0 ), 6u * 2u ) << "the slab: greedy quads, one top cell covered";
+    // The slab: greedy quads, one top cell covered. Its two long side walls are fanned from their centres
+    // (5 triangles each): the cube's bottom corners land mid-edge on them, a T-junction otherwise.
+    EXPECT_EQ( TrianglesOf( mesh, 0 ), 4u * 2u + 2u * 5u ) << "the slab: greedy quads, one top cell covered";
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
     const Measure m = MeasuredAll( mesh );
     ExpectClosed( m );
     EXPECT_NEAR( m.Volume, 3.0 * 1e6, 1.0 );
@@ -357,7 +390,10 @@ TEST( VoxelBlockoutMaterials, PaintFacesRepaintsOnlyTheSelectedFacesInAnyLayerAn
     ExpectSubmeshesConsistent( mesh );
     ASSERT_EQ( mesh.SubmeshMaterialIds, ( std::vector<int>{ 0, 1 } ) );
     EXPECT_EQ( TrianglesOf( mesh, 1 ), 2u );
-    EXPECT_EQ( TrianglesOf( mesh, 0 ), 7u * 2u ) << "greedy never merges across materials: the top splits in two";
+    // Greedy never merges across materials: the top splits in two (an L of two quads), and every quad whose
+    // edge the painted cell's corners land on is fanned, so the welded surface stays conforming.
+    EXPECT_EQ( TrianglesOf( mesh, 0 ), 26u ) << "greedy never merges across materials: the top splits in two";
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
     const Measure after = MeasuredAll( mesh );
     ExpectClosed( after );
     EXPECT_NEAR( after.Volume, before.Volume, 1.0 );
@@ -539,4 +575,39 @@ TEST( VoxelBlockoutFrame, CtrlMiddleClickPivotIsTheFaceCornerNearestTheRayInTheW
     const glm::vec3 side =
          NearestFaceCorner( f, { 1, 0, 2 }, { -1, 0, 0 }, 100.0f, low - dir * 400.0f + glm::vec3( 0, 4, 0 ), dir );
     EXPECT_NEAR( glm::length( side - low ), 0.0f, 1e-2f );
+}
+
+// M10b: a block pushed out of a floor. The floor's greedy ring runs past the block's corners, and welded by
+// position that left T-junctions: edges with a triangle on one side only and bowtie corners, which the editable
+// mesh refuses (DynamicMesh3::CheckValidity) - the blockout then got no mesh at all. Conforming means every
+// welded edge has exactly one partner running the other way.
+
+TEST( VoxelBlockoutConforming, ABlockPushedOutOfACommittedFloorLeavesNoTJunction )
+{
+    // The editor's sequence: select 4x4, E; a new marquee on top commits the floor; select 2x2 there, E.
+    Volume    v = Ground();
+    WorkPlane floor;
+    v.PushPull( floor, Rect{ 0, 3, 0, 3 }, +1, 1, 0 );
+    ASSERT_TRUE( v.Freeze() );
+    v.m_Unit = 100.0f;
+    WorkPlane top{ 1, 1, 1 };
+    v.PushPull( top, Rect{ 1, 2, 1, 2 }, +1, 1, 0 );
+
+    const auto mesh = v.Bake();
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    const Measure m = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_NEAR( m.Volume, ( 16.0 + 4.0 ) * 1.0e6, 1.0 );
+}
+
+TEST( VoxelBlockoutConforming, TheSameStepInOneLayerConformsToo )
+{
+    Volume    v = Ground();
+    WorkPlane floor;
+    v.PushPull( floor, Rect{ 0, 3, 0, 3 }, +1, 1, 0 );
+    WorkPlane top{ 1, 1, 1 };
+    v.PushPull( top, Rect{ 1, 2, 1, 2 }, +1, 1, 0 );
+    const auto mesh = v.Bake();
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "the same step without the commit";
+    ExpectClosed( Measured( mesh ) );
 }
