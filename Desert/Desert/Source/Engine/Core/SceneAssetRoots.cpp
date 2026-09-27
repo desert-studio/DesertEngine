@@ -59,6 +59,12 @@ namespace Desert::Core
             MarkSlots( roots, mesh.MaterialSlots, "an InstancedStaticMeshComponent draws with it" );
         }
 
+        // A cloud layer's material is read by VolumetricCloudRenderer every frame (ResolveOverrides); left out of
+        // the roots it was released by the next sweep and parsed again INSIDE a frame — the thumbnail dome's
+        // five `*_Clouds.demat` per Starter start (AL1-8b).
+        for ( const auto entity : registry.view<ECS::VolumetricCloudComponent>() )
+            roots.Mark( registry.get<ECS::VolumetricCloudComponent>( entity ).Data.Material,
+                        "a VolumetricCloudComponent marches its medium with it" );
         for ( const auto entity : registry.view<ECS::LandscapeMaterialComponent>() )
             roots.Mark( registry.get<ECS::LandscapeMaterialComponent>( entity ).Data.Material,
                         "a landscape is surfaced with it" );
