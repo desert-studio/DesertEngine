@@ -196,7 +196,7 @@ namespace Desert::Core::ExternalEntities
         if ( !split )
             return Common::MakeError<WriteOutcome>( split.GetError() );
 
-        WriteOutcome outcome;
+        WriteOutcome                    outcome;
         std::unordered_set<std::string> claimed;
         for ( const auto& [id, record] : split.GetValue().Records )
         {

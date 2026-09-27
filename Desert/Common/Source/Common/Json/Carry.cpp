@@ -261,8 +261,8 @@ namespace Common::Json
         yyjson_val* array =
              yyjson_is_obj( root ) ? yyjson_obj_getn( root, arrayMember.data(), arrayMember.size() ) : nullptr;
         if ( !yyjson_is_arr( array ) )
-            return MakeError<std::vector<TextDocument>>( "document: no array member '" + std::string( arrayMember ) +
-                                                         "'" );
+            return MakeError<std::vector<TextDocument>>( "document: no array member '" +
+                                                         std::string( arrayMember ) + "'" );
         std::vector<TextDocument> records;
         records.reserve( yyjson_get_len( array ) );
         std::size_t index   = 0;
@@ -272,7 +272,8 @@ namespace Common::Json
         {
             const MutDoc doc( Allocated( yyjson_mut_doc_new( nullptr ) ) );
             yyjson_mut_doc_set_root( doc.get(), Copy( doc.get(), element ) );
-            records.push_back( TextDocument( Own( Allocated( yyjson_mut_doc_imut_copy( doc.get(), nullptr ) ) ) ) );
+            records.push_back(
+                 TextDocument( Own( Allocated( yyjson_mut_doc_imut_copy( doc.get(), nullptr ) ) ) ) );
         }
         return MakeSuccess( std::move( records ) );
     }
@@ -298,7 +299,8 @@ namespace Common::Json
             }
             yyjson_mut_val* array = Allocated( yyjson_mut_arr( doc.get() ) );
             for ( const TextDocument& element : elements )
-                if ( !yyjson_mut_arr_append( array, Copy( doc.get(), yyjson_doc_get_root( element.m_Doc.get() ) ) ) )
+                if ( !yyjson_mut_arr_append( array,
+                                             Copy( doc.get(), yyjson_doc_get_root( element.m_Doc.get() ) ) ) )
                     throw std::bad_alloc();
             yyjson_mut_val* name =
                  Allocated( yyjson_mut_strncpy( doc.get(), replacement.data(), replacement.size() ) );

@@ -417,8 +417,8 @@ namespace
         {
             out << " scene ->v" << Desert::Migration::kSceneVersionExternalEntities;
             if ( report.EntitiesMovedOut > 0 )
-                out << " (" << report.EntitiesMovedOut << " entit" << ( report.EntitiesMovedOut == 1 ? "y" : "ies" )
-                    << " moved to one file each)";
+                out << " (" << report.EntitiesMovedOut << " entit"
+                    << ( report.EntitiesMovedOut == 1 ? "y" : "ies" ) << " moved to one file each)";
         }
         if ( report.PathOnlyMeshGuidsRaised )
             out << " scene v" << Desert::Migration::kSceneVersionShaderGuids << "->v"
@@ -736,7 +736,7 @@ namespace Desert::Migration
             // the migration as well as used for the write below, so the root the step resolves asset paths
             // against and the root the scene is written under are the same root by construction.
             const std::filesystem::path                  assetsRoot = SceneOutputRoot( path );
-            Desert::Migration::FileMigrationReport report =
+            Desert::Migration::FileMigrationReport       report =
                  Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
 
             // A scene from a LATER build: nothing ran and nothing was stamped, so this is a FAILED file
@@ -764,8 +764,8 @@ namespace Desert::Migration
                 // text, which is not the file, so there is no layout to compare it with.
                 if ( isHeader )
                 {
-                    out << "ok     " << path.string() << " — already at scene v" << Desert::Migration::kSceneVersion
-                        << " (one file per entity)\n";
+                    out << "ok     " << path.string() << " — already at scene v"
+                        << Desert::Migration::kSceneVersion << " (one file per entity)\n";
                     continue;
                 }
                 if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
