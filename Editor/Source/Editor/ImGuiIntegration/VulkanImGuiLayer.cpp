@@ -139,6 +139,8 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( m_ImguiPool != VK_NULL_HANDLE )
         {
+            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                         ->GetVulkanLogicalDevice();
             vkDestroyDescriptorPool( device, m_ImguiPool, nullptr );
             m_ImguiPool = VK_NULL_HANDLE;
         }
@@ -209,6 +211,10 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
         {
+            // The backend's own vkQueueSubmit / vkQueuePresentKHR / vkDeviceWaitIdle for detached windows run
+            // on this thread but on the queue uploads flush to from others: hold the device's queue lock (VK1).
+            const auto queues =
+                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->LockQueues();
             ::ImGui::UpdatePlatformWindows();
             ::ImGui::RenderPlatformWindowsDefault();
         }

@@ -154,6 +154,12 @@ namespace Desert::Graphic::API::Vulkan
                                               VkFence fence ) const;
         /// vkQueuePresentKHR under the same lock: the present queue is the graphics queue.
         [[nodiscard]] VkResult PresentToQueue( VkQueue queue, const VkPresentInfoKHR& present ) const;
+        /// The same lock, held by a caller whose queue calls live in code it does not own: the ImGui Vulkan
+        /// backend submits, presents and waits for the detached platform windows itself. The main thread holds
+        /// this across UpdatePlatformWindows + RenderPlatformWindowsDefault so an upload flushing from another
+        /// thread cannot meet those raw calls on the shared queue. Nothing reached while holding it may call
+        /// SubmitToQueue / PresentToQueue / WaitIdle -- the mutex is not recursive.
+        [[nodiscard]] std::unique_lock<std::mutex> LockQueues() const;
 
         void Destroy();
 

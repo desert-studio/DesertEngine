@@ -449,6 +449,11 @@ namespace Desert::Graphic::API::Vulkan
         return vkQueuePresentKHR( queue, &present );
     }
 
+    std::unique_lock<std::mutex> VulkanLogicalDevice::LockQueues() const
+    {
+        return std::unique_lock<std::mutex>( m_QueueMutex );
+    }
+
     void VulkanLogicalDevice::Destroy()
     {
         if ( m_LogicalDevice != VK_NULL_HANDLE )

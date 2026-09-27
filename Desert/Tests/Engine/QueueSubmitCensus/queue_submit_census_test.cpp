@@ -174,6 +174,26 @@ TEST( QueueSubmitCensus, EveryOwnerTakesTheQueueLockBeforeItsCall )
     }
 }
 
+// The ImGui Vulkan backend is third-party and issues its own queue calls for detached platform windows, so the
+// scan above cannot see them. What CAN be read is that the one place that drives them holds the lock first.
+TEST( QueueSubmitCensus, DetachedImGuiWindowsRenderUnderTheQueueLock )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string src = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp" ) );
+    const std::size_t render = src.find( "RenderPlatformWindowsDefault(" );
+    const std::size_t update = src.find( "UpdatePlatformWindows(" );
+    ASSERT_NE( render, std::string::npos )
+         << "VulkanImGuiLayer no longer renders platform windows; update the census";
+    ASSERT_NE( update, std::string::npos );
+    const std::size_t lock      = src.rfind( "LockQueues()", update );
+    const std::size_t scopeOpen = src.rfind( '{', update );
+    EXPECT_TRUE( lock != std::string::npos && scopeOpen != std::string::npos && lock > scopeOpen )
+         << "UpdatePlatformWindows / RenderPlatformWindowsDefault must run inside a scope that took "
+            "VulkanLogicalDevice::LockQueues() first: the backend submits and presents on the shared queue.";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

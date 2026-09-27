@@ -50,7 +50,8 @@ namespace Desert::Graphic::API::Vulkan
         /// Frees @p commandBuffer from the pool it was actually allocated from, after its fence.
         Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue );
         /// vkAllocateCommandBuffers and the pool record, under m_PoolMutex.
-        VkResult AllocateOneShot( const VkCommandBufferAllocateInfo& allocateInfo, VkCommandBuffer& commandBuffer );
+        VkResult AllocateOneShot( const VkCommandBufferAllocateInfo& allocateInfo,
+                                  VkCommandBuffer&                   commandBuffer );
 
         /// GUARDS m_OneShotPools AND vkAllocate/vkFreeCommandBuffers on the nine pools. One-off uploads are
         /// flushed from whichever thread creates the texture or mesh; an unordered_map written from two

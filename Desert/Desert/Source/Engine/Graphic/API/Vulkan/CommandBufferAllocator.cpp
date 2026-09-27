@@ -11,9 +11,9 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        Common::ResultStr<VkResult> FlushCommandBuffer( const VulkanLogicalDevice& owner, VkCommandPool commandPool,
-                                                        VkCommandBuffer commandBuffer, VkQueue queue,
-                                                        std::mutex& poolMutex )
+        Common::ResultStr<VkResult> FlushCommandBuffer( const VulkanLogicalDevice& owner,
+                                                        VkCommandPool commandPool, VkCommandBuffer commandBuffer,
+                                                        VkQueue queue, std::mutex& poolMutex )
         {
             if ( commandBuffer == VK_NULL_HANDLE )
             {
@@ -135,8 +135,7 @@ namespace Desert::Graphic::API::Vulkan
         allocateInfo.pNext              = VK_NULL_HANDLE;
 
         VkCommandBuffer cmdBuffer;
-        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer,
-                                        AllocateOneShot( allocateInfo, cmdBuffer ) );
+        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer, AllocateOneShot( allocateInfo, cmdBuffer ) );
 
         if ( begin )
         {
@@ -169,8 +168,7 @@ namespace Desert::Graphic::API::Vulkan
         allocateInfo.commandPool        = m_CommandGraphicPool[frame];
 
         VkCommandBuffer cmdBuffer;
-        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer,
-                                        AllocateOneShot( allocateInfo, cmdBuffer ) );
+        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer, AllocateOneShot( allocateInfo, cmdBuffer ) );
 
         if ( begin )
         {
@@ -187,7 +185,7 @@ namespace Desert::Graphic::API::Vulkan
                                                       VkCommandBuffer&                   commandBuffer )
     {
         const std::scoped_lock pools( m_PoolMutex );
-        const VkResult         allocated = vkAllocateCommandBuffers( m_LogicalDevice, &allocateInfo, &commandBuffer );
+        const VkResult allocated = vkAllocateCommandBuffers( m_LogicalDevice, &allocateInfo, &commandBuffer );
         if ( allocated == VK_SUCCESS )
             m_OneShotPools[commandBuffer] = allocateInfo.commandPool;
         return allocated;
@@ -250,8 +248,7 @@ namespace Desert::Graphic::API::Vulkan
         allocateInfo.commandPool        = m_TransferOpsCommandPool[frame];
 
         VkCommandBuffer cmdBuffer;
-        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer,
-                                        AllocateOneShot( allocateInfo, cmdBuffer ) );
+        VK_RETURN_RESULT_IF_FALSE_TYPE( VkCommandBuffer, AllocateOneShot( allocateInfo, cmdBuffer ) );
 
         if ( begin )
         {
