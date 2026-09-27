@@ -111,12 +111,21 @@ namespace Desert::Editor::ThumbnailFreshness
 
         // Readers ask per visible card per frame, so both the hash and the record are memoised per
         // process. Guarded because paint jobs hash and record from JobSystem workers.
+        struct MemoTable
+        {
+            std::mutex                            Mutex;
+            std::unordered_map<std::string, Memo> Entries;
+        };
+
+        inline MemoTable& Memos()
+        {
+            static MemoTable table;
+            return table;
+        }
+
         template <typename ReadFn>
         std::optional<uint64_t> Memoised( const std::filesystem::path& file, ReadFn&& read )
         {
-            static std::mutex                            mutex;
-            static std::unordered_map<std::string, Memo> memo;
-
             std::error_code sizeEc;
             std::error_code stampEc;
             const uintmax_t size  = std::filesystem::file_size( file, sizeEc );
@@ -124,12 +133,30 @@ namespace Desert::Editor::ThumbnailFreshness
             if ( sizeEc || stampEc )
                 return std::nullopt;
 
-            const std::lock_guard lock( mutex );
-            Memo&                 entry = memo[file.string()];
+            MemoTable&            table = Memos();
+            const std::lock_guard lock( table.Mutex );
+            Memo&                 entry = table.Entries[file.string()];
             if ( entry.Value && entry.Size == size && entry.Stamp == stamp )
                 return entry.Value;
             entry = { size, stamp, read( file ) };
             return entry.Value;
+        }
+
+        // The writer of `file` states what it now holds. (size, modtime) cannot tell two writes apart when
+        // both land in one filesystem tick with the same size -- a record is always 16 hex digits, and a
+        // Windows modtime advances in ~15.6 ms steps -- so a rewritten record read back as the old hash.
+        inline void Remember( const std::filesystem::path& file, uint64_t value )
+        {
+            std::error_code       sizeEc;
+            std::error_code       stampEc;
+            const uintmax_t       size  = std::filesystem::file_size( file, sizeEc );
+            const auto            stamp = std::filesystem::last_write_time( file, stampEc );
+            MemoTable&            table = Memos();
+            const std::lock_guard lock( table.Mutex );
+            if ( sizeEc || stampEc )
+                table.Entries.erase( file.string() );
+            else
+                table.Entries[file.string()] = { size, stamp, value };
         }
 
         inline std::optional<std::string> ReadAll( const std::filesystem::path& file )
@@ -188,6 +215,7 @@ namespace Desert::Editor::ThumbnailFreshness
         out.close();
         if ( !out )
             return Common::MakeFormattedError<bool>( "failed writing thumbnail record '{}'", record.string() );
+        Detail::Remember( record, sourceHash );
         return Common::MakeSuccess( true );
     }
 
