@@ -115,7 +115,9 @@ namespace
          ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
          ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
          // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
-         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo };
+         ContentKind::FoliageType, ContentKind::LandscapeLayerInfo,
+         // GR-1: a layer info states its GrassType as {Guid, Path}; the grass system resolves the GUID.
+         ContentKind::LandscapeGrassType };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -256,8 +258,17 @@ namespace
                 // No layer info ships with the corpus yet; the least `.delayerinfo` the header reader accepts.
                 const std::string text = "{\"Header\":{\"Kind\":\"LandscapeLayerInfo\",\"Guid\":\"" +
                                          Common::Content::AssetGuidToText( guid ) +
-                                         "\",\"Versions\":{\"LLYI\":1},\"Dependencies\":[]},"
+                                         "\",\"Versions\":{\"LLYI\":2},\"Dependencies\":[]},"
                                          "\"LayerName\":\"AF10a_Probe\"}\n";
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::LandscapeGrassType:
+            {
+                // No grass type ships with the corpus; the least `.degrasstype` the header reader accepts.
+                const std::string text = "{\"Header\":{\"Kind\":\"LandscapeGrassType\",\"Guid\":\"" +
+                                         Common::Content::AssetGuidToText( guid ) +
+                                         "\",\"Versions\":{\"LGRT\":1},\"Dependencies\":[]},"
+                                         "\"GrassVarieties\":[]}\n";
                 return { text.begin(), text.end() };
             }
             default:

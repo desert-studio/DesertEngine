@@ -79,7 +79,11 @@ namespace Desert::Editor
         /// A landscape layer info (`.delayerinfo`, UE ULandscapeLayerInfoObject): its own type so the
         /// browser can colour it, give it an icon and filter by it; it has no producer in common with any
         /// type above.
-        LandscapeLayerInfo
+        LandscapeLayerInfo,
+
+        /// A landscape grass type (`.degrasstype`, UE ULandscapeGrassType): its own type for the layer info's
+        /// reason — colour, icon and filter.
+        LandscapeGrassType
     };
 
     struct DirectoryInformation

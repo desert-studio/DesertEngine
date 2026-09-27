@@ -8,9 +8,20 @@
 
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace Desert::Assets::Serialization
 {
+    namespace
+    {
+        std::vector<std::string> DependenciesOf( const LandscapeLayerInfoData& data )
+        {
+            if ( data.GrassType.Guid.empty() )
+                return {};
+            return { data.GrassType.Guid };
+        }
+    } // namespace
+
     Common::BoolResultStr ValidateLandscapeLayerInfoData( const LandscapeLayerInfoData& data )
     {
         if ( data.LayerName.empty() )
@@ -27,6 +38,11 @@ namespace Desert::Assets::Serialization
         if ( !std::isfinite( c.r ) || !std::isfinite( c.g ) || !std::isfinite( c.b ) )
             return Common::MakeFormattedError<bool>(
                  "layer '{}' has LayerUsageDebugColor ({}, {}, {}), not finite", data.LayerName, c.r, c.g, c.b );
+        if ( data.GrassType.Guid.empty() != data.GrassType.Path.empty() )
+            return Common::MakeFormattedError<bool>(
+                 "layer '{}': GrassType names {} without {} ('{}' / '{}')", data.LayerName,
+                 data.GrassType.Guid.empty() ? "a path" : "a GUID",
+                 data.GrassType.Guid.empty() ? "a GUID" : "a path", data.GrassType.Guid, data.GrassType.Path );
         return BOOLSUCCESS;
     }
 
@@ -56,12 +72,12 @@ namespace Desert::Assets::Serialization
         if ( auto valid = ValidateLandscapeLayerInfoData( data ); !valid )
             return Common::MakeFormattedError<LandscapeLayerInfoData>( "{}", valid.GetError() );
 
-        // A layer info names no other asset, so a stated dependency is an edge the registry would follow to
-        // something this file never loads.
-        if ( !data.Header->Dependencies.empty() )
+        // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edge from the header, the grass from
+        // GrassType. A file where they disagree would have the two sides load different grass.
+        if ( data.Header->Dependencies != DependenciesOf( data ) )
             return Common::MakeFormattedError<LandscapeLayerInfoData>(
-                 "the header states {} Dependencies; a landscape layer info has none",
-                 data.Header->Dependencies.size() );
+                 "the header states {} Dependencies; layer '{}' names {} grass type(s)",
+                 data.Header->Dependencies.size(), data.LayerName, DependenciesOf( data ).size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }
@@ -71,7 +87,7 @@ namespace Desert::Assets::Serialization
         LandscapeLayerInfoData out = data;
         out.Header = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::LandscapeLayerInfo,
                                               LandscapeLayerInfoTextSubsystems() );
-        out.Header->Dependencies.clear();
+        out.Header->Dependencies = DependenciesOf( data );
         return Common::Json::Write( out );
     }
 
