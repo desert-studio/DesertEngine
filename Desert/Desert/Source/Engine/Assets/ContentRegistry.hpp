@@ -636,8 +636,8 @@ namespace Desert::Assets
         inline std::optional<Common::Math::AABB> BoundsOf( const Common::Content::AssetGuid& guid,
                                                            std::string_view                  path )
         {
-            Detail::State&                    state = Detail::Get_();
-            const std::lock_guard<std::mutex> lock( state.Mutex );
+            Detail::State&                           state = Detail::Get_();
+            const std::lock_guard<std::mutex>        lock( state.Mutex );
             const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByGuidReference( guid, path );
             return row != nullptr ? row->Bounds : std::nullopt;
         }

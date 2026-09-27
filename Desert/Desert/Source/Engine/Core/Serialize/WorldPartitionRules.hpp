@@ -1407,9 +1407,9 @@ namespace Desert::Core::Rules
     // ComposeWorld. A root that names no record of @p records leaves the frame at the file's origin.
     //
     // nullopt when nothing in the body has an extent (a UI prefab, an empty group): the column's "absent".
-    [[nodiscard]] inline std::optional<Common::Math::AABB> PrefabBounds( std::span<const Assets::EntityData> records,
-                                                                        const Common::UUID&                 root,
-                                                                        const AssetBoundsSource&            bounds )
+    [[nodiscard]] inline std::optional<Common::Math::AABB>
+    PrefabBounds( std::span<const Assets::EntityData> records, const Common::UUID& root,
+                  const AssetBoundsSource& bounds )
     {
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
@@ -1420,7 +1420,8 @@ namespace Desert::Core::Rules
         const std::vector<glm::mat4> world = Detail::ComposeWorld( records, byId );
 
         const auto      rootRecord = byId.find( root );
-        const glm::mat4 toRoot = rootRecord != byId.end() ? glm::inverse( world[rootRecord->second] ) : glm::mat4( 1.0f );
+        const glm::mat4 toRoot =
+             rootRecord != byId.end() ? glm::inverse( world[rootRecord->second] ) : glm::mat4( 1.0f );
 
         std::optional<Common::Math::AABB> united;
         for ( std::size_t record = 0; record < records.size(); ++record )

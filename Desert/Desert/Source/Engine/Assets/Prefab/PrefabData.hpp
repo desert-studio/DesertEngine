@@ -270,7 +270,7 @@ namespace Desert::Assets
         // The registry's `bounds` column for this file (AL1-8a), stated beside the header so the scan reads
         // it as it reads a mesh header's box. Written by PrefabAsset::Serialize from the body and the
         // registry's mesh rows; absent when nothing in the body has an extent.
-        std::optional<PrefabBoundsSer> Bounds;
+        std::optional<PrefabBoundsSer>                            Bounds;
         std::string                                               Name;
         std::vector<EntityData>                                   Entities;
         Common::UUID                                              Root;

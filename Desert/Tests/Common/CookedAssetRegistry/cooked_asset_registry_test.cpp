@@ -695,7 +695,7 @@ TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )
 // must come back bit for bit; a box that is there and unreadable keeps the file out as a bad header does.
 TEST( CookedAssetRegistry, APrefabRowCarriesTheBoxItsFileStates )
 {
-    namespace fs = std::filesystem;
+    namespace fs          = std::filesystem;
     const fs::path corpus = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
     ASSERT_TRUE( fs::exists( corpus ) ) << "run from the repository root: " << fs::absolute( corpus ).string();
 
@@ -705,8 +705,8 @@ TEST( CookedAssetRegistry, APrefabRowCarriesTheBoxItsFileStates )
     ASSERT_TRUE( plain ) << plain.GetError();
     EXPECT_FALSE( plain.GetValue().Bounds.has_value() ) << "a UI prefab has no extent, so its row states no box";
 
-    std::ifstream                in( corpus );
-    const std::string            text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    std::ifstream     in( corpus );
+    const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
     const std::string::size_type name = text.find( "\"Name\"" );
     ASSERT_NE( name, std::string::npos );
 

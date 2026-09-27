@@ -667,9 +667,9 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 
     Common::Utils::AssetRegistry      registry;
     Common::Utils::AssetRegistryEntry mesh;
-    mesh.Key                = "assets:Meshes/Crate.stmesh";
-    mesh.Kind               = "StaticMesh";
-    const auto meshGuid     = Common::Content::AssetGuidFromText( kPrefabMeshGuid );
+    mesh.Key            = "assets:Meshes/Crate.stmesh";
+    mesh.Kind           = "StaticMesh";
+    const auto meshGuid = Common::Content::AssetGuidFromText( kPrefabMeshGuid );
     ASSERT_TRUE( meshGuid ) << meshGuid.GetError();
     mesh.Guid   = meshGuid.GetValue();
     mesh.Bounds = Common::Math::AABB{ { -10.0f, 0.0f, -40.0f }, { 10.0f, 20.0f, 40.0f } };
@@ -719,10 +719,10 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
         instantiated.push_back( child );
     }
 
-    const auto fromRow  = Rules::PlanWorldPartition( named, settings, Cells::BoundsFrom( registries ) );
-    const auto fromBody = Rules::PlanWorldPartition( instantiated, settings, Cells::BoundsFrom( registries ) );
-    const auto* a       = CompositeHolding( fromRow, 0 );
-    const auto* b       = CompositeHolding( fromBody, 0 );
+    const auto  fromRow  = Rules::PlanWorldPartition( named, settings, Cells::BoundsFrom( registries ) );
+    const auto  fromBody = Rules::PlanWorldPartition( instantiated, settings, Cells::BoundsFrom( registries ) );
+    const auto* a        = CompositeHolding( fromRow, 0 );
+    const auto* b        = CompositeHolding( fromBody, 0 );
     ASSERT_TRUE( a != nullptr && b != nullptr && a->Footprint && b->Footprint );
     EXPECT_EQ( fromRow.PointOnlyRecords, 0u ) << "the instance was planned as a point: its row's box was not read";
     EXPECT_NEAR( a->Footprint->MinX, b->Footprint->MinX, 1e-2f );
