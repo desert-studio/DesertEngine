@@ -10,7 +10,8 @@
 namespace Desert::Geometry
 {
     // WHOLE-MESH SHAPE OPERATIONS - UE's Model tab: Subdivide (USubdividePolyTool, the Loop scheme on
-    // triangles) and Trim (UTrimMeshesTool). Plane Cut and Mirror run on the DynamicMesh3 (MeshPlaneOperation.hpp).
+    // triangles) and Trim (UTrimMeshesTool). Plane Cut and Mirror run on the DynamicMesh3
+    // (MeshPlaneOperation.hpp).
     //
     // Same contract as EditMeshOperations.hpp: pure functions, the input is not touched, the result is a NEW
     // EditMesh; a refusal leaves nothing half-done and names what and where. None takes a selection: each

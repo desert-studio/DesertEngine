@@ -90,7 +90,7 @@ namespace Desert::Editor::Core
         // sheared or non-uniformly scaled AND rotated entity is refused rather than cut across a plane the
         // user did not pick.
         Common::ResultStr<Geometry::MeshPlane> AxisPlane( ECS::Entity entity, int axisIndex, bool inWorld,
-                                                         bool keepNegative, float offset, const char* what )
+                                                          bool keepNegative, float offset, const char* what )
         {
             if ( axisIndex < 0 || axisIndex > 2 )
                 return Common::MakeFormattedError<Geometry::MeshPlane>(
@@ -116,8 +116,8 @@ namespace Desert::Editor::Core
                              "work in local space or reset the scale",
                              what, std::sqrt( gram[0][0] ), std::sqrt( gram[1][1] ), std::sqrt( gram[2][2] ) );
             if ( !( s > 0.0f ) )
-                return Common::MakeFormattedError<Geometry::MeshPlane>( "{}: the entity's transform has zero scale",
-                                                                       what );
+                return Common::MakeFormattedError<Geometry::MeshPlane>(
+                     "{}: the entity's transform has zero scale", what );
             const glm::mat4 toMesh = glm::inverse( world );
             // Normals map by the inverse transpose; for a similarity that is the inverse's rotation part.
             const glm::vec3 point  = glm::vec3( toMesh * glm::vec4( origin, 1.0f ) );
@@ -268,12 +268,12 @@ namespace Desert::Editor::Core
         }
         else if ( operation == MeshOperation::Mirror )
         {
-            auto plane = AxisPlane( e, args.MirrorAxis, args.MirrorWorld, args.MirrorKeepNegative, 0.0f,
-                                    "Mesh Mirror" );
+            auto plane =
+                 AxisPlane( e, args.MirrorAxis, args.MirrorWorld, args.MirrorKeepNegative, 0.0f, "Mesh Mirror" );
             if ( !plane.IsSuccess() )
                 return Common::MakeError<bool>( plane.GetError() );
-            auto mirrored =
-                 Geometry::MirrorMesh( *before, plane.GetValue(), args.MirrorMode, args.WeldTolerance, selection.Mode() );
+            auto mirrored = Geometry::MirrorMesh( *before, plane.GetValue(), args.MirrorMode, args.WeldTolerance,
+                                                  selection.Mode() );
             if ( !mirrored.IsSuccess() )
                 return Common::MakeError<bool>( mirrored.GetError() );
             Geometry::RegionOutcome done = mirrored.ExtractValue();

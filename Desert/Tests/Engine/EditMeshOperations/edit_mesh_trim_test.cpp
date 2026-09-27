@@ -1,6 +1,7 @@
-// Trim (EditMeshModelOperations.hpp) on the generator cube (200 cm: x and z centred on the origin, y from 0 to 200):
-// the removed area is the cutter's footprint in closed form, the cut is left open, a mirroring cutter transform
-// trims the same, and every refusal by its words. Plane Cut runs on the DynamicMesh3: MeshPlaneOperation suite.
+// Trim (EditMeshModelOperations.hpp) on the generator cube (200 cm: x and z centred on the origin, y from 0 to
+// 200): the removed area is the cutter's footprint in closed form, the cut is left open, a mirroring cutter
+// transform trims the same, and every refusal by its words. Plane Cut runs on the DynamicMesh3: MeshPlaneOperation
+// suite.
 
 #include <gtest/gtest.h>
 

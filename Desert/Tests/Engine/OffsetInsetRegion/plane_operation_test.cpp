@@ -92,8 +92,8 @@ namespace
         return n;
     }
 
-    // Signed: the test cube is wound so that it comes out NEGATIVE (-1e6 for Cube(50)); a half or a reflection wound
-    // against its source would flip the sign, so every expectation is a multiple of the source's own volume.
+    // Signed: the test cube is wound so that it comes out NEGATIVE (-1e6 for Cube(50)); a half or a reflection
+    // wound against its source would flip the sign, so every expectation is a multiple of the source's own volume.
     double Volume( const DynamicMesh3& mesh )
     {
         double v = 0.0;

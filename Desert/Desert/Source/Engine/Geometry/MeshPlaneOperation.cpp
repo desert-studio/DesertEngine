@@ -64,11 +64,11 @@ namespace Desert::Geometry
             int UnfilledSpans = 0;
         };
 
-        // FMeshPlaneCut::Cut on a copy of @p before, keeping the side @p keep points to; @p fillHole caps the cut's
-        // closed loops.
+        // FMeshPlaneCut::Cut on a copy of @p before, keeping the side @p keep points to; @p fillHole caps the
+        // cut's closed loops.
         Common::ResultStr<KeptHalf> KeepSide( const DynamicMesh3& before, const glm::dvec3& origin,
-                                                   const glm::dvec3& keep, bool fillHole, double tolerance,
-                                                   float uvScale, const char* name )
+                                              const glm::dvec3& keep, bool fillHole, double tolerance,
+                                              float uvScale, const char* name )
         {
             auto         mesh = std::make_shared<DynamicMesh3>( before );
             MeshPlaneCut cut( mesh.get(), origin, -keep );
@@ -81,7 +81,7 @@ namespace Desert::Geometry
                      name );
             if ( mesh->TriangleCount() == 0 )
                 return Common::MakeFormattedError<KeptHalf>( "Mesh {}: nothing is left on the kept side", name );
-            const int unfilledSpans = static_cast<int>( cut.m_OpenBoundaries.front().CutSpans.size() );
+            const int        unfilledSpans = static_cast<int>( cut.m_OpenBoundaries.front().CutSpans.size() );
             ElementSelection cap( ElementMode::PolyGroup );
             if ( fillHole && !cut.m_OpenBoundaries.front().CutLoops.empty() )
             {
@@ -97,7 +97,8 @@ namespace Desert::Geometry
             }
             if ( auto tangents = RecomputeTangentSpace( *mesh, name ); !tangents.IsSuccess() )
                 return Common::MakeError<KeptHalf>( tangents.GetError() );
-            return Common::MakeSuccess( KeptHalf{ RegionOutcome{ std::move( mesh ), std::move( cap ) }, unfilledSpans } );
+            return Common::MakeSuccess(
+                 KeptHalf{ RegionOutcome{ std::move( mesh ), std::move( cap ) }, unfilledSpans } );
         }
 
         Common::ResultStr<glm::dvec3> UnitNormal( const MeshPlane& plane, const char* name )

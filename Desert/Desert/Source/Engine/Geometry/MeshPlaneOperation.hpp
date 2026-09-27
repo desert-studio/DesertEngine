@@ -85,9 +85,9 @@ namespace Desert::Geometry
     // stays closed.
     // Refused: a zero normal; a plane that does not cross the mesh (named with the signed distance range); the
     // cut loops not extractable; while filling, a section with a hole (a tube cut across) - a limitation of this
-    // port (v1), lifted by P14b. An open mesh (a sheet, a mesh whose own border crosses the plane) is cut: only its
-    // closed loops are capped, as UE does with bFillSpans off, and the open spans are counted in the outcome and
-    // named in its Report - not left silently.
+    // port (v1), lifted by P14b. An open mesh (a sheet, a mesh whose own border crosses the plane) is cut: only
+    // its closed loops are capped, as UE does with bFillSpans off, and the open spans are counted in the outcome
+    // and named in its Report - not left silently.
     [[nodiscard]] Common::ResultStr<PlaneCutOutcome>
     PlaneCutMesh( const DynamicMesh3& before, const MeshPlane& plane, PlaneCutMode mode, bool fillHole );
 } // namespace Desert::Geometry

@@ -7,7 +7,8 @@
 // (EditMeshBridgeCensus pins it), so the day the last card lands, deleting this pair is the whole cleanup (P8b).
 //
 // Which card removes which crossing: element selection and picking -> P10; Offset (ours, no UE counterpart) -> P11
-// left it here; Edge Loop / Weld / Hole Fill / Clean -> P12; Bevel -> P13a/b; Plane Cut / Mirror -> P14 (done: MeshPlaneOperation); Subdivide
+// left it here; Edge Loop / Weld / Hole Fill / Clean -> P12; Bevel -> P13a/b; Plane Cut / Mirror -> P14 (done:
+// MeshPlaneOperation); Subdivide
 // -> P15; Create Shape and the shape generators -> P16; Boolean / Trim -> P17; the CubeGrid bake -> P18; the XForm
 // tab (our own, no UE counterpart) -> P19 or a card of its own. The bridge as a whole -> P8b.
 //
