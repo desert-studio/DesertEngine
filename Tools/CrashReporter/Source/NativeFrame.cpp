@@ -29,8 +29,8 @@ namespace
     // rather than assuming it.
     struct FrameState
     {
-        HWND     window   = nullptr;
-        WNDPROC  previous = nullptr;
+        HWND                                      window   = nullptr;
+        WNDPROC                                   previous = nullptr;
         CrashReporter::NativeFrame::CaptionLayout layout{};
     };
 
@@ -190,9 +190,9 @@ namespace CrashReporter::NativeFrame
         ::SetWindowPos( handle, nullptr, 0, 0, 0, 0,
                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED );
 
-        const DWORD    corner = kDwmCornerRound;
-        const HRESULT  result = ::DwmSetWindowAttribute( handle, kDwmWindowCornerPreference, &corner,
-                                                         sizeof( corner ) );
+        const DWORD   corner = kDwmCornerRound;
+        const HRESULT result =
+             ::DwmSetWindowAttribute( handle, kDwmWindowCornerPreference, &corner, sizeof( corner ) );
         // E_INVALIDARG is exactly what every Windows build before 11 returns for an attribute it does
         // not know. Square corners there are the OS's own look, not a defect of this tool, so that one
         // code is expected; anything else is reported.
@@ -200,8 +200,8 @@ namespace CrashReporter::NativeFrame
         {
             char text[96] = {};
             std::snprintf( text, sizeof( text ),
-                        "DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE) failed, HRESULT 0x%08lX\n",
-                        static_cast<unsigned long>( result ) );
+                           "DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE) failed, HRESULT 0x%08lX\n",
+                           static_cast<unsigned long>( result ) );
             problems += text;
         }
 

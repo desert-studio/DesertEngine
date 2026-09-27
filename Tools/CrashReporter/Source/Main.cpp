@@ -97,11 +97,11 @@ namespace
     // exe is one specific file; a codepoint it does not carry draws as tofu, and tofu is a defect
     // this tool names rather than ships. BuildFonts checks the list against the built atlas.
     constexpr IconGlyph kIcons[] = {
-        { kIconBug, 0xF188, "bug" },         { kIconInfo, 0xF05A, "info-circle" },
-        { kIconComment, 0xF075, "comment" }, { kIconLog, 0xF0F6, "file-text-o" },
-        { kIconCopy, 0xF0C5, "files-o" },    { kIconFolder, 0xF07B, "folder" },
-        { kIconRedo, 0xF01E, "repeat" },     { kIconMinimise, 0xF068, "minus" },
-        { kIconClose, 0xF00D, "times" },
+         { kIconBug, 0xF188, "bug" },         { kIconInfo, 0xF05A, "info-circle" },
+         { kIconComment, 0xF075, "comment" }, { kIconLog, 0xF0F6, "file-text-o" },
+         { kIconCopy, 0xF0C5, "files-o" },    { kIconFolder, 0xF07B, "folder" },
+         { kIconRedo, 0xF01E, "repeat" },     { kIconMinimise, 0xF068, "minus" },
+         { kIconClose, 0xF00D, "times" },
     };
 
     struct Fonts
@@ -151,7 +151,8 @@ namespace
             return std::wstring();
         }
         std::wstring wide( static_cast<std::size_t>( needed ), L'\0' );
-        ::MultiByteToWideChar( CP_UTF8, 0, inText.c_str(), static_cast<int>( inText.size() ), wide.data(), needed );
+        ::MultiByteToWideChar( CP_UTF8, 0, inText.c_str(), static_cast<int>( inText.size() ), wide.data(),
+                               needed );
         return wide;
     }
 #endif
@@ -194,8 +195,8 @@ namespace
             ioFonts.missing.push_back( path.string() );
             return nullptr;
         }
-        ImFont* font =
-             ImGui::GetIO().Fonts->AddFontFromFileTTF( path.string().c_str(), inSizePixels, nullptr, TextRanges() );
+        ImFont* font = ImGui::GetIO().Fonts->AddFontFromFileTTF( path.string().c_str(), inSizePixels, nullptr,
+                                                                 TextRanges() );
         if ( font == nullptr )
         {
             ioFonts.missing.push_back( path.string() + " (present, but ImGui could not build it)" );
@@ -345,7 +346,8 @@ namespace
         startup.cb = sizeof( startup );
         PROCESS_INFORMATION process{};
         if ( ::CreateProcessW( nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr,
-                               ToWide( inExecutable.parent_path().string() ).c_str(), &startup, &process ) == FALSE )
+                               ToWide( inExecutable.parent_path().string() ).c_str(), &startup,
+                               &process ) == FALSE )
         {
             outStatus = "could not restart " + inExecutable.filename().string() + " (CreateProcess error " +
                         std::to_string( ::GetLastError() ) + "): " + inExecutable.string();
@@ -395,8 +397,7 @@ namespace
                                                              inTop, inTop, inBottom, inBottom );
         ImGui::PushStyleVar( ImGuiStyleVar_ChildRounding, 0.0f );
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, inPadding );
-        ImGui::BeginChild( inId, ImVec2( 0.0f, inHeight ), false,
-                           ImGuiWindowFlags_AlwaysUseWindowPadding );
+        ImGui::BeginChild( inId, ImVec2( 0.0f, inHeight ), false, ImGuiWindowFlags_AlwaysUseWindowPadding );
     }
 
     void EndBand()
@@ -432,9 +433,9 @@ namespace
             ImGui::Unindent( mPad );
             ImGui::Dummy( ImVec2( 0.0f, mPad - ImGui::GetStyle().ItemSpacing.y ) );
 
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const float height   = ImGui::GetCursorScreenPos().y - mStart.y;
-            const ImVec2 end     = ImVec2( mStart.x + mWidth, mStart.y + height );
+            ImDrawList*  drawList = ImGui::GetWindowDrawList();
+            const float  height   = ImGui::GetCursorScreenPos().y - mStart.y;
+            const ImVec2 end      = ImVec2( mStart.x + mWidth, mStart.y + height );
             mSplitter.SetCurrentChannel( drawList, 0 );
             drawList->AddRectFilled( mStart, end, kColSurface, kCardRounding );
             drawList->AddRect( mStart, end, kColSurfaceEdge, kCardRounding, 0, 1.0f );
@@ -588,11 +589,9 @@ namespace
 
         if ( inReport.valid )
         {
-            const std::string plain = inReport.codename + " in " + host +
-                                      ".exe \xe2\x80\x94 a report was saved" +
-                                      ( inReport.complete
-                                             ? std::string()
-                                             : std::string( " (truncated: the process died mid-write)" ) );
+            const std::string plain =
+                 inReport.codename + " in " + host + ".exe \xe2\x80\x94 a report was saved" +
+                 ( inReport.complete ? std::string() : std::string( " (truncated: the process died mid-write)" ) );
             ImGui::TextColored( ToVec4( inReport.complete ? kColMuted : kColDanger ), "%s", plain.c_str() );
         }
         else
@@ -627,8 +626,7 @@ namespace
         SectionTitle( kIconInfo, "Summary" );
         ImGui::Dummy( ImVec2( 0.0f, 2.0f * inScale ) );
 
-        if ( ImGui::BeginTable( "summary", 2, ImGuiTableFlags_SizingFixedFit,
-                                ImVec2( card.InnerWidth(), 0.0f ) ) )
+        if ( ImGui::BeginTable( "summary", 2, ImGuiTableFlags_SizingFixedFit, ImVec2( card.InnerWidth(), 0.0f ) ) )
         {
             ImGui::TableSetupColumn( "key", ImGuiTableColumnFlags_WidthFixed, 96.0f * inScale );
             ImGui::TableSetupColumn( "value", ImGuiTableColumnFlags_WidthStretch );
@@ -636,8 +634,9 @@ namespace
             SummaryRow( "Kind", inReport.codename + "  [" + inReport.kind + "]", nullptr );
             SummaryRow( "Code", inReport.code + " at " + inReport.address, inFonts.mono );
             SummaryRow( "Module", inReport.module + " + " + inReport.moduleOffset, inFonts.mono );
-            SummaryRow( "Version", inReport.version + "  sha " + inReport.sha + "  branch " + inReport.branch +
-                                        ( inReport.dirty == "1" ? "  (dirty tree)" : "" ),
+            SummaryRow( "Version",
+                        inReport.version + "  sha " + inReport.sha + "  branch " + inReport.branch +
+                             ( inReport.dirty == "1" ? "  (dirty tree)" : "" ),
                         inFonts.mono );
             SummaryRow( "Time",
                         CrashReporter::FormatCrashTime( inReport ) + "  (started " + inReport.started + ")",
@@ -660,8 +659,7 @@ namespace
         ImGui::PushStyleVar( ImGuiStyleVar_ChildBorderSize, 1.0f );
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 10.0f * inScale, 8.0f * inScale ) );
         if ( ImGui::BeginChild( "log", ImVec2( 0.0f, 0.0f ), true,
-                                ImGuiWindowFlags_HorizontalScrollbar |
-                                     ImGuiWindowFlags_AlwaysUseWindowPadding ) )
+                                ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysUseWindowPadding ) )
         {
             if ( inFonts.mono != nullptr )
             {
@@ -717,18 +715,19 @@ int main( int inArgc, char** inArgv )
          ( inArgc > 1 ) ? std::filesystem::path( inArgv[1] ) : std::filesystem::path();
     const CrashReporter::Report report = CrashReporter::LoadReport( reportDirectory );
 
-    const std::filesystem::path besideUs = ReporterDirectory();
-    const std::filesystem::path hostExecutable =
-         ( report.valid && !report.host.empty() && !besideUs.empty() ) ? besideUs / ( report.host + ".exe" )
-                                                                      : std::filesystem::path();
-    std::error_code hostExistsError;
-    const bool      canRestartHost =
+    const std::filesystem::path besideUs       = ReporterDirectory();
+    const std::filesystem::path hostExecutable = ( report.valid && !report.host.empty() && !besideUs.empty() )
+                                                      ? besideUs / ( report.host + ".exe" )
+                                                      : std::filesystem::path();
+    std::error_code             hostExistsError;
+    const bool                  canRestartHost =
          !hostExecutable.empty() && std::filesystem::exists( hostExecutable, hostExistsError ) && !hostExistsError;
 
     glfwSetErrorCallback( &GlfwErrorCallback );
     if ( glfwInit() != GLFW_TRUE )
     {
-        std::fprintf( stderr, "[CrashReporter] glfwInit failed; the report is at %s\n", report.sourcePath.c_str() );
+        std::fprintf( stderr, "[CrashReporter] glfwInit failed; the report is at %s\n",
+                      report.sourcePath.c_str() );
         return 2;
     }
 
@@ -787,8 +786,8 @@ int main( int inArgc, char** inArgv )
     ImGui_ImplOpenGL3_Init( "#version 130" );
 
     std::string status;
-    char        comment[2048] = {};
-    bool        commentSaved  = false;
+    char        comment[2048]   = {};
+    bool        commentSaved    = false;
     bool        logWasOpen      = false;
     int         logScrollFrames = 0;
 
@@ -824,7 +823,8 @@ int main( int inArgc, char** inArgv )
         // named here rather than hidden behind a window that merely behaves oddly.
         if ( !fonts.missing.empty() || !frameProblems.empty() )
         {
-            const float lines = static_cast<float>( fonts.missing.size() ) + ( frameProblems.empty() ? 1.0f : 2.0f );
+            const float lines =
+                 static_cast<float>( fonts.missing.size() ) + ( frameProblems.empty() ? 1.0f : 2.0f );
             BeginBand( "defects", ( 14.0f * dpiScale ) + ( lines * ImGui::GetTextLineHeightWithSpacing() ),
                        kColBadgeBg, kColBadgeBg, ImVec2( kPadX * dpiScale, 8.0f * dpiScale ) );
             if ( !fonts.missing.empty() )
@@ -900,8 +900,8 @@ int main( int inArgc, char** inArgv )
         }
         BeginBand( "footer", footerHeight, kColTitleBar, kColTitleBar, ImVec2( kPadX * dpiScale, 0.0f ) );
         {
-            const float lineHeight  = ImGui::GetTextLineHeightWithSpacing();
-            const float textBlock   = status.empty() ? lineHeight : ( lineHeight * 2.0f );
+            const float lineHeight   = ImGui::GetTextLineHeightWithSpacing();
+            const float textBlock    = status.empty() ? lineHeight : ( lineHeight * 2.0f );
             const float buttonHeight = ImGui::GetFrameHeight();
 
             ImGui::SetCursorPosY( ( footerHeight - textBlock ) * 0.5f );
@@ -922,11 +922,10 @@ int main( int inArgc, char** inArgv )
             }
             ImGui::EndGroup();
 
-            const std::string copyLabel   = std::string( kIconCopy ) + "  Copy report";
-            const std::string folderLabel = std::string( kIconFolder ) + "  Open folder";
-            const std::string restartLabel =
-                 std::string( kIconRedo ) + "  Restart " +
-                 ( report.host.empty() ? std::string( "Editor" ) : report.host );
+            const std::string copyLabel    = std::string( kIconCopy ) + "  Copy report";
+            const std::string folderLabel  = std::string( kIconFolder ) + "  Open folder";
+            const std::string restartLabel = std::string( kIconRedo ) + "  Restart " +
+                                             ( report.host.empty() ? std::string( "Editor" ) : report.host );
             const float padding   = ImGui::GetStyle().FramePadding.x * 2.0f;
             const float spacing   = ImGui::GetStyle().ItemSpacing.x;
             const float widths[3] = { ImGui::CalcTextSize( copyLabel.c_str() ).x + padding,
@@ -982,8 +981,8 @@ int main( int inArgc, char** inArgv )
 
         // The 1px outline that replaces the OS frame. On the foreground list so no band can cover it.
         ImGui::GetForegroundDrawList()->AddRect(
-             viewport->WorkPos, ImVec2( viewport->WorkPos.x + viewport->WorkSize.x,
-                                        viewport->WorkPos.y + viewport->WorkSize.y ),
+             viewport->WorkPos,
+             ImVec2( viewport->WorkPos.x + viewport->WorkSize.x, viewport->WorkPos.y + viewport->WorkSize.y ),
              kColSurfaceEdge, 0.0f, 0, 1.0f );
 
         ImGui::Render();
