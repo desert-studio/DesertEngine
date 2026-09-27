@@ -12,6 +12,7 @@
 // nothing else.
 
 #include <Common/Core/CrashHandler.hpp>
+#include <RuntimeCrashTest.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <gtest/gtest.h>
@@ -164,6 +165,13 @@ namespace
         EXPECT_FALSE( FieldValue( contents, "version" ).empty() );
         EXPECT_FALSE( FieldValue( contents, "os" ).empty() );
         EXPECT_EQ( FieldValue( contents, "scene" ), "Scenes/CrashHandlerSuite.desce" );
+        // CR1c: the GPU keys come from the device the host created, decoded; the game from SetGameName.
+        EXPECT_EQ( FieldValue( contents, "gpu" ), "test harness, no device" );
+        EXPECT_EQ( FieldValue( contents, "gpu_vendor" ), "0x10DE" );
+        EXPECT_EQ( FieldValue( contents, "gpu_device" ), "0x2482" );
+        EXPECT_EQ( FieldValue( contents, "gpu_driver" ), "591.86" );
+        EXPECT_EQ( FieldValue( contents, "gpu_api" ), "1.4.303" );
+        EXPECT_EQ( FieldValue( contents, "game" ), "CrashHandlerSuiteGame" );
         EXPECT_NE( contents.find( "\n[stack]\n" ), std::string::npos );
         EXPECT_NE( contents.find( "\nlog=" ), std::string::npos ) << "the log ring produced no lines";
 
@@ -183,6 +191,51 @@ namespace
         std::filesystem::remove_all( root, cleanup );
     }
 } // namespace
+
+// CR1c: each vendor's own packing of VkPhysicalDeviceProperties::driverVersion. A wrong split prints a
+// plausible-looking but false driver version, which sends a support ticket after the wrong driver.
+TEST( CrashHandler, DecodesDriverVersionsTheWayEachVendorPrintsThem )
+{
+    // NVIDIA 10/8/8/6: 591.86 is what nvidia-smi and the control panel show.
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x10DE, ( 591u << 22 ) | ( 86u << 14 ) ), "591.86" );
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x10DE, ( 560u << 22 ) | ( 9u << 14 ) ), "560.09" );
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x10DE, ( 470u << 22 ) | ( 57u << 14 ) | ( 2u << 6 ) | 1u ),
+               "470.57.2.1" );
+#if defined( _WIN32 )
+    // Intel on Windows 18/14: the last two groups of "31.0.101.5186".
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x8086, ( 101u << 14 ) | 5186u ), "101.5186" );
+#endif
+    // AMD (and anyone else) use VK_MAKE_API_VERSION's 3/7/10/12 packing.
+    EXPECT_EQ( Common::Crash::DescribeDriverVersion( 0x1002, ( 2u << 22 ) | ( 0u << 12 ) | 302u ), "2.0.302" );
+    EXPECT_EQ( Common::Crash::DescribeApiVersion( ( 1u << 22 ) | ( 3u << 12 ) | 280u ), "1.3.280" );
+}
+
+#if DESERT_DEV_INSTRUMENTS
+// PKG1c: the Runtime's `--crash-test <kind>[@stage]`. No stage keeps the flag's old meaning (@mounted); an
+// unknown stage is refused, because a crash at the other stage files its report in the other directory.
+TEST( CrashHandler, TheRuntimeCrashTestFlagNamesAKindAndAStage )
+{
+    using Desert::Player::CrashTestStage;
+    const auto plain = Desert::Player::ParseCrashTest( "segv" );
+    ASSERT_TRUE( plain.has_value() );
+    EXPECT_EQ( plain->Kind, Common::Crash::TestKind::Segv );
+    EXPECT_EQ( plain->Stage, CrashTestStage::Mounted );
+
+    const auto early = Desert::Player::ParseCrashTest( "abort@early" );
+    ASSERT_TRUE( early.has_value() );
+    EXPECT_EQ( early->Kind, Common::Crash::TestKind::Abort );
+    EXPECT_EQ( early->Stage, CrashTestStage::Early );
+
+    const auto mounted = Desert::Player::ParseCrashTest( "purecall@mounted" );
+    ASSERT_TRUE( mounted.has_value() );
+    EXPECT_EQ( mounted->Stage, CrashTestStage::Mounted );
+
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "segv@" ).has_value() );
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "segv@late" ).has_value() );
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "@early" ).has_value() );
+    EXPECT_FALSE( Desert::Player::ParseCrashTest( "sigsegv@early" ).has_value() );
+}
+#endif
 
 TEST( CrashHandler, ParsesTheThreeTestKinds )
 {
@@ -310,7 +363,9 @@ int main( int argc, char** argv )
         // Both context setters are exercised, because a value that is never written is a field the
         // report would always show as "none" and nobody would notice.
         Common::Crash::SetScenePath( "Scenes/CrashHandlerSuite.desce" );
-        Common::Crash::SetGpuDescription( "test harness, no device" );
+        Common::Crash::SetGpu( { .name = "test harness, no device", .vendorId = 0x10DE, .deviceId = 0x2482,
+                                 .driverVersion = ( 591u << 22 ) | ( 86u << 14 ), .apiVersion = ( 1u << 22 ) | ( 4u << 12 ) | 303u } );
+        Common::Crash::SetGameName( "CrashHandlerSuiteGame" );
         LOG_INFO( "[CrashHandlerTestChild] about to crash on purpose: {}", argv[2] );
 
         const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( argv[2] );

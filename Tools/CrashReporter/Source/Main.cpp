@@ -653,7 +653,11 @@ namespace
                         CrashReporter::FormatCrashTime( inReport ) + "  (started " + inReport.started + ")",
                         nullptr );
             SummaryRow( "Machine", inReport.machine + "  -  " + inReport.os, nullptr );
-            SummaryRow( "GPU", inReport.gpu, nullptr );
+            SummaryRow( "GPU",
+                        inReport.gpuDriver.empty() ? inReport.gpu
+                                                   : inReport.gpu + "  -  driver " + inReport.gpuDriver +
+                                                          "  -  Vulkan " + inReport.gpuApi,
+                        nullptr );
             SummaryRow( "Scene", inReport.scene, nullptr );
             ImGui::EndTable();
         }

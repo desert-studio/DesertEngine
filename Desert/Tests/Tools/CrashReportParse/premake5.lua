@@ -1,27 +1,27 @@
+local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 
+-- CR1c: the crash reporter's crash.txt reader, compiled from its own source. The reporter links no engine
+-- (Tools/CrashReporter/premake5.lua says why), and CrashReport.cpp needs nothing but the standard library,
+-- so this suite links only gtest: it reads the report exactly as the window that shows it does.
 project(test_name)
     kind "ConsoleApp"
     language "C++"
-    
+    cppdialect "C++20"
+
     targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
-    
-    files { 
+
+    files {
         test_files,
-    }
-    
-    includedirs {
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        -- RuntimeCrashTest.hpp: header-only, it depends on nothing but this module (PKG1c).
-        "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
+        "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source/CrashReport.cpp",
     }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
-        externalincludedirs { path }
-    end
-    
+    includedirs {
+        "%{_MAIN_SCRIPT_DIR}/Tools/CrashReporter/Source",
+    }
+
     for name, path in pairs(deps.TestSpecific.IncludeDir) do
         externalincludedirs { path }
     end
@@ -30,9 +30,6 @@ project(test_name)
         defines { define }
     end
 
-    links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
-
-    -- gtest comes from Dependencies.lua (prebuilt .lib on Windows, Homebrew on macOS)
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }
@@ -44,5 +41,5 @@ project(test_name)
         end
 
     filter {}
-    
+
 print("Configured test project: " .. test_name)

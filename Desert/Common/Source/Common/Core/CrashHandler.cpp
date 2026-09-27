@@ -75,7 +75,10 @@ extern char** environ;
 //               function=<the faulting function, or "unknown" when no symbol resolved>
 //               fault_frame=<dec index into the [stack] frames that `function` came from>
 //   [build]     version=…  sha=…  branch=…  dirty=<0|1>
-//   [context]   machine=<host name>  scene=<path or "none">  os=…  gpu=…
+//   [context]   machine=<host name>  scene=<path or "none">  os=…  gpu=<device name or "unknown">
+//               gpu_vendor=<0x… PCI id>  gpu_device=<0x…>  gpu_driver=<vendor's own spelling>
+//               gpu_api=<major.minor.patch>   all "unknown" until the host created its device
+//               game=<the game's Name, or "unread" before the host read it>
 //   [stack]     frame=<dec index>|<0x… address>|<module>|<function>|<file:line or "">
 //               Repeated, innermost first. Unresolved parts are empty between the pipes; the field
 //               count is always five so a parser can split on '|' unconditionally.
@@ -114,6 +117,11 @@ namespace Common::Crash::Detail
     char g_Machine[kSmallField] = "unknown";
     char g_Os[kPathField]       = "unknown";
     char g_Gpu[kPathField]      = "unknown";
+    char g_GpuVendor[kSmallField] = "unknown";
+    char g_GpuDevice[kSmallField] = "unknown";
+    char g_GpuDriver[kSmallField] = "unknown";
+    char g_GpuApi[kSmallField]    = "unknown";
+    char g_Game[kSmallField]      = "unread";
     char g_Scene[kPathField]    = "none";
     char g_Started[kSmallField] = "unknown";
 
@@ -514,6 +522,11 @@ namespace Common::Crash::Detail
         writer.Field( "scene", g_Scene );
         writer.Field( "os", g_Os );
         writer.Field( "gpu", g_Gpu );
+        writer.Field( "gpu_vendor", g_GpuVendor );
+        writer.Field( "gpu_device", g_GpuDevice );
+        writer.Field( "gpu_driver", g_GpuDriver );
+        writer.Field( "gpu_api", g_GpuApi );
+        writer.Field( "game", g_Game );
 
         writer.Str( "[stack]\n" );
         for ( std::size_t i = 0; i < g_FrameCount; ++i )
@@ -1412,10 +1425,48 @@ namespace Common::Crash
         Detail::CopyIntoFixed( Detail::g_Scene, Detail::kPathField, inScenePath.empty() ? "none" : inScenePath );
     }
 
-    void SetGpuDescription( std::string_view inGpuDescription )
+    std::string DescribeDriverVersion( std::uint32_t inVendorId, std::uint32_t inPacked )
     {
-        Detail::CopyIntoFixed( Detail::g_Gpu, Detail::kPathField,
-                               inGpuDescription.empty() ? "unknown" : inGpuDescription );
+        constexpr std::uint32_t kNvidia = 0x10DE;
+        if ( inVendorId == kNvidia )
+        {
+            const std::uint32_t sub   = ( inPacked >> 6 ) & 0xFFu;
+            const std::uint32_t patch = inPacked & 0x3Fu;
+            std::string         text  = fmt::format( "{}.{:02}", inPacked >> 22, ( inPacked >> 14 ) & 0xFFu );
+            if ( sub != 0 || patch != 0 )
+            {
+                text += fmt::format( ".{}.{}", sub, patch );
+            }
+            return text;
+        }
+#if defined( DESERT_PLATFORM_WINDOWS )
+        constexpr std::uint32_t kIntel = 0x8086;
+        if ( inVendorId == kIntel )
+        {
+            return fmt::format( "{}.{}", inPacked >> 14, inPacked & 0x3FFFu );
+        }
+#endif
+        return DescribeApiVersion( inPacked );
+    }
+
+    std::string DescribeApiVersion( std::uint32_t inPacked )
+    {
+        return fmt::format( "{}.{}.{}", ( inPacked >> 22 ) & 0x7Fu, ( inPacked >> 12 ) & 0x3FFu, inPacked & 0xFFFu );
+    }
+
+    void SetGpu( const GpuIdentity& inGpu )
+    {
+        Detail::CopyIntoFixed( Detail::g_Gpu, Detail::kPathField, inGpu.name.empty() ? "unknown" : inGpu.name );
+        Detail::CopyIntoFixed( Detail::g_GpuVendor, Detail::kSmallField, fmt::format( "0x{:04X}", inGpu.vendorId ) );
+        Detail::CopyIntoFixed( Detail::g_GpuDevice, Detail::kSmallField, fmt::format( "0x{:04X}", inGpu.deviceId ) );
+        Detail::CopyIntoFixed( Detail::g_GpuDriver, Detail::kSmallField,
+                               DescribeDriverVersion( inGpu.vendorId, inGpu.driverVersion ) );
+        Detail::CopyIntoFixed( Detail::g_GpuApi, Detail::kSmallField, DescribeApiVersion( inGpu.apiVersion ) );
+    }
+
+    void SetGameName( std::string_view inGameName )
+    {
+        Detail::CopyIntoFixed( Detail::g_Game, Detail::kSmallField, inGameName.empty() ? "unread" : inGameName );
     }
 
     std::optional<TestKind> ParseTestKind( std::string_view inWord )

@@ -15,6 +15,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/CrashHandler.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp> // ReadShaderPhaseTimes — pipelines built so far
 
@@ -316,6 +317,14 @@ namespace Desert::Graphic::API::Vulkan
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties( m_PhysicalDevice->GetVulkanPhysicalDevice(), &props );
         m_DeviceName = props.deviceName;
+
+        // CR1c: a crash report names the GPU this process renders on, from the device just created (not a
+        // DXGI adapter guess). Before this line a report says gpu=unknown, which is then the truth.
+        Common::Crash::SetGpu( { .name          = props.deviceName,
+                                 .vendorId      = props.vendorID,
+                                 .deviceId      = props.deviceID,
+                                 .driverVersion = props.driverVersion,
+                                 .apiVersion    = props.apiVersion } );
     }
 
     VulkanLogicalDevice::~VulkanLogicalDevice()
