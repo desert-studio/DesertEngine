@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "StaticMeshComponent.hpp"
 #include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <ImGui/imgui.h>
@@ -87,7 +88,9 @@ namespace Desert::Editor
             }
 
             // A sunk asset slot, not a raised button: this row HOLDS a value (UE draws it the same way).
-            if ( Utils::ImGuiUtilities::AssetSlot( "MeshSlot", currentSelectionName.c_str(), emptySlot ) )
+            const bool clicked =
+                 Utils::ImGuiUtilities::AssetSlot( "MeshSlot", currentSelectionName.c_str(), emptySlot );
+            if ( TakeDetailsPickerRequest( "Static mesh" ) || clicked )
             {
                 ImGui::OpenPopup( "mesh_selector" );
             }
@@ -99,6 +102,11 @@ namespace Desert::Editor
                 static ImGuiTextFilter meshFilter;
                 meshFilter.Draw( "##Search", 200 );
                 ImGui::Separator();
+                // Fixed height that scrolls: a popup as tall as the project's mesh count outgrows the editor
+                // window and, with multi-viewports, becomes a separate OS window away from this slot.
+                constexpr float kPickerRows = 14.0f;
+                ImGui::BeginChild( "##meshes", ImVec2( ImGui::GetFontSize() * 20.0f,
+                                                       ImGui::GetTextLineHeightWithSpacing() * kPickerRows ) );
 
                 for ( const auto& row : meshAssets )
                 {
@@ -111,6 +119,7 @@ namespace Desert::Editor
                         }
                     }
                 }
+                ImGui::EndChild();
                 ImGui::EndPopup();
             }
             Utils::ImGuiUtilities::EndPropertyRow();

@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -370,6 +371,15 @@ namespace Desert::Editor
         if ( const auto pos = label.find( "###" ); pos != std::string::npos )
             label.erase( pos ); // visible part only (drop any existing ###id)
         return std::string( PanelIcon( name ) ) + "  " + label + "###" + name;
+    }
+
+    // The name a person reads for a panel: the ImGui "##id" suffix dropped (the palette's Panel labels).
+    static std::string PanelShownName( const std::string& name )
+    {
+        std::string shown = name;
+        if ( const auto hash = shown.find( "##" ); hash != std::string::npos )
+            shown.erase( hash );
+        return shown;
     }
 
     // THE DOCUMENT WELL'S OWN WINDOW: the index of open documents. It is not where they open — a document opens
@@ -4000,6 +4010,34 @@ namespace Desert::Editor
                 m_FocusPanel.clear();
             }
 
+            // Maximize / restore (palette "Panel" group): the dock node is read from the window as it stands,
+            // so a panel the user re-docked by hand is simply not maximized any more.
+            {
+                const ImGuiWindow* window =
+                     ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                const std::uint32_t dockId = window != nullptr ? window->DockId : 0;
+                const auto directive       = m_PanelMaximize.Before( PanelShownName( panel->GetName() ), dockId );
+                switch ( directive.Kind )
+                {
+                    case PanelMaximize::Step::Undock:
+                    {
+                        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                        ImGui::SetNextWindowDockID( 0, ImGuiCond_Always );
+                        ImGui::SetNextWindowViewport( viewport->ID );
+                        ImGui::SetNextWindowPos( viewport->WorkPos, ImGuiCond_Always );
+                        ImGui::SetNextWindowSize( viewport->WorkSize, ImGuiCond_Always );
+                        ImGui::SetNextWindowFocus();
+                        break;
+                    }
+                    case PanelMaximize::Step::Redock:
+                        ImGui::SetNextWindowDockID( directive.DockId, ImGuiCond_Always );
+                        ImGui::SetNextWindowFocus();
+                        break;
+                    case PanelMaximize::Step::None:
+                        break;
+                }
+            }
+
             ImGui::Begin( PanelDisplayTitle( panel->GetName() ).c_str(), &panel->GetVisibility() );
             ImGui::PopStyleVar(); // right after Begin: the window kept it, child windows must not inherit
             {
@@ -4113,10 +4151,11 @@ namespace Desert::Editor
             std::string name = p->GetName();
             if ( const auto hash = name.find( "##" ); hash != std::string::npos )
                 name.erase( hash ); // drop the "###id" ImGui suffix for display
+            // Through PanelRequests, the one "show that panel" wire: it also brings the panel's tab
+            // forward, which setting visibility alone never did for a panel already docked behind another.
             commands.push_back( { "Panel", "Open " + name, [p]
                                   {
-                                      p->GetVisibility() = true;
-                                      p->Pinned()        = true; // asked for explicitly: keep it open
+                                      Core::PanelRequests::Open( p->GetName() );
                                       return PaletteCommandDone();
                                   } } );
         }
@@ -4153,11 +4192,28 @@ namespace Desert::Editor
                 commands.push_back( { "Assets", "Select asset " + path,
                                       std::bind_front( &FileExplorerPanel::SelectEntry,
                                                        std::to_address( m_FileExplorerPanel ), path ) } );
-                commands.push_back( { "Assets", "Open folder " + path,
-                                      std::bind_front( &FileExplorerPanel::OpenFolder,
-                                                       std::to_address( m_FileExplorerPanel ), path ) } );
             }
         }
+
+        // Maximize any panel that sits in a dock now; restore the maximized one.
+        {
+            std::vector<std::string> docked;
+            for ( const auto& panel : m_Panels )
+            {
+                if ( !panel->GetVisibility() )
+                    continue;
+                const ImGuiWindow* window =
+                     ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                if ( window != nullptr && window->DockId != 0 )
+                    docked.push_back( PanelShownName( panel->GetName() ) );
+            }
+            for ( PaletteCommand& command : PanelMaximizePaletteCommands( m_PanelMaximize, docked ) )
+                commands.push_back( std::move( command ) );
+        }
+
+        // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
+        for ( PaletteCommand& command : DetailsPaletteCommands( GetDetailsNavigation() ) )
+            commands.push_back( std::move( command ) );
 
         // THE SIX STAGES OF THE SKY, each as a command that opens the Clouds window ON that stage.
         //
@@ -5327,12 +5383,13 @@ namespace Desert::Editor
                                   } } );
         }
 
-        // FOLDERS, one "Browse" entry each: brings the Assets browser forward ON that folder. Derived from the
-        // SAME content enumeration as the "Open" entries above (every folder that holds content, each ancestor
-        // up to the assets root included), not from a second walk of the disk: that one call sees a mounted
-        // .dpak as well as loose files, and the ContentScanners gate holds every content walk to it. A folder
-        // with no file anywhere beneath it is therefore not offered, which is the packaged project's truth
-        // too. The label is the path under the assets root.
+        // FOLDERS, one "Open folder: <path under the assets root>" entry each (the ONE folder command — the
+        // Assets window's own per-shown-folder duplicate that took an absolute path is gone): brings the Assets
+        // browser forward ON that folder. Derived from the SAME content enumeration as the "Open" entries above
+        // (every folder that holds content, each ancestor up to the assets root included), not from a second walk
+        // of the disk: that one call sees a mounted .dpak as well as loose files, and the ContentScanners gate
+        // holds every content walk to it. A folder with no file anywhere beneath it is therefore not offered,
+        // which is the packaged project's truth too. The label is the path under the assets root.
         {
             const std::filesystem::path assetsRoot =
                  std::filesystem::path( Common::Constants::Path::ASSETS_PATH ).lexically_normal();
@@ -5354,8 +5411,8 @@ namespace Desert::Editor
                 // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
                 // closure's implicit copy, which std::function needs; nothing in the body throws.
                 // NOLINTBEGIN(bugprone-exception-escape)
-                commands.push_back(
-                     { "Browse", label, [this, folder] { return ShowFolderInBrowser( folder ); } } );
+                commands.push_back( { "Assets", "Open folder: " + label,
+                                      [this, folder] { return ShowFolderInBrowser( folder ); } } );
                 // NOLINTEND(bugprone-exception-escape)
             }
         }
