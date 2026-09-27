@@ -2,12 +2,14 @@
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
+#include <Engine/Localization/LocaleFormat.hpp>
 #include <Engine/Localization/PluralRules.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <array>
 #include <optional>
@@ -78,6 +80,13 @@ namespace Desert::Localization
     /// its handle (StringTableAsset's constructor), and this number under the tag `STRT`. The header is the
     /// ONE place the version is stated: version 1's top-level FormatVersion is gone, so the two cannot
     /// disagree. A version-1 file (no header) is refused by name; Tools/SceneMigrator mints its GUID once.
+    ///
+    /// VERSION 3 SINCE AL1-7b: ONE FILE PER LANGUAGE, the way UE keeps one `.locres` per culture
+    /// (`Localization/<culture>/`). A version-2 file carried every language, so a boot that wanted only the
+    /// current one had to read all of them. The language is the file's PARENT DIRECTORY
+    /// (`Localization/ru/MainMenu.destrings`) and is stated nowhere else, so the registry can say which
+    /// files a language needs without opening one. A version-2 file is refused by its number;
+    /// Tools/SceneMigrator splits it.
     inline constexpr int32_t kStringTableFormatVersion = static_cast<int32_t>( Assets::kStringTableSchemaVersion );
 
     /// The subsystem versions a .destrings of this build states: the string table schema, and nothing else.
@@ -124,7 +133,8 @@ namespace Desert::Localization
     /// The inverse. Nothing on a miss — an unknown gender name in a file is a refusal by name.
     std::optional<Gender> GenderFromName( std::string_view name );
 
-    /// One key's translations. `Forms` is language tag -> selector -> text.
+    /// One key's translations as the LOOKUP holds them, merged over every loaded language's file.
+    /// `Forms` is language tag -> selector -> text; a language whose file is not loaded has no row here.
     struct LocalizedEntry
     {
         /// The identity, and what an authored `UIText` writes after the `#`. Lower-case, dot-separated;
@@ -143,7 +153,25 @@ namespace Desert::Localization
         [[nodiscard]] bool operator==( const LocalizedEntry& ) const = default;
     };
 
-    /// A whole `.destrings` file.
+    /// One key's row in ONE language's file: selector -> text. The language is the file's (see
+    /// `StringTableLanguageOf`), which is why a row has no language of its own.
+    struct StringTableEntry
+    {
+        /// The identity, and what an authored `UIText` writes after the `#`. Lower-case, dot-separated;
+        /// validated at parse so a key that cannot be typed cannot be shipped.
+        std::string Key;
+
+        /// What this string is FOR, for whoever translates it. Written in the source language's file, where
+        /// the translator starts; the lookup keeps the source language's note over any other.
+        std::optional<std::string> Comment;
+
+        /// Form selector -> text. Must hold `other` (see the parse).
+        std::map<std::string, std::string> Forms;
+
+        [[nodiscard]] bool operator==( const StringTableEntry& ) const = default;
+    };
+
+    /// A whole `.destrings` file: one language's rows of one table.
     struct StringTableData
     {
         /// The text asset header, FIRST so a reader of the header alone (ContentScan, the registry) finds
@@ -156,7 +184,7 @@ namespace Desert::Localization
 
         /// The rows. Ordered, and written back in the order they were read, so a hand-edited file keeps
         /// the grouping its author gave it and a diff of two translations is readable.
-        std::vector<LocalizedEntry> Entries;
+        std::vector<StringTableEntry> Entries;
 
         [[nodiscard]] bool operator==( const StringTableData& ) const = default;
     };
@@ -174,6 +202,14 @@ namespace Desert::Localization
     /// Serialises a table back to the text ParseStringTable reads. Total: any @p data this parser accepts
     /// writes, and re-reads equal.
     std::string WriteStringTable( const StringTableData& data );
+
+    /**
+     * @brief The language a `.destrings` file carries: the name of the directory it sits in.
+     *
+     * Refused, naming the path, when that directory is not a language this build knows — a table under
+     * `Localization/gb/` would otherwise load, look complete, and show the key on every screen.
+     */
+    NO_DISCARD Common::ResultStr<const LocaleRow*> StringTableLanguageOf( const std::filesystem::path& file );
 
     /// The set of form selectors a table may use, for the one caller that has to say what was allowed
     /// (the parse refusal) and for the editor's own validation. Derived from the two name tables above,

@@ -100,6 +100,8 @@ namespace Desert::Runtime
         GetTextureService()->BindAssetManager( assets );
         GetMaterialService()->BindAssetManager( assets );
         GetMeshService()->BindAssetManager( assets );
+        GetCloudTypeService()->BindAssetManager( assets );
+        GetUIThemeService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()

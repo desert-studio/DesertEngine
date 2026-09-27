@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 
 #include <memory>
@@ -29,9 +31,19 @@ namespace Desert::Runtime
     class CloudTypeService
     {
     public:
+        // The manager a handle nothing registered is created in, from its content-registry row (AL1-7).
+        void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+
         /// Caches @p asset under its handle. Called again for the same asset after a hot reload; a changed
         /// revision replaces the entry, an unchanged one is a no-op.
         Common::BoolResultStr Register( const std::shared_ptr<Assets::CloudTypeAsset>& asset );
+
+        /// True while the type in @p handle is being read on a worker. The renderer draws no layer that
+        /// names a pending type, so the frames before it lands never ask for a volume the type overrides.
+        [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const
+        {
+            return m_Requests.contains( handle );
+        }
 
         /// The shape a layer's slot resolves to. Never fails: an empty handle and an unknown one both end
         /// at the built-in default, and only the second says anything.
@@ -39,7 +51,7 @@ namespace Desert::Runtime
 
         /// The noise volume the type in @p handle names, or a null handle for "the built-in default
         /// volume" — which is what an empty slot resolves to as well.
-        Assets::AssetHandle GetNoiseVolume( const Assets::AssetHandle& handle ) const;
+        Assets::AssetHandle GetNoiseVolume( const Assets::AssetHandle& handle );
 
         /**
          * @brief Bumped whenever any registered type changes.
@@ -63,6 +75,13 @@ namespace Desert::Runtime
             uint32_t                Revision = 0;
         };
 
+        // The entry of @p handle; null while it is empty, pending or unusable. A handle nobody registered is
+        // created from its registry row and its read requested here (said once, with the reason, on failure).
+        const Entry* FindOrRequest( const Assets::AssetHandle& handle );
+
+        std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
+
+        std::weak_ptr<Assets::AssetManager>            m_Assets;
         std::unordered_map<Assets::AssetHandle, Entry> m_Types;
         // Handles already complained about. A missing type is a permanent state of the scene, so without
         // this the error would be logged every frame of every viewport and bury everything else.

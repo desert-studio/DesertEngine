@@ -19,6 +19,12 @@
 
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/SyncLoadLedger.hpp>
+#include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
+
+#include <chrono>
+#include <thread>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
@@ -240,6 +246,84 @@ TEST( AssetMissingFile, SkyboxLoadAcceptsAPanoramaThatIsThere )
     EXPECT_TRUE( skybox.IsReadyForUse() );
 
     fs::remove_all( path.parent_path() );
+}
+
+// A CLOUD TYPE IS A SCENE DEPENDENCY READ ON A WORKER, NOT IN THE FRAME (AL1-7). No boot stage reads every
+// `.decloudtype`; the first layer naming one creates it from its registry row and REQUESTS the read. Until it
+// lands the service answers Pending with the built-in shape; afterwards it answers the file's own shape - and
+// the ledger never saw a frame stop to read it, which is what the eager boot stage used to guarantee.
+TEST( AssetMissingFile, ACloudTypeNamedByHandleIsReadFromItsRegistryRowOnAWorkerThenRegistered )
+{
+    namespace Path            = Common::Constants::Path;
+    namespace ContentRegistry = Desert::Assets::ContentRegistry;
+    using Common::Content::ContentKind;
+    using Desert::Assets::AsyncAssetLoader;
+    using Desert::Assets::SyncLoadLedger;
+
+    fs::path repo;
+    for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
+        if ( fs::is_directory( fs::path( prefix ) / "Editor/Resources/Assets/Clouds/Types" ) )
+        {
+            repo = fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) );
+            break;
+        }
+    ASSERT_FALSE( repo.empty() ) << "could not locate the repository root from the working directory";
+    const fs::path source = repo / "Editor/Resources/Assets/Clouds/Types/Cirrus.decloudtype";
+    ASSERT_TRUE( fs::exists( source ) );
+
+    const Path::ProjectRootState saved   = Path::CurrentProjectRoot();
+    const fs::path               project = fs::temp_directory_path() / "al17_on_demand_cloud_type_project";
+    fs::remove_all( project );
+    Path::SetProjectRoot( project, "Assets" );
+    const fs::path types = *Common::Content::KindSpec( ContentKind::CloudType ).Root;
+    fs::create_directories( types );
+    fs::copy_file( source, types / "Cirrus.decloudtype" );
+
+    ContentRegistry::ResetForTest();
+    ASSERT_TRUE( ContentRegistry::Gather() );
+    const auto rows = ContentRegistry::Rows( ContentKind::CloudType );
+    ASSERT_EQ( rows.size(), 1u );
+    const Desert::Assets::AssetHandle handle = rows.front().Handle;
+
+    AsyncAssetLoader::Get().ResetForTest();
+    SyncLoadLedger::ResetForTest();
+    SyncLoadLedger::NoteBootFinished();
+    const uint64_t inFrameBefore = SyncLoadLedger::InFrameLoads();
+
+    const auto                  manager = std::make_shared<Desert::Assets::AssetManager>();
+    Desert::Runtime::CloudTypeService service;
+    service.BindAssetManager( manager );
+    const uint32_t generationBefore = service.GetGeneration();
+
+    EXPECT_EQ( &service.GetShape( handle ), &Desert::Assets::CloudTypeDefaultShape() )
+         << "the first answer for an unread type must be the built-in shape, not a read in this frame";
+    EXPECT_TRUE( service.IsPending( handle ) ) << "naming a registry row's type did not request its read";
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 5 );
+    while ( service.IsPending( handle ) && std::chrono::steady_clock::now() < deadline )
+    {
+        AsyncAssetLoader::Get().Pump();
+        std::this_thread::yield();
+    }
+    ASSERT_FALSE( service.IsPending( handle ) ) << "the type's read never landed";
+    // Before any further lookup: a later GetShape would meet the ready asset and register it itself,
+    // which would hide a completion that forgot to.
+    EXPECT_GT( service.GetGeneration(), generationBefore )
+         << "the completion did not register the type; the renderer would never rebuild its table";
+
+    const auto asset = manager->FindByHandle<Desert::Assets::CloudTypeAsset>( handle );
+    ASSERT_TRUE( asset && asset->IsReadyForUse() );
+    EXPECT_NE( &service.GetShape( handle ), &Desert::Assets::CloudTypeDefaultShape() )
+         << "the type landed but the service still answers the built-in shape";
+    EXPECT_EQ( service.GetShape( handle ).PlacementScale, asset->GetShape().PlacementScale );
+    EXPECT_EQ( SyncLoadLedger::InFrameLoads(), inFrameBefore )
+         << "the type was read by stopping a frame; it must arrive through a worker";
+
+    AsyncAssetLoader::Get().ShutdownAndDrain();
+    Path::SetProjectRoot( saved.ProjectDir, saved.AssetsRoot );
+    ContentRegistry::ResetForTest();
+    Common::AssetPathIndex::Clear();
+    fs::remove_all( project );
 }
 
 int main( int argc, char** argv )

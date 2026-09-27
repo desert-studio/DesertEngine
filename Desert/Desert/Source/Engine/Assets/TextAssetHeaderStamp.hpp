@@ -31,9 +31,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kCloudTypeSchemaTag     = Common::Content::FourCC( "CLTY" );
     inline constexpr uint32_t kCloudTypeSchemaVersion = 5;
     // A .destrings: the string table file layout, stated in the header since v2 (T7b; v1 had a top-level
-    // FormatVersion, absent meaning 1, and no header).
+    // FormatVersion, absent meaning 1, and no header). v3 (AL1-7b): one file per language, the language
+    // being the file's directory.
     inline constexpr uint32_t kStringTableSchemaTag     = Common::Content::FourCC( "STRT" );
-    inline constexpr uint32_t kStringTableSchemaVersion = 2;
+    inline constexpr uint32_t kStringTableSchemaVersion = 3;
     // A .detheme: the UI theme file layout, stated in the header since v2 (T7b; v1 as the string table's).
     inline constexpr uint32_t kUIThemeSchemaTag     = Common::Content::FourCC( "UITH" );
     inline constexpr uint32_t kUIThemeSchemaVersion = 2;

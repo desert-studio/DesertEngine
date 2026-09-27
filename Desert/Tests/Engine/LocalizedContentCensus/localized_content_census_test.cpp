@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <algorithm>
 #include <set>
 #include <sstream>
 #include <string>
@@ -284,8 +285,13 @@ namespace
                 continue;
             auto parsed = ParseStringTable( ReadFile( entry.path() ) );
             EXPECT_TRUE( parsed ) << entry.path().string() << ": " << ( parsed ? "" : parsed.GetError() );
-            if ( parsed )
-                tables.emplace( entry.path().stem().string(), parsed.ExtractValue() );
+            // Keyed `<language>/<table>`: a table is a file per language (STRT 3), and the language is its
+            // directory - one this build knows, or the file is refused like the engine refuses it.
+            const auto language = StringTableLanguageOf( entry.path() );
+            EXPECT_TRUE( language ) << ( language ? "" : language.GetError() );
+            if ( parsed && language )
+                tables.emplace( std::string( language.GetValue()->Tag ) + "/" + entry.path().stem().string(),
+                                parsed.ExtractValue() );
         }
         return tables;
     }
@@ -302,16 +308,23 @@ TEST( LocalizedContentCensus, TheShippedTablesAreReadableAndTheSourceLanguageIsC
     for ( const auto& [name, table] : tables )
     {
         EXPECT_FALSE( table.Entries.empty() ) << name << " has no rows";
-        for ( const LocalizedEntry& entry : table.Entries )
+        const std::string stem   = name.substr( name.find( '/' ) + 1 );
+        const auto        source = tables.find( "en/" + stem );
+        ASSERT_NE( source, tables.end() ) << name << " has no source-language file en/" << stem;
+        for ( const StringTableEntry& entry : table.Entries )
         {
             // EVERY key must resolve in the SOURCE language. A key that does not is a key that shows as
             // itself on the default screen of the default build, which is the one state nobody would ship
             // on purpose and the one a partial translation produces by accident.
-            EXPECT_NE( entry.Forms.count( "en" ), 0u )
-                 << name << ": key '" << entry.Key << "' has no '" << "en" << "' form";
-            // A translator cannot see the screen. A row without a note is a row somebody will guess at.
-            EXPECT_TRUE( entry.Comment.has_value() && !entry.Comment->empty() )
-                 << name << ": key '" << entry.Key << "' has no Comment for whoever translates it";
+            const auto& rows = source->second.Entries;
+            EXPECT_TRUE( std::any_of( rows.begin(), rows.end(),
+                                      [&entry]( const StringTableEntry& row ) { return row.Key == entry.Key; } ) )
+                 << name << ": key '" << entry.Key << "' has no row in en/" << stem;
+            // A translator cannot see the screen. A source row without a note is a row somebody will guess
+            // at; the note lives in the source language's file, where translation starts.
+            if ( name == source->first )
+                EXPECT_TRUE( entry.Comment.has_value() && !entry.Comment->empty() )
+                     << name << ": key '" << entry.Key << "' has no Comment for whoever translates it";
         }
     }
 }
@@ -324,7 +337,7 @@ TEST( LocalizedContentCensus, EveryKeyASceneNamesExists )
     const auto            tables = ShippedTables( root );
     std::set<std::string> keys;
     for ( const auto& [name, table] : tables )
-        for ( const LocalizedEntry& entry : table.Entries )
+        for ( const StringTableEntry& entry : table.Entries )
             keys.insert( entry.Key );
 
     for ( const Authored& authored : ShippedAuthoredStrings( root ) )
@@ -426,7 +439,7 @@ TEST( LocalizedContentCensus, EveryShippedTranslationHasAReader )
 
     for ( const auto& [name, table] : ShippedTables( root ) )
     {
-        for ( const LocalizedEntry& entry : table.Entries )
+        for ( const StringTableEntry& entry : table.Entries )
         {
             EXPECT_NE( referenced.count( entry.Key ), 0u )
                  << name << ": key '" << entry.Key << "' is translated and nothing reads it — no scene names '#"

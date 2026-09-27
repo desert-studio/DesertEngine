@@ -11,9 +11,7 @@
 
 #include "Shader/ShaderAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
-#include "CloudTypeAsset.hpp"
-#include "UIThemeAsset.hpp"
-#include "StringTableAsset.hpp"
+#include "StringTableSource.hpp"
 
 namespace Desert::Assets
 {
@@ -209,69 +207,18 @@ namespace Desert::Assets
                                        nullptr );
     }
 
-    void AssetPreloader::PreloadCloudTypes()
-    {
-        // Loaded eagerly like the volumes, and for a smaller version of the same reason: a type is a few
-        // hundred bytes of JSON, the renderer needs its numbers on the first frame the layer asks for
-        // them, and a scene that names one must find it already there rather than resolve to the built-in
-        // default for the first second of every session.
-        //
-        // THERE IS NO "DEFAULT TYPE" FILE to nominate here, unlike the volumes. The empty slot resolves to
-        // Assets::CloudTypeDefaultShape — twelve numbers compiled in — because a type costs nothing to
-        // synthesise where a 128^3 volume costs ten seconds, and because the sky of a project that has
-        // deleted every file in Clouds/Types must still be the sky it was.
-        ProcessAssetKind<CloudTypeAsset>( Common::Content::ContentKind::CloudType, m_AssetManager,
-                                          AssetPriority::Medium, nullptr );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudTypeService();
-            for ( const auto& [handle, typeAsset] : manager->FindAllByType<Assets::CloudTypeAsset>() )
-            {
-                if ( const auto result = service->Register( typeAsset ); !result )
-                    LOG_ERROR( "[Clouds] Cloud type '{}' could not be registered: {}",
-                               typeAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
-        }
-    }
-
-    void AssetPreloader::PreloadUIThemes()
-    {
-        // Loaded eagerly for the same reason a cloud type is: a theme is a few kilobytes of JSON, the
-        // first frame of a themed canvas needs its numbers, and a canvas that names one must find it
-        // already there rather than draw its elements' own colours for the first second of every session
-        // — which would look exactly like a theme that does not work.
-        ProcessAssetKind<UIThemeAsset>( Common::Content::ContentKind::UITheme, m_AssetManager,
-                                        AssetPriority::Medium, nullptr );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetUIThemeService();
-            for ( const auto& [handle, themeAsset] : manager->FindAllByType<Assets::UIThemeAsset>() )
-            {
-                if ( const auto result = service->Register( themeAsset ); !result )
-                    LOG_ERROR( "[UI] Theme '{}' could not be registered: {}",
-                               themeAsset->GetMetadata().Filepath.string(), result.GetError() );
-            }
-        }
-    }
-
     void AssetPreloader::PreloadStringTables()
     {
-        // LOADING IS PUBLISHING for this type: StringTableAsset::Load hands its rows to the process-wide
-        // Localization lookup, so there is no register loop after the scan the way the cloud stages have
-        // one. That is deliberate — a table that parsed but was not published would be an asset reporting
-        // success while every key it owns resolved as missing, which is the empty-successful-answer shape.
-        //
-        // ORDER IS FREE: a table names no other asset and no other asset names it. It is FIRST among the
-        // optional stages anyway, because a missing translation is visible on the very first frame drawn
-        // and the log line it produces is much easier to read before the rest of the content arrives.
+        // ONE LANGUAGE, REQUESTED, NOT EVERY TRANSLATION READ HERE (AL1-7b). A table is a file per language
+        // (`Localization/<language>/`), so the registry says which files the current language needs without
+        // opening any; they are read on AsyncAssetLoader workers and published on the main thread as they
+        // land, while the ContentGate holds the loading screen (it waits on the loader's outstanding count).
+        // The other languages' files are read only when `SetLanguage` asks for them.
         //
         // A PROJECT WITH NO Localization/ FOLDER IS NOT AN ERROR. It is a project whose UI is authored in
-        // literals, which is every project that predates this stage; the scan matches nothing, no table is
-        // published, and every literal element draws exactly what it drew before.
-        ProcessAssetKind<StringTableAsset>( Common::Content::ContentKind::StringTable, m_AssetManager,
-                                            AssetPriority::High, nullptr );
+        // literals; the registry lists nothing, nothing is requested, and every literal draws as before.
+        if ( const auto begun = BeginStringTables( m_AssetManager ); !begun )
+            LOG_ERROR( "[Localization] {}", begun.GetError() );
     }
 
     std::size_t AssetPreloader::CookedAssetRowCount()

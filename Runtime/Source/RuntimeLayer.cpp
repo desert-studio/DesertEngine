@@ -189,13 +189,6 @@ namespace Desert::Player
         m_Boot.Run( "Preloading meshes, textures and materials",
                     [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
         m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
-        m_Boot.Run( "Preloading cloud types", [this] { m_AssetPreloader->PreloadCloudTypes(); } );
-        // The UI themes (Ю13). HERE AND NOT ONLY IN THE EDITOR, because this is the process that ships:
-        // a canvas whose theme the player's build never scanned draws every element's own colour, which
-        // is a game that looks right in the editor and wrong on the player's machine — the worst shape a
-        // missing preload can take. Order-free: a theme names only font paths, which FontService
-        // registers on demand, and nothing else names a theme.
-        m_Boot.Run( "Preloading UI themes", [this] { m_AssetPreloader->PreloadUIThemes(); } );
         // Order-free. A packaged game reads its `.destrings` out of Content.dpak through the same VFS as
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_Boot.Run( "Preloading string tables", [this] { m_AssetPreloader->PreloadStringTables(); } );

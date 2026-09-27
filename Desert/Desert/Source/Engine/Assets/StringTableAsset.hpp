@@ -14,7 +14,8 @@ namespace Desert::Assets
      * second place to look (contract §2.2).
      *
      * WHAT LOADING MEANS HERE, and it is the one thing this asset does that the others do not: a loaded
-     * table PUBLISHES itself to `Localization::Localization`, and an unloaded one withdraws. That is what
+     * table is PUBLISHED to `Localization::Localization` (by `Publish`, on the main thread, from the
+     * AsyncAssetLoader completion - the load itself runs on a worker), and an unloaded one withdraws. That is what
      * makes a `.destrings` edit reach the screen without a restart — the process's lookup is rebuilt, the
      * generation moves, and the next frame resolves differently. Nothing caches a resolved string across
      * frames, so there is nothing else to invalidate.
@@ -34,6 +35,16 @@ namespace Desert::Assets
         /// and the offending value — never a quietly empty table, because an empty table is a screen full
         /// of keys with nothing in the log to say why.
         Common::BoolResultStr LoadFromFile() override;
+
+        /// Hands the loaded rows to the lookup under this file's language. MAIN THREAD: the lookup is read
+        /// by every frame. Refuses an unloaded table and a key another table of the language already owns.
+        NO_DISCARD Common::BoolResultStr Publish();
+
+        /// The language this file carries (its directory), or nullptr before a successful load.
+        [[nodiscard]] const Localization::LocaleRow* GetLanguage() const
+        {
+            return m_Language;
+        }
 
         /// Withdraws the table from the lookup. A key it owned resolves as missing afterwards, loudly,
         /// which is the correct state: the strings really are gone.
@@ -78,7 +89,9 @@ namespace Desert::Assets
         [[nodiscard]] std::string PublishId() const;
 
         Localization::StringTableData m_Data;
+        const Localization::LocaleRow* m_Language = nullptr;
         std::string                   m_DisplayName;
         bool                          m_Ready = false;
     };
+
 } // namespace Desert::Assets

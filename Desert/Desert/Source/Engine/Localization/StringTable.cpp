@@ -60,8 +60,7 @@ namespace Desert::Localization
             return BOOLSUCCESS;
         }
 
-        Common::BoolResultStr ValidateSelector( const std::string& key, const std::string& language,
-                                                const std::string& selector )
+        Common::BoolResultStr ValidateSelector( const std::string& key, const std::string& selector )
         {
             const size_t dot = selector.find( '.' );
             if ( dot == std::string::npos )
@@ -85,14 +84,14 @@ namespace Desert::Localization
                 allowed += name;
             }
             return Common::MakeFormattedError<bool>(
-                 "key '{}' language '{}' has form '{}', which is not a form selector; the grammar is: {}", key,
-                 language, selector, allowed );
+                 "key '{}' has form '{}', which is not a form selector; the grammar is: {}", key, selector,
+                 allowed );
         }
 
         Common::BoolResultStr ValidateTable( const StringTableData& data )
         {
             std::unordered_set<std::string> seen;
-            for ( const LocalizedEntry& entry : data.Entries )
+            for ( const StringTableEntry& entry : data.Entries )
             {
                 if ( auto valid = ValidateKey( entry.Key ); !valid )
                     return valid;
@@ -100,57 +99,38 @@ namespace Desert::Localization
                     return Common::MakeFormattedError<bool>(
                          "key '{}' appears twice; a key resolves to one string, so a table cannot hold two",
                          entry.Key );
-
+                // A row with no forms is "this key exists in this language and says nothing" - the
+                // empty-successful-answer shape (DC §1.4). A language that has not translated a key leaves
+                // the ROW out; the lookup then names the miss.
                 if ( entry.Forms.empty() )
+                    return Common::MakeFormattedError<bool>( "key '{}' has no forms", entry.Key );
+                // EVERY ROW MUST HAVE AN `other`, and this is the rule that makes a lookup total. `other` is
+                // the one category every language in CLDR has, and it is what the form ladder falls back to
+                // - so a row without one resolves to NOTHING for some input, and which input depends on the
+                // language:
+                //
+                //   * a Russian row with only one/few/many breaks on a fraction ("1,5 файла"), because
+                //     `other` is exactly the category a printed fraction selects in Russian;
+                //   * a gendered row with only masculine/feminine breaks for any caller that does not know
+                //     the gender, which is most callers.
+                //
+                // Refusing here rather than at the draw is the whole point: the author is looking at the
+                // file, and the alternative is a label that is fine for 99 counts and blank for the
+                // hundredth.
+                if ( entry.Forms.count( std::string( PluralCategoryName( PluralCategory::Other ) ) ) == 0 )
                     return Common::MakeFormattedError<bool>(
-                         "key '{}' has no languages at all, so nothing can ever resolve it", entry.Key );
-
-                for ( const auto& [language, forms] : entry.Forms )
+                         "key '{}' has no 'other' form. Every language has that category and the form ladder "
+                         "ends there, so a row without one resolves to nothing for some count or some gender",
+                         entry.Key );
+                for ( const auto& [selector, text] : entry.Forms )
                 {
-                    // AN UNKNOWN LANGUAGE IS A REFUSAL, not a row nobody will ever select. A table
-                    // carrying "gb" instead of "en" would otherwise load, look complete, and show the key
-                    // on every screen — with the one file that could explain it reporting success.
-                    if ( FindLocale( language ) == nullptr )
+                    if ( auto valid = ValidateSelector( entry.Key, selector ); !valid )
+                        return valid;
+                    if ( text.empty() )
                         return Common::MakeFormattedError<bool>(
-                             "key '{}' has a translation for language '{}', which this build does not know; "
-                             "the languages are listed in Engine/Localization/LocaleFormat.cpp",
-                             entry.Key, language );
-
-                    if ( forms.empty() )
-                        return Common::MakeFormattedError<bool>(
-                             "key '{}' declares language '{}' and gives it no forms", entry.Key, language );
-
-                    // EVERY LANGUAGE MUST HAVE AN `other`, and this is the rule that makes a lookup
-                    // total. `other` is the one category every language in CLDR has, and it is what the
-                    // form ladder falls back to — so an entry without one is an entry that resolves to
-                    // NOTHING for some input, and which input depends on the language:
-                    //
-                    //   * a Russian entry with only one/few/many breaks on a fraction ("1,5 файла"),
-                    //     because `other` is exactly the category a printed fraction selects in Russian;
-                    //   * a gendered entry with only masculine/feminine breaks for any caller that does
-                    //     not know the gender, which is most callers.
-                    //
-                    // Refusing here rather than at the draw is the whole point: the author is looking at
-                    // the file, and the alternative is a label that is fine for 99 counts and blank for
-                    // the hundredth.
-                    if ( forms.count( std::string( PluralCategoryName( PluralCategory::Other ) ) ) == 0 )
-                        return Common::MakeFormattedError<bool>(
-                             "key '{}' language '{}' has no 'other' form. Every language has that "
-                             "category and the form ladder ends there, so an entry without one resolves to "
-                             "nothing for some count or some gender",
-                             entry.Key, language );
-
-                    for ( const auto& [selector, text] : forms )
-                    {
-                        if ( auto valid = ValidateSelector( entry.Key, language, selector ); !valid )
-                            return valid;
-                        if ( text.empty() )
-                            return Common::MakeFormattedError<bool>(
-                                 "key '{}' language '{}' form '{}' is an EMPTY string; a blank label on "
-                                 "screen is the least diagnosable thing this format can produce, so it is "
-                                 "refused here instead",
-                                 entry.Key, language, selector );
-                    }
+                             "key '{}' form '{}' is an EMPTY string; a blank label on screen is the least "
+                             "diagnosable thing this format can produce, so it is refused here instead",
+                             entry.Key, selector );
                 }
             }
             return BOOLSUCCESS;
@@ -182,6 +162,18 @@ namespace Desert::Localization
             return Common::MakeFormattedError<StringTableData>( "{}", valid.GetError() );
 
         return Common::MakeSuccess( std::move( data ) );
+    }
+
+    Common::ResultStr<const LocaleRow*> StringTableLanguageOf( const std::filesystem::path& file )
+    {
+        const std::string tag = file.parent_path().filename().string();
+        if ( const LocaleRow* row = FindLocale( tag ); row != nullptr )
+            return Common::MakeSuccess( row );
+        return Common::MakeFormattedError<const LocaleRow*>(
+             "string table '{}' sits in directory '{}', which is not a language this build knows; a table's "
+             "language is its directory (Localization/<language>/<table>{}), and the languages are listed in "
+             "Engine/Localization/LocaleFormat.cpp",
+             file.generic_string(), tag, kStringTableExtension );
     }
 
     std::string WriteStringTable( const StringTableData& data )

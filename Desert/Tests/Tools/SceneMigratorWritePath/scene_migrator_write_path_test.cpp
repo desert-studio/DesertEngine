@@ -13,6 +13,7 @@
 // which writing the scene in place would still SUCCEED, so the first test is red against the old
 // code (mutation-checked), not merely untested against it.
 
+#include <Engine/Localization/StringTable.hpp>
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 
@@ -467,10 +468,67 @@ namespace
     }
 } // namespace
 
-TEST( SceneMigratorWritePath, AStringTableGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+// THE STRING TABLE (AL1-7b, STRT 2 -> 3): a file carrying every language becomes one file per language,
+// `<dir>/<language>/<name>.destrings`, and the source goes. A v1 file is raised to 2 and split in the same run;
+// a v2 file's GUID stays with its source-language file; the translator's note lives there only; a second run
+// changes nothing.
+TEST( SceneMigratorWritePath, AStringTableIsSplitIntoAFilePerLanguageOnceAndASecondRunChangesNothing )
 {
-    ExpectTextKindRaisedOnce( ".destrings", Common::Content::ContentKind::StringTable,
-                              R"("Entries":[{"Key":"menu.play","Forms":{"en":{"other":"PLAY"}}}])" );
+    const fs::path dir  = MakeTempDir( "AL17bSplit" );
+    const fs::path v1   = dir / "Old.destrings";
+    const fs::path v2   = dir / "Headed.destrings";
+    const char*    guid = "0123456789abcdef0123456789abcdef";
+    const char*    rows = R"("Entries":[{"Key":"menu.play","Comment":"A verb.","Forms":{"en":{"other":"PLAY"},)"
+                          R"("ru":{"other":"GO-RU"}}}])";
+    {
+        std::ofstream out( v1, std::ios::binary );
+        out << R"({"FormatVersion":1,"DisplayName":"Old",)" << rows << "}";
+    }
+    {
+        std::ofstream out( v2, std::ios::binary );
+        out << R"({"Header":{"Kind":"StringTable","Guid":")" << guid
+            << R"(","Versions":{"STRT":2},"Dependencies":[]},"DisplayName":"Headed",)" << rows << "}";
+    }
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_FALSE( fs::exists( v1 ) ) << "the split left its source behind";
+    EXPECT_FALSE( fs::exists( v2 ) ) << "the split left its source behind";
+
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    std::vector<std::string>                      texts;
+    for ( const char* name : { "Old", "Headed" } )
+    {
+        std::vector<std::string> guids;
+        for ( const char* language : { "en", "ru" } )
+        {
+            const fs::path file = dir / language / ( std::string( name ) + ".destrings" );
+            ASSERT_TRUE( fs::exists( file ) ) << file << "\n" << report;
+            const std::string text = ReadRaw( file );
+            texts.push_back( text );
+            const auto parsed = Desert::Localization::ParseStringTable( text );
+            ASSERT_TRUE( parsed ) << parsed.GetError() << "\n" << text;
+            ASSERT_EQ( parsed.GetValue().Entries.size(), 1u );
+            const auto& row = parsed.GetValue().Entries[0];
+            EXPECT_EQ( row.Forms.at( "other" ), std::string( language ) == "en" ? "PLAY" : "GO-RU" );
+            EXPECT_EQ( row.Comment.has_value(), std::string( language ) == "en" )
+                 << "the note belongs to the source";
+            const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
+            ASSERT_TRUE( header ) << header.GetError();
+            ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
+            EXPECT_EQ( header.GetValue().Subsystems[0].Version, 3u );
+            guids.push_back( Common::Content::AssetGuidToText( header.GetValue().Guid ) );
+        }
+        EXPECT_NE( guids[0], guids[1] ) << "two languages were minted one GUID";
+        if ( std::string( name ) == "Headed" )
+            EXPECT_EQ( guids[0], guid ) << "the source language's file lost the table's GUID";
+    }
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( dir / "en" / "Old.destrings" ), texts[0] ) << "a second run changed a STRT 3 file";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
 }
 
 TEST( SceneMigratorWritePath, AThemeGainsAHeaderGuidOnceAndASecondRunChangesNothing )

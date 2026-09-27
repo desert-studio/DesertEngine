@@ -1,0 +1,148 @@
+{
+    "Header": {
+        "Kind": "StringTable",
+        "Guid": "ca0c4660e8def88a81ae8f2bf79bc8f0",
+        "Versions": {
+            "STRT": 3
+        },
+        "Dependencies": []
+    },
+    "DisplayName": "Main menu",
+    "Entries": [
+        {
+            "Key": "menu.play",
+            "Forms": {
+                "other": "ИГРАТЬ"
+            }
+        },
+        {
+            "Key": "menu.characters",
+            "Forms": {
+                "other": "ПЕРСОНАЖИ"
+            }
+        },
+        {
+            "Key": "menu.servers",
+            "Forms": {
+                "other": "СЕРВЕРЫ"
+            }
+        },
+        {
+            "Key": "menu.store",
+            "Forms": {
+                "other": "МАГАЗИН"
+            }
+        },
+        {
+            "Key": "menu.settings",
+            "Forms": {
+                "other": "НАСТРОЙКИ"
+            }
+        },
+        {
+            "Key": "menu.quit",
+            "Forms": {
+                "other": "ВЫХОД"
+            }
+        },
+        {
+            "Key": "menu.connect",
+            "Forms": {
+                "other": "ПОДКЛЮЧИТЬСЯ"
+            }
+        },
+        {
+            "Key": "menu.status.offline",
+            "Forms": {
+                "other": "НЕ В СЕТИ"
+            }
+        },
+        {
+            "Key": "menu.status.friends",
+            "Forms": {
+                "few": "В СЕТИ   -   {n} друга",
+                "many": "В СЕТИ   -   {n} друзей",
+                "one": "В СЕТИ   -   {n} друг",
+                "other": "В СЕТИ   -   {n} друга"
+            }
+        },
+        {
+            "Key": "menu.profile.title",
+            "Forms": {
+                "other": "ПРОФИЛЬ"
+            }
+        },
+        {
+            "Key": "menu.profile.summary",
+            "Forms": {
+                "other": "Ур. {level}    {money}"
+            }
+        },
+        {
+            "Key": "menu.server.caption.idle",
+            "Forms": {
+                "other": "СЕРВЕР"
+            }
+        },
+        {
+            "Key": "menu.news.patch",
+            "Forms": {
+                "other": "[color=#FF7A33]ПАТЧ[/color]  0.9.1 - жильё и автоаукцион"
+            }
+        },
+        {
+            "Key": "menu.news.event",
+            "Forms": {
+                "other": "[color=#2FE3FF]СОБЫТИЕ[/color]  Гонки выходного дня - приз 5 000 000$"
+            }
+        },
+        {
+            "Key": "menu.news.clan",
+            "Forms": {
+                "other": "[color=#2FE3FF]КЛАН[/color]  Vinewood Family набирает"
+            }
+        },
+        {
+            "Key": "menu.ticker",
+            "Forms": {
+                "other": "Двойной опыт до понедельника        4-й сезон стартует 15 августа        Заходите в наш Discord"
+            }
+        },
+        {
+            "Key": "menu.hints",
+            "Forms": {
+                "other": "Tab - перемещение    Enter - выбор    Esc - назад"
+            }
+        },
+        {
+            "Key": "settings.title",
+            "Forms": {
+                "other": "НАСТРОЙКИ"
+            }
+        },
+        {
+            "Key": "settings.resolution",
+            "Forms": {
+                "other": "Разрешение      1920 x 1080"
+            }
+        },
+        {
+            "Key": "settings.volume",
+            "Forms": {
+                "other": "Громкость        80%"
+            }
+        },
+        {
+            "Key": "settings.note",
+            "Forms": {
+                "other": "Экран-состояние: Back возвращает на Main"
+            }
+        },
+        {
+            "Key": "settings.back",
+            "Forms": {
+                "other": "< НАЗАД"
+            }
+        }
+    ]
+}

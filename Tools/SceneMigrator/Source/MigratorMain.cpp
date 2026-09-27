@@ -44,6 +44,8 @@
 //                                    only, the other text assets), or directories searched recursively
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
+#include <Engine/Localization/LocalizationService.hpp>
+#include <Engine/Localization/StringTable.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
@@ -397,10 +399,10 @@ namespace
          // the noise volume by GUID, which this splice cannot state, so RaiseCloudTypeV4ToV5 takes it on.
          TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType,
                           Desert::Assets::kCloudTypeSchemaTag, 3, 4, "FormatVersion", false },
-         // .destrings 1 -> 2 (T7b).
+         // .destrings 1 -> 2 (T7b). The literal 2 and not kStringTableSchemaVersion: STRT 3 (AL1-7b) is a file
+         // per language, which this splice cannot state, so SplitStringTableV2ToV3 takes it on.
          TextHeaderRaise{ ".destrings", Common::Content::ContentKind::StringTable,
-                          Desert::Assets::kStringTableSchemaTag, 1, Desert::Assets::kStringTableSchemaVersion,
-                          "FormatVersion", true },
+                          Desert::Assets::kStringTableSchemaTag, 1, 2, "FormatVersion", true },
          // .detheme 1 -> 2 (T7b).
          TextHeaderRaise{ ".detheme", Common::Content::ContentKind::UITheme, Desert::Assets::kUIThemeSchemaTag, 1,
                           Desert::Assets::kUIThemeSchemaVersion, "FormatVersion", true },
@@ -587,6 +589,87 @@ namespace
     // any other version, or a volume that is not there or states no GUID, is refused by name and the caller
     // leaves the file untouched. A type naming no volume only moves its version.
     //
+    // STRT 2 -> 3 (AL1-7b): ONE FILE PER LANGUAGE, as UE keeps one .locres per culture. `<dir>/X.destrings`
+    // carrying en and ru becomes `<dir>/en/X.destrings` and `<dir>/ru/X.destrings`, and the source file goes.
+    // The source language's file keeps the table's GUID (it is the same table in the language it was authored
+    // in); every other language's file is a new asset and gets a GUID minted here, once. A key's Comment is
+    // for the translator and lives in the source language's file - or, for a key with no source-language row,
+    // in each file that carries it, so no note is lost. Every text is checked by the engine's own parser
+    // before the caller writes a byte. Nothing (answer empty) when the file already states STRT 3.
+    struct SplitTable
+    {
+        std::filesystem::path Path;
+        std::string           Text;
+    };
+
+    Common::ResultStr<std::optional<std::vector<SplitTable>>>
+    SplitStringTableV2ToV3( const std::filesystem::path& path, const std::string& text )
+    {
+        using Result = std::optional<std::vector<SplitTable>>;
+        struct EntryV2
+        {
+            std::string                                               Key;
+            std::optional<std::string>                                Comment;
+            std::map<std::string, std::map<std::string, std::string>> Forms;
+        };
+        struct TableV2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            std::optional<std::string>                                DisplayName;
+            std::vector<EntryV2>                                      Entries;
+        };
+        struct HeaderOnly
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        };
+        const auto header = rfl::json::read<HeaderOnly>( text );
+        const int  stated =
+             header ? Desert::Assets::StatedVersion( header.value().Header, Desert::Assets::kStringTableSchemaTag )
+                     : 0;
+        if ( stated == static_cast<int>( Desert::Assets::kStringTableSchemaVersion ) )
+            return Common::MakeSuccess( Result{} );
+        const auto old = rfl::json::read<TableV2>( text );
+        if ( stated != 2 || !old )
+            return Common::MakeError<Result>( "not a readable STRT 2 string table (states STRT " +
+                                              std::to_string( stated ) + ")" );
+
+        const std::string source( Desert::Localization::Localization::kSourceLanguage );
+        std::map<std::string, Desert::Localization::StringTableData> byLanguage;
+        for ( const EntryV2& entry : old.value().Entries )
+        {
+            const bool hasSource = entry.Forms.contains( source );
+            for ( const auto& [language, forms] : entry.Forms )
+            {
+                Desert::Localization::StringTableData& table = byLanguage[language];
+                table.DisplayName                            = old.value().DisplayName;
+                if ( language == source )
+                    table.Header = old.value().Header;
+                Desert::Localization::StringTableEntry row;
+                row.Key   = entry.Key;
+                row.Forms = forms;
+                if ( language == source || !hasSource )
+                    row.Comment = entry.Comment;
+                table.Entries.push_back( std::move( row ) );
+            }
+        }
+        if ( byLanguage.empty() )
+            return Common::MakeError<Result>( "states no language at all; there is nothing to split" );
+
+        std::vector<SplitTable> out;
+        for ( const auto& [language, table] : byLanguage )
+        {
+            const std::filesystem::path target = path.parent_path() / language / path.filename();
+            if ( const auto known = Desert::Localization::StringTableLanguageOf( target ); !known )
+                return Common::MakeError<Result>( known.GetError() );
+            std::string written = Desert::Localization::WriteStringTable( table );
+            if ( const auto reread = Desert::Localization::ParseStringTable( written ); !reread )
+                return Common::MakeError<Result>(
+                     "its '" + language + "' file would not pass the engine's parser: " + reread.GetError() );
+            out.push_back( SplitTable{ target, std::move( written ) } );
+        }
+        return Common::MakeSuccess( Result{ std::move( out ) } );
+    }
+
     // THE VOLUME IS LOOKED UP WHERE THE ENGINE LOOKS: relative to the assets root this type lies under (its
     // Clouds/Types folder's root). The text written must pass the engine's own ParseCloudType before the
     // caller writes a byte.
@@ -2534,6 +2617,44 @@ namespace Desert::Migration
                     {
                         steps << ( steps.tellp() > 0 ? "; " : "" ) << "RTGT 2 -> 3, source rig by GUID";
                         text = *rigged.GetValue();
+                    }
+                }
+                // Chained the same way, so a STRT 1 table lands split at STRT 3. The one step that turns a file
+                // into several: each language's file is written, then the source goes.
+                if ( row->Kind == Common::Content::ContentKind::StringTable )
+                {
+                    const auto split = SplitStringTableV2ToV3( path, text );
+                    if ( !split )
+                    {
+                        err << "FAIL   " << path.string() << " — STRT 2 -> 3: " << split.GetError()
+                            << " (original untouched)\n";
+                        ++failed;
+                        continue;
+                    }
+                    if ( split.GetValue().has_value() )
+                    {
+                        steps << ( steps.tellp() > 0 ? "; " : "" ) << "STRT 2 -> 3, split into";
+                        for ( const SplitTable& file : *split.GetValue() )
+                            steps << " " << file.Path.generic_string();
+                        out << ( check ? "WOULD  " : "split  " ) << path.string() << " — " << steps.str() << "\n";
+                        ++changed;
+                        if ( check )
+                            continue;
+                        bool wroteAll = true;
+                        for ( const SplitTable& file : *split.GetValue() )
+                        {
+                            std::error_code ec;
+                            std::filesystem::create_directories( file.Path.parent_path(), ec );
+                            wroteAll = WriteText( file.Path, file.Text, err ) && wroteAll;
+                        }
+                        std::error_code removed;
+                        if ( !wroteAll || !std::filesystem::remove( path, removed ) )
+                        {
+                            err << "FAIL   " << path.string() << " — the split was not completed; the source "
+                                << "file is kept\n";
+                            ++failed;
+                        }
+                        continue;
                     }
                 }
                 // Chained the same way, so a CLTY 3 type lands at CLTY 5.
