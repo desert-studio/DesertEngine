@@ -35,6 +35,8 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
+#include <Engine/Assets/FoliageTypeAsset.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
@@ -1838,6 +1840,82 @@ namespace Desert::Core::Serialize
         Register(
              MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::Visible ) );
 
+        // ---- Foliage field: the `.defoliage` it is painted with (FO-1, SCNE 33) ----
+        // {FoliageTypeGuid, FoliageTypePath}, the mesh block's shape: the GUID is the identity, the path is for
+        // the reader and the refusal. The scatter numbers used to be inline here; SceneMigrator moved them into
+        // `.defoliage` files and a block of that shape is refused by the reader below, not read.
+        {
+            ComponentSerializer s;
+            s.Key = "Foliage";
+            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::FoliageComponent>(); };
+
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
+            {
+                const auto&                 foliage = entity.GetComponent<ECS::FoliageComponent>();
+                Common::Json::ObjectBuilder out;
+                if ( const auto type = assetManager.FindByHandle<Assets::FoliageTypeAsset>( foliage.FoliageType ) )
+                {
+                    out.Set( "FoliageTypeGuid", Common::Content::AssetGuidToText( type->Guid() ) );
+                    out.Set( "FoliageTypePath",
+                             type->GetMetadata()
+                                  .Filepath.lexically_normal()
+                                  .lexically_relative( Common::Constants::Path::ASSETS_PATH.lexically_normal() )
+                                  .generic_string() );
+                }
+                else if ( foliage.FoliageType )
+                {
+                    LOG_ERROR( "[Foliage] Entity '{}' names foliage type handle {} that no loaded asset carries; "
+                               "its reference is saved empty",
+                               entity.GetComponent<ECS::TagComponent>().Tag,
+                               static_cast<uint64_t>( foliage.FoliageType ) );
+                }
+                return { out.Build() };
+            };
+
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
+            {
+                if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
+                    return;
+                std::string guidText;
+                std::string path;
+                g.ReadInto( "FoliageTypeGuid", guidText, issues );
+                g.ReadInto( "FoliageTypePath", path, issues );
+
+                auto& foliage = entity.AddComponent<ECS::FoliageComponent>();
+                if ( guidText.empty() && path.empty() )
+                    return; // A field whose type was never chosen: authored so, saved so.
+
+                const auto guid    = Common::Content::AssetGuidFromText( guidText );
+                auto&      manager = const_cast<Assets::AssetManager&>( assetManager );
+                Assets::Asset<Assets::FoliageTypeAsset> type;
+                if ( guid )
+                {
+                    type = manager.FindByHandle<Assets::FoliageTypeAsset>( Common::UUID(
+                         static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
+                    if ( !type )
+                        type = Assets::CreateFromRegistryGuid<Assets::FoliageTypeAsset>(
+                             manager, guid.GetValue(), Common::Content::ContentKind::FoliageType );
+                }
+                if ( !type )
+                {
+                    // REFUSED, NOT SUBSTITUTED: a field painted with defaults would look like the scene's grass
+                    // while being nobody's.
+                    issues.push_back( Common::Json::Issue{ "Foliage.FoliageTypeGuid",
+                                                           "a .defoliage the content registry knows",
+                                                           "GUID '" + guidText + "', path '" + path + "'" } );
+                    LOG_ERROR(
+                         "[Foliage] Entity '{}': foliage type GUID '{}' (path '{}') is not a .defoliage this "
+                         "project has scanned; the field keeps no type",
+                         entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
+                    return;
+                }
+                foliage.FoliageType = type->GetMetadata().Handle;
+            };
+
+            Register( std::move( s ) );
+        }
+
         // ---- Hand-mapped authored blocks (no reflected Data; see AuthoredComponentIO.hpp) ----
         // U13. Five components with a full Details editor and no row in this table: everything the
         // artist typed into them was discarded by the next load, and by every Ctrl+C, every delete-undo,
@@ -1846,7 +1924,6 @@ namespace Desert::Core::Serialize
         // own registration source and refuses to let a sixth one exist. No version bump: an added key is
         // what ForeignKeys is for, and no scene in this repository carries these blocks yet — nothing
         // ever wrote one.
-        Register( MakeAuthored<ECS::FoliageComponent>( "Foliage" ) );
         Register( MakeAuthored<ECS::LocomotionComponent>( "Locomotion" ) );
         Register( MakeAuthored<ECS::MorphComponent>( "Morph" ) );
         Register( MakeAuthored<ECS::SocketAttachmentComponent>( "SocketAttachment" ) );

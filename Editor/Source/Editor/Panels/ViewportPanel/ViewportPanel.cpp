@@ -1583,7 +1583,7 @@ namespace Desert::Editor
                          { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(),
                          camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
                          static_cast<uint32_t>( m_ViewportData.Size.y ) );
-                    m_FoliageTool.Paint( *m_Scene, ray );
+                    m_FoliageTool.Paint( *m_Scene, m_AssetManager, ray );
                 }
             }
         }

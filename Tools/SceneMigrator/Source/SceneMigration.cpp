@@ -27,6 +27,7 @@
 
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -268,6 +269,164 @@ namespace Desert::Migration
 
     namespace
     {
+        // The v32 reader's rule: an absent key kept the struct default, so an absent key here means that
+        // default (the numbers ECS::FoliageComponent carried before FO-1).
+        Common::BoolResultStr ReadInlineFloat( const rfl::Generic::Object& fields, const char* key, float& out )
+        {
+            const auto value = fields.get( key );
+            if ( !value.has_value() )
+                return BOOLSUCCESS;
+            if ( const auto real = value.value().to_double(); real.has_value() )
+            {
+                out = static_cast<float>( real.value() );
+                return BOOLSUCCESS;
+            }
+            if ( const auto whole = value.value().to_int(); whole.has_value() )
+            {
+                out = static_cast<float>( whole.value() );
+                return BOOLSUCCESS;
+            }
+            return Common::MakeFormattedError<bool>( "{} is {}, not a number", key, Describe( value.value() ) );
+        }
+
+        Common::BoolResultStr ReadInlineBool( const rfl::Generic::Object& fields, const char* key, bool& out )
+        {
+            const auto value = fields.get( key );
+            if ( !value.has_value() )
+                return BOOLSUCCESS;
+            if ( const auto flag = value.value().to_bool(); flag.has_value() )
+            {
+                out = flag.value();
+                return BOOLSUCCESS;
+            }
+            return Common::MakeFormattedError<bool>( "{} is {}, not a bool", key, Describe( value.value() ) );
+        }
+
+        std::string SafeStem( std::string text )
+        {
+            for ( char& ch : text )
+                if ( !std::isalnum( static_cast<unsigned char>( ch ) ) && ch != '_' && ch != '-' )
+                    ch = '_';
+            return text.empty() ? std::string( "Foliage" ) : text;
+        }
+
+        struct FoliageTypeWriter
+        {
+            const std::string&           OwnerName;
+            const std::filesystem::path& AssetsRoot;
+            FoliageTypesMigrationReport& Report;
+            // Canonical payload (header aside) -> the relative path already minted for it in this file.
+            std::map<std::string, std::string> Minted;
+
+            void Raise( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag )
+            {
+                const auto payload = components.get( "Foliage" );
+                if ( !payload.has_value() )
+                    return;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                {
+                    Report.UnknownNames.push_back( tag + " > Foliage is " + Describe( payload.value() ) +
+                                                   ", not an object" );
+                    return;
+                }
+                const auto& f = fields.value();
+
+                Assets::Serialization::FoliageTypeData data;
+                float scaleMin = 0.8f, scaleMax = 1.3f, zMin = 0.0f, zMax = 0.0f, slopeMin = 0.0f,
+                      slopeMax = 90.0f;
+                for ( const auto& check :
+                      { ReadInlineFloat( f, "Density", data.Density ), ReadInlineFloat( f, "ScaleMin", scaleMin ),
+                        ReadInlineFloat( f, "ScaleMax", scaleMax ), ReadInlineFloat( f, "ZOffsetMin", zMin ),
+                        ReadInlineFloat( f, "ZOffsetMax", zMax ),
+                        ReadInlineFloat( f, "MaxPitchDeg", data.RandomPitchAngle ),
+                        ReadInlineFloat( f, "SlopeMinDeg", slopeMin ),
+                        ReadInlineFloat( f, "SlopeMaxDeg", slopeMax ),
+                        ReadInlineBool( f, "AlignToNormal", data.AlignToNormal ),
+                        ReadInlineBool( f, "RandomYaw", data.RandomYaw ) } )
+                {
+                    if ( !check )
+                    {
+                        Report.UnknownNames.push_back( tag + " > Foliage." + check.GetError() );
+                        return;
+                    }
+                }
+                data.ScaleX           = { scaleMin, scaleMax };
+                data.ZOffset          = { zMin, zMax };
+                data.GroundSlopeAngle = { slopeMin, slopeMax };
+
+                // The field's mesh was the ISM beside it; the type now names it (UE: FoliageType::Mesh).
+                if ( const auto ism = components.get( "InstancedStaticMesh" ); ism.has_value() )
+                    if ( const auto ismFields = ism.value().to_object(); ismFields.has_value() )
+                    {
+                        const auto guid = ismFields.value().get( "MeshGuid" );
+                        const auto path = ismFields.value().get( "MeshPath" );
+                        if ( guid.has_value() && path.has_value() )
+                        {
+                            data.Mesh.Guid = guid.value().to_string().value_or( "" );
+                            data.Mesh.Path = path.value().to_string().value_or( "" );
+                        }
+                    }
+
+                if ( auto valid = Assets::Serialization::ValidateFoliageTypeData( data ); !valid )
+                {
+                    Report.UnknownNames.push_back( tag + " > Foliage: " + valid.GetError() );
+                    return;
+                }
+
+                std::string relative;
+                // One file per distinct set of numbers and mesh within this scene.
+                std::string dataKey = std::to_string( data.Density ) + "|" + std::to_string( scaleMin ) + "|" +
+                                      std::to_string( scaleMax ) + "|" + std::to_string( zMin ) + "|" +
+                                      std::to_string( zMax ) + "|" + std::to_string( data.RandomPitchAngle ) +
+                                      "|" + std::to_string( slopeMin ) + "|" + std::to_string( slopeMax ) + "|" +
+                                      ( data.AlignToNormal ? "1" : "0" ) + ( data.RandomYaw ? "1" : "0" ) + "|" +
+                                      data.Mesh.Guid;
+                if ( const auto it = Minted.find( dataKey ); it != Minted.end() )
+                    relative = it->second;
+                else
+                {
+                    const std::string stem = SafeStem( OwnerName ) + "_" + SafeStem( tag );
+                    relative               = "Foliage/" + stem + Assets::Serialization::kFoliageTypeExtension;
+                    Common::Content::TextAssetHeaderSerialized header;
+                    header.Guid = Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) );
+                    data.Header = header;
+                    Report.NewTypes.emplace_back( ( AssetsRoot / relative ).lexically_normal(),
+                                                  Assets::Serialization::WriteFoliageType( data ) );
+                    Minted.emplace( dataKey, relative );
+                }
+
+                rfl::Generic::Object raised;
+                raised["FoliageTypeGuid"] =
+                     rfl::Generic( Common::Content::AssetGuidToText( MigrationGuidForPath( relative ) ) );
+                raised["FoliageTypePath"] = rfl::Generic( relative );
+                components["Foliage"]     = rfl::Generic( std::move( raised ) );
+                ++Report.Rewritten;
+            }
+        };
+    } // namespace
+
+    FoliageTypesMigrationReport MigrateInlineFoliageV32ToV33( std::vector<Assets::EntityData>& entities,
+                                                              const std::string&               ownerName,
+                                                              const std::filesystem::path&     assetsRoot )
+    {
+        FoliageTypesMigrationReport report;
+        FoliageTypeWriter           writer{ ownerName, assetsRoot, report, {} };
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            writer.Raise( entity.Components, tag );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                writer.Raise( overrides[i].Components, tag + "_Override" + std::to_string( i ) );
+        }
+        return report;
+    }
+
+    namespace
+    {
         // THE STEP CHAIN. LEG1 deleted every step below kSceneVersionShaderGuids along with the legacy
         // material-id register it depended on; the one step that remains is gated the same way every
         // deleted one was, so a step added above this one needs no new machinery.
@@ -289,6 +448,23 @@ namespace Desert::Migration
                                      "': " + std::to_string( report.PathOnlyMeshGuids.UnknownNames.size() ) +
                                      " path-only mesh reference(s) cannot be given a header GUID: " + names +
                                      ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Moves inline Foliage numbers into `.defoliage` files; every file below v33 is restamped.
+            if ( statedSceneVersion < kSceneVersionFoliageTypes )
+            {
+                report.FoliageTypesRaised = true;
+                report.FoliageTypes       = MigrateInlineFoliageV32ToV33( entities, name, assetsRoot );
+                if ( !report.FoliageTypes.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.FoliageTypes.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused =
+                         "'" + name + "': " + std::to_string( report.FoliageTypes.UnknownNames.size() ) +
+                         " Foliage block(s) cannot become a foliage type: " + names + ". Nothing was written.";
                     return;
                 }
             }

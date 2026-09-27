@@ -112,9 +112,10 @@ namespace
     // A landscape's layer list (SCNE 34, LS-12b) writes each `.delayerinfo` as {Guid, Path} and resolves the
     // GUID first (ComponentRegistry's Landscape serializer). Every other kind's referrer writes the path alone.
     constexpr std::array kGuidReferrers = {
-         ContentKind::StaticMesh,  ContentKind::SkinnedMesh, ContentKind::Texture,
-         ContentKind::Material,    ContentKind::Skybox,      ContentKind::CloudType,
-         ContentKind::CloudLayout, ContentKind::Shader,      ContentKind::LandscapeLayerInfo };
+         ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture, ContentKind::Material,
+         ContentKind::Skybox, ContentKind::CloudType, ContentKind::CloudLayout, ContentKind::Shader,
+         // FO-1: a Foliage block states FoliageTypeGuid beside the path (ComponentRegistry.cpp).
+         ContentKind::FoliageType,  ContentKind::LandscapeLayerInfo };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )

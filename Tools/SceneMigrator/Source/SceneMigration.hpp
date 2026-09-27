@@ -103,10 +103,15 @@ namespace Desert::Migration
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
+    //  33 - A FOLIAGE FIELD NAMES ITS TYPE (FO-1). The Foliage block's inline scatter numbers (Density,
+    //       ScaleMin/Max, ZOffsetMin/Max, MaxPitchDeg, SlopeMin/MaxDeg, AlignToNormal, RandomYaw) move into a
+    //       `.defoliage` under Foliage/ (one file per distinct set of numbers and mesh), and the block becomes
+    //       {FoliageTypeGuid, FoliageTypePath} (MigrateInlineFoliageV32ToV33).
+    inline constexpr int kSceneVersionFoliageTypes = 33;
+
     //  34 - A LANDSCAPE'S LAYERS ARE `.delayerinfo` REFERENCES (LS-12b). The root's `Layers` list was inline
     //       {Name, Hardness, NoWeightBlend, Color} objects; it is now [{Guid, Path}] naming layer info assets
-    //       (UE: ALandscape target layers -> ULandscapeLayerInfoObject). 33 is FO-1's foliage type step on its
-    //       own branch; this branch jumps from 32, and the two chains meet when both are merged. No tracked
+    //       (UE: ALandscape target layers -> ULandscapeLayerInfoObject). No tracked
     //       file carries an inline layer, so the step is the identity on the corpus; a file that does carry
     //       one is REFUSED by name (MigrateLandscapeLayerRefsV33ToV34) rather than guessed into assets.
     inline constexpr int kSceneVersionLandscapeLayerRefs = 34;
@@ -146,6 +151,19 @@ namespace Desert::Migration
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
     // `.deprefab` is raised by the same chain.
+    // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
+    // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
+    struct FoliageTypesMigrationReport
+    {
+        int Rewritten = 0;                                                   // Foliage blocks now naming a type
+        std::vector<std::pair<std::filesystem::path, std::string>> NewTypes; // absolute path, canonical text
+        std::vector<std::string>                                   UnknownNames;
+    };
+
+    FoliageTypesMigrationReport MigrateInlineFoliageV32ToV33( std::vector<Assets::EntityData>& entities,
+                                                              const std::string&               ownerName,
+                                                              const std::filesystem::path&     assetsRoot );
+
     struct FileMigrationReport
     {
         // Non-empty: the tree states a generation this tool does not read - either ABOVE the head (a build
@@ -158,9 +176,12 @@ namespace Desert::Migration
         MeshGuidsMigrationReport PathOnlyMeshGuids;
         bool                     LandscapeLayerRefsRaised = false; // below kSceneVersionLandscapeLayerRefs
 
+        bool                        FoliageTypesRaised = false; // below kSceneVersionFoliageTypes
+        FoliageTypesMigrationReport FoliageTypes;
+
         bool Changed() const
         {
-            return PathOnlyMeshGuidsRaised || LandscapeLayerRefsRaised;
+            return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised;
         }
     };
 

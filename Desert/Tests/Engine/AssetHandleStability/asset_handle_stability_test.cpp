@@ -40,6 +40,7 @@
 #include <Engine/Assets/AssetMetadata.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
@@ -158,6 +159,9 @@ namespace
              { AssetTypeID::CloudLayout, "CloudLayoutAsset", &HandleOf<Desert::Assets::CloudLayoutAsset>,
                &MetadataTypeOf<Desert::Assets::CloudLayoutAsset>,
                &DeclaredTypeOf<Desert::Assets::CloudLayoutAsset> },
+             { AssetTypeID::FoliageType, "FoliageTypeAsset", &HandleOf<Desert::Assets::FoliageTypeAsset>,
+               &MetadataTypeOf<Desert::Assets::FoliageTypeAsset>,
+               &DeclaredTypeOf<Desert::Assets::FoliageTypeAsset> },
              { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset>,
                &MetadataTypeOf<Desert::Assets::UIThemeAsset>, &DeclaredTypeOf<Desert::Assets::UIThemeAsset> },
              { AssetTypeID::LandscapeLayerInfo, "LandscapeLayerInfoAsset",
@@ -1319,6 +1323,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::ShaderGraph,
          AssetTypeID::AnimGraph,
          AssetTypeID::Retarget,
+         AssetTypeID::FoliageType,
          AssetTypeID::LandscapeLayerInfo,
     };
 

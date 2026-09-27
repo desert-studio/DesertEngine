@@ -45,6 +45,9 @@ namespace Desert::Assets
     // v3 (T7f): the source rig is named by {Guid, Path} and stated as the header's one Dependency.
     inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
     inline constexpr uint32_t kRetargetSchemaVersion = 3;
+    // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
+    inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
+    inline constexpr uint32_t kFoliageTypeSchemaVersion = 1;
     // A .delayerinfo: the landscape layer info file layout, stated in the header from its first version (LS-12b).
     inline constexpr uint32_t kLandscapeLayerInfoSchemaTag     = Common::Content::FourCC( "LLYI" );
     inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 1;

@@ -71,6 +71,8 @@ project(test_name)
         -- census cannot ask its question about it.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/FoliageTypeAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",

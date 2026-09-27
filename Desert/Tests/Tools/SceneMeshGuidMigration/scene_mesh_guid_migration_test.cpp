@@ -175,9 +175,12 @@ TEST( ScenePathOnlyMeshGuidMigration, AMeshStatingNoGuidRefuses )
     EXPECT_NE( report.Refused.find( "states no mesh GUID" ), std::string::npos ) << report.Refused;
 }
 
+// The path-only mesh step is no longer the head (FO-1 added v33 above it); what must hold is that it is
+// still BELOW the engine's required generation, so every file the engine reads has been through it.
 TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration )
 {
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionPathOnlyMeshGuids );
+    EXPECT_LT( Migration::kSceneVersionPathOnlyMeshGuids, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionFoliageTypes );
 }
 
 namespace

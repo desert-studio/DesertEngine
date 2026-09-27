@@ -401,8 +401,31 @@ namespace
                 << Desert::Migration::kSceneVersionPathOnlyMeshGuids << " (" << report.PathOnlyMeshGuids.Rewritten
                 << " path-only mesh reference(s) now state the mesh header GUID)";
         if ( report.LandscapeLayerRefsRaised )
-            out << " scene ->v" << Desert::Migration::kSceneVersionLandscapeLayerRefs
+            out << " scene v" << Desert::Migration::kSceneVersionFoliageTypes << "->v"
+                << Desert::Migration::kSceneVersionLandscapeLayerRefs
                 << " (landscape layers are .delayerinfo references; no inline layer in this file)";
+        if ( report.FoliageTypesRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionPathOnlyMeshGuids << "->v"
+                << Desert::Migration::kSceneVersionFoliageTypes << " (" << report.FoliageTypes.Rewritten
+                << " Foliage block(s) now name a .defoliage; " << report.FoliageTypes.NewTypes.size()
+                << " type file(s) written)";
+    }
+
+    // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
+    // lands on disk naming a type that is not there.
+    bool WriteNewFoliageTypes( const Desert::Migration::FileMigrationReport& report, std::ostream& err )
+    {
+        for ( const auto& [file, text] : report.FoliageTypes.NewTypes )
+        {
+            std::error_code ec;
+            std::filesystem::create_directories( file.parent_path(), ec );
+            if ( !WriteText( file, text, err ) )
+            {
+                err << "FAIL   " << file.string() << " — the foliage type could not be written\n";
+                return false;
+            }
+        }
+        return true;
     }
 
 } // namespace
@@ -744,6 +767,11 @@ namespace Desert::Migration
             // byte-identical, and is a failed FILE here: counted, named, fatal to the exit code like
             // every FAIL above. The "raised" line above then describes work that was NOT kept, which is
             // why this line says so explicitly.
+            if ( !WriteNewFoliageTypes( report, err ) )
+            {
+                ++failed;
+                continue;
+            }
             if ( !WriteText( path, rfl::json::write( parsed.value() ), err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
@@ -889,6 +917,11 @@ namespace Desert::Migration
             {
                 err << "FAIL   " << path.string() << " — the migrated text does not pass the engine's own "
                     << "gate: " << loadable.GetError() << " (original untouched)\n";
+                ++failed;
+                continue;
+            }
+            if ( !WriteNewFoliageTypes( outcome.Steps, err ) )
+            {
                 ++failed;
                 continue;
             }

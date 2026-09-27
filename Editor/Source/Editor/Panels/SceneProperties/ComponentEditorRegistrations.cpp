@@ -44,6 +44,7 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
@@ -1765,8 +1766,8 @@ namespace Desert::Editor
         return e;
     }
 
-    // Foliage type: the scatter parameters the paint brush reads. They lived ONLY in the viewport's paint
-    // overlay, so a type could not be tuned without holding the brush.
+    // Foliage field: the `.defoliage` it is painted with (drop one on the row) and that type's scatter
+    // numbers, edited in the file itself so every field painted with the type sees the edit (FO-1).
     static ComponentEditorEntry MakeFoliageEntry()
     {
         using C = ::Desert::ECS::FoliageComponent;
@@ -1776,42 +1777,33 @@ namespace Desert::Editor
         e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
         e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
         e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
-        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& )
+        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& context )
         {
-            namespace U = ::Desert::Editor::Utils;
-            auto& f     = en.GetComponent<C>();
+            using Tool    = ::Desert::Editor::Tools::FoliagePaintTool;
+            auto& f       = en.GetComponent<C>();
+            auto  manager = context.AssetManager.lock();
+            if ( !manager )
+                return;
 
-            U::ImGuiUtilities::ResetPropertyRows();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Density", "Instances scattered per paint dab" );
-            ImGui::SliderFloat( "##foldensity", &f.Density, 1.0f, 80.0f, "%.0f / dab" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Scale Range", "Random uniform scale per instance" );
-            ImGui::DragFloatRange2( "##folscale", &f.ScaleMin, &f.ScaleMax, 0.01f, 0.02f, 10.0f, "%.2f", "%.2f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Z Offset", "Sink (-) / raise (+) along world up" );
-            ImGui::DragFloatRange2( "##folz", &f.ZOffsetMin, &f.ZOffsetMax, 0.5f, -500.0f, 500.0f, "%.0f",
-                                    "%.0f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Max Pitch", "Random tilt off the up/normal axis" );
-            ImGui::SliderFloat( "##folpitch", &f.MaxPitchDeg, 0.0f, 90.0f, "%.0f deg" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Slope Range", "Only paint where the surface slope fits" );
-            ImGui::DragFloatRange2( "##folslope", &f.SlopeMinDeg, &f.SlopeMaxDeg, 0.5f, 0.0f, 90.0f, "%.0f",
-                                    "%.0f deg" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Align to Normal" );
-            ImGui::Checkbox( "##folalign", &f.AlignToNormal );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Random Yaw" );
-            ImGui::Checkbox( "##folyaw", &f.RandomYaw );
-            U::ImGuiUtilities::EndPropertyRow();
+            const auto type = Tool::ResolveType( *manager, f.FoliageType );
+            ImGui::Button( type ? type->GetMetadata().Filepath.filename().string().c_str()
+                                : "Drop a .defoliage to choose the type",
+                           ImVec2( -1, 0 ) );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                if ( const ImGuiPayload* p =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                {
+                    const std::string path( static_cast<const char*>( p->Data ) );
+                    if ( std::filesystem::path( path ).extension() ==
+                         ::Desert::Assets::Serialization::kFoliageTypeExtension )
+                        if ( const auto dropped = Tool::OpenTypeFile( *manager, path ) )
+                            f.FoliageType = dropped->GetMetadata().Handle;
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if ( type )
+                Tool::DrawTypeSettings( *manager, type );
         };
         return e;
     }

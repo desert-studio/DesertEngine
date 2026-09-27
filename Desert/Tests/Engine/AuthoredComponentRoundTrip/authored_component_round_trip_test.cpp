@@ -89,7 +89,7 @@ namespace
     // ── THE FIELD CENSUS ───────────────────────────────────────────────────────────────────────────
     //
     // Comparing the keys the writer emits against the fields the STRUCT declares. Without this, adding
-    // a field to FoliageComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
+    // a field to LocomotionComponent and forgetting AuthoredComponentIO.hpp is silent: the component still
     // round-trips, the suite still passes, and one slider out of eleven stops being saved.
 
     std::string RepoRoot()
@@ -256,40 +256,6 @@ namespace
     }
 } // namespace
 
-// ── FOLIAGE ────────────────────────────────────────────────────────────────────────────────────────
-TEST( AuthoredComponentRoundTrip, EveryFoliageFieldComesBack )
-{
-    ECS::FoliageComponent written;
-    written.Density       = 23.0f;
-    written.ScaleMin      = 0.11f;
-    written.ScaleMax      = 4.75f;
-    written.ZOffsetMin    = -12.5f;
-    written.ZOffsetMax    = 37.25f;
-    written.MaxPitchDeg   = 18.5f;
-    written.SlopeMinDeg   = 7.0f;
-    written.SlopeMaxDeg   = 62.5f;
-    written.AlignToNormal = false; // both bools default TRUE, so false is the value a marker would eat
-    written.RandomYaw     = false;
-
-    const ECS::FoliageComponent read = RoundTrip( written );
-
-    EXPECT_FLOAT_EQ( read.Density, written.Density );
-    EXPECT_FLOAT_EQ( read.ScaleMin, written.ScaleMin );
-    EXPECT_FLOAT_EQ( read.ScaleMax, written.ScaleMax );
-    EXPECT_FLOAT_EQ( read.ZOffsetMin, written.ZOffsetMin );
-    EXPECT_FLOAT_EQ( read.ZOffsetMax, written.ZOffsetMax );
-    EXPECT_FLOAT_EQ( read.MaxPitchDeg, written.MaxPitchDeg );
-    EXPECT_FLOAT_EQ( read.SlopeMinDeg, written.SlopeMinDeg );
-    EXPECT_FLOAT_EQ( read.SlopeMaxDeg, written.SlopeMaxDeg );
-    EXPECT_FALSE( read.AlignToNormal );
-    EXPECT_FALSE( read.RandomYaw );
-}
-
-TEST( AuthoredComponentRoundTrip, TheFoliageBlockNamesEveryFoliageField )
-{
-    ExpectEveryFieldIsWritten( "FoliageComponent", WriteComponent( ECS::FoliageComponent{} ) );
-}
-
 // ── LOCOMOTION ─────────────────────────────────────────────────────────────────────────────────────
 TEST( AuthoredComponentRoundTrip, EveryLocomotionFieldComesBack )
 {
@@ -448,15 +414,6 @@ TEST( AuthoredComponentRoundTrip, TheProjectileBlockNamesEveryProjectileField )
 // property that lets a field be ADDED to one of these blocks with no scene version bump.
 TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 {
-    ECS::FoliageComponent foliage;
-    foliage.Density       = 42.0f;
-    foliage.AlignToNormal = false;
-    ReadAt( Common::Json::Object{}, foliage );
-    EXPECT_FLOAT_EQ( foliage.Density, 42.0f ) << "an empty block reset a float to its struct default";
-    EXPECT_FALSE( foliage.AlignToNormal )
-         << "an empty block turned a false flag back to true — the exact way a marker registration "
-            "counterfeits persistence";
-
     ECS::LocomotionComponent locomotion;
     locomotion.RunClip  = "Anim_Sprint";
     locomotion.RunSpeed = 999.0f;
@@ -486,17 +443,17 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZeroing )
 {
     Common::Json::Object block;
-    block["Density"]       = Common::Json::Value( std::string( "lots" ) );
-    block["AlignToNormal"] = Common::Json::Value( 3.5 );
-    block["ScaleMax"]      = Common::Json::Value( 8.5 ); // a good key beside the bad ones still lands
+    block["WalkSpeed"] = Common::Json::Value( std::string( "lots" ) );
+    block["IdleClip"]  = Common::Json::Value( 3.5 );
+    block["RunSpeed"]  = Common::Json::Value( 8.5 ); // a good key beside the bad ones still lands
 
-    ECS::FoliageComponent foliage;
-    foliage.Density = 42.0f;
-    ReadAt( ThroughJsonText( block ), foliage );
+    ECS::LocomotionComponent locomotion;
+    locomotion.WalkSpeed = 42.0f;
+    ReadAt( ThroughJsonText( block ), locomotion );
 
-    EXPECT_FLOAT_EQ( foliage.Density, 42.0f );
-    EXPECT_TRUE( foliage.AlignToNormal );
-    EXPECT_FLOAT_EQ( foliage.ScaleMax, 8.5f );
+    EXPECT_FLOAT_EQ( locomotion.WalkSpeed, 42.0f );
+    EXPECT_EQ( locomotion.IdleClip, "Idle" );
+    EXPECT_FLOAT_EQ( locomotion.RunSpeed, 8.5f );
 }
 
 // ── LANDSCAPE ──────────────────────────────────────────────────────────────────────────────────────
@@ -673,13 +630,13 @@ TEST( AuthoredComponentRoundTrip, ANegativeIdIsRefusedNotWrappedToTheLargestId )
 
 TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfinity )
 {
-    ECS::FoliageComponent foliage;
-    const float           density = foliage.Density;
-    Common::Json::Object  block;
-    block["Density"]  = Common::Json::Value( 1e300 );
-    const auto issues = ReadAt( ThroughJsonText( block ), foliage );
-    EXPECT_EQ( foliage.Density, density );
+    ECS::LocomotionComponent locomotion;
+    const float              walk = locomotion.WalkSpeed;
+    Common::Json::Object     block;
+    block["WalkSpeed"] = Common::Json::Value( 1e300 );
+    const auto issues  = ReadAt( ThroughJsonText( block ), locomotion );
+    EXPECT_EQ( locomotion.WalkSpeed, walk );
     ASSERT_EQ( issues.size(), 1u );
-    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Density" ).ToString() );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "WalkSpeed" ).ToString() );
     EXPECT_EQ( issues[0].Expected, "number" );
 }
