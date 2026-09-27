@@ -550,6 +550,65 @@ namespace Desert::Assets
                               row->RigSignature };
         }
 
+        // ONE ROW OF A DEPENDENCY CLOSURE: the number a reference holds and the kind of the row it names.
+        struct ClosureRow
+        {
+            Common::AssetHandle Handle;
+            std::string         Kind; // Common::Content::KindName spelling
+        };
+
+        // THE ROWS A SET OF REFERENCES NEEDS, TRANSITIVELY (AL1-8b, plan §2.4(b)): each root and every row its
+        // `deps` column names, and theirs — a mesh's materials, an instance's parent, a material's textures,
+        // shader and cloud assets. The edges are the files' own header GUIDs (ContentScan.cpp, RegistryRowFor),
+        // so nothing is read to learn them. A ROOT is kept with the kind its caller states even when no row
+        // answers for it (a mesh cooked this session before its row was noted must still be read); an EDGE to
+        // no row is dropped, because a dependency the registry does not know is no file anyone could read.
+        inline std::vector<ClosureRow> Closure( const std::vector<ClosureRow>& roots )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            std::vector<ClosureRow> closure;
+            std::vector<uint64_t>   pending;
+            std::vector<uint64_t>   seen; // sorted; a scene's closure is tens of rows
+            const auto              firstTime = [&seen]( uint64_t raw )
+            {
+                const auto at = std::lower_bound( seen.begin(), seen.end(), raw );
+                if ( at != seen.end() && *at == raw )
+                    return false;
+                seen.insert( at, raw );
+                return true;
+            };
+            for ( const ClosureRow& root : roots )
+            {
+                const auto raw = static_cast<uint64_t>( root.Handle );
+                if ( raw == 0 || !firstTime( raw ) )
+                    continue;
+                closure.push_back( root );
+                pending.push_back( raw );
+            }
+            while ( !pending.empty() )
+            {
+                const uint64_t raw = pending.back();
+                pending.pop_back();
+                const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( raw );
+                if ( row == nullptr )
+                    continue;
+                for ( const uint64_t dependency : row->Dependencies )
+                {
+                    if ( dependency == 0 || !firstTime( dependency ) )
+                        continue;
+                    if ( const Common::Utils::AssetRegistryEntry* next =
+                              state.Registry.FindByHandle( dependency ) )
+                    {
+                        closure.push_back( { Common::AssetHandle( dependency ), next->Kind } );
+                        pending.push_back( dependency );
+                    }
+                }
+            }
+            return closure;
+        }
+
         // THE MESH PICKERS' ROWS, split by the Skinned tag and not by extension (UE filters FAssetData by its
         // tags the same way): every mesh row of both mesh kinds whose header does (`skinned`) or does not flag
         // a skeleton. The header is read at scan time, so a mesh nobody has loaded is on the right list — the

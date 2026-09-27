@@ -10,6 +10,7 @@
 
 #include <array>
 #include <span>
+#include <vector>
 #include <unordered_set>
 
 namespace Desert::Graphic
@@ -51,13 +52,12 @@ namespace Desert::Runtime
         /// found by its content-registry row on first use. Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
 
-        /// THE SCENE-OPEN DOOR (AL1-5b, plan §2.4(b)), the material half of MeshService::AwaitResident:
-        /// every `.demat` in @p handles and every parent its instance chain names is requested, and this
-        /// thread blocks until the WORKERS have read them (AsyncAssetLoader::AwaitOne), so the scene's first
-        /// frame builds its materials from read shells and SyncLoadLedger counts no in-frame load. Builds
-        /// nothing: the cell a material is drawn in is the renderer's to name. Returns how many of the
-        /// materials (parents included) are read.
-        std::size_t AwaitResident( std::span<const Assets::AssetHandle> handles );
+        /// ONE ROW OF A CLOSURE (AL1-8b, plan §2.4(b)): start the worker read of the `.demat` @p handle names
+        /// (discovered from its registry row if nobody registered it) and append the loader handle to wait on
+        /// to @p awaited; nothing is appended for a material already read or one the project does not have.
+        /// Never reads on this thread. The parent of an instance is not walked here: it is a `deps` edge of
+        /// the instance's row, so the closure (Runtime::AwaitClosure) already holds it.
+        void StartRead( const Assets::AssetHandle& handle, std::vector<Assets::AssetHandle>& awaited ) const;
         // Lazy: register the asset SHELL + the external->internal map only; the runtime Material (which binds
         // its textures) is built on the first Get. Refuses a colliding identity on the same terms as
         // Register above.

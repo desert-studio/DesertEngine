@@ -10,6 +10,7 @@
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -303,6 +304,11 @@ namespace Desert::Editor
         // WHAT WOULD CHANGE THE ANSWER: a measured case of a material capture producing a wrong picture, or
         // a service question that can be asked in the capture's own terms — not the availability of some
         // check that compiles.
+        // RESIDENT BEFORE THE FIRST FRAME OF THE CAPTURE (AL1-8b). The sweep resolved this material a few
+        // subjects ago, and AssetEviction may have released its payload since (a thumbnail is no scene root).
+        // The cloud layer asks MaterialService::ResolveOverrides, which would then parse it inside the frame:
+        // five `*_Clouds.demat` per Starter start. Read on a worker instead, with its closure.
+        (void)Runtime::AwaitAssetClosure( materialHandle, Common::Content::ContentKind::Material );
         m_PendingHandle  = materialHandle;
         m_PendingPng     = outPng;
         m_PendingSubject = Subject::Material;

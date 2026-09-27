@@ -1,12 +1,16 @@
 #include "AssetServiceRegistration.hpp"
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/ECS/Components.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -69,56 +73,138 @@ namespace Desert::Runtime
         return service && service->Discover( handle );
     }
 
-    std::size_t AwaitSceneMeshes( const Core::Scene& owner )
+    std::vector<Assets::ContentRegistry::ClosureRow> SceneDependencies( const Core::Scene& owner )
     {
-        auto* service = Meshes();
-        if ( !service )
-            return 0;
-        const auto&                      scene = owner.GetRegistry();
-        std::vector<Assets::AssetHandle> handles;
-        const auto                       note = [&handles]( const Assets::AssetHandle& handle )
+        using Common::Content::ContentKind;
+        using Common::Content::KindName;
+        const auto&                                      scene = owner.GetRegistry();
+        std::vector<Assets::ContentRegistry::ClosureRow> roots;
+        const auto note = [&roots]( const Assets::AssetHandle& handle, ContentKind kind )
         {
             if ( handle )
-                handles.push_back( handle );
+                roots.push_back( { handle, std::string( KindName( kind ) ) } );
         };
-        scene.view<const ECS::StaticMeshComponent>().each( [&note]( const ECS::StaticMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
-        scene.view<const ECS::SkinnedMeshComponent>().each( [&note]( const ECS::SkinnedMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
-        scene.view<const ECS::InstancedStaticMeshComponent>().each( [&note]( const ECS::InstancedStaticMeshComponent& mesh ) { note( mesh.MeshHandle ); } );
-        std::sort( handles.begin(), handles.end() );
-        handles.erase( std::unique( handles.begin(), handles.end() ), handles.end() );
-        return service->AwaitResident( handles );
+        const auto slots = [&note]( const std::vector<Assets::AssetHandle>& materials )
+        {
+            for ( const auto& material : materials )
+                note( material, ContentKind::Material );
+        };
+        scene.view<const ECS::StaticMeshComponent>().each(
+             [&]( const ECS::StaticMeshComponent& mesh )
+             {
+                 note( mesh.MeshHandle, ContentKind::StaticMesh );
+                 slots( mesh.MaterialSlots );
+             } );
+        scene.view<const ECS::SkinnedMeshComponent>().each(
+             [&]( const ECS::SkinnedMeshComponent& mesh )
+             {
+                 note( mesh.MeshHandle, ContentKind::SkinnedMesh );
+                 slots( mesh.MaterialSlots );
+             } );
+        scene.view<const ECS::InstancedStaticMeshComponent>().each(
+             [&]( const ECS::InstancedStaticMeshComponent& mesh )
+             {
+                 note( mesh.MeshHandle, ContentKind::StaticMesh );
+                 slots( mesh.MaterialSlots );
+             } );
+        scene.view<const ECS::VolumetricCloudComponent>().each(
+             [&note]( const ECS::VolumetricCloudComponent& cloud )
+             { note( cloud.Data.Material, ContentKind::Material ); } );
+        return Assets::ContentRegistry::Closure( roots );
     }
 
-    std::size_t AwaitSceneMaterials( const Core::Scene& owner )
+    namespace
     {
-        auto* materials = Materials();
-        if ( !materials )
-            return 0;
-        const auto*                      meshes = Meshes();
-        const auto&                      scene  = owner.GetRegistry();
-        std::vector<Assets::AssetHandle> handles;
-        // A mesh component with no slots draws with its mesh's own materials (MeshECSSystem fills the slots
-        // from them on its first tick), so those are part of the scene's closure too. The meshes were
-        // awaited first, so their payloads — and the material ids inside them — are already here.
-        const auto note = [&]( const Assets::AssetHandle& mesh, const std::vector<Assets::AssetHandle>& slots )
+        bool IsMeshKind( const std::string& kind )
         {
-            handles.insert( handles.end(), slots.begin(), slots.end() );
-            if ( !slots.empty() || !mesh || !meshes )
-                return;
-            if ( const auto* asset = meshes->GetAsset( mesh ) )
-                for ( const auto& external : asset->GetMaterialHandles() )
-                    handles.push_back( materials->GetAssetHandleByExternal( external ) );
-        };
-        scene.view<const ECS::StaticMeshComponent>().each( [&note]( const ECS::StaticMeshComponent& mesh )
-                                                           { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
-        scene.view<const ECS::SkinnedMeshComponent>().each( [&note]( const ECS::SkinnedMeshComponent& mesh )
-                                                            { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
-        scene.view<const ECS::InstancedStaticMeshComponent>().each(
-             [&note]( const ECS::InstancedStaticMeshComponent& mesh )
-             { note( mesh.MeshHandle, mesh.MaterialSlots ); } );
-        std::sort( handles.begin(), handles.end() );
-        handles.erase( std::unique( handles.begin(), handles.end() ), handles.end() );
-        return materials->AwaitResident( handles );
+            using Common::Content::ContentKind;
+            using Common::Content::KindName;
+            return kind == KindName( ContentKind::StaticMesh ) || kind == KindName( ContentKind::SkinnedMesh );
+        }
+
+        // Starts every row's worker read, then waits for each: one batch, no read on this thread.
+        std::size_t ReadBatch( const std::vector<Assets::ContentRegistry::ClosureRow>& rows )
+        {
+            using Common::Content::ContentKind;
+            using Common::Content::KindName;
+            auto*                            meshes    = Meshes();
+            auto*                            materials = Materials();
+            auto*                            textures  = ResourceRegistry::GetTextureService();
+            std::vector<Assets::AssetHandle> awaited;
+            for ( const auto& row : rows )
+            {
+                if ( IsMeshKind( row.Kind ) && meshes )
+                    meshes->StartRead( row.Handle, awaited );
+                else if ( row.Kind == KindName( ContentKind::Material ) && materials )
+                    materials->StartRead( row.Handle, awaited );
+                else if ( row.Kind == KindName( ContentKind::Texture ) && textures )
+                    textures->StartRead( row.Handle, awaited );
+            }
+            std::sort( awaited.begin(), awaited.end() );
+            awaited.erase( std::unique( awaited.begin(), awaited.end() ), awaited.end() );
+            for ( const auto& read : awaited )
+                Assets::AsyncAssetLoader::Get().AwaitOne( read );
+            return awaited.size();
+        }
+    } // namespace
+
+    ClosureResidency AwaitClosure( const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
+    {
+        using Common::Content::ContentKind;
+        using Common::Content::KindName;
+        auto*            meshes    = Meshes();
+        auto*            materials = Materials();
+        ClosureResidency outcome;
+
+        // ALL READS START BEFORE THE FIRST WAIT, so the workers read the closure side by side.
+        outcome.Reads = ReadBatch( closure );
+
+        // A MESH WITH NO REGISTRY ROW HAS NO `deps` TO WALK. An imported static mesh lives only in the DDC since
+        // AF4h — nothing is ever written at its content path, so no row can describe it — and the materials its
+        // envelope names are then known only from the read mesh (the same GUIDs its header states). They and
+        // their own closure are the second, and last, batch; for a mesh with a row they are already in the
+        // closure and the batch is empty.
+        std::vector<Assets::ContentRegistry::ClosureRow> all = closure;
+        if ( meshes && materials )
+        {
+            std::vector<Assets::ContentRegistry::ClosureRow> roots;
+            for ( const auto& row : closure )
+                if ( IsMeshKind( row.Kind ) )
+                    if ( const auto* asset = meshes->GetAsset( row.Handle ) )
+                        for ( const auto& external : asset->GetMaterialHandles() )
+                        {
+                            const Assets::AssetHandle material = materials->GetAssetHandleByExternal( external );
+                            const bool known = std::any_of( all.begin(), all.end(), [&material]( const auto& in )
+                                                            { return in.Handle == material; } );
+                            if ( material && !known )
+                                roots.push_back( { material, std::string( KindName( ContentKind::Material ) ) } );
+                        }
+            if ( !roots.empty() )
+            {
+                const auto more = Assets::ContentRegistry::Closure( roots );
+                outcome.Reads += ReadBatch( more );
+                all.insert( all.end(), more.begin(), more.end() );
+            }
+        }
+        outcome.Rows = all.size();
+
+        // A rig arrives with its mesh, so the skinned ones may have become buildable only now.
+        if ( meshes )
+            for ( const auto& row : closure )
+                if ( IsMeshKind( row.Kind ) )
+                    outcome.DrawableMeshes += meshes->Get( row.Handle ) != nullptr ? 1 : 0;
+        return outcome;
+    }
+
+    ClosureResidency AwaitSceneClosure( const Core::Scene& scene )
+    {
+        return AwaitClosure( SceneDependencies( scene ) );
+    }
+
+    ClosureResidency AwaitAssetClosure( const Assets::AssetHandle& handle, Common::Content::ContentKind kind )
+    {
+        return AwaitClosure( Assets::ContentRegistry::Closure(
+             { { handle, std::string( Common::Content::KindName( kind ) ) } } ) );
     }
 
     void EnsureTextureRegistered( const Assets::AssetManager& registry, uint64_t handle )

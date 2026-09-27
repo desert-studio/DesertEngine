@@ -145,6 +145,15 @@ namespace Desert::Runtime
         return ref.Get();
     }
 
+    void TextureService::StartRead( const Assets::AssetHandle&        handle,
+                                    std::vector<Assets::AssetHandle>& awaited ) const
+    {
+        (void)Require( handle );
+        const auto it = m_Entries.find( handle );
+        if ( it != m_Entries.end() && it->second.Request.IsValid() && it->second.Source )
+            awaited.push_back( it->second.Source->GetMetadata().Handle );
+    }
+
     void TextureService::RebuildWhenReady( const Assets::AssetHandle& texture,
                                            const Assets::AssetHandle& material ) const
     {

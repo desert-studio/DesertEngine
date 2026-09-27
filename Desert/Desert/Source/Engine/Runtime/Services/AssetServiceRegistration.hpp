@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/Common.hpp>
 
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Core.hpp>
 
 namespace Desert::Core
@@ -12,6 +13,12 @@ namespace Desert::Core
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
+
+namespace Desert::Assets::ContentRegistry
+{
+    struct ClosureRow;
+}
 
 namespace Desert::Assets
 {
@@ -80,17 +87,33 @@ namespace Desert::Runtime
     /// nothing and prints "needs a deferred load but no AssetManager is bound" once per frame.
     void EnsureMeshRegistered( const Assets::Asset<Assets::MeshAsset>& mesh, Assets::AssetManager& registry );
 
-    /// THE SCENE OPEN WAITS FOR ITS MESHES (AL1-5, plan §2.4(b)). Every mesh a static, skinned or
-    /// instanced mesh component of @p scene names (and each skinned mesh's rig) is requested and awaited
-    /// while the WORKERS read them, then built, so the first frame of the scene is complete and
-    /// SyncLoadLedger counts no in-frame load. Returns how many distinct meshes are drawable.
-    std::size_t AwaitSceneMeshes( const Core::Scene& scene );
+    /// What waiting for a closure did: its rows, the worker reads it waited for (0 when everything was
+    /// resident already) and how many of its meshes are drawable afterwards.
+    struct ClosureResidency
+    {
+        std::size_t Rows           = 0;
+        std::size_t Reads          = 0;
+        std::size_t DrawableMeshes = 0;
+    };
 
-    /// THE SCENE OPEN WAITS FOR ITS MATERIALS (AL1-5b). Called after AwaitSceneMeshes: every `.demat` a mesh
-    /// component's slots name — or, for a component with no slots, its mesh's own materials — and each
-    /// instance's parent chain is read by the loader's WORKERS while this thread waits, so the scene's first
-    /// frame builds its materials without a read. Returns how many materials are read.
-    std::size_t AwaitSceneMaterials( const Core::Scene& scene );
+    /// THE SCENE'S DEPENDENCIES, FROM THE REGISTRY (AL1-8b, plan §2.4(b)). The roots are what the scene's
+    /// components name — every static, skinned and instanced mesh, every material slot, each cloud layer's
+    /// material — and the rest is the registry's `deps` column walked transitively
+    /// (Assets::ContentRegistry::Closure): a mesh's own materials, an instance's parent, textures, shaders,
+    /// cloud assets. Nothing is read to learn it.
+    std::vector<Assets::ContentRegistry::ClosureRow> SceneDependencies( const Core::Scene& scene );
+
+    /// THE ONE WAIT FOR A CLOSURE: every row's read is started on the loader's WORKERS first (meshes and their
+    /// rigs, materials, textures — the kinds whose services read on demand; shaders and cloud assets have
+    /// their own residency), then this thread blocks until each has landed (AsyncAssetLoader::AwaitOne, so
+    /// SyncLoadLedger counts no in-frame load), then the meshes are built so the first frame draws them.
+    ClosureResidency AwaitClosure( const std::vector<Assets::ContentRegistry::ClosureRow>& closure );
+
+    /// Scene open: `AwaitClosure( SceneDependencies( scene ) )`, before the scene is initialised.
+    ClosureResidency AwaitSceneClosure( const Core::Scene& scene );
+
+    /// One asset and everything its row depends on — a dropped mesh, a material about to be photographed.
+    ClosureResidency AwaitAssetClosure( const Assets::AssetHandle& handle, Common::Content::ContentKind kind );
 
     /// A mesh named only by its handle (a scene's MeshGuid): known to MeshService, or discoverable from its
     /// content-registry row. Creates the shell; reads nothing.

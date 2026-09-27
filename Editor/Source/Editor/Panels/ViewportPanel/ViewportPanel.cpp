@@ -30,6 +30,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/SelectionContext.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -286,6 +287,11 @@ namespace Desert::Editor
             const auto resolved = MeshDnD::ResolveOrImportMesh( mgr, done.SourcePath );
             if ( resolved.Handle.IsNull() )
                 continue;
+            // The mesh and its registry closure (its materials, their textures) are read by the loader's
+            // workers while this waits, so the frames after the drop draw it without a read (AL1-8b).
+            (void)Runtime::AwaitAssetClosure( resolved.Handle, resolved.Skinned
+                                                                    ? Common::Content::ContentKind::SkinnedMesh
+                                                                    : Common::Content::ContentKind::StaticMesh );
             if ( auto ref = m_Scene->FindEntityByID( Common::UUID( done.UserData ) ); ref )
             {
                 ECS::Entity e = ref->get(); // Entity is a lightweight value handle -> copy to operate mutably
