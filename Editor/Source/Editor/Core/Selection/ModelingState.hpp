@@ -168,10 +168,12 @@ namespace Desert::Editor::Core
         bool HitUnrelated = true;
         bool ShowGizmo    = false; // draw the grid frame axes at the origin
 
-        // Corner Mode (Z): moves the selection's corner posts along the grid's up axis to build ramps,
-        // roofs and wedges. Snap Size = the fraction of a block one press moves them.
+        // Corner Mode (Z): moves the selection's corner posts out of (or into) the face it lies on to build
+        // ramps, roofs, wedges and leaning walls. Snap Size = the fraction of a block one press moves them.
         int  CornerSnapDiv = 2;     // 2 = half a block, 4 = quarter, 10 = a tenth
         bool ReqCornerMode = false; // one-shot: toggle Corner Mode
+        // UE's Crosswise Diagonal (X in Corner Mode): split a non-planar sloped quad along the other diagonal.
+        bool CornerCrosswise = false;
 
         // Accept also gives the committed piece a BOX collider + a static body, so a blockout is
         // walkable immediately. Box, not triangle mesh: the physics layer has no trimesh shape yet.

@@ -66,8 +66,17 @@ namespace Desert::Editor::Tools
 
     void CubeGridTool::ApplyCornerHeights( ::Desert::Core::Scene& scene )
     {
-        if ( m_HasSel && m_Volume.ApplyCornerHeights( m_Plane, m_Sel, m_CornerH ) )
-            RegenMesh( scene );
+        if ( !m_HasSel )
+            return;
+        if ( const auto applied = m_Volume.ApplyCornerHeights( m_Plane, m_Sel, m_CornerH, m_Crosswise );
+             !applied.IsSuccess() )
+        {
+            // The posts go back to what the cells hold, so the next step starts from the real shape.
+            LOG_WARN( "{}", applied.GetError() );
+            SyncCornerHeights();
+            return;
+        }
+        RegenMesh( scene );
     }
 
     void CubeGridTool::SyncCornerHeights()
@@ -324,22 +333,35 @@ namespace Desert::Editor::Tools
         const GridFrame         frame = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
         const Common::Math::Ray gray( frame.ToFramePoint( ray.Origin ), frame.ToFrameVector( ray.Direction ) );
 
-        // Corner Mode toggle (Z, or the panel button). Only meaningful with a selection on a horizontal
-        // work-plane: corners move along the grid's up axis.
+        // Corner Mode toggle (Z, or the panel button). It needs a selection; the posts move along the normal
+        // of whichever face it lies on (UE: corner mode works on any face).
         if ( ms.ReqCornerMode )
         {
             ms.ReqCornerMode = false;
             if ( m_CornerMode )
                 m_CornerMode = false;
-            else if ( m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0 )
+            else if ( m_HasSel )
             {
-                m_CornerMode = true;
+                m_CornerMode  = true;
+                m_CornerSweep = false;
                 SyncCornerHeights();
                 for ( bool& sel : m_CornerSel )
                     sel = false;
             }
+            else
+            {
+                LOG_WARN( "CubeGrid: Corner Mode needs a selection - drag a rectangle on a face first" );
+            }
         }
         ms.CornerMode = m_CornerMode;
+        // Crosswise Diagonal (X in Corner Mode, the panel, the palette): UE re-previews the op when it flips;
+        // here the cells under the selection are reshaped with it.
+        if ( ms.CornerCrosswise != m_Crosswise )
+        {
+            m_Crosswise = ms.CornerCrosswise;
+            if ( m_CornerMode )
+                ApplyCornerHeights( scene );
+        }
 
         // Starting a fresh marquee starts a NEW piece: commit whatever is already pushed out into a frozen
         // layer first (it keeps its own Block Size forever). Resizing the grid afterwards then only ever
@@ -806,10 +828,12 @@ namespace Desert::Editor::Tools
             // Shift+B — the Quick Material onto the selected faces; geometry stays as it is.
             if ( shift && ::ImGui::IsKeyPressed( ImGuiKey_B, false ) )
                 PaintSelection( scene );
-            // Z starts / completes Corner Mode (UE's binding). It needs a selection on a horizontal
-            // work-plane — corners move along the grid's up axis.
+            // Z starts / completes Corner Mode (UE's binding) on the selection's face; X flips the Crosswise
+            // Diagonal while in it (UE's Toggle Diagonal Mode).
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Z, false ) )
                 ms.ReqCornerMode = true;
+            if ( m_CornerMode && ::ImGui::IsKeyPressed( ImGuiKey_X, false ) )
+                ms.CornerCrosswise = !ms.CornerCrosswise;
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Escape, false ) )
             {
                 if ( m_CornerMode )
@@ -1032,9 +1056,10 @@ namespace Desert::Editor::Tools
             }
         }
 
-        // --- Corner Mode: the selection rectangle's four posts. Click one to pick it (Shift adds), then
-        //     E / Q raise or lower every picked post by one Snap Size step; the cells under the rectangle
-        //     take the bilinear blend, so two posts up = a ramp, one post up = a hip. ---
+        // --- Corner Mode: the selection rectangle's four posts. Press and sweep over posts to flip them
+        //     (UE), then E / Q or Ctrl+drag raise or lower every picked post by one Snap Size step out of the
+        //     face; the cells under the rectangle take the bilinear blend, so two posts up = a ramp, one post
+        //     up = a hip. ---
         if ( toolActive && m_CornerMode && m_HasSel )
         {
             const float  planeW = planeWorldOf( m_Plane.Na, m_Plane.Sign, m_Plane.Cell );
@@ -1047,7 +1072,8 @@ namespace Desert::Editor::Tools
             {
                 const auto  lu = static_cast<float>( kPosts[k].AtUMax ? m_Sel.UMax + 1 : m_Sel.UMin );
                 const auto  lv = static_cast<float>( kPosts[k].AtVMax ? m_Sel.VMax + 1 : m_Sel.VMin );
-                const float hW = planeW + static_cast<float>( m_CornerH[k] ) / CornerDen * u;
+                const float hW =
+                     planeW + static_cast<float>( m_Plane.Sign * m_CornerH[k] ) / static_cast<float>( CornerDen ) * u;
                 ok[k] = WorldToScreen( worldPt( lu, lv, m_Plane.Na, hW ), viewProj, viewportPos, viewportSize,
                                        sp[k] );
                 if ( !ok[k] )
@@ -1072,15 +1098,18 @@ namespace Desert::Editor::Tools
                     dl->AddCircleFilled( p, r, IM_COL32( 25, 27, 32, 200 ) );
                 dl->AddCircle( p, r, IM_COL32( 250, 250, 250, 235 ), 0, 2.0f );
             }
+            // Ported from UE 5.8 MeshModelingToolsExp/Private/CubeGridTool.cpp:1969-1978, 2044-2047 and
+            // 2125-2154 (DraggingCornerSelection, AttemptToSelectCorner), adapted: the posts are hit in screen
+            // space against a pixel radius instead of a visual-angle ray query.
             if ( interact && !::ImGui::GetIO().KeyCtrl && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
             {
-                const bool shift = ::ImGui::GetIO().KeyShift;
-                if ( !shift )
-                    for ( bool& sel : m_CornerSel )
-                        sel = false;
-                if ( hovered >= 0 )
-                    m_CornerSel[hovered] = shift ? !m_CornerSel[hovered] : true;
+                m_CornerSweep = true;
+                std::copy( std::begin( m_CornerSel ), std::end( m_CornerSel ), std::begin( m_CornerSelBefore ) );
             }
+            if ( m_CornerSweep && !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+                m_CornerSweep = false;
+            if ( m_CornerSweep && hovered >= 0 )
+                m_CornerSel[hovered] = !m_CornerSelBefore[hovered];
         }
 
         // Re-bake if the base resolution changed (a refine this frame).
@@ -1154,7 +1183,7 @@ namespace Desert::Editor::Tools
 
                 // Corner Mode toggle, right next to Push/Pull (Z does the same).
                 ::ImGui::SameLine();
-                const bool canCorner = m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0;
+                const bool canCorner = m_HasSel;
                 if ( !canCorner && !m_CornerMode )
                     ::ImGui::BeginDisabled();
                 if ( m_CornerMode )

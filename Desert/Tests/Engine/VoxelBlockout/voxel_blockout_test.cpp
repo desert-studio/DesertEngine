@@ -1006,3 +1006,21 @@ TEST( VoxelBlockoutCornerMode, SaveLoadKeepsTheSlopeAxisAndTheDiagonalAndRefuses
     ASSERT_FALSE( r.IsSuccess() );
     EXPECT_NE( r.GetError().find( "Deformed 17, not whole cells of 9 / 19" ), std::string::npos ) << r.GetError();
 }
+
+TEST( VoxelBlockoutCornerMode, ACommittedSlabIsThawedAndSlopesAsTheActiveOneDoes )
+{
+    // The editor's order: push a slab out, start a new marquee on top of it (which commits the slab), then
+    // Corner Mode. The row under the selection must come back into the active volume and slope.
+    Volume v = Floor3();
+    ASSERT_TRUE( v.Freeze() );
+    v.m_Unit = 100.0f; // the new marquee's base
+    const Rect row{ 1, 1, 0, 2 };
+    EXPECT_EQ( v.ReadCornerHeights( kFloorTop, row ), CornerHeights{} );
+    ASSERT_TRUE( v.ApplyCornerHeights( kFloorTop, row, { 0, 0, CornerDen, CornerDen }, false ).IsSuccess() );
+    EXPECT_EQ( v.ReadCornerHeights( kFloorTop, row ), ( CornerHeights{ 0, 0, CornerDen, CornerDen } ) );
+    const auto    mesh = v.Bake();
+    const Measure m    = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, 9.0e6 + 1.5e6, 2.0 );
+}

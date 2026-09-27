@@ -229,12 +229,15 @@ namespace Desert::Geometry::VoxelBlockout
         // Corner Mode: every outer corner of the cell layer just inside the work-plane, under the selection,
         // takes the bilinear blend of the four posts along the plane's normal (a wall slopes as a floor does),
         // so raising two posts yields one clean ramp and raising one a hip; the cells take `crosswise`.
-        // Refused, and nothing changes, when a cell there is already sloped along another axis.
+        // A committed piece on this lattice under the selection is thawed first (ThawUnder), as push-in does:
+        // UE's corner push reaches the mesh it targets, so a slab built earlier slopes as the active one does.
+        // Refused, and no corner changes, when a cell there is already sloped along another axis.
         Common::BoolResultStr ApplyCornerHeights( const WorkPlane& plane, const Rect& sel,
                                                   const CornerHeights& heights, bool crosswise );
         // Read the rectangle's post heights back out of the cells (zero where no cell, or a cell sloped along
-        // another axis), so a second Corner Mode pass continues from the current shape.
-        CornerHeights ReadCornerHeights( const WorkPlane& plane, const Rect& sel ) const;
+        // another axis), so a second Corner Mode pass continues from the current shape. Thaws that row first,
+        // as ApplyCornerHeights does, so a committed slope reads back too.
+        CornerHeights ReadCornerHeights( const WorkPlane& plane, const Rect& sel );
 
         // One quad soup out of every layer, each meshed at its OWN cell size and face-culled against all
         // layers: flat cells greedy-merged (never across two materials), deformed cells one slanted quad per
@@ -253,6 +256,10 @@ namespace Desert::Geometry::VoxelBlockout
         // Renumber face materials so the i-th ID of `usedAscending` (the bake's SubmeshMaterialIds) becomes
         // i, in every layer: the saved blockout's material ID is then its entity's material slot.
         void CompactMaterials( const std::vector<int>& usedAscending );
+
+    private:
+        // The cells just inside `plane` under `sel`: the row Corner Mode shapes.
+        static std::vector<glm::ivec3> InsideRow( const WorkPlane& plane, const Rect& sel );
     };
 
     // Every layer of `v` re-expressed through `parent` (parent.Compose on each frame); cells, units and

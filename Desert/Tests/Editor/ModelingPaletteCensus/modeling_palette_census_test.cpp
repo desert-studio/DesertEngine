@@ -69,6 +69,7 @@ namespace
         { "Button", "ms.CornerMode ? \"Corner Mode: ON (Z)\" : \"Corner Mode: OFF (Z)\"", Reach::Palette,
           { "{ \"Corner Mode (Z)\", &MS::ReqCornerMode }", "\"Corner posts: U+ edge\"", "ReqCornerPosts = posts" } },
         { "Combo", "\"Snap Size\"", Reach::Palette, { "\"Snap Size 1/\"" } },
+        { "Checkbox", "\"Crosswise Diagonal (X)\"", Reach::Palette, { "\"Crosswise Diagonal\"" } },
         { "Checkbox", "\"Hit Unrelated Geometry\"", Reach::Palette, { "\"Hit Unrelated Geometry\"" } },
         { "Checkbox", "\"Generate Collision\"", Reach::Palette, { "\"Generate Collision\"" } },
         { "DragFloat", "\"Current Block Size\"", Reach::Set, { "CubeGrid.CurrentBlockSize" } },

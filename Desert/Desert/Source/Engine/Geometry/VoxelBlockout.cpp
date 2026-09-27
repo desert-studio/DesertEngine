@@ -473,6 +473,7 @@ namespace Desert::Geometry::VoxelBlockout
             return static_cast<int>( std::lround( glm::mix( a, b, fv ) ) );
         };
 
+        ThawUnder( InsideRow( plane, sel ) );
         std::vector<std::pair<glm::ivec3, Cell*>> under;
         for ( int uu = sel.UMin; uu <= sel.UMax; ++uu )
             for ( int vv = sel.VMin; vv <= sel.VMax; ++vv )
@@ -507,8 +508,26 @@ namespace Desert::Geometry::VoxelBlockout
         return Common::MakeSuccess( true );
     }
 
-    CornerHeights Volume::ReadCornerHeights( const WorkPlane& plane, const Rect& sel ) const
+    std::vector<glm::ivec3> Volume::InsideRow( const WorkPlane& plane, const Rect& sel )
     {
+        std::vector<glm::ivec3> row;
+        const int               ua = ( plane.Na + 1 ) % 3;
+        const int               va = ( plane.Na + 2 ) % 3;
+        for ( int uu = sel.UMin; uu <= sel.UMax; ++uu )
+            for ( int vv = sel.VMin; vv <= sel.VMax; ++vv )
+            {
+                glm::ivec3 c{ 0 };
+                c[plane.Na] = plane.Cell - plane.Sign;
+                c[ua]       = uu;
+                c[va]       = vv;
+                row.push_back( c );
+            }
+        return row;
+    }
+
+    CornerHeights Volume::ReadCornerHeights( const WorkPlane& plane, const Rect& sel )
+    {
+        ThawUnder( InsideRow( plane, sel ) );
         CornerHeights h{};
         const int     ua = ( plane.Na + 1 ) % 3;
         const int     va = ( plane.Na + 2 ) % 3;

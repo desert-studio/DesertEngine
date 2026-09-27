@@ -533,8 +533,11 @@ namespace Desert::Editor
             if ( ImGui::Combo( "Snap Size", &cur, snaps, 3 ) )
                 ms.CornerSnapDiv = divs[cur];
 
-            ImGui::TextDisabled( "Select a rectangle, press Z, click the" );
-            ImGui::TextDisabled( "corner posts (Shift adds), then E / Q." );
+            // UE's Crosswise Diagonal: which way a non-planar sloped quad is split.
+            ImGui::Checkbox( "Crosswise Diagonal (X)", &ms.CornerCrosswise );
+
+            ImGui::TextDisabled( "Select a rectangle on any face, press Z," );
+            ImGui::TextDisabled( "sweep over posts to flip them, then E / Q." );
         }
         if ( Utils::ImGuiUtilities::SectionHeader( "Block Selection" ) )
         {
@@ -617,7 +620,7 @@ namespace Desert::Editor
                  { "Push / Pull", "E / Q, or Ctrl + LMB drag" },
                  { "Slide selection", "Shift + E / Q" },
                  { "Paint Quick Material", "Shift + B" },
-                 { "Corner Mode", "Z (then E / Q on posts)" },
+                 { "Corner Mode", "Z (sweep posts, E / Q, X diagonal)" },
                  { "Resize Grid", "Ctrl + E / Q" },
                  { "Shift work-plane", "Ctrl + Mouse Wheel" },
                  { "Snap grid to surface", "Ctrl + MMB" },

@@ -5130,6 +5130,7 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         modelingOnOff( "CubeGrid", "Show Gizmo", []( MS& ms, bool on ) { ms.ShowGizmo = on; } );
+        modelingOnOff( "CubeGrid", "Crosswise Diagonal", []( MS& ms, bool on ) { ms.CornerCrosswise = on; } );
         modelingOnOff( "CubeGrid", "Hit Unrelated Geometry", []( MS& ms, bool on ) { ms.HitUnrelated = on; } );
         modelingOnOff( "CubeGrid", "Generate Collision", []( MS& ms, bool on ) { ms.GenerateCollision = on; } );
         // The mouse's part: aim from the viewport centre, a marquee of N x N blocks there, E / Q, and the
@@ -5207,7 +5208,11 @@ namespace Desert::Editor
                                                                   { "Corner posts: U+ edge", 0b1010 },
                                                                   { "Corner posts: U- edge", 0b0101 },
                                                                   { "Corner posts: V+ edge", 0b1100 },
-                                                                  { "Corner posts: V- edge", 0b0011 } } )
+                                                                  { "Corner posts: V- edge", 0b0011 },
+                                                                  { "Corner post: U- V-", 0b0001 },
+                                                                  { "Corner post: U+ V-", 0b0010 },
+                                                                  { "Corner post: U- V+", 0b0100 },
+                                                                  { "Corner post: U+ V+", 0b1000 } } )
             commands.push_back( { "CubeGrid", label, [posts]
                                   {
                                       if ( !MS::Get().CornerMode )
