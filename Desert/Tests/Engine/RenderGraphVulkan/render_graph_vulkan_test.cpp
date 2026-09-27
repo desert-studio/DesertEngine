@@ -731,8 +731,10 @@ TEST( RenderGraphVulkan, TheEngineInstanceEnablesSynchronizationValidation )
     text << file.rdbuf();
     const std::string source = text.str();
     const size_t      layers = source.find( "builder.request_validation_layers( true );" );
-    const size_t      sync   = source.find(
-         "builder.add_validation_feature_enable( VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT );" );
+    // The call is found by its parts: the formatter may wrap it.
+    const size_t call = source.find( "builder.add_validation_feature_enable(", layers );
+    const size_t sync = source.find( "VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT", call );
+    ASSERT_NE( call, std::string::npos );
     ASSERT_NE( layers, std::string::npos );
     ASSERT_NE( sync, std::string::npos );
     // In the same branch: within a few lines after the layers are requested.
