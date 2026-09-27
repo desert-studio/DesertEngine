@@ -35,22 +35,34 @@ static std::string Headed( const std::string& json )
 
 namespace
 {
-    // Two keys and two languages: a plain label, and a counted noun whose Russian needs three forms.
-    const char* kTable = R"({
+    // Two languages, one file each (STRT 3): a plain label, a counted noun whose Russian needs three forms,
+    // and a gendered verb.
+    const char* kTableEn = R"({
       "DisplayName": "Suite fixture",
       "Entries": [
-        { "Key": "menu.play",   "Forms": { "en": { "other": "PLAY" },
-                                           "ru": { "other": "\u0418\u0413\u0420\u0410\u0422\u042C" } } },
-        { "Key": "files.count", "Forms": { "en": { "one": "{n} file", "other": "{n} files" },
-                                           "ru": { "one":   "{n} \u0444\u0430\u0439\u043B",
-                                                   "few":   "{n} \u0444\u0430\u0439\u043B\u0430",
-                                                   "many":  "{n} \u0444\u0430\u0439\u043B\u043E\u0432",
-                                                   "other": "{n} \u0444\u0430\u0439\u043B\u0430" } } },
-        { "Key": "joined",      "Forms": { "ru": { "masculine": "\u0432\u043E\u0448\u0451\u043B",
-                                                   "feminine":  "\u0432\u043E\u0448\u043B\u0430",
-                                                   "other":     "\u0432\u043E\u0448\u0451\u043B" },
-                                           "en": { "other": "joined" } } }
+        { "Key": "menu.play",   "Forms": { "other": "PLAY" } },
+        { "Key": "files.count", "Forms": { "one": "{n} file", "other": "{n} files" } },
+        { "Key": "joined",      "Forms": { "other": "joined" } }
       ]})";
+    const char* kTableRu = R"({
+      "DisplayName": "Suite fixture",
+      "Entries": [
+        { "Key": "menu.play",   "Forms": { "other": "\u0418\u0413\u0420\u0410\u0422\u042C" } },
+        { "Key": "files.count", "Forms": { "one":   "{n} \u0444\u0430\u0439\u043B",
+                                           "few":   "{n} \u0444\u0430\u0439\u043B\u0430",
+                                           "many":  "{n} \u0444\u0430\u0439\u043B\u043E\u0432",
+                                           "other": "{n} \u0444\u0430\u0439\u043B\u0430" } },
+        { "Key": "joined",      "Forms": { "masculine": "\u0432\u043E\u0448\u0451\u043B",
+                                           "feminine":  "\u0432\u043E\u0448\u043B\u0430",
+                                           "other":     "\u0432\u043E\u0448\u0451\u043B" } }
+      ]})";
+
+    void RegisterFixture( const char* id, const char* language, const char* json )
+    {
+        auto parsed = ParseStringTable( Headed( json ) );
+        ASSERT_TRUE( parsed ) << parsed.GetError();
+        ASSERT_TRUE( Localization::Get().RegisterTable( id, language, parsed.ExtractValue() ) );
+    }
 
     // The service is a process-wide singleton, exactly like UI::UIDataStore next door. Every test puts it
     // back the way it found it, or the next one is testing the previous one's leftovers.
@@ -60,9 +72,8 @@ namespace
         {
             Localization::Get().Clear();
             ASSERT_TRUE( Localization::Get().SetLanguage( Localization::kSourceLanguage ) );
-            auto parsed = ParseStringTable( Headed( kTable ) );
-            ASSERT_TRUE( parsed ) << parsed.GetError();
-            ASSERT_TRUE( Localization::Get().RegisterTable( "suite.destrings", parsed.ExtractValue() ) );
+            RegisterFixture( "en/suite.destrings", "en", kTableEn );
+            RegisterFixture( "ru/suite.destrings", "ru", kTableRu );
         }
 
         void TearDown() override
@@ -259,12 +270,12 @@ TEST_F( Fixture, TwoTablesCannotClaimOneKey )
 {
     Localization& loc   = Localization::Get();
     const char*   rival = R"({"Entries":[
-        {"Key":"menu.play","Forms":{"en":{"other":"START"}}},
-        {"Key":"menu.quit","Forms":{"en":{"other":"QUIT"}}}]})";
+        {"Key":"menu.play","Forms":{"other":"START"}},
+        {"Key":"menu.quit","Forms":{"other":"QUIT"}}]})";
 
     auto parsed = ParseStringTable( Headed( rival ) );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    const auto refused = loc.RegisterTable( "rival.destrings", parsed.ExtractValue() );
+    const auto refused = loc.RegisterTable( "en/rival.destrings", "en", parsed.ExtractValue() );
     EXPECT_FALSE( refused );
     // Both files named, because "a key is defined twice" is unactionable without knowing where.
     EXPECT_NE( refused.GetError().find( "rival.destrings" ), std::string::npos );
@@ -274,22 +285,30 @@ TEST_F( Fixture, TwoTablesCannotClaimOneKey )
     // comes before the clash in file order, so a partial insert is exactly what a naive loop leaves.
     EXPECT_EQ( loc.Resolve( "#menu.quit" ).Outcome, Localization::Outcome::MissingKey );
     EXPECT_EQ( loc.Resolve( "#menu.play" ).Text, "PLAY" );
+
+    // THE SAME KEY IN ANOTHER LANGUAGE'S FILE IS NOT A CLASH - that is what a translation is.
+    auto german = ParseStringTable( Headed( R"({"Entries":[{"Key":"menu.play","Forms":{"other":"SPIELEN"}}]})" ) );
+    ASSERT_TRUE( german ) << german.GetError();
+    EXPECT_TRUE( loc.RegisterTable( "de/suite.destrings", "de", german.ExtractValue() ) );
 }
 
 TEST_F( Fixture, ReRegisteringATableREPLACESItSoADeletedKeyIsDeleted )
 {
     Localization& loc    = Localization::Get();
     const char*   shrunk = R"({"Entries":[
-        {"Key":"menu.play","Forms":{"en":{"other":"GO"}}}]})";
+        {"Key":"menu.play","Forms":{"other":"GO"}}]})";
 
     auto parsed = ParseStringTable( Headed( shrunk ) );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    ASSERT_TRUE( loc.RegisterTable( "suite.destrings", parsed.ExtractValue() ) );
+    ASSERT_TRUE( loc.RegisterTable( "en/suite.destrings", "en", parsed.ExtractValue() ) );
 
     EXPECT_EQ( loc.Resolve( "#menu.play" ).Text, "GO" );
     // The key the new version of the file does NOT have must be gone. Leaving it would make a deletion a
     // no-op and the hot reload would report itself as working.
-    EXPECT_EQ( loc.Resolve( "#files.count" ).Outcome, Localization::Outcome::MissingKey );
+    EXPECT_EQ( loc.Resolve( "#files.count" ).Outcome, Localization::Outcome::MissingLanguage );
+    // ...and only THAT file's forms went: the Russian file still answers the key.
+    ASSERT_TRUE( loc.SetLanguage( "ru" ) );
+    EXPECT_EQ( loc.Resolve( "#files.count" ).Outcome, Localization::Outcome::Translated );
 }
 
 TEST( LocalizedText, PlaceholdersFormatThroughTheLOCALEAndAnUnansweredOneStaysVisible )
@@ -332,28 +351,35 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
     };
     const Case cases[] = {
          { R"({"FormatVersion":1,"Entries":[]})", "SceneMigrator" },
-         { R"({"Entries":[{"Key":"","Forms":{"en":{"other":"x"}}}]})", "empty Key" },
-         { R"({"Entries":[{"Key":"Menu.Play","Forms":{"en":{"other":"x"}}}]})", "Menu.Play" },
-         { R"({"Entries":[{"Key":"a","Forms":{"en":{"other":"x"}}},
-                          {"Key":"a","Forms":{"en":{"other":"y"}}}]})",
+         { R"({"Entries":[{"Key":"","Forms":{"other":"x"}}]})", "empty Key" },
+         { R"({"Entries":[{"Key":"Menu.Play","Forms":{"other":"x"}}]})", "Menu.Play" },
+         { R"({"Entries":[{"Key":"a","Forms":{"other":"x"}},
+                          {"Key":"a","Forms":{"other":"y"}}]})",
            "twice" },
-         { R"({"Entries":[{"Key":"a","Forms":{"gb":{"other":"x"}}}]})", "gb" },
          // `other` is present, so this case isolates the SELECTOR refusal from the missing-other one.
-         { R"({"Entries":[{"Key":"a","Forms":{"en":{"other":"ok","singular":"x"}}}]})", "singular" },
-         { R"({"Entries":[{"Key":"a","Forms":{"en":{}}}]})", "no forms" },
-         { R"({"Entries":[{"Key":"a","Forms":{}}]})", "no languages" },
-         { R"({"Entries":[{"Key":"a","Forms":{"en":{"other":""}}}]})", "EMPTY" },
+         { R"({"Entries":[{"Key":"a","Forms":{"other":"ok","singular":"x"}}]})", "singular" },
+         { R"({"Entries":[{"Key":"a","Forms":{}}]})", "no forms" },
+         { R"({"Entries":[{"Key":"a","Forms":{"other":""}}]})", "EMPTY" },
          // No `other`: the entry cannot answer a caller that gives no count and no gender, and in Russian
          // it cannot answer a printed fraction either. Refused where the author can see the file.
-         { R"({"Entries":[{"Key":"a","Forms":{"ru":{"one":"x","few":"y","many":"z"}}}]})", "other" },
+         { R"({"Entries":[{"Key":"a","Forms":{"one":"x","few":"y","many":"z"}}]})", "other" },
+         // A STRT 2 file (every language in one) is not read: its rows are language -> forms, which would
+         // parse as selectors called "en" - refused by the header's number before that can happen.
+         { "STRT2", "version 2" },
          { "", "empty" },
          { "{ not json", "" },
     };
 
     for ( const Case& c : cases )
     {
-        const std::string json =
-             std::string_view( c.json ).starts_with( "{\"Entries\"" ) ? Headed( c.json ) : c.json;
+        std::string json = std::string_view( c.json ).starts_with( "{\"Entries\"" ) ? Headed( c.json ) : c.json;
+        if ( std::string_view( c.json ) == "STRT2" )
+        {
+            json                 = Headed( R"({"Entries":[{"Key":"a","Forms":{"other":"x"}}]})" );
+            const std::size_t at = json.find( "\"STRT\":3" );
+            ASSERT_NE( at, std::string::npos ) << json;
+            json.replace( at, 8, "\"STRT\":2" );
+        }
         const auto parsed = ParseStringTable( json );
         ASSERT_FALSE( parsed ) << "accepted: " << c.json;
         if ( *c.mustMention != '\0' )
@@ -363,21 +389,90 @@ TEST( LocalizedText, EveryWayATableCanBeWrongIsRefusedByName )
 
     // A gendered selector and a gender.plural selector are both legal, and so is every CLDR category.
     const auto good = ParseStringTable( Headed(
-         R"({"Entries":[{"Key":"a","Comment":"note","Forms":{"ru":{"feminine.one":"x","masculine":"y",
-             "zero":"z","two":"w","few":"v","many":"u","other":"t"}}}]})" ) );
+         R"({"Entries":[{"Key":"a","Comment":"note","Forms":{"feminine.one":"x","masculine":"y",
+             "zero":"z","two":"w","few":"v","many":"u","other":"t"}}]})" ) );
     EXPECT_TRUE( good ) << ( good ? "" : good.GetError() );
 }
 
 TEST( LocalizedText, ATableRoundTripsThroughItsOwnWriter )
 {
     auto parsed = ParseStringTable( Headed( R"({"DisplayName":"D","Entries":[
-        {"Key":"a","Comment":"why","Forms":{"en":{"other":"A"},"ru":{"one":"B","few":"C","many":"D","other":"E"}}}]})" ) );
+        {"Key":"a","Comment":"why","Forms":{"one":"B","few":"C","many":"D","other":"E"}}]})" ) );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const StringTableData original = parsed.ExtractValue();
 
     const auto again = ParseStringTable( WriteStringTable( original ) );
     ASSERT_TRUE( again ) << again.GetError();
     EXPECT_EQ( again.GetValue(), original );
+}
+
+TEST( LocalizedText, ATablesLanguageIsItsDirectoryAndAnUnknownOneIsRefusedByName )
+{
+    const auto ru = StringTableLanguageOf( "Assets/Localization/ru/MainMenu.destrings" );
+    ASSERT_TRUE( ru ) << ru.GetError();
+    EXPECT_EQ( std::string( ru.GetValue()->Tag ), "ru" );
+
+    const auto gb = StringTableLanguageOf( "Assets/Localization/gb/MainMenu.destrings" );
+    ASSERT_FALSE( gb );
+    EXPECT_NE( gb.GetError().find( "'gb'" ), std::string::npos ) << gb.GetError();
+    // The STRT 2 place - straight under Localization/ - is not a language either.
+    EXPECT_FALSE( StringTableLanguageOf( "Assets/Localization/MainMenu.destrings" ) );
+}
+
+// AL1-7b: A SWITCH IS A REQUEST. The old language stays on screen, resolving and not logging, until the new
+// language's last file has arrived; then the switch lands in one generation.
+TEST_F( Fixture, ASwitchKeepsTheOldLanguageUntilTheNewLanguagesTablesArrive )
+{
+    Localization& loc = Localization::Get();
+    loc.UnregisterTable( "ru/suite.destrings" );
+    int asked = 0;
+    loc.BindTableSource( { "en", "ru" },
+                         [&asked]( const LocaleRow& language )
+                         {
+                             if ( language.Tag == "ru" )
+                             {
+                                 ++asked;
+                                 Localization::Get().TableRequested( "ru" );
+                             }
+                         } );
+    ASSERT_EQ( loc.AvailableLanguages().size(), 2u ) << "a language on disk and unread is still offered";
+
+    ASSERT_TRUE( loc.SetLanguage( "ru" ) );
+    EXPECT_EQ( asked, 1 );
+    EXPECT_EQ( std::string( loc.Language().Tag ), "en" );
+    EXPECT_EQ( std::string( loc.RequestedLanguage().Tag ), "ru" );
+    EXPECT_EQ( loc.Resolve( "#menu.play" ).Text, "PLAY" );
+
+    const uint32_t before = loc.Generation();
+    RegisterFixture( "ru/suite.destrings", "ru", kTableRu );
+    EXPECT_EQ( std::string( loc.Language().Tag ), "en" ) << "published is not settled: the request still counts";
+    loc.TableSettled( "ru" );
+    EXPECT_EQ( std::string( loc.Language().Tag ), "ru" );
+    EXPECT_GT( loc.Generation(), before );
+    EXPECT_EQ( loc.Resolve( "#menu.play" ).Outcome, Localization::Outcome::Translated );
+    EXPECT_TRUE( loc.Misses().empty() );
+}
+
+TEST_F( Fixture, WhileTheCurrentLanguageIsOnItsWayAKeyIsPendingNotAMiss )
+{
+    Localization& loc = Localization::Get();
+    loc.Clear();
+    loc.BindTableSource( { "en" },
+                         []( const LocaleRow& language ) { Localization::Get().TableRequested( language.Tag ); } );
+    ASSERT_TRUE( loc.SetLanguage( "en" ) );
+    ASSERT_TRUE( loc.IsPending( loc.Language() ) );
+
+    const auto early = loc.Resolve( "#menu.play" );
+    EXPECT_EQ( early.Outcome, Localization::Outcome::Pending );
+    EXPECT_EQ( early.Text, "#menu.play" );
+    EXPECT_TRUE( loc.Misses().empty() ) << "a table on its way is not a missing translation";
+
+    RegisterFixture( "en/suite.destrings", "en", kTableEn );
+    loc.TableSettled( "en" );
+    EXPECT_EQ( loc.Resolve( "#menu.play" ).Text, "PLAY" );
+    // Settled and still absent IS a miss, and is named.
+    EXPECT_EQ( loc.Resolve( "#menu.nowhere" ).Outcome, Localization::Outcome::MissingKey );
+    EXPECT_FALSE( loc.Misses().empty() );
 }
 
 int main( int argc, char** argv )

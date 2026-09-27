@@ -11,7 +11,7 @@
 
 #include "Shader/ShaderAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
-#include "StringTableAsset.hpp"
+#include "StringTableSource.hpp"
 
 namespace Desert::Assets
 {
@@ -207,24 +207,18 @@ namespace Desert::Assets
                                        nullptr );
     }
 
-    }
-
     void AssetPreloader::PreloadStringTables()
     {
-        // LOADING IS PUBLISHING for this type: StringTableAsset::Load hands its rows to the process-wide
-        // Localization lookup, so there is no register loop after the scan the way the cloud stages have
-        // one. That is deliberate — a table that parsed but was not published would be an asset reporting
-        // success while every key it owns resolved as missing, which is the empty-successful-answer shape.
-        //
-        // ORDER IS FREE: a table names no other asset and no other asset names it. It is FIRST among the
-        // optional stages anyway, because a missing translation is visible on the very first frame drawn
-        // and the log line it produces is much easier to read before the rest of the content arrives.
+        // ONE LANGUAGE, REQUESTED, NOT EVERY TRANSLATION READ HERE (AL1-7b). A table is a file per language
+        // (`Localization/<language>/`), so the registry says which files the current language needs without
+        // opening any; they are read on AsyncAssetLoader workers and published on the main thread as they
+        // land, while the ContentGate holds the loading screen (it waits on the loader's outstanding count).
+        // The other languages' files are read only when `SetLanguage` asks for them.
         //
         // A PROJECT WITH NO Localization/ FOLDER IS NOT AN ERROR. It is a project whose UI is authored in
-        // literals, which is every project that predates this stage; the scan matches nothing, no table is
-        // published, and every literal element draws exactly what it drew before.
-        ProcessAssetKind<StringTableAsset>( Common::Content::ContentKind::StringTable, m_AssetManager,
-                                            AssetPriority::High, nullptr );
+        // literals; the registry lists nothing, nothing is requested, and every literal draws as before.
+        if ( const auto begun = BeginStringTables( m_AssetManager ); !begun )
+            LOG_ERROR( "[Localization] {}", begun.GetError() );
     }
 
     std::size_t AssetPreloader::CookedAssetRowCount()

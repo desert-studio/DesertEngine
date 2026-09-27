@@ -295,6 +295,8 @@ TEST( AssetMissingFile, EnvironmentCacheMissNamesTheCubeItLookedFor )
                                                 source, radiance );
     ASSERT_FALSE( read.IsSuccess() );
     EXPECT_NE( read.GetError().find( missing.string() ), std::string::npos ) << read.GetError();
+}
+
 // A CLOUD TYPE IS A SCENE DEPENDENCY READ ON A WORKER, NOT IN THE FRAME (AL1-7). No boot stage reads every
 // `.decloudtype`; the first layer naming one creates it from its registry row and REQUESTS the read. Until it
 // lands the service answers Pending with the built-in shape; afterwards it answers the file's own shape - and

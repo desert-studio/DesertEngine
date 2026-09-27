@@ -1451,9 +1451,9 @@ TEST( AssetHandleStability, AStringTableHandleIsHandleForGuidOfItsHeader )
     fs::create_directories( dir );
     const fs::path                        file = dir / "A.destrings";
     Desert::Localization::StringTableData data;
-    Desert::Localization::LocalizedEntry  entry;
+    Desert::Localization::StringTableEntry entry;
     entry.Key         = "menu.play";
-    entry.Forms["en"] = { { "other", "PLAY" } };
+    entry.Forms       = { { "other", "PLAY" } };
     data.Entries.push_back( entry );
     ASSERT_TRUE( Desert::Assets::StringTableAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::StringTableAsset>( file, Common::Content::ContentKind::StringTable );
@@ -1606,9 +1606,9 @@ namespace
     bool WriteStringTable( const std::filesystem::path& file )
     {
         Desert::Localization::StringTableData data;
-        Desert::Localization::LocalizedEntry  entry;
+        Desert::Localization::StringTableEntry entry;
         entry.Key         = "af10d.play";
-        entry.Forms["en"] = { { "other", "PLAY" } };
+        entry.Forms       = { { "other", "PLAY" } };
         data.Entries.push_back( entry );
         return static_cast<bool>( Desert::Assets::StringTableAsset::Save( file, data ) );
     }
@@ -1684,7 +1684,9 @@ TEST_P( AssetOpenedByItsOldPath, IsTheMovedAssetAndLoadsItsBytes )
     root = fs::canonical( root );
     Common::Constants::Path::SetProjectRoot( root, "Resources/Assets" );
     const fs::path& spec = *Common::Content::KindSpec( kind.Kind ).Root;
-    const fs::path  dir  = spec.is_absolute() ? spec : root / spec;
+    // A string table's language is its directory (STRT 3), so it sits one level down, as in a project.
+    const fs::path dir = ( spec.is_absolute() ? spec : root / spec ) /
+                         ( kind.Kind == Common::Content::ContentKind::StringTable ? "en" : "" );
     fs::create_directories( dir );
     const fs::path oldFile = dir / ( "Before" + ext );
     const fs::path newFile = dir / ( "After" + ext );
