@@ -22,6 +22,7 @@
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -97,19 +98,16 @@ namespace Desert::Editor::Tools
         };
         PickerEntries ScanPicker()
         {
-            PickerEntries   out;
-            std::error_code ec;
-            for ( auto it =
-                       std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
-                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            PickerEntries out;
+            // Through the one content enumeration (loose files and a mounted .dpak alike).
+            for ( const std::filesystem::path& file :
+                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ) )
             {
-                if ( !it->is_regular_file() )
-                    continue;
-                const std::string ext = it->path().extension().string();
+                const std::string ext = file.extension().string();
                 if ( ext == Assets::Serialization::kFoliageTypeExtension )
-                    out.Types.push_back( it->path() );
+                    out.Types.push_back( file );
                 else if ( ext == ".fbx" || ext == ".obj" || ext == ".gltf" || ext == ".glb" )
-                    out.Meshes.push_back( it->path() );
+                    out.Meshes.push_back( file );
             }
             std::ranges::sort( out.Types );
             std::ranges::sort( out.Meshes );

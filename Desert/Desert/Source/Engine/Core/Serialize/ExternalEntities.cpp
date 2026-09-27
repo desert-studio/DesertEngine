@@ -76,21 +76,15 @@ namespace Desert::Core::ExternalEntities
         Common::ResultStr<std::vector<std::filesystem::path>>
         PiecesOnDisk( const std::filesystem::path& scenePath )
         {
-            using Result = std::vector<std::filesystem::path>;
+            // Through the one content enumeration: a packaged world's pieces live in a mounted .dpak, and a
+            // missing folder contributes nothing.
             std::vector<std::filesystem::path> pieces;
-            const std::filesystem::path        root = DirectoryOf( scenePath );
-            std::error_code                    ec;
-            if ( !std::filesystem::exists( root, ec ) )
-                return Common::MakeSuccess( std::move( pieces ) );
-            for ( std::filesystem::recursive_directory_iterator it( root, ec ), end; !ec && it != end;
-                  it.increment( ec ) )
+            for ( const std::filesystem::path& file :
+                  Common::Utils::FileSystem::ListFilesRecursive( DirectoryOf( scenePath ) ) )
             {
-                if ( it->is_regular_file() && it->path().extension() == kExtension )
-                    pieces.push_back( it->path() );
+                if ( file.extension() == kExtension )
+                    pieces.push_back( file );
             }
-            if ( ec )
-                return Common::MakeError<Result>(
-                     fmt::format( "could not list {}: {}", root.string(), ec.message() ) );
             return Common::MakeSuccess( std::move( pieces ) );
         }
     } // namespace

@@ -5621,20 +5621,17 @@ namespace Desert::Editor
         }
         // FOLIAGE (FO-3): a type file into the palette, and the stroke a hand gives at the viewport centre.
         {
-            std::error_code ec;
-            for ( auto it =
-                       std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
-                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            // Through the one content enumeration (loose files and a mounted .dpak alike).
+            for ( const std::filesystem::path& file :
+                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ) )
             {
-                if ( !it->is_regular_file() )
-                    continue;
-                const std::string ext  = it->path().extension().string();
-                const std::string path = it->path().generic_string();
+                const std::string ext  = file.extension().string();
+                const std::string path = file.generic_string();
                 // NOLINTBEGIN(bugprone-exception-escape)
                 // FO-UI1: the "+ Foliage" picker's static meshes (a type is found or made for the mesh).
                 if ( ext == ".fbx" || ext == ".obj" || ext == ".gltf" || ext == ".glb" )
                     commands.push_back(
-                         { "Foliage", "Add mesh to the palette: " + it->path().stem().string(), [this, path]
+                         { "Foliage", "Add mesh to the palette: " + file.stem().string(), [this, path]
                            {
                                if ( !m_MainScene || !m_AssetManager )
                                    return PaletteCommandOutcome( false, "no scene or no asset manager" );
@@ -5644,7 +5641,7 @@ namespace Desert::Editor
                 if ( ext != Assets::Serialization::kFoliageTypeExtension )
                     continue;
                 commands.push_back(
-                     { "Foliage", "Add type to the palette: " + it->path().stem().string(), [this, path]
+                     { "Foliage", "Add type to the palette: " + file.stem().string(), [this, path]
                        {
                            if ( !m_MainScene || !m_AssetManager )
                                return PaletteCommandOutcome( false, "no scene or no asset manager" );
@@ -5653,7 +5650,7 @@ namespace Desert::Editor
                        } } );
                 // FO-UI1: the row menu's Replace.
                 commands.push_back(
-                     { "Foliage", "Replace the edited type with: " + it->path().stem().string(), [this, path]
+                     { "Foliage", "Replace the edited type with: " + file.stem().string(), [this, path]
                        {
                            const auto editing = Core::FoliagePaint::EditingType();
                            if ( !m_MainScene || !m_AssetManager || !editing )
