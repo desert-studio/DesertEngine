@@ -221,7 +221,8 @@ namespace Desert::Core::Rules
     // The id of batch @p batch of the HLOD named @p name in world @p world: a function of the three, as a file's
     // GUID is, so a re-cook (and a second Play of the same scene) reproduces it. Zero is a possible hash and is
     // the null id; the caller refuses it, and an id that meets another record's.
-    [[nodiscard]] inline Common::UUID HLODRecordId( std::string_view world, std::string_view name, std::size_t batch )
+    [[nodiscard]] inline Common::UUID HLODRecordId( std::string_view world, std::string_view name,
+                                                    std::size_t batch )
     {
         const std::string identity =
              std::string( world ) + "\nHLOD\n" + std::string( name ) + "\n" + std::to_string( batch );
@@ -230,11 +231,12 @@ namespace Desert::Core::Rules
 
     // The record of batch @p batch: an entity with only the InstancedStaticMesh block, which ComponentRegistry
     // loads as it loads any authored ISM. What the cook writes to the HLOD file and editor Play instantiates.
-    [[nodiscard]] inline Assets::EntityData HLODRecord( const HLODBatch& batch, Common::UUID id, std::size_t index )
+    [[nodiscard]] inline Assets::EntityData HLODRecord( const HLODBatch& batch, Common::UUID id,
+                                                        std::size_t index )
     {
         Assets::EntityData record;
-        record.id  = id;
-        record.Tag = "HLOD " + std::to_string( index );
+        record.id                                                  = id;
+        record.Tag                                                 = "HLOD " + std::to_string( index );
         record.Components[std::string( kInstancePointsComponent )] = Common::Json::FromStruct( batch.Block );
         return record;
     }

@@ -119,9 +119,9 @@ namespace Desert::Core
             std::unordered_map<Common::UUID, std::size_t> byId;
             for ( std::size_t record = 0; record < snapshot->Entities.size(); ++record )
                 byId.emplace( streamer->m_RecordIds[record], record );
-            const std::vector<glm::mat4>     world = Rules::Detail::ComposeWorld( snapshot->Entities, byId );
-            Common::Json::Issues             issues;
-            std::vector<CellHLOD>            hlods;
+            const std::vector<glm::mat4>      world = Rules::Detail::ComposeWorld( snapshot->Entities, byId );
+            Common::Json::Issues              issues;
+            std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
             for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
             {
@@ -139,7 +139,8 @@ namespace Desert::Core
                     if ( id.IsNull() || byId.contains( id ) )
                         return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                           "': the id of batch " + std::to_string( batch ) +
-                                                          " of " + name + " is null or a record's; rename the world" );
+                                                          " of " + name +
+                                                          " is null or a record's; rename the world" );
                     hlod.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
                 }
                 hlods.push_back( std::move( hlod ) );
@@ -329,7 +330,8 @@ namespace Desert::Core
             for ( Assets::EntityData& record : hlod.Records )
             {
                 if ( !record.id.has_value() || record.id->IsNull() )
-                    return Common::MakeError( "world streaming of '" + m_SceneName + "': a record of the HLOD of " +
+                    return Common::MakeError( "world streaming of '" + m_SceneName +
+                                              "': a record of the HLOD of " +
                                               Rules::DescribeResidencyUnit( Executor().Plan(), hlod.Unit ) +
                                               " has no id, so it could not be shown or hidden" );
                 ids.push_back( *record.id );

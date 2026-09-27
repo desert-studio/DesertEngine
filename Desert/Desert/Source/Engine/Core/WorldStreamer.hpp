@@ -165,7 +165,7 @@ namespace Desert::Core
         };
         // Makes every HLOD's records entities, then shows the ones whose cell is not visible now — before the
         // first frame, so the first frame already has no hole and no double. @p holes are said once, by reason.
-        [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                  hlods,
+        [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                         std::span<const Rules::HLODExclusion> holes );
 
         Scene*                m_Scene;
