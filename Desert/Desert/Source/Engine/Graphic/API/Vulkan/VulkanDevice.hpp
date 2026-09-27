@@ -3,20 +3,20 @@
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 
 #include <Engine/Core/Device.hpp>
+#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 
 #include <vulkan/vulkan.h>
 
 #include <chrono>
 #include <mutex>
 #include <optional>
-#include <unordered_set>
 
 namespace Desert::Graphic::API::Vulkan
 {
     class VulkanPhysicalDevice final
     {
     public:
-        VulkanPhysicalDevice();
+        explicit VulkanPhysicalDevice( ProbedDevice probed );
         ~VulkanPhysicalDevice() = default;
 
         /// THE RAW PROBE RESULT, and the only place an absent family may be represented. `PresentFamily`
@@ -46,10 +46,6 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_PhysicalDevice;
         }
-        bool IsExtensionSupported( const std::string& extensionName ) const
-        {
-            return m_SupportedExtensions.find( extensionName ) != m_SupportedExtensions.end();
-        }
 
         /// The families the device advertised, read once at construction; callers that need a family's
         /// flags read them here instead of enumerating the device a second time.
@@ -60,23 +56,24 @@ namespace Desert::Graphic::API::Vulkan
 
         [[nodiscard]] uint32_t GetGraphicsFamily() const
         {
-            DESERT_VERIFY( m_QueueFamiliesResolved, "queue families read before CreateDevice() settled them" );
+            DESERT_VERIFY( m_QueueFamiliesResolved,
+                           "queue families read before VulkanPhysicalDevice::Create() settled them" );
             return m_ResolvedQueueFamilies.Graphics;
         }
 
         [[nodiscard]] uint32_t GetComputeFamily() const
         {
-            DESERT_VERIFY( m_QueueFamiliesResolved, "queue families read before CreateDevice() settled them" );
+            DESERT_VERIFY( m_QueueFamiliesResolved,
+                           "queue families read before VulkanPhysicalDevice::Create() settled them" );
             return m_ResolvedQueueFamilies.Compute;
         }
 
         [[nodiscard]] uint32_t GetTransferFamily() const
         {
-            DESERT_VERIFY( m_QueueFamiliesResolved, "queue families read before CreateDevice() settled them" );
+            DESERT_VERIFY( m_QueueFamiliesResolved,
+                           "queue families read before VulkanPhysicalDevice::Create() settled them" );
             return m_ResolvedQueueFamilies.Transfer;
         }
-
-        Common::ResultStr<bool> CreateDevice();
 
         VkFormat GetDepthFormat() const
         {
@@ -88,7 +85,18 @@ namespace Desert::Graphic::API::Vulkan
             return m_Capabilities;
         }
 
-        static std::shared_ptr<VulkanPhysicalDevice> Create();
+        [[nodiscard]] const DeviceCaps& GetDeviceCaps() const
+        {
+            return m_DeviceCaps;
+        }
+        [[nodiscard]] const vkb::PhysicalDevice& GetBootstrapDevice() const
+        {
+            return *m_Bootstrap;
+        }
+
+        // Refuses a device whose queue families cannot carry the engine's work (by name, with counts).
+        [[nodiscard]] static Common::ResultStr<std::shared_ptr<VulkanPhysicalDevice>>
+        Create( ProbedDevice probed );
 
     private:
         VkFormat           FindDepthFormat() const;
@@ -97,7 +105,6 @@ namespace Desert::Graphic::API::Vulkan
     private:
         VkPhysicalDevice                     m_PhysicalDevice = VK_NULL_HANDLE;
         std::vector<VkQueueFamilyProperties> m_QueueFamilyProperties;
-        std::vector<VkDeviceQueueCreateInfo> m_QueueCreateInfos;
         QueueFamilyIndices                   m_QueueFamilyIndices;
         ResolvedQueueFamilies                m_ResolvedQueueFamilies;
         bool                                 m_QueueFamiliesResolved = false;
@@ -106,7 +113,8 @@ namespace Desert::Graphic::API::Vulkan
 
         Engine::DeviceCapabilities m_Capabilities;
 
-        std::unordered_set<std::string> m_SupportedExtensions;
+        std::shared_ptr<vkb::PhysicalDevice> m_Bootstrap;
+        DeviceCaps                           m_DeviceCaps;
 
     private:
         friend class VulkanLogicalDevice;
@@ -115,7 +123,9 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanLogicalDevice : public Engine::Device
     {
     public:
-        VulkanLogicalDevice();
+        explicit VulkanLogicalDevice( std::shared_ptr<VulkanPhysicalDevice> physicalDevice );
+        // Selects and probes the device (DeviceCapsProbe), refuses one without the required set, creates it.
+        [[nodiscard]] static Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> Create();
         ~VulkanLogicalDevice() override;
 
         // Device interface implementation

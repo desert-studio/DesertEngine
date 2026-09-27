@@ -4,6 +4,7 @@
 #include <Engine/Project/ProjectContext.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <vk-bootstrap/VkBootstrap.h>
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -45,87 +46,40 @@ namespace Desert::Graphic::API::Vulkan
         // as soon as the driver has built new pipelines, and at most this often while it keeps building.
     } // namespace
 
-    VulkanPhysicalDevice::VulkanPhysicalDevice()
+    VulkanPhysicalDevice::VulkanPhysicalDevice( ProbedDevice probed )
+         : m_Bootstrap( std::move( probed.Physical ) ), m_DeviceCaps( std::move( probed.Caps ) )
     {
-        CreateDevice();
-    }
+        m_PhysicalDevice                                   = m_Bootstrap->physical_device;
+        const VkPhysicalDeviceProperties& deviceProperties = m_Bootstrap->properties;
 
-    Common::ResultStr<bool> VulkanPhysicalDevice::CreateDevice()
-    {
-        auto& instance =
-             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanInstance();
-        uint32_t deviceCount = 0;
-        vkEnumeratePhysicalDevices( instance, &deviceCount, nullptr );
-        DESERT_VERIFY( deviceCount, "Failed to find GPUs with Vulkan support!" );
-        std::vector<VkPhysicalDevice> devices( deviceCount );
-        vkEnumeratePhysicalDevices( instance, &deviceCount, devices.data() );
+        m_Capabilities.MaxStorageBufferSize         = deviceProperties.limits.maxStorageBufferRange;
+        m_Capabilities.StorageBufferAlignment       = deviceProperties.limits.minStorageBufferOffsetAlignment;
+        m_Capabilities.SupportsWideLines            = m_DeviceCaps.Has( Capability::WideLines );
+        m_Capabilities.MaxLineWidth                 = deviceProperties.limits.lineWidthRange[1];
+        m_Capabilities.SupportsAnisotropy           = m_DeviceCaps.Has( Capability::SamplerAnisotropy );
+        m_Capabilities.MaxAnisotropy                = deviceProperties.limits.maxSamplerAnisotropy;
+        m_Capabilities.SupportsNonSolidFill         = m_DeviceCaps.Has( Capability::FillModeNonSolid );
+        m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( Capability::TextureCompressionBC );
 
-        VkPhysicalDevice           selectedPhysicalDevice = nullptr;
-        VkPhysicalDeviceProperties deviceProperties{};
-        VkPhysicalDeviceFeatures   deviceFeatures{};
-
-        // Pick the BEST available GPU by type: discrete > integrated > virtual > anything. An
-        // integrated GPU is the NORMAL case on Apple Silicon (there is no discrete one), not a
-        // fallback — so this is a ranking, not a requirement, and it never warns. Geometry-shader
-        // support is NOT required: MoltenVK has none and nothing in the renderer uses them.
-        auto deviceScore = []( VkPhysicalDevice device )
+        // --- Identity ---
+        m_Capabilities.Name = deviceProperties.deviceName;
+        switch ( deviceProperties.deviceType )
         {
-            VkPhysicalDeviceProperties props;
-            vkGetPhysicalDeviceProperties( device, &props );
-            switch ( props.deviceType )
-            {
-                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   return 4;
-                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return 3;
-                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    return 2;
-                case VK_PHYSICAL_DEVICE_TYPE_CPU:            return 1;
-                default:                                     return 0;
-            }
-        };
-
-        int bestScore = -1;
-        for ( const auto& device : devices )
-        {
-            const int score = deviceScore( device );
-            if ( score > bestScore )
-            {
-                bestScore              = score;
-                selectedPhysicalDevice = device;
-            }
-        }
-
-        if ( selectedPhysicalDevice )
-        {
-            vkGetPhysicalDeviceProperties( selectedPhysicalDevice, &deviceProperties );
-            vkGetPhysicalDeviceFeatures( selectedPhysicalDevice, &deviceFeatures );
-
-            m_Capabilities.MaxStorageBufferSize   = deviceProperties.limits.maxStorageBufferRange;
-            m_Capabilities.StorageBufferAlignment = deviceProperties.limits.minStorageBufferOffsetAlignment;
-            m_Capabilities.SupportsWideLines      = deviceFeatures.wideLines == VK_TRUE;
-            m_Capabilities.MaxLineWidth           = deviceProperties.limits.lineWidthRange[1];
-            m_Capabilities.SupportsAnisotropy     = deviceFeatures.samplerAnisotropy == VK_TRUE;
-            m_Capabilities.MaxAnisotropy          = deviceProperties.limits.maxSamplerAnisotropy;
-            m_Capabilities.SupportsNonSolidFill   = deviceFeatures.fillModeNonSolid == VK_TRUE;
-            m_Capabilities.SupportsTextureCompressionBC = deviceFeatures.textureCompressionBC == VK_TRUE;
-
-            // --- Identity ---
-            m_Capabilities.Name = deviceProperties.deviceName;
-            switch ( deviceProperties.deviceType )
-            {
-                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
-                    m_Capabilities.Type = Engine::DeviceType::Discrete;
-                    break;
-                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
-                    m_Capabilities.Type = Engine::DeviceType::Integrated;
-                    break;
-                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
-                    m_Capabilities.Type = Engine::DeviceType::Virtual;
-                    break;
-                case VK_PHYSICAL_DEVICE_TYPE_CPU:
-                    m_Capabilities.Type = Engine::DeviceType::CPU;
-                    break;
-                default:
-                    m_Capabilities.Type = Engine::DeviceType::Unknown;
-                    break;
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                m_Capabilities.Type = Engine::DeviceType::Discrete;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                m_Capabilities.Type = Engine::DeviceType::Integrated;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                m_Capabilities.Type = Engine::DeviceType::Virtual;
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                m_Capabilities.Type = Engine::DeviceType::CPU;
+                break;
+            default:
+                m_Capabilities.Type = Engine::DeviceType::Unknown;
+                break;
             }
             // PCI-SIG vendor IDs. Apple reports its own rather than a PCI one on Apple Silicon.
             switch ( deviceProperties.vendorID )
@@ -145,9 +99,7 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.MaxTexture2DSize       = deviceProperties.limits.maxImageDimension2D;
             m_Capabilities.MaxTextureArrayLayers  = deviceProperties.limits.maxImageArrayLayers;
             m_Capabilities.MaxColorAttachments    = deviceProperties.limits.maxColorAttachments;
-            m_Capabilities.SupportsGeometryShaders   = deviceFeatures.geometryShader == VK_TRUE;
-            m_Capabilities.SupportsTessellation      = deviceFeatures.tessellationShader == VK_TRUE;
-            m_Capabilities.SupportsMultiDrawIndirect = deviceFeatures.multiDrawIndirect == VK_TRUE;
+            m_Capabilities.SupportsTessellation      = m_DeviceCaps.Has( Capability::TessellationShader );
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
 
@@ -161,8 +113,7 @@ namespace Desert::Graphic::API::Vulkan
             // what every accumulating screen-space pass (SSR trace/resolve, GI resolve, bloom) relies on.
             {
                 VkFormatProperties fmt{};
-                vkGetPhysicalDeviceFormatProperties( selectedPhysicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                                     &fmt );
+                vkGetPhysicalDeviceFormatProperties( m_PhysicalDevice, VK_FORMAT_R32G32B32A32_SFLOAT, &fmt );
                 constexpr VkFormatFeatureFlags kNeeded = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
                                                          VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT |
                                                          VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
@@ -172,8 +123,7 @@ namespace Desert::Graphic::API::Vulkan
 
             // Device-local heap size — the budget the screen-space passes are weighed against.
             {
-                VkPhysicalDeviceMemoryProperties memProps{};
-                vkGetPhysicalDeviceMemoryProperties( selectedPhysicalDevice, &memProps );
+                const VkPhysicalDeviceMemoryProperties& memProps = m_Bootstrap->memory_properties;
                 for ( uint32_t i = 0; i < memProps.memoryHeapCount; ++i )
                     if ( memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT )
                         m_Capabilities.VideoMemory =
@@ -193,31 +143,27 @@ namespace Desert::Graphic::API::Vulkan
             LOG_INFO( "[Vulkan] Caps: textureCompressionBC (BC1-BC7) {}",
                       m_Capabilities.SupportsTextureCompressionBC ? "supported -> enabled on the device"
                                                                   : "NOT supported -- no BC textures" );
-        }
 
-        // Publish anisotropy support to the low-level sampler-creation path (0 = unsupported -> no aniso).
-        Graphic::RenderConfig::MaxAnisotropy =
-             m_Capabilities.SupportsAnisotropy ? m_Capabilities.MaxAnisotropy : 0.0f;
-        Graphic::RenderConfig::WideLines = m_Capabilities.SupportsWideLines; // clamp debug-line width if false
+            // Publish anisotropy support to the low-level sampler-creation path (0 = unsupported -> no aniso).
+            Graphic::RenderConfig::MaxAnisotropy =
+                 m_Capabilities.SupportsAnisotropy ? m_Capabilities.MaxAnisotropy : 0.0f;
+            Graphic::RenderConfig::WideLines = m_Capabilities.SupportsWideLines; // clamp debug-line width if false
 
-        // Publish the device's MSAA ceiling. Derived from the capability computed above rather than
-        // re-querying the driver — one source of truth, so the value the renderer clamps to and the value
-        // GetCapabilities() reports can never disagree.
-        Graphic::RenderConfig::MaxMSAASamples = static_cast<int>( m_Capabilities.MaxMSAASamples() );
+            // Publish the device's MSAA ceiling. Derived from the capability computed above rather than
+            // re-querying the driver — one source of truth, so the value the renderer clamps to and the value
+            // GetCapabilities() reports can never disagree.
+            Graphic::RenderConfig::MaxMSAASamples = static_cast<int>( m_Capabilities.MaxMSAASamples() );
 
-        DESERT_VERIFY( selectedPhysicalDevice, "Could not find any physical devices!" );
+            m_QueueFamilyProperties = m_Bootstrap->get_queue_families();
+            m_DepthFormat           = FindDepthFormat();
+    }
 
-        m_PhysicalDevice = selectedPhysicalDevice;
-
-        uint32_t queueFamilyCount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties( m_PhysicalDevice, &queueFamilyCount, nullptr );
-
-        m_QueueFamilyProperties.resize( queueFamilyCount );
-        vkGetPhysicalDeviceQueueFamilyProperties( m_PhysicalDevice, &queueFamilyCount,
-                                                  m_QueueFamilyProperties.data() );
+    Common::ResultStr<std::shared_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::Create( ProbedDevice probed )
+    {
+        auto device = std::make_shared<VulkanPhysicalDevice>( std::move( probed ) );
 
         int requestedQueueTypes = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
-        m_QueueFamilyIndices    = GetQueueFamilyIndices( requestedQueueTypes );
+        device->m_QueueFamilyIndices = device->GetQueueFamilyIndices( requestedQueueTypes );
 
         // REFUSE HERE, ONCE, BY NAME — this is what makes every reader downstream able to take a plain
         // index. The three lines below used to read `.value_or( -1 )`, which handed Vulkan a queue family
@@ -226,96 +172,55 @@ namespace Desert::Graphic::API::Vulkan
         // an uncaught std::bad_optional_access inside a constructor or undefined behaviour, depending on
         // which of them ran first. GetQueueFamilyIndices() already falls the compute and transfer families
         // back to the graphics one, so all three are present exactly when the graphics family is.
-        if ( !m_QueueFamilyIndices.GraphicsFamily || !m_QueueFamilyIndices.ComputeFamily ||
-             !m_QueueFamilyIndices.TransferFamily )
+        if ( !device->m_QueueFamilyIndices.GraphicsFamily || !device->m_QueueFamilyIndices.ComputeFamily ||
+             !device->m_QueueFamilyIndices.TransferFamily )
         {
-            return Common::MakeFormattedError<bool>(
+            return Common::MakeFormattedError<std::shared_ptr<VulkanPhysicalDevice>>(
                  "the selected physical device reports no usable queue families for the work this engine "
                  "submits — graphics: {}, compute: {}, transfer: {} (of {} families the driver listed)",
-                 m_QueueFamilyIndices.GraphicsFamily ? std::to_string( *m_QueueFamilyIndices.GraphicsFamily )
-                                                     : "none",
-                 m_QueueFamilyIndices.ComputeFamily ? std::to_string( *m_QueueFamilyIndices.ComputeFamily )
-                                                    : "none",
-                 m_QueueFamilyIndices.TransferFamily ? std::to_string( *m_QueueFamilyIndices.TransferFamily )
-                                                     : "none",
-                 m_QueueFamilyProperties.size() );
+                 device->m_QueueFamilyIndices.GraphicsFamily
+                      ? std::to_string( *device->m_QueueFamilyIndices.GraphicsFamily )
+                      : "none",
+                 device->m_QueueFamilyIndices.ComputeFamily
+                      ? std::to_string( *device->m_QueueFamilyIndices.ComputeFamily )
+                      : "none",
+                 device->m_QueueFamilyIndices.TransferFamily
+                      ? std::to_string( *device->m_QueueFamilyIndices.TransferFamily )
+                      : "none",
+                 device->m_QueueFamilyProperties.size() );
         }
 
-        m_ResolvedQueueFamilies.Graphics = *m_QueueFamilyIndices.GraphicsFamily;
-        m_ResolvedQueueFamilies.Compute  = *m_QueueFamilyIndices.ComputeFamily;
-        m_ResolvedQueueFamilies.Transfer = *m_QueueFamilyIndices.TransferFamily;
-        m_QueueFamiliesResolved          = true;
+        device->m_ResolvedQueueFamilies.Graphics = *device->m_QueueFamilyIndices.GraphicsFamily;
+        device->m_ResolvedQueueFamilies.Compute  = *device->m_QueueFamilyIndices.ComputeFamily;
+        device->m_ResolvedQueueFamilies.Transfer = *device->m_QueueFamilyIndices.TransferFamily;
+        device->m_QueueFamiliesResolved          = true;
 
-        static constexpr float queuePriority = 1.0f;
-
-        if ( requestedQueueTypes & VK_QUEUE_GRAPHICS_BIT )
-        {
-            VkDeviceQueueCreateInfo queueCreateInfo{};
-            queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex = m_ResolvedQueueFamilies.Graphics;
-            queueCreateInfo.queueCount       = 1;
-            queueCreateInfo.pQueuePriorities = &queuePriority;
-            m_QueueCreateInfos.push_back( queueCreateInfo );
-        }
-
-        if ( (requestedQueueTypes & VK_QUEUE_COMPUTE_BIT) && 
-             (m_QueueFamilyIndices.ComputeFamily != m_QueueFamilyIndices.GraphicsFamily) )
-        {
-            VkDeviceQueueCreateInfo queueCreateInfo{};
-            queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex = m_ResolvedQueueFamilies.Compute;
-            queueCreateInfo.queueCount       = 1;
-            queueCreateInfo.pQueuePriorities = &queuePriority;
-            m_QueueCreateInfos.push_back( queueCreateInfo );
-        }
-
-        if ( (requestedQueueTypes & VK_QUEUE_TRANSFER_BIT) &&
-             (m_QueueFamilyIndices.TransferFamily != m_QueueFamilyIndices.GraphicsFamily &&
-              m_QueueFamilyIndices.TransferFamily != m_QueueFamilyIndices.ComputeFamily) )
-        {
-            VkDeviceQueueCreateInfo queueCreateInfo{};
-            queueCreateInfo.sType            = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex = m_ResolvedQueueFamilies.Transfer;
-            queueCreateInfo.queueCount       = 1;
-            queueCreateInfo.pQueuePriorities = &queuePriority;
-            m_QueueCreateInfos.push_back( queueCreateInfo );
-        }
-
-        // Zero-initialised: the enumeration's result is dropped, so a failure must still leave a
-        // defined count. See VulkanContext::CreateVKInstance.
-        uint32_t extensionCount = 0;
-        vkEnumerateDeviceExtensionProperties( m_PhysicalDevice, nullptr, &extensionCount, nullptr );
-
-        if ( extensionCount )
-        {
-            std::vector<VkExtensionProperties> availableExtensions( extensionCount );
-            vkEnumerateDeviceExtensionProperties( m_PhysicalDevice, nullptr, &extensionCount,
-                                                  availableExtensions.data() );
-
-            for ( const auto& ext : availableExtensions )
-            {
-                m_SupportedExtensions.emplace( ext.extensionName );
-            }
-        }
-
-        m_DepthFormat = FindDepthFormat();
-
-        return Common::MakeSuccess( true );
+        return Common::MakeSuccess( std::move( device ) );
     }
 
-    std::shared_ptr<VulkanPhysicalDevice> VulkanPhysicalDevice::Create()
+    Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> VulkanLogicalDevice::Create()
     {
-        return std::make_shared<VulkanPhysicalDevice>();
+        auto probed = SelectDevice( VulkanContext::GetBootstrapInstance() );
+        if ( !probed )
+            return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( probed.GetError() );
+        // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
+        // DeviceCaps as core / ext / no ("!" marks the required set).
+        LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
+
+        auto physical = VulkanPhysicalDevice::Create( probed.ExtractValue() );
+        if ( !physical )
+            return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( physical.GetError() );
+
+        auto device = std::make_shared<VulkanLogicalDevice>( physical.ExtractValue() );
+        if ( const auto created = device->CreateDevice(); !created )
+            return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( created.GetError() );
+        return Common::MakeSuccess( std::move( device ) );
     }
 
-    VulkanLogicalDevice::VulkanLogicalDevice()
+    VulkanLogicalDevice::VulkanLogicalDevice( std::shared_ptr<VulkanPhysicalDevice> physicalDevice )
+         : m_PhysicalDevice( std::move( physicalDevice ) ),
+           m_DeviceName( m_PhysicalDevice->GetDeviceCaps().DeviceName )
     {
-        m_PhysicalDevice = std::make_shared<VulkanPhysicalDevice>();
-        CreateDevice();
-
-        VkPhysicalDeviceProperties props;
-        vkGetPhysicalDeviceProperties( m_PhysicalDevice->GetVulkanPhysicalDevice(), &props );
-        m_DeviceName = props.deviceName;
     }
 
     VulkanLogicalDevice::~VulkanLogicalDevice()
@@ -480,82 +385,42 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<bool> VulkanLogicalDevice::CreateDevice()
     {
-        VkDeviceCreateInfo       createInfo{};
-        VkPhysicalDeviceFeatures deviceFeatures{};
-        deviceFeatures.tessellationShader = VK_TRUE; // required for the terrain tessellation pipeline
-        if ( m_PhysicalDevice->m_Capabilities.SupportsWideLines )
-        {
-            deviceFeatures.wideLines = VK_TRUE;
-        }
-        // Independent of wideLines: MoltenVK offers non-solid fill (wireframe) but no wide lines.
-        if ( m_PhysicalDevice->m_Capabilities.SupportsNonSolidFill )
-        {
-            deviceFeatures.fillModeNonSolid = VK_TRUE;
-        }
-        if ( m_PhysicalDevice->m_Capabilities.SupportsAnisotropy )
-        {
-            deviceFeatures.samplerAnisotropy = VK_TRUE;
-        }
-        // textureCompressionBC -- THE BC1..BC7 FORMATS, AND THE ONE LINE THAT MAKES THEM LEGAL.
+        // THE ENABLED SET IS THE PROBED SET. Every feature and extension this device gets was enabled on
+        // m_Bootstrap by DeviceCapsProbe, on the route DeviceCaps planned and only where the driver said
+        // yes — required rows, optional ones (wideLines, anisotropy, textureCompressionBC, memory budget,
+        // portability_subset where MoltenVK advertises it, ray tracing) and the 1.2/1.3 ones VKF2 will
+        // build on. Nothing is added here, so DeviceCaps::Has() is the truth about this VkDevice.
         //
-        // Every BC image the texture pipeline is about to create needs this asked for HERE. The spec is
-        // explicit that a BC format may only be used when the feature is enabled on the device; asking
-        // for format properties instead answers a different question (see Device.hpp on
-        // SupportsTextureCompressionBC), because vkGetPhysicalDeviceFormatProperties describes the
-        // PHYSICAL device and knows nothing about which features this logical device asked for.
-        //
-        // AND THE ABSENCE OF THIS LINE WAS NOT DETECTABLE ON THIS MACHINE. Measured 2026-09-23 with a
-        // probe that creates an 8x8 BC7_UNORM_BLOCK image, uploads four hand-built mode-6 blocks through
-        // a staging buffer, and texelFetches all 64 texels from a compute shader: on MoltenVK 1.1.357 /
-        // Apple M1 Pro the chain returns every texel BIT-EXACT whether the feature is enabled or not,
-        // with zero messages from validation layer 1.4.350.1 (which was proved live in the same run by
-        // a deliberate anisotropy error it did catch). So macOS cannot fail this, cannot warn about it,
-        // and is not evidence for Windows -- where the primary target's drivers are free to enforce it.
-        if ( m_PhysicalDevice->m_Capabilities.SupportsTextureCompressionBC )
-        {
-            deviceFeatures.textureCompressionBC = VK_TRUE;
-        }
-        createInfo.sType                 = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        createInfo.pQueueCreateInfos     = m_PhysicalDevice->m_QueueCreateInfos.data();
-        createInfo.queueCreateInfoCount  = (uint32_t)m_PhysicalDevice->m_QueueCreateInfos.size();
-        createInfo.pEnabledFeatures      = &deviceFeatures;
-
-        std::vector<const char*> deviceExtensions;
-        DESERT_VERIFY( m_PhysicalDevice->IsExtensionSupported( VK_KHR_SWAPCHAIN_EXTENSION_NAME ) );
-        deviceExtensions.push_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
-#if defined( DESERT_PLATFORM_MACOS )
-        // The spec requires VK_KHR_portability_subset to be enabled when the
-        // implementation (MoltenVK) advertises it.
-        if ( m_PhysicalDevice->IsExtensionSupported( "VK_KHR_portability_subset" ) )
-        {
-            deviceExtensions.push_back( "VK_KHR_portability_subset" );
-        }
-#endif
-
-        // VK_EXT_memory_budget — THE ONLY WAY TO ASK THE DRIVER WHAT WE ACTUALLY HOLD.
-        //
-        // Optional, because it is an extension and a device may not have it, and the reading reports
-        // `BudgetKnown = false` in that case rather than zeros. Present on MoltenVK 1.1.357 / Apple M1
-        // Pro (probed on this machine: 130 device extensions, this among them, one 16 GiB heap whose
-        // budget reads 11.84 GiB) and on every Windows driver we target. The instance side it needs,
-        // VK_KHR_get_physical_device_properties2, is already enabled unconditionally in
-        // VulkanContext.cpp — so the only thing missing was this line.
-        if ( m_PhysicalDevice->IsExtensionSupported( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME ) )
-        {
-            deviceExtensions.push_back( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME );
-            m_MemoryBudgetEnabled = true;
-        }
-        else
+        // textureCompressionBC in particular: the spec allows BC images only when the feature is ENABLED,
+        // and on MoltenVK its absence is undetectable (measured 2026-09-23: a BC7 image creates, uploads
+        // and samples bit-exact with the feature off, validation 1.4.350.1 silent) — so the enable is
+        // the table row, not something a run on this machine could catch.
+        m_MemoryBudgetEnabled = m_PhysicalDevice->GetDeviceCaps().Has( Capability::MemoryBudget );
+        if ( !m_MemoryBudgetEnabled )
         {
             LOG_WARN( "[Device] VK_EXT_memory_budget is absent; device-memory usage will report as "
                       "unknown rather than as zero." );
         }
 
-        createInfo.ppEnabledExtensionNames = deviceExtensions.data();
-        createInfo.enabledExtensionCount   = (uint32_t)deviceExtensions.size();
+        // Same queues as ever: graphics, plus compute and transfer when they live in other families.
+        const uint32_t                           graphics = m_PhysicalDevice->GetGraphicsFamily();
+        const uint32_t                           compute  = m_PhysicalDevice->GetComputeFamily();
+        const uint32_t                           transfer = m_PhysicalDevice->GetTransferFamily();
+        std::vector<vkb::CustomQueueDescription> queues;
+        queues.emplace_back( graphics, std::vector<float>{ 1.0f } );
+        if ( compute != graphics )
+            queues.emplace_back( compute, std::vector<float>{ 1.0f } );
+        if ( transfer != graphics && transfer != compute )
+            queues.emplace_back( transfer, std::vector<float>{ 1.0f } );
 
-        VK_CHECK_RESULT( vkCreateDevice( m_PhysicalDevice->GetVulkanPhysicalDevice(), &createInfo, nullptr,
-                                         &m_LogicalDevice ) );
+        vkb::DeviceBuilder builder( m_PhysicalDevice->GetBootstrapDevice() );
+        builder.custom_queue_setup( queues );
+        auto built = builder.build();
+        if ( !built )
+            return Common::MakeFormattedError<bool>(
+                 "vk-bootstrap could not create the logical device on '{}': {} ({})", m_DeviceName,
+                 built.error().message(), static_cast<int>( built.vk_result() ) );
+        m_LogicalDevice = built.value().device;
 
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetGraphicsFamily(), 0, &m_GraphicsQueue );
         vkGetDeviceQueue( m_LogicalDevice, m_PhysicalDevice->GetComputeFamily(), 0, &m_ComputeQueue );
