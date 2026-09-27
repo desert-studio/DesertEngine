@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "../IPanel.hpp"
 
 #include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
@@ -39,6 +41,7 @@ namespace Desert::Editor
 
     private:
         void DrawNewLandscape();
+        void DrawHeightmapFile();
         void DrawToolStrip();
         void DrawToolSettings();
         void DrawBrushSettings();
@@ -47,6 +50,8 @@ namespace Desert::Editor
 
         /// The scene the Target Layers list edits (EditorLayer rebinds it to the focused viewport's scene).
         std::weak_ptr<Desert::Core::Scene> m_Scene;
+        /// UE's Import / Export file field; a relative path is under the project's Assets folder.
+        std::array<char, 512> m_HeightmapPath{ "Landscape/Heightmaps/Landscape.png" };
         /// The layer list as it was when the current widget edit began; one undo entry per finished edit.
         // The layer info being edited (Hardness / No Weight Blend / swatch): a copy written to its `.delayerinfo`
         // when the widget is released, not every frame of a drag.

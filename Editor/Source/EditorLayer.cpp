@@ -88,6 +88,7 @@
 #include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Engine/World/Landscape/LandscapeHeightmapIO.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -4904,6 +4905,47 @@ namespace Desert::Editor
                                   Commands::CancelCreateLandscape();
                                   return PaletteCommandDone();
                               } } );
+        // HEIGHTMAP IMPORT / EXPORT (UE's Manage mode, LS-11). PaletteCommand::Run takes no argument, so the path
+        // is in the label: one Import entry per 16-bit PNG / RAW file under Assets/Landscape/Heightmaps (as "Drop
+        // into the viewport:" names each mesh), and Export entries that name the file they write there.
+        {
+            const std::filesystem::path heightmaps =
+                 Common::Constants::Path::ASSETS_PATH / "Landscape" / "Heightmaps";
+            std::vector<std::filesystem::path> files;
+            std::error_code                    ec;
+            for ( const auto& entry : std::filesystem::directory_iterator( heightmaps, ec ) )
+                if ( entry.is_regular_file() &&
+                     World::Landscape::LandscapeHeightmapFormatOf( entry.path() ).IsSuccess() )
+                    files.push_back( entry.path() );
+            std::sort( files.begin(), files.end() );
+            for ( const auto& file : files )
+            {
+                const std::string rel =
+                     file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+                commands.push_back( { "Landscape", "Import heightmap as a new landscape: " + rel, [this, file]
+                                      {
+                                          auto made = Commands::ImportLandscapeHeightmapAsNew(
+                                               m_MainScene, file, Core::LandscapeSculptState::Get().NewLandscape );
+                                          return made.IsSuccess()
+                                                      ? PaletteCommandDone()
+                                                      : PaletteCommandOutcome( false, made.GetError() );
+                                      } } );
+                commands.push_back( { "Landscape", "Import heightmap into the landscape: " + rel, [this, file]
+                                      { return Commands::ImportLandscapeHeightmap( m_MainScene, file ); } } );
+            }
+            for ( const auto& [name, selected] : std::initializer_list<std::pair<const char*, bool>>{
+                       { "Landscape.png", false }, { "Landscape.r16", false }, { "SelectedTiles.png", true } } )
+            {
+                const std::filesystem::path file = heightmaps / name;
+                const std::string           rel =
+                     file.lexically_relative( Common::Constants::Path::ASSETS_PATH ).generic_string();
+                commands.push_back(
+                     { "Landscape",
+                       ( selected ? "Export heightmap of the selected tiles: " : "Export heightmap: " ) + rel,
+                       [this, file, selected]
+                       { return Commands::ExportLandscapeHeightmap( m_MainScene, file, selected ); } } );
+            }
+        }
         // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
         // Layers list, so a frame can show a list and a stroke unattended.
         for ( const char* label : { "Paint mode", "Tool: Paint" } )

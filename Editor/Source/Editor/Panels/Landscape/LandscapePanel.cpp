@@ -5,10 +5,11 @@
 //
 // Paint mode and its Target Layers section follow SLandscapeEditor's Paint tab and
 // LandscapeEditorDetailCustomization_TargetLayers (list, current target, "+", Hardness / NoWeightBlend).
-// NOT PORTED, each for a stated reason. The Manage tab: there are no manage tools (new / resize / components),
-// and an empty tab is a button that opens onto nothing (owner's decision, same as the Modeling rail). Alpha /
-// Pattern / Component brush sets: the stroke maths has only UE's circle brush, so the brush row shows the one set
-// that exists.
+// Manage mode has New Landscape and UE's heightmap Import / Export
+// (LandscapeEditorDetailCustomization_ImportExport: one file field, Import as a new landscape or into the existing
+// one, Export all or the selected tiles). NOT PORTED, each for a stated reason. The Manage tools resize /
+// components: nothing drives them yet. Alpha / Pattern / Component brush sets: the stroke maths has only UE's
+// circle brush, so the brush row shows the one set that exists.
 
 #include "LandscapePanel.hpp"
 
@@ -16,6 +17,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -30,6 +32,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 
 namespace Desert::Editor
@@ -159,7 +162,10 @@ namespace Desert::Editor
         ImGui::Separator();
 
         if ( state.Mode == Core::LandscapeEdMode::Manage )
+        {
             DrawNewLandscape();
+            DrawHeightmapFile();
+        }
         else if ( state.Mode == Core::LandscapeEdMode::Paint )
         {
             DrawPaintSettings();
@@ -259,6 +265,38 @@ namespace Desert::Editor
             if ( !started.IsSuccess() )
                 ToastManager::Push( started.GetError(), ToastLevel::Error, 6.0f );
         }
+    }
+
+    // UE's Import / Export (Manage mode): 16-bit PNG or RAW, the landscape's own size, one undo step per import.
+    void LandscapePanel::DrawHeightmapFile()
+    {
+        if ( !ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Heightmap File", true, "" ) )
+            return;
+        ImGui::SetNextItemWidth( -FLT_MIN );
+        ImGui::InputText( "##HeightmapPath", m_HeightmapPath.data(), m_HeightmapPath.size() );
+        ImGui::TextDisabled( "16-bit .png, or .r16 / .raw; relative paths are under Assets." );
+        std::filesystem::path path( m_HeightmapPath.data() );
+        if ( path.is_relative() )
+            path = Common::Constants::Path::ASSETS_PATH / path;
+        const auto scene  = m_Scene.lock();
+        const auto report = []( const Common::BoolResultStr& r )
+        {
+            if ( !r.IsSuccess() )
+                ToastManager::Push( r.GetError(), ToastLevel::Error, 6.0f );
+        };
+        if ( ImGui::Button( ICON_MDI_PLUS_BOX_OUTLINE "  Import as New Landscape", ImVec2( -FLT_MIN, 0.0f ) ) )
+        {
+            auto made = Commands::ImportLandscapeHeightmapAsNew( scene, path,
+                                                                 Core::LandscapeSculptState::Get().NewLandscape );
+            if ( !made.IsSuccess() )
+                ToastManager::Push( made.GetError(), ToastLevel::Error, 6.0f );
+        }
+        if ( ImGui::Button( ICON_MDI_FILE_IMPORT_OUTLINE "  Import into Landscape", ImVec2( -FLT_MIN, 0.0f ) ) )
+            report( Commands::ImportLandscapeHeightmap( scene, path ) );
+        if ( ImGui::Button( ICON_MDI_FILE_EXPORT_OUTLINE "  Export Landscape", ImVec2( -FLT_MIN, 0.0f ) ) )
+            report( Commands::ExportLandscapeHeightmap( scene, path, false ) );
+        if ( ImGui::Button( ICON_MDI_FILE_EXPORT_OUTLINE "  Export Selected Tiles", ImVec2( -FLT_MIN, 0.0f ) ) )
+            report( Commands::ExportLandscapeHeightmap( scene, path, true ) );
     }
 
     void LandscapePanel::DrawToolStrip()

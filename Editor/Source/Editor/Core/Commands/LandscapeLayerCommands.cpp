@@ -1,6 +1,7 @@
 #include "LandscapeLayerCommands.hpp"
 
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -9,6 +10,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeHeightmapIO.hpp>
 
 #include <Common/Core/Constants.hpp>
 
@@ -310,5 +312,159 @@ namespace Desert::Editor::Commands
         command->Redo();
         CommandHistory::Get().PushCommand( std::move( command ) );
         return Common::MakeSuccess( root );
+    }
+
+    namespace
+    {
+        /// An import into an existing landscape, undone and redone as a whole (UE: one FScopedTransaction).
+        class LandscapeHeightsCommand final : public ICommand
+        {
+        public:
+            LandscapeHeightsCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                     const Common::UUID& landscape, World::Landscape::LandscapeStrokeRecord record,
+                                     std::string label )
+                 : m_Scene( scene ), m_Landscape( landscape ), m_Record( std::move( record ) ),
+                   m_Label( std::move( label ) )
+            {
+            }
+
+            bool Undo() override
+            {
+                return Write( m_Record.Before );
+            }
+            bool Redo() override
+            {
+                return Write( m_Record.After );
+            }
+            std::string GetLabel() const override
+            {
+                return m_Label;
+            }
+
+        private:
+            bool Write( const std::vector<uint16_t>& values )
+            {
+                const auto scene = m_Scene.lock();
+                if ( !scene )
+                {
+                    ToastManager::Push( "heightmap import: the scene it was made in is closed", ToastLevel::Error,
+                                        6.0f );
+                    return false;
+                }
+                auto target = ECS::FindLandscapeEditTarget( scene->GetRegistry(), m_Landscape );
+                if ( !target.IsSuccess() )
+                {
+                    ToastManager::Push( target.GetError(), ToastLevel::Error, 6.0f );
+                    return false;
+                }
+                const auto& t = target.GetValue();
+                auto written  = World::Landscape::WriteLandscapeHeights( t.Root, t.Lookup, m_Record.Rect, values );
+                if ( !written.IsSuccess() )
+                    ToastManager::Push( written.GetError(), ToastLevel::Error, 6.0f );
+                return written.IsSuccess();
+            }
+
+            std::weak_ptr<::Desert::Core::Scene>    m_Scene;
+            Common::UUID                            m_Landscape;
+            World::Landscape::LandscapeStrokeRecord m_Record;
+            std::string                             m_Label;
+        };
+
+        Common::ResultStr<ECS::LandscapeEditTarget>
+        HeightmapTarget( const std::shared_ptr<::Desert::Core::Scene>& scene )
+        {
+            auto root = RootOf( scene );
+            if ( !root )
+                return Common::MakeError<ECS::LandscapeEditTarget>( "heightmap: " + root.GetError() );
+            return ECS::FindLandscapeEditTarget( scene->GetRegistry(), root.GetValue().Landscape );
+        }
+    } // namespace
+
+    Common::BoolResultStr ImportLandscapeHeightmap( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const std::filesystem::path&                  path )
+    {
+        auto target = HeightmapTarget( scene );
+        if ( !target )
+            return Common::MakeError<bool>( target.GetError() );
+        const auto& t = target.GetValue();
+        const auto  size =
+             World::Landscape::LandscapeHeightmapSize{ static_cast<uint32_t>( t.Bounds.X2 - t.Bounds.X1 + 1 ),
+                                                       static_cast<uint32_t>( t.Bounds.Z2 - t.Bounds.Z1 + 1 ) };
+        auto map = World::Landscape::ReadLandscapeHeightmapFile( path, size );
+        if ( !map )
+            return Common::MakeError<bool>( map.GetError() );
+        auto record = World::Landscape::ImportLandscapeHeightmap( t.Root, t.Lookup, t.Bounds, map.GetValue() );
+        if ( !record )
+            return Common::MakeFormattedError<bool>( "{}: {}", path.generic_string(), record.GetError() );
+        CommandHistory::Get().PushCommand( std::make_unique<LandscapeHeightsCommand>(
+             scene, t.Landscape, record.ExtractValue(), "Import heightmap " + path.filename().string() ) );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<Common::UUID>
+    ImportLandscapeHeightmapAsNew( const std::shared_ptr<::Desert::Core::Scene>&      scene,
+                                   const std::filesystem::path&                       path,
+                                   const World::Landscape::LandscapeGenerateSettings& settings )
+    {
+        if ( !scene )
+            return Common::MakeError<Common::UUID>( "heightmap new landscape: no scene" );
+        if ( IsCreatingLandscape() )
+            return Common::MakeFormattedError<Common::UUID>(
+                 "heightmap new landscape: a New Landscape Create is running ({:.0f} %)",
+                 CreateLandscapeFraction() * 100.0f );
+        auto map = World::Landscape::ReadLandscapeHeightmapFile( path, std::nullopt );
+        if ( !map )
+            return Common::MakeError<Common::UUID>( map.GetError() );
+        auto made = World::Landscape::LandscapeFromHeightmap( settings, map.GetValue() );
+        if ( !made )
+            return Common::MakeFormattedError<Common::UUID>( "{}: {}", path.generic_string(), made.GetError() );
+        auto                      generated = made.ExtractValue();
+        const uint32_t            quads     = generated.Root.QuadsPerTile;
+        const Common::UUID        root      = Common::UUID::Generate();
+        std::vector<Common::UUID> tiles( generated.Tiles.size() );
+        for ( auto& id : tiles )
+            id = Common::UUID::Generate();
+        auto command = std::make_unique<CreateLandscapeCommand>( scene, std::move( generated ), quads, root,
+                                                                 std::move( tiles ) );
+        command->Redo();
+        CommandHistory::Get().PushCommand( std::move( command ) );
+        return Common::MakeSuccess( root );
+    }
+
+    Common::BoolResultStr ExportLandscapeHeightmap( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const std::filesystem::path& path, bool selectedTiles )
+    {
+        auto target = HeightmapTarget( scene );
+        if ( !target )
+            return Common::MakeError<bool>( target.GetError() );
+        const auto&                             t    = target.GetValue();
+        World::Landscape::LandscapeSampleBounds rect = t.Bounds;
+        if ( selectedTiles )
+        {
+            bool    any = false;
+            int32_t x1 = 0, z1 = 0, x2 = 0, z2 = 0;
+            for ( const auto& id : Core::SelectionManager::GetSelection() )
+            {
+                const auto entity = scene->FindEntityByID( id );
+                if ( !entity || !entity->get().HasComponent<ECS::LandscapeTileComponent>() )
+                    continue;
+                const auto& tile = entity->get().GetComponent<ECS::LandscapeTileComponent>();
+                if ( tile.Landscape != t.Landscape )
+                    continue;
+                x1  = any ? std::min( x1, tile.TileX ) : tile.TileX;
+                z1  = any ? std::min( z1, tile.TileZ ) : tile.TileZ;
+                x2  = any ? std::max( x2, tile.TileX ) : tile.TileX;
+                z2  = any ? std::max( z2, tile.TileZ ) : tile.TileZ;
+                any = true;
+            }
+            if ( !any )
+                return Common::MakeError<bool>( "heightmap export: no tile of the landscape is selected; select "
+                                                "tiles in the Outliner first" );
+            rect = World::Landscape::LandscapeTileRangeSamples( t.Root, x1, z1, x2, z2 );
+        }
+        auto map = World::Landscape::ReadLandscapeHeightmap( t.Root, t.Lookup, rect );
+        if ( !map )
+            return Common::MakeFormattedError<bool>( "{}: {}", path.generic_string(), map.GetError() );
+        return World::Landscape::WriteLandscapeHeightmapFile( path, map.GetValue() );
     }
 } // namespace Desert::Editor::Commands

@@ -5,6 +5,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -62,4 +63,28 @@ namespace Desert::Editor::Commands
      * since a tile block without a file has none.
      */
     std::optional<Common::ResultStr<Common::UUID>> FinishCreateLandscape();
+    /**
+     * @brief UE's Import (Manage mode) into the scene's first landscape: replaces the heights of the WHOLE
+     * landscape with the file's (16-bit .png, .r16 / .raw) as ONE undo step. The file must be the landscape's size
+     * — (tiles · quads + 1) samples a side — or it is refused naming both sizes; nothing is written on a refusal.
+     */
+    Common::BoolResultStr ImportLandscapeHeightmap( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const std::filesystem::path&                  path );
+
+    /**
+     * @brief UE's New Landscape → Import from File: a new landscape whose tile grid is the file's size, with
+     * @p settings' location, tile size, spacing and Z scale, added as ONE undo step (the same entry Create
+     * pushes). Refuses while a Create is running, and a file whose sides are not a multiple of the tile's quads
+     * plus one (naming the nearest valid sizes). Returns the new root's UUID.
+     */
+    Common::ResultStr<Common::UUID>
+    ImportLandscapeHeightmapAsNew( const std::shared_ptr<::Desert::Core::Scene>&      scene,
+                                   const std::filesystem::path&                       path,
+                                   const World::Landscape::LandscapeGenerateSettings& settings );
+
+    /// UE's Export: the scene's first landscape's heights to @p path (format by extension), the whole landscape
+    /// or, with @p selectedTiles, the bounding rectangle of the selected tiles of it (refused when none is
+    /// selected).
+    Common::BoolResultStr ExportLandscapeHeightmap( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                    const std::filesystem::path& path, bool selectedTiles );
 } // namespace Desert::Editor::Commands
