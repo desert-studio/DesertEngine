@@ -72,7 +72,7 @@ void MeshPlaneCut::SplitCrossingEdges( bool bDeleteTrisOnPlane, std::vector<doub
         if ( DistA * DistB > 0 )
             continue; // no crossing
 
-        EdgeSplitInfo    SplitInfo;
+        DynamicMeshInfo::EdgeSplitInfo SplitInfo;
         const double     Param       = DistA / ( DistA - DistB );
         const MeshResult SplitResult = m_Mesh->SplitEdge( EID, SplitInfo, Param );
         // A split of a valid edge between two off-plane vertices of opposite signs cannot fail; UE ensure()s and
@@ -165,7 +165,7 @@ void MeshPlaneCut::CollapseDegenerateEdges( std::unordered_set<int>& Edges )
                     continue;
                 }
             }
-            EdgeCollapseInfo CollapseInfo;
+            DynamicMeshInfo::EdgeCollapseInfo CollapseInfo;
             if ( m_Mesh->CollapseEdge( EV.A, EV.B, CollapseInfo ) == MeshResult::Ok )
             {
                 Collapsed++;
