@@ -1090,8 +1090,8 @@ namespace Desert::Editor
                 fs::create_directories( fs::path( m_SavePrefabPath ).parent_path(), ec );
 
                 const ECS::Entity root  = entityRef->get();
-                const auto  saved = Assets::PrefabAsset::SaveNewFromEntity( root, *m_AssetManager,
-                                                                            Common::Filepath( m_SavePrefabPath ) );
+                const auto        saved = Assets::PrefabAsset::SaveNewFromEntity( root, *m_AssetManager,
+                                                                                  Common::Filepath( m_SavePrefabPath ) );
                 {
                     if ( !saved )
                     {
