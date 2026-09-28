@@ -12,9 +12,9 @@ namespace Desert::Assets
     // graphics pipelines still in the driver (PSO1). Material pipelines are deliberately absent (AL1-12): their
     // draws fall back to the engine's default surface while they compile, so waiting for them would only hold
     // the window closed for seconds on a cold pipeline cache. A world whose meshes have landed but whose system
-    // pipelines have not would open the gate on a frame that skips them — the same missing-object defect the gate exists for,
-    // moved from the file system to the driver. The counters are summed: "outstanding" is work not yet done,
-    // "started" is monotonic, so ContentGate's two conditions keep their meaning over the sum.
+    // pipelines have not would open the gate on a frame that skips them — the same missing-object defect the gate
+    // exists for, moved from the file system to the driver. The counters are summed: "outstanding" is work not yet
+    // done, "started" is monotonic, so ContentGate's two conditions keep their meaning over the sum.
     struct ContentWork
     {
         size_t   Outstanding = 0;

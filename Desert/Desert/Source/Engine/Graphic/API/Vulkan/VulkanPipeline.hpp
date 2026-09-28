@@ -21,7 +21,7 @@ namespace Desert::Graphic::API::Vulkan
         // Everything but the driver compile on the calling thread; vkCreateGraphicsPipelines on the
         // JobSystem (PSO1). Until it lands, GetVkPipeline() is null and GetBuildState() is Compiling.
         // @p role decides whether the reveal waits for it (PipelineBuilds): engine passes yes, materials no.
-        void InvalidateAsync( PipelineRole role );
+        void         InvalidateAsync( PipelineRole role );
         virtual void Release() override;
 
         enum class BuildState : uint8_t
@@ -41,10 +41,13 @@ namespace Desert::Graphic::API::Vulkan
         {
             switch ( GetBuildState() )
             {
-                case BuildState::Compiling: return PipelineReadiness::Compiling;
-                case BuildState::Built:     return PipelineReadiness::Ready;
+                case BuildState::Compiling:
+                    return PipelineReadiness::Compiling;
+                case BuildState::Built:
+                    return PipelineReadiness::Ready;
                 case BuildState::Unbuilt:
-                case BuildState::Failed:    return PipelineReadiness::Failed;
+                case BuildState::Failed:
+                    return PipelineReadiness::Failed;
             }
             return PipelineReadiness::Failed;
         }

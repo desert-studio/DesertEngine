@@ -158,7 +158,8 @@ TEST( PipelineBuilds, CountsPendingAndStartedMonotonically )
     EXPECT_EQ( builds.Pending( Engine ), 2u );
     builds.OnFinished( Engine );
     EXPECT_EQ( builds.Pending( Engine ), 1u );
-    EXPECT_EQ( builds.Started( Engine ), 2u ) << "started never goes down: ContentGate reads it as 'asked this frame'";
+    EXPECT_EQ( builds.Started( Engine ), 2u )
+         << "started never goes down: ContentGate reads it as 'asked this frame'";
 }
 
 TEST( PipelineBuilds, CountsEngineAndMaterialCompilesApart )
@@ -212,7 +213,8 @@ TEST( PipelineBuilds, ContentGateWaitsForAnEnginePipelineStillInTheDriver )
     builds.OnFinished( Engine );
     bool opened = false;
     for ( int frame = 0; frame < 3 && !opened; ++frame )
-        opened = gate.Tick( assetsOutstanding + builds.Pending( Engine ), assetsStarted + builds.Started( Engine ) );
+        opened =
+             gate.Tick( assetsOutstanding + builds.Pending( Engine ), assetsStarted + builds.Started( Engine ) );
     EXPECT_TRUE( opened );
 }
 
@@ -231,8 +233,9 @@ TEST( PipelineBuilds, ContentWorkCountsOnlyEnginePipelines )
 // renderer's material draw; boot, the hosts and the scene renderer do not reach it.
 TEST( MaterialPipelines, NoStartupStageCompilesAMaterialPipeline )
 {
-    const char* startup[] = { "Desert/Desert/Source/Engine/Assets/BootContent.cpp", "Editor/Source/EditorLayer.cpp",
-                              "Runtime/Source/RuntimeLayer.cpp", "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" };
+    const char* startup[] = { "Desert/Desert/Source/Engine/Assets/BootContent.cpp",
+                              "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp",
+                              "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" };
     for ( const char* file : startup )
     {
         const std::string text = ReadSource( file );
@@ -242,7 +245,8 @@ TEST( MaterialPipelines, NoStartupStageCompilesAMaterialPipeline )
     }
     const std::string mesh =
          ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
-    EXPECT_NE( mesh.find( "GetOrCreateMaterial" ), std::string::npos ) << "the material draw lost its on-demand path";
+    EXPECT_NE( mesh.find( "GetOrCreateMaterial" ), std::string::npos )
+         << "the material draw lost its on-demand path";
     const std::string factory = ReadSource( "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp" );
     EXPECT_NE( factory.find( "MaterialPipelineRequests::Get().Request( shaderName )" ), std::string::npos )
          << "a material's pipeline is requested when it LOADS, not at its first draw";
@@ -258,7 +262,8 @@ TEST( MaterialPipelines, RequestedCompilingReadyAndTheDrawPicksTheDefaultUntilRe
     tracker.OnCompiling( "MatA" );
     EXPECT_EQ( tracker.StateOf( "MatA" ), State::Compiling );
     for ( int frame = 0; frame < 5; ++frame )
-        EXPECT_FALSE( tracker.Choose( "MatA" ).UseOwnPipeline ) << "a compiling material draws the default surface";
+        EXPECT_FALSE( tracker.Choose( "MatA" ).UseOwnPipeline )
+             << "a compiling material draws the default surface";
 
     tracker.Request( "MatA" ); // a second load of the same material does not move it back
     EXPECT_EQ( tracker.StateOf( "MatA" ), State::Compiling );

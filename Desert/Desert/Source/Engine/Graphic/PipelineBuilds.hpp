@@ -100,7 +100,7 @@ namespace Desert::Graphic::PipelineBuilds
         std::chrono::nanoseconds m_CallerBlocked{};
         std::chrono::nanoseconds m_CallerBlockedMax{};
         std::condition_variable  m_Idle;
-        static constexpr size_t Index( PipelineRole role )
+        static constexpr size_t  Index( PipelineRole role )
         {
             return static_cast<size_t>( role );
         }

@@ -671,16 +671,23 @@ namespace Desert::Graphic::System
     {
         switch ( pipeline.GetReadiness() )
         {
-            case PipelineReadiness::Compiling: m_MaterialPipelines.OnCompiling( shaderName ); break;
-            case PipelineReadiness::Ready:     m_MaterialPipelines.OnReady( shaderName ); break;
-            case PipelineReadiness::Failed:    m_MaterialPipelines.OnFailed( shaderName ); break;
+            case PipelineReadiness::Compiling:
+                m_MaterialPipelines.OnCompiling( shaderName );
+                break;
+            case PipelineReadiness::Ready:
+                m_MaterialPipelines.OnReady( shaderName );
+                break;
+            case PipelineReadiness::Failed:
+                m_MaterialPipelines.OnFailed( shaderName );
+                break;
         }
     }
 
     // Every frame, before the queue is looked at: the stand-in is an ENGINE pipeline, requested with the first
     // frame whatever the scene holds, so the reveal waits for it; then every material that LOADED since the
     // last frame gets its compile handed to a worker here, before any mesh using it is drawn.
-    void MeshRenderer::PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target, const bool useLoadPass )
+    void MeshRenderer::PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target,
+                                                   const bool                          useLoadPass )
     {
         (void)DefaultSurfacePipeline( target, useLoadPass );
         for ( const auto& name : MaterialPipelineRequests::Get().Since( m_MaterialRequestCursor ) )
@@ -690,8 +697,8 @@ namespace Desert::Graphic::System
             auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
             if ( !shader || !shader->IsCompiled() )
                 continue;
-            const auto built =
-                 m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( GenericPipelineSpec( shader, target, useLoadPass ) );
+            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial(
+                 GenericPipelineSpec( shader, target, useLoadPass ) );
             if ( built )
                 TrackMaterialPipeline( name, *built.GetValue() );
             else
@@ -699,8 +706,8 @@ namespace Desert::Graphic::System
         }
     }
 
-    std::shared_ptr<GraphicsPipeline> MeshRenderer::DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target,
-                                                                            const bool useLoadPass )
+    std::shared_ptr<GraphicsPipeline>
+    MeshRenderer::DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target, const bool useLoadPass )
     {
         static constexpr const char* kDefaultSurface = "DefaultSurface";
         auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( kDefaultSurface );
@@ -713,7 +720,8 @@ namespace Desert::Graphic::System
                            kDefaultSurface );
             return nullptr;
         }
-        const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreate( GenericPipelineSpec( shader, target, useLoadPass ) );
+        const auto built =
+             m_SceneRenderer->GetPipelineCache().GetOrCreate( GenericPipelineSpec( shader, target, useLoadPass ) );
         if ( !built )
         {
             static bool s_Refused = false;
