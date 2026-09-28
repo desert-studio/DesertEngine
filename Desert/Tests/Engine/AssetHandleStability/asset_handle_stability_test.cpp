@@ -1476,7 +1476,7 @@ namespace
         const fs::path dir = fs::temp_directory_path() / dirName;
         fs::remove_all( dir );
         fs::create_directories( dir );
-        const fs::path source( relative );
+        const fs::path source = Desert::TestSupport::RepositoryRoot() / relative;
         const fs::path file = dir / source.filename();
         fs::copy_file( source, file, fs::copy_options::overwrite_existing );
         return file;
@@ -1592,7 +1592,8 @@ namespace
     bool CopyCorpus( const char* relative, const std::filesystem::path& file )
     {
         std::error_code copied;
-        std::filesystem::copy_file( relative, file, std::filesystem::copy_options::overwrite_existing, copied );
+        std::filesystem::copy_file( Desert::TestSupport::RepositoryRoot() / relative, file,
+                                    std::filesystem::copy_options::overwrite_existing, copied );
         return !copied;
     }
 

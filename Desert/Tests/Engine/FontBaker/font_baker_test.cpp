@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -25,8 +27,9 @@ namespace
     std::vector<uint8_t> LoadRoboto()
     {
         // The test binary runs from the workspace root (RunTests.sh), so the resource path is stable.
-        const std::vector<std::string> candidates = { "Editor/Resources/Fonts/Roboto-Regular.ttf",
-                                                      "../../../Editor/Resources/Fonts/Roboto-Regular.ttf" };
+        // From the checkout, not the working directory: the runners start a suite in its own scratch dir.
+        const std::vector<std::string> candidates = {
+             ( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Fonts/Roboto-Regular.ttf" ).string() };
         for ( const std::string& candidate : candidates )
         {
             std::ifstream file( candidate, std::ios::binary );

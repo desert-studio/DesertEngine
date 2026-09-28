@@ -72,6 +72,56 @@ namespace
                std::regex_search( line, kWriteName );
     }
 
+    // THE SECOND HALF: A TEST READS THE CHECKOUT THROUGH ITS ROOT, NEVER THROUGH THE WORKING DIRECTORY.
+    // Under the runners the working directory is build/TestScratch/<config>/<suite>, so a corpus file or a
+    // source named as "Editor/..." from the working directory is not there (the first runner sweep, 09-28:
+    // AssetHandleStability, CookedAssetRegistry, FontBaker, WorldCells). Flagged: a repository-relative literal
+    // (Editor/, Desert/, Tools/, Runtime/, scripts/) that becomes a path, a stream or a filesystem call's
+    // argument ON THE SAME LINE. Joined onto a root (`root / "Editor/..."`, `root + "Editor/..."`) or handed
+    // to a helper that joins it is fine — a helper that uses its argument raw is beyond a lexical census,
+    // which is why the helper to reach for is Desert::TestSupport::RepositoryRoot().
+    bool ReadsRepositoryRelative( const std::string& line )
+    {
+        const size_t code = line.find_first_not_of( " \t" );
+        if ( code != std::string::npos && line.compare( code, 2, "//" ) == 0 )
+            return false;
+        static const std::string kRel = R"("(Editor|Desert|Tools|Runtime|scripts)/)";
+        static const std::regex  kPathVar( R"(\bpath\s+\w+\s*(=\s*|\(\s*|\{\s*))" + kRel );
+        static const std::regex  kPathTemp( R"(\bpath\s*[({]\s*)" + kRel );
+        static const std::regex  kStream( R"(\b[io]?fstream(\s+\w+)?\s*[({]\s*)" + kRel );
+        static const std::regex  kFsCall(
+             R"(\b(exists|copy_file|copy|is_regular_file|is_directory|file_size|recursive_directory_iterator|directory_iterator|last_write_time|remove|remove_all|canonical|absolute)\s*\(\s*)" +
+             kRel );
+        // The helper shape the sweep also found (AssetHandleStability's CopyCorpus): a parameter named
+        // `relative` handed straight to a filesystem call or a stream.
+        static const std::regex kRawParam(
+             R"(\b(exists|copy_file|copy|is_regular_file|recursive_directory_iterator|directory_iterator|file_size)\s*\(\s*relative\b|\b[io]?fstream(\s+\w+)?\s*[({]\s*relative\b)" );
+        return std::regex_search( line, kPathVar ) || std::regex_search( line, kPathTemp ) ||
+               std::regex_search( line, kStream ) || std::regex_search( line, kFsCall ) ||
+               std::regex_search( line, kRawParam );
+    }
+
+    TEST( TestScratchCensus, TheReadRuleFlagsRepositoryRelativePaths )
+    {
+        EXPECT_TRUE( ReadsRepositoryRelative(
+             R"(    const fs::path corpus = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";)" ) );
+        EXPECT_TRUE(
+             ReadsRepositoryRelative( R"(std::ifstream in( "Desert/Desert/Source/Engine/Core/Scene.cpp" );)" ) );
+        EXPECT_TRUE(
+             ReadsRepositoryRelative( R"(ASSERT_TRUE( fs::exists( "Editor/Resources/Fonts/R.ttf" ) );)" ) );
+        EXPECT_TRUE(
+             ReadsRepositoryRelative( R"(for ( auto& e : fs::recursive_directory_iterator( "Tools/X" ) ))" ) );
+        EXPECT_TRUE( ReadsRepositoryRelative( R"(const auto p = std::filesystem::path( "scripts/CI/x.sh" );)" ) );
+        EXPECT_TRUE(
+             ReadsRepositoryRelative( R"(std::filesystem::copy_file( relative, file, options, copied );)" ) );
+        EXPECT_FALSE( ReadsRepositoryRelative( R"(std::filesystem::copy_file( root / relative, file );)" ) );
+        EXPECT_FALSE( ReadsRepositoryRelative( R"(const fs::path f = root / "Editor/Resources/Fonts/R.ttf";)" ) );
+        EXPECT_FALSE(
+             ReadsRepositoryRelative( R"(std::ifstream in( RepoRoot() + "Editor/Source/EditorLayer.cpp" );)" ) );
+        EXPECT_FALSE( ReadsRepositoryRelative( R"(if ( rel.starts_with( "Desert/Tests/" ) ))" ) );
+        EXPECT_FALSE( ReadsRepositoryRelative( R"(    // std::ifstream in( "Editor/x" ) was the old shape)" ) );
+    }
+
     TEST( TestScratchCensus, TheRuleFlagsTheWritingShapes )
     {
         EXPECT_TRUE( WritesFromWorkingDirectory(
@@ -97,7 +147,7 @@ namespace
         EXPECT_FALSE( WritesFromWorkingDirectory( R"(std::filesystem::current_path( m_Previous, ec );)" ) );
     }
 
-    TEST( TestScratchCensus, NoTestWritesFromTheWorkingDirectory )
+    TEST( TestScratchCensus, NoTestLeansOnTheWorkingDirectory )
     {
         const fs::path root = RepoRoot();
         ASSERT_FALSE( root.empty() ) << "repository root not found from " << fs::current_path();
@@ -130,7 +180,7 @@ namespace
             while ( std::getline( in, line ) )
             {
                 ++number;
-                if ( !WritesFromWorkingDirectory( line ) )
+                if ( !WritesFromWorkingDirectory( line ) && !ReadsRepositoryRelative( line ) )
                     continue;
                 if ( excepted.contains( rel ) )
                 {
@@ -144,8 +194,9 @@ namespace
         // A census that scanned nothing passes vacuously; the tree has hundreds of test sources.
         EXPECT_GT( scanned, 200u ) << "the census walked " << ( root / "Desert" / "Tests" ).string();
         for ( const std::string& hit : hits )
-            ADD_FAILURE() << "writes from the working directory — use Desert::TestSupport::ScratchDir / "
-                             "ScratchWorkingDirectory (Desert/Tests/TestSupport/scratch_dir.hpp):\n  "
+            ADD_FAILURE() << "leans on the working directory — write under Desert::TestSupport::ScratchDir / "
+                             "ScratchWorkingDirectory, read the checkout through RepositoryRoot() "
+                             "(Desert/Tests/TestSupport/scratch_dir.hpp):\n  "
                           << hit;
         for ( const Exception& row : kExceptions )
             EXPECT_TRUE( exceptedUsed.contains( row.File ) )

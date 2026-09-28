@@ -22,6 +22,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -696,8 +698,9 @@ TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )
 TEST( CookedAssetRegistry, APrefabRowCarriesTheBoxItsFileStates )
 {
     namespace fs          = std::filesystem;
-    const fs::path corpus = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
-    ASSERT_TRUE( fs::exists( corpus ) ) << "run from the repository root: " << fs::absolute( corpus ).string();
+    const fs::path corpus =
+         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+    ASSERT_TRUE( fs::exists( corpus ) ) << corpus.string();
 
     const auto plain = Common::Content::RegistryRowFor(
          "assets:Prefabs/UI_Card.deprefab",
