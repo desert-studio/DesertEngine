@@ -169,9 +169,9 @@ TEST( LandscapeGrass, GrassGrowsOnlyWhereTheLayerIsPainted )
     const auto edge    = SampleLandscapeWeight( tile, frame, layer, 950.0f, 700.0f );
     const auto bare    = SampleLandscapeWeight( tile, frame, layer, 1500.0f, 700.0f );
     ASSERT_TRUE( painted.has_value() && edge.has_value() && bare.has_value() );
-    EXPECT_FLOAT_EQ( *painted, 1.0f );
-    EXPECT_FLOAT_EQ( *edge, 0.5f );
-    EXPECT_FLOAT_EQ( *bare, 0.0f );
+    EXPECT_FLOAT_EQ( *painted, 1.0f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_FLOAT_EQ( *edge, 0.5f );    // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_FLOAT_EQ( *bare, 0.0f );    // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_FALSE( SampleLandscapeWeight( tile, frame, layer, 2000.5f, 700.0f ).has_value() );
 }
 
@@ -317,7 +317,8 @@ TEST( LandscapeGrass, AGrassTypeRoundTripsAndStatesItsMeshes )
     // Two varieties of one mesh are ONE dependency.
     const auto& header = read.GetValue().Header;
     ASSERT_TRUE( header.has_value() );
-    EXPECT_EQ( header->Dependencies, std::vector<std::string>{ kMeshGuid } );
+    EXPECT_EQ( header->Dependencies,
+               std::vector<std::string>{ kMeshGuid } ); // NOLINT(bugprone-unchecked-optional-access)
 }
 
 TEST( LandscapeGrass, AGrassTypeRefusesWhatItCannotGrow )
@@ -349,7 +350,7 @@ TEST( LandscapeGrass, AGrassTypeRefusesWhatItCannotGrow )
     auto parsed       = ParseLandscapeGrassType( WriteLandscapeGrassType( ok ) );
     auto stamped      = parsed.ExtractValue();
     ASSERT_TRUE( stamped.Header.has_value() );
-    stamped.Header->Dependencies.clear();
+    stamped.Header->Dependencies.clear(); // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_FALSE( ParseLandscapeGrassType( Common::Json::Write( stamped ) ) );
 }
 
@@ -363,7 +364,8 @@ TEST( LandscapeGrass, ALayerInfoNamesItsGrassAsItsOneDependency )
     EXPECT_EQ( read.GetValue().GrassType, layer.GrassType );
     const auto& header = read.GetValue().Header;
     ASSERT_TRUE( header.has_value() );
-    EXPECT_EQ( header->Dependencies, std::vector<std::string>{ kGrassGuid } );
+    EXPECT_EQ( header->Dependencies,
+               std::vector<std::string>{ kGrassGuid } ); // NOLINT(bugprone-unchecked-optional-access)
 
     // A GUID without a path (or the reverse) is refused, not half-read.
     layer.GrassType.Path.clear();
@@ -377,7 +379,7 @@ TEST( LandscapeGrass, ALayerInfoOfTheFirstGenerationIsRefusedByNumber )
     auto parsed     = ParseLandscapeLayerInfo( WriteLandscapeLayerInfo( layer ) );
     auto stamped    = parsed.ExtractValue();
     ASSERT_TRUE( stamped.Header.has_value() );
-    for ( auto& [tag, version] : stamped.Header->Versions )
+    for ( auto& [tag, version] : stamped.Header->Versions ) // NOLINT(bugprone-unchecked-optional-access)
         version = 1u;
     const auto refused = ParseLandscapeLayerInfo( Common::Json::Write( stamped ) );
     ASSERT_FALSE( refused );

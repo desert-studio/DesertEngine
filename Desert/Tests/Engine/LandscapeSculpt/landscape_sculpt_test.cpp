@@ -1518,8 +1518,10 @@ TEST( LandscapeSculpt, APaintStrokeWithoutATargetLayerIsRefusedBeforeItIsQueued 
     Desert::Editor::Core::LandscapeSculptState state;
     state.Mode = Desert::Editor::Core::LandscapeEdMode::Paint;
     ASSERT_TRUE( state.StrokeRefusal().has_value() ) << "Paint mode with no target layer";
-    EXPECT_NE( state.StrokeRefusal()->find( "Target layer" ), std::string::npos )
-         << "the refusal names the palette command that fixes it: " << *state.StrokeRefusal();
+    EXPECT_NE( state.StrokeRefusal()->find( "Target layer" ),
+               std::string::npos ) // NOLINT(bugprone-unchecked-optional-access)
+         << "the refusal names the palette command that fixes it: "
+         << *state.StrokeRefusal(); // NOLINT(bugprone-unchecked-optional-access)
     state.Paint.Layer = "Grass";
     EXPECT_FALSE( state.StrokeRefusal().has_value() );
     state.Paint.Layer.clear();

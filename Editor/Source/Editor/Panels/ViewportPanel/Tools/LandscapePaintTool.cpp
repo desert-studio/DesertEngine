@@ -96,7 +96,7 @@ namespace Desert::Editor::Tools
         if ( !landscape )
             return Common::MakeError( "landscape paint: the scene has no landscape" );
         if ( auto refusal = Core::LandscapeSculptState::Get().StrokeRefusal() )
-            return Common::MakeError( std::move( *refusal ) );
+            return Common::MakeError( *refusal );
         const auto rootEntity = ECS::FindLandscapeRootEntity( registry, *landscape );
         if ( rootEntity == entt::null )
             return Common::MakeError( "landscape paint: the landscape root is not loaded" );
