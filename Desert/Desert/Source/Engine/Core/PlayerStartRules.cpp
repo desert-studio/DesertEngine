@@ -33,8 +33,9 @@ namespace Desert::Core
             all[i] = i;
 
         if ( starts.empty() )
-            return Common::MakeError<std::size_t>( "the level has no PlayerStart - place one (Add Component -> Player Start) "
-                                      "where the pawn should appear; Play does not fall back to the origin" );
+            return Common::MakeError<std::size_t>(
+                 "the level has no PlayerStart - place one (Add Component -> Player Start) "
+                 "where the pawn should appear; Play does not fall back to the origin" );
 
         if ( !requestedTag.empty() )
         {
@@ -45,11 +46,12 @@ namespace Desert::Core
             if ( tagged.size() == 1 )
                 return Common::MakeSuccess( std::size_t( tagged.front() ) );
             if ( tagged.empty() )
-                return Common::MakeError<std::size_t>( "no PlayerStart carries the tag '" + std::string( requestedTag ) +
-                                          "'; the level has " + NameList( starts, all ) );
-            return Common::MakeError<std::size_t>( std::to_string( tagged.size() ) + " PlayerStarts carry the tag '" +
-                                      std::string( requestedTag ) + "': " + NameList( starts, tagged ) +
-                                      " - a tag must name one start" );
+                return Common::MakeError<std::size_t>( "no PlayerStart carries the tag '" +
+                                                       std::string( requestedTag ) + "'; the level has " +
+                                                       NameList( starts, all ) );
+            return Common::MakeError<std::size_t>(
+                 std::to_string( tagged.size() ) + " PlayerStarts carry the tag '" + std::string( requestedTag ) +
+                 "': " + NameList( starts, tagged ) + " - a tag must name one start" );
         }
 
         if ( starts.size() == 1 )
@@ -65,9 +67,9 @@ namespace Desert::Core
             return Common::MakeError<std::size_t>(
                  "every PlayerStart is tagged and none was asked for: " + NameList( starts, all ) +
                  " - leave one untagged as the default start, or ask for a tag" );
-        return Common::MakeError<std::size_t>( std::to_string( untagged.size() ) +
-                                  " PlayerStarts have no tag: " + NameList( starts, untagged ) +
-                                  " - either could be the start; tag all but one (or remove the extra)" );
+        return Common::MakeError<std::size_t>(
+             std::to_string( untagged.size() ) + " PlayerStarts have no tag: " + NameList( starts, untagged ) +
+             " - either could be the start; tag all but one (or remove the extra)" );
     }
 
     Common::ResultStr<ViewTargetChoice> ChooseViewTarget( const ViewTargetInputs& in )

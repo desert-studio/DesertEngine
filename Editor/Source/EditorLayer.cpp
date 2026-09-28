@@ -9831,7 +9831,7 @@ namespace Desert::Editor
             const glm::mat4 camWorld = glm::inverse( m_MainScene->GetActiveCamera()->GetViewMatrix() );
             const glm::vec3 forward  = -glm::vec3( camWorld[2] );
             const float     yaw      = std::atan2( -forward.x, -forward.z );
-            request.SpawnAt = glm::translate( glm::mat4( 1.0f ), glm::vec3( camWorld[3] ) ) *
+            request.SpawnAt          = glm::translate( glm::mat4( 1.0f ), glm::vec3( camWorld[3] ) ) *
                               glm::rotate( glm::mat4( 1.0f ), yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );
         }
         if ( const auto began = Desert::Core::BeginPlay( *m_MainScene, *m_AssetManager, request ); !began )

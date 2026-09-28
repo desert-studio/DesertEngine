@@ -239,9 +239,9 @@ namespace Desert::Migration
     // What MigratePlayerViewFlagV39ToV40 did to one file.
     struct PlayerViewFlagReport
     {
-        std::size_t Cameras           = 0;     // Camera blocks on the file's own records
-        bool        KeptOne           = false; // exactly one camera: its stated (or defaulted) value kept
-        std::size_t OverridesDropped  = 0;     // IsMainCamera keys taken out of prefab overrides
+        std::size_t Cameras          = 0;     // Camera blocks on the file's own records
+        bool        KeptOne          = false; // exactly one camera: its stated (or defaulted) value kept
+        std::size_t OverridesDropped = 0;     // IsMainCamera keys taken out of prefab overrides
     };
 
     // Renames Camera.IsMainCamera -> AutoActivateForPlayer on every record of @p entities under the rule

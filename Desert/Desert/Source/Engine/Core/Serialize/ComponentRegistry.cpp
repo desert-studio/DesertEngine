@@ -866,9 +866,10 @@ namespace Desert::Core::Serialize
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
                 // the GUID's registry row did not, and checks the file found here IS that prefab.
                 const std::filesystem::path named( path );
-                return LoadScenePrefab( m, named.is_absolute()
-                                                ? named
-                                                : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
+                return LoadScenePrefab(
+                     m, named.is_absolute()
+                             ? named
+                             : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
             }
             if ( type == "AnimGraphAsset" )
             {

@@ -71,8 +71,8 @@ namespace Desert::Core
         const auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
         if ( !prefab )
             return Common::MakeError<ECS::Entity>( level + ": its Default Pawn (asset handle " +
-                                      std::to_string( static_cast<uint64_t>( pawnHandle ) ) +
-                                      ") is not a loaded prefab" );
+                                                   std::to_string( static_cast<uint64_t>( pawnHandle ) ) +
+                                                   ") is not a loaded prefab" );
 
         glm::vec3 scale, translation, skew;
         glm::quat rotation;
@@ -81,7 +81,8 @@ namespace Desert::Core
 
         auto placed = prefab->Instantiate( &scene, assets, {}, &translation );
         if ( !placed )
-            return Common::MakeError<ECS::Entity>( level + ": the Default Pawn could not be spawned: " + placed.GetError() );
+            return Common::MakeError<ECS::Entity>(
+                 level + ": the Default Pawn could not be spawned: " + placed.GetError() );
         ECS::Entity pawn = placed.GetValue();
         // The start's facing is the pawn's facing (UE spawns at the PlayerStart's rotation); only yaw and
         // pitch of a camera matter for Play from Here, and the prefab's own scale is kept.

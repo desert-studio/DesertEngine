@@ -941,8 +941,8 @@ namespace Desert::Editor
                     Utils::ImGuiUtilities::Tooltip(
                          std::format( "{}{}\nFOV: {:.1f} deg\nNear: {:.1f}  Far: {:.0f}\n"
                                       "Position: ({:.2f}, {:.2f}, {:.2f})",
-                                      name, cam.AutoActivateForPlayer ? " (Player view)" : "", cam.FOV, cam.Near, cam.Far,
-                                      worldPos.x, worldPos.y, worldPos.z )
+                                      name, cam.AutoActivateForPlayer ? " (Player view)" : "", cam.FOV, cam.Near,
+                                      cam.Far, worldPos.x, worldPos.y, worldPos.z )
                               .c_str() );
                     ImGui::PopStyleColor( 2 );
                 }

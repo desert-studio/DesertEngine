@@ -1083,7 +1083,8 @@ namespace Desert::Editor
                               Assets::ContentRegistry::Rows( Common::Content::ContentKind::Prefab ) )
                         {
                             const bool selected = ( static_cast<uint64_t>( row.Handle ) == *prefabHandle );
-                            if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(), selected ) )
+                            if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
+                                                    selected ) )
                             {
                                 *prefabHandle = static_cast<uint64_t>( row.Handle );
                                 changed       = true;
@@ -1098,8 +1099,8 @@ namespace Desert::Editor
                         {
                             const std::string path( static_cast<const char*>( payload->Data ),
                                                     payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                            if ( const auto row =
-                                      Assets::ContentRegistry::RowAtPath( Common::Content::ContentKind::Prefab, path ) )
+                            if ( const auto row = Assets::ContentRegistry::RowAtPath(
+                                      Common::Content::ContentKind::Prefab, path ) )
                             {
                                 *prefabHandle = static_cast<uint64_t>( row->Handle );
                                 changed       = true;
