@@ -4,6 +4,8 @@
 #include <Engine/Core/SceneSettings.hpp>
 // The list of blocks that are their reflection and nothing else - the same rows ComponentRegistry
 // registers its serializers from, so this pass cannot cover a block the saver writes by hand.
+#include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 // The engine's own reflection table and serializer, linked into this tool (premake5.lua) so that
 // "canonical" means "the bytes the saver writes" rather than a field list maintained twice.
@@ -31,6 +33,28 @@ namespace Desert::Migration
         {
             report.Refused    = true;
             report.RefusedWhy = std::move( why );
+            return report;
+        }
+
+        // The accounting every canonicaliser ends with: count what the canonical form adds and restates
+        // against what the file stated, and put the canonical form in the block's place.
+        BlockCanonicalisationReport Settle( BlockCanonicalisationReport report, const rfl::Generic::Object& stated,
+                                            rfl::Generic::Object canonical, std::optional<rfl::Generic>& block )
+        {
+            for ( const auto& [key, value] : canonical )
+            {
+                const auto before = stated.get( key );
+                if ( !before.has_value() )
+                    ++report.KeysAdded;
+                else if ( rfl::json::write( before.value() ) != rfl::json::write( value ) )
+                    ++report.ValuesRestated;
+            }
+
+            // Key ORDER is text too: a block stating its keys in another order than the schema is rewritten
+            // even when no key is added and no value restated.
+            report.Rewritten = report.BlockCreated || rfl::json::write( rfl::Generic( stated ) ) !=
+                                                           rfl::json::write( rfl::Generic( canonical ) );
+            block = rfl::Generic( std::move( canonical ) );
             return report;
         }
 
@@ -109,21 +133,7 @@ namespace Desert::Migration
                 canonical[field.Name] = unsetForm.get( field.Name ).value();
             }
 
-            for ( const auto& [key, value] : canonical )
-            {
-                const auto before = stated.get( key );
-                if ( !before.has_value() )
-                    ++report.KeysAdded;
-                else if ( rfl::json::write( before.value() ) != rfl::json::write( value ) )
-                    ++report.ValuesRestated;
-            }
-
-            // Key ORDER is text too: a block stating its keys in another order than the schema is rewritten
-            // even when no key is added and no value restated.
-            report.Rewritten = report.BlockCreated || rfl::json::write( rfl::Generic( stated ) ) !=
-                                                           rfl::json::write( rfl::Generic( canonical ) );
-            block = rfl::Generic( std::move( canonical ) );
-            return report;
+            return Settle( report, stated, std::move( canonical ), block );
         }
 
         template <class TData>
@@ -173,6 +183,54 @@ namespace Desert::Migration
                                                     where, typeName ) );
             }
             return canonicalise( *type, block, where );
+        }
+        // A HAND-WRITTEN BLOCK WHOSE FILE FORM IS ITS MIRROR STRUCT ALONE: ComponentRegistry.cpp writes it as
+        // Common::Json::FromStruct( mirror ) and reads it with ReadBlock<mirror>, so the same two calls here are
+        // the saver's bytes by construction - a number the file states more precisely than the field holds
+        // (Text.Size 80.0000011920929 in a float) comes back as the saver writes it (80.0).
+        template <class TSer>
+        BlockCanonicalisationReport CanonicaliseMirror( std::optional<rfl::Generic>& block,
+                                                        const std::string&           where )
+        {
+            BlockCanonicalisationReport report;
+            const auto                  fields = block.value().to_object();
+            if ( !fields.has_value() )
+                return Refuse( report, std::format( "{} is not an object", where ) );
+            const rfl::Generic::Object& stated = fields.value();
+
+            const Common::Json::Value statedValue( stated );
+            Common::Json::Issues      issues;
+            const auto                parsed = Core::Serialize::ReadBlock<TSer>(
+                 Common::Json::Root( statedValue, Common::Json::Path().Key( where ) ), issues );
+            if ( !parsed.has_value() )
+            {
+                Common::Json::ReportIssues( issues, "[SceneMigration] the block stays as it is" );
+                return Refuse( report,
+                               std::format( "{} states a value of the wrong type (logged above)", where ) );
+            }
+            const auto asObject = Common::Json::FromStruct( parsed.value() ).to_object();
+            if ( !asObject.has_value() )
+                return Refuse( report, std::format( "{}: the mirror struct does not write an object", where ) );
+            rfl::Generic::Object canonical = asObject.value();
+
+            for ( const auto& [key, value] : stated )
+                if ( !canonical.get( key ).has_value() )
+                    return Refuse(
+                         report, std::format( "{} states '{}', which this build does not declare", where, key ) );
+            return Settle( report, stated, std::move( canonical ), block );
+        }
+
+        using MirrorCanonicaliser = BlockCanonicalisationReport ( * )( std::optional<rfl::Generic>&,
+                                                                       const std::string& );
+
+        // Block key -> its mirror struct, for the hand-written blocks whose writer is FromStruct and nothing
+        // else (the keys are the ones ComponentRegistry.cpp registers them under).
+        const std::map<std::string, MirrorCanonicaliser>& MirrorBlocksByKey()
+        {
+            static const std::map<std::string, MirrorCanonicaliser> rows{
+                 { "Text", &CanonicaliseMirror<Assets::TextComponentSer> },
+            };
+            return rows;
         }
     } // namespace
 
@@ -225,12 +283,17 @@ namespace Desert::Migration
             const uint64_t id = static_cast<uint64_t>( entity.id.value_or( Common::UUID( 0 ) ) );
             for ( auto& [key, value] : entity.Components )
             {
-                const auto row = rows.find( key );
-                if ( row == rows.end() )
+                const auto                  row    = rows.find( key );
+                const auto                  mirror = MirrorBlocksByKey().find( key );
+                const std::string           where  = std::format( "entity {} / {}", id, key );
+                std::optional<rfl::Generic> block  = value;
+                BlockCanonicalisationReport done;
+                if ( row != rows.end() )
+                    done = CanonicaliseRow( row->second.TypeName, row->second.Canonicalise, block, where );
+                else if ( mirror != MirrorBlocksByKey().end() )
+                    done = mirror->second( block, where );
+                else
                     continue; // a hand-written block: not this pass's (see the header's NOT COVERED)
-                std::optional<rfl::Generic> block = value;
-                const auto done = CanonicaliseRow( row->second.TypeName, row->second.Canonicalise, block,
-                                                   std::format( "entity {} / {}", id, key ) );
                 if ( done.Refused )
                 {
                     report.Refused = done.RefusedWhy;

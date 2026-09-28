@@ -86,7 +86,8 @@ namespace Desert::Migration
     };
 
     // THE MIGRATOR'S CANONICAL PASS: Settings and every entity-record block listed in
-    // Engine/Core/Serialize/ReflectedComponentBlocks.hpp, each through CanonicaliseReflectedBlock.
+    // Engine/Core/Serialize/ReflectedComponentBlocks.hpp, each through CanonicaliseReflectedBlock; and the
+    // hand-written blocks whose writer is FromStruct of a mirror struct alone (Text), through that struct.
     //
     // NOT COVERED - blocks whose file form is not their reflection alone, written by hand-written
     // serializers in ComponentRegistry.cpp: StaticMesh, SkinnedMesh, InstancedStaticMesh, the material

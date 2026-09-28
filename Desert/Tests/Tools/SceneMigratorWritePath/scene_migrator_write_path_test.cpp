@@ -196,7 +196,9 @@ int main( int argc, char** argv )
 // `scripts/Dev/migrate.sh --write Editor/Resources/Assets`.
 //
 // THE GAP, NAMED: the pass covers Settings and the blocks listed in
-// Engine/Core/Serialize/ReflectedComponentBlocks.hpp only. Blocks written by hand-written serializers -
+// Engine/Core/Serialize/ReflectedComponentBlocks.hpp, plus Text (a hand-written block whose writer is
+// FromStruct of its mirror struct alone, so the pass reads and writes it through that struct - that is
+// where Starter's `80.0000011920929` lived). The other blocks written by hand-written serializers -
 // StaticMesh, SkinnedMesh, InstancedStaticMesh, the material slots, Script, Landscape, LandscapeTile,
 // Foliage, AnimGraph, CubeGridBlockout, UIRenderTexture, Locomotion, Morph, SocketAttachment,
 // Projectile, the flag components - and prefab override records are carried through as the file states
