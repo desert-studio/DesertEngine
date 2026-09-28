@@ -9576,7 +9576,8 @@ namespace Desert::Editor
                 const std::string label = SceneLabel( path );
                 if ( ImGui::MenuItem( label.c_str() ) )
                 {
-                    LoadScene( path );
+                    // Same gated path as the palette and the Open Scene dialog (see SceneOpenRequest).
+                    Editor::Core::SceneOpenRequest::Request( path.string() );
                 }
                 Utils::ImGuiUtilities::Tooltip( path.string().c_str() );
             }
@@ -10032,7 +10033,9 @@ namespace Desert::Editor
             {
                 if ( hasSelection )
                 {
-                    LoadScene( m_AvailableScenes[m_SelectedSceneIndex] );
+                    // The palette's path, not LoadScene: this button used to skip the unsaved-changes gate
+                    // that the palette, the drop and the asset browser all run, and discarded edits silently.
+                    Editor::Core::SceneOpenRequest::Request( m_AvailableScenes[m_SelectedSceneIndex].string() );
                 }
 
                 ImGui::CloseCurrentPopup();
