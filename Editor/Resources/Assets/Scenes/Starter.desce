@@ -197,6 +197,17 @@
             }
         },
         {
+            "id": 9200314146209653172,
+            "siblingIndex": 25,
+            "Tag": "PlayerStart",
+            "Translation": [0.0, 92.0, 650.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "PlayerStart": {
+                "Tag": ""
+            }
+        },
+        {
             "id": 9810771712317175157,
             "siblingIndex": 2,
             "Tag": "Ground",
@@ -207,6 +218,18 @@
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
                 "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
+            },
+            "Collider": {
+                "Shape": 0,
+                "HalfExtents": [1200.0, 10.0, 1200.0],
+                "Radius": 50.0,
+                "HalfHeight": 50.0
+            },
+            "RigidBody": {
+                "Type": 0,
+                "Mass": 1.0,
+                "Friction": 0.5,
+                "Restitution": 0.10000000149011612
             }
         },
         {
@@ -452,8 +475,8 @@
         "RenderingPath": 1,
         "Gravity": 981.0,
         "DefaultPawn": {
-            "Guid": "",
-            "Path": ""
+            "Guid": "1a86d3093e55483bbdd7804f23589465",
+            "Path": "Prefabs/Pawn_Test.deprefab"
         },
         "SplashSprite": {
             "Guid": "",
