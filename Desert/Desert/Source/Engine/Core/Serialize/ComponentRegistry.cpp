@@ -833,6 +833,32 @@ namespace Desert::Core::Serialize
                 }
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
+            if ( type == "PrefabAsset" )
+            {
+                // The level's Default Pawn (SceneSettings). LOADED HERE, not at Play: Play instantiates it
+                // on the frame the button is pressed, and a prefab still reading from disk then would be a
+                // refused Play for a level that names a perfectly good pawn.
+                const std::filesystem::path named( path );
+                const std::filesystem::path full =
+                     named.is_absolute() ? named
+                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
+
+                auto a = mgr.FindByPath<Assets::PrefabAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::PrefabAsset>( full, /*loadAfterCreate=*/false );
+                if ( !a )
+                    return 0;
+                if ( !a->IsReadyForUse() )
+                {
+                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
+                    {
+                        LOG_ERROR( "[Scene] Prefab '{}' named by the scene could not be loaded: {}", full.string(),
+                                   loaded.GetError() );
+                        return 0;
+                    }
+                }
+                return static_cast<uint64_t>( a->GetMetadata().Handle );
+            }
             if ( type == "AnimGraphAsset" )
             {
                 // Both forms accepted, for the reason the branches above give.

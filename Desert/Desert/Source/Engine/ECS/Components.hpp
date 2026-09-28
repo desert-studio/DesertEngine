@@ -85,8 +85,13 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "Main Camera" ), Category( "Camera" ) )
-        bool IsMainCamera = true;
+        // UE's UCameraComponent::bAutoActivateForPlayer: Play views through this camera when the pawn has
+        // none of its own. Off by default, because a default of true on EVERY camera made "which one?" a
+        // question of entity order; more than one set is refused at Play (Core::Scene::ResolveViewTarget).
+        PROPERTY( DisplayName( "Auto Activate for Player" ), Category( "Camera" ),
+                  Tooltip( "Play views through this camera when the player's pawn has no camera of its own. "
+                           "At most one camera in a level may have it." ) )
+        bool AutoActivateForPlayer = false;
 
         PROPERTY( DisplayName( "Field of View" ), Category( "Camera" ), Range( 10.0f, 120.0f ),
                   Header( "Projection" ), Units( "deg" ), Summary,
@@ -2608,6 +2613,24 @@ namespace Desert::ECS
         // vertical from SwimVertical (+1 = up, -1 = down) instead of jump/gravity.
         bool  Swimming     = false;
         float SwimVertical = 0.0f; // -1..1 swim up/down intent (script)
+    };
+
+    // UE's APlayerStart: where Play puts the player's pawn (SceneSettings::DefaultPawn). Its transform is
+    // the spawn transform; the tag lets a level have several named entries (a door, a checkpoint) that a
+    // Play request asks for by name. Selection rules: Core::ChoosePlayerStart.
+    struct PlayerStartData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Player Start Tag" ), Category( "Player Start" ),
+                  Tooltip( "Empty = the level's default start. A tagged start is used only when Play asks "
+                           "for its tag." ) )
+        std::string Tag;
+    };
+
+    struct PlayerStartComponent
+    {
+        PlayerStartData Data;
     };
 
     // Attaches a Lua script to an entity. The ScriptSystem loads the file and calls its OnStart()/OnUpdate(dt);

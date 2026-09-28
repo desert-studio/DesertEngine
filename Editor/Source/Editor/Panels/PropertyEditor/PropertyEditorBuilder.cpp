@@ -1057,6 +1057,65 @@ namespace Desert::Editor
                     break;
                 }
 
+                // A prefab slot (SceneSettings::DefaultPawn): the registry's prefab rows, or a .deprefab
+                // dropped from the Content Browser. "None" is meaningful — a level without a player.
+                if ( field.Meta.AssetType == "PrefabAsset" )
+                {
+                    auto*       prefabHandle = static_cast<uint64_t*>( p );
+                    std::string preview      = "None (no player pawn)";
+                    for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Prefab ) )
+                    {
+                        if ( *prefabHandle != 0 && static_cast<uint64_t>( row.Handle ) == *prefabHandle )
+                            preview = ::Desert::Editor::PickerDisplayName( row );
+                    }
+                    if ( *prefabHandle != 0 && preview.starts_with( "None" ) )
+                        preview = "(missing)";
+
+                    ImGui::SetNextItemWidth( -1.0f );
+                    if ( ImGui::BeginCombo( "##prefab", preview.c_str() ) )
+                    {
+                        if ( ImGui::Selectable( "None (no player pawn)", *prefabHandle == 0 ) )
+                        {
+                            *prefabHandle = 0;
+                            changed       = true;
+                        }
+                        for ( const auto& row :
+                              Assets::ContentRegistry::Rows( Common::Content::ContentKind::Prefab ) )
+                        {
+                            const bool selected = ( static_cast<uint64_t>( row.Handle ) == *prefabHandle );
+                            if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(), selected ) )
+                            {
+                                *prefabHandle = static_cast<uint64_t>( row.Handle );
+                                changed       = true;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if ( ImGui::BeginDragDropTarget() )
+                    {
+                        if ( const ImGuiPayload* payload =
+                                  ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                        {
+                            const std::string path( static_cast<const char*>( payload->Data ),
+                                                    payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
+                            if ( const auto row =
+                                      Assets::ContentRegistry::RowAtPath( Common::Content::ContentKind::Prefab, path ) )
+                            {
+                                *prefabHandle = static_cast<uint64_t>( row->Handle );
+                                changed       = true;
+                            }
+                            else
+                            {
+                                LOG_WARN( "[Scene] '{}' is no prefab row of the content registry; pick one from "
+                                          "the list.",
+                                          path );
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    break;
+                }
+
                 if ( field.Meta.AssetType == "RetargetAsset" )
                 {
                     auto* retargetHandle = static_cast<uint64_t*>( p );

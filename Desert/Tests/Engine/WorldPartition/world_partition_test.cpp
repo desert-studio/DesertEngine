@@ -1274,7 +1274,7 @@ TEST( WorldPartitionAlwaysLoaded, SunSkyAndCameraAreAlwaysLoadedByTheirComponent
     records.push_back( Record( 2, "Sky", { 10.0f, 0.0f, 10.0f } ) );
     With( records[1], "SkyAtmosphere", R"({})" );
     records.push_back( Record( 3, "Camera", { 10.0f, 170.0f, 10.0f } ) );
-    With( records[2], "Camera", R"({"IsMainCamera":true})" );
+    With( records[2], "Camera", R"({"AutoActivateForPlayer":true})" );
     records.push_back( Record( 4, "Rock", { 10.0f, 0.0f, 10.0f } ) );
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 12800.0f ) );
@@ -1298,7 +1298,7 @@ TEST( WorldPartitionAlwaysLoaded, OneGlobalMemberMakesItsWholeCompositeAlwaysLoa
     Under( records[1], 1 );
     records.push_back( Record( 3, "FollowCamera", { 0.0f, 300.0f, -500.0f } ) );
     Under( records[2], 1 );
-    With( records[2], "Camera", R"({"IsMainCamera":true})" );
+    With( records[2], "Camera", R"({"AutoActivateForPlayer":true})" );
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 12800.0f ) );
     ASSERT_EQ( plan.Composites.size(), 1u );

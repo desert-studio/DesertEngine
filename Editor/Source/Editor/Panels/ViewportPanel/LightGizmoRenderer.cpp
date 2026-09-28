@@ -941,7 +941,7 @@ namespace Desert::Editor
                     Utils::ImGuiUtilities::Tooltip(
                          std::format( "{}{}\nFOV: {:.1f} deg\nNear: {:.1f}  Far: {:.0f}\n"
                                       "Position: ({:.2f}, {:.2f}, {:.2f})",
-                                      name, cam.IsMainCamera ? " (Main)" : "", cam.FOV, cam.Near, cam.Far,
+                                      name, cam.AutoActivateForPlayer ? " (Player view)" : "", cam.FOV, cam.Near, cam.Far,
                                       worldPos.x, worldPos.y, worldPos.z )
                               .c_str() );
                     ImGui::PopStyleColor( 2 );
@@ -1313,7 +1313,12 @@ namespace Desert::Editor
             // marker and a trigger volume as a rounded square, with nothing able to notice.
             GizmoIcon role  = GizmoIcon::TransformEmpty; // generic empty / transform helper
             ImVec4    color = ImVec4( 0.75f, 0.78f, 0.85f, 1.0f );
-            if ( entity.HasComponent<ECS::AudioSourceComponent>() )
+            if ( entity.HasComponent<ECS::PlayerStartComponent>() )
+            {
+                role  = GizmoIcon::SpawnPoint;
+                color = ImVec4( 0.45f, 1.00f, 0.45f, 1.0f );
+            }
+            else if ( entity.HasComponent<ECS::AudioSourceComponent>() )
             {
                 role  = GizmoIcon::AudioSource;
                 color = ImVec4( 0.60f, 0.90f, 0.70f, 1.0f );
@@ -1344,6 +1349,32 @@ namespace Desert::Editor
 
             const float ax = windowPos.x + screenPos.x;
             const float ay = windowPos.y + screenPos.y;
+
+            // A PlayerStart's FACING is half of what it authors (the pawn spawns looking that way), so it
+            // gets UE's arrow: one metre along the start's forward (-Z, the camera convention).
+            if ( entity.HasComponent<ECS::PlayerStartComponent>() )
+            {
+                const glm::mat4 world   = entity.GetWorldTransform();
+                const glm::vec3 forward = glm::normalize( -glm::vec3( world[2] ) );
+                glm::vec2       tip;
+                if ( ProjectToScreen( worldPos + forward * 100.0f, mvp, width, height, tip ) )
+                {
+                    const ImU32  col = ImColor( color );
+                    const ImVec2 to( windowPos.x + tip.x, windowPos.y + tip.y );
+                    drawList->AddLine( ImVec2( ax, ay ), to, col, 2.0f );
+                    const ImVec2 d( to.x - ax, to.y - ay );
+                    const float  len = std::sqrt( d.x * d.x + d.y * d.y );
+                    if ( len > 8.0f )
+                    {
+                        const ImVec2 n( d.x / len, d.y / len );
+                        const ImVec2 q( -n.y, n.x );
+                        drawList->AddLine( to, ImVec2( to.x - n.x * 10 + q.x * 5, to.y - n.y * 10 + q.y * 5 ), col,
+                                           2.0f );
+                        drawList->AddLine( to, ImVec2( to.x - n.x * 10 - q.x * 5, to.y - n.y * 10 - q.y * 5 ), col,
+                                           2.0f );
+                    }
+                }
+            }
 
             if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), role, color, IsSelected( entity ), m_UIHelper ) )
             {

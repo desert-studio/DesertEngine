@@ -127,7 +127,7 @@ namespace
 
         auto&      records = scene.Entities;
         EntityData camera  = Record( kCameraId, "Camera", { 50.0f, 0.0f, 50.0f } );
-        With( camera, "Camera", R"({"IsMainCamera": true})" );
+        With( camera, "Camera", R"({"AutoActivateForPlayer": true})" );
         records.push_back( camera );
         records.push_back( Record( kParentId, "Parent", CellCentre( 5, 1 ) ) );
         EntityData child = Record( kChildId, "Child", { 100.0f, 0.0f, 0.0f } );

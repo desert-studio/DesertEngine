@@ -213,7 +213,9 @@ namespace Desert::Editor
         void DrawLayoutSavePopup();
 
         // Play mode: snapshot the scene on Play, restore it on Stop (so play-time changes don't persist).
-        void OnScenePlay();
+        // Play: the pawn spawns at the level's PlayerStart. Play from Here (@p fromHere): it spawns at the
+        // editor camera instead, and the editor camera is the last-resort view (Core::BeginPlay).
+        void OnScenePlay( bool fromHere = false );
         void OnSceneStop();
         void OnScenePauseToggle();
 

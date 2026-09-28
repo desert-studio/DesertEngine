@@ -482,7 +482,7 @@ namespace
     constexpr const char* kAudioSystem = "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp";
 
     constexpr Row kCameraRows[] = {
-         { "IsMainCamera", kScene }, // which camera the scene renders through
+         { "AutoActivateForPlayer", kScene }, // which camera the scene renders through
          { "FOV", kScene },
          { "Near", kScene },
          { "Far", kScene },

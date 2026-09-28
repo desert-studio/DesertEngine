@@ -1,3 +1,4 @@
+#include <Engine/Core/PlayerStart.hpp>
 #include "RuntimeLayer.hpp"
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -279,7 +280,12 @@ namespace Desert::Player
         // from anywhere else would ask the renderer for the content of a view the game is never going to
         // show, and the gate below would then open on the wrong answer. What the loading state suspends
         // is TIME, not the render — see the zero timestep in OnUpdate.
-        m_Scene->SetState( Core::Scene::SceneState::Play );
+        // Through Core::BeginPlay, the editor's Play: the level's DefaultPawn at its PlayerStart, then the
+        // view target. A packaged game that cannot place its player says so and does not run.
+        if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, {} ); !began )
+        {
+            return Common::MakeError( "Play refused for '" + scenePath + "': " + began.GetError() );
+        }
         // AND THE WORLD IS NOW THE GATE'S SUBJECT. Nothing it wants has been asked for yet: the cloud
         // kinds are demand-driven, so the first frame is where the asking happens.
         // TriggerSplash() is NOT called here any more. It used to start the authored splash at the top of
@@ -425,7 +431,11 @@ namespace Desert::Player
             return;
         }
         m_WorldStreamer = streamer.ExtractValue();
-        m_Scene->SetState( Core::Scene::SceneState::Play );
+        if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, {} ); !began )
+        {
+            LOG_ERROR( "[Runtime] Play refused for '{}': {}", path, began.GetError() );
+            return;
+        }
         // THE SAME GATE AS THE BOOT'S, and this is the half that would have been forgotten. A level switch
         // is a second world handed over at run time — its clouds, its layouts, its themes are read on
         // demand exactly like the first one's — so a loading state that covered only the boot would ship

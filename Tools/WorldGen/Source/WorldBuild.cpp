@@ -157,7 +157,7 @@ namespace Desert::WorldGen
             auto camera = MakeEntity( nextId++, "Camera", { 0.0f, 170.0f, 0.0f }, { 0.0f, 0.0f, 0.0f },
                                       { 1.0f, 1.0f, 1.0f } );
             Common::Json::Object cam;
-            cam["IsMainCamera"] = Common::Json::Value( true );
+            cam["AutoActivateForPlayer"] = Common::Json::Value( true );
             cam["FOV"]          = Num( 75.0 );
             cam["Near"]         = Num( 10.0 );
             // Far is the world's DIAGONAL and not a round number pulled from another scene: a far plane
