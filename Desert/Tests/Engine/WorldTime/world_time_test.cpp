@@ -209,12 +209,8 @@ namespace
     const std::set<std::string> kWallClockAllowed{
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp",
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",     // shadow alloc ms
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp", // bake ms
-         // NOT A MACHINE MEASUREMENT, AND THE ONE ROW THAT MUST DIE: the particles' own clock. RDG-F
-         // (task/RDG-F-frame-bench, 2a398ea28) moves them onto UpdateInfo::Timestep, which Scene::OnUpdate
-         // fills from this clock; the dead-row test below fails on that merge until this row is removed.
-         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp",
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp", // shadow alloc ms
+         "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",     // bake ms
     };
 
     constexpr std::array<const char*, 3> kScannedDirs{

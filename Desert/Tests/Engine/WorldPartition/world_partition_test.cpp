@@ -686,7 +686,8 @@ namespace
     // extent of its own (it grades everywhere and loads Global), so +148 on both counts.
     //   * -4 with LS-16 (2595 / 2627): G26_TerrainRockLayer is deleted with the built-in rock layer it existed
     //     to switch off; its landscape roots and scene records go with it.
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2595;
+    //   * +16 with RDG3 (2611): the two render-graph bench scenes, RDG_DeferredSSRGI and RDG_LandscapeParticles.
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2611;
     constexpr std::size_t kCorpusPointOnlyBlind        = 2627;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
