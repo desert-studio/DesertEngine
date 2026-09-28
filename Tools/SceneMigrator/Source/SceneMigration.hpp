@@ -211,6 +211,11 @@ namespace Desert::Migration
     // what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV4ToV5( const std::string& text );
 
+    // The v6 text of a v5 `.defoliage`: every v5 value kept, Kind Mesh (FOLT 5 had no other kind), the header's
+    // GUID kept. A file that does not state FOLT 5 is an error naming what it states. PURE - no filesystem
+    // access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV5ToV6( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport

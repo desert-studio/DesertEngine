@@ -3,11 +3,16 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 5
+            "FOLT": 6
         },
         "Dependencies": []
     },
+    "Kind": "Mesh",
     "Mesh": {
+        "Guid": "",
+        "Path": ""
+    },
+    "Prefab": {
         "Guid": "",
         "Path": ""
     },

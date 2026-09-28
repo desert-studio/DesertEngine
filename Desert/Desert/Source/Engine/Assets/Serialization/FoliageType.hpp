@@ -43,7 +43,12 @@ namespace Desert::Assets::Serialization
      *       is what every v3 field drew.
      *   5 - IncludeInHLOD joins (FO-6, UE UFoliageType::bIncludeInHLOD): whether the type's instances stand in
      *       a far cell's HLOD. SceneMigrator raises a v4 file (MigrateFoliageTypeV4ToV5) with true, UE's
-     *       default and what every v4 field got. The engine reads v5 only.
+     *       default and what every v4 field got.
+     *   6 - Kind and Prefab join (FO-8, UE UFoliageType_InstancedStaticMesh vs UFoliageType_Actor): a type
+     *       either draws a mesh per instance or places a prefab instance (an entity with its children) per
+     *       instance. The header's first Dependency is the prefab's GUID for a Prefab type. SceneMigrator
+     *       raises a v5 file (MigrateFoliageTypeV5ToV6) with Kind Mesh, what every v5 type was. The engine
+     *       reads v6 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -89,6 +94,28 @@ namespace Desert::Assets::Serialization
     };
 
     /**
+     * @brief What one instance of a type IS (UE: the foliage type's class).
+     *
+     *   Mesh   - UFoliageType_InstancedStaticMesh: a transform in the field's instanced mesh, drawn in one batch.
+     *   Prefab - UFoliageType_Actor: a prefab instance per transform, a real entity with its children (scripts,
+     *            colliders, lights), realized under the field by World::Foliage::RealizePrefabFoliage. The
+     *            field's transforms stay the one statement of where the instances stand, so every brush tool,
+     *            the undo and the World Partition filing work on both kinds unchanged.
+     */
+    enum class FoliageTypeKind
+    {
+        Mesh,
+        Prefab
+    };
+
+    /// Why a Prefab type has no CullDistance, Wind or IncludeInHLOD: each is a property of an instanced mesh
+    /// draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a Prefab type that
+    /// sets them, and the Details panel greys them out with this text.
+    inline constexpr const char* kFoliagePrefabMeshOnlyReason =
+         "a Prefab type places entities, which draw, cull and stream as themselves; cull distance, wind and HLOD "
+         "belong to an instanced mesh (UE FoliageType_Actor has none of them)";
+
+    /**
      * @brief One `.defoliage`: what to scatter and how (UE: UFoliageType_InstancedStaticMesh).
      *
      * Field names follow UFoliageType so a reader of the UE docs finds the same knob here. The single
@@ -98,8 +125,16 @@ namespace Desert::Assets::Serialization
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
+        /// What each instance is (FOLT 6). Mesh names Mesh below; Prefab names Prefab below.
+        FoliageTypeKind Kind = FoliageTypeKind::Mesh;
+
         /// The static mesh the instances draw. Empty = a type that can be authored but not painted yet.
+        /// Always empty for a Prefab type.
         AssetGuidRef Mesh;
+
+        /// The prefab (`.deprefab`, by its header GUID and path) each instance places. Named for a Prefab type
+        /// and only for it.
+        AssetGuidRef Prefab;
 
         /// Instances per 1000x1000 cm of brushed area (UE UFoliageType::Density, default 100). The brush tops
         /// the area under it up to this count and no further, so repeated dabs do not pile instances up.
@@ -137,6 +172,10 @@ namespace Desert::Assets::Serialization
         bool IncludeInHLOD = true;
 
         [[nodiscard]] bool operator==( const FoliageTypeData& ) const = default;
+        [[nodiscard]] bool IsPrefab() const
+        {
+            return Kind == FoliageTypeKind::Prefab;
+        }
     };
 
     /// The FOLT generation a `.defoliage` text states, read from its header alone (so a file of another

@@ -5659,6 +5659,17 @@ namespace Desert::Editor
                                Core::ViewportMode::Set( Core::EditorMode::Foliage );
                                return Tools::FoliagePaintTool::AddMeshFile( *m_MainScene, *m_AssetManager, path );
                            } } );
+                // FO-8: the "+ Foliage" picker's prefabs (a Prefab type is found or made for the prefab).
+                if ( ext == ".deprefab" )
+                    commands.push_back(
+                         { "Foliage", "Add prefab to the palette: " + file.stem().string(), [this, path]
+                           {
+                               if ( !m_MainScene || !m_AssetManager )
+                                   return PaletteCommandOutcome( false, "no scene or no asset manager" );
+                               Core::ViewportMode::Set( Core::EditorMode::Foliage );
+                               return Tools::FoliagePaintTool::AddPrefabFile( *m_MainScene, *m_AssetManager,
+                                                                              path );
+                           } } );
                 if ( ext != Assets::Serialization::kFoliageTypeExtension )
                     continue;
                 commands.push_back(

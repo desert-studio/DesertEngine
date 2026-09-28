@@ -100,6 +100,10 @@ namespace Desert::Editor::Tools
                                                   const std::string& meshSourcePath );
         // The viewport selection as a type: a foliage field's type, or the mesh a static-mesh or instanced
         // entity draws, found or made as for a dropped mesh.
+        /// FO-8: the Prefab type for the `.deprefab` at @p prefabPath (found or made, UE FoliageType_Actor) onto
+        /// the palette.
+        static Common::BoolResultStr AddPrefabFile( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                    const std::string& prefabPath );
         static Common::BoolResultStr AddFromEntity( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
                                                     const Common::UUID& entity );
         // UE "Select All": every instance of every checked type.

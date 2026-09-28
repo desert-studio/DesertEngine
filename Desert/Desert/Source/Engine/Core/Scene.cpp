@@ -17,6 +17,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Engine/World/Foliage/FoliagePrefabs.hpp>
 
 #include <algorithm>
 #include <cfloat>
@@ -447,6 +448,14 @@ namespace Desert::Core
             const glm::vec3 camPos  = primary->GetPosition();
             for ( auto& system : m_Systems )
                 system->SetCameraSnapshot( camView, camPos );
+        }
+
+        // Prefab foliage (FO-8) before the systems: a field's instances are entities, and the systems below must
+        // see them where the field's transforms say they stand this frame — after a stroke, an undo or a cell
+        // streaming in. Main thread: it creates and destroys entities.
+        {
+            DESERT_PROFILE_SCOPE( "Prefab Foliage" );
+            World::Foliage::RealizePrefabFoliage( *this );
         }
 
         {

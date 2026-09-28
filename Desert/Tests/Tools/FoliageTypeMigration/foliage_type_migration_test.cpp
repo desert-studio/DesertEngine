@@ -1,8 +1,8 @@
 // FO-3: FOLT 1 -> 2; FO-5: FOLT 2 -> 3 (CullDistance joins at UE's never-culled default); FO-7: FOLT 3 -> 4
-// (Wind joins, still). A v1 `.defoliage` stated
-// Density per brush dab; v2 states it per 1000x1000 cm (UE). The step converts through the v1 brush's default
-// radius, so one reference dab places the same count under both, keeps every other number and the GUID, and the
-// engine reads the result while refusing v1.
+// (Wind joins, still); FO-6: FOLT 4 -> 5 (IncludeInHLOD); FO-8: FOLT 5 -> 6 (Kind Mesh, Prefab joins). A v1
+// `.defoliage` stated Density per brush dab; v2 states it per 1000x1000 cm (UE). The step converts through the v1
+// brush's default radius, so one reference dab places the same count under both, keeps every other number and the
+// GUID, and the engine reads the result while refusing v1.
 
 #include <SceneMigration.hpp>
 
@@ -43,7 +43,7 @@ namespace
     }
 } // namespace
 
-TEST( FoliageTypeMigration, TheEngineReadsVersionFourOnlyAndRefusesVersionOne )
+TEST( FoliageTypeMigration, TheEngineReadsVersionSixOnlyAndRefusesVersionOne )
 {
     const auto v1 = Assets::Serialization::ParseFoliageType( kV1 );
     ASSERT_FALSE( v1 );
@@ -52,7 +52,7 @@ TEST( FoliageTypeMigration, TheEngineReadsVersionFourOnlyAndRefusesVersionOne )
 
 namespace
 {
-    // v2 -> v3 -> v4: the engine reads the last generation only.
+    // v2 -> v3 -> v4 -> v5 -> v6: the engine reads the last generation only.
     Common::ResultStr<std::string> RaiseV2ToEngine( const std::string& v2 )
     {
         const auto toV3 = Migration::MigrateFoliageTypeV2ToV3( v2 );
@@ -61,7 +61,10 @@ namespace
         const auto toV4 = Migration::MigrateFoliageTypeV3ToV4( toV3.GetValue() );
         if ( !toV4 )
             return toV4;
-        return Migration::MigrateFoliageTypeV4ToV5( toV4.GetValue() );
+        const auto toV5 = Migration::MigrateFoliageTypeV4ToV5( toV4.GetValue() );
+        if ( !toV5 )
+            return toV5;
+        return Migration::MigrateFoliageTypeV5ToV6( toV5.GetValue() );
     }
 } // namespace
 
@@ -84,7 +87,10 @@ TEST( FoliageTypeMigration, DensityPerDabBecomesUEAreaDensity )
 
     // Everything else crosses as it was; the new fields take UE's defaults; the identity is kept.
     EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
-    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 5u );
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 6u );
+    // FOLT 6 (FO-8): every raised type draws a mesh, as every v5 type did.
+    EXPECT_EQ( data.Kind, Assets::Serialization::FoliageTypeKind::Mesh );
+    EXPECT_TRUE( data.Prefab.Guid.empty() );
     EXPECT_EQ( data.Mesh.Guid, "11112222333344445555666677778888" );
     EXPECT_EQ( data.Mesh.Path, "Cooked/Meshes/Grass.stmesh" );
     EXPECT_FLOAT_EQ( data.ScaleX.Min, 0.11f );
@@ -174,11 +180,20 @@ TEST( FoliageTypeMigration, OnlyVersionThreeIsRaisedToFourAndKeepsItsCullDistanc
     ASSERT_TRUE( toV4 ) << toV4.GetError();
     const auto toV5 = Migration::MigrateFoliageTypeV4ToV5( toV4.GetValue() );
     ASSERT_TRUE( toV5 ) << toV5.GetError();
-    const auto parsed = Assets::Serialization::ParseFoliageType( toV5.GetValue() );
+    // v5 text is no longer the engine's generation: the engine refuses it by number.
+    const auto v5Refused = Assets::Serialization::ParseFoliageType( toV5.GetValue() );
+    ASSERT_FALSE( v5Refused );
+    EXPECT_NE( v5Refused.GetError().find( "5" ), std::string::npos ) << v5Refused.GetError();
+    const auto toV6 = Migration::MigrateFoliageTypeV5ToV6( toV5.GetValue() );
+    ASSERT_TRUE( toV6 ) << toV6.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV6.GetValue() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().Header->Versions.at( "FOLT" ), 5u );
+    EXPECT_EQ( parsed.GetValue().Header->Versions.at( "FOLT" ), 6u );
     EXPECT_TRUE( parsed.GetValue().IncludeInHLOD ) << "FOLT 4 -> 5 must keep UE's default: in the HLOD";
     const auto five = Migration::MigrateFoliageTypeV4ToV5( toV5.GetValue() );
+    const auto six  = Migration::MigrateFoliageTypeV5ToV6( toV6.GetValue() );
+    ASSERT_FALSE( six );
+    EXPECT_NE( six.GetError().find( "FOLT 6" ), std::string::npos ) << six.GetError();
     ASSERT_FALSE( five );
     EXPECT_NE( five.GetError().find( "FOLT 5" ), std::string::npos ) << five.GetError();
     EXPECT_EQ( parsed.GetValue().Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
@@ -189,6 +204,82 @@ TEST( FoliageTypeMigration, OnlyVersionThreeIsRaisedToFourAndKeepsItsCullDistanc
     const auto four = Migration::MigrateFoliageTypeV3ToV4( toV4.GetValue() );
     ASSERT_FALSE( four );
     EXPECT_NE( four.GetError().find( "FOLT 4" ), std::string::npos ) << four.GetError();
+}
+
+TEST( FoliageTypeMigration, VersionFiveIsRaisedToSixAsAMeshTypeKeepingEveryValue )
+{
+    // A v5 file whose type was taken out of the HLOD and sways: FOLT 5 -> 6 keeps both, adds Kind Mesh.
+    std::string v5   = R"({
+    "Header": {
+        "Kind": "FoliageType",
+        "Versions": { "FOLT": 5 },
+        "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
+        "Dependencies": [ "11112222333344445555666677778888" ]
+    },
+    "Mesh": { "Guid": "11112222333344445555666677778888", "Path": "Cooked/Meshes/Grass.stmesh" },
+    "Density": 64.0,
+    "ScaleX": { "Min": 0.9, "Max": 1.1 },
+    "ZOffset": { "Min": 0.0, "Max": 0.0 },
+    "AlignToNormal": true,
+    "RandomYaw": true,
+    "RandomPitchAngle": 0.0,
+    "GroundSlopeAngle": { "Min": 0.0, "Max": 90.0 },
+    "Height": { "Min": -262144.0, "Max": 262144.0 },
+    "LandscapeLayers": [],
+    "MinimumLayerWeight": 0.0,
+    "CullDistance": { "Min": 1500.0, "Max": 4000.0 },
+    "Wind": { "Strength": 12.0, "Speed": 0.5, "Height": 100.0, "DirectionDegrees": 30.0 },
+    "IncludeInHLOD": false
+})";
+    const auto  toV6 = Migration::MigrateFoliageTypeV5ToV6( v5 );
+    ASSERT_TRUE( toV6 ) << toV6.GetError();
+    const auto parsed = Assets::Serialization::ParseFoliageType( toV6.GetValue() );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    const auto& data = parsed.GetValue();
+    EXPECT_EQ( data.Header->Versions.at( "FOLT" ), 6u );
+    EXPECT_EQ( data.Header->Guid, "40d85d14a33a791506ec8583ba5ecbb8" );
+    EXPECT_EQ( data.Kind, Assets::Serialization::FoliageTypeKind::Mesh );
+    EXPECT_TRUE( data.Prefab.Guid.empty() && data.Prefab.Path.empty() );
+    EXPECT_EQ( data.Mesh.Path, "Cooked/Meshes/Grass.stmesh" );
+    EXPECT_FLOAT_EQ( data.Density, 64.0f );
+    EXPECT_FLOAT_EQ( data.CullDistance.Max, 4000.0f );
+    EXPECT_FLOAT_EQ( data.Wind.Strength, 12.0f );
+    EXPECT_FALSE( data.IncludeInHLOD ) << "FOLT 5 -> 6 must keep the file's IncludeInHLOD, not reset it";
+    // A fixed point: the raised text is exactly what the engine writes for it.
+    EXPECT_EQ( Assets::Serialization::WriteFoliageType( data ), toV6.GetValue() );
+}
+
+TEST( FoliageTypeMigration, APrefabTypeNamesItsPrefabAndNoMeshSetting )
+{
+    Assets::Serialization::FoliageTypeData data;
+    data.Kind          = Assets::Serialization::FoliageTypeKind::Prefab;
+    data.Prefab        = { "99998888777766665555444433332222", "Prefabs/Rock.deprefab" };
+    data.IncludeInHLOD = false;
+    const auto parsed = Assets::Serialization::ParseFoliageType( Assets::Serialization::WriteFoliageType( data ) );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    EXPECT_TRUE( parsed.GetValue().IsPrefab() );
+    ASSERT_EQ( parsed.GetValue().Header->Dependencies.size(), 1u );
+    EXPECT_EQ( parsed.GetValue().Header->Dependencies[0], "99998888777766665555444433332222" );
+
+    // Each instanced-mesh setting on a Prefab type is refused with the reason.
+    auto withCull             = data;
+    withCull.CullDistance.Max = 100.0f;
+    auto withWind             = data;
+    withWind.Wind.Strength    = 1.0f;
+    auto withHlod             = data;
+    withHlod.IncludeInHLOD    = true;
+    auto withMesh             = data;
+    withMesh.Mesh             = { "11112222333344445555666677778888", "Cooked/Meshes/Grass.stmesh" };
+    auto noPrefab             = data;
+    noPrefab.Prefab           = {};
+    auto meshNamingPrefab     = Assets::Serialization::FoliageTypeData{};
+    meshNamingPrefab.Prefab   = data.Prefab;
+    for ( const auto* bad : { &withCull, &withWind, &withHlod, &withMesh, &noPrefab, &meshNamingPrefab } )
+        EXPECT_FALSE( Assets::Serialization::ValidateFoliageTypeData( *bad ) );
+    const auto cull = Assets::Serialization::ValidateFoliageTypeData( withCull );
+    ASSERT_FALSE( cull );
+    EXPECT_NE( cull.GetError().find( Assets::Serialization::kFoliagePrefabMeshOnlyReason ), std::string::npos )
+         << cull.GetError();
 }
 
 TEST( FoliageTypeMigration, ARaisedFileIsAFixedPoint )
