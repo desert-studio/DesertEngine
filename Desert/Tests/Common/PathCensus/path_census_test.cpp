@@ -301,7 +301,7 @@ TEST( PathCensus, NoContentKindIsRootedUnderTheCookedTree )
     {
         if ( kind.StatedOnly() )
             continue;
-        const fs::path rel = kind.Root->lexically_normal().lexically_relative( cooked );
+        const fs::path rel   = kind.Root->lexically_normal().lexically_relative( cooked );
         const bool     under = !rel.empty() && *rel.begin() != "..";
         EXPECT_FALSE( under ) << "content kind " << kind.Name << " is rooted at '" << kind.Root->generic_string()
                               << "', inside the Cooked tree '" << cooked.generic_string()
@@ -318,7 +318,8 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
          { "Desert/Common/Source/Common/Core/Constants.hpp", "defines COOKED_DIR_NAME and COOKED_PATH" },
          { "Desert/Common/Source/Common/Content/DerivedDataCache.cpp",
            "PackagedPath: derived font/icon atlases the packager ships" },
-         { "Desert/Common/Source/Common/Content/DerivedDataCache.hpp", "comment: where PackagedPath puts a cache" },
+         { "Desert/Common/Source/Common/Content/DerivedDataCache.hpp",
+           "comment: where PackagedPath puts a cache" },
          { "Desert/Desert/Source/Engine/Text/FontCache.hpp", "comment: font atlases are a PackagedPath cache" },
          { "Desert/Desert/Source/Engine/Vector/IconBake.hpp", "comment: icon atlases are a PackagedPath cache" },
          { "Editor/Source/EditorLayer.cpp", "the local asset registry Cooked/AssetRegistry.dreg" },
@@ -339,8 +340,8 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
         std::error_code ec;
         if ( !fs::exists( *root / top, ec ) )
             continue;
-        for ( auto it = fs::recursive_directory_iterator( *root / top, ec ); it != fs::recursive_directory_iterator();
-              it.increment( ec ) )
+        for ( auto it = fs::recursive_directory_iterator( *root / top, ec );
+              it != fs::recursive_directory_iterator(); it.increment( ec ) )
         {
             if ( ec )
                 break;
@@ -363,8 +364,8 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
              << file << " spells the Cooked root and is not in this register; if what it writes there is "
              << "authored content, it belongs under the assets root (git ignores every Cooked/ folder)";
     for ( const auto& [file, why] : registered )
-        EXPECT_TRUE( found.contains( file ) ) << "registered '" << file << "' (" << why
-                                              << ") no longer spells the Cooked root: delete its row";
+        EXPECT_TRUE( found.contains( file ) )
+             << "registered '" << file << "' (" << why << ") no longer spells the Cooked root: delete its row";
 }
 
 TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )

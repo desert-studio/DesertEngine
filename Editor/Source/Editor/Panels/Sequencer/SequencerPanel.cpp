@@ -311,10 +311,10 @@ namespace Desert::Editor
         std::error_code ec;
         std::filesystem::create_directories( Common::Constants::Path::ANIMATION_PATH, ec );
         if ( ec )
-            return Common::MakeFormattedError<std::string>( "cannot create '{}': {}",
-                                                            Common::Constants::Path::ANIMATION_PATH.string(),
-                                                            ec.message() );
-        const std::filesystem::path path = Common::Constants::Path::ANIMATION_PATH / ( clip.AnimationName + ".anim" );
+            return Common::MakeFormattedError<std::string>(
+                 "cannot create '{}': {}", Common::Constants::Path::ANIMATION_PATH.string(), ec.message() );
+        const std::filesystem::path path =
+             Common::Constants::Path::ANIMATION_PATH / ( clip.AnimationName + ".anim" );
 
         // IT RETURNS A RESULT AND NOT A PATH-OR-EMPTY-STRING. The old signature was `std::string`, an
         // empty one meaning failure — and its only caller, the Save button, discarded it, so a refusal

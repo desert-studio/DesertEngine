@@ -1232,8 +1232,9 @@ TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlways
     // The corpus meshes (kCorpusProps); a mesh the world names outside this list is planned as a point and the
     // AlwaysLoaded / level assertions below would not see it - so the list is checked against the file too.
     for ( const std::string path :
-          { "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh", "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh", "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
-            "Resources/Assets/Meshes/StaticProbe.stmesh" } )
+          { "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
+            "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+            "Resources/Assets/Meshes/Skinned/IKProbe.skmesh", "Resources/Assets/Meshes/StaticProbe.stmesh" } )
     {
         const std::string raw = ReadAll( ProjectRoot() + "/" + path );
         if ( const auto cooked = Common::Content::ReadMeshHeaderBounds( raw ); cooked && cooked->Bounds )

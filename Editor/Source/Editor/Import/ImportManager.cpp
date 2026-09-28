@@ -30,7 +30,8 @@
 namespace Desert::Editor
 {
 
-    static std::filesystem::path SkinnedAssetPath( const std::filesystem::path& sourcePath, const std::string& suffix )
+    static std::filesystem::path SkinnedAssetPath( const std::filesystem::path& sourcePath,
+                                                   const std::string&           suffix )
     {
         // Path formula is shared (CookPaths::SkinnedAsset, beside the source); this wrapper also ensures the
         // dir exists for writing.
@@ -61,8 +62,8 @@ namespace Desert::Editor
             std::error_code ec;
             if ( !std::filesystem::exists( CookPaths::SkinnedAsset( source, ".skmesh" ), ec ) )
                 return false;
-            const auto text =
-                 Common::Utils::FileSystem::ReadFileContentIfExists( CookPaths::SkinnedAsset( source, ".skeleton" ) );
+            const auto text = Common::Utils::FileSystem::ReadFileContentIfExists(
+                 CookPaths::SkinnedAsset( source, ".skeleton" ) );
             if ( !text || !text.GetValue() )
                 return false;
             const auto rig = Assets::Serialization::ReadSkeletonJson( *text.GetValue() );
@@ -84,9 +85,9 @@ namespace Desert::Editor
         // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when the mesh output is
         // current. A source produces either a static mesh envelope in the DDC (fresh by its IMPT content
         // hash - AF4h moved that envelope out from beside the source) or skinned assets beside the
-        // source (fresh by the source hash their rig states, AF8b), so accept either. `force` (Rebuild Cooked Assets)
-        // bypasses this. A mesh EDITED in the editor (P9b) is up to date whatever its source's bytes say: only
-        // an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
+        // source (fresh by the source hash their rig states, AF8b), so accept either. `force` (Rebuild Cooked
+        // Assets) bypasses this. A mesh EDITED in the editor (P9b) is up to date whatever its source's bytes say:
+        // only an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
         // re-imported behind the user's back), and that re-import says so (RemoveBesideSourceFile).
         if ( !force &&
              ( ImportedMeshAssetIsFresh( path ) || Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) ||
@@ -265,8 +266,8 @@ namespace Desert::Editor
         const auto hash = Assets::HashMeshSourceFile( sourcePath );
         if ( !hash )
             return Common::MakeError<bool>( hash.GetError() );
-        stamped.Import = Assets::Serialization::SkeletonImportInfo{ sourcePath.filename().generic_string(),
-                                                                    hash.GetValue() };
+        stamped.Import =
+             Assets::Serialization::SkeletonImportInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 

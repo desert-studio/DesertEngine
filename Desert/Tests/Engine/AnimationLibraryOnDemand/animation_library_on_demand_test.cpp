@@ -30,7 +30,8 @@ namespace
     {
         for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
         {
-            const fs::path candidate = fs::path( prefix ) / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
+            const fs::path candidate =
+                 fs::path( prefix ) / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
             if ( fs::is_regular_file( candidate ) )
                 return fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) )
                      .lexically_normal();

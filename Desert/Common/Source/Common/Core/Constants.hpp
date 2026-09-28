@@ -216,7 +216,8 @@ namespace Common::Constants
         // the Cooked root names itself and nothing else, so no directory a content kind can be rooted at, or
         // an importer can write to, hangs off it. A MeshCooked-style row stops compiling here.
         static_assert(
-             [] {
+             []
+             {
                  std::size_t underCooked = 0;
                  for ( const auto& spec : CONTENT_DIRS )
                      underCooked += spec.Root == DirRoot::Cooked ? 1u : 0u;
@@ -388,8 +389,8 @@ namespace Common::Constants
         inline const std::filesystem::path& RETARGET_PATH       = Dir( ContentDir::Retarget );
         inline const std::filesystem::path& FOLIAGE_TYPE_PATH         = Dir( ContentDir::FoliageType );
         inline const std::filesystem::path& LANDSCAPE_LAYER_INFO_PATH = Dir( ContentDir::LandscapeLayerInfo );
-        inline const std::filesystem::path& ANIMATION_PATH      = Dir( ContentDir::Animation );
-        inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
+        inline const std::filesystem::path& ANIMATION_PATH            = Dir( ContentDir::Animation );
+        inline const std::filesystem::path& COOKED_PATH               = Dir( ContentDir::Cooked );
     } // namespace Path
 
     namespace Extensions

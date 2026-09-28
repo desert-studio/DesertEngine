@@ -247,7 +247,8 @@ TEST( AssetPathIdentity, TheScenesSpellingFindsThePreloadersUnparsedShell )
     AssetManager mgr;
 
     const Common::Filepath preloaderSpelling = Common::Constants::Path::ASSETS_PATH / "Meshes" / "base.stmesh";
-    const Common::Filepath sceneSpelling     = std::filesystem::path( "Resources" ) / "Assets" / "Meshes" / "base.stmesh";
+    const Common::Filepath sceneSpelling =
+         std::filesystem::path( "Resources" ) / "Assets" / "Meshes" / "base.stmesh";
 
     const auto shell = mgr.CreateAsset<TextureProbe>( preloaderSpelling, /*loadAfterCreate=*/false );
     ASSERT_NE( shell, nullptr );
@@ -432,7 +433,8 @@ TEST( AssetPathIdentity, RelativeSpellingsAreResolvedLexicallyNotThroughLinks )
                                         /*loadAfterCreate=*/false );
     ASSERT_NE( registered, nullptr );
 
-    EXPECT_EQ( mgr.FindByPath<TextureProbe>( std::filesystem::path( "Resources" ) / "Assets" / "Meshes" / "base.stmesh" ),
+    EXPECT_EQ( mgr.FindByPath<TextureProbe>( std::filesystem::path( "Resources" ) / "Assets" / "Meshes" /
+                                             "base.stmesh" ),
                nullptr )
          << "the derivation has become link-aware; that is a bigger change than it looks (it puts a stat "
             "inside the identity of every asset) and this test is where to argue it";

@@ -608,7 +608,8 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
 {
     ASSERT_FALSE( RepoRoot().empty() );
 
-    const std::string raw = ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
+    const std::string raw =
+         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
     auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
@@ -617,7 +618,8 @@ TEST( SkeletonMapperFit, ARootTranslationIsCopiedUnscaledOntoATallerRig )
     const Skeleton source{ std::vector<BoneInfo>( twoBones ) };
     const Skeleton target = ScaledRig( twoBones, 1.5F );
 
-    const std::string clipRaw = ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim" );
+    const std::string clipRaw =
+         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim" );
     ASSERT_FALSE( clipRaw.empty() );
     const auto clipData = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( clipRaw );
     ASSERT_TRUE( clipData.IsSuccess() ) << clipData.GetError();
@@ -980,7 +982,8 @@ TEST( SkeletonMapperFit, TheSourceRigMayBeLargerThanTheTargetAndJoltForbidsThat 
 
     const Skeleton fiveBone( ProbeBones() );
 
-    const std::string raw = ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
+    const std::string raw =
+         ReadFile( RepoRoot() + "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton" );
     ASSERT_FALSE( raw.empty() );
     auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();

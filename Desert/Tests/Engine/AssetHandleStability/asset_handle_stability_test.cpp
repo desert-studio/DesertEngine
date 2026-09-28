@@ -1502,7 +1502,8 @@ TEST( AssetHandleStability, AnAnimGraphHandleIsHandleForGuidOfItsHeader )
 // keeps the GUID of the file it replaces and mints one only for a new path.
 TEST( AssetHandleStability, ASkeletonHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file = CopyCorpusFile( "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonHandle" );
+    const auto file =
+         CopyCorpusFile( "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::SkeletonAsset>( file, Common::Content::ContentKind::Skeleton );
     Desert::Assets::SkeletonAsset asset( file );
     const auto                    loaded = asset.Load();
@@ -1531,7 +1532,8 @@ TEST( AssetHandleStability, ASkeletonWithNoHeaderIsRefusedByNameAndPointsAtTheMi
 
 TEST( AssetHandleStability, ARewriteOfASkeletonKeepsTheGuidOfTheFileItReplaces )
 {
-    const auto file   = CopyCorpusFile( "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonReimport" );
+    const auto file =
+         CopyCorpusFile( "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton", "T7eSkeletonReimport" );
     const auto before = Desert::Assets::ReadTextHeaderGuid( file );
     ASSERT_FALSE( before.IsNull() );
     const auto kept = Desert::Assets::HeaderKeepingFileGuid(
