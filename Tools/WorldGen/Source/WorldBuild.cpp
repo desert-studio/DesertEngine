@@ -10,7 +10,6 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
-#include <map>
 #include <fstream>
 #include <optional>
 
@@ -361,14 +360,6 @@ namespace Desert::WorldGen
                 }
             }
         }
-
-        // Each record's place among its siblings, stated the way the editor's saver states it (SceneSerializer's
-        // SiblingIndexOf: roots numbered in load order, a child by its place in its parent's children, which is
-        // load order too). Left unstated, the first editor save of a generated world adds it to EVERY record, and
-        // a partitioned world's first save after moving one entity rewrites every entity file (WP16b).
-        std::map<uint64_t, uint32_t> nextUnder; // parent id -> next sibling index; 0 = the roots
-        for ( auto& record : scene.Entities )
-            record.siblingIndex = nextUnder[record.parent ? static_cast<uint64_t>( *record.parent ) : 0]++;
 
         stats.Entities = static_cast<int>( scene.Entities.size() );
         return scene;
