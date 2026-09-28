@@ -3,6 +3,7 @@
 #include "WorldBuild.hpp"
 #include "SettingsCanonical.hpp"
 
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -586,8 +587,11 @@ namespace Desert::WorldGen
             out << "verify: two builds of the same spec are byte-identical (" << json.size() << " bytes)\n";
         }
 
-        const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( outPath, json );
-        if ( !written.IsSuccess() )
+        // Through the engine's one scene writer, the editor's save: a --partition world lands as its header plus
+        // one file per entity (v35, WP16) - written whole, the editor and the cook would refuse it as the layout
+        // before v35 - and any other world lands as the saver's canonical text.
+        const auto written = Core::ExternalEntities::WriteSceneText( outPath, json );
+        if ( !written )
         {
             err << "WorldGen: " << written.GetError() << "\n";
             return 6;
@@ -620,8 +624,15 @@ namespace Desert::WorldGen
         if ( partition )
         {
             // THE PLAN OF THE FILE AS WRITTEN, not of the tree in memory: the text is parsed back the way
-            // the loader parses it, so what is reported is what a load of this file will partition.
-            const auto parsed = Common::Json::Read<Core::SceneSerialized>( json );
+            // the loader parses it - read back through the loader's join of the header and its entity files - so
+            // what is reported is what a load of this file will partition.
+            const auto joined = Core::ExternalEntities::ReadSceneFileText( outPath );
+            if ( !joined )
+            {
+                err << "WorldGen: the written scene does not read back: " << joined.GetError() << "\n";
+                return 7;
+            }
+            const auto parsed = Common::Json::Read<Core::SceneSerialized>( joined.GetValue() );
             if ( !parsed )
             {
                 err << "WorldGen: the written scene does not parse back: " << parsed.GetError() << "\n";

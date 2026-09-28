@@ -20,6 +20,7 @@
 #include "Editor/Core/Control/ControlState.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
+#include "Editor/Core/Selection/SelectionTransformProperties.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/DocumentWell.hpp"
 #include "Editor/Core/DocumentPlacement.hpp"
@@ -178,6 +179,10 @@ namespace Desert::Editor
         // Editor/Core/ViewportCameraProperties.hpp for why a camera pose is a property write and not a
         // palette command.
         [[nodiscard]] Control::Response SetViewportCameraProperty( const Control::Request& request );
+        // The `selection` subject's entity and its transform: exactly one selected entity that has a
+        // TransformComponent, or a refusal saying what is selected instead.
+        [[nodiscard]] Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>>
+        SelectedTransform() const;
         // The active view IF it is the editor's fly camera; null in Play, where the scene's own
         // CameraComponent drives. NoEditorCameraReason() is the refusal that goes with the null.
         [[nodiscard]] ::Desert::Core::EditorCamera* ActiveEditorCamera() const;

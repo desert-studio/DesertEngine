@@ -9,7 +9,6 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Content/AssetRedirector.hpp>
-#include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/ContentChunks.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -196,6 +195,7 @@
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/ModelingStateProperties.hpp>
+#include <Editor/Core/Selection/SelectionTransformProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
@@ -215,6 +215,16 @@ namespace Desert::Editor
 {
     namespace
     {
+        // The recovery saves (autosave, device-lost) go through the one scene writer and only need to know
+        // whether it landed; what it counted is the editor save's business.
+        Common::BoolResultStr
+        WrittenOrError( const Common::ResultStr<Desert::Core::ExternalEntities::WriteOutcome>& r )
+        {
+            if ( !r )
+                return Common::MakeError( r.GetError() );
+            return BOOLSUCCESS;
+        }
+
         // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
         // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
         // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
@@ -1576,8 +1586,8 @@ namespace Desert::Editor
                                                   std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
                                                                               dir.string(), ec.message() )
-                                                : Common::Content::WriteCanonicalJsonFileAtomic(
-                                                       path, serializer.SerializeToJson() );
+                                                : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText(
+                                                       path, serializer.SerializeToJson() ) );
                         if ( written )
                         {
                             // The revision is marked done ONLY on a write that landed. It used to be
@@ -2395,6 +2405,17 @@ namespace Desert::Editor
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Modeling )].Name,
                               Core::DescribeModelingState( Core::ModelingState::Get() ) ) );
                 }
+                if ( request.Whose == Control::Subject::Selection )
+                {
+                    const auto selected = SelectedTransform();
+                    if ( !selected )
+                        return Control::Response::Failure( request.Id, selected.GetError() );
+                    return Control::Response::Success(
+                         request.Id,
+                         Control::PropertiesToJson(
+                              Control::kSubjects[static_cast<std::size_t>( Control::Subject::Selection )].Name,
+                              Core::DescribeSelectionTransform( selected.GetValue().second ) ) );
+                }
                 if ( request.Whose == Control::Subject::Viewport )
                 {
                     ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
@@ -2428,6 +2449,30 @@ namespace Desert::Editor
             {
                 if ( request.Whose == Control::Subject::Viewport )
                     return SetViewportCameraProperty( request );
+                if ( request.Whose == Control::Subject::Selection )
+                {
+                    // One undo step, the TransformCommand a gizmo drag records: the new values are written,
+                    // then RecordTransformEdit reads them back as the "after" of the step.
+                    const auto selected = SelectedTransform();
+                    if ( !selected )
+                        return Control::Response::Failure( request.Id, selected.GetError() );
+                    const auto& [uuid, before] = selected.GetValue();
+                    const auto after = Core::WriteSelectionTransform( before, request.Property, request.Value );
+                    if ( !after )
+                        return Control::Response::Failure( request.Id, after.GetError() );
+                    const auto ref = m_MainScene->FindEntityByID( uuid );
+                    if ( !ref )
+                        return Control::Response::Failure(
+                             request.Id, fmt::format( "the selected entity {} is not in the scene",
+                                                      static_cast<uint64_t>( uuid ) ) );
+                    const ECS::Entity entity = ref->get();
+                    auto&       tc     = entity.GetComponent<ECS::TransformComponent>();
+                    tc.Translation     = after.GetValue().Translation;
+                    tc.Rotation        = after.GetValue().Rotation;
+                    tc.Scale           = after.GetValue().Scale;
+                    Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
+                    return Control::Response::Success( request.Id );
+                }
                 if ( request.Whose == Control::Subject::Modeling )
                 {
                     if ( const auto written = Core::SetModelingStateProperty( Core::ModelingState::Get(),
@@ -2523,6 +2568,29 @@ namespace Desert::Editor
     {
         camera.SnapToDirection( glm::normalize( forward ) );
         camera.Focus( ViewportCameraFocalPoint( position, forward ), kViewportCameraFramingDistance );
+    }
+
+    Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> EditorLayer::SelectedTransform() const
+    {
+        using Result = std::pair<Common::UUID, Core::SelectionTransform>;
+        const auto selected = Core::SelectionManager::GetSelected();
+        if ( Core::SelectionManager::Count() != 1 || !selected.has_value() )
+            return Common::MakeFormattedError<Result>(
+                 "the selection subject is one selected entity, and {} are selected. Select one first: 'run "
+                 "Entity <tag>'.",
+                 Core::SelectionManager::Count() );
+        const Common::UUID uuid = *selected;
+        const auto         ref  = m_MainScene ? m_MainScene->FindEntityByID( uuid ) : std::nullopt;
+        if ( !ref )
+            return Common::MakeFormattedError<Result>( "the selected entity {} is not in the scene",
+                                                       static_cast<uint64_t>( uuid ) );
+        const ECS::Entity entity = ref->get();
+        if ( !entity.HasComponent<ECS::TransformComponent>() )
+            return Common::MakeFormattedError<Result>( "the selected entity {} has no transform",
+                                                       static_cast<uint64_t>( uuid ) );
+        const auto& tc = entity.GetComponent<ECS::TransformComponent>();
+        return Common::MakeSuccess(
+             Result{ uuid, Core::SelectionTransform{ tc.Translation, tc.Rotation, tc.Scale } } );
     }
 
     Control::Response EditorLayer::SetViewportCameraProperty( const Control::Request& request )
@@ -10071,7 +10139,7 @@ namespace Desert::Editor
                                           std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                 const auto written =
                      ec ? Common::MakeFormattedError( "could not create {}: {}", dir.string(), ec.message() )
-                        : Common::Content::WriteCanonicalJsonFileAtomic( path, text );
+                        : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText( path, text ) );
                 // BRACES ARE REQUIRED ON BOTH ARMS: the LOG_ macros are not single statements, so a
                 // braceless if/else here does not compile. The autosave block above is written the same
                 // way for the same reason.
