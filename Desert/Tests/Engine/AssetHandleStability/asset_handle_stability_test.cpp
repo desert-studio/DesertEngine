@@ -43,6 +43,7 @@
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
+#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
@@ -170,6 +171,10 @@ namespace
                &HandleOf<Desert::Assets::LandscapeLayerInfoAsset>,
                &MetadataTypeOf<Desert::Assets::LandscapeLayerInfoAsset>,
                &DeclaredTypeOf<Desert::Assets::LandscapeLayerInfoAsset> },
+             { AssetTypeID::LandscapeGrassType, "LandscapeGrassTypeAsset",
+               &HandleOf<Desert::Assets::LandscapeGrassTypeAsset>,
+               &MetadataTypeOf<Desert::Assets::LandscapeGrassTypeAsset>,
+               &DeclaredTypeOf<Desert::Assets::LandscapeGrassTypeAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1291,6 +1296,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::Retarget,
          AssetTypeID::FoliageType,
          AssetTypeID::LandscapeLayerInfo,
+         AssetTypeID::LandscapeGrassType,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1462,6 +1468,23 @@ TEST( AssetHandleStability, ALandscapeLayerInfoHandleIsHandleForGuidOfItsHeader 
     ASSERT_TRUE( Desert::Assets::LandscapeLayerInfoAsset::Save( file, data ) );
     ExpectHeaderGuidIdentity<Desert::Assets::LandscapeLayerInfoAsset>(
          file, Common::Content::ContentKind::LandscapeLayerInfo );
+    fs::remove_all( dir );
+}
+
+// GR-1: a layer info names its grass by GUID, so the grass type's handle must be its header GUID's.
+TEST( AssetHandleStability, ALandscapeGrassTypeHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "GR1GrassTypeHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path                                        file = dir / "Meadow.degrasstype";
+    Desert::Assets::Serialization::LandscapeGrassTypeData data;
+    data.GrassVarieties.resize( 1u );
+    data.GrassVarieties[0].GrassMesh = { "0f1e2d3c4b5a69788796a5b4c3d2e1f0", "Assets/Meshes/Blade.stmesh" };
+    ASSERT_TRUE( Desert::Assets::LandscapeGrassTypeAsset::Save( file, data ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::LandscapeGrassTypeAsset>(
+         file, Common::Content::ContentKind::LandscapeGrassType );
     fs::remove_all( dir );
 }
 

@@ -5008,6 +5008,8 @@ namespace Desert::Editor
                                               return PaletteCommandOutcome( false,
                                                                             "the Landscape mode is not active; "
                                                                             "run 'Landscape: Sculpt mode' first" );
+                                          if ( auto refusal = Core::LandscapeSculptState::Get().StrokeRefusal() )
+                                              return PaletteCommandOutcome( false, *refusal );
                                           Core::LandscapeSculptState::Get().Request = request;
                                           return PaletteCommandDone();
                                       } } );
@@ -5028,6 +5030,8 @@ namespace Desert::Editor
                        if ( Core::ViewportMode::Get() != Core::EditorMode::Landscape )
                            return PaletteCommandOutcome( false, "the Landscape mode is not active; "
                                                                 "run 'Landscape: Sculpt mode' first" );
+                       if ( auto refusal = Core::LandscapeSculptState::Get().StrokeRefusal() )
+                           return PaletteCommandOutcome( false, *refusal );
                        Core::LandscapeSculptState::Get().Request =
                             lower ? Core::LandscapeStrokeRequest::Lower : Core::LandscapeStrokeRequest::Raise;
                        return PaletteCommandDone();

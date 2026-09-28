@@ -1510,3 +1510,21 @@ TEST( LandscapeRampPoints, OutlineIsUEsInnerAndOuterRectangles )
     ramp.NumPoints = 1;
     EXPECT_FALSE( LandscapeRampOutlineOf( ramp, settings ).has_value() );
 }
+
+// GR-1b: 48 palette strokes in Paint mode answered ok and wrote no weight, because the queued stroke refused
+// (no target layer) frames later and only a toast said so. The palette asks StrokeRefusal before queueing.
+TEST( LandscapeSculpt, APaintStrokeWithoutATargetLayerIsRefusedBeforeItIsQueued )
+{
+    Desert::Editor::Core::LandscapeSculptState state;
+    state.Mode = Desert::Editor::Core::LandscapeEdMode::Paint;
+    ASSERT_TRUE( state.StrokeRefusal().has_value() ) << "Paint mode with no target layer";
+    EXPECT_NE( state.StrokeRefusal()->find( "Target layer" ),
+               std::string::npos ) // NOLINT(bugprone-unchecked-optional-access)
+         << "the refusal names the palette command that fixes it: "
+         << *state.StrokeRefusal(); // NOLINT(bugprone-unchecked-optional-access)
+    state.Paint.Layer = "Grass";
+    EXPECT_FALSE( state.StrokeRefusal().has_value() );
+    state.Paint.Layer.clear();
+    state.Mode = Desert::Editor::Core::LandscapeEdMode::Sculpt;
+    EXPECT_FALSE( state.StrokeRefusal().has_value() ) << "sculpting needs no layer";
+}

@@ -18,6 +18,7 @@
 #include "Services/CloudModelling/CloudModellingService.hpp"
 #include "Services/CloudLayout/CloudLayoutService.hpp"
 #include "Services/UITheme/UIThemeService.hpp"
+#include "Services/Landscape/LandscapeGrassTypeService.hpp"
 #include "Services/Landscape/LandscapeLayerInfoService.hpp"
 #include "Services/Foliage/FoliageTypeService.hpp"
 
@@ -57,6 +58,9 @@ namespace Desert::Runtime
         // The `.delayerinfo` assets a landscape's target layers name (LS-12b): read on demand, held as the
         // assets themselves so a panel edit re-read into one is what every reader sees. Owns nothing on the GPU.
         static LandscapeLayerInfoService* GetLandscapeLayerInfoService();
+        // The `.degrasstype` assets layer infos name (GR-1): read on demand. Owns nothing on the GPU — the
+        // generated instances are the grass system's, the meshes MeshService's.
+        static LandscapeGrassTypeService* GetLandscapeGrassTypeService();
 
         // The `.defoliage` types foliage fields name (FO-5): read on demand, held as the assets themselves, so
         // the renderer's cull distance follows a paint-panel edit. Owns nothing on the GPU.
