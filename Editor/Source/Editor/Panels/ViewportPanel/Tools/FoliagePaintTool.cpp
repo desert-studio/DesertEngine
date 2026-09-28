@@ -4,6 +4,7 @@
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Editor/Core/CommandHistory.hpp>
+#include <Engine/World/Foliage/FoliagePrefabs.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -78,7 +79,11 @@ namespace Desert::Editor::Tools
                 return Common::MakeFormattedError<Assets::AssetGuidRef>(
                      "'{}' is not under the assets root '{}'", file.string(),
                      Common::Constants::Path::ASSETS_PATH.string() );
-            return Common::MakeSuccess( Assets::AssetGuidRef{ info.GetValue().Header->Guid, relative } );
+            const auto& header = info.GetValue().Header;
+            if ( !header )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "'{}' has no asset header, so no GUID to reference it by", file.string() );
+            return Common::MakeSuccess( Assets::AssetGuidRef{ header->Guid, relative } );
         }
 
         // The reference a `.defoliage` records for a cooked static mesh: its header GUID and its path under the
@@ -217,6 +222,37 @@ namespace Desert::Editor::Tools
                            std::filesystem::path( meshSourcePath ).stem().string() );
     }
 
+    Common::BoolResultStr FoliagePaintTool::AddPrefabFile( ::Desert::Core::Scene& scene,
+                                                           Assets::AssetManager&  manager,
+                                                           const std::string&     prefabPath )
+    {
+        // UE: a Blueprint actor dropped on the palette makes a FoliageType_Actor for it. The type names the
+        // prefab by its header GUID and its path under the assets root, as a Mesh type names its mesh.
+        const auto guid = World::Foliage::PrefabFileGuid( prefabPath );
+        if ( !guid )
+            return Common::MakeFormattedError<bool>( "{}", guid.GetError() );
+        std::error_code   ec;
+        const std::string relative =
+             std::filesystem::absolute( prefabPath, ec )
+                  .lexically_normal()
+                  .lexically_relative(
+                       std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec ).lexically_normal() )
+                  .generic_string();
+        if ( relative.empty() || relative.starts_with( ".." ) )
+            return Common::MakeFormattedError<bool>( "prefab '{}' is not under the assets root '{}'", prefabPath,
+                                                     Common::Constants::Path::ASSETS_PATH.string() );
+        Assets::Serialization::FoliageTypeData wanted;
+        wanted.Kind          = Assets::Serialization::FoliageTypeKind::Prefab;
+        wanted.Prefab        = Assets::AssetGuidRef{ guid.GetValue(), relative };
+        wanted.IncludeInHLOD = false; // kFoliagePrefabMeshOnlyReason
+        const auto file      = Assets::Serialization::FindOrCreateFoliageTypeFile(
+             Common::Constants::Path::FOLIAGE_TYPE_PATH, wanted,
+             std::filesystem::path( prefabPath ).stem().string() );
+        if ( !file )
+            return Common::MakeFormattedError<bool>( "{}", file.GetError() );
+        return AddTypeFile( scene, manager, file.GetValue().Path.string() );
+    }
+
     Common::BoolResultStr FoliagePaintTool::AddCollection( ::Desert::Core::Scene& scene,
                                                            Assets::AssetManager&  manager,
                                                            const std::string&     manifestPath )
@@ -300,6 +336,24 @@ namespace Desert::Editor::Tools
             Row::EndPropertyRow();
         };
         ImGui::TextDisabled( "%s", type->GetMetadata().Filepath.filename().string().c_str() );
+        // FO-8: a Prefab type places entities; the instanced-mesh settings below are greyed with the reason.
+        const bool prefabType = f.IsPrefab();
+        if ( prefabType )
+            ImGui::TextDisabled( "Prefab: %s", f.Prefab.Path.c_str() );
+        const auto meshOnly = [&]( bool begin )
+        {
+            if ( !prefabType )
+                return;
+            if ( begin )
+            {
+                ImGui::TextDisabled( "Mesh types only" );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
+                ImGui::BeginDisabled();
+            }
+            else
+                ImGui::EndDisabled();
+        };
         Row::ResetPropertyRows();
         if ( Row::SectionHeader( "Painting" ) )
         {
@@ -390,6 +444,7 @@ namespace Desert::Editor::Tools
         }
         if ( Row::SectionHeader( "Instance Settings" ) )
         {
+            meshOnly( true );
             // UE CullDistance: fade from Min, gone from Max; Max 0 = never culled.
             row( "Cull Distance", "Fade out from Min, none drawn from Max, cm; Max 0 = never culled",
                  [&]
@@ -397,11 +452,13 @@ namespace Desert::Editor::Tools
                      ImGui::DragFloatRange2( "##CullDistance", &f.CullDistance.Min, &f.CullDistance.Max, 50.0f,
                                              0.0f, 1000000.0f, "%.0f", "%.0f cm" );
                  } );
+            meshOnly( false );
         }
         // Wind (FO-7; UE SimpleGrassWind): the tip's largest sway, its rate, the height it is reached at, and
         // the direction the wind blows towards. Strength 0 = still.
         if ( Row::SectionHeader( "Wind" ) )
         {
+            meshOnly( true );
             row( "Strength", "The tip's largest sway, cm; 0 = still", [&]
                  { ImGui::DragFloat( "##WindStrength", &f.Wind.Strength, 1.0f, 0.0f, 10000.0f, "%.0f cm" ); } );
             row( "Speed", "Sway rate, Hz",
@@ -413,13 +470,18 @@ namespace Desert::Editor::Tools
                      ImGui::DragFloat( "##WindDirection", &f.Wind.DirectionDegrees, 1.0f, -360.0f, 360.0f,
                                        "%.0f deg" );
                  } );
+            meshOnly( false );
         }
         // UE's Details put bIncludeInHLOD under HLOD (FO-6): out of the HLOD, a far cell draws none of the type
         // and the type's mesh is released once no resident cell holds it.
         if ( Row::SectionHeader( "HLOD" ) )
         {
             Row::BeginPropertyRow( "Include in HLOD", "Draw the instances in their cell's HLOD while it is far" );
+            ImGui::BeginDisabled( prefabType );
             commit = ImGui::Checkbox( "##IncludeInHLOD", &f.IncludeInHLOD ) || commit;
+            ImGui::EndDisabled();
+            if ( prefabType && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
             Row::EndPropertyRow();
         }
         s_Editing = active;
@@ -538,8 +600,10 @@ namespace Desert::Editor::Tools
                         continue;
                     const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
                     m_ByEntity.emplace( id, *sample );
-                    LandscapeTiles& landscape = LandscapeOf( scene, tile.Landscape );
-                    landscape.ByCoord.emplace( Key( tile.TileX, tile.TileZ ), *sample );
+                    LandscapeTiles* landscape = LandscapeOf( scene, tile.Landscape );
+                    if ( landscape == nullptr )
+                        continue;
+                    landscape->ByCoord.emplace( Key( tile.TileX, tile.TileZ ), *sample );
                 }
             }
 
@@ -594,19 +658,22 @@ namespace Desert::Editor::Tools
                        z >= sample.Frame.OriginZ && z <= sample.Frame.OriginZ + spanZ;
             }
 
-            // TileOf has already checked that the root exists and is a landscape.
-            LandscapeTiles& LandscapeOf( ::Desert::Core::Scene& scene, const Common::UUID& root )
+            // Null when the root is not in the scene: the tile is then skipped like any TileOf refuses.
+            LandscapeTiles* LandscapeOf( ::Desert::Core::Scene& scene, const Common::UUID& root )
             {
                 for ( auto& landscape : m_Landscapes )
                     if ( landscape.Root == root )
-                        return landscape;
-                const auto layout = ECS::LandscapeRootOf( scene.FindEntityByID( root )->get() );
+                        return &landscape;
+                const auto rootEntity = scene.FindEntityByID( root );
+                if ( !rootEntity )
+                    return nullptr;
+                const auto layout = ECS::LandscapeRootOf( rootEntity->get() );
                 auto&      added  = m_Landscapes.emplace_back();
                 added.Root        = root;
                 added.OriginX     = layout.Origin.x;
                 added.OriginZ     = layout.Origin.z;
                 added.ExtentCm    = static_cast<float>( layout.QuadsPerTile ) * layout.SpacingCm;
-                return added;
+                return &added;
             }
 
             std::unordered_map<Common::UUID, TileSample> m_ByEntity;
@@ -681,6 +748,27 @@ namespace Desert::Editor::Tools
         {
             return entity.HasComponent<ECS::FoliageComponent>() &&
                    entity.HasComponent<ECS::InstancedStaticMeshComponent>();
+        }
+
+        // FO-8: an entity realized under a foliage field (a Prefab type's instance or one of its parts). The brush
+        // traces through these as UE's foliage filter traces through foliage (bAllowFoliage off): painting must
+        // not stack instances on instances.
+        bool IsRealizedFoliage( ::Desert::Core::Scene& scene, const Common::UUID& id )
+        {
+            const auto ref = scene.FindEntityByID( id );
+            if ( !ref )
+                return false;
+            const auto&  registry = scene.GetRegistry();
+            entt::entity current  = ref->get().GetHandle();
+            while ( registry.has<ECS::RelationshipComponent>( current ) )
+            {
+                current = registry.get<ECS::RelationshipComponent>( current ).Parent;
+                if ( current == entt::null )
+                    return false;
+                if ( registry.has<ECS::FoliageComponent>( current ) )
+                    return true;
+            }
+            return false;
         }
 
         // Every field painting @p type, in scene order (UE: the FFoliageInfo of the type in every IFA).
@@ -952,7 +1040,7 @@ namespace Desert::Editor::Tools
 
         if ( m_StrokeTool == Core::FoliageTool::Select )
         {
-            PickAlongRay( scene, ray, shift );
+            PickAlongRay( scene, ray, shift, *m_Stroke );
             m_Applied = true;
             return;
         }
@@ -1039,6 +1127,8 @@ namespace Desert::Editor::Tools
                     // so a landscape-only brush reaches the ground under a mesh instead of losing the spot.
                     const auto accept = [&]( const Common::UUID& id )
                     {
+                        if ( IsRealizedFoliage( scene, id ) )
+                            return false;
                         const bool landscape = tiles.OfEntity( id ) != nullptr;
                         return filter.Allows( landscape ? FoliageSurface::Landscape : FoliageSurface::StaticMesh );
                     };
@@ -1133,7 +1223,8 @@ namespace Desert::Editor::Tools
         m_Stroke.reset();
     }
 
-    void FoliagePaintTool::PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift )
+    void FoliagePaintTool::PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift,
+                                         FoliageStroke& stroke )
     {
         // UE SelectInstanceAtLocation over every checked type: the instance the ray enters first wins; a plain
         // click replaces the selection of the checked types, Shift adds to it.
@@ -1153,12 +1244,62 @@ namespace Desert::Editor::Tools
                 continue;
             const auto& instances =
                  ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-            m_Stroke->Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
+            stroke.Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
             if ( !shift )
                 Core::FoliagePaint::Selection()[uuid].clear();
             // The instance's mesh box (Geometry::LocalBounds, the culler's extent), not a stand-in sphere.
             const auto  meshHandle = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().MeshHandle;
             const auto* mesh       = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
+            // FO-8: a Prefab field draws no mesh of its own; its instance box is the first realized instance's
+            // meshes, in that instance's space (every instance is the same prefab).
+            if ( !meshHandle && ref->get().HasComponent<ECS::RelationshipComponent>() &&
+                 !ref->get().GetComponent<ECS::RelationshipComponent>().Children.empty() )
+            {
+                auto&             registry = scene.GetRegistry();
+                const ECS::Entity first( ref->get().GetComponent<ECS::RelationshipComponent>().Children.front(),
+                                         registry );
+                const glm::mat4   toInstance = glm::inverse( first.GetWorldTransform() );
+                std::optional<Common::Math::AABB> box;
+                std::vector<entt::entity>         walk{ first.GetHandle() };
+                while ( !walk.empty() )
+                {
+                    const ECS::Entity e( walk.back(), registry );
+                    walk.pop_back();
+                    if ( e.HasComponent<ECS::RelationshipComponent>() )
+                        for ( const entt::entity child : e.GetComponent<ECS::RelationshipComponent>().Children )
+                            walk.push_back( child );
+                    if ( !e.HasComponent<ECS::StaticMeshComponent>() )
+                        continue;
+                    const auto* part = Runtime::ResourceRegistry::GetMeshService()->GetAsset(
+                         e.GetComponent<ECS::StaticMeshComponent>().MeshHandle );
+                    if ( !part )
+                        continue;
+                    const Common::Math::AABB local = Geometry::LocalBounds( part->GetSubmeshes() );
+                    const glm::mat4          m     = toInstance * e.GetWorldTransform();
+                    for ( int corner = 0; corner < 8; ++corner )
+                    {
+                        const glm::vec3 p( corner & 1 ? local.Max.x : local.Min.x,
+                                           corner & 2 ? local.Max.y : local.Min.y,
+                                           corner & 4 ? local.Max.z : local.Min.z );
+                        const glm::vec3 q = glm::vec3( m * glm::vec4( p, 1.0f ) );
+                        if ( !box )
+                            box = Common::Math::AABB{ q, q };
+                        box->Min = glm::min( box->Min, q );
+                        box->Max = glm::max( box->Max, q );
+                    }
+                }
+                if ( box )
+                {
+                    const auto picked =
+                         FoliagePickInstance( instances, ray.Origin, ray.Direction, box->Min, box->Max );
+                    if ( picked && picked->Distance < bestDistance )
+                    {
+                        best         = std::make_pair( uuid, picked->Index );
+                        bestDistance = picked->Distance;
+                    }
+                    continue;
+                }
+            }
             if ( !mesh )
             {
                 if ( m_Refused.insert( uuid ).second )
@@ -1595,7 +1736,8 @@ namespace Desert::Editor::Tools
         for ( const auto& field : PaletteFields( scene ) )
         {
             const auto type = ResolveType( manager, field.GetComponent<ECS::FoliageComponent>().FoliageType );
-            if ( !type || !type->GetData().Header )
+            const auto* data = type ? &type->GetData() : nullptr;
+            if ( data == nullptr || !data->Header )
                 return Common::MakeFormattedError<bool>( "foliage preset '{}': the type of '{}' does not load",
                                                          name, field.GetComponent<ECS::TagComponent>().Tag );
             std::error_code   ec;
@@ -1605,10 +1747,9 @@ namespace Desert::Editor::Tools
                       .lexically_relative( std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec )
                                                 .lexically_normal() )
                       .generic_string();
-            entries.push_back(
-                 { type->GetDisplayName(),
-                   ( Common::Constants::Path::ASSETS_PATH / type->GetData().Mesh.Path ).generic_string(),
-                   Assets::AssetGuidRef{ type->GetData().Header->Guid, typePath } } );
+            entries.push_back( { type->GetDisplayName(),
+                                 ( Common::Constants::Path::ASSETS_PATH / data->Mesh.Path ).generic_string(),
+                                 Assets::AssetGuidRef{ data->Header->Guid, typePath } } );
         }
         const auto saved = Foliage::SavePalettePreset( Common::Constants::Path::COLLECTIONS_PATH, name, entries );
         if ( !saved )

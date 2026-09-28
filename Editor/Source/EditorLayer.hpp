@@ -750,6 +750,12 @@ namespace Desert::Editor
         // Called at every presented frame; the first one presented after the start is over shows the
         // hidden main window and closes the splash. Until then the splash is the only window.
         void RevealWhenReady();
+        // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
+        // them, and hold the hand-over for them within Splash::kThumbnailUploadBudgetMs.
+        void UploadSplashThumbnails();
+        bool m_ThumbnailsHoldReveal = false;
+        // When every other reveal condition first held: the start of the thumbnails' budget.
+        std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
         void StartBackgroundCook();
         void DrainBackgroundCook();
         void ReloadRecookedMesh( const std::filesystem::path& source );

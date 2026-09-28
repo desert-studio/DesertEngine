@@ -145,17 +145,20 @@ namespace Desert::Core::Rules
         {
             if ( !customShader )
                 return false;
-            const std::size_t guids = key.MaterialGuids.has_value() ? key.MaterialGuids->size() : 0;
-            const std::size_t paths = key.MaterialPaths.has_value() ? key.MaterialPaths->size() : 0;
+            // Plain pointers taken once: the static analyser forgets a has_value() check inside the loop.
+            const auto* const guidList = key.MaterialGuids ? &*key.MaterialGuids : nullptr;
+            const auto* const pathList = key.MaterialPaths ? &*key.MaterialPaths : nullptr;
+            const std::size_t guids    = guidList != nullptr ? guidList->size() : 0;
+            const std::size_t paths    = pathList != nullptr ? pathList->size() : 0;
             const std::size_t slots = std::max( guids, paths );
             for ( std::size_t slot = 0; slot < slots; ++slot )
             {
                 Common::Content::AssetGuid guid;
-                if ( slot < guids && !( *key.MaterialGuids )[slot].empty() )
-                    if ( const auto parsed = Common::Content::AssetGuidFromText( ( *key.MaterialGuids )[slot] ) )
+                if ( slot < guids && !( *guidList )[slot].empty() )
+                    if ( const auto parsed = Common::Content::AssetGuidFromText( ( *guidList )[slot] ) )
                         guid = parsed.GetValue();
                 const std::string_view path =
-                     slot < paths ? std::string_view( ( *key.MaterialPaths )[slot] ) : std::string_view();
+                     slot < paths ? std::string_view( ( *pathList )[slot] ) : std::string_view();
                 if ( guid.IsNull() && path.empty() )
                     return false; // an empty slot draws with the default PBR material
                 if ( !customShader( guid, path ) )

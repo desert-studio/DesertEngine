@@ -103,10 +103,10 @@ namespace Desert::Geometry
 
         DynamicVector& operator=( DynamicVector&& Moved ) noexcept
         {
+            // No Empty() here: its reserve() may throw, and the vector's own move-assignment already frees
+            // the old blocks without allocating, which is what makes this noexcept true.
             if ( this != &Moved )
             {
-                Empty();
-
                 m_CurBlock     = Moved.m_CurBlock;
                 m_CurBlockUsed = Moved.m_CurBlockUsed;
                 m_Blocks       = std::move( Moved.m_Blocks );
@@ -141,10 +141,8 @@ namespace Desert::Geometry
             }
         }
 
-        ~DynamicVector()
-        {
-            Empty();
-        }
+        // The block vector frees itself; Empty() would reserve() and so could throw from a destructor.
+        ~DynamicVector() = default;
 
         inline void Clear();
         inline void Fill( const Type& Value );

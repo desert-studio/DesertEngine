@@ -100,6 +100,10 @@ namespace Desert::Editor::Tools
                                                   const std::string& meshSourcePath );
         // The viewport selection as a type: a foliage field's type, or the mesh a static-mesh or instanced
         // entity draws, found or made as for a dropped mesh.
+        /// FO-8: the Prefab type for the `.deprefab` at @p prefabPath (found or made, UE FoliageType_Actor) onto
+        /// the palette.
+        static Common::BoolResultStr AddPrefabFile( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
+                                                    const std::string& prefabPath );
         static Common::BoolResultStr AddFromEntity( ::Desert::Core::Scene& scene, Assets::AssetManager& manager,
                                                     const Common::UUID& entity );
         // UE "Select All": every instance of every checked type.
@@ -150,7 +154,9 @@ namespace Desert::Editor::Tools
 
     private:
         void EndStroke( ::Desert::Core::Scene& scene );
-        void PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift );
+        // @p stroke is the press being recorded: the caller owns the check that one is open.
+        void PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift,
+                           FoliageStroke& stroke );
         // Sets the selection of each field in @p wanted (UE SelectInstances), ONE undo step; an error when
         // there is nothing to select.
         static Common::BoolResultStr

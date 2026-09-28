@@ -261,9 +261,9 @@ namespace Desert::Migration
             scan( entity.Components, tag );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                scan( ( *entity.PrefabOverrides )[i].Components,
-                      tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+            const auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                scan( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
         }
         return inline_layers;
     }
@@ -454,7 +454,7 @@ namespace Desert::Migration
             Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
         };
 
-        // FOLT 4's body: v3 and Wind. The engine's struct is v5.
+        // FOLT 4's body: v3 and Wind. The engine's struct is v6.
         struct FoliageTypeDataV4
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -471,6 +471,26 @@ namespace Desert::Migration
             float                                                     MinimumLayerWeight = 0.0f;
             Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
             Assets::Serialization::FoliageWind                        Wind;
+        };
+
+        // FOLT 5's body: v4 and IncludeInHLOD. The engine's struct is v6.
+        struct FoliageTypeDataV5
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind                        Wind;
+            bool                                                      IncludeInHLOD = true;
         };
 
         // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
@@ -575,7 +595,7 @@ namespace Desert::Migration
         if ( !old.Header )
             return Common::MakeFormattedError<std::string>( "the file states no header" );
 
-        // v4 text, not the engine's struct: the engine is v5, and v4 -> v5 is the chain's next step.
+        // v4 text, not the engine's struct: the engine is v6, and v4 -> v5 is the chain's next step.
         FoliageTypeDataV4 data;
         data.Header                   = old.Header;
         data.Header->Versions["FOLT"] = 4u;
@@ -611,9 +631,51 @@ namespace Desert::Migration
         if ( !v4 )
             return Common::MakeFormattedError<std::string>( "FOLT 4 body does not read: {}", v4.GetError() );
         const FoliageTypeDataV4& old = v4.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+
+        // v5 text, not the engine's struct: the engine is v6, and v5 -> v6 is the chain's next step.
+        FoliageTypeDataV5 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 5u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = old.Density;
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        data.Height                   = old.Height;
+        data.LandscapeLayers          = old.LandscapeLayers;
+        data.MinimumLayerWeight       = old.MinimumLayerWeight;
+        data.CullDistance             = old.CullDistance;
+        data.Wind                     = old.Wind;
+        // UE's default bIncludeInHLOD: every v4 field stood in its cell's HLOD.
+        data.IncludeInHLOD = true;
+
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV5ToV6( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 5: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV5ToV6( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 5u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 5 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v5 = Common::Json::Read<FoliageTypeDataV5>( text );
+        if ( !v5 )
+            return Common::MakeFormattedError<std::string>( "FOLT 5 body does not read: {}", v5.GetError() );
+        const FoliageTypeDataV5& old = v5.GetValue();
 
         Assets::Serialization::FoliageTypeData data;
-        data.Header             = old.Header;
+        data.Header = old.Header;
+        // Every v5 type drew a mesh: FOLT 5 had no other kind.
+        data.Kind               = Assets::Serialization::FoliageTypeKind::Mesh;
         data.Mesh               = old.Mesh;
         data.Density            = old.Density;
         data.ScaleX             = old.ScaleX;
@@ -627,12 +689,11 @@ namespace Desert::Migration
         data.MinimumLayerWeight = old.MinimumLayerWeight;
         data.CullDistance       = old.CullDistance;
         data.Wind               = old.Wind;
-        // UE's default bIncludeInHLOD: every v4 field stood in its cell's HLOD.
-        data.IncludeInHLOD = true;
+        data.IncludeInHLOD      = old.IncludeInHLOD;
 
         std::string written = Assets::Serialization::WriteFoliageType( data );
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 5: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 6: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

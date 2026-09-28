@@ -218,6 +218,12 @@ namespace Desert::Core
                 {
                     return true;
                 }
+                // A foliage field's children are its prefab instances (FO-8), realized from the field's
+                // transforms on every load; saving them too would place each instance twice.
+                if ( registry->has<ECS::FoliageComponent>( current ) )
+                {
+                    return true;
+                }
             }
             return false;
         };

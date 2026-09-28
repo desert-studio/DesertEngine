@@ -95,6 +95,7 @@ namespace Desert::Editor::Tools
         {
             std::vector<std::filesystem::path> Types;
             std::vector<std::filesystem::path> Meshes;
+            std::vector<std::filesystem::path> Prefabs; ///< FO-8: a Prefab type is found or made
         };
         PickerEntries ScanPicker()
         {
@@ -108,9 +109,12 @@ namespace Desert::Editor::Tools
                     out.Types.push_back( file );
                 else if ( ext == ".fbx" || ext == ".obj" || ext == ".gltf" || ext == ".glb" )
                     out.Meshes.push_back( file );
+                else if ( ext == ".deprefab" )
+                    out.Prefabs.push_back( file );
             }
             std::ranges::sort( out.Types );
             std::ranges::sort( out.Meshes );
+            std::ranges::sort( out.Prefabs );
             return out;
         }
 
@@ -440,6 +444,12 @@ namespace Desert::Editor::Tools
                     if ( ImGui::Selectable( ( ICON_MDI_CUBE_OUTLINE " " + path.stem().string() ).c_str() ) &&
                          manager )
                         Report( AddMeshFile( scene, *manager, path.generic_string() ) );
+                ImGui::Separator();
+                ImGui::TextDisabled( "PREFABS (a Prefab type is found or made)" );
+                for ( const auto& path : s_Picker.Prefabs )
+                    if ( ImGui::Selectable( ( ICON_MDI_PACKAGE_VARIANT " " + path.stem().string() ).c_str() ) &&
+                         manager )
+                        Report( AddPrefabFile( scene, *manager, path.generic_string() ) );
                 ImGui::EndPopup();
             }
             ImGui::SameLine();
@@ -610,6 +620,8 @@ namespace Desert::Editor::Tools
             {
                 if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( DragPayloads::MeshAsset ) )
                     Report( AddMeshFile( scene, *manager, std::string( static_cast<const char*>( p->Data ) ) ) );
+                if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( DragPayloads::PrefabFile ) )
+                    Report( AddPrefabFile( scene, *manager, std::string( static_cast<const char*>( p->Data ) ) ) );
                 if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( DragPayloads::Collection ) )
                     Report( AddCollection( scene, *manager, std::string( static_cast<const char*>( p->Data ) ) ) );
                 if ( const ImGuiPayload* p = ImGui::AcceptDragDropPayload( DragPayloads::AssetFile ) )
