@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <string>
 #include <tuple>
 
 namespace Desert::Graphic
@@ -49,9 +50,19 @@ namespace Desert::ECS
         /// (root UUID, layer info handle, variety index): one streamer each.
         using StreamerKey = std::tuple<uint64_t, uint64_t, uint32_t>;
 
+        /// The instance a variety draws with: its `.demat` resolved once per material invalidation, or the
+        /// default PBR instance for a variety that names none. Null: the material did not resolve (said once).
+        std::shared_ptr<Graphic::MaterialInstance> VarietyMaterial( const std::string& materialGuid );
+
         std::map<StreamerKey, World::Landscape::GrassCellStreamer> m_Streamers;
         glm::vec3                                                  m_Camera = glm::vec3( 0.0f );
         std::shared_ptr<Graphic::MaterialPBR>                      m_Material;
         std::shared_ptr<Graphic::MaterialInstance>                 m_MaterialInstance;
+        /// Material GUID text -> its runtime instance, dropped when the material service invalidates.
+        std::map<std::string, std::shared_ptr<Graphic::MaterialInstance>> m_VarietyMaterials;
+        uint32_t                                                          m_SeenMaterialsVersion = 0;
+        /// The wind's clock (FO-7): the gameplay step the scene hands every system, summed like
+        /// MeshECSSystem's, so grass and painted foliage sway on the same time.
+        double m_WindSeconds = 0.0;
     };
 } // namespace Desert::ECS

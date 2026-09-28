@@ -56,6 +56,24 @@ namespace Desert::Assets::Serialization
         return std::nullopt;
     }
 
+    Common::BoolResultStr ValidateFoliageWind( const FoliageWind& wind )
+    {
+        if ( !std::isfinite( wind.Strength ) || wind.Strength < 0.0f )
+            return Common::MakeFormattedError<bool>( "Wind.Strength {} must be a non-negative distance, cm",
+                                                     wind.Strength );
+        if ( !std::isfinite( wind.Speed ) || wind.Speed < 0.0f )
+            return Common::MakeFormattedError<bool>( "Wind.Speed {} must be a non-negative frequency, Hz",
+                                                     wind.Speed );
+        if ( !std::isfinite( wind.Height ) || wind.Height <= 0.0f )
+            return Common::MakeFormattedError<bool>( "Wind.Height {} must be above zero (the height, cm, at "
+                                                     "which the sway is full)",
+                                                     wind.Height );
+        if ( !std::isfinite( wind.DirectionDegrees ) )
+            return Common::MakeFormattedError<bool>( "Wind.DirectionDegrees {} must be a finite angle",
+                                                     wind.DirectionDegrees );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data )
     {
         if ( !std::isfinite( data.Density ) || data.Density <= 0.0f )
@@ -89,19 +107,8 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "CullDistance.Min {} must not be negative (it is a distance "
                                                      "from the camera, cm)",
                                                      data.CullDistance.Min );
-        if ( !std::isfinite( data.Wind.Strength ) || data.Wind.Strength < 0.0f )
-            return Common::MakeFormattedError<bool>( "Wind.Strength {} must be a non-negative distance, cm",
-                                                     data.Wind.Strength );
-        if ( !std::isfinite( data.Wind.Speed ) || data.Wind.Speed < 0.0f )
-            return Common::MakeFormattedError<bool>( "Wind.Speed {} must be a non-negative frequency, Hz",
-                                                     data.Wind.Speed );
-        if ( !std::isfinite( data.Wind.Height ) || data.Wind.Height <= 0.0f )
-            return Common::MakeFormattedError<bool>( "Wind.Height {} must be above zero (the height, cm, at "
-                                                     "which the sway is full)",
-                                                     data.Wind.Height );
-        if ( !std::isfinite( data.Wind.DirectionDegrees ) )
-            return Common::MakeFormattedError<bool>( "Wind.DirectionDegrees {} must be a finite angle",
-                                                     data.Wind.DirectionDegrees );
+        if ( auto wind = ValidateFoliageWind( data.Wind ); !wind )
+            return wind;
         for ( size_t i = 0; i < data.LandscapeLayers.size(); ++i )
         {
             const auto& layer = data.LandscapeLayers[i];

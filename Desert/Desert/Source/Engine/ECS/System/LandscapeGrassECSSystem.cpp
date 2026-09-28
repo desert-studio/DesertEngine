@@ -4,8 +4,11 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
+#include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 
@@ -42,10 +45,44 @@ namespace Desert::ECS
         m_Camera = position;
     }
 
+    std::shared_ptr<Graphic::MaterialInstance>
+    LandscapeGrassECSSystem::VarietyMaterial( const std::string& materialGuid )
+    {
+        if ( materialGuid.empty() )
+            return m_MaterialInstance;
+        const auto* service = Runtime::ResourceRegistry::GetMaterialService();
+        if ( const uint32_t version = service->GetInvalidationVersion(); version != m_SeenMaterialsVersion )
+        {
+            m_VarietyMaterials.clear();
+            m_SeenMaterialsVersion = version;
+        }
+        if ( const auto it = m_VarietyMaterials.find( materialGuid ); it != m_VarietyMaterials.end() )
+            return it->second;
+
+        // The instanced path draws PBR only (MeshECSSystem's ISM says the same): a graph material is refused
+        // here, once, rather than drawn with a surface the author did not pick.
+        auto instance = service->CreateRuntimeInstance( HandleOfGuidText( materialGuid ) );
+        if ( !instance )
+        {
+            LOG_ERROR( "Landscape grass: material {} did not resolve; its variety draws nothing", materialGuid );
+        }
+        else if ( dynamic_cast<Graphic::DataDrivenMaterial*>( instance->GetParentMaterial() ) != nullptr )
+        {
+            LOG_ERROR(
+                 "Landscape grass: material {} is a graph material; instanced grass draws PBR materials only",
+                 materialGuid );
+            instance = nullptr;
+        }
+        m_VarietyMaterials.emplace( materialGuid, instance );
+        return instance;
+    }
+
     void LandscapeGrassECSSystem::Update( entt::registry&                       registry,
                                           Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                                          const Common::Timestep& /*ts*/ )
+                                          const Common::Timestep&               ts )
     {
+        m_WindSeconds += static_cast<double>( ts.GetSeconds() );
+
         // Every drawable tile by (root, x, z): the surface the cells are sampled from. A refused tile is the
         // landscape system's to report; it grows no grass because it is not here.
         const DrawableLandscape    landscape = DrawableLandscapeTiles( registry );
@@ -159,13 +196,17 @@ namespace Desert::ECS
                     budget -= generated.Generated;
 
                     // The cull distance takes the foliage path (FO-5): the renderer fades the instances out
-                    // between Start and End per instance, in the ISM loop that already culls by frustum. Grass
-                    // has no wind field (UE drives it from the material's WPO, which this engine lacks): still.
+                    // between Start and End per instance, in the ISM loop that already culls by frustum. The
+                    // wind takes FO-7's: the same world-position offset, at this frame's gameplay time.
                     auto instances = streamer.Instances();
-                    if ( !instances->empty() )
+                    auto material  = VarietyMaterial( variety.Material.Guid );
+                    if ( !instances->empty() && material )
                         renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                             mesh, m_MaterialInstance, std::move( instances ), variety.CastDynamicShadow,
-                             Landscape::GrassCullDistance( variety ), Graphic::InstanceWind{} );
+                             mesh, std::move( material ), std::move( instances ), variety.CastDynamicShadow,
+                             Landscape::GrassCullDistance( variety ),
+                             Graphic::MakeInstanceWind( variety.Wind.Strength, variety.Wind.Speed,
+                                                        variety.Wind.Height, variety.Wind.DirectionDegrees,
+                                                        m_WindSeconds ) );
                 }
             }
         }
