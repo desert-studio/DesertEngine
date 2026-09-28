@@ -291,15 +291,15 @@ namespace Desert::WorldGen
         };
 
         constexpr CorpusProp kCorpusProps[] = {
-             { "Skinned PBR", "Cooked/Meshes/SkinProbe.skmesh", true, "Materials/base_basic_pbr/model.demat",
+             { "Skinned PBR", "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh", true, "Materials/base_basic_pbr/model.demat",
                100 },
-             { "Skinned PBR", "Cooked/Meshes/TwoBoneProbe.skmesh", true, "Materials/base_basic_pbr/model.demat",
+             { "Skinned PBR", "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh", true, "Materials/base_basic_pbr/model.demat",
                100 },
-             { "Skinned shaded", "Cooked/Meshes/TwoBoneProbe.skmesh", true,
+             { "Skinned shaded", "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh", true,
                "Materials/base_basic_shaded/model.demat", 100 },
-             { "Skinned shaded", "Cooked/Meshes/IKProbe.skmesh", true, "Materials/base_basic_shaded/model.demat",
+             { "Skinned shaded", "Resources/Assets/Meshes/Skinned/IKProbe.skmesh", true, "Materials/base_basic_shaded/model.demat",
                100 },
-             { "Witness", "Cooked/Meshes/IKProbe.skmesh", true, "Materials/M_NormalWitness.demat", 100 },
+             { "Witness", "Resources/Assets/Meshes/Skinned/IKProbe.skmesh", true, "Materials/M_NormalWitness.demat", 100 },
              { "Witness", "Resources/Assets/Meshes/StaticProbe.stmesh", false, "Materials/MP_Unlit.demat", 100 },
              { "Checker", "Resources/Assets/Meshes/StaticProbe.stmesh", false, "Materials/M_CheckerFloor.demat",
                100 },

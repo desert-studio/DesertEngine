@@ -329,7 +329,7 @@ TEST( CookedAssetRegistry, AReferenceFindsItsRowByHandleOrByPath )
     EXPECT_EQ( registry.FindByReference( 0x9999ull, "" ), nullptr ) << "an unknown handle named a row";
 
     // By path: the stable key of the cooked mesh root plus the file name — the spelling a `.desce` writes.
-    const std::string path = ( Common::Constants::Path::MESH_PATH_COOKED / "M.stmesh" ).generic_string();
+    const std::string path = ( Common::Constants::Path::COOKED_PATH / "Meshes" / "M.stmesh" ).generic_string();
     EXPECT_EQ( registry.FindByReference( 0, path ), row ) << path;
     EXPECT_EQ( registry.FindByReference( 0x9999ull, path ), row ) << "a stale handle must not hide the path";
 }

@@ -29,11 +29,11 @@
 namespace Desert::Editor
 {
 
-    static std::filesystem::path BuildCookedPath( const std::filesystem::path& sourcePath,
-                                                  const std::string&           extension )
+    static std::filesystem::path SkinnedAssetPath( const std::filesystem::path& sourcePath, const std::string& suffix )
     {
-        // Path formula is shared (CookPaths::CookedSkinned); this wrapper also ensures the dir exists for writing.
-        const auto result = Editor::CookPaths::CookedSkinned( sourcePath, extension );
+        // Path formula is shared (CookPaths::SkinnedAsset, beside the source); this wrapper also ensures the
+        // dir exists for writing.
+        const auto result = Editor::CookPaths::SkinnedAsset( sourcePath, suffix );
         std::filesystem::create_directories( result.parent_path() );
         return result;
     }
@@ -77,14 +77,14 @@ namespace Desert::Editor
 
         // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when the mesh output is
         // current. A source produces either a static mesh envelope in the DDC (fresh by its IMPT content
-        // hash - AF4h moved that envelope out from beside the source) or a skinned cook under Cooked/
-        // (fresh by mtime until AF4f moves it), so accept either. `force` (Rebuild Cooked Assets)
+        // hash - AF4h moved that envelope out from beside the source) or skinned assets beside the
+        // source (fresh by mtime, AF8b), so accept either. `force` (Rebuild Cooked Assets)
         // bypasses this. A mesh EDITED in the editor (P9b) is up to date whatever its source's bytes say: only
         // an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
         // re-imported behind the user's back), and that re-import says so (RemoveBesideSourceFile).
         if ( !force &&
              ( ImportedMeshAssetIsFresh( path ) || Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) ||
-               CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
+               CookedFresh( path, SkinnedAssetPath( path, ".skmesh" ) ) ) )
             return CookVerdict::UpToDate;
 
         auto result = m_Importers[ext]->Import( path, *this );
@@ -227,7 +227,7 @@ namespace Desert::Editor
                  "'{}': SerializeMeshAsset writes only skinned meshes; a static mesh is a MeshSourceAsset",
                  sourcePath.string() );
         Desert::Assets::Serialization::MeshAssetData data       = dataIn;
-        const std::filesystem::path                  cookedPath = BuildCookedPath( sourcePath, ".skmesh" );
+        const std::filesystem::path                  cookedPath = SkinnedAssetPath( sourcePath, ".skmesh" );
 
         // THE ONE PLACE A COOKED MESH IS WRITTEN, and since B11 it writes the binary container rather
         // than JSON. The sibling cooked kinds beside this one (.skeleton, .anim, .demat, .tex metadata)
@@ -249,7 +249,7 @@ namespace Desert::Editor
     ImportManager::SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
                                            const std::filesystem::path&                            sourcePath )
     {
-        auto cookedPath = BuildCookedPath( sourcePath, ".skeleton" );
+        auto cookedPath = SkinnedAssetPath( sourcePath, ".skeleton" );
         // A RE-IMPORT KEEPS THE RIG'S IDENTITY (T7e, SKEL 1): the GUID of the file being replaced, minted only
         // for a new one - retargets and meshes name the rig, and a fresh GUID would orphan them.
         auto stamped   = data;
@@ -262,7 +262,7 @@ namespace Desert::Editor
     ImportManager::SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
                                             const std::filesystem::path&                             sourcePath )
     {
-        auto cookedPath = BuildCookedPath( sourcePath, "_" + data.Name + ".anim" );
+        auto cookedPath = SkinnedAssetPath( sourcePath, "_" + data.Name + ".anim" );
         // A RE-IMPORT KEEPS THE CLIP'S IDENTITY (T7e, ANIM 4), as the rig's above: sequencer tracks and anim
         // graphs name the clip, and a fresh GUID would orphan them.
         auto stamped   = data;

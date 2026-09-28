@@ -65,7 +65,7 @@ namespace
     // The handle the shipped scene stores for the shipped probe mesh. Derived from the project-relative
     // cooked path, so it is the same number on every machine — that is the whole reason the derivation is
     // relative (see AssetHandle::StableKeyForPath).
-    constexpr const char*   kProbeCookedMeshPath = "Cooked/Meshes/SkinProbe.skmesh";
+    constexpr const char*   kProbeCookedMeshPath = "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh";
     constexpr std::uint64_t kProbeMeshHandle     = 16266463617133760712ull;
 
     Desert::Assets::Serialization::SkeletonAssetData ProbeSkeletonData()

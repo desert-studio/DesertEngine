@@ -7,21 +7,18 @@
 #include <string>
 #include <system_error>
 
-// Single source of truth for "source asset path -> deterministic cooked path". This logic used to be copied
-// in ImportManager, MeshDnD, TextureImporter and FileExplorerPanel and DRIFTED apart (that drift caused the
+// Single source of truth for "source asset path -> the asset paths its import writes". This logic used to be
+// copied in ImportManager, MeshDnD, TextureImporter and FileExplorerPanel and DRIFTED apart (that drift caused the
 // "textures outside Resources/Textures silently failed to cook" bug). All callers route through here now.
 // These are PURE (no directory creation) — callers create_directories before writing.
 namespace Desert::Editor::CookPaths
 {
-    // SKINNED OUTPUTS ONLY (AF4d): source -> Cooked/Meshes/<rel>.<ext> (ext = ".skmesh" / "_<anim>.anim" /
-    // ".skeleton"). A static mesh is never cooked here - its asset is MeshAsset( source ), below - and AF4f moves
-    // the skinned kinds beside their source the same way, retiring this root.
-    // Meshes under Resources/Assets/Meshes keep their layout (relative to that dir). Mesh sources ANYWHERE ELSE
-    // under content (e.g. a character pack in Resources/Assets/Collections/<pack>/) map relative to Assets/
-    // (then Resources/) instead — otherwise the relative path escapes Cooked/Meshes with "../" and the cooked
-    // outputs land outside the tree the preloader scans, so the asset is silently never discovered.
-    // A STATIC MESH'S ASSET LIVES BESIDE ITS SOURCE (UE: the package next to the content), not under Cooked/:
-    // Assets/Meshes/Props/base.fbx -> Assets/Meshes/Props/base.stmesh, the MeshSourceAsset envelope (AF4d).
+    // A MESH'S ASSETS LIVE BESIDE ITS SOURCE (UE: the package next to the content), never under Cooked/.
+    // Static: Assets/Meshes/Props/base.fbx -> Assets/Meshes/Props/base.stmesh, the MeshSourceAsset envelope
+    // (AF4d). Skinned (AF8b): the same folder, the source's stem plus the kind's suffix —
+    // base.skmesh, base.skeleton, base_<clip>.anim. They are authored content from the moment they are
+    // written: the content registry gathers them from the assets root like every other kind, and the
+    // project's Cooked/ tree holds generated intermediates only.
     inline std::filesystem::path MeshAsset( const std::filesystem::path& source )
     {
         std::filesystem::path result = source;
@@ -29,7 +26,36 @@ namespace Desert::Editor::CookPaths
         return result;
     }
 
-    inline std::filesystem::path CookedSkinned( const std::filesystem::path& source, const std::string& ext )
+    // `suffix` is appended to the source's stem verbatim: ".skmesh", ".skeleton", "_<clip>.anim".
+    inline std::filesystem::path SkinnedAsset( const std::filesystem::path& source, const std::string& suffix )
+    {
+        return source.parent_path() / ( source.stem().string() + suffix );
+    }
+
+    // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the source path relative to Resources/Assets/Meshes,
+    // extension dropped — "Props/base" for Assets/Meshes/Props/base.fbx. A source ANYWHERE ELSE under
+    // content (e.g. a character pack in Resources/Assets/Collections/<pack>/) is taken relative to Assets/
+    // (then Resources/) instead, so two packs never share an identity through a shared "../".
+    //
+    // The importer used to identify a source by `stem()` alone, i.e. by "base", with the directory thrown
+    // away entirely. Two meshes with the same file name in different folders were then the SAME asset as
+    // far as the importer was concerned: the same material ids (the key was `<stem>::<material>#<index>`)
+    // and the same material output folder. And because the writer skips a .demat that already exists, the
+    // second mesh did not overwrite the first — it silently adopted it. Nothing logged, nothing null; the
+    // second model simply came in wearing the first one's surface. That is a collision BY CONSTRUCTION,
+    // not by unlucky hashing, and no amount of care at the lookup can undo it, because both records are
+    // Materials and a type check cannot tell two Materials apart.
+    //
+    // The repository already stands one file away from it: Assets/Meshes/base.fbx, base_basic_pbr.fbx and
+    // base_basic_shaded.fbx each contain a material named "model" — all three keys are `<stem>::model#0`
+    // and the ONLY thing separating them is that the three stems differ. A second base.fbx from any other
+    // pack, in any other folder, merges with the first.
+    //
+    // THE VALUE IS A STORED IDENTITY: every imported material's GUID is hashed from MaterialKey, below, so
+    // this ladder must keep producing the same string for the same source. It used to be derived through
+    // the skinned cook path under Cooked/Meshes; AF8b moved that output beside the source and kept the
+    // ladder byte for byte (MeshImportKey pins it).
+    inline std::filesystem::path MeshRelativeId( const std::filesystem::path& source )
     {
         namespace fs = std::filesystem;
         std::error_code ec;
@@ -49,39 +75,7 @@ namespace Desert::Editor::CookPaths
             }
         }
 
-        fs::path result = Common::Constants::Path::MESH_PATH_COOKED / rel;
-        result.replace_extension( ext );
-        return result;
-    }
-
-    // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the cooked path relative to Cooked/Meshes, extension
-    // dropped — "Props/base" for a source that cooks to Cooked/Meshes/Props/base.stmesh.
-    //
-    // The importer used to identify a source by `stem()` alone, i.e. by "base", with the directory thrown
-    // away entirely. Two meshes with the same file name in different folders were then the SAME asset as
-    // far as the importer was concerned: the same material ids (the key was `<stem>::<material>#<index>`)
-    // and the same material output folder. And because the writer skips a .demat that already exists, the
-    // second mesh did not overwrite the first — it silently adopted it. Nothing logged, nothing null; the
-    // second model simply came in wearing the first one's surface. That is a collision BY CONSTRUCTION,
-    // not by unlucky hashing, and no amount of care at the lookup can undo it, because both records are
-    // Materials and a type check cannot tell two Materials apart.
-    //
-    // The repository already stands one file away from it: Assets/Meshes/base.fbx, base_basic_pbr.fbx and
-    // base_basic_shaded.fbx each contain a material named "model" — all three keys are `<stem>::model#0`
-    // and the ONLY thing separating them is that the three stems differ. A second base.fbx from any other
-    // pack, in any other folder, merges with the first.
-    //
-    // Derived from the COOKED path rather than from the source path directly, so that "where is this
-    // asset in the project" is answered in exactly one place. CookedSkinned's ladder already decides what a
-    // source outside Resources/Assets/Meshes means; asking it again here would be a second answer to a
-    // question that already has one, and two answers that must agree is the defect this file was created
-    // to end.
-    inline std::filesystem::path MeshRelativeId( const std::filesystem::path& source )
-    {
-        namespace fs = std::filesystem;
-        std::error_code ec;
-
-        fs::path rel = fs::relative( CookedSkinned( source, "" ), Common::Constants::Path::MESH_PATH_COOKED, ec );
+        rel.replace_extension( "" );
         rel.replace_extension();
         return rel;
     }

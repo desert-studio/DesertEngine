@@ -127,8 +127,8 @@ TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
          { &Path::RETARGET_PATH, "Resources/Assets/Retargets/" },
          { &Path::FOLIAGE_TYPE_PATH, "Resources/Assets/Foliage/" },
          { &Path::LANDSCAPE_LAYER_INFO_PATH, "Resources/Assets/Landscape/Layers/" },
+         { &Path::ANIMATION_PATH, "Resources/Assets/Animations/" },
          { &Path::COOKED_PATH, "Cooked/" },
-         { &Path::MESH_PATH_COOKED, "Cooked/Meshes/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,
                    "a census row was added without pinning its sandbox spelling here" );

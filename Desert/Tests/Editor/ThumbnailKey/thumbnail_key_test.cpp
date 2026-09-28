@@ -253,10 +253,10 @@ namespace
         // with itself and pass over any divergence at all.
         const fs::path viaRegistry = UnderAssets( "Meshes/Rock.stmesh" ).lexically_normal();
 
-        // A STATIC MESH IS NEVER COOKED UNDER Cooked/ ANY MORE: that root holds only the skinned outputs.
-        const fs::path cookedRoot = Common::Constants::Path::MESH_PATH_COOKED;
+        // A MESH IS NEVER WRITTEN UNDER Cooked/: that tree holds generated intermediates only (AF8b).
+        const fs::path cookedRoot = Common::Constants::Path::COOKED_PATH;
         EXPECT_TRUE( fs::relative( viaCookPaths, cookedRoot ).begin()->string() == ".." )
-             << viaCookPaths.string() << " lies under the skinned cook root " << cookedRoot.string();
+             << viaCookPaths.string() << " lies under the cooked tree " << cookedRoot.string();
 
         EXPECT_EQ( TK::Identity( viaCookPaths.string() ), TK::Identity( viaRegistry.string() ) )
              << "the browser's cooked mapping and the scene's registered path no longer name one asset:\n"

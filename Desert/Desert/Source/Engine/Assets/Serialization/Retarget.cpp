@@ -150,7 +150,7 @@ namespace Desert::Assets::Serialization
             if ( rooted || lettered || rig.starts_with( ".." ) )
             {
                 return Common::MakeFormattedError<bool>(
-                     "retarget '{}': source rig '{}' must be relative to the cooked meshes root and must "
+                     "retarget '{}': source rig '{}' must be relative to the assets root and must "
                      "not escape it",
                      data.Name, data.SourceSkeleton.Path );
             }

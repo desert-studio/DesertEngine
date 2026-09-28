@@ -1145,7 +1145,7 @@ TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothin
     std::ostringstream             reported;
     std::ostringstream             refused;
     EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
-    EXPECT_NE( refused.str().find( "/nonexistent-project-root/Cooked/Meshes/SkinProbe.skmesh" ),
+    EXPECT_NE( refused.str().find( "/nonexistent-project-root/Resources/Assets/Meshes/Skinned/SkinProbe.skmesh" ),
                std::string::npos )
          << refused.str();
     EXPECT_FALSE( std::filesystem::exists( out ) );
@@ -1232,7 +1232,7 @@ TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlways
     // The corpus meshes (kCorpusProps); a mesh the world names outside this list is planned as a point and the
     // AlwaysLoaded / level assertions below would not see it - so the list is checked against the file too.
     for ( const std::string path :
-          { "Cooked/Meshes/SkinProbe.skmesh", "Cooked/Meshes/TwoBoneProbe.skmesh", "Cooked/Meshes/IKProbe.skmesh",
+          { "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh", "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh", "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
             "Resources/Assets/Meshes/StaticProbe.stmesh" } )
     {
         const std::string raw = ReadAll( ProjectRoot() + "/" + path );
