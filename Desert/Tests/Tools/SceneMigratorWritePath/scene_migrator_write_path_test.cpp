@@ -224,7 +224,7 @@ TEST( SceneMigratorWritePath, EveryCommittedSceneIsAlreadyTheSaversCanonicalText
     {
         if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
             continue;
-        sawOne               = true;
+        sawOne                = true;
         const fs::path& scene = entry.path();
 
         const std::string bytes    = ReadRaw( scene );

@@ -308,32 +308,32 @@ namespace Desert::Migration
                            return true;
                        } );
             for ( const char* light : { "PointLight", "SpotLight" } )
-                EditBlock(
-                     components, light,
-                     [&]( rfl::Generic::Object& block )
-                     {
-                         const auto falloff = block.get( "Falloff" );
-                         if ( !falloff.has_value() )
-                             return false;
-                         const auto name = falloff.value().to_string();
-                         if ( !name.has_value() )
-                             return false;
-                         // An index rather than the iterator: an iterator's spelling differs between standard
-                         // libraries (a pointer in libc++, a class in MSVC's), an index does not.
-                         const auto index = static_cast<std::size_t>(
-                              std::ranges::distance( kLightFalloffNames.begin(),
-                                                     std::ranges::find( kLightFalloffNames, name.value() ) ) );
-                         if ( index == kLightFalloffNames.size() )
-                         {
-                             report.Refused.push_back( who + " / " + light + " states Falloff '" + name.value() +
-                                                       "', which is no LightFalloff enumerator (Linear, "
-                                                       "Quadratic, InverseSquare)" );
-                             return false;
-                         }
-                         block["Falloff"] = rfl::Generic( static_cast<int>( index ) );
-                         ++report.FalloffNamesNumbered;
-                         return true;
-                     } );
+                EditBlock( components, light,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const auto falloff = block.get( "Falloff" );
+                               if ( !falloff.has_value() )
+                                   return false;
+                               const auto name = falloff.value().to_string();
+                               if ( !name.has_value() )
+                                   return false;
+                               // An index rather than the iterator: an iterator's spelling differs between
+                               // standard libraries (a pointer in libc++, a class in MSVC's), an index does not.
+                               const auto index = static_cast<std::size_t>( std::ranges::distance(
+                                    kLightFalloffNames.begin(),
+                                    std::ranges::find( kLightFalloffNames, name.value() ) ) );
+                               if ( index == kLightFalloffNames.size() )
+                               {
+                                   report.Refused.push_back( who + " / " + light + " states Falloff '" +
+                                                             name.value() +
+                                                             "', which is no LightFalloff enumerator (Linear, "
+                                                             "Quadratic, InverseSquare)" );
+                                   return false;
+                               }
+                               block["Falloff"] = rfl::Generic( static_cast<int>( index ) );
+                               ++report.FalloffNamesNumbered;
+                               return true;
+                           } );
         };
         for ( std::size_t i = 0; i < entities.size(); ++i )
         {
