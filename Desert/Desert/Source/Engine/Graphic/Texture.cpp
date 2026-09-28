@@ -81,15 +81,14 @@ namespace Desert::Graphic
         texture->m_Height = cooked.Height;
 
         const std::size_t                         levelCount = cooked.Levels.size();
-        const Core::Formats::Image2DSpecification imageSpec  = {
-             .Tag        = cooked.Tag,
-             .Width      = cooked.Width,
-             .Height     = cooked.Height,
-             .Format     = cooked.Format,
-             .Data       = std::move( cooked.Pixels ),
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Sample,
-             .MipLevels  = std::move( cooked.Levels ) };
+        const Core::Formats::Image2DSpecification imageSpec  = { .Tag        = cooked.Tag,
+                                                                 .Width      = cooked.Width,
+                                                                 .Height     = cooked.Height,
+                                                                 .Format     = cooked.Format,
+                                                                 .Data       = std::move( cooked.Pixels ),
+                                                                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                                                                 .Properties = Core::Formats::Sample,
+                                                                 .MipLevels  = std::move( cooked.Levels ) };
 
         auto image = Image2D::Create( imageSpec );
         if ( !image )

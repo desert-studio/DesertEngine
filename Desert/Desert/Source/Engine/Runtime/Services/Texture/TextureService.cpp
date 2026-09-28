@@ -97,7 +97,7 @@ namespace Desert::Runtime
                             job->Asset.filename().string(),
                             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began )
                                  .count() );
-                 uint64_t           bytes  = 0;
+                 uint64_t bytes = 0;
                  if ( cooked.IsSuccess() )
                  {
                      outcome.Cooked = cooked.ExtractValue();
@@ -109,7 +109,8 @@ namespace Desert::Runtime
              } );
     }
 
-    void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome&& outcome )
+    void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry,
+                                     TextureCookOutcome&& outcome )
     {
         entry.Cooking = false;
         if ( outcome.Cooked )
@@ -121,10 +122,11 @@ namespace Desert::Runtime
                 entry.Built = built.ExtractValue();
             else
                 outcome.Error = built.GetError();
-            LOG_DEBUG( "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes)",
-                       entry.Source->GetMetadata().Filepath.filename().string(),
-                       std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
-                       bytes );
+            LOG_DEBUG(
+                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes)",
+                 entry.Source->GetMetadata().Filepath.filename().string(),
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
+                 bytes );
         }
         if ( !entry.Built )
         {

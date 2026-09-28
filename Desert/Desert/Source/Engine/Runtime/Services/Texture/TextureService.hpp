@@ -127,7 +127,7 @@ namespace Desert::Runtime
         /// Textures eviction dropped, alive until the frames that could sample them have retired.
         Assets::FrameRetireQueue<std::shared_ptr<Graphic::Texture2D>> m_Retiring;
         /// Shared with the cook jobs, which may still finish after this service is cleared or destroyed.
-        std::shared_ptr<TextureUploads> m_Uploads = std::make_shared<TextureUploads>();
+        std::shared_ptr<TextureUploads> m_Uploads        = std::make_shared<TextureUploads>();
         mutable uint64_t                m_NextCookTicket = 0;
         TextureUploadSettings           m_UploadSettings;
     };
