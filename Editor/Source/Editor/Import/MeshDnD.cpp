@@ -56,7 +56,7 @@ namespace Desert::Editor::MeshDnD
                 const fs::path&   file = f.path();
                 const std::string name = file.stem().string();
                 const bool        rig  = file.extension() == ".skeleton" && name == stem;
-                const bool        clip = file.extension() == ".anim" && name.rfind( stem + "_", 0 ) == 0;
+                const bool        clip = file.extension() == ".anim" && name.starts_with( stem + "_" );
                 if ( f.is_regular_file( ec ) && ( rig || clip ) )
                     Assets::ContentRegistry::Update( file );
             }

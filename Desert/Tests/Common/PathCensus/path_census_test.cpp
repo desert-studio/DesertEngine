@@ -285,7 +285,7 @@ namespace
 
     std::string ReadText( const fs::path& file )
     {
-        std::ifstream      in( file, std::ios::binary );
+        const std::ifstream in( file, std::ios::binary );
         std::ostringstream text;
         text << in.rdbuf();
         return text.str();
@@ -332,15 +332,18 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
     ASSERT_TRUE( root.has_value() ) << "run from inside the checkout (no .gitignore + Desert/ above "
                                     << fs::current_path().generic_string() << ")";
 
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
+    const fs::path& repo = root.value();
+
     const std::set<std::string> extensions = { ".hpp", ".cpp", ".h", ".inl", ".mm" };
     std::set<std::string>       found;
     for ( const char* top :
           { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
     {
         std::error_code ec;
-        if ( !fs::exists( *root / top, ec ) )
+        if ( !fs::exists( repo / top, ec ) )
             continue;
-        for ( auto it = fs::recursive_directory_iterator( *root / top, ec );
+        for ( auto it = fs::recursive_directory_iterator( repo / top, ec );
               it != fs::recursive_directory_iterator(); it.increment( ec ) )
         {
             if ( ec )
@@ -355,7 +358,7 @@ TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse 
             const std::string text = ReadText( it->path() );
             if ( text.find( "COOKED_PATH" ) != std::string::npos ||
                  text.find( "COOKED_DIR_NAME" ) != std::string::npos )
-                found.insert( it->path().lexically_relative( *root ).generic_string() );
+                found.insert( it->path().lexically_relative( repo ).generic_string() );
         }
     }
 
@@ -374,11 +377,13 @@ TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
     // so the reference resolves only on the machine that wrote it.
     const auto root = RepoRoot();
     ASSERT_TRUE( root.has_value() );
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
+    const fs::path& repo = root.value();
 
     const std::set<std::string> extensions = { ".desce", ".retarget", ".deproj" };
     std::size_t                 read       = 0;
     std::error_code             ec;
-    for ( auto it = fs::recursive_directory_iterator( *root / "Editor" / "Resources", ec );
+    for ( auto it = fs::recursive_directory_iterator( repo / "Editor" / "Resources", ec );
           it != fs::recursive_directory_iterator(); it.increment( ec ) )
     {
         if ( ec )
@@ -388,10 +393,10 @@ TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
         ++read;
         const std::string text = ReadText( it->path() );
         EXPECT_EQ( text.find( "Cooked/" ), std::string::npos )
-             << it->path().lexically_relative( *root ).generic_string()
+             << it->path().lexically_relative( repo ).generic_string()
              << " references a file under a Cooked folder, which git ignores";
     }
-    EXPECT_GT( read, 0u ) << "no scene was read under " << ( *root / "Editor" / "Resources" ).generic_string();
+    EXPECT_GT( read, 0u ) << "no scene was read under " << ( repo / "Editor" / "Resources" ).generic_string();
 }
 
 int main( int argc, char** argv )

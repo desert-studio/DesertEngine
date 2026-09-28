@@ -53,6 +53,7 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -201,8 +202,33 @@ namespace
             if ( CC::IsImportRecord( entry.path() ) )
                 continue;
 
-            const std::string name  = fs::relative( entry.path(), contentRoot ).generic_string();
-            const auto        asset = Desert::Assets::ReadMeshSourceAssetFile( entry.path() );
+            const std::string name = fs::relative( entry.path(), contentRoot ).generic_string();
+            // A skinned mesh is authored content in the cooked container (AF8b): its slots are the
+            // submeshes' material GUIDs, read by the skinned-mesh reader rather than the source-asset one.
+            if ( kind == CC::ContentKind::SkinnedMesh )
+            {
+                std::ifstream      in( entry.path(), std::ios::binary );
+                std::ostringstream bytes;
+                bytes << in.rdbuf();
+                const auto mesh = Desert::Assets::Serialization::ReadMeshAssetData( bytes.str(), name );
+                if ( !mesh.IsSuccess() )
+                {
+                    if ( parseError != nullptr && parseError->empty() )
+                        *parseError = name + ": " + mesh.GetError();
+                    continue;
+                }
+                if ( meshesRead != nullptr )
+                    ++*meshesRead;
+                for ( const auto& submesh : mesh.GetValue().Submeshes )
+                {
+                    if ( submesh.MaterialGuid.IsNull() )
+                        continue;
+                    out.push_back( { name, submesh.Name,
+                                     static_cast<uint64_t>( CC::HandleForGuid( submesh.MaterialGuid ) ) } );
+                }
+                continue;
+            }
+            const auto asset = Desert::Assets::ReadMeshSourceAssetFile( entry.path() );
             if ( !asset.IsSuccess() )
             {
                 if ( parseError != nullptr && parseError->empty() )

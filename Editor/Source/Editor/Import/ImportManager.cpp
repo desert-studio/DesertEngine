@@ -64,13 +64,19 @@ namespace Desert::Editor
                 return false;
             const auto text = Common::Utils::FileSystem::ReadFileContentIfExists(
                  CookPaths::SkinnedAsset( source, ".skeleton" ) );
-            if ( !text || !text.GetValue() )
+            if ( !text )
                 return false;
-            const auto rig = Assets::Serialization::ReadSkeletonJson( *text.GetValue() );
-            if ( !rig || !rig.GetValue().Import )
+            const auto& content = text.GetValue();
+            if ( !content.has_value() )
+                return false;
+            const auto rig = Assets::Serialization::ReadSkeletonJson( content.value() );
+            if ( !rig )
+                return false;
+            const auto& import = rig.GetValue().Import;
+            if ( !import.has_value() )
                 return false;
             const auto hash = Assets::HashMeshSourceFile( source );
-            return hash && rig.GetValue().Import->SourceHash == hash.GetValue();
+            return hash && import.value().SourceHash == hash.GetValue();
         }
     } // namespace
 
@@ -243,11 +249,16 @@ namespace Desert::Editor
         // A RE-IMPORT KEEPS THE MESH'S IDENTITY (UE keeps a package's GUID on reimport): scenes name the
         // mesh by this GUID, so minting a new one would orphan every reference to the file being replaced.
         data.Guid = Common::Content::AssetGuid::Generate();
-        if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefix(
+        // First import: no file yet, so absence is an answer here, not an error.
+        if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
                   cookedPath, Common::Content::kMeshBinaryPrefixV3 ) )
-            if ( const auto kept = Common::Content::ReadMeshHeaderGuid( prefix.GetValue() );
-                 kept && !kept->IsNull() )
-                data.Guid = *kept;
+        {
+            const auto& previous = prefix.GetValue();
+            if ( previous.has_value() )
+                if ( const auto kept = Common::Content::ReadMeshHeaderGuid( previous.value() );
+                     kept.has_value() && !kept.value().IsNull() )
+                    data.Guid = kept.value();
+        }
         return WriteCookedBytes( Desert::Assets::Serialization::EncodeMeshBinary( data ), cookedPath,
                                  Desert::Assets::Serialization::MeshDataBounds( data ) );
     }

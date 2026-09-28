@@ -64,12 +64,12 @@ namespace Desert::Editor::CookPaths
         const bool underMesh = !rel.empty() && rel.begin()->string() != "..";
         if ( !underMesh )
         {
-            fs::path relAssets = fs::relative( source, Common::Constants::Path::ASSETS_PATH, ec );
+            const fs::path relAssets = fs::relative( source, Common::Constants::Path::ASSETS_PATH, ec );
             if ( !relAssets.empty() && relAssets.begin()->string() != ".." )
                 rel = relAssets;
             else
             {
-                fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH, ec );
+                const fs::path relRes = fs::relative( source, Common::Constants::Path::RESOURCE_PATH, ec );
                 if ( !relRes.empty() && relRes.begin()->string() != ".." )
                     rel = relRes;
             }
