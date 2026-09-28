@@ -755,7 +755,12 @@ namespace Desert::Geometry::VoxelBlockout
                         }
                     }
                 }
-            out.State = count == 0 ? 0 : ( count == R * R ? 2 : 1 );
+            if ( count == 0 )
+                out.State = 0;
+            else if ( count == R * R )
+                out.State = 2;
+            else
+                out.State = 1;
             return out;
         };
         // The uncovered squares of a partly covered face, one quad per run along U in each row of V.

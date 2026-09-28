@@ -1049,7 +1049,7 @@ namespace
                                      key( m.Vertices[sm.VertexOffset + t.V2].Position ),
                                      key( m.Vertices[sm.VertexOffset + t.V3].Position ) };
                 for ( int e = 0; e < 3; ++e )
-                    ring[k[e]].push_back( { k[( e + 1 ) % 3], k[( e + 2 ) % 3] } );
+                    ring[k[e]].emplace_back( k[( e + 1 ) % 3], k[( e + 2 ) % 3] );
             }
         int bad = 0;
         for ( const auto& [v, edges] : ring )
