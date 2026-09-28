@@ -192,9 +192,6 @@ namespace
                 using T = ::Desert::ECS::LandscapeMaterialData;
                 TypeBuilder( "LandscapeMaterialData", sizeof( T ) )
                     .Field( FieldInfo{ .Name = "Material", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Material ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Material )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Material", .Category = "Landscape", .IsAsset = true, .AssetType = "MaterialAsset", .Hidden = true, } } )
-                    .Field( FieldInfo{ .Name = "GrassMode", .Type = FieldType::Enum, .Offset = offsetof( T, GrassMode ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::GrassMode )>(), .TypeName = "LandscapeLayerMode", .Meta = PropertyMetadata{ .DisplayName = "Grass Layer", .Category = "Landscape Layers", }, .EnumValues = { EnumValue{ "Auto", 0 }, EnumValue{ "Off", 1 }, } } )
-                    .Field( FieldInfo{ .Name = "RockMode", .Type = FieldType::Enum, .Offset = offsetof( T, RockMode ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::RockMode )>(), .TypeName = "LandscapeLayerMode", .Meta = PropertyMetadata{ .DisplayName = "Rock Layer", .Category = "Landscape Layers", }, .EnumValues = { EnumValue{ "Auto", 0 }, EnumValue{ "Off", 1 }, } } )
-                    .Field( FieldInfo{ .Name = "SnowMode", .Type = FieldType::Enum, .Offset = offsetof( T, SnowMode ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SnowMode )>(), .TypeName = "LandscapeLayerMode", .Meta = PropertyMetadata{ .DisplayName = "Snow Layer", .Category = "Landscape Layers", }, .EnumValues = { EnumValue{ "Auto", 0 }, EnumValue{ "Off", 1 }, } } )
                     .WithDefault<T>()
                     .Register();
             }

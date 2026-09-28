@@ -56,7 +56,6 @@
 *.dvol         -text
 *.defoliage    -text
 *.delayerinfo  -text
-*.degrasstype  -text
 # A partitioned world's cooked cells and index: derived, never committed today, and sized by the registry
 # like every other kind (PakChunks.EveryContentKindIsCheckedOutVerbatim holds ContentKinds to this file).
 *.dwcell       -text

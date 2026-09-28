@@ -75,11 +75,10 @@
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PointLightComponent, Data, "PointLightData", "Point Light" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "SpotLightData", "Spot Light" )
 // Camera is a CUSTOM entry: reflected fields + a focal-length readout and "look through". See MakeCameraEntry.
-// Landscape Material is a CUSTOM entry: reflected LandscapeMaterialData UI (the layer modes) + the
-// landscape's MATERIAL ROW (an asset field and an Edit button — the material itself is authored in the
-// Material Editor window, like every other). See MakeLandscapeMaterialEntry below.
-// Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the
-// plain reflected one-liner — see MakeColliderEntry.
+// Landscape Material is a CUSTOM entry: the landscape's MATERIAL ROW (an asset field and an Edit button — the
+// material itself is authored in the Material Editor window, like every other). See MakeLandscapeMaterialEntry
+// below. Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the plain
+// reflected one-liner — see MakeColliderEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
 // Character Controller is a CUSTOM entry: the reflected capsule fields PLUS the live state the physics
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
@@ -258,10 +257,9 @@ namespace Desert::Editor
     // its own way to edit a material while everything else had the Material Editor window
     // (Docs/MaterialEditor/PLAN_STAGE3_ASSET_DOCUMENTS.md, M3).
     //
-    // ONE handle, not a slot vector. `Terrain.shader` is a single program of domain Terrain whose three
-    // splat layers (u_GrassTex/u_RockTex/u_SnowTex) are TEXTURE PARAMETERS of that one program, blended
-    // in-shader by the layer modes above. A vector would promise a material per layer and nothing
-    // downstream could consume one.
+    // ONE handle, not a slot vector. `Terrain.shader` is a single program of domain Terrain; the ground's
+    // layers are the root's painted layer infos, not parameters of it. A vector would promise a material
+    // per layer and nothing downstream could consume one.
     //
     // The combo went with the schema table: there is exactly one Terrain-domain shader, so "which shader"
     // was a control with one entry. A landscape material is created with that shader already chosen.
@@ -875,10 +873,10 @@ namespace Desert::Editor
         return e;
     }
 
-    // Landscape Material: the reflected LandscapeMaterialData UI (the three layer-mode combos), plus the
-    // material ROW in the same section — one asset field, an Edit button that opens the Material Editor
-    // window, and nothing that edits a material here. The handle itself is `PROPERTY Hidden` in the
-    // reflection, because the builder's generic asset slot is texture-oriented; the row below is its UI.
+    // Landscape Material: the material ROW — one asset field, an Edit button that opens the Material Editor
+    // window, and nothing that edits a material here. The handle is LandscapeMaterialData's one field and is
+    // `PROPERTY Hidden` in the reflection, because the builder's generic asset slot is texture-oriented; the
+    // row is its UI.
     static ComponentEditorEntry MakeLandscapeMaterialEntry()
     {
         using ::Desert::ECS::LandscapeMaterialComponent;
@@ -891,9 +889,6 @@ namespace Desert::Editor
         e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
         {
             auto& c = en.GetComponent<LandscapeMaterialComponent>();
-            PropertyEditorBuilder::Draw( &c.Data, "LandscapeMaterialData", ctx.AssetMgr(), ctx.UIHelper );
-
-            ::ImGui::Separator();
             DrawLandscapeMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag, ctx.AssetMgr() );
         };
         return e;

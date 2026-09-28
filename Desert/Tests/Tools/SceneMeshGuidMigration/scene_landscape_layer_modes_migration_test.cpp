@@ -6,6 +6,12 @@
 
 #include <gtest/gtest.h>
 
+#include <TestSupport/scratch_dir.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -74,4 +80,53 @@ TEST( SceneLandscapeLayerModesMigration, OtherComponentsAreUntouched )
     EXPECT_TRUE(
          entities[0].Components.get( "Landscape" ).value().to_object().value().get( "GrassMode" ).has_value() );
 }
+
+// THE CORPUS AFTER THE STEP, block by block: a landscape root states only the kept fields (named rows, UE's
+// equivalents beside them), its look only the material, and every landscape lists the Ground layer first -
+// the layer UE shows where nothing is painted.
+TEST( SceneLandscapeLayerModesMigration, CorpusLandscapesStateOnlyTheKeptFields )
+{
+    const std::set<std::string> keptLandscape = {
+         "QuadsPerTile", // UE ComponentSizeQuads / SubsectionSizeQuads
+         "SpacingCm",    // ALandscape actor scale, XY
+         "ZScale",       // ALandscape actor scale, Z
+         "Layers",       // target layers -> ULandscapeLayerInfoObject
+    };
+    const std::set<std::string> keptLook = { "Material" }; // ALandscape::LandscapeMaterial
+
+    const std::filesystem::path scenes =
+         Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Scenes";
+    ASSERT_TRUE( std::filesystem::is_directory( scenes ) ) << std::filesystem::absolute( scenes );
+    size_t roots = 0;
+    for ( const auto& entry : std::filesystem::directory_iterator( scenes ) )
+    {
+        if ( entry.path().extension() != ".desce" )
+            continue;
+        std::ifstream     in( entry.path(), std::ios::binary );
+        std::stringstream text;
+        text << in.rdbuf();
+        const auto scene = rfl::json::read<Migration::SceneSerialized>( text.str() );
+        ASSERT_TRUE( scene ) << entry.path();
+        for ( const EntityData& e : scene.value().Entities )
+        {
+            const auto landscape = e.Components.get( "Landscape" );
+            if ( !landscape )
+                continue;
+            ++roots;
+            const auto block = landscape.value().to_object().value();
+            for ( const auto& [key, value] : block )
+                EXPECT_TRUE( keptLandscape.contains( key ) ) << entry.path() << ": Landscape." << key;
+            const auto layers = block.get( "Layers" );
+            ASSERT_TRUE( layers ) << entry.path() << " lists no layer; its ground would be white";
+            const auto first = layers.value().to_array().value().at( 0 ).to_object().value().get( "Path" );
+            EXPECT_EQ( first.value().to_string().value(), "Landscape/Layers/Ground.delayerinfo" ) << entry.path();
+            if ( const auto look = e.Components.get( "LandscapeMaterial" ) )
+                for ( const auto& [key, value] : look.value().to_object().value() )
+                    EXPECT_TRUE( keptLook.contains( key ) ) << entry.path() << ": LandscapeMaterial." << key;
+        }
+    }
+    // G3_TwoTerrains (2), Terrain_Grass, Terrain_MatProbe.
+    EXPECT_EQ( roots, 4u );
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)

@@ -61,7 +61,6 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::AnimGraph:
             case Assets::AssetTypeID::Retarget:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
-            case Assets::AssetTypeID::LandscapeGrassType: // authored as text; no grass type editor yet (GR-1)
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";

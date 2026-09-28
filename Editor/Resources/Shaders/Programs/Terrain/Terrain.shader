@@ -1,8 +1,8 @@
 // DesertAsset {"Kind":"Shader","Guid":"9d6d6db70d7f0b397eac782bfb709efd","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Terrain"
 {
-    // Data-driven material metadata (consumed by the pipeline cache + generic material in later phases).
-    // Layer textures — drag textures onto these in Details; unassigned = white fallback (shows the base tint).
+    // Data-driven material metadata. The ground's layers are the landscape's painted layer infos, not
+    // parameters of this program: the material contributes the Tint every layer is multiplied by.
 
     Domain Terrain
 
@@ -13,10 +13,6 @@ Shader "Terrain"
     Properties Binding(1)
     {
         Color       Tint ("Tint") = (1, 1, 1, 1)
-        Float       DetailTiling ("Texture Tiling (m)", Range(0.25,64)) = 4
-        Texture2D   u_GrassTex ("Grass Texture")
-        Texture2D   u_RockTex ("Rock Texture")
-        Texture2D   u_SnowTex ("Snow Texture")
     }
 
     State
@@ -85,15 +81,11 @@ Shader "Terrain"
             TerrainSurface s = EvaluateTerrainSurface();
             vec3 N           = s.N;
             vec3 albedo      = s.Albedo;
-            float wSnow      = s.Snow;
 
-            // PBR-ish lighting using the SCENE directional light (dir/color/intensity). Camera position recovered
-            // from the inverse view matrix for the specular view vector.
-            vec3 camPos = inverse( u.View )[3].xyz;
-            vec3 V      = normalize( camPos - v_WorldPos );
+            // Diffuse lighting using the SCENE directional light (dir/color/intensity). The ground is matte:
+            // no layer carries a specular term.
             vec3 L      = normalize( -u.SunDir.xyz );          // to-light (engine stores travel direction)
             vec3 sun    = u.SunColor.rgb * max( u.SunColor.a, 0.0001 );
-            vec3 H      = normalize( L + V );
 
             float ndl = max( dot( N, L ), 0.0 );
 
@@ -102,16 +94,12 @@ Shader "Terrain"
             vec3  gndCol  = vec3( 0.20, 0.18, 0.14 );
             vec3  ambient = mix( gndCol, skyCol, N.y * 0.5 + 0.5 ) * 0.5;
 
-            // Per-layer roughness: rock/grass matte, snow has a subtle sheen.
-            float gloss = mix( 0.0, 0.5, clamp( wSnow, 0.0, 1.0 ) );
-            float spec  = pow( max( dot( N, H ), 0.0 ), mix( 16.0, 90.0, gloss ) ) * gloss;
-
             // The cloud layer attenuates the SUN and nothing else: the hemisphere ambient above is the
             // whole sky dome, which a deck occludes with a different geometry than a direction. Same
             // split the deferred composite and the mesh shaders make.
             float cloudShadow = CloudShadowFactor( v_WorldPos );
 
-            vec3 lit = albedo * ( ambient + sun * ndl * cloudShadow ) + sun * spec * ndl * cloudShadow;
+            vec3 lit = albedo * ( ambient + sun * ndl * cloudShadow );
 
             o_Color = vec4( lit * u_Material.Tint.rgb, 1.0 );
         }

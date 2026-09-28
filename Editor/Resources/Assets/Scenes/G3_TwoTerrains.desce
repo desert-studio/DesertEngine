@@ -57,7 +57,13 @@
             "Landscape": {
                 "QuadsPerTile": 255,
                 "SpacingCm": 15.686274528503418,
-                "ZScale": 3.515625
+                "ZScale": 3.515625,
+                "Layers": [
+                    {
+                        "Guid": "80a31d6cbbb94e2680f8d4fa2d3cc8a9",
+                        "Path": "Landscape/Layers/Ground.delayerinfo"
+                    }
+                ]
             },
             "LandscapeMaterial": {
                 "Material": "Materials/M_G3_TerrainChecker.demat"
@@ -73,7 +79,13 @@
             "Landscape": {
                 "QuadsPerTile": 255,
                 "SpacingCm": 15.686274528503418,
-                "ZScale": 10.15625
+                "ZScale": 10.15625,
+                "Layers": [
+                    {
+                        "Guid": "80a31d6cbbb94e2680f8d4fa2d3cc8a9",
+                        "Path": "Landscape/Layers/Ground.delayerinfo"
+                    }
+                ]
             },
             "LandscapeMaterial": {
                 "Material": "Materials/M_G3_TerrainPlain.demat"

@@ -184,7 +184,7 @@ namespace Desert::Assets::Serialization
 
     /// Rejects numbers the brush cannot honour, naming the field and the values.
     /// Rejects a wind the sway cannot honour (negative or non-finite numbers), naming the field. Shared by every
-    /// asset that carries a FoliageWind (the foliage type, the landscape grass variety).
+    /// asset that carries a FoliageWind.
     Common::BoolResultStr ValidateFoliageWind( const FoliageWind& wind );
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data );
 

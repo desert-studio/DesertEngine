@@ -52,8 +52,7 @@ namespace Desert::Graphic::System
         }
 
         // A landscape tile is placed by its LandscapeTileDraw: the shader builds world positions from the
-        // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). Params.z is the tile's full
-        // height range (UE's +-256 local units), the scale the fragment's height rules normalise by. The LOD
+        // root's origin and GLOBAL sample indices (see LandscapeTileDraw for why). The LOD
         // half is the tile's LandscapeTileLods; the grid it is drawn with is the floor of its own LOD, and
         // every vertex morphs from there by its blended one (LandscapeLod.glslh).
         TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeTileLod& lod )
@@ -61,13 +60,13 @@ namespace Desert::Graphic::System
             const LandscapeTileDraw& l = t.Landscape;
 
             TerrainInstance instance;
-            instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
-                                                 256.0f * l.ZScale, std::floor( lod.Center ) );
+            instance.Params = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center, 0.0f,
+                                         std::floor( lod.Center ) );
             instance.Params2        = glm::vec4(
                  1.0f / std::max( 0.01f, kLandscapeLodBlendRange ), static_cast<float>( t.Weights.LayerCount ),
                  static_cast<float>( World::Landscape::LandscapeWeightmapPageCount( t.Weights.LayerCount ) ),
                  static_cast<float>( l.NeighbourMask ) );
-            instance.LayerModes     = glm::vec4( t.LayerModes, 0.0f );
+            instance.GroundColor    = t.Weights.Ground;
             instance.LandscapeFrame = glm::vec4( l.OriginX, l.BaseY, l.OriginZ, l.SpacingCm );
             instance.LandscapeTile =
                  glm::vec4( static_cast<float>( l.FirstSampleX ), static_cast<float>( l.FirstSampleZ ),

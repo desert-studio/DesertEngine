@@ -214,8 +214,6 @@ namespace Desert::Editor
          { "detheme", FileType::UITheme },
          // The landscape layer info (LS-12b); ThumbnailFormats.hpp says why nobody paints its picture.
          { "delayerinfo", FileType::LandscapeLayerInfo },
-         // The landscape grass type (GR-1); a text asset with no picture, as the layer info.
-         { "degrasstype", FileType::LandscapeGrassType },
     };
 
     static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
@@ -233,7 +231,6 @@ namespace Desert::Editor
          { FileType::Ini, { 0.65f, 0.65f, 0.68f, 1.00f } },
          { FileType::UITheme, { 0.95f, 0.72f, 0.30f, 1.00f } },
          { FileType::LandscapeLayerInfo, { 0.45f, 0.70f, 0.30f, 1.00f } },
-         { FileType::LandscapeGrassType, { 0.35f, 0.80f, 0.35f, 1.00f } },
     };
 
     static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
@@ -254,7 +251,6 @@ namespace Desert::Editor
          { FileType::Ini, ICON_MDI_FILE_DOCUMENT },
          { FileType::UITheme, ICON_MDI_PALETTE },
          { FileType::LandscapeLayerInfo, ICON_MDI_LAYERS },
-         { FileType::LandscapeGrassType, ICON_MDI_GRASS },
     };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,

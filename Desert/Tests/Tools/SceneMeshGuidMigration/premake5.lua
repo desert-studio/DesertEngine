@@ -30,6 +30,7 @@ project(test_name)
     }
 
     includedirs {
+        "%{_MAIN_SCRIPT_DIR}/Desert/Tests",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         -- The migrations live in the TOOL now (they used to be an engine TU that ran on every

@@ -15,6 +15,7 @@ project(test_name)
     }
 
     includedirs {
+        "%{_MAIN_SCRIPT_DIR}/Desert/Tests",
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }

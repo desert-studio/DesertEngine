@@ -83,7 +83,7 @@ TEST( LandscapePaint, PaintingAOverBKeepsTheSumAt255 )
 TEST( LandscapePaint, PaintingOverAFadedLayerDoesNotPumpItUp )
 {
     // The LS-13 frame's staircase: at the soft edge of an earlier stroke a sample holds A = 100 and the rest
-    // (155) is unpainted rule ground. Painting B to 30 there fits in the unclaimed share — A must stay 100.
+    // (155) is unpainted ground. Painting B to 30 there fits in the unclaimed share — A must stay 100.
     // Scaling A up to 225 to "keep the sum at 255" turned every faint sample the new brush touched into a
     // full one, a hard edge on the sample grid wherever the two strokes met.
     const std::vector<LandscapeLayerRule> rules = { { "A", 0.5f, false }, { "B", 0.5f, false } };
@@ -435,30 +435,28 @@ namespace
                              vec4( 0.1f, 0.2f, 0.8f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
                              vec4( 0.7f, 0.6f, 0.2f, 1.0f ), vec4( 0.3f, 0.1f, 0.5f, 1.0f ),
                              vec4( 0.0f, 0.4f, 0.4f, 1.0f ), vec4( 0.95f, 0.9f, 0.85f, 1.0f ) };
-    const vec3   kRule( 0.35f, 0.3f, 0.25f );
+    const vec3   kGround( 0.35f, 0.3f, 0.25f );
     const vec4   kWeightBlendAll( 0.0f );
 
     // The shader's call: two weightmap pages, the eight layer colours of the instance row, two alpha pages.
-    LandscapeWeightBlendResult Blend( vec4 w0, vec4 w1, const Colors& c, vec4 alpha0, vec4 alpha1, vec3 rule )
+    vec3 Blend( vec4 w0, vec4 w1, const Colors& c, vec4 alpha0, vec4 alpha1, vec3 ground )
     {
         return LandscapeWeightBlend( w0, w1, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], alpha0, alpha1,
-                                     rule );
+                                     ground );
     }
 
-    LandscapeWeightBlendResult Blend( vec4 w0, const Colors& c, vec4 alpha0, vec3 rule )
+    vec3 Blend( vec4 w0, const Colors& c, vec4 alpha0, vec3 ground )
     {
-        return Blend( w0, vec4( 0.0f ), c, alpha0, kWeightBlendAll, rule );
+        return Blend( w0, vec4( 0.0f ), c, alpha0, kWeightBlendAll, ground );
     }
 } // namespace
 
 TEST( LandscapePaint, FullyPaintedLayerIsExactlyItsColour )
 {
-    for ( const vec3 rule : { kRule, vec3( 0.0f ), vec3( 1.0f ) } )
+    for ( const vec3 ground : { kGround, vec3( 0.0f ), vec3( 1.0f ) } )
     {
-        const LandscapeWeightBlendResult r =
-             Blend( vec4( 0.0f, 1.0f, 0.0f, 0.0f ), kColors, kWeightBlendAll, rule );
-        EXPECT_EQ( r.Albedo, vec3( kColors[1] ) );
-        EXPECT_EQ( r.RuleShare, 0.0f );
+        const vec3 r = Blend( vec4( 0.0f, 1.0f, 0.0f, 0.0f ), kColors, kWeightBlendAll, ground );
+        EXPECT_EQ( r, vec3( kColors[1] ) );
     }
 }
 
@@ -470,42 +468,38 @@ TEST( LandscapePaint, EveryLayerOfBothPagesPaintsItsOwnColour )
     {
         std::array<vec4, 2> w{};
         w[layer / 4u][static_cast<glm::length_t>( layer % 4u )] = 1.0f;
-        const LandscapeWeightBlendResult r = Blend( w[0], w[1], kColors, kWeightBlendAll, kWeightBlendAll, kRule );
-        EXPECT_EQ( r.Albedo, vec3( kColors[layer] ) ) << "layer " << layer;
-        EXPECT_EQ( r.RuleShare, 0.0f ) << "layer " << layer;
+        const vec3 r = Blend( w[0], w[1], kColors, kWeightBlendAll, kWeightBlendAll, kGround );
+        EXPECT_EQ( r, vec3( kColors[layer] ) ) << "layer " << layer;
     }
 }
 
-TEST( LandscapePaint, UnpaintedGroundKeepsTheRuleAlbedoExactly )
+TEST( LandscapePaint, UnpaintedGroundKeepsTheGroundAlbedoExactly )
 {
     // UE allocates a layer to a tile on its first stroke with every weight zero; the ground around the
-    // stroke must stay what the height/slope rules made it, not turn black.
-    const LandscapeWeightBlendResult r = Blend( vec4( 0.0f ), kColors, kWeightBlendAll, kRule );
-    EXPECT_EQ( r.Albedo, kRule );
-    EXPECT_EQ( r.RuleShare, 1.0f );
+    // stroke must stay the ground (the root's first layer), not turn black.
+    const vec3 r = Blend( vec4( 0.0f ), kColors, kWeightBlendAll, kGround );
+    EXPECT_EQ( r, kGround );
 }
 
 TEST( LandscapePaint, TwoWeightBlendedLayersMixByTheirWeights )
 {
     const vec4                       w( 128.0f / 255.0f, 127.0f / 255.0f, 0.0f, 0.0f );
-    const LandscapeWeightBlendResult r        = Blend( w, kColors, kWeightBlendAll, kRule );
+    const vec3                       r        = Blend( w, kColors, kWeightBlendAll, kGround );
     const vec3                       expected = vec3( kColors[0] ) * w.x + vec3( kColors[1] ) * w.y;
     for ( int c = 0; c < 3; ++c )
-        EXPECT_NEAR( r.Albedo[c], expected[c], 1e-6f ) << "channel " << c;
-    EXPECT_NEAR( r.RuleShare, 0.0f, 1e-6f );
+        EXPECT_NEAR( r[c], expected[c], 1e-6f ) << "channel " << c;
 }
 
 TEST( LandscapePaint, LayersOnDifferentPagesMixByTheirWeights )
 {
     // Weights that sum to 255 across the page boundary (layers 2, 5 and 7): the claim is counted over both
-    // pages, so nothing of the rule ground shows through.
+    // pages, so nothing of the ground ground shows through.
     const vec4                       w0( 0.0f, 0.0f, 100.0f / 255.0f, 0.0f );
     const vec4                       w1( 0.0f, 80.0f / 255.0f, 0.0f, 75.0f / 255.0f );
-    const LandscapeWeightBlendResult r = Blend( w0, w1, kColors, kWeightBlendAll, kWeightBlendAll, kRule );
+    const vec3                       r = Blend( w0, w1, kColors, kWeightBlendAll, kWeightBlendAll, kGround );
     const vec3 expected = vec3( kColors[2] ) * w0.z + vec3( kColors[5] ) * w1.y + vec3( kColors[7] ) * w1.w;
     for ( int c = 0; c < 3; ++c )
-        EXPECT_NEAR( r.Albedo[c], expected[c], 1e-6f ) << "channel " << c;
-    EXPECT_NEAR( r.RuleShare, 0.0f, 1e-6f );
+        EXPECT_NEAR( r[c], expected[c], 1e-6f ) << "channel " << c;
 }
 
 TEST( LandscapePaint, ChannelTheRootDoesNotNameIsIgnored )
@@ -516,9 +510,8 @@ TEST( LandscapePaint, ChannelTheRootDoesNotNameIsIgnored )
         unnamed[layer].a = 0.0f;
         std::array<vec4, 2> w{};
         w[layer / 4u][static_cast<glm::length_t>( layer % 4u )] = 1.0f;
-        const LandscapeWeightBlendResult r = Blend( w[0], w[1], unnamed, kWeightBlendAll, kWeightBlendAll, kRule );
-        EXPECT_EQ( r.Albedo, kRule ) << "layer " << layer;
-        EXPECT_EQ( r.RuleShare, 1.0f ) << "layer " << layer;
+        const vec3 r = Blend( w[0], w[1], unnamed, kWeightBlendAll, kWeightBlendAll, kGround );
+        EXPECT_EQ( r, kGround ) << "layer " << layer;
     }
 }
 
@@ -526,17 +519,15 @@ TEST( LandscapePaint, NoWeightBlendLayerIsLaidOverTheBlendNotCountedInIt )
 {
     // UE's LB_AlphaBlend: a lerp over the weight-blended result, applied after it.
     const vec4                       alpha3( 0.0f, 0.0f, 0.0f, 1.0f );
-    const LandscapeWeightBlendResult half     = Blend( vec4( 0.0f, 0.0f, 0.0f, 0.5f ), kColors, alpha3, kRule );
-    const vec3                       expected = mix( kRule, vec3( kColors[3] ), 0.5f );
+    const vec3                       half     = Blend( vec4( 0.0f, 0.0f, 0.0f, 0.5f ), kColors, alpha3, kGround );
+    const vec3                       expected = mix( kGround, vec3( kColors[3] ), 0.5f );
     for ( int c = 0; c < 3; ++c )
-        EXPECT_NEAR( half.Albedo[c], expected[c], 1e-6f ) << "channel " << c;
-    EXPECT_NEAR( half.RuleShare, 0.5f, 1e-6f );
+        EXPECT_NEAR( half[c], expected[c], 1e-6f ) << "channel " << c;
 
     // Full weight on a weight-blended layer AND on the no-weight-blend one: the latter covers, and its
     // weight never took anything from the former's claim.
-    const LandscapeWeightBlendResult over = Blend( vec4( 1.0f, 0.0f, 0.0f, 1.0f ), kColors, alpha3, kRule );
-    EXPECT_EQ( over.Albedo, vec3( kColors[3] ) );
-    EXPECT_EQ( over.RuleShare, 0.0f );
+    const vec3 over = Blend( vec4( 1.0f, 0.0f, 0.0f, 1.0f ), kColors, alpha3, kGround );
+    EXPECT_EQ( over, vec3( kColors[3] ) );
 }
 
 TEST( LandscapePaint, NoWeightBlendLayerOnTheSecondPageIsLaidOverLast )
@@ -544,12 +535,11 @@ TEST( LandscapePaint, NoWeightBlendLayerOnTheSecondPageIsLaidOverLast )
     // Layer 6 (page 1, channel 2) is NoWeightBlend: at half weight over a fully painted layer 0 it is a
     // half lerp, and it is applied after the first page's own lerps (layer order).
     const vec4                       alpha1( 0.0f, 0.0f, 1.0f, 0.0f );
-    const LandscapeWeightBlendResult r = Blend( vec4( 1.0f, 0.0f, 0.0f, 0.0f ), vec4( 0.0f, 0.0f, 0.5f, 0.0f ),
-                                                kColors, kWeightBlendAll, alpha1, kRule );
+    const vec3 r = Blend( vec4( 1.0f, 0.0f, 0.0f, 0.0f ), vec4( 0.0f, 0.0f, 0.5f, 0.0f ), kColors, kWeightBlendAll,
+                          alpha1, kGround );
     const vec3                       expected = mix( vec3( kColors[0] ), vec3( kColors[6] ), 0.5f );
     for ( int c = 0; c < 3; ++c )
-        EXPECT_NEAR( r.Albedo[c], expected[c], 1e-6f ) << "channel " << c;
-    EXPECT_EQ( r.RuleShare, 0.0f );
+        EXPECT_NEAR( r[c], expected[c], 1e-6f ) << "channel " << c;
 }
 
 TEST( LandscapePaint, PageUVStaysInsideItsPageRows )

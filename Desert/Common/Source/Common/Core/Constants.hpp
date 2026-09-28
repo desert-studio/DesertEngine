@@ -70,7 +70,6 @@ namespace Common::Constants
             Retarget,
             FoliageType,
             LandscapeLayerInfo,
-            LandscapeGrassType,
             Cooked,
             MeshCooked,
             COUNT
@@ -152,8 +151,6 @@ namespace Common::Constants
              // Landscape layer infos (`.delayerinfo`) get their own folder because UE keeps them beside the
              // landscape, and the panel's layer slot offers only what is scanned from here.
              /* LandscapeLayerInfo */ { "Landscape/Layers/", DirRoot::Assets },
-             // Grass types (`.degrasstype`) sit beside the layer infos that name them, as UE keeps them.
-             /* LandscapeGrassType */ { "Landscape/Grass/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
         } };
@@ -375,7 +372,6 @@ namespace Common::Constants
         inline const std::filesystem::path& RETARGET_PATH       = Dir( ContentDir::Retarget );
         inline const std::filesystem::path& FOLIAGE_TYPE_PATH         = Dir( ContentDir::FoliageType );
         inline const std::filesystem::path& LANDSCAPE_LAYER_INFO_PATH = Dir( ContentDir::LandscapeLayerInfo );
-        inline const std::filesystem::path& LANDSCAPE_GRASS_TYPE_PATH = Dir( ContentDir::LandscapeGrassType );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
     } // namespace Path

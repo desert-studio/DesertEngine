@@ -49,13 +49,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
     inline constexpr uint32_t kFoliageTypeSchemaVersion = 6;
     // A .delayerinfo: the landscape layer info file layout, stated in the header from its first version (LS-12b).
-    // v2 (GR-1): the layer names the `.degrasstype` grown on it by {Guid, Path}, the header's one Dependency.
+    // v2 (GR-1): the layer named a grass type by {Guid, Path}, the header's one Dependency.
+    // v3 (LS-16): that field left with the landscape grass generator; the header states no Dependencies.
     inline constexpr uint32_t kLandscapeLayerInfoSchemaTag     = Common::Content::FourCC( "LLYI" );
-    inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 2;
-    // A .degrasstype: the landscape grass type file layout, stated in the header from its first version (GR-1).
-    inline constexpr uint32_t kLandscapeGrassTypeSchemaTag     = Common::Content::FourCC( "LGRT" );
-    // v2 (GR-2): each variety names its Material and its Wind; the materials join the Dependencies.
-    inline constexpr uint32_t kLandscapeGrassTypeSchemaVersion = 2;
+    inline constexpr uint32_t kLandscapeLayerInfoSchemaVersion = 3;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

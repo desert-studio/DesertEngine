@@ -140,9 +140,6 @@ namespace
               "the tile's Jolt heightfield (LS-7). Same argument as PhysicsECSSystem: ground you can "
               "hide in the outliner and still stand on is a different feature from ground that is not "
               "there, and one outliner tick must not drop every body resting on a tile through it." },
-         Row{ "LandscapeGrassECSSystem.hpp", Verdict::Honours,
-              "it grows the grass a landscape's layers ask for (GR-1); grass is drawn geometry OF the "
-              "landscape, so hiding the landscape root must take its grass with it." },
          Row{ "LandscapeECSSystem.hpp", Verdict::Honours,
               "it draws the tiles: a hidden tile is not drawn (IsHidden) but its GPU copy is still "
               "refreshed, so showing it again shows the current heights." },
@@ -199,7 +196,6 @@ namespace
 
     constexpr std::array kHonourSites = {
          Site{ "LandscapeECSSystem.hpp", "landscape tiles", "gpu.NeighbourMask = mask;" },
-         Site{ "LandscapeGrassECSSystem.hpp", "landscape grass", "view<LandscapeComponent, UUIDComponent>" },
          Site{ "MeshECSSystem.hpp", "static meshes", "StaticMeshComponent& mesh," },
          Site{ "MeshECSSystem.hpp", "instanced static meshes (ISM)", "InstancedStaticMeshComponent& ism" },
          Site{ "MeshECSSystem.hpp", "skinned meshes", "SkinnedMeshComponent& mesh," },

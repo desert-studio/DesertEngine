@@ -1,14 +1,14 @@
 {
     "Header": {
         "Kind": "LandscapeLayerInfo",
-        "Guid": "183bb65c84cd4755808cd9060f7b16e4",
+        "Guid": "80a31d6cbbb94e2680f8d4fa2d3cc8a9",
         "Versions": {
             "LLYI": 3
         },
         "Dependencies": []
     },
-    "LayerName": "Grass",
+    "LayerName": "Ground",
     "Hardness": 0.5,
     "NoWeightBlend": false,
-    "LayerUsageDebugColor": [0.20000000298023224, 0.699999988079071, 0.10000000149011612]
+    "LayerUsageDebugColor": [0.4000000059604645, 0.3700000047683716, 0.33000001311302185]
 }
