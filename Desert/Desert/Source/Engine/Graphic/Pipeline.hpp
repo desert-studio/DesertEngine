@@ -137,10 +137,21 @@ namespace Desert::Graphic
         BufferUsage                         Usage = BufferUsage::Dynamic;
     };
 
+    // The attachment formats of a pipeline drawn inside a render-graph pass (vkCmdBeginRendering), where
+    // there is no Framebuffer and no render pass to build against. Transitional: it sits next to
+    // Framebuffer while both kinds of pass exist and is removed with Framebuffer in RDG-Z.
+    struct RenderTargetLayout
+    {
+        std::vector<Core::Formats::ImageFormat>   ColorFormats; // by colour slot
+        std::optional<Core::Formats::ImageFormat> DepthFormat;
+        uint32_t                                  Samples = 1;
+    };
+
     struct GraphicsPipelineSpecification
     {
         std::shared_ptr<Shader>            Shader;
         std::shared_ptr<Framebuffer>       Framebuffer;
+        std::optional<RenderTargetLayout>  TargetLayout; // exactly one of Framebuffer / TargetLayout
         std::shared_ptr<RenderPass>        Renderpass;
         std::optional<VertexBufferLayout>  Layout;
         std::optional<VertexPullingConfig> PullingConfig;
@@ -218,11 +229,19 @@ namespace Desert::Graphic
                  "error above). The draws using it are skipped.",
                  name, spec.Shader->GetName() );
         }
-        if ( !spec.Framebuffer )
+        if ( !spec.Framebuffer && !spec.TargetLayout )
         {
             return Common::MakeFormattedError(
-                 "GraphicsPipeline '{}': no target framebuffer was given; a graphics pipeline is built "
-                 "against its target's render pass and cannot exist without one.",
+                 "GraphicsPipeline '{}': no target was given; a graphics pipeline is built against its "
+                 "target's render pass (Framebuffer) or attachment formats (TargetLayout) and cannot exist "
+                 "without one.",
+                 name );
+        }
+        if ( spec.Framebuffer && spec.TargetLayout )
+        {
+            return Common::MakeFormattedError(
+                 "GraphicsPipeline '{}': both a Framebuffer and a TargetLayout were given; a pipeline is "
+                 "built for a render pass or for dynamic rendering, not both.",
                  name );
         }
         return BOOLSUCCESS;

@@ -10,8 +10,12 @@ namespace Desert::Graphic::PipelineCacheFile
     namespace
     {
         constexpr std::array<char, 4> kMagic{ 'D', 'P', 'S', 'C' };
-        // Bump when the header layout changes; an old file is then refused with a reason and rebuilt.
-        constexpr uint32_t kFormatVersion = 1;
+        // Bump when the header layout changes, or when what the blob holds stops being useful; an old file
+        // is then refused with a reason (one log line) and rebuilt.
+        // 2 (RDG2): render-graph pipelines are built against canonical compatible render passes (formats
+        // and samples only), so every entry of a version-1 blob is dead weight. Number assigned by the lead
+        // (format registry).
+        constexpr uint32_t kFormatVersion = 2;
 
         struct Header
         {

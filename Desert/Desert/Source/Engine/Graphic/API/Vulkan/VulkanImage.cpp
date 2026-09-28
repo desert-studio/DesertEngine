@@ -166,20 +166,6 @@ namespace Desert::Graphic::API::Vulkan
         return Utils::GetVulkanFormat( format, deviceDepthFormat );
     }
 
-    VkImageAspectFlags GetImageVulkanAspect( Core::Formats::ImageFormat format )
-    {
-        const Core::Formats::ImageAspect aspect = Core::Formats::GetImageAspect( format );
-
-        VkImageAspectFlags flags = 0;
-        if ( aspect & Core::Formats::ImageAspect_Colour )
-            flags |= VK_IMAGE_ASPECT_COLOR_BIT;
-        if ( aspect & Core::Formats::ImageAspect_Depth )
-            flags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-        if ( aspect & Core::Formats::ImageAspect_Stencil )
-            flags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        return flags;
-    }
-
     // --- VulkanImage2D ---
 
     VulkanImage2D::VulkanImage2D( const Core::Formats::Image2DSpecification& spec ) : m_Specification( spec ) {}

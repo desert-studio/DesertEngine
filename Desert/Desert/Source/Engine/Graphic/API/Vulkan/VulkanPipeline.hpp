@@ -108,6 +108,9 @@ namespace Desert::Graphic::API::Vulkan
 
         VkPipelineTessellationStateCreateInfo m_Tessellation{};
         VkGraphicsPipelineCreateInfo          m_PipelineInfo{};
+        // TargetLayout: the canonical render pass (formats and samples, load/store DONT_CARE) the pipeline
+        // is built against; compatible with every render pass the graph builds for those formats.
+        VkRenderPass                          m_CompatibleRenderPass = VK_NULL_HANDLE;
         std::atomic<BuildState>               m_State{ BuildState::Unbuilt };
         std::future<void>                     m_Compile;
     };

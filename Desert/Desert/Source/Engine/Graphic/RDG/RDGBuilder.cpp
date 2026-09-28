@@ -27,6 +27,8 @@ namespace Desert::Graphic::RDG
                 return "raster";
             if ( HasFlag( flags, PassFlags::Compute ) )
                 return "compute";
+            if ( HasFlag( flags, PassFlags::Legacy ) )
+                return "legacy";
             return "copy";
         }
 
@@ -34,6 +36,11 @@ namespace Desert::Graphic::RDG
         // could only honour by synchronising stages the pass never runs.
         bool RdgPassKindAllows( PassFlags flags, Access access )
         {
+            const bool legacyAccess = access == Access::LegacyRead || access == Access::LegacyWrite;
+            if ( HasFlag( flags, PassFlags::Legacy ) )
+                return legacyAccess;
+            if ( legacyAccess )
+                return false;
             if ( HasFlag( flags, PassFlags::Copy ) )
                 return access == Access::CopySrc || access == Access::CopyDst;
             if ( HasFlag( flags, PassFlags::Compute ) )
@@ -165,13 +172,13 @@ namespace Desert::Graphic::RDG
 
     PassBuilder Builder::BeginPass( std::string_view name, PassFlags flags )
     {
-        const int kinds = ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) +
-                          ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
-                          ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );
+        const int kinds =
+             ( HasFlag( flags, PassFlags::Raster ) ? 1 : 0 ) + ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
+             ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 ) + ( HasFlag( flags, PassFlags::Legacy ) ? 1 : 0 );
         if ( kinds != 1 )
-            RecordError(
-                 fmt::format( "graph '{}': pass '{}' names {} of Raster/Compute/Copy; exactly one is required",
-                              m_Name, name, kinds ) );
+            RecordError( fmt::format(
+                 "graph '{}': pass '{}' names {} of Raster/Compute/Copy/Legacy; exactly one is required", m_Name,
+                 name, kinds ) );
 
         PassRecord record;
         record.Name  = std::string( name );
@@ -409,6 +416,7 @@ namespace Desert::Graphic::RDG
         binding.Desc     = &resource->Texture;
         binding.External = resource->ExternalTex ? resource->ExternalTex : resource->ExtractTex;
         binding.Memory   = m_Result.FindAllocation( texture.Index );
+        binding.Physical = m_Backend.GetPhysicalTexture( texture.Index ).get();
         return Common::MakeSuccess( binding );
     }
 
@@ -435,31 +443,98 @@ namespace Desert::Graphic::RDG
         binding.Desc     = &resource->Buffer;
         binding.External = resource->ExternalBuf ? resource->ExternalBuf : resource->ExtractBuf;
         binding.Memory   = m_Result.FindAllocation( buffer.Index );
+        binding.Physical = m_Backend.GetPhysicalBuffer( buffer.Index ).get();
         return Common::MakeSuccess( binding );
     }
 
     // ── Execute ────────────────────────────────────────────────────────────────────────────────────────
 
-    Common::BoolResultStr Builder::Execute()
+    Common::BoolResultStr Builder::Execute( IBackend& backend )
     {
         if ( m_Executed )
             return Common::MakeFormattedError( "graph '{}' was already executed; a graph is built per frame",
                                                m_Name );
         m_Executed = true;
 
-        Common::ResultStr<CompileResult> compiled = Compile();
+        Common::ResultStr<CompileResult> compiled = Compile( backend.GetMemoryRequirements() );
         if ( !compiled )
             return Common::MakeError( compiled.GetError() );
         const CompileResult& result = compiled.GetValue();
 
+        std::vector<ResourceView> views( m_Resources.size() );
+        for ( uint32_t r = 0; r < m_Resources.size(); ++r )
+        {
+            const ResourceRecord& record = m_Resources[r];
+            ResourceView&         view   = views[r];
+            view.Resource                = r;
+            view.Name                    = record.Name;
+            view.Kind                    = record.Kind;
+            view.Texture                 = record.Kind == ResourceKind::Texture ? &record.Texture : nullptr;
+            view.Buffer                  = record.Kind == ResourceKind::Buffer ? &record.Buffer : nullptr;
+            view.ExternalTex             = record.ExternalTex;
+            view.ExternalBuf             = record.ExternalBuf;
+            view.Extracted               = record.IsExtracted() && !record.IsExternal();
+        }
+        for ( const DerivedUsage& usage : result.Usages )
+            views[usage.Resource].AccessMask = usage.AccessMask;
         for ( const CompiledPass& compiledPass : result.Passes )
         {
-            PassContext           context( *this, result, compiledPass.Pass );
+            for ( const ResourceUse& use : m_Passes[compiledPass.Pass].Uses )
+                views[use.Resource].Used = true;
+        }
+
+        const GraphView       graph{ m_Name, views, &result };
+        Common::BoolResultStr begun = backend.BeginGraph( graph );
+        if ( !begun )
+            return Common::MakeFormattedError( "graph '{}': {}", m_Name, begun.GetError() );
+
+        for ( const CompiledPass& compiledPass : result.Passes )
+        {
+            backend.BeginPass( compiledPass );
+            if ( !compiledPass.Barriers.empty() )
+                backend.RecordBarriers( compiledPass.Barriers );
+            const bool rendering =
+                 HasFlag( compiledPass.Flags, PassFlags::Raster ) && !compiledPass.Attachments.empty();
+            if ( rendering )
+            {
+                Common::BoolResultStr started = backend.BeginRenderPass( compiledPass );
+                if ( !started )
+                {
+                    backend.AbandonGraph();
+                    return Common::MakeFormattedError( "graph '{}' pass '{}': {}", m_Name, compiledPass.Name,
+                                                       started.GetError() );
+                }
+            }
+            PassContext           context( *this, result, backend, compiledPass.Pass );
             Common::BoolResultStr outcome = m_Passes[compiledPass.Pass].Exec( context );
             if ( !outcome )
+            {
+                backend.AbandonGraph();
                 return Common::MakeFormattedError( "graph '{}' pass '{}' failed: {}", m_Name, compiledPass.Name,
                                                    outcome.GetError() );
+            }
+            if ( rendering )
+                backend.EndRenderPass();
+            backend.EndPass( compiledPass );
         }
+
+        // An extracted transient's image is taken before EndGraph releases the graph's hold on it.
+        std::vector<std::shared_ptr<IPhysicalTexture>> extractedTextures( m_Resources.size() );
+        std::vector<std::shared_ptr<IPhysicalBuffer>>  extractedBuffers( m_Resources.size() );
+        for ( const ExternalFinalState& final : result.ExternalFinalStates )
+        {
+            const ResourceRecord& record = m_Resources[final.Resource];
+            if ( record.IsExternal() )
+                continue;
+            if ( record.Kind == ResourceKind::Texture )
+                extractedTextures[final.Resource] = backend.GetPhysicalTexture( final.Resource );
+            else
+                extractedBuffers[final.Resource] = backend.GetPhysicalBuffer( final.Resource );
+        }
+
+        Common::BoolResultStr ended = backend.EndGraph( result.FinalBarriers );
+        if ( !ended )
+            return Common::MakeFormattedError( "graph '{}': {}", m_Name, ended.GetError() );
 
         for ( const ExternalFinalState& final : result.ExternalFinalStates )
         {
@@ -469,12 +544,16 @@ namespace Desert::Graphic::RDG
                 ExternalTexture* target   = record.ExternalTex ? record.ExternalTex : record.ExtractTex;
                 target->Desc              = record.Texture;
                 target->SubresourceStates = final.SubresourceStates;
+                if ( !record.IsExternal() )
+                    target->Physical = std::move( extractedTextures[final.Resource] );
             }
             else
             {
                 ExternalBuffer* target = record.ExternalBuf ? record.ExternalBuf : record.ExtractBuf;
                 target->Desc           = record.Buffer;
                 target->State          = final.SubresourceStates.front();
+                if ( !record.IsExternal() )
+                    target->Physical = std::move( extractedBuffers[final.Resource] );
             }
         }
         return Common::MakeSuccess( true );

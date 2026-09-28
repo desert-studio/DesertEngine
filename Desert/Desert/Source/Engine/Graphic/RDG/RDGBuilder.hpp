@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGBackend.hpp>
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
@@ -18,7 +19,7 @@
 // added in the order they must run, each declares its resources in a setup lambda, and Compile turns the
 // declarations into data - what runs, what is culled, the barrier batch before every pass, load/store
 // decisions, transient lifetimes and an aliasing plan with the memory peak. Nothing here touches a
-// device; the Vulkan executor that records the result is RDG2.
+// device: memory requirements and every recorded command go through the interfaces in RDGBackend.hpp.
 namespace Desert::Graphic::RDG
 {
     class Builder;
@@ -30,6 +31,7 @@ namespace Desert::Graphic::RDG
         const TextureDesc* Desc     = nullptr;
         ExternalTexture*   External = nullptr; // null for a transient
         const Allocation*  Memory   = nullptr; // null for an external or extracted texture
+        IPhysicalTexture*  Physical = nullptr; // the backend's image
     };
 
     struct BufferBinding
@@ -39,6 +41,7 @@ namespace Desert::Graphic::RDG
         const BufferDesc* Desc     = nullptr;
         ExternalBuffer*   External = nullptr;
         const Allocation* Memory   = nullptr;
+        IPhysicalBuffer*  Physical = nullptr;
     };
 
     // What an exec lambda sees. Get* is the ONLY way from a handle to a resource inside a pass, which is
@@ -54,16 +57,22 @@ namespace Desert::Graphic::RDG
         Common::ResultStr<BufferBinding>  GetBuffer( BufferRef buffer, Access access ) const;
 
         std::string_view GetPassName() const;
+        // The backend recording this graph; a backend-specific helper turns it into its command buffer.
+        IBackend& GetBackend() const
+        {
+            return m_Backend;
+        }
 
     private:
         friend class Builder;
-        PassContext( const Builder& builder, const CompileResult& result, uint32_t pass )
-             : m_Builder( builder ), m_Result( result ), m_Pass( pass )
+        PassContext( const Builder& builder, const CompileResult& result, IBackend& backend, uint32_t pass )
+             : m_Builder( builder ), m_Result( result ), m_Backend( backend ), m_Pass( pass )
         {
         }
 
         const Builder&       m_Builder;
         const CompileResult& m_Result;
+        IBackend&            m_Backend;
         uint32_t             m_Pass;
     };
 
@@ -138,12 +147,35 @@ namespace Desert::Graphic::RDG
             m_Passes.back().Exec = ExecFunction( std::forward<Exec>( exec ) );
         }
 
-        // Pure: reads the declarations, touches nothing, may be called any number of times.
-        Common::ResultStr<CompileResult> Compile() const;
+        // Adapter for code not yet written as graph passes (removed in RDG-Z): the graph brings every
+        // texture in @p reads and @p writes to SHADER_READ_ONLY before @p exec, and considers them left
+        // there afterwards - what old code with its own render passes expects and does.
+        template <class Exec>
+        void AddLegacyPass( std::string_view name, const std::vector<TextureRef>& reads,
+                            const std::vector<TextureRef>& writes, Exec&& exec )
+        {
+            AddPass(
+                 name, PassFlags::Legacy,
+                 [&]( PassBuilder& pass )
+                 {
+                     for ( const TextureRef read : reads )
+                         pass.Read( read, Access::LegacyRead );
+                     for ( const TextureRef write : writes )
+                         pass.Write( write, Access::LegacyWrite );
+                 },
+                 std::forward<Exec>( exec ) );
+        }
 
-        // Compiles, runs the exec lambda of every executed pass in order, then writes the final states
-        // back into every external and extraction target. Runs once per builder.
-        Common::BoolResultStr Execute();
+        // Pure: reads the declarations, touches nothing, may be called any number of times. @p memory
+        // answers the size / alignment / memory types of each transient for the aliasing plan.
+        Common::ResultStr<CompileResult> Compile( const IMemoryRequirementsProvider& memory ) const;
+
+        // Compiles against the backend's memory requirements, has the backend acquire physical resources,
+        // then for every executed pass in order: label/timestamp, its one barrier batch, begin render pass
+        // (raster with attachments), the exec lambda, end rendering. Finishes with the final barriers and
+        // writes the final states (and an extracted transient's image) back into every external and
+        // extraction target. Runs once per builder.
+        Common::BoolResultStr Execute( IBackend& backend );
 
         const std::string& GetName() const
         {

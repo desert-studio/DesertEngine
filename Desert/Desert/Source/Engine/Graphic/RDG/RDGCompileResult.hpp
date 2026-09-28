@@ -38,6 +38,7 @@ namespace Desert::Graphic::RDG
     {
         uint32_t    Slot       = 0; // colour slot; unused for depth
         bool        IsDepth    = false;
+        Access      Usage = Access::ColorTarget; // ColorTarget, DepthWrite or DepthRead: the attachment layout
         uint32_t    Resource   = kInvalidResource;
         uint32_t    Mip        = 0;
         uint32_t    BaseLayer  = 0;
@@ -52,7 +53,7 @@ namespace Desert::Graphic::RDG
         uint32_t    Pass = 0;
         std::string Name;
         PassFlags   Flags = PassFlags::None;
-        // ALL transitions this pass needs, recorded as one batch (one vkCmdPipelineBarrier2 in RDG2).
+        // ALL transitions this pass needs, recorded as one batch (one vkCmdPipelineBarrier in the Vulkan backend).
         std::vector<Barrier>            Barriers;
         std::vector<AttachmentDecision> Attachments;
     };
@@ -88,6 +89,7 @@ namespace Desert::Graphic::RDG
         uint64_t    Offset    = 0;
         uint64_t    Size      = 0;
         uint64_t    Alignment = 1;
+        uint32_t    MemoryTypeBits = ~0u; // from the IMemoryRequirementsProvider
         // Earlier transients whose bytes this one reuses (their lifetimes ended before it starts).
         std::vector<uint32_t> AliasPredecessors;
     };

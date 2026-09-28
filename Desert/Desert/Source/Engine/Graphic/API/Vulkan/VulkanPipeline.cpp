@@ -4,6 +4,8 @@
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -137,7 +139,8 @@ namespace Desert::Graphic::API::Vulkan
         m_Compile = {};
         m_State.store( BuildState::Unbuilt, std::memory_order_release );
 
-        if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE )
+        if ( m_Pipeline == VK_NULL_HANDLE && m_PipelineLayout == VK_NULL_HANDLE &&
+             m_CompatibleRenderPass == VK_NULL_HANDLE )
             return;
 
         VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
@@ -151,6 +154,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             vkDestroyPipelineLayout( device, m_PipelineLayout, nullptr );
             m_PipelineLayout = VK_NULL_HANDLE;
+        }
+        if ( m_CompatibleRenderPass != VK_NULL_HANDLE )
+        {
+            vkDestroyRenderPass( device, m_CompatibleRenderPass, nullptr );
+            m_CompatibleRenderPass = VK_NULL_HANDLE;
         }
 
         // After the pipeline layout, never before: it was built from these.
@@ -195,11 +203,11 @@ namespace Desert::Graphic::API::Vulkan
         // further down and after a pipeline layout had already been created and leaked; nothing in the
         // engine catches it, so the refusal was std::terminate. Refusing here leaves the handle null,
         // which is the one signal every caller of this class already reads.
-        if ( !m_Specification.Framebuffer )
+        if ( !m_Specification.Framebuffer == !m_Specification.TargetLayout )
         {
-            LOG_ERROR( "[Pipeline] '{}' not created: no target framebuffer. The draws using it are "
-                       "skipped.",
-                       m_Specification.DebugName );
+            LOG_ERROR( "[Pipeline] '{}' not created: it needs exactly one target, a Framebuffer or a "
+                       "TargetLayout (has {}). The draws using it are skipped.",
+                       m_Specification.DebugName, m_Specification.Framebuffer ? "both" : "neither" );
             return;
         }
 
@@ -364,8 +372,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         // The pipeline must rasterize at its target framebuffer's sample count (MSAA) — a
         // mismatch is a validation error and a black frame.
-        const uint32_t samples =
-             m_Specification.Framebuffer ? m_Specification.Framebuffer->GetSpecification().Samples : 1;
+        const uint32_t samples = m_Specification.Framebuffer
+                                      ? m_Specification.Framebuffer->GetSpecification().Samples
+                                 : m_Specification.TargetLayout ? m_Specification.TargetLayout->Samples
+                                                                : 1;
         m_Multisampling = VkPipelineMultisampleStateCreateInfo{
              .sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
              .rasterizationSamples = static_cast<VkSampleCountFlagBits>( samples > 1 ? samples : 1 ),
@@ -394,7 +404,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         m_ColorBlendAttachments.clear();
         uint32_t colorAttachmentCount =
-             m_Specification.Framebuffer ? m_Specification.Framebuffer->GetColorAttachmentCount() : 1;
+             m_Specification.Framebuffer ? m_Specification.Framebuffer->GetColorAttachmentCount()
+             : m_Specification.TargetLayout
+                  ? static_cast<uint32_t>( m_Specification.TargetLayout->ColorFormats.size() )
+                  : 1;
 
         const VkBool32       blend  = m_Specification.BlendEnable ? VK_TRUE : VK_FALSE;
         const VkBlendFactor  srcCol = ConvertBlendFactor( m_Specification.SrcColorBlendFactor );
@@ -430,9 +443,40 @@ namespace Desert::Graphic::API::Vulkan
         // here is now a REFUSAL at the top of Invalidate, before a pipeline layout is created and
         // leaked. It was never catchable: nothing in the engine catches, so it was std::terminate
         // wearing an error message.
-        const auto vkFb = std::static_pointer_cast<API::Vulkan::VulkanFramebuffer>( m_Specification.Framebuffer );
-        VkRenderPass renderPass =
-             m_Specification.UseLoadRenderPass ? vkFb->GetVKRenderPassLoad() : vkFb->GetVKRenderPass();
+        VkRenderPass renderPass = VK_NULL_HANDLE;
+        if ( m_Specification.Framebuffer )
+        {
+            const auto vkFb =
+                 std::static_pointer_cast<API::Vulkan::VulkanFramebuffer>( m_Specification.Framebuffer );
+            renderPass = m_Specification.UseLoadRenderPass ? vkFb->GetVKRenderPassLoad() : vkFb->GetVKRenderPass();
+        }
+        else
+        {
+            // A render-graph pass: built against the canonical render pass of the TargetLayout.
+            const RenderTargetLayout& layout = *m_Specification.TargetLayout;
+            std::vector<VkFormat>     colourFormats;
+            for ( const Core::Formats::ImageFormat format : layout.ColorFormats )
+                colourFormats.push_back( API::Vulkan::GetImageVulkanFormat( format ) );
+            const VkFormat depthFormat = layout.DepthFormat
+                                              ? API::Vulkan::GetImageVulkanFormat( *layout.DepthFormat )
+                                              : VK_FORMAT_UNDEFINED;
+            const bool     hasStencil =
+                 layout.DepthFormat &&
+                 ( API::Vulkan::GetImageVulkanAspect( *layout.DepthFormat ) & VK_IMAGE_ASPECT_STENCIL_BIT ) != 0;
+            if ( m_CompatibleRenderPass != VK_NULL_HANDLE )
+                vkDestroyRenderPass( device, m_CompatibleRenderPass, nullptr );
+            m_CompatibleRenderPass                        = VK_NULL_HANDLE;
+            const Common::ResultStr<VkRenderPass> created = API::Vulkan::CreateRdgRenderPass(
+                 device, API::Vulkan::RdgCompatibleRenderPassKey( colourFormats, depthFormat, hasStencil,
+                                                                  layout.Samples ) );
+            if ( !created )
+            {
+                LOG_ERROR( "[Pipeline] '{}' not created: {}", m_Specification.DebugName, created.GetError() );
+                return;
+            }
+            m_CompatibleRenderPass = created.GetValue();
+            renderPass             = m_CompatibleRenderPass;
+        }
 
         // Tessellation: patch-list topology needs a tessellation state (control points per patch).
         m_Tessellation              = { .sType              = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
@@ -532,6 +576,8 @@ namespace Desert::Graphic::API::Vulkan
 
     bool VulkanPipeline::HasDepth()
     {
+        if ( !m_Specification.Framebuffer )
+            return m_Specification.TargetLayout && m_Specification.TargetLayout->DepthFormat.has_value();
         const auto& attachments = m_Specification.Framebuffer->GetSpecification().Attachments.Attachments;
         return std::any_of( attachments.begin(), attachments.end(),
                             []( const auto& att ) { return Graphic::Utils::IsDepthFormat( att.Format ); } );

@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <memory>
+#include <span>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -27,6 +29,123 @@ namespace
         return Common::MakeSuccess( true );
     }
 
+    constexpr uint64_t AlignUp( uint64_t value, uint64_t alignment )
+    {
+        return ( value + alignment - 1 ) / alignment * alignment;
+    }
+
+    // The suite's memory requirements (lead, 2026-09-27): textures placed on 64 KiB, the large-page size
+    // desktop drivers use for render targets; buffers on 256 B, the largest uniform/storage offset
+    // alignment in the field. The product answers from the device (RDG2 Vulkan backend).
+    class FixedEstimate final : public IMemoryRequirementsProvider
+    {
+    public:
+        Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc& desc,
+                                                                      uint32_t ) const override
+        {
+            uint64_t bytes = 0;
+            for ( uint32_t mip = 0; mip < desc.Mips; ++mip )
+            {
+                const uint32_t width  = std::max( 1u, desc.Size.Width >> mip );
+                const uint32_t height = std::max( 1u, desc.Size.Height >> mip );
+                const uint32_t depth = desc.Dim == TextureDim::Tex3D ? std::max( 1u, desc.Size.Depth >> mip ) : 1u;
+                bytes += Desert::Core::Formats::CalculateImageSize( width, height, depth, desc.Format );
+            }
+            bytes *= desc.Layers;
+            return Common::MakeSuccess(
+                 MemoryRequirements{ AlignUp( bytes, kTextureAlignment ), kTextureAlignment, ~0u } );
+        }
+        Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc,
+                                                                     uint32_t ) const override
+        {
+            return Common::MakeSuccess(
+                 MemoryRequirements{ AlignUp( desc.Bytes, kBufferAlignment ), kBufferAlignment, ~0u } );
+        }
+
+        static constexpr uint64_t kTextureAlignment = 64ull * 1024ull;
+        static constexpr uint64_t kBufferAlignment  = 256ull;
+    };
+
+    const FixedEstimate kEstimate;
+
+    // Records the call sequence Execute drives, one line per call; touches no device.
+    class RecordingBackend final : public IBackend
+    {
+    public:
+        explicit RecordingBackend( const IMemoryRequirementsProvider& memory = kEstimate ) : m_Memory( memory )
+        {
+        }
+
+        BackendKind GetKind() const override
+        {
+            return BackendKind::Recording;
+        }
+        const IMemoryRequirementsProvider& GetMemoryRequirements() const override
+        {
+            return m_Memory;
+        }
+        Common::BoolResultStr BeginGraph( const GraphView& graph ) override
+        {
+            std::string used;
+            for ( const ResourceView& view : graph.Resources )
+            {
+                if ( view.Used )
+                    used += ( used.empty() ? "" : "," ) + std::string( view.Name );
+            }
+            Calls.push_back( "BeginGraph " + std::string( graph.Name ) + " [" + used + "]" );
+            return Common::MakeSuccess( true );
+        }
+        void BeginPass( const CompiledPass& pass ) override
+        {
+            Calls.push_back( "BeginPass " + pass.Name );
+        }
+        void RecordBarriers( std::span<const Barrier> barriers ) override
+        {
+            Calls.push_back( "Barriers " + std::to_string( barriers.size() ) );
+        }
+        Common::BoolResultStr BeginRenderPass( const CompiledPass& pass ) override
+        {
+            Calls.push_back( "BeginRenderPass " + std::to_string( pass.Attachments.size() ) );
+            return Common::MakeSuccess( true );
+        }
+        void EndRenderPass() override
+        {
+            Calls.push_back( "EndRenderPass" );
+        }
+        void EndPass( const CompiledPass& pass ) override
+        {
+            Calls.push_back( "EndPass " + pass.Name );
+        }
+        Common::BoolResultStr EndGraph( std::span<const Barrier> finalBarriers ) override
+        {
+            Calls.push_back( "EndGraph " + std::to_string( finalBarriers.size() ) );
+            return Common::MakeSuccess( true );
+        }
+        void AbandonGraph() override
+        {
+            Calls.push_back( "AbandonGraph" );
+        }
+        std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
+        {
+            return nullptr;
+        }
+        std::shared_ptr<IPhysicalBuffer> GetPhysicalBuffer( uint32_t ) const override
+        {
+            return nullptr;
+        }
+
+        std::vector<std::string> Calls;
+
+    private:
+        const IMemoryRequirementsProvider& m_Memory;
+    };
+
+    Common::BoolResultStr ExecuteRecorded( Builder& graph )
+    {
+        RecordingBackend backend;
+        return graph.Execute( backend );
+    }
+
     TextureDesc Tex2D( uint32_t width, uint32_t height, ImageFormat format, uint32_t mips = 1,
                        uint32_t layers = 1 )
     {
@@ -40,7 +159,7 @@ namespace
 
     CompileResult CompileOrFail( const Builder& builder )
     {
-        Common::ResultStr<CompileResult> result = builder.Compile();
+        Common::ResultStr<CompileResult> result = builder.Compile( kEstimate );
         EXPECT_TRUE( result.IsSuccess() ) << result.GetError();
         return result ? result.GetValue() : CompileResult{};
     }
@@ -188,7 +307,7 @@ TEST( RenderGraphCompile, CullsPassesNobodyConsumesAndKeepsEveryRoot )
     EXPECT_TRUE( std::none_of( result.Lifetimes.begin(), result.Lifetimes.end(),
                                [&]( const ResourceLifetime& l ) { return l.Resource == orphan.Index; } ) );
 
-    ASSERT_TRUE( graph.Execute().IsSuccess() );
+    ASSERT_TRUE( ExecuteRecorded( graph ).IsSuccess() );
     EXPECT_EQ( ran, ( std::vector<std::string>{ "Lighting", "DebugCapture", "Velocity", "Tonemap" } ) );
     // The extraction target received the description and the final access.
     EXPECT_EQ( history.Desc.Format, ImageFormat::RGBA16F );
@@ -503,7 +622,7 @@ TEST( RenderGraphCompile, ExternalStatesAreReadInAndWrittenBack )
         // An external attachment is loaded and stored as asked: its contents live outside the graph.
         EXPECT_EQ( result.Passes[0].Attachments[0].Load, LoadAction::Load );
         EXPECT_EQ( result.Passes[0].Attachments[0].Store, StoreAction::Store );
-        ASSERT_TRUE( graph.Execute().IsSuccess() );
+        ASSERT_TRUE( ExecuteRecorded( graph ).IsSuccess() );
     }
     ASSERT_EQ( history.SubresourceStates.size(), 2u );
     EXPECT_EQ( history.SubresourceStates[0], GetAccessState( Access::SampledGraphics ) );
@@ -705,7 +824,7 @@ TEST( RenderGraphCompile, PassContextRefusesAnUndeclaredResourceNamingPassAndRes
              return Common::MakeSuccess( true );
          } );
 
-    const Common::BoolResultStr executed = graph.Execute();
+    const Common::BoolResultStr executed = ExecuteRecorded( graph );
     ASSERT_FALSE( executed.IsSuccess() );
     EXPECT_NE( executed.GetError().find( "Tonemap" ), std::string::npos ) << executed.GetError();
     EXPECT_NE( executed.GetError().find( "Sneaky" ), std::string::npos ) << executed.GetError();
@@ -730,7 +849,7 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
                  pass.ColorTarget( 0, back, LoadOp::DontCare() );
              },
              Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile();
+        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
         ASSERT_FALSE( result.IsSuccess() );
         EXPECT_NE( result.GetError().find( "Reader" ), std::string::npos ) << result.GetError();
         EXPECT_NE( result.GetError().find( "NeverWritten" ), std::string::npos ) << result.GetError();
@@ -746,7 +865,7 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
                  pass.Read( t, Access::SampledGraphics );
              },
              Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile();
+        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
         ASSERT_FALSE( result.IsSuccess() );
         EXPECT_NE( result.GetError().find( "Both" ), std::string::npos ) << result.GetError();
         EXPECT_NE( result.GetError().find( "Target" ), std::string::npos ) << result.GetError();
@@ -757,7 +876,7 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
         graph.AddPass(
              "ComputeWithAttachment", PassFlags::Compute,
              [&]( PassBuilder& pass ) { pass.ColorTarget( 0, t, LoadOp::DontCare() ); }, Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile();
+        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
         ASSERT_FALSE( result.IsSuccess() );
         EXPECT_NE( result.GetError().find( "ComputeWithAttachment" ), std::string::npos ) << result.GetError();
     }
@@ -767,7 +886,7 @@ TEST( RenderGraphCompile, MalformedDeclarationsAreRefusedWithNames )
         graph.AddPass(
              "OutOfRange", PassFlags::Compute,
              [&]( PassBuilder& pass ) { pass.Write( t, Access::StorageWrite, SubresourceRange::Mip( 3 ) ); }, Ok );
-        const Common::ResultStr<CompileResult> result = graph.Compile();
+        const Common::ResultStr<CompileResult> result = graph.Compile( kEstimate );
         ASSERT_FALSE( result.IsSuccess() );
         EXPECT_NE( result.GetError().find( "mip 3" ), std::string::npos ) << result.GetError();
     }
@@ -777,4 +896,259 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── Backend seam (RDG2) ─────────────────────────────────────────────────────────────────────────────────
+
+// Execute owns the order; the backend only records. The sequence is: acquire what executed passes use,
+// then per executed pass label -> its ONE barrier batch -> begin rendering (raster with attachments only)
+// -> exec -> end rendering -> label close, and the final barriers last. A culled pass leaves no trace.
+TEST( RenderGraphCompile, ExecuteDrivesTheBackendInPassOrder )
+{
+    ExternalTexture  out( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    RecordingBackend backend;
+    Builder          graph( "sequence" );
+    const TextureRef a    = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "A" );
+    const TextureRef dead = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "Dead" );
+    const TextureRef o    = graph.RegisterExternal( out, "Out" );
+    auto             exec = [&]( const char* name )
+    {
+        return [&backend, name]( PassContext& ) -> Common::BoolResultStr
+        {
+            backend.Calls.push_back( std::string( "Exec " ) + name );
+            return Common::MakeSuccess( true );
+        };
+    };
+    graph.AddPass(
+         "Clear", PassFlags::Raster, [&]( PassBuilder& pass )
+         { pass.ColorTarget( 0, a, LoadOp::ClearColor( 1, 0, 0, 1 ) ); }, exec( "Clear" ) );
+    graph.AddPass(
+         "Unused", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( dead, Access::StorageWrite ); },
+         exec( "Unused" ) );
+    graph.AddPass(
+         "Blur", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( a, Access::SampledCompute );
+             pass.Write( o, Access::StorageWrite );
+         },
+         exec( "Blur" ) );
+    graph.Extract( o, out, Access::SampledGraphics );
+
+    const CompileResult result = CompileOrFail( graph );
+    ASSERT_EQ( result.Passes.size(), 2u );
+    std::vector<std::string> expected = { "BeginGraph sequence [A,Out]" };
+    for ( const CompiledPass& pass : result.Passes )
+    {
+        expected.push_back( "BeginPass " + pass.Name );
+        if ( !pass.Barriers.empty() )
+            expected.push_back( "Barriers " + std::to_string( pass.Barriers.size() ) );
+        if ( pass.Name == "Clear" )
+            expected.push_back( "BeginRenderPass 1" );
+        expected.push_back( "Exec " + pass.Name );
+        if ( pass.Name == "Clear" )
+            expected.push_back( "EndRenderPass" );
+        expected.push_back( "EndPass " + pass.Name );
+    }
+    expected.push_back( "EndGraph " + std::to_string( result.FinalBarriers.size() ) );
+    // Both passes need transitions and the extraction needs one: the counts above are not all zero.
+    EXPECT_FALSE( result.Passes[0].Barriers.empty() );
+    EXPECT_FALSE( result.Passes[1].Barriers.empty() );
+    EXPECT_EQ( result.FinalBarriers.size(), 1u );
+
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    EXPECT_EQ( backend.Calls, expected );
+    EXPECT_EQ( out.SubresourceStates.front(), GetAccessState( Access::SampledGraphics ) );
+}
+
+// A failing pass stops the graph: the backend is told to abandon it, nothing after the pass is recorded
+// and the error names the graph and the pass.
+TEST( RenderGraphCompile, AFailingPassAbandonsTheGraph )
+{
+    ExternalTexture  out( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    RecordingBackend backend;
+    Builder          graph( "failing" );
+    const TextureRef o = graph.RegisterExternal( out, "Out" );
+    graph.AddPass(
+         "Broken", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.ColorTarget( 0, o, LoadOp::DontCare() ); },
+         []( PassContext& ) -> Common::BoolResultStr { return Common::MakeError( "pipeline missing" ); } );
+    const Common::BoolResultStr executed = graph.Execute( backend );
+    ASSERT_FALSE( executed.IsSuccess() );
+    EXPECT_NE( executed.GetError().find( "failing" ), std::string::npos ) << executed.GetError();
+    EXPECT_NE( executed.GetError().find( "Broken" ), std::string::npos ) << executed.GetError();
+    ASSERT_FALSE( backend.Calls.empty() );
+    EXPECT_EQ( backend.Calls.back(), "AbandonGraph" );
+    EXPECT_EQ( std::count( backend.Calls.begin(), backend.Calls.end(), "EndRenderPass" ), 0 );
+    // The external keeps the state it had: nothing was written back.
+    EXPECT_EQ( out.SubresourceStates.front(), GetAccessState( Access::None ) );
+}
+
+// The aliasing plan takes size, alignment and memory types from the provider, asked with the usage the
+// graph derived; bytes are shared only between resources whose memory type sets intersect.
+TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
+{
+    class TypedProvider final : public IMemoryRequirementsProvider
+    {
+    public:
+        Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc&,
+                                                                      uint32_t accessMask ) const override
+        {
+            Masks.push_back( accessMask );
+            const bool storage = ( accessMask & ( 1u << static_cast<uint32_t>( Access::StorageWrite ) ) ) != 0;
+            // 1000 bytes on a 4 KiB boundary: the plan must round the size up to the alignment.
+            return Common::MakeSuccess( MemoryRequirements{ 1000, 4096, storage ? 0x1u : 0x2u } );
+        }
+        Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc&, uint32_t ) const override
+        {
+            return Common::MakeError<MemoryRequirements>( "no buffers in this test" );
+        }
+        mutable std::vector<uint32_t> Masks;
+    };
+
+    ExternalTexture  out1( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture  out2( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    ExternalTexture  out3( Tex2D( 64, 64, ImageFormat::RGBA8F ), Access::None );
+    Builder          graph( "typed" );
+    const TextureRef a  = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "A" );
+    const TextureRef b  = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "B" );
+    const TextureRef c  = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA8F ), "C" );
+    const TextureRef o1 = graph.RegisterExternal( out1, "Out1" );
+    const TextureRef o2 = graph.RegisterExternal( out2, "Out2" );
+    const TextureRef o3 = graph.RegisterExternal( out3, "Out3" );
+    graph.AddPass(
+         "WriteA", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, a, LoadOp::ClearColor( 0, 0, 0, 0 ) ); }, Ok );
+    graph.AddPass(
+         "ReadA", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( a, Access::SampledGraphics );
+             pass.ColorTarget( 0, o1, LoadOp::DontCare() );
+         },
+         Ok );
+    graph.AddPass(
+         "WriteB", PassFlags::Compute, [&]( PassBuilder& pass ) { pass.Write( b, Access::StorageWrite ); }, Ok );
+    graph.AddPass(
+         "ReadB", PassFlags::Compute,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( b, Access::SampledCompute );
+             pass.Write( o2, Access::StorageWrite );
+         },
+         Ok );
+    graph.AddPass(
+         "WriteC", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, c, LoadOp::ClearColor( 0, 0, 0, 0 ) ); }, Ok );
+    graph.AddPass(
+         "ReadC", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( c, Access::SampledGraphics );
+             pass.ColorTarget( 0, o3, LoadOp::DontCare() );
+         },
+         Ok );
+
+    TypedProvider                    provider;
+    Common::ResultStr<CompileResult> compiled = graph.Compile( provider );
+    ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
+    const CompileResult& result = compiled.GetValue();
+    const Allocation*    allocA = result.FindAllocation( a.Index );
+    const Allocation*    allocB = result.FindAllocation( b.Index );
+    const Allocation*    allocC = result.FindAllocation( c.Index );
+    ASSERT_TRUE( allocA && allocB && allocC );
+    EXPECT_EQ( allocA->Size, 4096u );
+    EXPECT_EQ( allocA->Alignment, 4096u );
+    EXPECT_EQ( allocA->MemoryTypeBits, 0x2u );
+    EXPECT_EQ( allocB->MemoryTypeBits, 0x1u );
+    // B's lifetime is disjoint from A's, but no memory type holds both: it may not take A's bytes.
+    EXPECT_EQ( allocA->Offset, 0u );
+    EXPECT_EQ( allocB->Offset, 4096u );
+    // C shares a type with A and starts after A ended: it reuses A's bytes.
+    EXPECT_EQ( allocC->Offset, 0u );
+    EXPECT_EQ( allocC->AliasPredecessors, std::vector<uint32_t>{ a.Index } );
+    EXPECT_EQ( result.Aliasing.TotalPeakBytes, 2u * 4096u );
+
+    const uint32_t colourAndSampled = ( 1u << static_cast<uint32_t>( Access::ColorTarget ) ) |
+                                      ( 1u << static_cast<uint32_t>( Access::SampledGraphics ) );
+    ASSERT_EQ( provider.Masks.size(), 3u );
+    EXPECT_EQ( provider.Masks[0], colourAndSampled ) << "the provider is asked with the derived usage";
+
+    // A provider that cannot answer fails Compile, naming the transient.
+    Builder         buffers( "buffers" );
+    ExternalBuffer  sink( BufferDesc{ 256 }, Access::None );
+    const BufferRef scratch = buffers.CreateBuffer( BufferDesc{ 256 }, "Scratch" );
+    const BufferRef target  = buffers.RegisterExternal( sink, "Sink" );
+    buffers.AddPass(
+         "Fill", PassFlags::Copy, [&]( PassBuilder& pass ) { pass.Write( scratch, Access::CopyDst ); }, Ok );
+    buffers.AddPass(
+         "Move", PassFlags::Copy,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( scratch, Access::CopySrc );
+             pass.Write( target, Access::CopyDst );
+         },
+         Ok );
+    Common::ResultStr<CompileResult> refused = buffers.Compile( provider );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Scratch" ), std::string::npos ) << refused.GetError();
+}
+
+// AddLegacyPass: old code gets its images in SHADER_READ_ONLY and leaves them there; the graph neither
+// opens a rendering scope for it nor lets graph passes use the legacy accesses.
+TEST( RenderGraphCompile, LegacyPassSeesShaderReadOnlyAndLeavesItThere )
+{
+    ExternalTexture  history( Tex2D( 64, 64, ImageFormat::RGBA16F ), Access::None );
+    ExternalTexture  back( Tex2D( 64, 64, ImageFormat::BGRA8F ), Access::None );
+    RecordingBackend backend;
+    Builder          graph( "legacy" );
+    const TextureRef scene = graph.CreateTexture( Tex2D( 64, 64, ImageFormat::RGBA16F ), "Scene" );
+    const TextureRef hist  = graph.RegisterExternal( history, "History" );
+    const TextureRef bb    = graph.RegisterExternal( back, "Backbuffer" );
+    graph.AddPass(
+         "Scene", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, scene, LoadOp::ClearColor( 0, 0, 0, 1 ) ); }, Ok );
+    graph.AddLegacyPass( "OldBloom", { scene }, { hist }, Ok );
+    graph.AddPass(
+         "Tonemap", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( hist, Access::SampledGraphics );
+             pass.ColorTarget( 0, bb, LoadOp::DontCare() );
+         },
+         Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    const CompiledPass* legacy = result.FindPass( "OldBloom" );
+    ASSERT_NE( legacy, nullptr );
+    const std::vector<Barrier> onScene = BarriersOn( legacy, scene.Index );
+    const std::vector<Barrier> onHist  = BarriersOn( legacy, hist.Index );
+    ASSERT_EQ( onScene.size(), 1u );
+    ASSERT_EQ( onHist.size(), 1u );
+    EXPECT_EQ( onScene[0].Before.Layout, ImageLayout::ColorAttachment );
+    EXPECT_EQ( onScene[0].After.Layout, ImageLayout::ShaderReadOnly );
+    EXPECT_EQ( onHist[0].After.Layout, ImageLayout::ShaderReadOnly );
+    // After the legacy pass the texture is considered in SHADER_READ_ONLY: the reader's barrier waits on
+    // everything legacy code may have done but changes no layout.
+    const std::vector<Barrier> tonemap = BarriersOn( result.FindPass( "Tonemap" ), hist.Index );
+    ASSERT_EQ( tonemap.size(), 1u );
+    EXPECT_EQ( tonemap[0].Before, GetAccessState( Access::LegacyWrite ) );
+    EXPECT_EQ( tonemap[0].Before.Layout, ImageLayout::ShaderReadOnly );
+    EXPECT_EQ( tonemap[0].After.Layout, ImageLayout::ShaderReadOnly );
+
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    const auto legacyBegin = std::find( backend.Calls.begin(), backend.Calls.end(), "BeginPass OldBloom" );
+    ASSERT_NE( legacyBegin, backend.Calls.end() );
+    ASSERT_GE( backend.Calls.end() - legacyBegin, 3 );
+    EXPECT_EQ( *( legacyBegin + 1 ), "Barriers 2" );
+    EXPECT_EQ( *( legacyBegin + 2 ), "EndPass OldBloom" ) << "a legacy pass records its own render passes";
+
+    // The legacy accesses belong to legacy passes only, and legacy passes take nothing else.
+    Builder          misuse( "misuse" );
+    const TextureRef t = misuse.CreateTexture( Tex2D( 8, 8, ImageFormat::RGBA8F ), "T" );
+    misuse.AddPass(
+         "Sneaky", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.Read( t, Access::LegacyRead ); }, Ok );
+    Common::ResultStr<CompileResult> refused = misuse.Compile( kEstimate );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Sneaky" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "raster" ), std::string::npos ) << refused.GetError();
 }

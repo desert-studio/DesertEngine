@@ -35,12 +35,14 @@ namespace Desert::Graphic::RDG
         AccelStructBuildInput, // vertex/index/instance data consumed by an acceleration-structure build
         AccelStructBuildWrite, // the acceleration structure being built
         AccelStructRead,       // ray query from a fragment or compute shader
+        LegacyRead,            // sampled by a legacy pass (Builder::AddLegacyPass) in any shader stage
+        LegacyWrite,           // written by a legacy pass through its own render pass, left SHADER_READ_ONLY
         Count
     };
 
     inline constexpr uint32_t kAccessCount = static_cast<uint32_t>( Access::Count );
 
-    // Pipeline stages at synchronization2 granularity (the engine has no path without sync2).
+    // Pipeline stages, finer than Vulkan 1.0 in one place (Copy; the Vulkan backend maps it to TRANSFER).
     enum PipelineStage : uint32_t
     {
         PipelineStage_None                  = 0,
@@ -194,8 +196,9 @@ namespace Desert::Graphic::RDG
            "UniformRead",
            { kAllShaderStages, MemoryAccess_UniformRead, ImageLayout::Undefined },
            AccessTarget_Buffer },
-         // The presentation engine is outside every pipeline stage: sync2 expresses the hand-off as stage
-         // NONE with access NONE, the layout change being the only thing the barrier does.
+         // The presentation engine is outside every pipeline stage: the hand-off is stage
+         // NONE with access NONE (BOTTOM_OF_PIPE in a Vulkan 1.0 barrier), the layout change being the only thing
+         // the barrier does.
          { Access::Present,
            "Present",
            { PipelineStage_None, MemoryAccess_None, ImageLayout::Present },
@@ -218,6 +221,22 @@ namespace Desert::Graphic::RDG
            { PipelineStage_FragmentShader | PipelineStage_ComputeShader, MemoryAccess_AccelStructRead,
              ImageLayout::Undefined },
            AccessTarget_Buffer },
+         // Legacy code expects SHADER_READ_ONLY before it runs and leaves its images there; what it does in
+         // between is invisible to the graph, so a legacy write waits on and is waited on by every stage and
+         // access such code can use.
+         { Access::LegacyRead,
+           "LegacyRead",
+           { kAllShaderStages, MemoryAccess_ShaderSampledRead, ImageLayout::ShaderReadOnly },
+           AccessTarget_Texture },
+         { Access::LegacyWrite,
+           "LegacyWrite",
+           { kAllShaderStages | PipelineStage_ColorAttachmentOutput | kDepthTestStages | PipelineStage_Copy,
+             MemoryAccess_ShaderSampledRead | MemoryAccess_ShaderStorageRead | MemoryAccess_ShaderStorageWrite |
+                  MemoryAccess_ColorAttachmentRead | MemoryAccess_ColorAttachmentWrite |
+                  MemoryAccess_DepthStencilRead | MemoryAccess_DepthStencilWrite | MemoryAccess_TransferRead |
+                  MemoryAccess_TransferWrite,
+             ImageLayout::ShaderReadOnly },
+           AccessTarget_Texture },
     } };
 
     namespace AccessTableDetail
