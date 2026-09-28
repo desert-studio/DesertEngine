@@ -94,7 +94,8 @@ namespace Desert::Geometry
         void                         InitializeQueue();
         [[nodiscard]] QuadricErrord  AssembleEdgeQuadric( const DynamicMesh3::Edge& edge ) const;
         [[nodiscard]] glm::dvec3     OptimalPoint( int edge, const QuadricErrord& q, int a, int b ) const;
-        [[nodiscard]] CollapseResult CollapseEdge( int edge, glm::dvec3 newPosition, DynamicMeshInfo::EdgeCollapseInfo& info );
+        [[nodiscard]] CollapseResult CollapseEdge( int edge, glm::dvec3 newPosition,
+                                                   DynamicMeshInfo::EdgeCollapseInfo& info );
         [[nodiscard]] bool           CanCollapseVertex( int a, int b, int& collapseTo ) const;
         [[nodiscard]] bool CanCollapseEdge( int a, int b, int c, int d, int tc, int td, int& collapseTo ) const;
         [[nodiscard]] bool CreatesFlipOrInvalid( int vertex, int other, const glm::dvec3& newPosition, int tc,

@@ -406,18 +406,18 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Simplify: the target percentage {} is outside (0, 100]", settings.Percentage );
         if ( byVertices && settings.VertexCount < 3 )
-            return Common::MakeFormattedError<RegionOutcome>( "Mesh Simplify: the target vertex count {} is below 3",
-                                                              settings.VertexCount );
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Simplify: the target vertex count {} is below 3", settings.VertexCount );
         if ( settings.PreserveGroupBoundaries && !before.HasTriangleGroups() )
             return Common::MakeError<RegionOutcome>(
                  "Mesh Simplify: Preserve PolyGroups is on but the mesh has no polygroups" );
-        const int target =
-             byVertices ? settings.VertexCount
-                        : std::max( 4, static_cast<int>( settings.Percentage / 100.0 * static_cast<double>( triangles ) ) );
+        const int target = byVertices ? settings.VertexCount
+                                      : std::max( 4, static_cast<int>( settings.Percentage / 100.0 *
+                                                                       static_cast<double>( triangles ) ) );
         if ( ( byVertices ? vertices : triangles ) <= target )
-            return Common::MakeFormattedError<RegionOutcome>( "Mesh Simplify: the mesh already has {} {} (target {})",
-                                                              byVertices ? vertices : triangles,
-                                                              byVertices ? "vertices" : "triangles", target );
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Simplify: the mesh already has {} {} (target {})", byVertices ? vertices : triangles,
+                 byVertices ? "vertices" : "triangles", target );
 
         auto                    mesh = std::make_shared<DynamicMesh3>( before );
         BoundaryConstraintFlags flags;

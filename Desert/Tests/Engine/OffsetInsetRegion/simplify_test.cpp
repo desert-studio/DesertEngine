@@ -90,8 +90,7 @@ namespace
 
     bool Valid( const DynamicMesh3& mesh )
     {
-        return mesh.CheckValidity( DynamicMesh3::ValidityOptions{},
-                                   ValidityCheckFailMode::ReturnOnly );
+        return mesh.CheckValidity( DynamicMesh3::ValidityOptions{}, ValidityCheckFailMode::ReturnOnly );
     }
 } // namespace
 
