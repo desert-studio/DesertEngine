@@ -817,6 +817,25 @@ namespace Desert::Migration
                 continue;
             }
 
+            // THE CANONICAL PASS, after the steps: every reflected block (Settings and the rows of
+            // ReflectedComponentBlocks.hpp) restated in the saver's own text, so a scene opened and saved with
+            // no edit is byte-identical to its file. No version moves - see SettingsCanonical.hpp.
+            const Desert::Migration::SceneCanonicalisationReport canonical =
+                 Desert::Migration::CanonicaliseScene( parsed.value() );
+            if ( !canonical.Refused.empty() )
+            {
+                err << "FAIL   " << path.string() << " — canonical pass: " << canonical.Refused
+                    << "; the file is untouched\n";
+                ++failed;
+                continue;
+            }
+            const auto printCanonical = [&out, &canonical]
+            {
+                out << " canonical text of " << canonical.BlocksRestated << " reflected block(s) ("
+                    << canonical.KeysAdded << " key(s) added, " << canonical.ValuesRestated
+                    << " value(s) restated), version unchanged";
+            };
+
             // A partitioned world at the head whose records are still INLINE (written by a tool that
             // predates v35's layout, or by hand) is moved out now: that is the whole of the v35 step.
             const bool partitioned = parsed.value().WorldPartition.has_value();
@@ -824,6 +843,22 @@ namespace Desert::Migration
             {
                 report.ExternalEntitiesRaised = true;
                 report.EntitiesMovedOut       = parsed.value().Entities.size();
+            }
+
+            if ( !report.Changed() && canonical.Changed() )
+            {
+                out << ( check ? "WOULD  " : "canon  " ) << path.string() << " —";
+                printCanonical();
+                out << "\n";
+                if ( !check && !WriteScene( path, rfl::json::write( parsed.value() ), err ) )
+                {
+                    err << "FAIL   " << path.string() << " — the canonical text could not be written; the "
+                        << "original file is untouched\n";
+                    ++failed;
+                    continue;
+                }
+                ++changed;
+                continue;
             }
 
             if ( !report.Changed() )
@@ -849,6 +884,8 @@ namespace Desert::Migration
 
             out << ( check ? "WOULD  " : "raised " ) << path.string() << " —";
             PrintSteps( out, report );
+            if ( canonical.Changed() )
+                printCanonical();
             out << "\n";
 
             if ( check )

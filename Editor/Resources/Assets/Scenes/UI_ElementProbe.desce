@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "97c5068826bd72ac1e4d27dcb516a95d",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -16,10 +16,21 @@
             "Tag": "UI Canvas",
             "UICanvas": {
                 "ScaleMode": 2,
+                "RenderMode": 0,
+                "WorldScale": 400.0,
                 "ReferenceWidth": 1280.0,
                 "ReferenceHeight": 720.0,
                 "MatchWidthHeight": 0.5,
-                "Visible": true
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Visible": true,
+                "SortOrder": 0,
+                "SafeArea": [0.0, 0.0, 0.0, 0.0],
+                "Theme": "",
+                "FontScale": 1.0,
+                "HighContrast": false
             }
         },
         {
@@ -28,17 +39,52 @@
             "siblingIndex": 0,
             "Tag": "BG",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [1, 1],
-                "OffsetMin": [0, 0],
-                "OffsetMax": [0, 0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
-                "Color": [0.09, 0.1, 0.13],
+                "Color": [0.09000000357627869, 0.10000000149011612, 0.12999999523162842],
                 "Opacity": 1.0,
-                "CornerRadius": 0.0
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
             }
         },
         {
@@ -47,17 +93,43 @@
             "siblingIndex": 1,
             "Tag": "Title",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [1, 0],
-                "OffsetMin": [0, 24],
-                "OffsetMax": [0, 80],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 0.0],
+                "OffsetMin": [0.0, 24.0],
+                "OffsetMax": [0.0, 80.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIText": {
                 "Text": "#probe.title",
                 "FontSize": 34.0,
-                "Color": [0.93, 0.95, 0.98]
+                "Font": "",
+                "Color": [0.9300000071525574, 0.949999988079071, 0.9800000190734863],
+                "Align": 1,
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0]
             }
         },
         {
@@ -66,15 +138,30 @@
             "siblingIndex": 2,
             "Tag": "Slider",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [120, 120.0],
-                "OffsetMax": [560, 176.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [120.0, 120.0],
+                "OffsetMax": [560.0, 176.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UISlider": {
-                "Value": 0.65
+                "Value": 0.6499999761581421,
+                "MinValue": 0.0,
+                "MaxValue": 1.0,
+                "TrackColor": [0.11999999731779099, 0.12999999523162842, 0.1599999964237213],
+                "FillColor": [0.30000001192092896, 0.5199999809265137, 0.8199999928474426],
+                "HandleColor": [0.8999999761581421, 0.9200000166893005, 0.9599999785423279]
             }
         },
         {
@@ -83,15 +170,28 @@
             "siblingIndex": 3,
             "Tag": "Toggle",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [120, 204.0],
-                "OffsetMax": [560, 260.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [120.0, 204.0],
+                "OffsetMax": [560.0, 260.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIToggle": {
-                "On": true
+                "Value": false,
+                "BoxColor": [0.18000000715255737, 0.1899999976158142, 0.23999999463558197],
+                "CheckColor": [0.30000001192092896, 0.6000000238418579, 0.8999999761581421],
+                "CornerRadius": 4.0
             }
         },
         {
@@ -100,16 +200,32 @@
             "siblingIndex": 4,
             "Tag": "Dropdown",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [120, 288.0],
-                "OffsetMax": [560, 344.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [120.0, 288.0],
+                "OffsetMax": [560.0, 344.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIDropdown": {
                 "Options": "Low,Medium,High",
-                "SelectedIndex": 1
+                "SelectedIndex": 1,
+                "Open": false,
+                "FontSize": 20.0,
+                "Background": [0.1599999964237213, 0.17000000178813934, 0.20999999344348907],
+                "TextColor": [0.9200000166893005, 0.9399999976158142, 0.9800000190734863],
+                "Highlight": [0.25999999046325684, 0.4000000059604645, 0.6200000047683716],
+                "CornerRadius": 4.0
             }
         },
         {
@@ -118,15 +234,28 @@
             "siblingIndex": 5,
             "Tag": "ProgressBar",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [120, 372.0],
-                "OffsetMax": [560, 428.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [120.0, 372.0],
+                "OffsetMax": [560.0, 428.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIProgressBar": {
-                "Value": 0.4
+                "Value": 0.4000000059604645,
+                "Background": [0.11999999731779099, 0.12999999523162842, 0.1599999964237213],
+                "Fill": [0.30000001192092896, 0.6499999761581421, 0.3499999940395355],
+                "CornerRadius": 4.0
             }
         },
         {
@@ -135,15 +264,32 @@
             "siblingIndex": 6,
             "Tag": "InputField",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [120, 456.0],
-                "OffsetMax": [560, 512.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [120.0, 456.0],
+                "OffsetMax": [560.0, 512.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIInputField": {
-                "Text": "typed text"
+                "Text": "typed text",
+                "Placeholder": "Enter text...",
+                "FontSize": 20.0,
+                "TextColor": [0.9200000166893005, 0.9399999976158142, 0.9800000190734863],
+                "PlaceholderColor": [0.44999998807907104, 0.4699999988079071, 0.5199999809265137],
+                "Background": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "FocusColor": [0.30000001192092896, 0.550000011920929, 0.8999999761581421],
+                "CornerRadius": 4.0
             }
         },
         {
@@ -152,14 +298,48 @@
             "siblingIndex": 7,
             "Tag": "Button",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [120, 540.0],
-                "OffsetMax": [560, 596.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [120.0, 540.0],
+                "OffsetMax": [560.0, 596.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
-            "UIButton": {}
+            "UIButton": {
+                "NormalColor": [0.20000000298023224, 0.4000000059604645, 0.699999988079071],
+                "HoverColor": [0.30000001192092896, 0.5199999809265137, 0.8199999928474426],
+                "PressedColor": [0.15000000596046448, 0.30000001192092896, 0.550000011920929],
+                "Action": 1,
+                "OnClickMessage": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "HoverSprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "PressedSprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Selected": false,
+                "SelectedColor": [0.8500000238418579, 0.41999998688697815, 0.18000000715255737],
+                "SelectedAccent": [1.0, 0.550000011920929, 0.20000000298023224],
+                "Disabled": false,
+                "DisabledColor": [0.2199999988079071, 0.23999999463558197, 0.2800000011920929]
+            }
         },
         {
             "id": 2016,
@@ -167,18 +347,43 @@
             "siblingIndex": 8,
             "Tag": "SliderLabel",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [600, 120.0],
-                "OffsetMax": [900, 176.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [600.0, 120.0],
+                "OffsetMax": [900.0, 176.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIText": {
                 "Text": "Slider",
                 "FontSize": 20.0,
+                "Font": "",
+                "Color": [0.699999988079071, 0.75, 0.8199999928474426],
                 "Align": 0,
-                "Color": [0.7, 0.75, 0.82]
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0]
             }
         },
         {
@@ -187,18 +392,43 @@
             "siblingIndex": 9,
             "Tag": "ToggleLabel",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [600, 204.0],
-                "OffsetMax": [900, 260.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [600.0, 204.0],
+                "OffsetMax": [900.0, 260.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIText": {
                 "Text": "Toggle",
                 "FontSize": 20.0,
+                "Font": "",
+                "Color": [0.699999988079071, 0.75, 0.8199999928474426],
                 "Align": 0,
-                "Color": [0.7, 0.75, 0.82]
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0]
             }
         },
         {
@@ -207,18 +437,43 @@
             "siblingIndex": 10,
             "Tag": "DropdownLabel",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [600, 288.0],
-                "OffsetMax": [900, 344.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [600.0, 288.0],
+                "OffsetMax": [900.0, 344.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIText": {
                 "Text": "Dropdown",
                 "FontSize": 20.0,
+                "Font": "",
+                "Color": [0.699999988079071, 0.75, 0.8199999928474426],
                 "Align": 0,
-                "Color": [0.7, 0.75, 0.82]
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0]
             }
         },
         {
@@ -227,18 +482,43 @@
             "siblingIndex": 11,
             "Tag": "ProgressBarLabel",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [600, 372.0],
-                "OffsetMax": [900, 428.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [600.0, 372.0],
+                "OffsetMax": [900.0, 428.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIText": {
                 "Text": "ProgressBar",
                 "FontSize": 20.0,
+                "Font": "",
+                "Color": [0.699999988079071, 0.75, 0.8199999928474426],
                 "Align": 0,
-                "Color": [0.7, 0.75, 0.82]
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0]
             }
         },
         {
@@ -247,18 +527,43 @@
             "siblingIndex": 12,
             "Tag": "InputFieldLabel",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [600, 456.0],
-                "OffsetMax": [900, 512.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [600.0, 456.0],
+                "OffsetMax": [900.0, 512.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIText": {
                 "Text": "InputField",
                 "FontSize": 20.0,
+                "Font": "",
+                "Color": [0.699999988079071, 0.75, 0.8199999928474426],
                 "Align": 0,
-                "Color": [0.7, 0.75, 0.82]
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0]
             }
         },
         {
@@ -267,18 +572,43 @@
             "siblingIndex": 13,
             "Tag": "ButtonLabel",
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [0, 0],
-                "OffsetMin": [600, 540.0],
-                "OffsetMax": [900, 596.0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [0.0, 0.0],
+                "OffsetMin": [600.0, 540.0],
+                "OffsetMax": [900.0, 596.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIText": {
                 "Text": "Button",
                 "FontSize": 20.0,
+                "Font": "",
+                "Color": [0.699999988079071, 0.75, 0.8199999928474426],
                 "Align": 0,
-                "Color": [0.7, 0.75, 0.82]
+                "VerticalAlign": 1,
+                "Wrap": false,
+                "LineSpacing": 1.0,
+                "AutoSize": false,
+                "MinFontSize": 8.0,
+                "Overflow": 0,
+                "RichText": false,
+                "Marquee": false,
+                "MarqueeSpeed": 60.0,
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [1.0, 1.0],
+                "Outline": false,
+                "OutlineColor": [0.0, 0.0, 0.0]
             }
         },
         {
@@ -290,6 +620,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,
