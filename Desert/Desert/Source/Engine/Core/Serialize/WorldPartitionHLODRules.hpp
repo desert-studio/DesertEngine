@@ -148,8 +148,8 @@ namespace Desert::Core::Rules
             // Plain pointers taken once: the static analyser forgets a has_value() check inside the loop.
             const auto* const guidList = key.MaterialGuids ? &*key.MaterialGuids : nullptr;
             const auto* const pathList = key.MaterialPaths ? &*key.MaterialPaths : nullptr;
-            const std::size_t guids    = guidList ? guidList->size() : 0;
-            const std::size_t paths    = pathList ? pathList->size() : 0;
+            const std::size_t guids    = guidList != nullptr ? guidList->size() : 0;
+            const std::size_t paths    = pathList != nullptr ? pathList->size() : 0;
             const std::size_t slots = std::max( guids, paths );
             for ( std::size_t slot = 0; slot < slots; ++slot )
             {
