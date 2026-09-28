@@ -234,8 +234,8 @@ namespace Desert::Migration
         // Pinned against the enum so a reorder breaks the build here instead of renumbering a light.
         constexpr std::array<const char*, 3> kLightFalloffNames = { "Linear", "Quadratic", "InverseSquare" };
         static_assert( static_cast<int>( ECS::LightFalloff::Linear ) == 0 &&
-                           static_cast<int>( ECS::LightFalloff::Quadratic ) == 1 &&
-                           static_cast<int>( ECS::LightFalloff::InverseSquare ) == 2,
+                            static_cast<int>( ECS::LightFalloff::Quadratic ) == 1 &&
+                            static_cast<int>( ECS::LightFalloff::InverseSquare ) == 2,
                        "LightFalloff moved: kLightFalloffNames states the numbers a Falloff name becomes" );
         constexpr int kSendEventAction = static_cast<int>( ECS::UIButtonAction::SendEvent );
 
@@ -308,29 +308,28 @@ namespace Desert::Migration
                            return true;
                        } );
             for ( const char* light : { "PointLight", "SpotLight" } )
-                EditBlock( components, light,
-                           [&]( rfl::Generic::Object& block )
-                           {
-                               const auto falloff = block.get( "Falloff" );
-                               if ( !falloff.has_value() )
-                                   return false;
-                               const auto name = falloff.value().to_string();
-                               if ( !name.has_value() )
-                                   return false;
-                               const auto it = std::ranges::find( kLightFalloffNames, name.value() );
-                               if ( it == kLightFalloffNames.end() )
-                               {
-                                   report.Refused.push_back( who + " / " + light + " states Falloff '" +
-                                                             name.value() +
-                                                             "', which is no LightFalloff enumerator (Linear, "
-                                                             "Quadratic, InverseSquare)" );
-                                   return false;
-                               }
-                               block["Falloff"] =
-                                   rfl::Generic( static_cast<int>( it - kLightFalloffNames.begin() ) );
-                               ++report.FalloffNamesNumbered;
-                               return true;
-                           } );
+                EditBlock(
+                     components, light,
+                     [&]( rfl::Generic::Object& block )
+                     {
+                         const auto falloff = block.get( "Falloff" );
+                         if ( !falloff.has_value() )
+                             return false;
+                         const auto name = falloff.value().to_string();
+                         if ( !name.has_value() )
+                             return false;
+                         const auto it = std::ranges::find( kLightFalloffNames, name.value() );
+                         if ( it == kLightFalloffNames.end() )
+                         {
+                             report.Refused.push_back( who + " / " + light + " states Falloff '" + name.value() +
+                                                       "', which is no LightFalloff enumerator (Linear, "
+                                                       "Quadratic, InverseSquare)" );
+                             return false;
+                         }
+                         block["Falloff"] = rfl::Generic( static_cast<int>( it - kLightFalloffNames.begin() ) );
+                         ++report.FalloffNamesNumbered;
+                         return true;
+                     } );
         };
         for ( std::size_t i = 0; i < entities.size(); ++i )
         {
