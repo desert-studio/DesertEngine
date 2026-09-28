@@ -752,8 +752,8 @@ TEST( LandscapePaint, VisibilityLayerIsNeitherDrawnNorReportedButNamed )
     EXPECT_TRUE( channels.Unknown.empty() ) << "the visibility layer is not a layer the root forgot";
 
     // Even a root layer carrying the reserved name does not turn the mask into a colour.
-    const std::vector<RootLayer> impostor = { { std::string( kLandscapeVisibilityLayerName ), 0.5f, false,
-                                                glm::vec3( 1.0f ) } };
+    const std::vector<RootLayer> impostor = {
+         { std::string( kLandscapeVisibilityLayerName ), 0.5f, false, glm::vec3( 1.0f ) } };
     EXPECT_EQ( ResolveLandscapeWeightChannels( tile, impostor ).Colors[1], vec4( 0.0f ) );
 
     LandscapeTileData plain = Tile( 3 );

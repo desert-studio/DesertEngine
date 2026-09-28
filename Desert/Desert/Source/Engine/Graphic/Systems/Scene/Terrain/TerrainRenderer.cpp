@@ -60,9 +60,9 @@ namespace Desert::Graphic::System
             const LandscapeTileDraw& l = t.Landscape;
 
             TerrainInstance instance;
-            instance.Params = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
-                                         static_cast<float>( t.Weights.VisibilityLayer + 1 ),
-                                         std::floor( lod.Center ) );
+            instance.Params =
+                 glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
+                            static_cast<float>( t.Weights.VisibilityLayer + 1 ), std::floor( lod.Center ) );
             instance.Params2        = glm::vec4(
                  1.0f / std::max( 0.01f, kLandscapeLodBlendRange ), static_cast<float>( t.Weights.LayerCount ),
                  static_cast<float>( World::Landscape::LandscapeWeightmapPageCount( t.Weights.LayerCount ) ),

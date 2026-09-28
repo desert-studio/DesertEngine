@@ -208,8 +208,9 @@ namespace Desert::World::Landscape
      * @brief The reserved name of a tile's VISIBILITY layer — UE's ALandscapeProxy::VisibilityLayer, whose
      * LayerName is UMaterialExpressionLandscapeVisibilityMask::ParameterName.
      *
-     * Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeVisibilityMask.cpp:20
-     * and LandscapeProxy.cpp (VisibilityLayer: bNoWeightBlend = true), adapted: the layer is a plain
+     * Ported from UE 5.8
+     * Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeVisibilityMask.cpp:20 and
+     * LandscapeProxy.cpp (VisibilityLayer: bNoWeightBlend = true), adapted: the layer is a plain
      * LandscapeWeightLayer under this name rather than a ULandscapeLayerInfoObject, so it is stored, encoded
      * and uploaded exactly as the paint layers are (one weightmap channel, no container change).
      *
