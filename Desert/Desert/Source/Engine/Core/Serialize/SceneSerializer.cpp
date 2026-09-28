@@ -725,23 +725,13 @@ namespace Desert::Core
         if ( !document )
             return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
                                                document.GetError() );
-        // A partitioned world is written as its header plus one file per entity (v35, WP16); the document is
-        // the same one either way, so the foreign-key carry above does not know the difference.
-        if ( m_Scene->GetWorldPartition().has_value() )
-        {
-            if ( const auto split = ExternalEntities::WriteSceneFile( path, document.GetValue() ); !split )
-                return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
-                                                   split.GetError() );
-            return BOOLSUCCESS;
-        }
-        const auto text = Common::Json::WriteCanonical( document.GetValue() );
-        if ( !text )
-            return Common::MakeFormattedError( "could not lay out '{}' as text: {}", m_Scene->GetSceneName(),
-                                               text.GetError() );
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text.GetValue() );
-             !written )
-            return Common::MakeFormattedError( "could not write {}: {}", path.string(), written.GetError() );
-
+        // Through the one scene writer (ExternalEntities::WriteSceneFile): a partitioned world lands as its header
+        // plus one file per entity (v35, WP16), so a save after an edit to one entity rewrites that entity's file
+        // alone; any other scene lands whole. The document is the same either way, so the foreign-key carry above
+        // does not know the difference.
+        if ( const auto written = ExternalEntities::WriteSceneFile( path, document.GetValue() ); !written )
+            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
+                                               written.GetError() );
         return BOOLSUCCESS;
     }
 

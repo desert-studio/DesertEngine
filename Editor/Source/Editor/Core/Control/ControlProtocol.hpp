@@ -168,9 +168,10 @@ namespace Desert::Editor::Control
      */
     enum class Subject
     {
-        Document, ///< the focused document's own values — the default, and what every older client means
-        Viewport, ///< the editor's view: where the camera is and which way it looks
-        Modeling, ///< the Modeling panel's dragged values (Core::kModelingStateRows)
+        Document,  ///< the focused document's own values — the default, and what every older client means
+        Viewport,  ///< the editor's view: where the camera is and which way it looks
+        Modeling,  ///< the Modeling panel's dragged values (Core::kModelingStateRows)
+        Selection, ///< the selected entity's transform (Core/Selection/SelectionTransformProperties.hpp)
     };
 
     struct SubjectSpec
@@ -183,6 +184,7 @@ namespace Desert::Editor::Control
          { "document", Subject::Document },
          { "viewport", Subject::Viewport },
          { "modeling", Subject::Modeling },
+         { "selection", Subject::Selection },
     };
 
     [[nodiscard]] inline std::string KnownSubjectList()

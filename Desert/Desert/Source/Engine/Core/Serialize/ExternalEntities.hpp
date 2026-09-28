@@ -31,6 +31,7 @@
 // composed (WriteSceneFile) - so the foreign-key carry, the version gate and every in-memory snapshot (Play,
 // the World Partition panel) are the same code for a partitioned world as for any other.
 
+#include <Common/Content/ExternalEntitiesFolder.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Json/Carry.hpp>
@@ -45,7 +46,7 @@
 
 namespace Desert::Core::ExternalEntities
 {
-    inline constexpr std::string_view kFolder     = "__ExternalEntities__";
+    inline constexpr std::string_view kFolder     = Common::Content::kExternalEntitiesFolder;
     inline constexpr std::string_view kExtension  = ".deent";
     inline constexpr std::string_view kListMember = "ExternalEntities";
     inline constexpr std::string_view kRecords    = "Entities";
@@ -83,12 +84,25 @@ namespace Desert::Core::ExternalEntities
         std::size_t Removed   = 0; // record files of entities the scene no longer has
     };
 
-    // Writes the scene document `scene` (the saver's composed document, entities inline) to `scenePath` as a
-    // header plus one canonical file per record, rewriting only the files whose text differs and deleting every
-    // `.deent` below DirectoryOf(scenePath) that no record claims. A failure names the file; files written
-    // before it stay written (each write is atomic, so no file is ever half-written).
+    // THE ONE WRITER OF A SCENE FILE (WP16b): the editor's save and autosave, the device-lost save and
+    // Tools/WorldGen all write through it, so the layout on disk is decided in exactly one place.
+    //   - a partitioned world (the document states `WorldPartition`): `scenePath` gets the header plus one
+    //     canonical file per record, rewriting only the files whose text differs and deleting every `.deent`
+    //     below DirectoryOf(scenePath) that no record claims;
+    //   - any other scene: `scenePath` gets the whole document as canonical text, and every `.deent` a
+    //     partitioned past of this scene left below DirectoryOf(scenePath) is deleted (counted as Removed) -
+    //     the loader does not look there for such a scene, so the files would be dead weight that the next
+    //     partition of this scene would refuse as unlisted.
+    // A failure names the file; files written before it stay written (each write is atomic, so no file is
+    // ever half-written).
     [[nodiscard]] Common::ResultStr<WriteOutcome> WriteSceneFile( const std::filesystem::path&      scenePath,
                                                                   const Common::Json::TextDocument& scene );
+
+    // WriteSceneFile of a scene held as TEXT (the autosave's and the device-lost save's SerializeToJson output,
+    // WorldGen's typed writer): parsed, then written the same way. Text that is not JSON is refused naming
+    // `scenePath`.
+    [[nodiscard]] Common::ResultStr<WriteOutcome> WriteSceneText( const std::filesystem::path& scenePath,
+                                                                  std::string_view             json );
 
     // The text of the scene at `path`, as ONE document with its entities inline - what ParseLoadableScene reads:
     //   - a scene that states no partition: the file's bytes, untouched;

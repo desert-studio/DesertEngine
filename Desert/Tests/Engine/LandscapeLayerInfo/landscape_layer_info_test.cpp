@@ -115,10 +115,10 @@ TEST( LandscapeLayerInfo, RefusesAnotherVersion )
     LandscapeLayerInfoData data = StampedGrass();
     ASSERT_FALSE( data.Header->Versions.empty() );
     for ( auto& [tag, version] : data.Header->Versions )
-        version = 2;
+        version = 3;
     const std::string why = Refusal( data );
     EXPECT_NE( why, "<accepted>" );
-    EXPECT_NE( why.find( '2' ), std::string::npos ) << why;
+    EXPECT_NE( why.find( '3' ), std::string::npos ) << why;
 }
 
 TEST( LandscapeLayerInfo, RefusesStatedDependencies )

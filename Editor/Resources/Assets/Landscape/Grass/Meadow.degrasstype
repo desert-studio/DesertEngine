@@ -1,0 +1,29 @@
+{
+    "Header": {
+        "Kind": "LandscapeGrassType",
+        "Guid": "5e1a0c3b9d7f4e28a6b2c4d8f0e1a3b5",
+        "Versions": {
+            "LGRT": 1
+        },
+        "Dependencies": ["ea82694eccb954bf22f7d1805b886f0b"]
+    },
+    "GrassVarieties": [
+        {
+            "GrassMesh": {
+                "Guid": "ea82694eccb954bf22f7d1805b886f0b",
+                "Path": "Assets/Landscape/Grass/GrassBlade.stmesh"
+            },
+            "GrassDensity": 200.0,
+            "StartCullDistance": 3000.0,
+            "EndCullDistance": 4000.0,
+            "AllowedDensityRange": { "Min": 0.0, "Max": 1.0 },
+            "Scaling": "LockXY",
+            "ScaleX": { "Min": 0.03, "Max": 0.05 },
+            "ScaleY": { "Min": 1.0, "Max": 1.0 },
+            "ScaleZ": { "Min": 0.15, "Max": 0.4 },
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": false
+        }
+    ]
+}

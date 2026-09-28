@@ -181,8 +181,10 @@ namespace Desert::World::Landscape
         Physics, ///< LandscapeCollision: the Jolt heightfield.
         Weights, ///< LandscapeECSSystem: the RGBA8 weightmap copy. Told about weight writes ONLY — a paint
                  ///< stroke changes no height, so neither the R16 copy nor the heightfield is re-sent for it.
+        Grass,   ///< LandscapeGrassECSSystem: the generated grass cells. Told about BOTH kinds of write — grass
+                 ///< stands on the height and grows by the weight.
     };
-    inline constexpr size_t kLandscapeDirtyConsumerCount = 3u;
+    inline constexpr size_t kLandscapeDirtyConsumerCount = 4u;
 
     /// How many weightmap layers one tile carries — owner decision O3 of the landscape programme (up to eight
     /// paint layers). A ninth is refused by name (AddWeightLayer, SetWeightLayers, DecodeLandscapeTile), never
@@ -332,13 +334,14 @@ namespace Desert::World::Landscape
         /// Copies layer @p layer's weights in @p rect out, row-major. Refuses a bad layer or rectangle.
         Common::ResultStr<std::vector<uint8_t>> ReadWeightRegion( size_t layer, const LandscapeRect& rect ) const;
 
-        /// Writes @p values into layer @p layer over @p rect and marks the rectangle dirty for the Weights
-        /// consumer only. Same refusal and no-change rules as WriteRegion.
+        /// Writes @p values into layer @p layer over @p rect and marks the rectangle dirty for the Weights and
+        /// Grass consumers only. Same refusal and no-change rules as WriteRegion.
         Common::BoolResultStr WriteWeightRegion( size_t layer, const LandscapeRect& rect,
                                                  std::span<const uint8_t> values );
 
         /// Replaces every weight layer at once (a paint stroke's undo/redo) and marks the whole tile dirty for
-        /// the Weights consumer. Refuses planes of the wrong size, a bad or repeated name, or a ninth layer.
+        /// the Weights and Grass consumers. Refuses planes of the wrong size, a bad or repeated name, or a
+        /// ninth layer.
         Common::BoolResultStr SetWeightLayers( std::vector<LandscapeWeightLayer> layers );
 
     private:

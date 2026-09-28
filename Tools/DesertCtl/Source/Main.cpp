@@ -64,7 +64,10 @@ namespace
                       "  --subject <who>   whose properties 'properties' and 'set' are about: 'document'\n"
                       "                    (the focused one, the default) or 'viewport' -- the editor's\n"
                       "                    own view, whose Camera.Position and Camera.Direction are how\n"
-                      "                    the camera is placed without a capture flag.\n"
+                      "                    the camera is placed without a capture flag; 'modeling' --\n"
+                      "                    the Modeling panel's values; 'selection' -- the one selected\n"
+                      "                    entity's Translation (cm), Rotation (radians) and Scale, set\n"
+                      "                    as one undo step, like a Details edit.\n"
                       "\n"
                       "Exit status: 0 the editor did it, 1 it refused (reason on stderr), 2 unreachable.\n" );
     }

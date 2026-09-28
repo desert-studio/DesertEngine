@@ -17,6 +17,7 @@
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 
+#include <Common/Core/Math/Pcg32.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <glm/glm.hpp>
@@ -31,24 +32,8 @@
 
 namespace Desert::Editor::Tools
 {
-    /**
-     * @brief PCG32 (O'Neill, pcg-random.org, XSH-RR): the brush's only source of chance.
-     *
-     * std::uniform_real_distribution is implementation-defined, so libc++ and MSVC would scatter the same seed
-     * differently; this stream is defined bit for bit.
-     */
-    class FoliageRandom
-    {
-    public:
-        explicit FoliageRandom( uint64_t seed );
-
-        uint32_t NextU32();
-        /// Uniform in [0, 1), 24 bits.
-        float Next01();
-
-    private:
-        uint64_t m_State = 0u;
-    };
+    /// The brush's only source of chance: PCG32, one definition shared with the landscape grass generator.
+    using FoliageRandom = Common::Math::Pcg32;
 
     /// What a trace hit (UE: the component class FFoliagePaintingGeometryFilter tests).
     enum class FoliageSurface : uint8_t

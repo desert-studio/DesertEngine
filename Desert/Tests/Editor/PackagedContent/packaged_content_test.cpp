@@ -1578,6 +1578,10 @@ namespace
              // foliage and its paint layers. Covered by the ASSETS_PATH tree (Foliage/, Landscape/Layers/).
              { "FOLIAGE_TYPE_PATH", &P::FOLIAGE_TYPE_PATH, RootVerdict::Packaged, "" },
              { "LANDSCAPE_LAYER_INFO_PATH", &P::LANDSCAPE_LAYER_INFO_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED: a `.delayerinfo` names the `.degrasstype` it grows (GR-1); the grass is generated at
+             // run time from it, so a game without the file grows nothing. Covered by the ASSETS_PATH tree
+             // (Landscape/Grass/).
+             { "LANDSCAPE_GRASS_TYPE_PATH", &P::LANDSCAPE_GRASS_TYPE_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
              { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
         };
