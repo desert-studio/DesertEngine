@@ -288,7 +288,8 @@ TEST( ThumbnailPrefetch, TheSplashSurveySeesWhatIsReadyAndNeverWaitsForACapture 
     ASSERT_EQ( after.Ready.size(), 1u ) << "the decoded cached picture is not offered to the splash upload";
     EXPECT_EQ( after.Ready.front(), f.Png.string() );
     EXPECT_EQ( after.Pending, 0u ) << "a picture with no PNG on disk held the splash: that is a capture's wait";
-    EXPECT_FALSE( fs::exists( missingPng ) ) << "the splash pass produced a thumbnail: captures wait for the window";
+    EXPECT_FALSE( fs::exists( missingPng ) )
+         << "the splash pass produced a thumbnail: captures wait for the window";
 
     // Uploaded (the cache took it): it neither holds the hand-over nor is offered again.
     ASSERT_TRUE( ThumbnailPrefetch::Get().Take( f.Png.string(), fs::last_write_time( f.Png ) ).has_value() );
@@ -306,8 +307,9 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
 
     const std::string panel = ReadFile( root + "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
     ASSERT_FALSE( panel.empty() );
-    EXPECT_NE( panel.find( "m_PrefetchItems = items;\n        ThumbnailPrefetch::Get().Request( std::move( items ) );" ),
-               std::string::npos )
+    EXPECT_NE(
+         panel.find( "m_PrefetchItems = items;\n        ThumbnailPrefetch::Get().Request( std::move( items ) );" ),
+         std::string::npos )
          << "the splash upload no longer reads the list the browser prefetched";
     EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().SurveyOf( m_PrefetchItems )" ), std::string::npos );
     EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
@@ -315,13 +317,16 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
 
     const std::string layer = ReadFile( root + "Editor/Source/EditorLayer.cpp" );
     ASSERT_FALSE( layer.empty() );
-    EXPECT_NE( layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
-               std::string::npos )
+    EXPECT_NE(
+         layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
+         std::string::npos )
          << "the per-frame thumbnail pump no longer runs the splash upload pass";
     EXPECT_NE( layer.find( "m_FileExplorerPanel->UploadPrefetchedThumbnails()" ), std::string::npos );
-    EXPECT_NE( layer.find( "                ThumbnailService::TickDiskAndDecode();\n            SampleFrameQuiescence();\n"
-                           "            return BOOLSUCCESS;" ),
-               std::string::npos )
+    EXPECT_NE(
+         layer.find(
+              "                ThumbnailService::TickDiskAndDecode();\n            SampleFrameQuiescence();\n"
+              "            return BOOLSUCCESS;" ),
+         std::string::npos )
          << "the startup stages no longer tick the worker decode";
     EXPECT_NE( layer.find( "state.ThumbnailsUploading = m_ThumbnailsHoldReveal;" ), std::string::npos );
 }

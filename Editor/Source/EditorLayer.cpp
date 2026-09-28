@@ -7455,7 +7455,8 @@ namespace Desert::Editor
         }
         else if ( pending == 0 && wasHolding )
         {
-            LOG_INFO( "[Thumbnails] the opening folder's cached thumbnails held the hand-over {:.0f} ms", waitedMs );
+            LOG_INFO( "[Thumbnails] the opening folder's cached thumbnails held the hand-over {:.0f} ms",
+                      waitedMs );
         }
     }
 
