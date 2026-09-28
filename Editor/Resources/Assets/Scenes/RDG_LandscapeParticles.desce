@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "d151afad1e7a464c9801bf8086cac8a1",
         "Versions": {
-            "SCNE": 36,
+            "SCNE": 38,
             "UNIT": 1
         },
         "Dependencies": []
@@ -59,9 +59,7 @@
                 "SpacingCm": 23.52941131591797,
                 "ZScale": 1.5625
             },
-            "LandscapeMaterial": {
-                "GrassMode": 0
-            }
+            "LandscapeMaterial": {}
         },
         {
             "id": 7310021741200004,
