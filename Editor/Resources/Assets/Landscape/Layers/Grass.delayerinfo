@@ -5,14 +5,14 @@
         "Versions": {
             "LLYI": 2
         },
-        "Dependencies": []
+        "Dependencies": ["5e1a0c3b9d7f4e28a6b2c4d8f0e1a3b5"]
     },
     "LayerName": "Grass",
     "Hardness": 0.5,
     "NoWeightBlend": false,
     "LayerUsageDebugColor": [0.20000000298023224, 0.699999988079071, 0.10000000149011612],
     "GrassType": {
-        "Guid": "",
-        "Path": ""
+        "Guid": "5e1a0c3b9d7f4e28a6b2c4d8f0e1a3b5",
+        "Path": "Assets/Landscape/Grass/Meadow.degrasstype"
     }
 }

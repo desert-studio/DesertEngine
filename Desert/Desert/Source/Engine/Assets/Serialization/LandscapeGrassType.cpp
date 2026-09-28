@@ -24,14 +24,20 @@ namespace Desert::Assets::Serialization
             return BOOLSUCCESS;
         }
 
-        // One edge per distinct mesh, in the order the varieties first name it: two varieties drawing the
-        // same mesh are one dependency, not two.
+        // One edge per distinct mesh, in the order the varieties first name it, then one per distinct
+        // material the same way: two varieties drawing the same mesh are one dependency, not two.
         std::vector<std::string> GrassTypeDependenciesOf( const LandscapeGrassTypeData& data )
         {
             std::vector<std::string> out;
+            const auto               add = [&out]( const std::string& guid )
+            {
+                if ( !guid.empty() && std::find( out.begin(), out.end(), guid ) == out.end() )
+                    out.push_back( guid );
+            };
             for ( const GrassVariety& v : data.GrassVarieties )
-                if ( std::find( out.begin(), out.end(), v.GrassMesh.Guid ) == out.end() )
-                    out.push_back( v.GrassMesh.Guid );
+                add( v.GrassMesh.Guid );
+            for ( const GrassVariety& v : data.GrassVarieties )
+                add( v.Material.Guid );
             return out;
         }
     } // namespace
@@ -50,6 +56,14 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>(
                      "variety {}: GrassMesh must name both a GUID and a path ('{}' / '{}')", i, v.GrassMesh.Guid,
                      v.GrassMesh.Path );
+            // Both or neither: a GUID without a path cannot be found by a reader, a path without a GUID is not
+            // an identity. Neither is the default surface.
+            if ( v.Material.Guid.empty() != v.Material.Path.empty() )
+                return Common::MakeFormattedError<bool>(
+                     "variety {}: Material must name both a GUID and a path, or neither ('{}' / '{}')", i,
+                     v.Material.Guid, v.Material.Path );
+            if ( auto wind = ValidateFoliageWind( v.Wind ); !wind )
+                return Common::MakeFormattedError<bool>( "variety {}: {}", i, wind.GetError() );
             if ( !std::isfinite( v.GrassDensity ) || v.GrassDensity <= 0.0f ||
                  v.GrassDensity > kLandscapeGrassMaxDensity )
                 return Common::MakeFormattedError<bool>( "variety {}: GrassDensity {} must lie in (0, {}]", i,
@@ -111,7 +125,8 @@ namespace Desert::Assets::Serialization
              data.Header ? data.Header->Dependencies : std::vector<std::string>{};
         if ( stated != GrassTypeDependenciesOf( data ) )
             return Common::MakeFormattedError<LandscapeGrassTypeData>(
-                 "the header's Dependencies ({} entries) do not state exactly the varieties' mesh GUIDs ({})",
+                 "the header's Dependencies ({} entries) do not state exactly the varieties' mesh and material "
+                 "GUIDs ({})",
                  stated.size(), GrassTypeDependenciesOf( data ).size() );
 
         return Common::MakeSuccess( std::move( data ) );

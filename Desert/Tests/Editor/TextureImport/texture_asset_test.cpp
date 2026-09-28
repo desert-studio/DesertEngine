@@ -105,17 +105,33 @@ TEST( TextureAsset, ASourceThatDoesNotMatchItsImportHashIsRefused )
 }
 
 // THE MIGRATION'S CHECKS, on the committed tree: (1) no texture source is left outside an asset in the
-// loose roots — one asset per former source; (2) each asset's Guid.Hi is still the number its original
-// source path derived. That number is no longer the handle (the handle is HandleForGuid of the whole GUID,
-// SCNE 28 step 6), but it is what the committed `.demat`s still name, and the MATL 3 migration maps it to
-// the GUID through this very relation; (3) no two assets fold to one handle.
+// loose roots — one asset per former source; (2) each MIGRATED asset (the register below, one row each, so
+// a later texture cannot be mistaken for one) keeps as Guid.Hi the number its original source path derived.
+// Textures authored after the migration carry a generated GUID and are held only to (1) and (3). That number is no
+// longer the handle (the handle is HandleForGuid of the whole GUID, SCNE 28 step 6), but it is what the committed
+// `.demat`s still name, and the MATL 3 migration maps it to the GUID through this very relation; (3) no two assets
+// fold to one handle.
 TEST( TextureAsset, EveryProjectTextureIsAnAssetAndKeepsItsHandle )
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
     const fs::path resources = repo / "Editor" / "Resources";
     Common::Constants::Path::SetProjectRoot( resources.parent_path(), "Resources/Assets" );
-    size_t                       assets = 0;
+    // The 9 images + 2 HDR panoramas the migration produced, relative to Editor/Resources.
+    const std::set<std::string> migrated = {
+         "Assets/Meshes/shaded.detex",
+         "Assets/Meshes/texture_diffuse.detex",
+         "Assets/Meshes/texture_metallic.detex",
+         "Assets/Meshes/texture_normal.detex",
+         "Assets/Meshes/texture_pbr.detex",
+         "Assets/Meshes/texture_roughness.detex",
+         "Assets/Textures/1k_Dissolve_Noise_Texture.detex",
+         "Assets/Textures/HDR/PreviewCheck.detex",
+         "Assets/Textures/HDR/rural_asphalt_road_2k.detex",
+         "Assets/Textures/T_Checker.detex",
+         "Assets/Textures/T_NormalWitness.detex",
+    };
+    std::set<std::string>        seen;
     std::unordered_set<uint64_t> handles;
     for ( const char* sub : { "Assets/Textures", "Assets/Meshes" } )
     {
@@ -126,15 +142,20 @@ TEST( TextureAsset, EveryProjectTextureIsAnAssetAndKeepsItsHandle )
                 EXPECT_NE( ext, raw ) << e.path() << " is a texture source outside an asset";
             if ( ext != ".detex" )
                 continue;
-            ++assets;
             const auto a = ReadTextureSourceAssetFile( e.path() );
             ASSERT_TRUE( a.IsSuccess() ) << a.GetError();
-            const uint64_t before =
-                 static_cast<uint64_t>( Common::AssetHandle::FromKey( a.GetValue().Import.SourceFile ) );
-            EXPECT_EQ( a.GetValue().Guid.Hi, before ) << e.path();
+            const std::string rel = e.path().lexically_relative( resources ).generic_string();
+            if ( migrated.contains( rel ) )
+            {
+                seen.insert( rel );
+                const uint64_t before =
+                     static_cast<uint64_t>( Common::AssetHandle::FromKey( a.GetValue().Import.SourceFile ) );
+                EXPECT_EQ( a.GetValue().Guid.Hi, before ) << e.path();
+            }
             EXPECT_TRUE( handles.insert( static_cast<uint64_t>( a.GetValue().Handle() ) ).second )
                  << e.path() << " folds to a handle another texture asset already has";
         }
     }
-    EXPECT_EQ( assets, 11u ) << "9 images + 2 HDR panoramas were migrated";
+    for ( const std::string& rel : migrated )
+        EXPECT_TRUE( seen.contains( rel ) ) << rel << " was migrated and is gone from the tree";
 }
