@@ -289,6 +289,12 @@ TEST( ThumbnailPrefetch, TheSplashSurveySeesWhatIsReadyAndNeverWaitsForACapture 
     EXPECT_EQ( after.Ready.front(), f.Png.string() );
     EXPECT_EQ( after.Pending, 0u ) << "a picture with no PNG on disk held the splash: that is a capture's wait";
     EXPECT_FALSE( fs::exists( missingPng ) ) << "the splash pass produced a thumbnail: captures wait for the window";
+
+    // Uploaded (the cache took it): it neither holds the hand-over nor is offered again.
+    ASSERT_TRUE( ThumbnailPrefetch::Get().Take( f.Png.string(), fs::last_write_time( f.Png ) ).has_value() );
+    const ThumbnailPrefetch::Survey uploaded = ThumbnailPrefetch::Get().SurveyOf( folder );
+    EXPECT_TRUE( uploaded.Ready.empty() );
+    EXPECT_EQ( uploaded.Pending, 0u ) << "an uploaded picture kept holding the hand-over to its budget";
 }
 
 // The wiring the suite cannot link (EditorLayer, the panel): the panel's constructor prefetches the folder it
