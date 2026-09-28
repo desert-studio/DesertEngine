@@ -178,8 +178,23 @@ jobs:
   # Dynamic checks: the whole workspace builds with ASan+UBSan (the premake makefiles append
   # env CXXFLAGS/LDFLAGS) and the full test suite runs under them. Leak detection stays off —
   # LSan is unsupported on Apple Silicon.
+  # ── CI12: BUILD ONCE, TEST IN SHARDS ─────────────────────────────────────────────────────────────
+  # Run #900 (36426811427): this job built for 47 min, then ran 354 suites for 41 min and was cancelled
+  # at its 90-minute ceiling; Windows Debug built for 57 min and then tested for 29 on the same runner.
+  # Every sanitizer and Windows test configuration is now three kinds of job:
+  #   <build>   compiles, plans the shards (scripts/CI/TestShards.py over the SAME expected-suite list
+  #             the unsharded runner used) and uploads the test binaries once, as an artifact;
+  #   <tests>   a matrix of N shards; each downloads the bundle and runs its own list. No compiler runs
+  #             here, so re-running one failed shard costs minutes, not a rebuild;
+  #   <verdict> carries the check name the single job used to have ("ASan+UBSan tests", "Windows Debug",
+  #             "Windows Release") and is green only if the build and every shard are, AND every
+  #             expected suite left exactly one report in the shard it was planned in.
+  # N comes from the recorded suite-seconds (scripts/CI/TestTimings.tsv): ASan 6978 over 3 cores, floor
+  # JsonCensus 749 s -> 3 shards; Windows Debug 6008 over 4 cores, floor ShaderCacheKey 577 s -> 3
+  # shards; Windows Release 440 in total -> 1 shard (a second one would cost more in download than
+  # it saves in tests, but the one shard still makes a red test re-runnable without the 100-min build).
   sanitizers:
-    name: ASan+UBSan tests
+    name: ASan+UBSan build
     runs-on: macos-14
     # 90, UNCHANGED, and the number was re-argued rather than inherited. On 2026-09-23 this job crossed
     # it (run 35802378535, 1 h 30 m 24 s) after 61, 79 and 79 minutes on the three runs before it, and
@@ -207,9 +222,9 @@ jobs:
     #
     # AND IT IS NOT ENOUGH, which the job says itself: the budget step below warned at 86 %. On the test
     # side the binding constraint is a single suite: CloudField, 1182 s under concurrency, 65 % of the
-    # whole makespan. Sharding this job into a matrix was considered and NOT taken yet: every shard pays
-    # the same ~45-minute build, so the makespan floor is set by the build and not by how the suites are
-    # divided.
+    # whole makespan. Sharding this job into a matrix was considered and NOT taken then, because every
+    # shard would have paid the same ~45-minute build. CI12 took it the other way round: ONE build, whose
+    # test binaries are an artifact, and shards that only run them (see the block above this job).
     #
     # ── WHAT THE BUILD HALF ACTUALLY IS, MEASURED, BECAUSE THE FIRST READING OF IT WAS WRONG ─────────
     #
@@ -358,14 +373,34 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
 
-      - name: Run tests under sanitizers
-        env:
-          # detect_container_overflow=0: the third-party libs (Jolt, Lua, reflect-cpp, ...) are
-          # built WITHOUT the sanitizer, so std::vector/string annotations are inconsistent across the ABI
-          # boundary and ASan false-fires "container-overflow" in wrap_memcpy. Real OOB detection stays on.
-          ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1:detect_container_overflow=0"
-          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
-        run: ./scripts/MacOS/RunTests.sh "$PWD" Debug
+      # The expected list is what the unsharded runner ran: the executables in the test directory.
+      - name: Plan test shards
+        run: >-
+          python3 scripts/CI/TestShards.py plan --expected-dir build/Bin/Tests/Debug
+          --compare-manifest build/TestManifest.txt --timings scripts/CI/TestTimings.tsv
+          --column asan --shards 3 --out build/TestPlan
+
+      # tar, not upload-artifact's own zip: the zip drops the executable bit. The DWARF stays in the
+      # object files, so ASan reports in a shard name functions but not lines; reproduce locally for lines.
+      - name: Bundle the test binaries
+        run: |
+          tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/Debug build/TestManifest.txt build/TestPlan
+          du -sh build/Bin/Tests/Debug "$RUNNER_TEMP/test-bundle.tgz"
+
+      - name: Upload the test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-bundle-asan
+          path: ${{ runner.temp }}/test-bundle.tgz
+          compression-level: 0
+          retention-days: 3
+
+      - name: Upload the shard plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-plan-asan
+          path: build/TestPlan/
+          retention-days: 3
 
       # LAST, and `always()`: the margin is worth reporting on a red run too, and it is worth reporting
       # most on a GREEN one — a green run at 88 % is the only warning anyone will ever get before the
@@ -373,6 +408,108 @@ jobs:
       - name: Job budget
         if: always()
         run: ./scripts/CI/JobBudget.sh sanitizers "$JOB_START"
+
+  sanitizers-tests:
+    name: ASan+UBSan tests ${{ matrix.shard }}/3
+    needs: [ sanitizers ]
+    runs-on: macos-14
+    # One shard is ~1/3 of the ~41-minute sweep, floored by JsonCensus (749 s); 45 is a ceiling.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Record job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      # The suites find the checkout by walking up from their working directory and read tracked files;
+      # BuildVersion asks git for the full history, hence the same clone as the build.
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: brew-${{ runner.os }}-${{ hashFiles('scripts/MacOS/Setup.sh') }}
+          restore-keys: brew-${{ runner.os }}-
+
+      - name: Setup dependencies
+        run: ./scripts/MacOS/Setup.sh
+
+      - name: Download the test bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: test-bundle-asan
+          path: ${{ runner.temp }}
+
+      - name: Unpack the test bundle
+        run: tar -xzf "$./scripts/MacOS/RunTests.sh_TEMP/test-bundle.tgz"
+
+      - name: Run tests under sanitizers
+        env:
+          # detect_container_overflow=0: the third-party libs (Jolt, Lua, reflect-cpp, ...) are
+          # built WITHOUT the sanitizer, so std::vector/string annotations are inconsistent across the ABI
+          # boundary and ASan false-fires "container-overflow" in wrap_memcpy. Real OOB detection stays on.
+          ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1:detect_container_overflow=0"
+          UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+          TEST_LIST: build/TestPlan/shard-${{ matrix.shard }}.txt
+        run: ./scripts/MacOS/RunTests.sh "$PWD" Debug
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-asan-shard-${{ matrix.shard }}
+          path: build/TestReports/
+          if-no-files-found: ignore
+
+      - name: Job budget
+        if: always()
+        run: ./scripts/CI/JobBudget.sh sanitizers-tests "$JOB_START"
+
+  sanitizers-verdict:
+    name: ASan+UBSan tests
+    needs: [ sanitizers, sanitizers-tests ]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        artifact: [asan]
+    steps: &test-verdict-steps
+      - name: The build and every shard passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needs: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || { echo "::error::a build or test shard ended '$r'"; exit 1; }; done
+
+      - name: Checkout the shard script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/CI
+          sparse-checkout-cone-mode: true
+
+      - name: Download the shard plan
+        uses: actions/download-artifact@v4
+        with:
+          name: test-plan-${{ matrix.artifact }}
+          path: plan
+
+      - name: Download the shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-reports-${{ matrix.artifact }}-shard-*
+          path: reports
+
+      - name: Every expected suite ran exactly once
+        run: python3 scripts/CI/TestShards.py verify --plan plan --reports reports
 
   # The Release and Shipping builds, the test run, the shader lint, the shipping symbol census and the
   # packaging only run AFTER both gates pass — no point spending a macOS build on code that fails
@@ -382,7 +519,7 @@ jobs:
   # Release + Shipping and nothing in Debug.)
   macos:
     name: macOS ${{ matrix.config }}
-    needs: [ format, sanitizers ]
+    needs: [ format, sanitizers-verdict ]
     runs-on: macos-14 # Apple Silicon (arm64) — matches the supported platform
     timeout-minutes: 60
     strategy:
@@ -549,8 +686,11 @@ jobs:
   # it — which matters more than it did when this was written: that job said "a 15-minute macOS run" and
   # `sanitizers` now takes 55 to 66 minutes (measured 2026-09-05 over the last five green runs). The
   # decision was right; only its stated price was a year out of date.
-  windows:
-    name: Windows ${{ matrix.config }}
+  # Three jobs, not one three-way matrix, so that each configuration's test shards can wait for THEIR
+  # build only (a `needs:` names a whole matrix). The steps are shared by a YAML anchor; the job id is
+  # what JobBudget.sh reads the ceiling of, via ${{ github.job }}.
+  windows-debug:
+    name: Windows Debug build
     needs: [ format ]
     # PINNED, NOT "latest". On 2026-09-14 `windows-latest` rolled forward to an image carrying Visual
     # Studio 18 Enterprise, which does NOT ship the MSVC v143 toolset. premake's vs2022 action writes
@@ -606,9 +746,13 @@ jobs:
         # GNU extension and MSVC rejects with C2466, and REM inside `for ... in ( )` being DATA to cmd
         # rather than a comment. The seventh of those cost a red `dev` for a day. A whole configuration
         # that no compiler on the shipping platform has ever seen is the same bet, taken larger.
-        config: [Debug, Release, Shipping]
+        #
+        # shards: how many test shards the plan is cut into (0 = no tests in this configuration).
+        config: [Debug]
+        column: [windows-debug]
+        shards: [3]
 
-    steps:
+    steps: &windows-build-steps
       # The job's own clock — see the note on the `sanitizers` job's copy of this step. `shell: bash`
       # because the runner image ships Git Bash and this is one line of POSIX; cmd has no `date +%s`,
       # and every quoting form that survives cmd here is one nobody can read (Desert/Tests/premake5.lua
@@ -822,20 +966,48 @@ jobs:
             }
           }
 
-      # run_tests.bat is generated by premake (Desert/Tests/premake5.lua); tests are enabled because
-      # GitHub always sets CI, which Desert/premake5.lua checks.
-      #
-      # NOT IN SHIPPING, AND NOT BECAUSE IT WOULD BE SLOW — BECAUSE THERE IS NOTHING TO RUN. The test
-      # projects are removed from the Shipping configuration in Desert/Tests/premake5.lua: a suite whose
-      # subject is the draw-call counter cannot be built in the one configuration that removes the
-      # draw-call counter. run_tests.bat is written by RunAllTests's postbuild, which goes with them, so
-      # a Shipping build produces no runner at all. That is the honest state and it fails loudly (cmd
-      # answers 9009 for a missing file); a runner that existed and ran zero suites would be a silent
-      # pass, which is the defect class this repository names Ф4.
-      - name: Run tests
-        if: matrix.config != 'Shipping'
-        shell: cmd
-        run: run_tests.bat
+      # The test binaries leave this job as early as possible: the shards start while the lint and the
+      # packaging below still run. The expected list is build/TestManifest.txt, the list RunTests.ps1
+      # has always failed against; TestShards.py refuses a plan whose union is not exactly that list.
+      # The comment above `Run tests` in the shard job says why Shipping has no tests at all.
+      - name: Plan test shards
+        if: matrix.shards > 0
+        shell: bash
+        run: >-
+          python scripts/CI/TestShards.py plan --expected build/TestManifest.txt
+          --timings scripts/CI/TestTimings.tsv --column ${{ matrix.column }}
+          --shards ${{ matrix.shards }} --out build/TestPlan
+
+      - name: Test bundle footprint
+        if: matrix.shards > 0
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Get-ChildItem build\Bin\Tests\${{ matrix.config }} -Recurse -File | Group-Object Extension |
+            ForEach-Object { "{0,-8} {1,5} files {2,10:N0} MB" -f $_.Name, $_.Count, (($_.Group | Measure-Object Length -Sum).Sum / 1MB) }
+
+      # PDBs travel: CrashHandler asserts a symbol for its faulting frame and reads the PDB beside itself.
+      - name: Upload the test bundle
+        if: matrix.shards > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-bundle-windows-${{ matrix.config }}
+          path: |
+            build/Bin/Tests/${{ matrix.config }}/
+            build/TestManifest.txt
+            build/TestPlan/
+            !build/Bin/Tests/${{ matrix.config }}/**/*.ilk
+            !build/Bin/Tests/${{ matrix.config }}/**/*.lib
+            !build/Bin/Tests/${{ matrix.config }}/**/*.exp
+          retention-days: 3
+
+      - name: Upload the shard plan
+        if: matrix.shards > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-plan-windows-${{ matrix.config }}
+          path: build/TestPlan/
+          retention-days: 3
 
       # Offline shader lint with the SAME DShaderParser the engine uses — mirrors the macOS job.
       #
@@ -892,14 +1064,6 @@ jobs:
         shell: bash
         run: echo "::notice title=Packaged game NOT started::windows-2022 has no Vulkan device; set DESERT_WINDOWS_VULKAN_RUNNER=true on a Vulkan-capable runner to smoke-run dist/Game-Release/**/Runtime.exe"
 
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports-windows-${{ matrix.config }}
-          path: build/TestReports/
-          if-no-files-found: ignore
-
       - name: Package build
         if: matrix.config == 'Release'
         shell: cmd
@@ -921,4 +1085,145 @@ jobs:
       - name: Job budget
         if: always()
         shell: bash
-        run: ./scripts/CI/JobBudget.sh windows "$JOB_START"
+        run: ./scripts/CI/JobBudget.sh "${{ github.job }}" "$JOB_START"
+
+  windows-release:
+    name: Windows Release build
+    needs: [ format ]
+    runs-on: windows-2022
+    timeout-minutes: 150
+    strategy:
+      matrix:
+        config: [Release]
+        column: [windows-release]
+        shards: [1]
+    steps: *windows-build-steps
+
+  windows-shipping:
+    name: Windows Shipping
+    needs: [ format ]
+    runs-on: windows-2022
+    timeout-minutes: 150
+    strategy:
+      matrix:
+        config: [Shipping]
+        column: [none]
+        shards: [0]
+    steps: *windows-build-steps
+
+  windows-debug-tests:
+    name: Windows Debug tests ${{ matrix.shard }}/3
+    needs: [ windows-debug ]
+    runs-on: windows-2022
+    # One shard is ~1/3 of the 29-minute sweep of run #900, floored by ShaderCacheKey (577 s).
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug]
+        shard: [1, 2, 3]
+    steps: &windows-test-steps
+      - name: Record job start
+        shell: bash
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Windows Defender real-time scanning off
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $true
+          Write-Host "RealTimeProtectionEnabled = $((Get-MpComputerStatus).RealTimeProtectionEnabled)"
+
+      # The suites find the checkout by walking up from their working directory and read tracked files;
+      # BuildVersion asks git for the full history, hence the same clone as the build.
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          filter: blob:none
+
+      # The same environment the suites had when they ran inside the build job.
+      - name: Restore Vulkan SDK
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\VulkanSDK
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs
+          fail-on-cache-miss: true
+
+      - name: Export VULKAN_SDK
+        shell: pwsh
+        run: |
+          $sdk = "C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }}"
+          if (-not (Test-Path "$sdk\Include\vulkan\vulkan.h")) { throw "Vulkan SDK missing at $sdk" }
+          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Download the test bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: test-bundle-windows-${{ matrix.config }}
+          path: build
+
+      # NOT IN SHIPPING, AND NOT BECAUSE IT WOULD BE SLOW — BECAUSE THERE IS NOTHING TO RUN. The test
+      # projects are removed from the Shipping configuration in Desert/Tests/premake5.lua: a suite whose
+      # subject is the draw-call counter cannot be built in the one configuration that removes the
+      # draw-call counter. run_tests.bat is written by RunAllTests's postbuild, which goes with them, so
+      # a Shipping build produces no runner at all. So Shipping has `shards: 0` and no test job: a test
+      # job that existed and ran zero suites would be a silent pass, the defect class this repository
+      # names Ф4.
+      #
+      # run_tests.bat is generated by the build and does not travel; this is the line it runs, with the
+      # shard's list. RunTests.ps1 still fails on a listed suite with no binary behind it.
+      - name: Run tests
+        shell: cmd
+        run: >-
+          pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts\Windows\RunTests.ps1
+          -Config ${{ matrix.config }} -ListFile build\TestPlan\shard-${{ matrix.shard }}.txt
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-windows-${{ matrix.config }}-shard-${{ matrix.shard }}
+          path: build/TestReports/
+          if-no-files-found: ignore
+
+      - name: Job budget
+        if: always()
+        shell: bash
+        run: ./scripts/CI/JobBudget.sh "${{ github.job }}" "$JOB_START"
+
+  windows-release-tests:
+    name: Windows Release tests ${{ matrix.shard }}/1
+    needs: [ windows-release ]
+    runs-on: windows-2022
+    # Release ran all 354 suites in 2.4 min in run #900.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Release]
+        shard: [1]
+    steps: *windows-test-steps
+
+  windows-debug-verdict:
+    name: Windows Debug
+    needs: [ windows-debug, windows-debug-tests ]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        artifact: [windows-Debug]
+    steps: *test-verdict-steps
+
+  windows-release-verdict:
+    name: Windows Release
+    needs: [ windows-release, windows-release-tests ]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        artifact: [windows-Release]
+    steps: *test-verdict-steps

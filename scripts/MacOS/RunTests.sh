@@ -153,12 +153,24 @@ mkdir -p "$REPORT_DIR" "$LOG_DIR" "$STATUS_DIR"
 
 NAMES=""
 COUNT=0
-for test_bin in "$TEST_DIR"/*; do
-    [ -f "$test_bin" ] && [ -x "$test_bin" ] || continue
-    NAMES="$NAMES$(basename "$test_bin")
+if [ -n "${TEST_LIST:-}" ]; then
+    # One CI test shard (scripts/CI/TestShards.py wrote the list from this same glob in the build job).
+    # A listed name with no binary is not skipped: its worker exits non-zero and is reported as FAIL.
+    [ -f "$TEST_LIST" ] || { echo "[ERROR] shard list not found: $TEST_LIST"; exit 1; }
+    while IFS= read -r name || [ -n "$name" ]; do
+        [ -n "$name" ] || continue
+        NAMES="$NAMES$name
 "
-    COUNT=$((COUNT + 1))
-done
+        COUNT=$((COUNT + 1))
+    done <"$TEST_LIST"
+else
+    for test_bin in "$TEST_DIR"/*; do
+        [ -f "$test_bin" ] && [ -x "$test_bin" ] || continue
+        NAMES="$NAMES$(basename "$test_bin")
+"
+        COUNT=$((COUNT + 1))
+    done
+fi
 
 if [ "$COUNT" -eq 0 ]; then
     echo "[ERROR] no test binaries in $TEST_DIR"
@@ -251,7 +263,10 @@ echo
 
 # The manifest cross-check. NOT a gate — see the header — but the counts are printed on every run so
 # that a suite quietly leaving the sweep is a visible event rather than a faster job.
-if [ -f "$MANIFEST" ]; then
+if [ -n "${TEST_LIST:-}" ]; then
+    # A shard is compared against the whole glob by TestShards.py (plan and verify), not here.
+    echo "suites run: $RAN of $COUNT in shard list $TEST_LIST"
+elif [ -f "$MANIFEST" ]; then
     EXPECTED="$(grep -c '[^[:space:]]' "$MANIFEST")"
     echo "suites run: $RAN of $COUNT found ($EXPECTED in build/TestManifest.txt)"
     if [ "$COUNT" -ne "$EXPECTED" ]; then
