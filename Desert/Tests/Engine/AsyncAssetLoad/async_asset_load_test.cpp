@@ -497,12 +497,14 @@ TEST_F( AsyncAssetLoad, AwaitOneBlocksUntilTheWorkerReadAndTheLedgerCountsNoInFr
 
     auto victim    = std::make_shared<ProbeAsset>( "awaited.probe" );
     int  completed = 0;
+    // Snapshot the ledger BEFORE Request: the worker may read the asset the moment it is queued (Windows
+    // Release did, and the counter had already moved when it was read after Request).
+    const uint64_t inFrameBefore = SyncLoadLedger::InFrameLoads();
+    const uint64_t asyncBefore   = SyncLoadLedger::AsyncLoads();
     auto request   = AsyncAssetLoader::Get().Request(
          victim, [&completed]( const auto&, LoadOutcome outcome, const std::string& )
          { completed += outcome == LoadOutcome::Loaded ? 1 : 100; }, [] {} );
 
-    const uint64_t inFrameBefore = SyncLoadLedger::InFrameLoads();
-    const uint64_t asyncBefore   = SyncLoadLedger::AsyncLoads();
     EXPECT_TRUE( AsyncAssetLoader::Get().AwaitOne( victim->GetMetadata().Handle ) );
 
     EXPECT_TRUE( victim->IsReadyForUse() ) << "AwaitOne returned before the worker had read the asset";
