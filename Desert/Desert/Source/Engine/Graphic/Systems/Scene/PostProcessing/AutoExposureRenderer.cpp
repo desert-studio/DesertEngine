@@ -40,8 +40,6 @@ namespace Desert::Graphic::System
         // there is no second copy to drift.
         constexpr AutoExposureWindow kWindow{ kMinLogLum, kMaxLogLum, kLowPercent, kHighPercent };
 
-        constexpr float kDeltaTime = 0.016f;
-
         struct HistogramPush
         {
             float MinLogLum;
@@ -161,9 +159,12 @@ namespace Desert::Graphic::System
         constexpr float kSnapAdaptSpeed = 1.0e6f;
 
         const float adaptSpeed = m_SnapNextAdaptation ? kSnapAdaptSpeed : m_AdaptSpeed;
-        m_SnapNextAdaptation   = false;
+        // A snap needs a step to act through: a frozen world's step is 0, and `1 - exp(-0 * speed)` is 0 —
+        // the new scene would keep the old scene's exposure until time moved.
+        const float deltaSeconds = m_SnapNextAdaptation ? 1.0f : m_DeltaSeconds;
+        m_SnapNextAdaptation     = false;
 
-        AveragePush ap{ kDeltaTime,        adaptSpeed,      m_MinLuma,          m_MaxLuma,
+        AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
                         kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
         m_AveragePipeline->SetStorageBuffer( 0, m_Histogram.get() );
         m_AveragePipeline->SetInput( 1, prevLum );

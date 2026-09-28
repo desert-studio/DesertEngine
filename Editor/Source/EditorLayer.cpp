@@ -2925,6 +2925,31 @@ namespace Desert::Editor
             sr->SetQuality( Common::Settings::MachineSettings::Get() );
         }
 
+        // THE WORLD'S CLOCK, set up for this frame before the scene ticks it (Core::WorldTime).
+        //
+        // A HEADLESS CAPTURE holds the preview clock at zero until its first COUNTED frame: while the
+        // scene is still loading or its content settling, because how many such frames there are depends
+        // on the machine, and a world that moved during them (the cloud wind accumulates) would make two
+        // captures of one scene differ. Without `--play` the counted frames then step by a FIXED step from
+        // zero; under `--play` the preview never runs — Play resets the clock and `ts` is already the fixed
+        // step (ShotOptions::FrameSeconds), so the clock just follows it. Outside a capture the measured
+        // step drives it, and the viewport's Realtime toggle decides whether preview time moves while
+        // editing.
+        if ( const auto& shot = ShotOptions::Get(); shot.Active() )
+        {
+            const bool counting = !m_SceneLoadRequested && !StartupLoading() && !ContentSettling();
+            scene.GetWorldTime().SetFixedStep( shot.PlayActive() ? std::nullopt
+                                                                 : std::optional( ShotOptions::PlayStepSeconds ) );
+            if ( !counting && scene.GetState() == ::Desert::Core::Scene::SceneState::Edit )
+                scene.GetWorldTime().Reset();
+            scene.SetPreviewRealtime( counting && !shot.PlayActive() );
+        }
+        else
+        {
+            scene.GetWorldTime().SetFixedStep( std::nullopt );
+            scene.SetPreviewRealtime( EditorPreferences::Get().ViewportRealtime );
+        }
+
         // BEFORE the scene's frame, not between its phases: the scene opens and closes each view's
         // renderer itself now (Scene::OnUpdate), and nothing may sit between a renderer's open and its
         // close. Today this records nothing into the graph anyway — the editor's injected passes execute

@@ -27,7 +27,6 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -54,19 +53,19 @@ namespace Desert::ECS
         {
         }
 
-        void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& /*renderCommandBuffer*/,
-                     const Common::Timestep& ts ) override
+        void SetWorldTime( const Core::WorldTime& time ) override
         {
-            // Editor PREVIEW: the gameplay timestep is 0 in Edit mode (gameplay frozen), but animation should
-            // still preview when "Playing" is on. So advance by a real wall-clock delta when the gameplay ts
-            // is ~0; use the gameplay ts in Play mode. Clamped to avoid huge jumps after a stall.
-            const auto  now    = std::chrono::steady_clock::now();
-            float       realDt = m_HasLast ? std::chrono::duration<float>( now - m_LastTime ).count() : 0.0f;
-            m_LastTime         = now;
-            m_HasLast          = true;
-            realDt             = std::min( realDt, 0.1f );
-            const float effectiveSeconds = ts.GetSeconds() > 1e-6f ? ts.GetSeconds() : realDt;
-            const Common::Timestep animTs( effectiveSeconds );
+            m_WorldDeltaSeconds = time.GetDeltaSeconds();
+        }
+
+        void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& /*renderCommandBuffer*/,
+                     const Common::Timestep& /*ts*/ ) override
+        {
+            // THE WORLD'S STEP (Core::WorldTime), not the gameplay timestep: an animation with "Playing" on
+            // previews in the editor while the viewport is Realtime, holds on pause, follows dilation, and
+            // steps by the fixed capture step in a headless shot. It used to keep a wall clock of its own
+            // for the preview, so a paused world's characters kept moving.
+            const Common::Timestep animTs( m_WorldDeltaSeconds );
             auto view = registry.view<ECS::SkinnedMeshComponent, ECS::AnimationComponent>();
 
             for ( auto entity : view )
@@ -793,8 +792,7 @@ namespace Desert::ECS
         // Non-owning: the manager belongs to the host, which outlives its scene. MAY BE NULL — a host
         // that builds no asset manager simply has no rigs, and SyncControlRig says so once.
         Assets::AssetManager*                 m_AssetManager = nullptr;
-        std::chrono::steady_clock::time_point m_LastTime;
-        bool                                  m_HasLast = false;
+        float m_WorldDeltaSeconds = 0.0f; // this frame's WorldTime::GetDeltaSeconds (SetWorldTime)
 
         // ONE dedupe store for every complaint this system makes, and it remembers the MESSAGE rather than
         // just the key. The set it replaces could only say "already complained about this state", so a

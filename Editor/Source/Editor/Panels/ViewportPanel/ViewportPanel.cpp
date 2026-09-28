@@ -1209,6 +1209,13 @@ namespace Desert::Editor
                 ImGui::EndDisabled();
                 viewChanged |= ImGui::Checkbox( "Colliders", &view.ShowColliders );
                 viewChanged |= ImGui::Checkbox( "Wireframe", &view.WireframeMode );
+                ImGui::Separator();
+                // UE's viewport "Realtime": while editing, whether the world's preview time moves — the
+                // cloud wind, particles, a material's Time node. The user's answer, so it lives in
+                // editor.json beside the Show flags and never in the level (Core::WorldTime).
+                viewChanged |= ImGui::Checkbox( "Realtime", &EditorPreferences::Get().ViewportRealtime );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "Advance world time while editing (wind, particles, material Time)" );
                 // A PLAIN SAVE, and that is the deliverable of К10. This call used to be wrapped in three
                 // lines that put the user's real grid answer back before writing and took it away again
                 // afterwards, because 2D mode kept its suppression in the field being written. Eleven

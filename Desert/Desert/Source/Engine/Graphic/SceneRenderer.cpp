@@ -703,6 +703,13 @@ namespace Desert::Graphic
         // before the render graph, and the billboard pass draws in the Transparency phase.
         UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
 
+        // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
+        // here: the material Time uniform and the eye adaptation step.
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+             ->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
+        UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] )
+             ->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
+
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetParams( post.Exposure, post.Gamma );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
@@ -839,7 +846,7 @@ namespace Desert::Graphic
         // graph records its command buffer — so the heavy compute + device idle stays at a safe boundary.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
-            skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.Timestep.GetSeconds() );
+            skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (intra-phase pass

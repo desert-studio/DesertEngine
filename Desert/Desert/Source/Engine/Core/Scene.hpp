@@ -12,6 +12,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
+#include "WorldTime.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Timestep.hpp>
@@ -269,8 +270,41 @@ namespace Desert::Core
         };
 
         [[nodiscard]] SceneState GetState() const { return m_State; }
-        void                     SetState( SceneState state ) { m_State = state; }
-        [[nodiscard]] bool       IsPlaying() const { return m_State == SceneState::Play; }
+        // Entering Play from Edit starts the world's clock from zero, as UE's PIE world does; Paused and
+        // back keep it (a pause is not a new world).
+        void SetState( SceneState state )
+        {
+            if ( m_State == SceneState::Edit && state == SceneState::Play )
+                m_WorldTime.Reset();
+            m_State = state;
+        }
+        [[nodiscard]] bool IsPlaying() const
+        {
+            return m_State == SceneState::Play;
+        }
+
+        // The world's clock (Engine/Core/WorldTime.hpp): the ONE time source for everything that moves in
+        // this scene's picture. Ticked once per frame at the top of OnUpdate.
+        [[nodiscard]] WorldTime& GetWorldTime()
+        {
+            return m_WorldTime;
+        }
+        [[nodiscard]] const WorldTime& GetWorldTime() const
+        {
+            return m_WorldTime;
+        }
+
+        // The editor viewport's Realtime toggle (UE's viewport "Realtime"): while editing, whether the
+        // world's preview time moves. An editor preference pushed every frame, never serialized with the
+        // scene.
+        void SetPreviewRealtime( bool realtime )
+        {
+            m_PreviewRealtime = realtime;
+        }
+        [[nodiscard]] bool IsPreviewRealtime() const
+        {
+            return m_PreviewRealtime;
+        }
 
         [[nodiscard]] SceneSettings& GetSettings()
         {
@@ -450,6 +484,8 @@ namespace Desert::Core
         mutable uint32_t              m_ViewportWidth  = 1280;
         mutable uint32_t              m_ViewportHeight = 720;
         SceneState                    m_State = SceneState::Edit;
+        WorldTime                     m_WorldTime;
+        bool                          m_PreviewRealtime = true;
 
         // One command buffer PER system (index-matched to m_Systems): parallel systems record without
         // sharing the arena; buffers are executed in registration order, so the frame's draw order is

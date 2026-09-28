@@ -280,6 +280,7 @@ namespace
          { "OutlineWidth", Owner::Machine, kEditorLayer },
          { "OutlineSmoothness", Owner::Machine, kEditorLayer },
          { "EnableOutline", Owner::Machine, kEditorLayer },
+         { "ViewportRealtime", Owner::Machine, kEditorLayer },
 
          // The whole view state, pushed into every scene's renderer each frame. Its ten leaves are
          // censused separately below.

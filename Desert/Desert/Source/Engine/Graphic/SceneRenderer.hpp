@@ -73,7 +73,14 @@ namespace Desert::Graphic
     public:
         struct UpdateInfo
         {
-            Common::Timestep                Timestep;
+            // The WORLD'S step this frame (Core::WorldTime::GetDeltaSeconds): zero while paused or while
+            // an edited world's viewport is not Realtime, scaled by dilation, fixed under a capture.
+            // Everything drawn that moves with time steps by this.
+            Common::Timestep Timestep;
+            // The wall-clock step, for what is about the machine rather than the world (the sky's
+            // re-bake debounce must count while the world is frozen, or a sun moved in a paused editor
+            // would never be re-baked).
+            Common::Timestep                RealTimestep;
             ShaderProtocols::DirectionLight DirLights;
         };
 

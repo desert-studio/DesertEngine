@@ -3,6 +3,7 @@
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 #include <Common/Core/Timestep.hpp>
+#include <Engine/Core/WorldTime.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Render/RenderCommandBuffer.hpp>
 
@@ -37,6 +38,13 @@ namespace Desert::ECS
         // parallel) system group runs, so camera-relative systems read it race-free. Default no-op —
         // only systems that lay out geometry relative to the viewer (e.g. billboarded text) override it.
         virtual void SetCameraSnapshot( const glm::mat4& /*view*/, const glm::vec3& /*position*/ )
+        {
+        }
+
+        // The scene's clock (Engine/Core/WorldTime.hpp), pushed on the main thread before the system group
+        // runs, for systems whose output moves with the world's time even while editing (the cloud wind).
+        // Default no-op; gameplay systems take the step from Update's timestep.
+        virtual void SetWorldTime( const Core::WorldTime& /*time*/ )
         {
         }
     };
