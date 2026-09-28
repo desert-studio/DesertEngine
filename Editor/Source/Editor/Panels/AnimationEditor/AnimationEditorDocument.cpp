@@ -8,6 +8,7 @@
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 
@@ -68,13 +69,20 @@ namespace Desert::Editor
         }
 
         // The first `.skmesh` by path whose rig is the clip's: a stable pick, so two openings show one mesh.
+        // Asked of the CONTENT REGISTRY, not of the asset manager's cache: skinned meshes are registered
+        // lazily, on first reference, so a cache census found none in a fresh session (ANV1a2 frame).
         std::vector<std::pair<std::string, Assets::Asset<Assets::SkinnedMeshAsset>>> candidates;
-        for ( const auto& [meshHandle, mesh] : m_Assets->FindAllByType<Assets::SkinnedMeshAsset>() )
+        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh ) )
         {
-            if ( !mesh || mesh->GetMetadata().Filepath.extension() != Common::Constants::Extensions::SKINNED_MESH )
+            const auto mesh = m_Assets->CreateAsset<Assets::SkinnedMeshAsset>( row.Path, false );
+            if ( !mesh )
                 continue;
             if ( const auto loaded = mesh->EnsureLoaded( *m_Assets ); !loaded )
+            {
+                LOG_WARN( "Animation Editor: skeletal mesh '{}' would not load: {}", row.Path.generic_string(),
+                          loaded.GetError() );
                 continue;
+            }
             if ( mesh->GetSkeletonSignature() == signature )
                 candidates.emplace_back( mesh->GetMetadata().Filepath.generic_string(), mesh );
         }
