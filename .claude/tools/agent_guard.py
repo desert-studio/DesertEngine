@@ -7,8 +7,9 @@ The owner: «Заставь агентов выполнять это». So the r
 
   1. no tree-wide search in a worker's own context (grep -r, rg, git grep, find without -maxdepth) —
      discovery goes to an Explore sub-agent, whose reading stays in its own context;
-  2. at most 80 tool calls per worker — from call 60 every result carries a stop-at-a-step-boundary reminder,
-     past 80 everything is refused except git, SendMessage and reading/writing the report;
+  2. at most 60 tool calls per worker, a HARD cap no extension lifts (ledger 09-29: a call costs 8k at <=30 calls and
+     19k past 90; agents past 90 were 45 % of all spend) — from call 45 every result carries a stop reminder,
+     past the limit everything is refused except git, SendMessage and writing the REMAINDER/report;
   3. no `sleep` longer than 270 s in one call (the prompt cache expires at 5 minutes);
   4. at most two editor builds per worker;
   5. one `make` on the machine at a time, at most -j4 (16 GB RAM; 2026-09-24 parallel builds OOM-killed it);
@@ -27,8 +28,9 @@ import sys
 import time
 
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 40
-TURN_LIMIT = 55
+TURN_WARN = 45
+TURN_LIMIT = 60
+TURN_HARD_CAP = 60  # owner 2026-09-29: the rest goes to a FRESH agent with REMAINDER file:line, never an extension
 MAX_SLEEP = 270
 MAX_EDITOR_BUILDS = 2
 
@@ -51,6 +53,10 @@ CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
 MAX_READ_LINES = 150
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
+# Owner 2026-09-29: an agent never waits for CI — the idle cache expires and the whole context is written again
+# (CI12: 1.5 of 3.2 M units). Push, report the run id, the lead watches it from a background shell for free.
+CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
+                     r"\b(while|until|for)\b[^\n]*\bgh\s+(run|pr)\b|\bgh\s+(run|pr)\b[^\n]*\bsleep\b")
 
 
 def runs_editor(cmd):
@@ -68,6 +74,18 @@ def runs_editor(cmd):
             return True
     return False
 ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
+
+
+# Owner 2026-09-29: every refused call re-sends the whole context (~2.9k refusals = ~7 % of spend). The four
+# commonest refusals (tree search 81, cat 53, push without handoff 46, code before map 36 in 24 h) are answered
+# BEFORE the agent tries them: the allowed form of each is put into its context with the map, after call 1.
+CHEAT_SHEET = """[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
+- где определено имя: scripts/Dev/sym.sh <Имя>; где используется: scripts/Dev/sym.sh --refs <Имя>. НЕ grep -r / rg / git grep / find без -maxdepth.
+- чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
+- тесты: scripts/Dev/suite.sh <Сюита…>. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
+- dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
+- сборка: build_quiet.sh в фоне + build_wait.sh; одна make на машине, -j≤4; sleep ≤ 270 с.
+- CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
 
 def map_digest():
@@ -89,7 +107,7 @@ def map_digest():
             "\nЗаметки карты:\n" + "\n".join(notes[:40]) +
             "\nПрочитай СВОЙ раздел: sed -n 'A,Bp' .claude/CODEMAP.md (A..B — от его заголовка до следующего) и строку "
             "своего .cpp в «Source → suites». До этого чтение кода отклоняется. Поиск по многим файлам — Explore на "
-            "haiku (Agent subagent_type \"Explore\", model \"haiku\"): его чтение не ложится в твой контекст.")
+            "haiku (Agent subagent_type \"Explore\", model \"haiku\"): его чтение не ложится в твой контекст.\n" + CHEAT_SHEET)
 
 
 def emit(obj):
@@ -263,6 +281,8 @@ def self_check():
         "merge dev by hand": {"tool_name": "Bash", "tool_input": {"command": "git merge origin/dev"}},
         "migrator directly": {"tool_name": "Bash", "tool_input": {"command": "./build/Bin/Debug/SceneMigrator a"}},
         "own test loop": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/MacOS/RunTests.sh"}},
+        "agent waits for CI": {"tool_name": "Bash", "tool_input": {"command": "gh run watch 1 --exit-status"}},
+        "CI poll loop": {"tool_name": "Bash", "tool_input": {"command": "for i in $(seq 20); do gh run view 1 --json status; sleep 10; done"}},
     }
     failed = []
     for name, case in cases.items():
@@ -304,6 +324,8 @@ def main():
     # A continued agent (the lead resumed it with SendMessage for the next step in the same code) gets a larger
     # budget from ~/.claude/tools/agent_extend.py: re-reading the same files in a fresh agent was 40-60 % of a step.
     limit = state.get("limit", TURN_LIMIT)
+    if not state.get("cap_exempt"):  # set by hand only for an agent launched before the 09-29 cap
+        limit = min(limit, TURN_HARD_CAP)
     if event == "PostToolUse":
         # Owner 2026-09-28: «надо гарантировать что агенты прочитают карту проекта». The map's index (section
         # headings with line numbers) and its hand-written notes are put into the agent's context after its
@@ -326,7 +348,8 @@ def main():
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
                   f"[agent_guard] Вызов {calls}/{limit}, осталось {limit - calls}. Доделай ТЕКУЩИЙ шаг, "
                   f"новый крупный не начинай; закоммить, запушь и отчитайся до {limit}. Не останавливайся "
-                  f"раньше времени: каждый новый агент платит ~10 вызовов за вход в задачу."}})
+                  f"раньше времени. Остаток — в REMAINDER.md в своём скретче (файл:строка, что заменить на что, что проверено): "
+                  f"продлений нет, его доделает свежий агент по этому списку."}})
         sys.exit(0)
 
     tool = data.get("tool_name", "")
@@ -340,8 +363,8 @@ def main():
         allowed = tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))
         if not allowed:
             save_state(state, path)
-            deny(f"[agent_guard] Лимит {limit} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
-                 f"отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
+            deny(f"[agent_guard] Лимит {limit} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, запиши "
+                 f"REMAINDER.md в скретч (файл:строка) и отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
 
     # Owner's rule: at most three programme agents. A sub-agent that spawns a general worker is a fourth
     # (2026-09-24: P10e spawned "P10e code" and the machine ran five). Only Explore (discovery) is allowed.
@@ -428,6 +451,11 @@ def main():
                 deny(f"[agent_guard] sleep {m.group(1)} > {MAX_SLEEP} с: кэш истекает через 5 минут и весь "
                      f"контекст пишется заново. Жди кусками: for i in $(seq 27); do grep -q <маркер> <лог> && "
                      f"break; sleep 10; done", data, agent)
+        if CI_WAIT.search(cmd):
+            save_state(state, path)
+            deny("[agent_guard] CI не ждёшь сам: пауза сбрасывает кэш, и весь контекст пишется заново (CI12: 1,5 из "
+                 "3,2 млн). Запушь, отчитайся с id прогона (gh run list --branch <ветка> --limit 1, один раз) и "
+                 "заканчивай — прогон смотрит тимлид.", data, agent)
         if MAKE.search(cmd):
             jobs = [int(j) for j in MAKE_JOBS.findall(cmd)]
             if any(j > MAX_MAKE_JOBS for j in jobs):
