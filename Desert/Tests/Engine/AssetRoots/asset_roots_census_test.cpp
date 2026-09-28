@@ -203,8 +203,8 @@ TEST( AssetRootsCensus, TheHandleSpeltAsAPlainIntegerIsVisitedToo )
 
 TEST( AssetRootsCensus, TheSceneSettingsFieldThatNamesAnAssetIsVisitedToo )
 {
-    // The other root source: the scene's own settings. Two fields today (`SplashSprite`, `DefaultPawn`), and the same
-    // omission risk — it is not a component, so the component loop above cannot see it.
+    // The other root source: the scene's own settings. Two fields today (`SplashSprite`, `DefaultPawn`), and the
+    // same omission risk — it is not a component, so the component loop above cannot see it.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
