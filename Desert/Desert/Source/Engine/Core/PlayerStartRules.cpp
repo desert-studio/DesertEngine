@@ -43,7 +43,7 @@ namespace Desert::Core
                 if ( starts[i].Tag == requestedTag )
                     tagged.push_back( i );
             if ( tagged.size() == 1 )
-                return Common::MakeSuccess<std::size_t>( tagged.front() );
+                return Common::MakeSuccess( std::size_t( tagged.front() ) );
             if ( tagged.empty() )
                 return Common::MakeError<std::size_t>( "no PlayerStart carries the tag '" + std::string( requestedTag ) +
                                           "'; the level has " + NameList( starts, all ) );
@@ -53,14 +53,14 @@ namespace Desert::Core
         }
 
         if ( starts.size() == 1 )
-            return Common::MakeSuccess<std::size_t>( std::size_t{ 0 } );
+            return Common::MakeSuccess( std::size_t( std::size_t{ 0 } ) );
 
         std::vector<std::size_t> untagged;
         for ( std::size_t i = 0; i < starts.size(); ++i )
             if ( starts[i].Tag.empty() )
                 untagged.push_back( i );
         if ( untagged.size() == 1 )
-            return Common::MakeSuccess<std::size_t>( untagged.front() );
+            return Common::MakeSuccess( std::size_t( untagged.front() ) );
         if ( untagged.empty() )
             return Common::MakeError<std::size_t>(
                  "every PlayerStart is tagged and none was asked for: " + NameList( starts, all ) +
