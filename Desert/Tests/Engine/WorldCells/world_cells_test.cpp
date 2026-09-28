@@ -34,6 +34,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <chrono>
@@ -753,8 +755,9 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 // from the file - states none either.
 TEST( WorldCells, TheCorpusPrefabStatesTheBoxItsBodyHas )
 {
-    const std::filesystem::path file = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
-    ASSERT_TRUE( std::filesystem::exists( file ) ) << "run from the repository root";
+    const std::filesystem::path file =
+         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+    ASSERT_TRUE( std::filesystem::exists( file ) ) << file.string();
     std::ifstream     in( file );
     const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
     const auto        parsed = Common::Json::Read<Desert::Assets::PrefabData>( text );

@@ -14,6 +14,8 @@
 
 #include <Engine/Text/FontBaker.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstdint>
 #include <filesystem>
 #include <vector>
@@ -46,8 +48,8 @@ namespace Desert::Text
     // corrupt cache is simply re-baked, never fatal.
     bool TryLoadBakedFont( const std::filesystem::path& path, BakedFont& out );
 
-    // Whether the atlas actually landed on disk — best-effort for the runtime (a read-only install
+    // Whether the atlas actually landed on disk, and if not why — best-effort for the runtime (a read-only install
     // keeps no cache), load-bearing for the packager: an unwritten cook ships nothing under that key
     // and the player pays the bake. See ShaderSpirvCache::StoreCachedSpirv for the same contract.
-    bool StoreBakedFont( const std::filesystem::path& path, const BakedFont& font );
+    Common::BoolResultStr StoreBakedFont( const std::filesystem::path& path, const BakedFont& font );
 } // namespace Desert::Text
