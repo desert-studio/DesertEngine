@@ -257,8 +257,6 @@ namespace
                             "Desert/Desert/Source/Engine/Assets/MaterialFormat.hpp" },
          CanonicalAtSource{ "Desert/Desert/Source/Engine/Assets/Prefab/PrefabAsset.cpp",
                             "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
-         CanonicalAtSource{ "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
-                            "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
          CanonicalAtSource{
               "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/PrefabComponentWidget.cpp",
               "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },

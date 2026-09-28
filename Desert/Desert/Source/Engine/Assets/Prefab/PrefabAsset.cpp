@@ -1,8 +1,10 @@
 #include "PrefabAsset.hpp"
 #include "PrefabFormat.hpp"
 #include "PrefabPlacement.hpp"
+#include <optional>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
@@ -15,6 +17,16 @@
 
 namespace Desert::Assets
 {
+    PrefabAsset::PrefabAsset( const Common::Filepath& filepath ) : AssetBase( filepath, AssetTypeID::Prefab )
+    {
+        if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
+             !identity.Guid.IsNull() )
+        {
+            m_Guid = identity.Guid;
+            AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
+        }
+    }
+
     Common::BoolResultStr PrefabAsset::LoadFromFile()
     {
         const auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
@@ -41,6 +53,8 @@ namespace Desert::Assets
             return Common::MakeError<bool>( loadable.GetError() );
         }
 
+        // The identity the file states, which Serialize writes back.
+        m_Guid       = PrefabStatedGuid( loadable.GetValue() );
         m_EntityData = std::move( loadable.GetValue().Entities );
         m_IsLoaded   = true;
         // The file IS the payload now, whatever this asset held before.
@@ -103,7 +117,8 @@ namespace Desert::Assets
 
         // The one writer: stamps both generation integers, so every file this engine saves is one its
         // own gate accepts. Writing rfl::json directly here would be a prefab the loader refuses.
-        return WritePrefabJson( std::move( data ) );
+        // With the identity this prefab already has: without it the stamp mints a fresh GUID on every save.
+        return WritePrefabJson( std::move( data ), m_Guid );
     }
 
     Common::BoolResultStr PrefabAsset::SaveTo( const std::filesystem::path& file ) const
@@ -119,6 +134,31 @@ namespace Desert::Assets
         // the registry now rather than at the next scan (the mesh cook's NoteFile, for the same reason).
         ContentRegistry::NoteFile( file );
         return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<Asset<PrefabAsset>>
+    PrefabAsset::SaveNewFromEntity( ECS::Entity root, AssetManager& assetManager, const Common::Filepath& file )
+    {
+        if ( !root )
+            return Common::MakeFormattedError<Asset<PrefabAsset>>( "prefab '{}' not saved: no entity to capture",
+                                                                   file.string() );
+
+        // A path the manager already holds is re-captured in place, so its GUID (and every reference to it)
+        // survives; a new path is captured into a draft that only exists to be written.
+        Asset<PrefabAsset>         registered = assetManager.FindByPath<PrefabAsset>( file );
+        std::optional<PrefabAsset> draft;
+        PrefabAsset&               target = registered ? *registered : draft.emplace( file );
+        target.CreateFromEntity( root, assetManager );
+        if ( const auto written = target.SaveTo( file ); !written )
+            return Common::MakeError<Asset<PrefabAsset>>( written.GetError() );
+        if ( registered )
+            return Common::MakeSuccess( std::move( registered ) );
+
+        Asset<PrefabAsset> created = assetManager.CreateAsset<PrefabAsset>( file );
+        if ( !created )
+            return Common::MakeFormattedError<Asset<PrefabAsset>>(
+                 "prefab '{}' was written but does not load back; see the load error above", file.string() );
+        return Common::MakeSuccess( std::move( created ) );
     }
 
     void PrefabAsset::CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager )

@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/MaterialPipelineStates.hpp>
 
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -239,6 +240,9 @@ namespace Desert::Graphic
         }
 
         auto ddm = std::make_shared<DataDrivenMaterial>( shaderName );
+        // ON LOAD, not at the first draw (AL1-12, UE's PSO precache): every renderer starts this shader's
+        // pipeline compile on a worker from its next frame, so it has usually landed before the mesh is seen.
+        MaterialPipelineRequests::Get().Request( shaderName );
         if ( const auto* pbr = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
             ApplyShaderAsset( *ddm, *pbr );
         return ddm;

@@ -574,46 +574,33 @@ namespace Desert::Editor
                      Common::Filepath( m_PrefabSavePath ) /
                      ( tag + std::string( Common::Constants::Extensions::PREFAB_EXTENSION ) );
 
-                // Register in AssetManager (skip Load — we populate via CreateFromEntity)
-                auto newPrefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>( fullPath, false );
+                // The user types this path by hand, so its directory may not exist at all. Created here;
+                // the entity is only tagged as an instance once the file is really there.
+                std::error_code dirEc;
+                std::filesystem::create_directories( fullPath.parent_path(), dirEc );
 
-                if ( newPrefab )
+                // Entity is a handle: the copy names the same registry row, so nothing here needs
+                // the panel's const reference made mutable.
+                const ECS::Entity sourceEntity = selectedEntity;
+                const auto  saved =
+                     Assets::PrefabAsset::SaveNewFromEntity( sourceEntity, *m_AssetManager, fullPath );
                 {
-                    newPrefab->CreateFromEntity( const_cast<ECS::Entity&>( selectedEntity ), *m_AssetManager );
-
-                    // The user types this path by hand, so its directory may not exist at all — and an
-                    // ofstream into a missing directory writes NOTHING, silently. Created here, checked
-                    // below, and the entity is only tagged as an instance once the file is really there.
-                    std::error_code dirEc;
-                    std::filesystem::create_directories( fullPath.parent_path(), dirEc );
-
-                    const auto        serializedText = newPrefab->Serialize();
-                    const std::string serialized     = serializedText ? serializedText.GetValue() : std::string();
-                    const auto        written =
-                         ( serializedText
-                                ? Common::Utils::FileSystem::WriteContentToFileAtomic( fullPath, serialized )
-                                : Common::MakeError<bool>( serializedText.GetError() ) );
-                    if ( !written )
+                    if ( !saved )
                     {
                         LOG_ERROR( "[Prefab] '{}' was NOT written: {} — the entity is unchanged and is "
                                    "NOT marked as a prefab instance.",
-                                   fullPath.string(), written.GetError() );
+                                   fullPath.string(), saved.GetError() );
                     }
                     else
                     {
                         // Tag the source entity as a prefab instance so the hierarchy panel shows it
-                        auto& sourceEntity = const_cast<ECS::Entity&>( selectedEntity );
                         auto& pc           = sourceEntity.HasComponent<ECS::PrefabComponent>()
                                                   ? sourceEntity.GetComponent<ECS::PrefabComponent>()
                                                   : sourceEntity.AddComponent<ECS::PrefabComponent>();
-                        pc.Prefab          = newPrefab->GetMetadata().Handle;
+                        pc.Prefab          = saved.GetValue()->GetMetadata().Handle;
 
                         LOG_INFO( "Prefab saved: {0}", fullPath.string() );
                     }
-                }
-                else
-                {
-                    LOG_ERROR( "Failed to create prefab asset at: {0}", fullPath.string() );
                 }
 
                 ImGui::CloseCurrentPopup();

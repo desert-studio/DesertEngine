@@ -369,7 +369,13 @@ namespace
 
              // ── mesh geometry, shadows and the selection outline ────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
-               "\"GenericMesh_\" + shaderName", Verdict::Shipped, "" },
+               "\"GenericMesh_\" + shader->GetName()", Verdict::Shipped,
+               "a material's own pipeline, requested when the material loads and compiled on a worker; "
+               "the reveal draws with DefaultSurfaceFallback below until it is ready" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp",
+               "\"DefaultSurfaceFallback\"", Verdict::Shipped,
+               "the engine stand-in pipeline every mesh draws with until its own material's pipeline "
+               "finishes compiling; the product needs it every frame a material hasn't loaded yet" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"SkinnedMesh_Load\"",
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "\"StaticMeshGeometry\"",

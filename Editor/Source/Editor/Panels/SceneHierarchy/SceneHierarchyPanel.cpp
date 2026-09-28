@@ -5,6 +5,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/FoliageFieldEntities.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -234,8 +235,11 @@ namespace Desert::Editor
         Utils::ImGuiUtilities::PushID();
 
         std::string uuidStr     = UUID.ToString();
-        bool        hasChildren = entity.HasComponent<ECS::RelationshipComponent>() &&
-                           !entity.GetComponent<ECS::RelationshipComponent>().Children.empty();
+        // A foliage field's children are the prefab instances it realizes (derived state): the field row
+        // is listed, they are not (UE's bHideFromSceneOutliner on the actors foliage spawns).
+        const bool hasChildren = entity.HasComponent<ECS::RelationshipComponent>() &&
+                                 !entity.GetComponent<ECS::RelationshipComponent>().Children.empty() &&
+                                 !ECS::HidesChildrenFromOutliner( *entity.GetRegistry(), entity.GetHandle() );
 
         m_VisibleOrder.push_back( UUID ); // visible draw order (Shift+click range source)
 
@@ -1084,36 +1088,24 @@ namespace Desert::Editor
                 std::error_code ec;
                 fs::create_directories( fs::path( m_SavePrefabPath ).parent_path(), ec );
 
-                auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( m_SavePrefabPath );
-                if ( !prefabAsset )
-                    prefabAsset = m_AssetManager->CreateAsset<Assets::PrefabAsset>(
-                         m_SavePrefabPath,
-                         /*loadAfterCreate=*/false ); // the file does not exist yet — we are creating it
-
-                if ( !prefabAsset )
+                const ECS::Entity root  = entityRef->get();
+                const auto        saved = Assets::PrefabAsset::SaveNewFromEntity( root, *m_AssetManager,
+                                                                                  Common::Filepath( m_SavePrefabPath ) );
                 {
-                    s_error = "Could not create the prefab asset.";
-                }
-                else
-                {
-                    ECS::Entity root = entityRef->get();
-                    prefabAsset->CreateFromEntity( root, *m_AssetManager );
-                    const auto written = prefabAsset->SaveTo( Common::Filepath( m_SavePrefabPath ) );
-
-                    if ( !written )
+                    if ( !saved )
                     {
                         // The PrefabComponent below is NOT attached on a failed write. It would make
                         // the live entity declare itself an instance of a file that does not exist —
                         // the hierarchy draws it with a prefab badge, "Revert to Prefab" reverts it to
                         // nothing, and the next scene save persists the dangling reference.
-                        s_error = "The prefab file was NOT written: " + written.GetError();
+                        s_error = "The prefab file was NOT written: " + saved.GetError();
                     }
                     else
                     {
                         // Mark the live entity as an instance of the prefab it was just saved as.
                         if ( !root.HasComponent<ECS::PrefabComponent>() )
                             root.AddComponent<ECS::PrefabComponent>();
-                        root.GetComponent<ECS::PrefabComponent>().Prefab = prefabAsset->GetMetadata().Handle;
+                        root.GetComponent<ECS::PrefabComponent>().Prefab = saved.GetValue()->GetMetadata().Handle;
 
                         LOG_INFO( "[Prefab] Saved '{}' -> {}", root.GetComponent<ECS::TagComponent>().Tag,
                                   m_SavePrefabPath );
