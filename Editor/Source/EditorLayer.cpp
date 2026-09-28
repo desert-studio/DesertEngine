@@ -193,6 +193,7 @@
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/ModelingStateProperties.hpp>
+#include <Editor/Core/Selection/SelectionTransformProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
@@ -2398,6 +2399,17 @@ namespace Desert::Editor
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Modeling )].Name,
                               Core::DescribeModelingState( Core::ModelingState::Get() ) ) );
                 }
+                if ( request.Whose == Control::Subject::Selection )
+                {
+                    const auto selected = SelectedTransform();
+                    if ( !selected )
+                        return Control::Response::Failure( request.Id, selected.GetError() );
+                    return Control::Response::Success(
+                         request.Id,
+                         Control::PropertiesToJson(
+                              Control::kSubjects[static_cast<std::size_t>( Control::Subject::Selection )].Name,
+                              Core::DescribeSelectionTransform( selected.GetValue().second ) ) );
+                }
                 if ( request.Whose == Control::Subject::Viewport )
                 {
                     ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
@@ -2431,6 +2443,25 @@ namespace Desert::Editor
             {
                 if ( request.Whose == Control::Subject::Viewport )
                     return SetViewportCameraProperty( request );
+                if ( request.Whose == Control::Subject::Selection )
+                {
+                    // One undo step, the TransformCommand a gizmo drag records: the new values are written,
+                    // then RecordTransformEdit reads them back as the "after" of the step.
+                    const auto selected = SelectedTransform();
+                    if ( !selected )
+                        return Control::Response::Failure( request.Id, selected.GetError() );
+                    const auto& [uuid, before] = selected.GetValue();
+                    const auto after = Core::WriteSelectionTransform( before, request.Property, request.Value );
+                    if ( !after )
+                        return Control::Response::Failure( request.Id, after.GetError() );
+                    ECS::Entity entity = m_MainScene->FindEntityByID( uuid )->get();
+                    auto&       tc     = entity.GetComponent<ECS::TransformComponent>();
+                    tc.Translation = after.GetValue().Translation;
+                    tc.Rotation    = after.GetValue().Rotation;
+                    tc.Scale       = after.GetValue().Scale;
+                    Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
+                    return Control::Response::Success( request.Id );
+                }
                 if ( request.Whose == Control::Subject::Modeling )
                 {
                     if ( const auto written = Core::SetModelingStateProperty( Core::ModelingState::Get(),
@@ -2526,6 +2557,27 @@ namespace Desert::Editor
     {
         camera.SnapToDirection( glm::normalize( forward ) );
         camera.Focus( ViewportCameraFocalPoint( position, forward ), kViewportCameraFramingDistance );
+    }
+
+    Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> EditorLayer::SelectedTransform() const
+    {
+        using Result = std::pair<Common::UUID, Core::SelectionTransform>;
+        if ( Core::SelectionManager::Count() != 1 || !Core::SelectionManager::GetSelected().has_value() )
+            return Common::MakeFormattedError<Result>(
+                 "the selection subject is one selected entity, and {} are selected. Select one first: 'run "
+                 "Entity <tag>'.",
+                 Core::SelectionManager::Count() );
+        const Common::UUID uuid = *Core::SelectionManager::GetSelected();
+        const auto         ref  = m_MainScene ? m_MainScene->FindEntityByID( uuid ) : std::nullopt;
+        if ( !ref )
+            return Common::MakeFormattedError<Result>( "the selected entity {} is not in the scene",
+                                                       static_cast<uint64_t>( uuid ) );
+        ECS::Entity entity = ref->get();
+        if ( !entity.HasComponent<ECS::TransformComponent>() )
+            return Common::MakeFormattedError<Result>( "the selected entity {} has no transform",
+                                                       static_cast<uint64_t>( uuid ) );
+        const auto& tc = entity.GetComponent<ECS::TransformComponent>();
+        return Common::MakeSuccess( Result{ uuid, Core::SelectionTransform{ tc.Translation, tc.Rotation, tc.Scale } } );
     }
 
     Control::Response EditorLayer::SetViewportCameraProperty( const Control::Request& request )

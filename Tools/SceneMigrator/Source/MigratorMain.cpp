@@ -278,17 +278,12 @@ namespace
         return static_cast<bool>( written );
     }
 
-    // A partitioned world is written as its header plus one file per entity, by the engine's own writer, so a
-    // migrated world and a world the editor saved are laid out alike, file for file.
-    bool WriteExternal( const std::filesystem::path& path, const std::string& json, std::ostream& err )
+    // A SCENE goes through the engine's one scene writer (ExternalEntities::WriteSceneFile), partitioned or not, so a
+    // migrated scene and a scene the editor saved are laid out alike, file for file: a partitioned world as its
+    // header plus one file per entity, any other scene whole and canonical.
+    bool WriteScene( const std::filesystem::path& path, const std::string& json, std::ostream& err )
     {
-        const auto document = Common::Json::TextDocument::Parse( json );
-        if ( !document )
-        {
-            err << "FAIL   " << path.string() << " — " << document.GetError() << "\n";
-            return false;
-        }
-        const auto written = Desert::Core::ExternalEntities::WriteSceneFile( path, document.GetValue() );
+        const auto written = Desert::Core::ExternalEntities::WriteSceneText( path, json );
         if ( !written )
             err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
         return static_cast<bool>( written );
@@ -373,8 +368,11 @@ namespace
         return true;
     }
 
+    using TextWriter = bool ( * )( const std::filesystem::path&, const std::string&, std::ostream& );
+
+    // `write` is WriteScene for a scene (the one scene writer) and WriteText for every other text asset.
     Layout RelayOutIfNeeded( const std::filesystem::path& path, const std::string& source, bool check,
-                             std::ostream& out, std::ostream& err )
+                             std::ostream& out, std::ostream& err, TextWriter write = WriteText )
     {
         if ( Common::Content::IsCanonicalJsonText( source ) )
             return Layout::Canonical;
@@ -383,7 +381,7 @@ namespace
             out << "WOULD  " << path.string() << " — text layout only (canonical text), version unchanged\n";
             return Layout::Relaid;
         }
-        if ( !WriteText( path, source, err ) )
+        if ( !write( path, source, err ) )
         {
             err << "FAIL   " << path.string() << " — the layout could not be written; the original file is "
                 << "untouched\n";
@@ -838,7 +836,7 @@ namespace Desert::Migration
                         << Desert::Migration::kSceneVersion << " (one file per entity)\n";
                     continue;
                 }
-                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err, WriteScene );
                      layout != Layout::Canonical )
                 {
                     ++( layout == Layout::Failed ? failed : relaid );
@@ -872,8 +870,7 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( !( partitioned ? WriteExternal( path, rfl::json::write( parsed.value() ), err )
-                                : WriteText( path, rfl::json::write( parsed.value() ), err ) ) )
+            if ( !WriteScene( path, rfl::json::write( parsed.value() ), err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched\n";

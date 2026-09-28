@@ -31,7 +31,10 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Common/Json/Carry.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -42,7 +45,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <cctype>
 #include <cstring>
@@ -284,7 +289,9 @@ TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
 
     // Cell (1,1) of a 2-cell world and cell (2,2) of a 4-cell world are the SAME cell: both are the one
     // whose origin is (0,0), because the grid is centred. Their buildings must be identical in everything
-    // but the entity id and the tag, which are positional by construction.
+    // but the entity id, the tag and the sibling index, which are positional by construction: siblingIndex
+    // is the record's place in the scene's tree order (a root's is its place among ALL roots, as the editor's
+    // saver numbers it), and a bigger world has more cells ahead of this one, so it is not content.
     const auto payloads = []( const SceneSerialized& scene, const std::string& tagPrefix )
     {
         std::vector<std::string> found;
@@ -294,6 +301,7 @@ TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
                 auto copy = entity;
                 copy.id   = std::nullopt;
                 copy.Tag  = std::nullopt;
+                copy.siblingIndex = std::nullopt;
                 found.push_back( Common::Json::Write( copy ) );
             }
         return found;
@@ -518,6 +526,116 @@ TEST( WorldSceneGenerator, TheSettingsBlockIsTheREFLECTIONTABLEAndNothingElse )
     std::set<std::string> stated;
     block.ForEachMember( [&]( std::string_view key, const Common::Json::Node& ) { stated.emplace( key ); } );
     EXPECT_EQ( stated, declared );
+}
+
+// A GENERATED WORLD IS ALREADY WHAT THE EDITOR SAVES (WP16c). Opening a generated world and pressing Ctrl+S
+// with nothing edited must move no byte: otherwise the first save of a partitioned world rewrites every entity
+// file, and the diff of the first real edit is the whole world. SceneSerializer::SaveToFile cannot be compiled
+// by a suite (it reaches the renderer through Scene.hpp), so this runs what the save RESTATES about a record
+// and a Settings block, on the loader's input, and then the saver's own composition and the one scene writer:
+//   - siblingIndex: the loader creates records in sibling order (SceneStitchRules: siblingIndex, then file
+//     order), so a parent's Children grow in that order; the saver numbers a root by the running count of
+//     roots and a child by its place in its parent's Children (SceneSerializer.cpp SiblingIndexOf);
+//   - Settings: read into SceneSettings and written back with an asset resolver, as the load and the save do;
+//     a world that names no settings asset gets the resolver's answer for handle 0 ("" for GUID and path).
+namespace
+{
+    Desert::Reflection::AssetResolver ResolverOfAWorldThatNamesNoSettingsAsset()
+    {
+        Desert::Reflection::AssetResolver resolver;
+        resolver.ToPath   = []( uint64_t, const std::string& ) { return std::string(); };
+        resolver.ToGuid   = []( uint64_t, const std::string& ) { return std::string(); };
+        resolver.FromPath = []( const std::string&, const std::string& ) { return uint64_t{ 0 }; };
+        resolver.FromGuid = []( uint64_t, const std::string& ) { return uint64_t{ 0 }; };
+        return resolver;
+    }
+
+    void RestateAsTheEditorSaves( SceneSerialized& tree )
+    {
+        std::vector<std::size_t> created( tree.Entities.size() );
+        for ( std::size_t i = 0; i < created.size(); ++i )
+            created[i] = i;
+        std::stable_sort( created.begin(), created.end(),
+                          [&tree]( std::size_t a, std::size_t b )
+                          {
+                              return tree.Entities[a].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() ) <
+                                     tree.Entities[b].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
+                          } );
+        std::map<uint64_t, uint32_t> childrenSoFar;
+        uint32_t                     nextRootIndex = 0;
+        for ( const std::size_t i : created )
+        {
+            auto& record = tree.Entities[i];
+            record.siblingIndex =
+                 record.parent ? childrenSoFar[static_cast<uint64_t>( *record.parent )]++ : nextRootIndex++;
+        }
+
+        const auto* type = Desert::Reflection::ReflectionRegistry::Get().Find( "SceneSettings" );
+        ASSERT_NE( type, nullptr ) << "the reflection table this suite reads is empty";
+        ASSERT_TRUE( tree.Settings.has_value() );
+        const auto               resolver = ResolverOfAWorldThatNamesNoSettingsAsset();
+        Desert::Core::SceneSettings values;
+        Common::Json::Issues        issues;
+        Desert::Reflection::DeserializeReflected(
+             *type, &values, Common::Json::Root( *tree.Settings, Common::Json::Path().Key( "Settings" ) ), issues,
+             &resolver );
+        EXPECT_TRUE( issues.empty() );
+        tree.Settings = Common::Json::Value( Desert::Reflection::SerializeReflected( *type, &values, &resolver ) );
+    }
+
+    std::map<std::string, std::string> FilesBelow( const std::filesystem::path& dir )
+    {
+        std::map<std::string, std::string> files;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( dir ) )
+            if ( entry.is_regular_file() )
+                files[entry.path().lexically_relative( dir ).generic_string()] = ReadAll( entry.path() );
+        return files;
+    }
+} // namespace
+
+TEST( WorldSceneGenerator, OpeningAndSavingAGeneratedWorldWithNoEditChangesNoFile )
+{
+    const auto dir = Scratch() / "editor_save";
+    std::filesystem::remove_all( dir );
+    std::filesystem::create_directories( dir );
+    const auto               out = dir / "world.desce";
+    const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
+                                         "--preset", "smoke",      "--partition" };
+    std::ostringstream       reported;
+    std::ostringstream       refused;
+    ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
+    const auto generated = FilesBelow( dir );
+    ASSERT_GT( generated.size(), 2u ) << "a partitioned world is a header plus one file per entity";
+
+    // The open: the loader's joined document, kept for the save's foreign-key merge, and its typed tree.
+    const auto text = Desert::Core::ExternalEntities::ReadSceneFileText( out );
+    ASSERT_TRUE( text ) << text.GetError();
+    auto loaded = Common::Json::TextDocument::Parse( text.GetValue() );
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    auto typed = loaded.GetValue().AsDocument<SceneSerialized>();
+    ASSERT_TRUE( typed ) << typed.GetError();
+    SceneSerialized tree = typed.ExtractValue();
+    RestateAsTheEditorSaves( tree );
+
+    // The save: this build's tree composed onto the loaded document, written by the one scene writer.
+    auto names = std::make_shared<std::set<std::string>>();
+    for ( const auto& name : Common::Json::MemberNames<Desert::Assets::EntityData>() )
+        names->insert( std::string( name ) );
+    const auto document = Desert::Core::ComposeSceneDocument(
+         tree, loaded.GetValue(), [names]( const std::string& key ) { return names->count( key ) != 0; } );
+    ASSERT_TRUE( document ) << document.GetError();
+    const auto saved = Desert::Core::ExternalEntities::WriteSceneFile( out, document.GetValue() );
+    ASSERT_TRUE( saved ) << saved.GetError();
+
+    EXPECT_EQ( saved.GetValue().Written, 0u ) << "files the first save of an unedited generated world rewrote";
+    EXPECT_EQ( saved.GetValue().Removed, 0u );
+    const auto after = FilesBelow( dir );
+    ASSERT_EQ( after.size(), generated.size() );
+    std::size_t differing = 0;
+    for ( const auto& [file, bytes] : generated )
+        if ( after.count( file ) == 0 || after.at( file ) != bytes )
+            ++differing;
+    EXPECT_EQ( differing, 0u );
 }
 
 // ---------------------------------------------------------------------------------------------------
