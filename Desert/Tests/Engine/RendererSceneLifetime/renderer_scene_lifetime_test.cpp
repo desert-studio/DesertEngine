@@ -487,10 +487,12 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
     EXPECT_NE( reset.find( "m_SimSeconds = 0" ), std::string::npos );
     EXPECT_NE( reset.find( "ClearEmitterState(" ), std::string::npos );
 
-    // The wind: the ts the system is handed, nothing else.
+    // The wind: the scene's world clock step (TIME1's WorldTime, handed in through SetWorldTime), nothing else.
     const std::string wind = StripComments( EngineSource( "ECS/System/VolumetricCloudECSSystem.hpp" ) );
-    EXPECT_NE( wind.find( "AdvanceWind( data, ts.GetSeconds() )" ), std::string::npos )
-         << "the cloud wind no longer advances by the frame's gameplay timestep.";
+    EXPECT_NE( wind.find( "AdvanceWind( data, m_WorldDeltaSeconds )" ), std::string::npos )
+         << "the cloud wind no longer advances by the world clock's step.";
+    EXPECT_NE( wind.find( "m_WorldDeltaSeconds = time.GetDeltaSeconds()" ), std::string::npos )
+         << "the cloud wind's step no longer comes from WorldTime.";
 }
 
 // RELATION: a "have I built this?" latch and the container it says something about must be cleared
