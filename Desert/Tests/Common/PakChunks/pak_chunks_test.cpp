@@ -133,18 +133,15 @@ namespace
         bool                                      m_Opened = false;
     };
 
-    // Every regular file under the three roots a stable key can be minted from. This is the same
-    // universe the packager packs — ASSETS_PATH and COOKED_PATH are two of them and the third,
-    // RESOURCE_PATH, contains the shader, font and icon trees — and it is taken from
-    // `AssetHandle::ContentRoots()`'s own table rather than re-typed, so a root added there reaches
-    // this census in the same edit.
+    // Every regular file under the two roots a stable key can be minted from (AssetHandle::ContentRoots():
+    // ASSETS_PATH, and RESOURCE_PATH with the shader, font and icon trees). This is the same universe the
+    // packager packs.
     std::vector<fs::path> WalkContentTree()
     {
         std::vector<fs::path> files;
         std::set<fs::path>    seen;
         for ( const fs::path* root :
-              { &Common::Constants::Path::ASSETS_PATH, &Common::Constants::Path::COOKED_PATH,
-                &Common::Constants::Path::RESOURCE_PATH } )
+              { &Common::Constants::Path::ASSETS_PATH, &Common::Constants::Path::RESOURCE_PATH } )
         {
             std::error_code ec;
             if ( !fs::exists( *root, ec ) )

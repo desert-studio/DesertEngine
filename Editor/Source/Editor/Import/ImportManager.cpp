@@ -10,6 +10,7 @@
 #include "MaterialAdoption.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
@@ -51,19 +52,24 @@ namespace Desert::Editor
 
     namespace
     {
-        // A cooked file counts as up-to-date if it exists and isn't older than its source.
-        bool CookedFresh( const std::filesystem::path& source, const std::filesystem::path& cooked )
+        // A skinned import is current when its mesh exists and its rig states the hash of the source's CURRENT
+        // bytes (AF8b, the texture IMPT rule of AF7). Bytes, not times: the skinned assets are authored content
+        // committed beside their source, and a fresh checkout writes both in no particular order - an mtime
+        // test re-imported them at the first editor start and left the tree dirty.
+        bool SkinnedImportIsFresh( const std::filesystem::path& source )
         {
             std::error_code ec;
-            if ( !std::filesystem::exists( cooked, ec ) )
+            if ( !std::filesystem::exists( CookPaths::SkinnedAsset( source, ".skmesh" ), ec ) )
                 return false;
-            const auto cookedT = std::filesystem::last_write_time( cooked, ec );
-            if ( ec )
+            const auto text =
+                 Common::Utils::FileSystem::ReadFileContentIfExists( CookPaths::SkinnedAsset( source, ".skeleton" ) );
+            if ( !text || !text.GetValue() )
                 return false;
-            const auto srcT = std::filesystem::last_write_time( source, ec );
-            if ( ec )
+            const auto rig = Assets::Serialization::ReadSkeletonJson( *text.GetValue() );
+            if ( !rig || !rig.GetValue().Import )
                 return false;
-            return cookedT >= srcT;
+            const auto hash = Assets::HashMeshSourceFile( source );
+            return hash && rig.GetValue().Import->SourceHash == hash.GetValue();
         }
     } // namespace
 
@@ -78,13 +84,13 @@ namespace Desert::Editor
         // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when the mesh output is
         // current. A source produces either a static mesh envelope in the DDC (fresh by its IMPT content
         // hash - AF4h moved that envelope out from beside the source) or skinned assets beside the
-        // source (fresh by mtime, AF8b), so accept either. `force` (Rebuild Cooked Assets)
+        // source (fresh by the source hash their rig states, AF8b), so accept either. `force` (Rebuild Cooked Assets)
         // bypasses this. A mesh EDITED in the editor (P9b) is up to date whatever its source's bytes say: only
         // an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
         // re-imported behind the user's back), and that re-import says so (RemoveBesideSourceFile).
         if ( !force &&
              ( ImportedMeshAssetIsFresh( path ) || Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) ||
-               CookedFresh( path, SkinnedAssetPath( path, ".skmesh" ) ) ) )
+               SkinnedImportIsFresh( path ) ) )
             return CookVerdict::UpToDate;
 
         auto result = m_Importers[ext]->Import( path, *this );
@@ -255,6 +261,12 @@ namespace Desert::Editor
         auto stamped   = data;
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Skeleton,
                                                         Assets::Serialization::SkeletonTextSubsystems() );
+        // The rig carries the import's source hash: SkinnedImportIsFresh reads it back.
+        const auto hash = Assets::HashMeshSourceFile( sourcePath );
+        if ( !hash )
+            return Common::MakeError<bool>( hash.GetError() );
+        stamped.Import = Assets::Serialization::SkeletonImportInfo{ sourcePath.filename().generic_string(),
+                                                                    hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 

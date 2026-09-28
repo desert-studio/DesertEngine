@@ -655,9 +655,10 @@ TEST( AssetHandleStability, TheHashedKeyCarriesNoPartOfTheProjectRoot )
     EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "/opt/ci/checkout/Game/Assets/Clouds/Cumulus.dcnv" ),
                "assets:Clouds/Cumulus.dcnv" );
 
-    // And the cooked tree, which moves with the project the same way.
-    EXPECT_EQ( Common::AssetHandle::StableKeyForPath( "/opt/ci/checkout/Game/Cooked/Textures/T.tex" ),
-               "cooked:Textures/T.tex" );
+    // A Cooked folder is NOT a content root (AF8b): authored content lives under the assets root, and the
+    // only cooked tree is the packager's Saved/Cooked output, which no reference names. Its paths get no tag.
+    EXPECT_FALSE( Common::AssetHandle::StableKeyForPath( "/opt/ci/checkout/Game/Cooked/Textures/T.tex" )
+                       .starts_with( "cooked:" ) );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -666,8 +667,8 @@ TEST( AssetHandleStability, TheHashedKeyCarriesNoPartOfTheProjectRoot )
 // StableKeyForPath answers "where is this asset in the project", and that is precisely what a scene has
 // to write down about a texture: a raw filepath is absolute with a project open and carries a
 // developer's home directory into a committed file, and the assets-root-relative form the material and
-// cloud branches use cannot spell a COOKED asset at all, because Cooked/ is a SIBLING of the assets root
-// and the reduction comes out as `../Cooked/...`. PathForStableKey is that answer read back.
+// cloud branches use cannot spell an ENGINE asset at all, because Resources/ is not under the assets
+// root and the reduction comes out as `../...`. PathForStableKey is that answer read back.
 //
 // Forward and inverse are the classic pair that must agree, so the agreement is asserted rather than
 // hoped for — and asserted in BOTH directions, because either one alone is satisfiable by a function
@@ -682,8 +683,8 @@ TEST( AssetHandleStability, EveryRootsKeyExpandsBackToThePathItCameFrom )
     const std::vector<std::filesystem::path> subjects = {
          "/ann/work/Game/Content/Textures/T.png",
          "/ann/work/Game/Content/Clouds/Types/Cumulus.decloudtype",
-         "/ann/work/Game/Cooked/Textures/T.tex",
-         "/ann/work/Game/Cooked/Meshes/Rock.stmesh",
+         "/ann/work/Game/Content/Meshes/Skinned/Rock.skmesh",
+         "/ann/work/Game/Content/Animations/Walk.anim",
     };
 
     for ( const auto& path : subjects )
@@ -710,17 +711,17 @@ TEST( AssetHandleStability, AKeyExpandsAgainstTHISMachinesRootsAndNotTheOneThatW
     ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
-    const std::string written = Common::AssetHandle::StableKeyForPath( "/ann/work/Game/Cooked/Textures/T.tex" );
-    EXPECT_EQ( written, "cooked:Textures/T.tex" );
+    const std::string written = Common::AssetHandle::StableKeyForPath( "/ann/work/Game/Content/Textures/T.tex" );
+    EXPECT_EQ( written, "assets:Textures/T.tex" );
 
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Game", "Assets" );
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( written ).lexically_normal(),
-               std::filesystem::path( "/opt/ci/checkout/Game/Cooked/Textures/T.tex" ) );
+               std::filesystem::path( "/opt/ci/checkout/Game/Assets/Textures/T.tex" ) );
 
     // And the path the expansion produced is the one THIS machine derives the shared handle from, which
     // is what makes the reference actually resolve rather than merely look portable.
     EXPECT_EQ( HandleValue( Common::AssetHandle::PathForStableKey( written ) ),
-               HandleValue( "/opt/ci/checkout/Game/Cooked/Textures/T.tex" ) );
+               HandleValue( "/opt/ci/checkout/Game/Assets/Textures/T.tex" ) );
 }
 
 TEST( AssetHandleStability, AStringWithNoRootTagIsHandedBackUnchanged )
@@ -741,7 +742,7 @@ TEST( AssetHandleStability, AStringWithNoRootTagIsHandedBackUnchanged )
 
     // A tag with nothing after it names the ROOT, which is a directory and not an asset. Expanding it
     // would hand a caller a directory to load; it is treated as ordinary text instead.
-    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "cooked:" ), std::filesystem::path( "cooked:" ) );
+    EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:" ), std::filesystem::path( "assets:" ) );
 }
 
 TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
@@ -785,17 +786,18 @@ TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
     EXPECT_EQ( HandleValue( "SpellingProbe/Content/Types/../Clouds/Cumulus.dcnv" ), absolute );
 }
 
-TEST( AssetHandleStability, TheCookedTwinOfAnAssetIsNotTheSameAsset )
+TEST( AssetHandleStability, TheEngineTwinOfAnAssetIsNotTheSameAsset )
 {
-    // Why the key is tagged with its root. `Cooked/Textures/T.tex` and `Content/Textures/T.tex` both
-    // reduce to `Textures/T.tex`, so an untagged relative key would hand one handle to two files -- a
-    // collision that the old absolute-path hash could not produce and that a naive fix introduces.
+    // Why the key is tagged with its root. The engine's `Resources/Textures/T.tex` and the project's
+    // `Content/Textures/T.tex` both reduce to `Textures/T.tex`, so an untagged relative key would hand one
+    // handle to two files -- a collision that the old absolute-path hash could not produce and that a naive
+    // fix introduces.
     ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
 
     EXPECT_NE( HandleValue( "/ann/work/Game/Content/Textures/T.tex" ),
-               HandleValue( "/ann/work/Game/Cooked/Textures/T.tex" ) )
-         << "a content asset and a cooked asset at mirrored offsets collided onto one handle";
+               HandleValue( Common::Constants::Path::RESOURCE_PATH / "Textures/T.tex" ) )
+         << "a project asset and an engine resource at mirrored offsets collided onto one handle";
 }
 
 TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWithTheProject )

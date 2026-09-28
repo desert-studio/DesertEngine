@@ -15,10 +15,10 @@ namespace Desert::Core::Serialize
     // asset type appears below, so a new type still cannot be added without deciding.
     enum class StoredAssetForm
     {
-        // `cooked:Textures/T.tex` — the tagged stable key, verbatim. The only form that can name a
+        // `assets:Textures/T.tex` — the tagged stable key, verbatim. The only form that can name a
         // file under EITHER content root, which is why the texture slot and the three service types
-        // use it: a cooked texture lives under COOKED_PATH, a sibling of the assets root, where a
-        // path made relative to the assets root comes out as `../Cooked/...` and falls back to the
+        // use it: an engine texture lives under RESOURCE_PATH, outside the assets root, where a
+        // path made relative to the assets root comes out as a `..` chain and falls back to the
         // absolute spelling, i.e. to a developer's home directory in a committed file.
         StableKey,
         // `Materials/M_Rock.demat` — relative to the assets root, which is where this kind of content
