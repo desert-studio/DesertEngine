@@ -354,8 +354,8 @@ TEST( CookedRegistryGate, EveryRowWithAGuidIsKnownByItsGuidsFold )
 //
 // Noise volumes, hero-cloud bodies and painted layouts are no longer walked at boot; a process creates one
 // from its registry row when something names it by handle. A row of those kinds without a GUID could only
-// be found by path, which is the cook's refusal (AssetRegistryTool) -- asserted here on the corpus, and the
-// mutation below proves the check can fail.
+// be found by path, which is the cook's refusal (GamePackager GatherShippedRegistry) -- asserted here on
+// the corpus, and the mutation below proves the check can fail.
 TEST( CookedRegistryGate, EveryOnDemandRowStatesAGuid )
 {
     const fs::path root = RepoRoot();

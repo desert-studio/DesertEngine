@@ -16,6 +16,7 @@
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Content/ContentChunks.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -56,29 +57,28 @@ namespace Desert::Editor
             uintmax_t Bytes = 0;
         };
 
-        // Lists every file under `from` as ("<keyPrefix>/<relative>", source), skipping raw mesh
-        // sources and packing texture assets in their cooked form when asked (the project asset tree).
-        //
-        // IT COLLECTS INSTEAD OF WRITING, and that is the whole seam the chunked layout needed. It
-        // used to stream straight into one `PakWriter`, which fixed the number of archives at one in
-        // the only function that knows what the files are; now the list is built first and
-        // `WriteChunkedPaks` decides which archive each entry belongs to. Nothing else about the
-        // traversal changed.
-        // The pak key the cooked registry ships under — the one path the packager writes rather than collects.
+        // The pak key the cooked registry ships under — the one path the packager writes rather than stages.
         std::string ShippedRegistryKey()
         {
             return ( fs::path( Common::Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" )
                  .generic_string();
         }
 
-        bool CollectTree( const fs::path& from, const std::string& keyPrefix, bool skipRawMeshSources,
-                          std::vector<std::pair<std::string, fs::path>>& files, CopyStats& stats,
-                          std::string& error )
+        // Copies one census tree into the cooked tree at <cooked>/<PakKey>/<relative>, skipping raw mesh
+        // sources and staging texture assets in their cooked form when asked (the project asset tree).
+        // `staged` receives ("<PakKey>/<relative>", staged file) for the steps that cook from the staged
+        // content (the partitioned worlds). THE SOURCE TREES ARE READ HERE AND NOWHERE ELSE on the way to an
+        // archive: the packer walks only Saved/Cooked/<Platform> (CollectCookedTree), as UE's pak step reads
+        // only the cooker's output.
+        bool StageTree( const PackagedTree& tree, const fs::path& cooked,
+                        std::vector<std::pair<std::string, fs::path>>& staged, std::string& error )
         {
+            const fs::path& from = *tree.Tree;
             std::error_code ec;
             if ( !fs::exists( from, ec ) )
-                return true; // nothing to pack is fine (e.g. no Cooked/ yet)
+                return true; // nothing to stage is fine (e.g. no Cooked/ yet)
 
+            const std::string keyPrefix = tree.PakKey;
             for ( auto it = fs::recursive_directory_iterator( from, ec );
                   it != fs::recursive_directory_iterator(); it.increment( ec ) )
             {
@@ -90,7 +90,7 @@ namespace Desert::Editor
                 const fs::path& src = it->path();
                 if ( !it->is_regular_file() )
                     continue;
-                if ( skipRawMeshSources && IsRawMeshSource( src ) )
+                if ( tree.StripRawMeshSources && IsRawMeshSource( src ) )
                     continue;
 
                 const fs::path rel = fs::relative( src, from, ec );
@@ -99,35 +99,35 @@ namespace Desert::Editor
                     error = "cannot relativize " + src.string() + ": " + ec.message();
                     return false;
                 }
-                // A registry left on the disk from before the registry built itself (AF9) is not packed:
-                // the one the pak carries is written from this process's gather below, under the same key,
-                // and a stale copy would collide with it or, worse, be the one the game read.
-                if ( keyPrefix + "/" + rel.generic_string() == ShippedRegistryKey() )
+                if ( tree.EditorOnlySubtree != nullptr && rel.begin() != rel.end() &&
+                     *rel.begin() == tree.EditorOnlySubtree )
                     continue;
-                fs::path packed = src;
-                if ( skipRawMeshSources && src.extension() == Assets::kTextureAssetExtension )
+                const std::string key = keyPrefix + "/" + rel.generic_string();
+                // A registry left on the disk from before the registry built itself (AF9) is not staged:
+                // the one the pak carries is written from this process's gather, under the same key, and a
+                // stale copy would collide with it or, worse, be the one the game read.
+                if ( key == ShippedRegistryKey() )
+                    continue;
+                const fs::path target = cooked / key;
+                if ( tree.StripRawMeshSources && src.extension() == Assets::kTextureAssetExtension )
                 {
-                    auto staged = StageCookedTextureAsset( src, rel );
-                    if ( !staged.IsSuccess() )
+                    if ( auto written = StageCookedTextureAsset( src, target ); !written.IsSuccess() )
                     {
-                        error = staged.GetError();
+                        error = written.GetError();
                         return false;
                     }
-                    packed = staged.GetValue();
                 }
-                files.emplace_back( keyPrefix + "/" + rel.generic_string(), packed );
-                ++stats.Files;
-                // The error_code overload returns uintmax_t(-1) on failure, so an unchecked add here
-                // does not report a slightly wrong size — it reports 16 exabytes, and the package's own
-                // success message is where that lands. The file is already IN the archive at this point;
-                // only the reported total is affected, so this is a count that skips, not a failure.
-                // Its OWN error_code, not the walk's: the loop's `if ( ec )` at the top reads "the
-                // directory walk failed", and letting a size query write into that slot would report a
-                // walk failure for a file that was read perfectly well.
-                std::error_code sizeEc;
-                const auto      size = fs::file_size( packed, sizeEc );
-                if ( !sizeEc )
-                    stats.Bytes += size;
+                else
+                {
+                    fs::create_directories( target.parent_path(), ec );
+                    fs::copy_file( src, target, fs::copy_options::overwrite_existing, ec );
+                    if ( ec )
+                    {
+                        error = "cannot stage " + src.string() + " into " + target.string() + ": " + ec.message();
+                        return false;
+                    }
+                }
+                staged.emplace_back( key, target );
             }
             return true;
         }
@@ -160,11 +160,10 @@ namespace Desert::Editor
         // WorldCells::CookedWorldDirectory of the scene's key. Cooked here, from the scene as it is on disk, with
         // the registry the editor plans with — so the cells are the ones the editor's Play streams. A scene
         // file that states a partition and does not cook fails the package: the game would fail on it too.
-        bool CollectCookedWorlds( const std::vector<std::pair<std::string, fs::path>>& contentFiles,
-                                  std::vector<std::pair<std::string, std::string>>& baseBlobs, CopyStats& stats,
-                                  std::string& error )
+        bool CollectCookedWorlds( const std::vector<std::pair<std::string, fs::path>>& staged,
+                                  std::vector<std::pair<std::string, std::string>>& baseBlobs, std::string& error )
         {
-            for ( const auto& [key, path] : contentFiles )
+            for ( const auto& [key, path] : staged )
             {
                 if ( path.extension() != ".desce" )
                     continue;
@@ -197,8 +196,6 @@ namespace Desert::Editor
                 {
                     baseBlobs.emplace_back( directory + file.Name,
                                             std::string( file.Bytes.begin(), file.Bytes.end() ) );
-                    ++stats.Files;
-                    stats.Bytes += file.Bytes.size();
                 }
                 LOG_INFO( "[Package] world '{}' cooked into {} file(s) under '{}'", key,
                           cooked.GetValue().Files.size(), directory );
@@ -216,6 +213,98 @@ namespace Desert::Editor
                 return false;
             }
             blobs.emplace_back( Project::kPackagedDescriptorName, json );
+            return true;
+        }
+
+        // THE COOK'S SECOND HALF: everything a package ships, written into Saved/Cooked/<Platform> — the census
+        // trees (PackagedContentTrees.hpp), the registry this process gathered (AF9a: nothing in git carries
+        // one), the partitioned worlds cut into cells, and the regenerated descriptor. CookContentCaches has
+        // already wiped the tree and staged the DDC buckets into it. `baseKeys` receives the keys that must
+        // land in the base archive whatever the chunk plan says (registry, worlds, descriptor: the game reads
+        // them before it knows which chunks exist).
+        bool StageShippedContent( std::vector<std::string>& baseKeys, std::string& error )
+        {
+            const fs::path                                cooked = Common::DDC::PlatformCookedDir();
+            std::vector<std::pair<std::string, fs::path>> staged;
+            for ( const PackagedTree& tree : PackagedContentTrees() )
+                if ( !StageTree( tree, cooked, staged, error ) )
+                    return false;
+
+            std::vector<std::pair<std::string, std::string>> pinned;
+            pinned.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
+            if ( !CollectCookedWorlds( staged, pinned, error ) )
+                return false;
+            // A dev pak that carried content but no identity was an archive only the other entry point's
+            // output could be started from; both entry points stage the same descriptor.
+            if ( !CollectDescriptor( Project::ProjectContext::Current(), pinned, error ) )
+                return false;
+
+            std::error_code ec;
+            for ( const auto& [key, bytes] : pinned )
+            {
+                const fs::path target = cooked / key;
+                fs::create_directories( target.parent_path(), ec );
+                if ( auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( target, bytes );
+                     !written.IsSuccess() )
+                {
+                    error = "the cooked tree could not take '" + key + "': " + written.GetError();
+                    return false;
+                }
+                baseKeys.push_back( key );
+            }
+            return true;
+        }
+
+        // THE ONLY READ the archive is built from: every file under Saved/Cooked/<Platform>, keyed by its
+        // path relative to that tree. The base-pinned keys go into the base archive as blobs; the rest are
+        // divided by the chunk plan.
+        bool CollectCookedTree( const std::vector<std::string>&                   baseKeys,
+                                std::vector<std::pair<std::string, fs::path>>&    contentFiles,
+                                std::vector<std::pair<std::string, std::string>>& baseBlobs, CopyStats& stats,
+                                std::string& error )
+        {
+            const fs::path  cooked = Common::DDC::PlatformCookedDir();
+            std::error_code ec;
+            for ( auto it = fs::recursive_directory_iterator( cooked, ec );
+                  it != fs::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( ec )
+                {
+                    error = "walk failed under " + cooked.string() + ": " + ec.message();
+                    return false;
+                }
+                if ( !it->is_regular_file() )
+                    continue;
+                const std::string key =
+                     it->path().lexically_normal().lexically_relative( cooked ).generic_string();
+                if ( std::find( baseKeys.begin(), baseKeys.end(), key ) != baseKeys.end() )
+                {
+                    auto bytes = Common::Utils::FileSystem::ReadFileContent( it->path() );
+                    if ( !bytes.IsSuccess() )
+                    {
+                        error = "the cooked tree lost '" + key + "': " + bytes.GetError();
+                        return false;
+                    }
+                    stats.Bytes += bytes.GetValue().size();
+                    baseBlobs.emplace_back( key, std::move( bytes.GetValue() ) );
+                }
+                else
+                {
+                    contentFiles.emplace_back( key, it->path() );
+                    // The error_code overload returns uintmax_t(-1) on failure; a size that cannot be read
+                    // is a count that skips, not a failure — the file itself is packed.
+                    std::error_code sizeEc;
+                    const auto      size = fs::file_size( it->path(), sizeEc );
+                    if ( !sizeEc )
+                        stats.Bytes += size;
+                }
+                ++stats.Files;
+            }
+            if ( ec )
+            {
+                error = "the cooked tree " + cooked.string() + " cannot be read: " + ec.message();
+                return false;
+            }
             return true;
         }
 
@@ -392,6 +481,18 @@ namespace Desert::Editor
             for ( const std::string& refusal : refused )
                 text += "\n  " + refusal;
         }
+        // T2.7: a noise volume, hero-cloud body or painted layout is created from its row by GUID when a scene
+        // names it, so one reachable only by its path would ship as a reference nothing can resolve. (Checked
+        // here since AF8: the packager is the one writer of the shipped registry.)
+        const std::vector<std::string> pathOnly =
+             Common::Content::PathOnlyOnDemandRows( Assets::ContentRegistry::Get() );
+        if ( !pathOnly.empty() )
+        {
+            text += ( text.empty() ? "" : "\n" ) + std::to_string( pathOnly.size() ) +
+                    " on-demand content file(s) state no GUID, so the packaged game could not create them:";
+            for ( const std::string& problem : pathOnly )
+                text += "\n  " + problem;
+        }
         // A mesh cooked before its header stated its box would ship a row without one, and the game's world
         // partition would place it by its origin alone. The packager does not decode meshes (the standalone
         // tool does not link the mesh reader), so it names them instead of shipping them boxless.
@@ -565,23 +666,11 @@ namespace Desert::Editor
         Common::Content::ChunkedWriteStats               writtenArchives;
         std::string                                      divisionSummary;
         {
-            for ( const PackagedTree& tree : PackagedContentTrees() )
-                if ( !CollectTree( tree.Source, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats,
-                                   error ) )
-                    return { false, error, "" };
-
-            // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
-            // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
-            baseBlobs.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
-            if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
+            // Everything that ships is staged into the one cooked tree, then packed from it and from nothing else.
+            std::vector<std::string> baseKeys;
+            if ( !StageShippedContent( baseKeys, error ) ||
+                 !CollectCookedTree( baseKeys, contentFiles, baseBlobs, stats, error ) )
                 return { false, error, "" };
-
-            // FAILS THE PACKAGE, like every other step in this function: an archive without the
-            // descriptor is a folder of content the player cannot identify as a game, and the
-            // failure would land on somebody who has no sources.
-            if ( !CollectDescriptor( ProjectContext::Current(), baseBlobs, error ) )
-                return { false, error, "" };
-            ++stats.Files;
 
             const auto plan = PlanTheDivision( scheme.GetValue() );
             if ( !plan )
@@ -854,26 +943,14 @@ namespace Desert::Editor
         CopyStats   stats;
         std::string error;
 
-        // The same census PackageGame packs — one list, two entry points (see PackagedContentTrees.hpp).
+        // The same cooked tree PackageGame packs — one staging, two entry points — so "a .dpak this tree
+        // produced" means ONE thing rather than two, descriptor and registry included.
         std::vector<std::pair<std::string, fs::path>>    contentFiles;
         std::vector<std::pair<std::string, std::string>> baseBlobs;
-        for ( const PackagedTree& tree : PackagedContentTrees() )
-            if ( !CollectTree( tree.Source, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats, error ) )
-                return { false, error, "" };
-
-        // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
-        // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
-        baseBlobs.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
-        if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
+        std::vector<std::string>                         baseKeys;
+        if ( !StageShippedContent( baseKeys, error ) ||
+             !CollectCookedTree( baseKeys, contentFiles, baseBlobs, stats, error ) )
             return { false, error, "" };
-
-        // ...and the same descriptor, so "a .dpak this tree produced" means ONE thing rather than two.
-        // A dev pak that carried content but no identity was an archive only the other entry point's
-        // output could be started from, and the difference between the two would be discovered by
-        // whoever dropped a Runtime beside this one and got "No game to run".
-        if ( !CollectDescriptor( ProjectContext::Current(), baseBlobs, error ) )
-            return { false, error, "" };
-        ++stats.Files;
 
         // AND THE SAME DIVISION. A dev archive set that was not divided the way the shipped one is
         // would make the developer's runtime read a layout no player ever gets, which is the one

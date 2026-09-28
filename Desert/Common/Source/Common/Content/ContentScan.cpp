@@ -163,8 +163,8 @@ namespace Common::Content
         // problem without naming the command that fixes it is a gate people learn to disable.
         constexpr const char* kRemedy =
              " Fix: gather again - restart the editor (it gathers the content roots at start), or "
-             "`cd Editor && ../build/Bin/Debug/AssetRegistryTool cook Desert.deproj` for a cooked copy in "
-             "Saved/Cooked/<Platform>. The registry is gathered, never committed.";
+             "`cd Editor && ../build/Bin/Debug/AssetRegistryTool list Desert.deproj` to see the rows a gather "
+             "makes. The registry is gathered, never committed.";
     } // namespace
 
     std::optional<ContentKind> KindOfContentFile( const std::filesystem::path& file )

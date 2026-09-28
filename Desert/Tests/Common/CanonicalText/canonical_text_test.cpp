@@ -278,11 +278,10 @@ namespace
                         ".deproj and the projects registry" },
          NotATextAsset{ "Desert/Desert/Source/Engine/Assets/ContentRegistry.hpp", "the cooked content registry" },
          NotATextAsset{ "Editor/Source/Editor/Packaging/GamePackager.cpp",
-                        "package manifest, ICD json, launcher" },
+                        "package manifest, ICD json, launcher, the cooked registry and descriptor" },
          NotATextAsset{ "Editor/Source/Editor/Core/EditorPreferences.cpp", "editor preferences" },
          NotATextAsset{ "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp",
                         "a collection apply record" },
-         NotATextAsset{ "Tools/AssetRegistryTool/Source/Main.cpp", "the asset registry" },
          NotATextAsset{ "Tools/PakTool/Source/Main.cpp", "pak contents and its listing" },
     };
 
