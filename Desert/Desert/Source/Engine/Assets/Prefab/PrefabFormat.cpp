@@ -80,8 +80,15 @@ namespace Desert::Assets
     Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab, const Common::Content::AssetGuid& identity )
     {
         if ( !identity.IsNull() )
-            prefab.Header = Common::Content::TextAssetHeaderSerialized{
-                 .Guid = Common::Content::AssetGuidToText( identity ) };
+        {
+            // Kind, Versions and Dependencies are the stamp's to write (WritePrefabJson below); only the
+            // identity is carried in.
+            prefab.Header =
+                 Common::Content::TextAssetHeaderSerialized{ .Kind = {},
+                                                             .Guid = Common::Content::AssetGuidToText( identity ),
+                                                             .Versions     = {},
+                                                             .Dependencies = {} };
+        }
         return WritePrefabJson( std::move( prefab ) );
     }
 

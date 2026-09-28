@@ -237,9 +237,9 @@ namespace Desert::Editor
         std::string uuidStr     = UUID.ToString();
         // A foliage field's children are the prefab instances it realizes (derived state): the field row
         // is listed, they are not (UE's bHideFromSceneOutliner on the actors foliage spawns).
-        bool hasChildren = entity.HasComponent<ECS::RelationshipComponent>() &&
-                           !entity.GetComponent<ECS::RelationshipComponent>().Children.empty() &&
-                           !ECS::HidesChildrenFromOutliner( *entity.GetRegistry(), entity.GetHandle() );
+        const bool hasChildren = entity.HasComponent<ECS::RelationshipComponent>() &&
+                                 !entity.GetComponent<ECS::RelationshipComponent>().Children.empty() &&
+                                 !ECS::HidesChildrenFromOutliner( *entity.GetRegistry(), entity.GetHandle() );
 
         m_VisibleOrder.push_back( UUID ); // visible draw order (Shift+click range source)
 
@@ -1089,7 +1089,7 @@ namespace Desert::Editor
                 std::error_code ec;
                 fs::create_directories( fs::path( m_SavePrefabPath ).parent_path(), ec );
 
-                ECS::Entity root  = entityRef->get();
+                const ECS::Entity root  = entityRef->get();
                 const auto  saved = Assets::PrefabAsset::SaveNewFromEntity( root, *m_AssetManager,
                                                                             Common::Filepath( m_SavePrefabPath ) );
                 {

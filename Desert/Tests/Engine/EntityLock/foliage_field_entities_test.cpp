@@ -54,7 +54,7 @@ namespace
 
 TEST( FoliageFieldEntities, TheOutlinerHidesAFieldsChildrenAndNoOtherEntitys )
 {
-    FieldFixture f;
+    const FieldFixture f;
     EXPECT_TRUE( HidesChildrenFromOutliner( f.Registry, f.Field ) );
     EXPECT_FALSE( HidesChildrenFromOutliner( f.Registry, f.Prop ) );
     EXPECT_FALSE( HidesChildrenFromOutliner( f.Registry, f.Instance ) );
@@ -63,7 +63,7 @@ TEST( FoliageFieldEntities, TheOutlinerHidesAFieldsChildrenAndNoOtherEntitys )
 
 TEST( FoliageFieldEntities, AHitOnAnyPartOfAPlacedInstanceIsOwnedByTheField )
 {
-    FieldFixture f;
+    const FieldFixture f;
     EXPECT_EQ( OwningFoliageField( f.Registry, f.Instance ), f.Field );
     EXPECT_EQ( OwningFoliageField( f.Registry, f.Part ), f.Field ) << "a submesh of an instance must promote too";
 

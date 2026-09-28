@@ -579,8 +579,11 @@ namespace Desert::Editor
                 std::error_code dirEc;
                 std::filesystem::create_directories( fullPath.parent_path(), dirEc );
 
-                const auto saved = Assets::PrefabAsset::SaveNewFromEntity(
-                     const_cast<ECS::Entity&>( selectedEntity ), *m_AssetManager, fullPath );
+                // Entity is a handle: the copy names the same registry row, so nothing here needs
+                // the panel's const reference made mutable.
+                ECS::Entity sourceEntity = selectedEntity;
+                const auto  saved =
+                     Assets::PrefabAsset::SaveNewFromEntity( sourceEntity, *m_AssetManager, fullPath );
                 {
                     if ( !saved )
                     {
@@ -591,7 +594,6 @@ namespace Desert::Editor
                     else
                     {
                         // Tag the source entity as a prefab instance so the hierarchy panel shows it
-                        auto& sourceEntity = const_cast<ECS::Entity&>( selectedEntity );
                         auto& pc           = sourceEntity.HasComponent<ECS::PrefabComponent>()
                                                   ? sourceEntity.GetComponent<ECS::PrefabComponent>()
                                                   : sourceEntity.AddComponent<ECS::PrefabComponent>();

@@ -1,6 +1,7 @@
 #include "PrefabAsset.hpp"
 #include "PrefabFormat.hpp"
 #include "PrefabPlacement.hpp"
+#include <optional>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
@@ -143,18 +144,16 @@ namespace Desert::Assets
             return Common::MakeFormattedError<Asset<PrefabAsset>>( "prefab '{}' not saved: no entity to capture",
                                                                    file.string() );
 
-        if ( Asset<PrefabAsset> registered = assetManager.FindByPath<PrefabAsset>( file ) )
-        {
-            registered->CreateFromEntity( root, assetManager );
-            if ( const auto written = registered->SaveTo( file ); !written )
-                return Common::MakeError<Asset<PrefabAsset>>( written.GetError() );
-            return Common::MakeSuccess( std::move( registered ) );
-        }
-
-        PrefabAsset draft( AssetPriority::High, file );
-        draft.CreateFromEntity( root, assetManager );
-        if ( const auto written = draft.SaveTo( file ); !written )
+        // A path the manager already holds is re-captured in place, so its GUID (and every reference to it)
+        // survives; a new path is captured into a draft that only exists to be written.
+        Asset<PrefabAsset>         registered = assetManager.FindByPath<PrefabAsset>( file );
+        std::optional<PrefabAsset> draft;
+        PrefabAsset&               target = registered ? *registered : draft.emplace( AssetPriority::High, file );
+        target.CreateFromEntity( root, assetManager );
+        if ( const auto written = target.SaveTo( file ); !written )
             return Common::MakeError<Asset<PrefabAsset>>( written.GetError() );
+        if ( registered )
+            return Common::MakeSuccess( std::move( registered ) );
 
         Asset<PrefabAsset> created = assetManager.CreateAsset<PrefabAsset>( AssetPriority::High, file );
         if ( !created )
