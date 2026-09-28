@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "0c42ee850e95277f8d732c3c69595870",
         "Versions": {
-            "SCNE": 39,
+            "SCNE": 40,
             "UNIT": 1
         },
         "Dependencies": []
@@ -617,6 +617,10 @@
     "Settings": {
         "RenderingPath": 1,
         "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashSprite": {
             "Guid": "",
             "Path": ""

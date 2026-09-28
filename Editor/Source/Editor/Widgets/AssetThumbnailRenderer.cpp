@@ -130,7 +130,7 @@ namespace Desert::Editor
         // captures through `scene.GetMainCamera()`. So the camera that takes the picture is the engine's
         // default editor camera, owned by the engine, positioned by the engine's own defaults.
         //
-        // There USED to be a `ThumbCam` entity here carrying a CameraComponent with IsMainCamera = true,
+        // There USED to be a `ThumbCam` entity here carrying a CameraComponent with AutoActivateForPlayer = true,
         // which read as the thing that made the capture work and was in fact inert. A scene
         // CameraComponent is a GAME camera: the only code that turns one into a camera object is
         // Scene::FindMainCamera (which nothing in the repository calls) and Scene::UpdateActiveCameraSource,

@@ -84,6 +84,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "R
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
 // runs, and they were invisible. See MakeCharacterControllerEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
+// UE's APlayerStart: where Play puts the pawn (Core::ChoosePlayerStart); a tag and nothing else.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
 // piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line

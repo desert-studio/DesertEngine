@@ -22,6 +22,7 @@
 // is the editor's and the developer's door, never a shipped one, and it overrides the discovery above.
 // Launch via scripts/MacOS/RunRuntime.sh.
 
+#include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/EntryPoint.hpp>
 #include <Engine/Project/ProjectContext.hpp>
@@ -50,7 +51,8 @@
 
 namespace Desert::Player
 {
-    static std::string s_SceneOverride;
+    static std::string       s_SceneOverride;
+    static Core::PlayRequest s_PlayRequest;
 
     class RuntimeApp : public Engine::Application
     {
@@ -61,7 +63,7 @@ namespace Desert::Player
 
         void OnCreate() override
         {
-            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, this ) );
+            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this ) );
         }
 
         void OnDestroy() override
@@ -104,6 +106,16 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
             crashTestArg = argv[++i];
 #endif
+    }
+
+    // `--player-start <tag>`: which tagged PlayerStart the first level spawns the player at. A pure parse
+    // with a test of its own (PlayRequestFromArgs); a malformed one is fatal, as `--shot` is below.
+    {
+        const std::vector<std::string> args( argv + ( argc > 0 ? 1 : 0 ), argv + argc );
+        auto                           request = Desert::Core::PlayRequestFromArgs( args );
+        if ( !request )
+            FailStartup( request.GetError(), 2 );
+        Desert::Player::s_PlayRequest = request.ExtractValue();
     }
 
     // THE ONLY WAY TO PHOTOGRAPH THE PROCESS A PLAYER STARTS. Parsed from a vector rather than from

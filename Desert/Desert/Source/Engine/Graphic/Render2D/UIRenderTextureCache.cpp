@@ -178,6 +178,10 @@ namespace Desert::Graphic::Render2D
             capture.Scene->GetRegistry().get<ECS::SkyAtmosphereComponent>( entity ).RequestBake = true;
         }
 
+        // The captured world is seen the way its player sees it: its AutoActivateForPlayer camera (a
+        // render-texture world spawns no pawn). A world that names none is said, not drawn from nowhere.
+        if ( const auto view = capture.Scene->ResolveViewTarget(); !view )
+            LOG_ERROR( "[UI] render texture '{}': {}", demand.ScenePath, view.GetError() );
         capture.Scene->SetState( Core::Scene::SceneState::Play );
         capture.Scene->Resize( demand.Width, demand.Height );
         capture.ScenePath = demand.ScenePath;

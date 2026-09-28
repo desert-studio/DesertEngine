@@ -719,8 +719,9 @@ namespace
     //     to switch off; its landscape roots and scene records go with it.
     //   * -277 / -286 with SCN1 (2318 / 2341): the 68 scenes nothing named are deleted (Scenes/ 147 -> 79), and
     //     their records go with them - each one's PostProcessVolume, lights, cloud volumes and UI entities.
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2318;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2341;
+    //   * +1 with SPAWN1 (2319 / 2342): Starter gains a PlayerStart, a record with no extent (it loads Global).
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2319;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2342;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
@@ -1284,7 +1285,7 @@ TEST( WorldPartitionAlwaysLoaded, SunSkyAndCameraAreAlwaysLoadedByTheirComponent
     records.push_back( Record( 2, "Sky", { 10.0f, 0.0f, 10.0f } ) );
     With( records[1], "SkyAtmosphere", R"({})" );
     records.push_back( Record( 3, "Camera", { 10.0f, 170.0f, 10.0f } ) );
-    With( records[2], "Camera", R"({"IsMainCamera":true})" );
+    With( records[2], "Camera", R"({"AutoActivateForPlayer":true})" );
     records.push_back( Record( 4, "Rock", { 10.0f, 0.0f, 10.0f } ) );
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 12800.0f ) );
@@ -1308,7 +1309,7 @@ TEST( WorldPartitionAlwaysLoaded, OneGlobalMemberMakesItsWholeCompositeAlwaysLoa
     Under( records[1], 1 );
     records.push_back( Record( 3, "FollowCamera", { 0.0f, 300.0f, -500.0f } ) );
     Under( records[2], 1 );
-    With( records[2], "Camera", R"({"IsMainCamera":true})" );
+    With( records[2], "Camera", R"({"AutoActivateForPlayer":true})" );
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 12800.0f ) );
     ASSERT_EQ( plan.Composites.size(), 1u );

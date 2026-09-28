@@ -144,6 +144,11 @@ namespace Desert::Core
         // resolver, without which the slot serializes as an empty string. SceneSerializer had to gain a
         // resolver for this one field — the settings block was written without one, which is what put a
         // raw 64-bit handle through the JSON double round trip.
+        // UE's GameMode DefaultPawnClass: the prefab Play spawns at the level's PlayerStart and gives the
+        // player (Core::BeginPlay). Unset = a level without a player — a cinematic, a benchmark.
+        PROPERTY( DisplayName( "Default Pawn" ), Category( "Game Mode" ), Asset<PrefabAsset> )
+        Assets::AssetHandle DefaultPawn;
+
         PROPERTY( DisplayName( "Splash Sprite" ), Category( "Splash" ), Asset<TextureAsset> )
         Assets::AssetHandle SplashSprite;
         PROPERTY( DisplayName( "Splash Duration" ), Category( "Splash" ), Range( 0.0f, 10.0f ) )

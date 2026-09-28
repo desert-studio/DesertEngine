@@ -17,7 +17,8 @@ namespace Desert::Core::Serialize
         // `/Users/<somebody>/.../Materials/*.demat` into 42 of the 51 scenes in this repository — and
         // the sculpted body, the rig, the graph and the theme each copied the reasoning.
         if ( type == "MaterialAsset" || type == "CloudModellingVolumeAsset" || type == "ControlRigAsset" ||
-             type == "AnimGraphAsset" || type == "UIThemeAsset" || type == "RetargetAsset" )
+             type == "AnimGraphAsset" || type == "UIThemeAsset" || type == "RetargetAsset" ||
+             type == "PrefabAsset" )
             return StoredAssetForm::AssetsRelative;
 
         // Meshes (static/skinned both resolved handle->path through the MeshAsset base) and skyboxes.

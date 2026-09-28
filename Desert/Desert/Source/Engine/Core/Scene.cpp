@@ -1,4 +1,5 @@
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/PlayerStart.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -353,27 +354,77 @@ namespace Desert::Core
             editorCam->SetInputEnabled( false );
     }
 
+    Common::ResultStr<entt::entity> Scene::ResolveViewTarget()
+    {
+        m_ViewTarget = entt::null;
+        // A camera driven from OUTSIDE (a headless shot's pinned view, a preview) is the view already;
+        // Play must not refuse over a question nobody is asking.
+        if ( m_CameraPinned )
+            return Common::MakeSuccess( entt::entity( entt::null ) );
+
+        // (1) The pawn's own camera: root first, then its subtree depth-first in child order.
+        entt::entity pawnCamera = entt::null;
+        if ( m_PlayerPawn != entt::null && m_Registry.valid( m_PlayerPawn ) )
+        {
+            std::vector<entt::entity> stack{ m_PlayerPawn };
+            while ( !stack.empty() && pawnCamera == entt::null )
+            {
+                const entt::entity e = stack.back();
+                stack.pop_back();
+                if ( m_Registry.has<ECS::CameraComponent, ECS::TransformComponent>( e ) )
+                    pawnCamera = e;
+                else if ( const auto* rel = m_Registry.try_get<ECS::RelationshipComponent>( e ) )
+                    stack.insert( stack.end(), rel->Children.rbegin(), rel->Children.rend() );
+            }
+        }
+
+        std::vector<entt::entity> autoCams;
+        std::vector<std::string>  autoNames;
+        for ( const auto e : m_Registry.view<ECS::CameraComponent, ECS::TransformComponent>() )
+        {
+            if ( !m_Registry.get<ECS::CameraComponent>( e ).Data.AutoActivateForPlayer )
+                continue;
+            autoCams.push_back( e );
+            const auto* tag = m_Registry.try_get<ECS::TagComponent>( e );
+            autoNames.push_back( tag != nullptr ? tag->Tag : std::string( "<unnamed>" ) );
+        }
+
+        const auto choice = ChooseViewTarget( { .Level               = m_SceneName,
+                                                .PawnSpawned         = m_PlayerPawn != entt::null,
+                                                .PawnHasCamera       = pawnCamera != entt::null,
+                                                .AutoActivateCameras = autoNames,
+                                                .PlayFromHere        = m_PlayFromHere } );
+        if ( !choice )
+            return Common::MakeError<entt::entity>( choice.GetError() );
+        switch ( choice.GetValue().Kind )
+        {
+            case ViewTargetKind::PawnCamera:
+                m_ViewTarget = pawnCamera;
+                break;
+            case ViewTargetKind::AutoActivateCamera:
+                m_ViewTarget = autoCams[choice.GetValue().AutoIndex];
+                break;
+            case ViewTargetKind::EditorCamera:
+                m_ViewTarget = entt::null;
+                break;
+        }
+        return Common::MakeSuccess( entt::entity( m_ViewTarget ) );
+    }
+
     void Scene::UpdateActiveCameraSource()
     {
-        // Camera source follows the play state: Edit/Paused -> EditorCamera; Play -> the main
-        // CameraComponent (driven into a GameplayCamera each frame so moving the camera entity moves the
-        // view). If Play has no camera entity, fall back to the editor camera so you still see the scene.
+        // Camera source follows the play state: Edit/Paused -> EditorCamera; Play -> the view target
+        // ResolveViewTarget chose at BeginPlay (driven into a GameplayCamera each frame so moving the
+        // camera entity moves the view), or the editor camera when Play from Here resolved to it.
         if ( m_State == SceneState::Play )
         {
-            const ECS::CameraComponent* mainCam    = nullptr;
-            entt::entity                mainEntity = entt::null;
-            auto camView = m_Registry.view<ECS::CameraComponent, ECS::TransformComponent>();
-            for ( auto entity : camView )
-            {
-                const auto& cc = camView.get<ECS::CameraComponent>( entity );
-                if ( !mainCam || cc.Data.IsMainCamera ) // prefer an IsMainCamera, else the first one
-                {
-                    mainCam    = &cc;
-                    mainEntity = entity;
-                    if ( cc.Data.IsMainCamera )
-                        break;
-                }
-            }
+            const entt::entity mainEntity =
+                 ( m_ViewTarget != entt::null && m_Registry.valid( m_ViewTarget ) &&
+                   m_Registry.has<ECS::CameraComponent, ECS::TransformComponent>( m_ViewTarget ) )
+                      ? m_ViewTarget
+                      : entt::entity( entt::null );
+            const ECS::CameraComponent* mainCam =
+                 mainEntity != entt::null ? &m_Registry.get<ECS::CameraComponent>( mainEntity ) : nullptr;
 
             if ( mainCam && mainEntity != entt::null )
             {
@@ -402,7 +453,7 @@ namespace Desert::Core
             }
             else if ( GetActiveCamera() != m_EditorCamera )
             {
-                SetActiveCamera( m_EditorCamera ); // no game camera -> keep the editor view
+                SetActiveCamera( m_EditorCamera ); // Play from Here without a game camera
             }
         }
         else if ( m_EditorCamera && GetActiveCamera() != m_EditorCamera )
@@ -682,6 +733,7 @@ namespace Desert::Core
         r.prepare<ECS::ColliderComponent>();
         r.prepare<ECS::RigidBodyComponent>();
         r.prepare<ECS::CharacterControllerComponent>();
+        r.prepare<ECS::PlayerStartComponent>();
         r.prepare<ECS::LocomotionComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
@@ -941,6 +993,9 @@ namespace Desert::Core
     void Scene::Clear()
     {
         m_Registry.clear();
+        m_PlayerPawn   = entt::null;
+        m_ViewTarget   = entt::null;
+        m_PlayFromHere = false;
 
         m_Entities.Clear();
 

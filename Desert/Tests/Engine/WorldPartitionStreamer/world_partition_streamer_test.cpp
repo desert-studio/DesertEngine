@@ -94,7 +94,7 @@ namespace
     {
         std::vector<EntityData> records;
         EntityData              camera = Record( kCameraId, "Camera", { 50.0f, 0.0f, 50.0f } );
-        With( camera, "Camera", R"({"IsMainCamera": true})" );
+        With( camera, "Camera", R"({"AutoActivateForPlayer": true})" );
         records.push_back( camera );
         records.push_back( Record( kParentId, "Parent", CellCentre( 7, 1 ) ) );
         // The child's translation is LOCAL to its parent, as in a .desce.

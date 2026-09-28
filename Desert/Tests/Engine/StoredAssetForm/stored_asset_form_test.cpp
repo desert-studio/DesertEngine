@@ -72,6 +72,7 @@ TEST( StoredAssetForm, EveryAssetTypeTheEngineSerializesHasAForm )
     EXPECT_EQ( StoredFormFor( "ControlRigAsset" ), StoredAssetForm::AssetsRelative );
     EXPECT_EQ( StoredFormFor( "AnimGraphAsset" ), StoredAssetForm::AssetsRelative );
     EXPECT_EQ( StoredFormFor( "UIThemeAsset" ), StoredAssetForm::AssetsRelative );
+    EXPECT_EQ( StoredFormFor( "PrefabAsset" ), StoredAssetForm::AssetsRelative ); // SceneSettings::DefaultPawn
 
     EXPECT_EQ( StoredFormFor( "StaticMeshAsset" ), StoredAssetForm::MachinePath );
     EXPECT_EQ( StoredFormFor( "SkinnedMeshAsset" ), StoredAssetForm::MachinePath );
@@ -96,7 +97,6 @@ TEST( StoredAssetForm, AnUnknownTypeHasNoFormRatherThanFallingThroughToOne )
     // unset, with nothing anywhere saying so.
     EXPECT_FALSE( StoredFormFor( "AudioAsset" ).has_value() );
     EXPECT_FALSE( StoredFormFor( "" ).has_value() );
-    EXPECT_FALSE( StoredFormFor( "PrefabAsset" ).has_value() );
     // Case matters: the metadata string is generated from the `Asset<...>` annotation verbatim.
     EXPECT_FALSE( StoredFormFor( "textureasset" ).has_value() );
 }

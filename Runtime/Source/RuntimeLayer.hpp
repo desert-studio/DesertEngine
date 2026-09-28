@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/PlayerStart.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Assets/ContentGate.hpp>
 #include <Engine/Core/BootTimeline.hpp>
@@ -40,7 +41,9 @@ namespace Desert::Player
         // application: the owner, so a UI "quit" button can ask for an ordered close instead of calling
         // std::exit() from inside the frame (which destroys the job system's mutexes under its own live
         // worker threads — see the quit handler in OnUpdate).
-        RuntimeLayer( std::string scenePathOverride, Engine::Application* application );
+        // @p play: how the FIRST level begins Play (`--player-start`); a level switch begins with the default
+        // start, since a tag names a start in the level it was given for.
+        RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play, Engine::Application* application );
         ~RuntimeLayer();
 
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
@@ -59,6 +62,7 @@ namespace Desert::Player
 
     private:
         std::string          m_ScenePathOverride;
+        Core::PlayRequest    m_PlayRequest;
         Engine::Application* m_Application = nullptr;
 
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
