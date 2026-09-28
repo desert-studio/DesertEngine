@@ -137,11 +137,11 @@ namespace Desert::Assets::Serialization
                                                      data.Mesh.Path, data.Prefab.Path );
         if ( data.CullDistance != FoliageFloatInterval{ 0.0f, 0.0f } || data.Wind.Strength != 0.0f ||
              data.IncludeInHLOD )
-            return Common::MakeFormattedError<bool>( "a Prefab type sets CullDistance [{}, {}], Wind.Strength {} or "
-                                                     "IncludeInHLOD {}: {}",
-                                                     data.CullDistance.Min, data.CullDistance.Max,
-                                                     data.Wind.Strength, data.IncludeInHLOD,
-                                                     kFoliagePrefabMeshOnlyReason );
+            return Common::MakeFormattedError<bool>(
+                 "a Prefab type sets CullDistance [{}, {}], Wind.Strength {} or "
+                 "IncludeInHLOD {}: {}",
+                 data.CullDistance.Min, data.CullDistance.Max, data.Wind.Strength, data.IncludeInHLOD,
+                 kFoliagePrefabMeshOnlyReason );
         return BOOLSUCCESS;
     }
 

@@ -5667,7 +5667,8 @@ namespace Desert::Editor
                                if ( !m_MainScene || !m_AssetManager )
                                    return PaletteCommandOutcome( false, "no scene or no asset manager" );
                                Core::ViewportMode::Set( Core::EditorMode::Foliage );
-                               return Tools::FoliagePaintTool::AddPrefabFile( *m_MainScene, *m_AssetManager, path );
+                               return Tools::FoliagePaintTool::AddPrefabFile( *m_MainScene, *m_AssetManager,
+                                                                              path );
                            } } );
                 if ( ext != Assets::Serialization::kFoliageTypeExtension )
                     continue;

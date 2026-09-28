@@ -242,7 +242,8 @@ namespace Desert::Editor::Tools
         wanted.Prefab        = Assets::AssetGuidRef{ guid.GetValue(), relative };
         wanted.IncludeInHLOD = false; // kFoliagePrefabMeshOnlyReason
         const auto file      = Assets::Serialization::FindOrCreateFoliageTypeFile(
-             Common::Constants::Path::FOLIAGE_TYPE_PATH, wanted, std::filesystem::path( prefabPath ).stem().string() );
+             Common::Constants::Path::FOLIAGE_TYPE_PATH, wanted,
+             std::filesystem::path( prefabPath ).stem().string() );
         if ( !file )
             return Common::MakeFormattedError<bool>( "{}", file.GetError() );
         return AddTypeFile( scene, manager, file.GetValue().Path.string() );
@@ -747,8 +748,8 @@ namespace Desert::Editor::Tools
             const auto ref = scene.FindEntityByID( id );
             if ( !ref )
                 return false;
-            const auto& registry = scene.GetRegistry();
-            entt::entity current = ref->get().GetHandle();
+            const auto&  registry = scene.GetRegistry();
+            entt::entity current  = ref->get().GetHandle();
             while ( registry.has<ECS::RelationshipComponent>( current ) )
             {
                 current = registry.get<ECS::RelationshipComponent>( current ).Parent;
@@ -1278,7 +1279,8 @@ namespace Desert::Editor::Tools
                 }
                 if ( box )
                 {
-                    const auto picked = FoliagePickInstance( instances, ray.Origin, ray.Direction, box->Min, box->Max );
+                    const auto picked =
+                         FoliagePickInstance( instances, ray.Origin, ray.Direction, box->Min, box->Max );
                     if ( picked && picked->Distance < bestDistance )
                     {
                         best         = std::make_pair( uuid, picked->Index );

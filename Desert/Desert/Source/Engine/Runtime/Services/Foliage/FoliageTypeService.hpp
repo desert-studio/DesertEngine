@@ -28,8 +28,9 @@ namespace Desert::Runtime
         /// The type's data when it is read; nullptr while it is pending or when it failed (said once, logged).
         const Assets::Serialization::FoliageTypeData* Get( const Assets::AssetHandle& handle );
 
-        /// The prefab a Prefab type places (FO-8), read on first ask and kept; nullptr when it cannot be — a missing
-        /// file, a GUID that is not the type's, or a UI prefab, which draws only under a canvas — said once.
+        /// The prefab a Prefab type places (FO-8): resolved by its GUID through the content registry and read by
+        /// the AsyncAssetLoader on first ask, then kept. nullptr while it is read, and for good when it cannot be
+        /// — no registry row states the GUID, the body does not read, or it is a UI prefab — said once.
         Assets::Asset<Assets::PrefabAsset> GetPrefab( const Assets::Serialization::FoliageTypeData& type );
 
         /// The manager the service creates in; null when none is bound.
@@ -50,6 +51,7 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest>                     m_Requests;
         std::unordered_map<Assets::AssetHandle, Assets::Asset<Assets::FoliageTypeAsset>> m_Ready;
         std::unordered_map<Assets::AssetHandle, std::string>                             m_Failed;
+        std::unordered_map<std::string, Assets::LoadRequest>                             m_PrefabRequests;
         std::unordered_map<std::string, Assets::Asset<Assets::PrefabAsset>>              m_Prefabs;
         std::unordered_map<std::string, std::string>                                     m_PrefabFailed;
     };

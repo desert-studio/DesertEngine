@@ -9,6 +9,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <glm/matrix.hpp>
+
 #include <vector>
 
 namespace Desert::World::Foliage
@@ -77,9 +79,13 @@ namespace Desert::World::Foliage
                 tc.Rotation    = parts.Rotation;
                 tc.Scale       = parts.Scale;
             };
-            // A copy: a spawned prefab may add to the component pools and move the field's vector.
-            const std::vector<glm::mat4> wanted =
+            // The field's transforms are world matrices; a child's transform is local to the field. A copy
+            // either way: a spawned prefab may add to the component pools and move the field's vector.
+            const glm::mat4        toField = glm::inverse( fieldEntity.GetWorldTransform() );
+            std::vector<glm::mat4> wanted =
                  registry.get<ECS::InstancedStaticMeshComponent>( field ).InstanceTransforms;
+            for ( glm::mat4& instance : wanted )
+                instance = toField * instance;
             if ( auto realized = ApplyPrefabFoliage( wanted, host ); !realized )
                 types->RefusePrefab( type->Prefab.Guid, realized.GetError() );
         }

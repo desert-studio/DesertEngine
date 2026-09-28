@@ -2,8 +2,7 @@
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/Prefab/PrefabPlacement.hpp>
-#include <Engine/World/Foliage/FoliagePrefabs.hpp>
-#include <Common/Core/Constants.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -72,7 +71,7 @@ namespace Desert::Runtime
     FoliageTypeService::GetPrefab( const Assets::Serialization::FoliageTypeData& type )
     {
         const std::string& guid = type.Prefab.Guid;
-        if ( !type.IsPrefab() || m_PrefabFailed.contains( guid ) )
+        if ( !type.IsPrefab() || m_PrefabFailed.contains( guid ) || m_PrefabRequests.contains( guid ) )
             return nullptr;
         if ( const auto found = m_Prefabs.find( guid ); found != m_Prefabs.end() )
             return found->second;
@@ -80,43 +79,54 @@ namespace Desert::Runtime
         const auto manager = m_Assets.lock();
         if ( !manager )
             return nullptr;
-        // By path, and the GUID the file states must be the one the type names: a prefab renamed over another
-        // would otherwise be placed in its stead without a word.
-        const std::filesystem::path file = Common::Constants::Path::ASSETS_PATH / type.Prefab.Path;
-        const auto                  stated = World::Foliage::PrefabFileGuid( file );
-        if ( !stated )
+        // Resolved through the registry row whose header states the GUID (UE: the soft reference resolved
+        // through the asset registry), not through the path the type also carries: a prefab renamed or moved
+        // keeps its GUID, and a different file put at the old path is not placed in its stead.
+        const auto parsed = Common::Content::AssetGuidFromText( guid );
+        if ( !parsed )
         {
-            RefusePrefab( guid, stated.GetError() );
+            RefusePrefab( guid, parsed.GetError() );
             return nullptr;
         }
-        if ( stated.GetValue() != guid )
-        {
-            RefusePrefab( guid, "'" + file.string() + "' states GUID " + stated.GetValue() +
-                                     ", not the one the foliage type names" );
-            return nullptr;
-        }
-        auto prefab = manager->FindByPath<Assets::PrefabAsset>( file );
-        if ( !prefab )
-            prefab = manager->CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High, file );
+        auto prefab = Assets::CreateFromRegistryGuid<Assets::PrefabAsset>( *manager, parsed.GetValue(),
+                                                                           Common::Content::ContentKind::Prefab );
         if ( !prefab )
         {
-            RefusePrefab( guid, "'" + file.string() + "' could not be created as a prefab asset" );
+            RefusePrefab( guid, "no prefab in the content registry states this GUID (the type names '" +
+                                     type.Prefab.Path + "')" );
             return nullptr;
         }
-        if ( !prefab->IsReadyForUse() )
-            if ( const auto loaded = prefab->Load(); !loaded )
+        // A UI prefab draws only under a canvas; a foliage field is not one.
+        const auto accept = [this, guid]( const Assets::Asset<Assets::PrefabAsset>& read ) -> bool
+        {
+            if ( read->GetEntities().empty() ||
+                 Assets::ClassifyPrefabRoot( read->GetEntities().front() ) != Assets::PrefabRootKind::World )
             {
-                RefusePrefab( guid, loaded.GetError() );
-                return nullptr;
+                RefusePrefab( guid, "'" + read->GetMetadata().Filepath.generic_string() +
+                                         "' is empty or a UI prefab, which draws only under a canvas" );
+                return false;
             }
-        if ( prefab->GetEntities().empty() ||
-             Assets::ClassifyPrefabRoot( prefab->GetEntities().front() ) != Assets::PrefabRootKind::World )
-        {
-            RefusePrefab( guid, "'" + file.string() + "' is empty or a UI prefab, which draws only under a canvas" );
-            return nullptr;
-        }
-        m_Prefabs[guid] = prefab;
-        return prefab;
+            m_Prefabs[guid] = read;
+            return true;
+        };
+        if ( prefab->IsReadyForUse() )
+            return accept( prefab ) ? prefab : nullptr;
+
+        // Read by the one loader, off the frame: the fields stay unrealized until the body is in, as a mesh
+        // field draws nothing until its mesh is.
+        m_PrefabRequests[guid] = Assets::AsyncAssetLoader::Get().Request(
+             prefab,
+             [this, guid, accept]( const Assets::Asset<Assets::AssetBase>& loaded,
+                                   const Assets::LoadOutcome outcome, const std::string& error )
+             {
+                 m_PrefabRequests.erase( guid );
+                 if ( outcome == Assets::LoadOutcome::Loaded )
+                     accept( std::static_pointer_cast<Assets::PrefabAsset>( loaded ) );
+                 else
+                     RefusePrefab( guid, error );
+             },
+             [this, guid] { m_PrefabRequests.erase( guid ); } );
+        return nullptr;
     }
 
     void FoliageTypeService::Clear()
@@ -124,6 +134,7 @@ namespace Desert::Runtime
         m_Requests.clear(); // released: no delegate fires into a cleared service
         m_Ready.clear();
         m_Failed.clear();
+        m_PrefabRequests.clear(); // released first, as m_Requests
         m_Prefabs.clear();
         m_PrefabFailed.clear();
     }
