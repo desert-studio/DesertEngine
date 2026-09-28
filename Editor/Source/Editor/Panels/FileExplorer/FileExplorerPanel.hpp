@@ -355,7 +355,7 @@ namespace Desert::Editor
         // request a material resolve, a registry lookup and two more keys. The name never changes for a
         // path; a request, once accepted, is the service's to finish — asked again only after the picture
         // has been seen current, so an edit that makes it stale asks again.
-        const std::string& ThumbnailPngFor( const std::string& assetPath );
+        const std::string&                           ThumbnailPngFor( const std::string& assetPath );
         std::unordered_map<std::string, std::string> m_ThumbnailPngOf;
         std::unordered_map<std::string, ImVec4>      m_CaptureAsked; // asset path -> its placeholder swatch
         // Height of one grid tile / list row as last drawn: an off-screen one is a Dummy of this size.

@@ -287,12 +287,11 @@ namespace Desert::Editor
         static void RememberBrowserFolder( const std::string& absoluteFolder );
         // The two above on an explicit store, project and root — what a test drives without touching the
         // user's file. Remember returns whether the store changed.
-        static std::optional<std::string> BrowserFolderIn( const EditorPreferences&     p,
-                                                           const std::string&           project,
+        static std::optional<std::string> BrowserFolderIn( const EditorPreferences& p, const std::string& project,
                                                            const std::filesystem::path& assetsRoot );
-        static bool                       RememberBrowserFolderIn( EditorPreferences& p, const std::string& project,
-                                                                   const std::filesystem::path& assetsRoot,
-                                                                   const std::string&           absoluteFolder );
+        static bool RememberBrowserFolderIn( EditorPreferences& p, const std::string& project,
+                                             const std::filesystem::path& assetsRoot,
+                                             const std::string&           absoluteFolder );
 
         // ~/.desertengine (created on demand); shared with the Project Hub's projects.json.
         static std::string ConfigDirectory();

@@ -97,10 +97,9 @@ namespace Desert::Editor
     void ThumbnailService::WarmMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
                                          ThumbnailSubject::Preview how )
     {
-        const std::string identity = ThumbnailKey::Identity( assetPath );
-        const auto        firstCold =
-             std::find_if( m_Queue.begin(), m_Queue.end(),
-                           [this]( const Request& r ) { return !m_SceneWarm.contains( r.Identity ); } );
+        const std::string identity  = ThumbnailKey::Identity( assetPath );
+        const auto        firstCold = std::find_if( m_Queue.begin(), m_Queue.end(), [this]( const Request& r )
+                                                    { return !m_SceneWarm.contains( r.Identity ); } );
         if ( const auto queued = std::find_if( firstCold, m_Queue.end(),
                                                [&]( const Request& r ) { return r.Identity == identity; } );
              queued != m_Queue.end() )

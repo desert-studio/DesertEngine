@@ -1489,8 +1489,7 @@ namespace Desert::Editor
                             // tile is always drawn, so keyboard navigation can scroll to it.
                             float&      cellHeight = m_CellHeight[m_IsInListView ? 1 : 0];
                             const float cellWidth  = ImGui::GetContentRegionAvail().x;
-                            if ( cellHeight > 0.0f &&
-                                 !ImGui::IsRectVisible( ImVec2( cellWidth, cellHeight ) ) &&
+                            if ( cellHeight > 0.0f && !ImGui::IsRectVisible( ImVec2( cellWidth, cellHeight ) ) &&
                                  !IsSelected( m_CurrentDir->Children[idx] ) )
                             {
                                 ImGui::Dummy( ImVec2( cellWidth, cellHeight ) );
@@ -1820,10 +1819,9 @@ namespace Desert::Editor
         m_CaptureAsked.emplace( entry->AssetPath, swatch );
         if ( drew )
             return true;
-        ImGui::ColorButton( "##matswatch", swatch,
-                            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop |
-                                 ImGuiColorEditFlags_NoBorder,
-                            size );
+        ImGui::ColorButton(
+             "##matswatch", swatch,
+             ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoBorder, size );
         return true;
     }
 

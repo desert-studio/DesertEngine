@@ -313,6 +313,7 @@ namespace
          // The consumer is EditorPreferences.cpp rather than the browser, like its two neighbours above
          // and for the same reason: the panel is handed absolute paths by the three helpers there, and
          // which project a pin belongs to and what it is relative to are decided in this field's own file.
+         { "BrowserFolders", Owner::Machine, kPrefsImpl },
          { "FavouriteFolders", Owner::Machine, kPrefsImpl },
 
          // The three packaging answers, moved out of the Build Settings panel's own memory by П6 — they
