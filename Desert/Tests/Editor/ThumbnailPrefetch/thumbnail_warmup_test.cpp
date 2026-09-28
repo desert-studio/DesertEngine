@@ -14,7 +14,7 @@ namespace
 {
     Common::AssetHandle H( uint64_t v )
     {
-        return Common::AssetHandle( v );
+        return Common::AssetHandle{ v };
     }
 
     // A capture queue driven the way ThumbnailService::TickCapture drives it: once per frame, the budget

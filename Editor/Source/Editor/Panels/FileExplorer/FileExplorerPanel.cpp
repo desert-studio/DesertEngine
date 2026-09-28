@@ -317,7 +317,7 @@ namespace Desert::Editor
             // prefetch this navigation starts decodes the folder that will actually be on screen. A folder
             // that no longer exists is not an error: the browser opens at the root, as it always did.
             const std::optional<std::string> remembered = EditorPreferences::CurrentBrowserFolder();
-            if ( m_BaseProjectDir && !( remembered && NavigateToPath( *remembered ) ) )
+            if ( m_BaseProjectDir != nullptr && !( remembered && NavigateToPath( *remembered ) ) )
                 ChangeDirectory( m_BaseProjectDir );
         }
         m_RestoringFolder = false;
