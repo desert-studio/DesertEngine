@@ -455,7 +455,16 @@ namespace Desert::Editor
                     break;
             }
         }
+        m_PrefetchItems = items;
         ThumbnailPrefetch::Get().Request( std::move( items ) );
+    }
+
+    std::size_t FileExplorerPanel::UploadPrefetchedThumbnails()
+    {
+        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( m_PrefetchItems );
+        for ( const std::string& picture : survey.Ready )
+            (void)m_Thumbnails->Get( picture );
+        return survey.Pending;
     }
 
     bool FileExplorerPanel::NavigateToPath( const std::string& path )

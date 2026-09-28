@@ -3,6 +3,7 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
@@ -130,6 +131,13 @@ namespace Desert::Editor
         void OnUIRender() override;
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
         void OnEvent( Common::Event& e ) override; // OS file drop -> import into the current dir
+
+        /// THE SPLASH'S UPLOAD PASS (THUMB2). The folder this panel opens on is the one it prefetched in its
+        /// constructor (ChangeDirectory), so the pictures to upload are exactly the ones it asked a worker for:
+        /// every one a worker has finished goes through ThumbnailCache::Get now — the same call the tile makes,
+        /// so the first frame after the hand-over finds it cached and draws it. Nothing is captured or
+        /// rendered. Returns how many of those pictures are still waiting for or on a worker.
+        std::size_t UploadPrefetchedThumbnails();
 
         bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
@@ -330,6 +338,9 @@ namespace Desert::Editor
         const SubjectEditorRegistry*             m_SubjectEditors = nullptr;
         std::unique_ptr<UI::UIHelper>   m_UIHelper;
         std::unique_ptr<ThumbnailCache>          m_Thumbnails;
+        // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
+        // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
+        std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
 
         std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
         std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam

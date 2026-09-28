@@ -111,6 +111,17 @@ namespace Desert::Editor
         /// 52 ms gif decode on the main thread in the frame right after the browser asked for it.
         [[nodiscard]] bool Pending( const std::string& picture ) const;
 
+        /// Where `items` stand, for the splash's upload pass (THUMB2): which pictures a worker has finished
+        /// with pixels to show, and how many are still waiting for or on a worker. A picture the worker
+        /// skipped (stale or missing: the capture queue's business) is in neither — the splash must not wait
+        /// for a capture, and must not upload a picture the tile would not draw.
+        struct Survey
+        {
+            std::vector<std::string> Ready;
+            std::size_t              Pending = 0;
+        };
+        [[nodiscard]] Survey SurveyOf( const std::vector<Item>& items ) const;
+
         /// Everything is dispatched and collected.
         [[nodiscard]] bool Idle() const
         {

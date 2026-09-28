@@ -10,6 +10,8 @@
 // load queued after the first settled, a load that fails and leaves the gate Ready) would put an editor
 // over an unsettled scene on screen. Every condition is asked here, directly.
 
+#include <cstddef>
+
 namespace Desert::Editor::Splash
 {
     struct RevealState
@@ -20,12 +22,13 @@ namespace Desert::Editor::Splash
         bool SceneLoadPending = false; // a scene load is queued and has not started its settle wait
         bool ContentSettling  = false; // the loaded scene's content is still arriving
         bool RealFrameDrawn   = false; // a frame of the editor itself (not a loading frame) was presented
+        bool ThumbnailsUploading = false; // the opening folder's cached thumbnails are still being decoded
     };
 
     [[nodiscard]] constexpr bool MayReveal( const RevealState& s )
     {
         return s.HasSplash && !s.Revealed && !s.StartupLoading && !s.SceneLoadPending && !s.ContentSettling &&
-               s.RealFrameDrawn;
+               s.RealFrameDrawn && !s.ThumbnailsUploading;
     }
 
     /// Decoding thumbnails that are ALREADY on disk (ThumbnailPrefetch) is allowed in every state, splash
@@ -45,5 +48,21 @@ namespace Desert::Editor::Splash
     [[nodiscard]] constexpr bool ThumbnailCaptureAllowed( const RevealState& s )
     {
         return !s.HasSplash || s.Revealed;
+    }
+
+    /// How long the hand-over may wait for the opening folder's CACHED thumbnails once everything else is
+    /// ready (THUMB2). The pictures are decoded on workers from the splash's first settle frame and uploaded
+    /// as they land, so on a warm disk cache they are done before the settle is; this bound is only for a
+    /// cold file cache or a folder of hundreds, where the browser drawing icons for a few frames beats a
+    /// splash nobody can explain.
+    inline constexpr double kThumbnailUploadBudgetMs = 250.0;
+
+    /// Whether the thumbnails still hold the hand-over. `pending` = pictures of the opening folder still
+    /// waiting for or on a worker (a missing or stale picture is not counted: that is a capture, and
+    /// ThumbnailCaptureAllowed keeps captures after the hand-over); `msSinceOtherwiseReady` = how long every
+    /// other condition of MayReveal has held.
+    [[nodiscard]] constexpr bool ThumbnailsHoldReveal( std::size_t pending, double msSinceOtherwiseReady )
+    {
+        return pending > 0 && msSinceOtherwiseReady < kThumbnailUploadBudgetMs;
     }
 } // namespace Desert::Editor::Splash

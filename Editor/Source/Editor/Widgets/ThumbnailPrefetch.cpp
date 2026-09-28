@@ -199,6 +199,24 @@ namespace Desert::Editor
                             [&]( const Item& i ) { return i.Picture == picture; } );
     }
 
+    ThumbnailPrefetch::Survey ThumbnailPrefetch::SurveyOf( const std::vector<Item>& items ) const
+    {
+        Survey survey;
+        for ( const Item& item : items )
+        {
+            if ( const auto it = m_Ready.find( item.Picture ); it != m_Ready.end() )
+            {
+                if ( it->second.Pixels.has_value() )
+                    survey.Ready.push_back( item.Picture );
+            }
+            else if ( Pending( item.Picture ) )
+            {
+                ++survey.Pending;
+            }
+        }
+        return survey;
+    }
+
     void ThumbnailPrefetch::Drain()
     {
         while ( !Idle() )

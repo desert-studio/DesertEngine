@@ -1400,6 +1400,10 @@ namespace Desert::Editor
                     }
                 }
             }
+            // The browser asked for its opening folder's pictures when it was built (OnAttach): the workers
+            // decode them through the stages too, not only through the settle that follows (THUMB2).
+            if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
+                ThumbnailService::TickDiskAndDecode();
             SampleFrameQuiescence();
             return BOOLSUCCESS;
         }
@@ -1638,6 +1642,7 @@ namespace Desert::Editor
         // waiting on — so requests made before the hand-over stay queued and are served after it.
         if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
             ThumbnailService::TickDiskAndDecode();
+        UploadSplashThumbnails();
         if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
             ThumbnailService::Get().TickCapture();
 
@@ -7412,7 +7417,46 @@ namespace Desert::Editor
         state.SceneLoadPending = m_SceneLoadRequested.has_value();
         state.ContentSettling  = ContentSettling();
         state.RealFrameDrawn   = m_RealFrameDrawn;
+        state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
         return state;
+    }
+
+    void EditorLayer::UploadSplashThumbnails()
+    {
+        if ( m_Splash == nullptr || m_Revealed || m_FileExplorerPanel == nullptr )
+        {
+            m_ThumbnailsHoldReveal = false;
+            return;
+        }
+        // An upload of pixels a worker already decoded from the disk cache: no renderer slot and no capture,
+        // which is why it may run before the hand-over while ThumbnailCaptureAllowed is still false.
+        const std::size_t pending = m_FileExplorerPanel->UploadPrefetchedThumbnails();
+
+        Splash::RevealState rest = CurrentRevealState();
+        rest.ThumbnailsUploading = false;
+        if ( !Splash::MayReveal( rest ) )
+        {
+            m_RevealOtherwiseReadySince.reset();
+            m_ThumbnailsHoldReveal = pending > 0;
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if ( !m_RevealOtherwiseReadySince )
+            m_RevealOtherwiseReadySince = now;
+        const double waitedMs =
+             std::chrono::duration<double, std::milli>( now - *m_RevealOtherwiseReadySince ).count();
+        const bool wasHolding  = m_ThumbnailsHoldReveal;
+        m_ThumbnailsHoldReveal = Splash::ThumbnailsHoldReveal( pending, waitedMs );
+        if ( pending > 0 && !m_ThumbnailsHoldReveal )
+        {
+            LOG_WARN( "[Thumbnails] the hand-over waited {:.0f} ms for the opening folder's cached thumbnails "
+                      "and {} are still decoding; they arrive after it",
+                      waitedMs, pending );
+        }
+        else if ( pending == 0 && wasHolding )
+        {
+            LOG_INFO( "[Thumbnails] the opening folder's cached thumbnails held the hand-over {:.0f} ms", waitedMs );
+        }
     }
 
     void EditorLayer::UpdateContentSettling()

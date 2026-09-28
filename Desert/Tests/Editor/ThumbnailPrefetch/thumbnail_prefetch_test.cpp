@@ -17,6 +17,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace Desert::Editor;
 namespace fs = std::filesystem;
@@ -261,6 +262,62 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
                            "            ThumbnailService::Get().TickCapture();" ),
                std::string::npos )
          << "the capture half of the thumbnail pump is not behind the capture gate";
+}
+
+// THUMB2. The splash uploads the opening folder's pictures before the hand-over, and it reads where they stand
+// through SurveyOf: a picture still with a worker holds the hand-over (within its budget), a finished one is
+// uploaded, and a MISSING one is neither — it is a capture, and a capture waits for the window.
+TEST( ThumbnailPrefetch, TheSplashSurveySeesWhatIsReadyAndNeverWaitsForACapture )
+{
+    const Fixture f;
+    f.WriteFreshPng();
+    const fs::path missingSource = f.Dir / "M_NoPicture.demat";
+    const fs::path missingPng    = f.Dir / "M_NoPicture.png";
+    std::ofstream( missingSource ) << R"({ "material": 2 })";
+
+    const std::vector<ThumbnailPrefetch::Item> folder = { { f.Png.string(), f.Source.string() },
+                                                          { missingPng.string(), missingSource.string() } };
+    ThumbnailPrefetch::Get().Request( folder );
+
+    const ThumbnailPrefetch::Survey before = ThumbnailPrefetch::Get().SurveyOf( folder );
+    EXPECT_TRUE( before.Ready.empty() );
+    EXPECT_EQ( before.Pending, 2u ) << "the requested pictures must hold the hand-over while a worker has them";
+
+    ThumbnailPrefetch::Get().Drain();
+    const ThumbnailPrefetch::Survey after = ThumbnailPrefetch::Get().SurveyOf( folder );
+    ASSERT_EQ( after.Ready.size(), 1u ) << "the decoded cached picture is not offered to the splash upload";
+    EXPECT_EQ( after.Ready.front(), f.Png.string() );
+    EXPECT_EQ( after.Pending, 0u ) << "a picture with no PNG on disk held the splash: that is a capture's wait";
+    EXPECT_FALSE( fs::exists( missingPng ) ) << "the splash pass produced a thumbnail: captures wait for the window";
+}
+
+// The wiring the suite cannot link (EditorLayer, the panel): the panel's constructor prefetches the folder it
+// opens on, the splash pass uploads exactly that list, the stages tick the decode, and the capture stays gated.
+TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string panel = ReadFile( root + "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
+    ASSERT_FALSE( panel.empty() );
+    EXPECT_NE( panel.find( "m_PrefetchItems = items;\n        ThumbnailPrefetch::Get().Request( std::move( items ) );" ),
+               std::string::npos )
+         << "the splash upload no longer reads the list the browser prefetched";
+    EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().SurveyOf( m_PrefetchItems )" ), std::string::npos );
+    EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
+         << "the splash upload does not go through the cache the tiles draw from";
+
+    const std::string layer = ReadFile( root + "Editor/Source/EditorLayer.cpp" );
+    ASSERT_FALSE( layer.empty() );
+    EXPECT_NE( layer.find( "            ThumbnailService::TickDiskAndDecode();\n        UploadSplashThumbnails();\n" ),
+               std::string::npos )
+         << "the per-frame thumbnail pump no longer runs the splash upload pass";
+    EXPECT_NE( layer.find( "m_FileExplorerPanel->UploadPrefetchedThumbnails()" ), std::string::npos );
+    EXPECT_NE( layer.find( "                ThumbnailService::TickDiskAndDecode();\n            SampleFrameQuiescence();\n"
+                           "            return BOOLSUCCESS;" ),
+               std::string::npos )
+         << "the startup stages no longer tick the worker decode";
+    EXPECT_NE( layer.find( "state.ThumbnailsUploading = m_ThumbnailsHoldReveal;" ), std::string::npos );
 }
 
 // The byte budget is asked as Background work: a UserSurface entitlement would let a queue of thumbnails
