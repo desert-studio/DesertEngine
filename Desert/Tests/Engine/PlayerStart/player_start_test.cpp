@@ -2,6 +2,8 @@
 // player looks through (UE: GameModeBase::FindPlayerStart and APlayerCameraManager's view target).
 #include <Engine/Core/PlayerStart.hpp>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -136,12 +138,10 @@ TEST( ViewTargetRule, NoPawnStillLooksThroughTheAutoActivateCamera )
 // code that places the pawn never reads a camera, so no camera can move or place the player.
 TEST( SpawnIsNotACamera, SpawnDefaultPawnNeverReadsACameraComponent )
 {
-    std::filesystem::path       dir = std::filesystem::current_path();
-    const std::filesystem::path rel = "Desert/Desert/Source/Engine/Core/PlayerStart.cpp";
-    while ( !std::filesystem::exists( dir / rel ) && dir != dir.parent_path() )
-        dir = dir.parent_path();
-    std::ifstream in( dir / rel );
-    ASSERT_TRUE( in ) << "could not open " << rel << " above " << std::filesystem::current_path();
+    const std::filesystem::path file =
+         Desert::TestSupport::RepositoryRoot() / "Desert/Desert/Source/Engine/Core/PlayerStart.cpp";
+    const std::ifstream in( file );
+    ASSERT_TRUE( in ) << "could not open " << file;
     std::stringstream text;
     text << in.rdbuf();
     const std::string src = text.str();

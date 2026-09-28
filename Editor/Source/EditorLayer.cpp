@@ -6356,32 +6356,25 @@ namespace Desert::Editor
             const std::string tag = registry.get<ECS::PlayerStartComponent>( entity ).Data.Tag;
             if ( tag.empty() )
                 continue;
-            commands.push_back( { "Action", "Play at Player Start '" + tag + "'", [this, tag]
-                                  {
-                                      // Play at a named start runs the whole Play path; whatever it throws is
-                                      // this command's failure, reported to the palette or the control channel
-                                      // rather than escaping into the caller.
-                                      try
-                                      {
-                                          using SceneState   = ::Desert::Core::Scene::SceneState;
-                                          const bool editing = m_MainScene->GetState() == SceneState::Edit;
-                                          if ( editing )
-                                              OnScenePlay( /*fromHere=*/false, tag );
-                                          return PaletteCommandOutcome(
-                                               editing && m_MainScene->GetState() != SceneState::Edit,
-                                               "the scene is not playing; either it was already playing or "
-                                               "Play refused (the log says why)." );
-                                      }
-                                      catch ( const std::exception& e )
-                                      {
-                                          return Common::BoolResultStr( Common::MakeError<bool>( e.what() ) );
-                                      }
-                                      catch ( ... )
-                                      {
-                                          return Common::BoolResultStr( Common::MakeError<bool>(
-                                               "Play at this Player Start threw a non-standard exception" ) );
-                                      }
-                                  } } );
+            commands.push_back(
+                 { "Action", "Play at Player Start '" + tag + "'", [this, entity]
+                   {
+                       // The start is captured by ENTITY, not by a copy of its tag: the tag is
+                       // read when the command runs, so an entry outliving the start refuses.
+                       auto&       reg = m_MainScene->GetRegistry();
+                       const auto* start =
+                            reg.valid( entity ) ? reg.try_get<ECS::PlayerStartComponent>( entity ) : nullptr;
+                       if ( start == nullptr )
+                           return PaletteCommandOutcome( false, "that Player Start no longer exists." );
+                       using SceneState   = ::Desert::Core::Scene::SceneState;
+                       const bool editing = m_MainScene->GetState() == SceneState::Edit;
+                       if ( editing )
+                           OnScenePlay( /*fromHere=*/false, std::string( start->Data.Tag ) );
+                       return PaletteCommandOutcome(
+                            editing && m_MainScene->GetState() != SceneState::Edit,
+                            "the scene is not playing; either it was already playing or Play "
+                            "refused (the log says why)." );
+                   } } );
         }
         commands.push_back( { "Action", "Stop", [this]
                               {
