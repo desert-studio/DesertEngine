@@ -87,7 +87,7 @@ TEST( LandscapeLayerInfo, SavedFileParsesBack )
     std::stringstream text;
     {
         // Closed before remove_all below: Windows refuses to delete a file that still has an open handle.
-        std::ifstream in( file, std::ios::binary );
+        const std::ifstream in( file, std::ios::binary );
         text << in.rdbuf();
     }
     auto parsed = ParseLandscapeLayerInfo( text.str() );

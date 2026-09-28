@@ -601,7 +601,7 @@ namespace Desert::Editor::Tools
                     const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
                     m_ByEntity.emplace( id, *sample );
                     LandscapeTiles* landscape = LandscapeOf( scene, tile.Landscape );
-                    if ( !landscape )
+                    if ( landscape == nullptr )
                         continue;
                     landscape->ByCoord.emplace( Key( tile.TileX, tile.TileZ ), *sample );
                 }
@@ -1737,7 +1737,7 @@ namespace Desert::Editor::Tools
         {
             const auto type = ResolveType( manager, field.GetComponent<ECS::FoliageComponent>().FoliageType );
             const auto* data = type ? &type->GetData() : nullptr;
-            if ( !data || !data->Header )
+            if ( data == nullptr || !data->Header )
                 return Common::MakeFormattedError<bool>( "foliage preset '{}': the type of '{}' does not load",
                                                          name, field.GetComponent<ECS::TagComponent>().Tag );
             std::error_code   ec;
