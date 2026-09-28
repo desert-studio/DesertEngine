@@ -93,8 +93,12 @@ namespace Desert::ECS
             if ( !component.Heights.has_value() )
                 continue;
             const auto root = FindLandscapeRoot( registry, component.Landscape );
-            const auto fits = root ? World::Landscape::CheckTileMatchesRoot( *component.Heights, *root )
-                                   : Common::MakeError<bool>( "its root is not loaded or is not a landscape" );
+            if ( !root )
+            {
+                out.Refused.push_back( { entity, "its root is not loaded or is not a landscape" } );
+                continue;
+            }
+            const auto fits = World::Landscape::CheckTileMatchesRoot( *component.Heights, *root );
             if ( !fits.IsSuccess() )
             {
                 out.Refused.push_back( { entity, fits.GetError() } );
