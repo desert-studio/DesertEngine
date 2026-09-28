@@ -270,6 +270,29 @@ namespace
         const std::regex call( R"((^|[^\w>.:])Register\s*\()" );
         registrations = static_cast<std::size_t>(
              std::distance( std::sregex_iterator( source.begin(), source.end(), call ), std::sregex_iterator() ) );
+
+        // The reflected blocks are ONE `Register( MakeReflectedBlock( row ) )` call run over the rows of
+        // ReflectedComponentBlocks.hpp, so their keys are read from that header - the single list the
+        // registry and the migrator share - and that one call stands for one registration per row.
+        const std::regex blockCall( R"(\bRegister\s*\(\s*MakeReflectedBlock\s*\()" );
+        const auto       blockCalls = static_cast<std::size_t>( std::distance(
+             std::sregex_iterator( source.begin(), source.end(), blockCall ), std::sregex_iterator() ) );
+        if ( blockCalls != 0 )
+        {
+            std::string header =
+                 ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp" );
+            header = std::regex_replace( header, std::regex( "//[^\n]*" ), "" );
+            const std::regex row( "\\bReflected(?:Member|Whole)Block\\s*<[^>]*>\\s*\\{\\s*\"(\\w+)\"" );
+            std::size_t      rows = 0;
+            for ( auto it = std::sregex_iterator( header.begin(), header.end(), row );
+                  it != std::sregex_iterator(); ++it )
+            {
+                keys.insert( ( *it )[1].str() );
+                ++keysRead;
+                ++rows;
+            }
+            registrations = registrations - blockCalls + rows;
+        }
         return keys;
     }
 } // namespace

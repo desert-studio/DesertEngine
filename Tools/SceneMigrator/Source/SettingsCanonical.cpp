@@ -178,7 +178,7 @@ namespace Desert::Migration
             {
                 // The table is linked into this tool on purpose (see premake5.lua). If it is empty the tool
                 // cannot know what canonical means, and guessing would write a block out of nothing.
-                BlockCanonicalisationReport report;
+                const BlockCanonicalisationReport report;
                 return Refuse( report, std::format( "{}: the reflected type '{}' is not registered in this build",
                                                     where, typeName ) );
             }
@@ -192,8 +192,11 @@ namespace Desert::Migration
         BlockCanonicalisationReport CanonicaliseMirror( std::optional<rfl::Generic>& block,
                                                         const std::string&           where )
         {
-            BlockCanonicalisationReport report;
-            const auto                  fields = block.value().to_object();
+            const BlockCanonicalisationReport report;
+            if ( !block.has_value() )
+                return Refuse( report,
+                               std::format( "{} is absent; a hand-written block is never created here", where ) );
+            const auto fields = block.value().to_object();
             if ( !fields.has_value() )
                 return Refuse( report, std::format( "{} is not an object", where ) );
             const rfl::Generic::Object& stated = fields.value();
@@ -243,7 +246,7 @@ namespace Desert::Migration
                 return CanonicaliseRow( row.TypeName, row.Canonicalise, block, where );
         if ( std::string_view( typeName ) == "SceneSettings" )
             return CanonicaliseRow( typeName, &CanonicaliseAs<Core::SceneSettings>, block, where );
-        BlockCanonicalisationReport report;
+        const BlockCanonicalisationReport report;
         return Refuse( report, std::format( "{}: '{}' is not a reflected block type", where, typeName ) );
     }
 

@@ -215,7 +215,7 @@ namespace Desert::Migration
         // refuses the file.
         std::vector<std::string> Refused;
 
-        std::size_t Rewritten() const
+        [[nodiscard]] std::size_t Rewritten() const
         {
             return TogglesOnDropped + ButtonCornerRadiiDropped + ButtonActionNamesMoved + FalloffNamesNumbered;
         }

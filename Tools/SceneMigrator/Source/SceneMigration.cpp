@@ -283,7 +283,7 @@ namespace Desert::Migration
             EditBlock( components, "UIButton",
                        [&]( rfl::Generic::Object& block )
                        {
-                           bool changed = DropKey( block, "CornerRadius" );
+                           const bool changed = DropKey( block, "CornerRadius" );
                            report.ButtonCornerRadiiDropped += changed ? 1 : 0;
                            const auto action = block.get( "Action" );
                            if ( !action.has_value() )
@@ -318,15 +318,19 @@ namespace Desert::Migration
                          const auto name = falloff.value().to_string();
                          if ( !name.has_value() )
                              return false;
-                         const auto it = std::ranges::find( kLightFalloffNames, name.value() );
-                         if ( it == kLightFalloffNames.end() )
+                         // An index rather than the iterator: an iterator's spelling differs between standard
+                         // libraries (a pointer in libc++, a class in MSVC's), an index does not.
+                         const auto index = static_cast<std::size_t>(
+                              std::ranges::distance( kLightFalloffNames.begin(),
+                                                     std::ranges::find( kLightFalloffNames, name.value() ) ) );
+                         if ( index == kLightFalloffNames.size() )
                          {
                              report.Refused.push_back( who + " / " + light + " states Falloff '" + name.value() +
                                                        "', which is no LightFalloff enumerator (Linear, "
                                                        "Quadratic, InverseSquare)" );
                              return false;
                          }
-                         block["Falloff"] = rfl::Generic( static_cast<int>( it - kLightFalloffNames.begin() ) );
+                         block["Falloff"] = rfl::Generic( static_cast<int>( index ) );
                          ++report.FalloffNamesNumbered;
                          return true;
                      } );
