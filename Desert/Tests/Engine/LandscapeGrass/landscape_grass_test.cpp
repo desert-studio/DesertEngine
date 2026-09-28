@@ -240,9 +240,9 @@ TEST( LandscapeGrass, CellsAroundTheCameraAppearAndDisappearAsItMoves )
     EXPECT_GT( second.Evicted, 0u );
     EXPECT_GT( second.Generated, 0u );
     EXPECT_FALSE( streamer.Cells().contains( GrassCellAt( 100.0f, 100.0f ) ) );
-    const auto               now = GrassCellsInRange( moved, radius );
+    const auto                     now = GrassCellsInRange( moved, radius );
     const std::set<GrassCellCoord> expected( now.begin(), now.end() );
-    std::set<GrassCellCoord> held;
+    std::set<GrassCellCoord>       held;
     for ( const auto& [cell, instances] : streamer.Cells() )
         held.insert( cell );
     EXPECT_EQ( held, expected );

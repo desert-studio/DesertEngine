@@ -107,7 +107,8 @@ namespace Desert::Assets::Serialization
 
         // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edges from the header, the loader from
         // the varieties. A file where they disagree would have the two sides load different meshes.
-        const std::vector<std::string> stated = data.Header ? data.Header->Dependencies : std::vector<std::string>{};
+        const std::vector<std::string> stated =
+             data.Header ? data.Header->Dependencies : std::vector<std::string>{};
         if ( stated != GrassTypeDependenciesOf( data ) )
             return Common::MakeFormattedError<LandscapeGrassTypeData>(
                  "the header's Dependencies ({} entries) do not state exactly the varieties' mesh GUIDs ({})",

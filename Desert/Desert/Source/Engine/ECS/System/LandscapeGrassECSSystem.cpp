@@ -87,7 +87,7 @@ namespace Desert::ECS
             if ( IsHidden( registry, rootEntity ) )
                 continue;
             const auto rootId = static_cast<uint64_t>( registry.get<UUIDComponent>( rootEntity ).UUID );
-            const auto     any    = anyTileOfRoot.find( rootId );
+            const auto any    = anyTileOfRoot.find( rootId );
             if ( any == anyTileOfRoot.end() )
                 continue;
             const Landscape::LandscapeRoot& root   = landscape.Tiles[any->second].Root;

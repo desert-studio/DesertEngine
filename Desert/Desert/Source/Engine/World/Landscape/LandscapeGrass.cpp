@@ -174,9 +174,10 @@ namespace Desert::World::Landscape
         const uint32_t z0 = std::min( static_cast<uint32_t>( v ), tile.SamplesZ() - 2u );
         const float    fx = u - static_cast<float>( x0 );
         const float    fz = v - static_cast<float>( z0 );
-        const auto     w  = [&]( uint32_t x, uint32_t z ) { return static_cast<float>( tile.Weight( layer, x, z ) ) / 255.0f; };
-        const float    a  = w( x0, z0 ) + ( w( x0 + 1u, z0 ) - w( x0, z0 ) ) * fx;
-        const float    b  = w( x0, z0 + 1u ) + ( w( x0 + 1u, z0 + 1u ) - w( x0, z0 + 1u ) ) * fx;
+        const auto     w  = [&]( uint32_t x, uint32_t z )
+        { return static_cast<float>( tile.Weight( layer, x, z ) ) / 255.0f; };
+        const float a = w( x0, z0 ) + ( w( x0 + 1u, z0 ) - w( x0, z0 ) ) * fx;
+        const float b = w( x0, z0 + 1u ) + ( w( x0 + 1u, z0 + 1u ) - w( x0, z0 + 1u ) ) * fx;
         return a + ( b - a ) * fz;
     }
 

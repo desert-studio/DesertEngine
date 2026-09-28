@@ -74,11 +74,12 @@ namespace Desert::Assets::Serialization
 
         // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edge from the header, the grass from
         // GrassType. A file where they disagree would have the two sides load different grass.
-        const std::vector<std::string> stated = data.Header ? data.Header->Dependencies : std::vector<std::string>{};
+        const std::vector<std::string> stated =
+             data.Header ? data.Header->Dependencies : std::vector<std::string>{};
         if ( stated != LayerInfoDependenciesOf( data ) )
             return Common::MakeFormattedError<LandscapeLayerInfoData>(
-                 "the header states {} Dependencies; layer '{}' names {} grass type(s)",
-                 stated.size(), data.LayerName, LayerInfoDependenciesOf( data ).size() );
+                 "the header states {} Dependencies; layer '{}' names {} grass type(s)", stated.size(),
+                 data.LayerName, LayerInfoDependenciesOf( data ).size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }
