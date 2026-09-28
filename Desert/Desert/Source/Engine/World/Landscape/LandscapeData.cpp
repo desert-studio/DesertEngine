@@ -5,7 +5,11 @@
 #include <Common/Utilities/Crc32c.hpp>
 #include <Engine/Assets/ContainerBytes.hpp>
 
+#include <glm/common.hpp>
 #include <glm/geometric.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -21,11 +25,21 @@ namespace Desert::World::Landscape
         // root is on the include path of every project that compiles this file.
         using glm::floor;
         using glm::min;
+        using glm::mix;
+        using glm::vec2;
+        using glm::vec3;
+        using glm::vec4;
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
 #include <Common/LandscapeHeight.glslh>
+#include <Common/LandscapeWeights.glslh>
              DESERT_GLSL_AS_CPP_END
     } // namespace
+
+    bool LandscapeWeightIsHole( uint8_t weight )
+    {
+        return LandscapeIsHole( static_cast<float>( weight ) / 255.0f );
+    }
 
     float LandscapeLocalHeight( uint16_t sample )
     {
@@ -119,6 +133,9 @@ namespace Desert::World::Landscape
         constexpr uint32_t kHeightConsumers =
              ConsumerBit( LandscapeDirtyConsumer::Gpu ) | ConsumerBit( LandscapeDirtyConsumer::Physics );
         constexpr uint32_t kWeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Weights );
+        // The visibility layer also cuts the collider (LandscapeCollision reads it for holes).
+        constexpr uint32_t kVisibilityConsumers =
+             kWeightConsumers | ConsumerBit( LandscapeDirtyConsumer::Physics );
         constexpr uint32_t kAllConsumers    = ( 1u << kLandscapeDirtyConsumerCount ) - 1u;
     } // namespace
 
@@ -317,7 +334,8 @@ namespace Desert::World::Landscape
             }
         }
         if ( changed )
-            MarkDirty( rect, kWeightConsumers );
+            MarkDirty( rect, m_WeightLayers[layer].Name == kLandscapeVisibilityLayerName ? kVisibilityConsumers
+                                                                                         : kWeightConsumers );
         return Common::MakeSuccess( true );
     }
 
@@ -345,8 +363,10 @@ namespace Desert::World::Landscape
                     return Common::MakeFormattedError<bool>( "Landscape weight layer '{}' given twice",
                                                              layers[i].Name );
         }
-        m_WeightLayers = std::move( layers );
-        MarkDirty( Bounds(), kWeightConsumers );
+        const bool holesBefore = VisibilityLayer().has_value();
+        m_WeightLayers         = std::move( layers );
+        MarkDirty( Bounds(),
+                   holesBefore || VisibilityLayer().has_value() ? kVisibilityConsumers : kWeightConsumers );
         return Common::MakeSuccess( true );
     }
 

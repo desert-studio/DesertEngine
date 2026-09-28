@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <limits>
 #include <span>
 
 namespace Desert::Physics
@@ -74,9 +75,14 @@ namespace Desert::Physics
         glm::vec3              Position    = { 0.0f, 0.0f, 0.0f };
         uint32_t               SampleCount = 0u; ///< Per side; a multiple of kHeightFieldBlockSize, >= 2 blocks.
         float                  SpacingCm   = 100.0f;
-        std::span<const float> HeightsCm; ///< SampleCount², row-major, X fastest.
+        std::span<const float>
+             HeightsCm; ///< SampleCount², row-major, X fastest; kHeightFieldNoCollision = a hole.
         float                  Friction = 0.5f;
     };
+
+    /// A height that is no height: every triangle touching such a sample has no collision (Jolt's
+    /// HeightFieldShapeConstants::cNoCollisionValue, stored as cNoCollisionValue16 — a landscape hole).
+    inline constexpr float kHeightFieldNoCollision = std::numeric_limits<float>::max();
 
     /// The heightfield's compression block. Jolt patches heights only in whole blocks, so an update's
     /// rectangle is widened to this alignment before it is handed over.

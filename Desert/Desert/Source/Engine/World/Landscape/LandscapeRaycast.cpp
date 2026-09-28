@@ -102,6 +102,14 @@ namespace Desert::World::Landscape
             const auto h = [&]( uint32_t x, uint32_t z ) -> double
             { return static_cast<double>( LandscapeHeightCm( tile.Sample( x, z ), frame.ZScale ) ); };
 
+            // Holes: a triangle with any corner in a hole is not there — Jolt's rule for the same tile
+            // (HeightFieldShape.cpp, IsNoCollision on the triangle's three vertices), so the ray and the
+            // collider pass through one opening.
+            const std::optional<size_t> visibility = tile.VisibilityLayer();
+            const std::vector<uint8_t>* holes = visibility ? &tile.WeightLayers()[*visibility].Weights : nullptr;
+            const auto                  hole  = [&]( uint32_t x, uint32_t z )
+            { return holes != nullptr && LandscapeWeightIsHole( ( *holes )[static_cast<size_t>( z ) * sx + x] ); };
+
             // The vertical slab bounds the traversal to where the ray is between the tile's lowest and
             // highest sample: a cell's triangles never leave the range of its four corners.
             // The tile keeps its range (LandscapeTileData::LowestSample): scanning it here, per tile per ray,
@@ -166,6 +174,9 @@ namespace Desert::World::Landscape
                     const double sm    = 0.5 * ( cuts[p] + cuts[p + 1u] );
                     const bool   upper = LandscapeInUpperTriangle( static_cast<float>( ax + ray.Ux * sm ),
                                                                    static_cast<float>( az + ray.Uz * sm ) );
+                    if ( hole( cx, cz ) || hole( cx + 1u, cz + 1u ) ||
+                         ( upper ? hole( cx, cz + 1u ) : hole( cx + 1u, cz ) ) )
+                        continue;
                     // height = h00 + A·fx + B·fz on the triangle (LandscapeTriangle's two planes).
                     const double A = upper ? h11 - h01 : h10 - h00;
                     const double B = upper ? h01 - h00 : h11 - h10;

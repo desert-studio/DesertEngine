@@ -74,12 +74,18 @@ float LandscapeVisibility( vec4 w0, vec4 w1, float layerPlusOne )
     return layer < 4 ? w0[layer] : w1[layer - 4];
 }
 
-// A hole: visibility at or past one half. ONE statement of the threshold for every terrain program that
-// discards (surface, G-buffer, shadow caster) — a caster with its own threshold would shadow the hole's rim
-// differently from what the camera sees missing.
+// UE's default UMaterial::OpacityMaskClipValue (Material.cpp: OpacityMaskClipValue = 0.3333f): a pixel whose
+// opacity mask falls below it is clipped.
+const float kLandscapeHoleOpacityMaskClip = 0.3333f;
+
+// A hole: UE's visibility mask (1 - the layer's weight, MaterialExpressionLandscapeVisibilityMask.cpp:32)
+// below the opacity-mask clip value, i.e. a weight above 2/3 (171 of 255 and up). ONE statement of the
+// threshold for every terrain program that discards (surface, G-buffer, shadow caster) and, compiled as C++,
+// for the Jolt heightfield (LandscapeCollision) and the CPU raycast — a caster or a collider with its own
+// threshold would shadow or stop at a rim the camera sees missing.
 bool LandscapeIsHole( float visibility )
 {
-    return visibility >= 0.5f;
+    return 1.0f - visibility < kLandscapeHoleOpacityMaskClip;
 }
 
 #endif // LANDSCAPE_WEIGHTS_GLSLH

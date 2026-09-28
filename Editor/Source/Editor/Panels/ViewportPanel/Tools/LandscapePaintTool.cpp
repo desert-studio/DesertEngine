@@ -8,6 +8,7 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
+#include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/ECS/LandscapeLayerRules.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -136,7 +137,10 @@ namespace Desert::Editor::Tools
                 ToastManager::Push( record.GetError(), ToastLevel::Error, 6.0f );
             else
             {
-                const std::string label = "Landscape Paint " + Core::LandscapeSculptState::Get().Paint.Layer;
+                const std::string& layer = Core::LandscapeSculptState::Get().Paint.Layer;
+                const std::string  label = layer == World::Landscape::kLandscapeVisibilityLayerName
+                                                ? std::string( "Landscape Visibility" )
+                                                : "Landscape Paint " + layer;
                 CommandHistory::Get().PushCommand( std::make_unique<LandscapePaintCommand>(
                      scene, m_Target->Landscape, record.GetValue(), label ) );
             }

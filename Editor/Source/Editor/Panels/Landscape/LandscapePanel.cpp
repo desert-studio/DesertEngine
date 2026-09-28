@@ -21,6 +21,7 @@
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
@@ -481,6 +482,17 @@ namespace Desert::Editor
         const auto layers  = registry.get<ECS::LandscapeComponent>( root ).Layers; // a copy: commands edit it
         auto&      paint   = Core::LandscapeSculptState::Get().Paint;
         auto&      service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+
+        // The visibility layer (UE's Visibility tool, FLandscapeToolVisibility): a target of its own above the
+        // root's layers, never one of them. Painting cuts a hole, Shift (the stroke's invert) fills it back; the
+        // stroke already treats it as NoWeightBlend (LandscapePaintStroke::Rule).
+        const std::string visibility( World::Landscape::kLandscapeVisibilityLayerName );
+        if ( ImGui::Selectable( ICON_MDI_EYE_OFF_OUTLINE "  Visibility (holes)", paint.Layer == visibility ) )
+            paint.Layer = visibility;
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Paint to cut a hole in the landscape (no surface, shadow or collision); "
+                               "Shift+paint fills it back." );
+        ImGui::Separator();
 
         if ( ImGui::Button( ICON_MDI_PLUS "  Create Layer Info" ) )
         {

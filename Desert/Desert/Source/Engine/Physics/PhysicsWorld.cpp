@@ -31,6 +31,9 @@
 
 JPH_SUPPRESS_WARNINGS
 
+static_assert( Desert::Physics::kHeightFieldNoCollision == JPH::HeightFieldShapeConstants::cNoCollisionValue,
+               "a hole must be the value Jolt reads as no collision" );
+
 namespace Desert::Physics
 {
     namespace
@@ -137,13 +140,24 @@ namespace Desert::Physics
                                                                            std::to_string( desc.SpacingCm ) +
                                                                            " cm is not positive and finite" );
 
-            const auto [low, high] = std::minmax_element( desc.HeightsCm.begin(), desc.HeightsCm.end() );
+            // The range holes leave: Jolt ignores cNoCollisionValue in its own range scan
+            // (HeightFieldShapeSettings::DetermineMinAndMaxSample), and a tile that is all hole encodes 0.
+            float low  = std::numeric_limits<float>::max();
+            float high = std::numeric_limits<float>::lowest();
+            for ( const float h : desc.HeightsCm )
+                if ( h != kHeightFieldNoCollision )
+                {
+                    low  = std::min( low, h );
+                    high = std::max( high, h );
+                }
+            if ( low > high )
+                low = high = 0.0f;
             JPH::HeightFieldShapeSettings settings( desc.HeightsCm.data(), JPH::Vec3::sZero(),
                                                     JPH::Vec3( desc.SpacingCm, 1.0f, desc.SpacingCm ), n );
             settings.mBlockSize      = kHeightFieldBlockSize;
             settings.mBitsPerSample  = kHeightFieldBitsPerSample;
-            settings.mMinHeightValue = *low - kHeightFieldHeadroomCm;
-            settings.mMaxHeightValue = *high + kHeightFieldHeadroomCm;
+            settings.mMinHeightValue = low - kHeightFieldHeadroomCm;
+            settings.mMaxHeightValue = high + kHeightFieldHeadroomCm;
 
             const JPH::ShapeSettings::ShapeResult result = settings.Create();
             if ( result.HasError() )
@@ -361,7 +375,7 @@ namespace Desert::Physics
             for ( uint32_t x = x0; x < x1; ++x )
             {
                 const float h = desc.HeightsCm[static_cast<size_t>( z ) * n + x];
-                if ( h < lowest || h > highest )
+                if ( h != kHeightFieldNoCollision && ( h < lowest || h > highest ) )
                 {
                     inRange = false;
                     break;

@@ -820,11 +820,77 @@ TEST( LandscapePaint, VisibilityReadsItsOwnChannelOfEitherPage )
              << "layer " << layer;
 }
 
-TEST( LandscapePaint, HoleStartsAtHalfVisibility )
+TEST( LandscapePaint, HoleStartsWhereUEsVisibilityMaskFallsBelowItsClipValue )
 {
+    // UE: mask = 1 - w, clipped below OpacityMaskClipValue 0.3333 — a hole from w > 2/3, i.e. 171 of 255.
     EXPECT_FALSE( LandscapeIsHole( 0.0f ) );
-    EXPECT_FALSE( LandscapeIsHole( 127.0f / 255.0f ) );
-    EXPECT_TRUE( LandscapeIsHole( 0.5f ) );
-    EXPECT_TRUE( LandscapeIsHole( 128.0f / 255.0f ) );
+    EXPECT_FALSE( LandscapeIsHole( 0.5f ) );
+    EXPECT_FALSE( LandscapeIsHole( 170.0f / 255.0f ) );
+    EXPECT_TRUE( LandscapeIsHole( 171.0f / 255.0f ) );
     EXPECT_TRUE( LandscapeIsHole( 1.0f ) );
+    // The byte form the collider and the CPU raycast use is the same function.
+    for ( int w = 0; w < 256; ++w )
+        EXPECT_EQ( LandscapeWeightIsHole( static_cast<uint8_t>( w ) ),
+                   LandscapeIsHole( static_cast<float>( w ) / 255.0f ) )
+             << w;
+    EXPECT_FALSE( LandscapeWeightIsHole( 170u ) );
+    EXPECT_TRUE( LandscapeWeightIsHole( 171u ) );
+}
+
+TEST( LandscapePaint, TheVisibilityBrushCutsAHoleShiftFillsItAndPhysicsIsTold )
+{
+    // The editor's Visibility target: paint.Layer = the reserved name, no root layer needed (UE's Visibility
+    // tool paints 255, its erase 0). Its writes, unlike a paint layer's, are owed to the collider too.
+    LandscapeRoot root;
+    root.QuadsPerTile = 7;
+    root.SpacingCm    = 100.0f;
+    std::map<std::pair<int32_t, int32_t>, LandscapeTileData> tiles;
+    tiles.emplace( std::make_pair( 0, 0 ), Tile( 8 ) );
+    Fill( tiles.at( { 0, 0 } ), "Rock", 255u );
+    const LandscapeTileLookup lookup = [&]( int32_t x, int32_t z )
+    {
+        auto it = tiles.find( { x, z } );
+        if ( it == tiles.end() )
+            return LandscapeTileSlot{};
+        return LandscapeTileSlot{ LandscapeTileState::Present, &it->second };
+    };
+    LandscapeTileData& tile = tiles.at( { 0, 0 } );
+
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 300.0f;
+    brush.Strength = 1.0f;
+    const glm::vec2 at( 350.0f, 350.0f );
+    auto            weights = ComputeLandscapeBrush( root, brush, { &at, 1 } );
+    ASSERT_TRUE( weights.IsSuccess() );
+
+    // A paint layer's stroke is not the collider's business.
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics );
+    {
+        LandscapePaintStroke   rock( root, lookup, { { "Rock", 0.5f, false } } );
+        LandscapePaintSettings paint;
+        paint.Layer = "Rock";
+        ASSERT_TRUE( rock.Apply( weights.GetValue(), brush, paint, true ).IsSuccess() );
+        EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Physics ).empty() );
+    }
+
+    LandscapePaintStroke   stroke( root, lookup, { { "Rock", 0.5f, false } } );
+    LandscapePaintSettings paint;
+    paint.Layer = std::string( kLandscapeVisibilityLayerName );
+    for ( int step = 0; step < 8; ++step )
+        ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
+    const size_t mask = tile.VisibilityLayer().value();
+    EXPECT_EQ( tile.Weight( mask, 3, 3 ), 255 ) << "the stroke's centre is a hole";
+    EXPECT_TRUE( LandscapeWeightIsHole( tile.Weight( mask, 3, 3 ) ) );
+    EXPECT_EQ( tile.Weight( mask, 7, 7 ), 0 ) << "outside the brush";
+    EXPECT_FALSE( tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics ).empty() )
+         << "a hole painted must reach the collider";
+
+    for ( int step = 0; step < 8; ++step )
+        ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, true ).IsSuccess() );
+    EXPECT_EQ( tile.Weight( mask, 3, 3 ), 0 ) << "Shift (invert) fills the hole back";
+    EXPECT_FALSE( tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics ).empty() );
+
+    // Undo/redo replaces the layers wholesale: the collider is told there too.
+    ASSERT_TRUE( tile.SetWeightLayers( tile.WeightLayers() ).IsSuccess() );
+    EXPECT_FALSE( tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics ).empty() );
 }

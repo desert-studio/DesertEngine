@@ -876,3 +876,101 @@ TEST( LandscapeGridLod, TheSeamBetweenAnyTwoLodsIsDrawnTheSameByBothTiles )
     }
     std::printf( "[ LS7c ] %zu seams between random LOD pairs drawn identically by both tiles\n", seams );
 }
+
+// ── 6. L11b: holes — the visibility layer takes the triangles out of the ray and the collider alike ─────
+
+namespace
+{
+    // Paints samples [x0, x1) x [z0, z1) of @p tile fully into its visibility layer (UE's Visibility tool, 255).
+    void CutHole( LandscapeTileData& tile, uint32_t x0, uint32_t z0, uint32_t x1, uint32_t z1 )
+    {
+        const auto layer = tile.AddWeightLayer( std::string( kLandscapeVisibilityLayerName ) );
+        ASSERT_TRUE( layer.IsSuccess() ) << layer.GetError();
+        const LandscapeRect        rect{ x0, z0, x1, z1 };
+        const std::vector<uint8_t> full( rect.Area(), 255u );
+        ASSERT_TRUE( tile.WriteWeightRegion( layer.GetValue(), rect, full ).IsSuccess() );
+    }
+} // namespace
+
+TEST( LandscapeRaycast, ARayIntoAHolePassesAndItsRimIsHit )
+{
+    Landscape2x2 land( Hills );
+    CutHole( land.Tiles[0], 10u, 10u, 15u, 15u );
+    const auto      tiles = land.RayTiles();
+    const glm::vec3 down( 0.0f, -1.0f, 0.0f );
+    const auto      at = [&]( float gx, float gz ) {
+        return glm::vec3( land.Frames[0].OriginX + gx * kSpacing, 5000.0f,
+                               land.Frames[0].OriginZ + gz * kSpacing );
+    };
+
+    EXPECT_FALSE( RaycastLandscape( tiles, at( 12.5f, 12.5f ), down, 1e4f ) ) << "the middle of the hole";
+    // Jolt's rule: a triangle with a hole corner is gone, so the cells touching the painted samples open too.
+    EXPECT_FALSE( RaycastLandscape( tiles, at( 9.5f, 12.5f ), down, 1e4f ) ) << "a cell with a hole corner";
+    for ( const glm::vec2 rim : { glm::vec2( 8.5f, 12.5f ), glm::vec2( 15.5f, 12.5f ), glm::vec2( 12.5f, 8.5f ),
+                                  glm::vec2( 12.5f, 15.5f ) } )
+    {
+        const glm::vec3 origin   = at( rim.x, rim.y );
+        const auto      hit      = RaycastLandscape( tiles, origin, down, 1e4f );
+        const auto      expected = land.Height( origin.x, origin.z );
+        ASSERT_TRUE( hit.has_value() ) << "the rim cell " << rim.x << ", " << rim.y;
+        ASSERT_TRUE( expected.has_value() );
+        EXPECT_NEAR( hit->Point.y, *expected, 0.05f ) << rim.x << ", " << rim.y;
+    }
+
+    // Weight 170 is no hole, 171 is (UE's mask 1 - w below its 0.3333 clip).
+    const size_t               mask = land.Tiles[0].VisibilityLayer().value();
+    const LandscapeRect        rect{ 10u, 10u, 15u, 15u };
+    const std::vector<uint8_t> below( rect.Area(), 170u );
+    ASSERT_TRUE( land.Tiles[0].WriteWeightRegion( mask, rect, below ).IsSuccess() );
+    EXPECT_TRUE( RaycastLandscape( tiles, at( 12.5f, 12.5f ), down, 1e4f ) ) << "170 of 255 is ground";
+    const std::vector<uint8_t> above( rect.Area(), 171u );
+    ASSERT_TRUE( land.Tiles[0].WriteWeightRegion( mask, rect, above ).IsSuccess() );
+    EXPECT_FALSE( RaycastLandscape( tiles, at( 12.5f, 12.5f ), down, 1e4f ) ) << "171 of 255 is a hole";
+}
+
+TEST( LandscapeCollision, ABallDroppedIntoAPaintedHoleFallsThroughAndTheRimStillHolds )
+{
+    Landscape2x2  land( Tilted );
+    JoltLandscape jolt( land );
+    auto&         component = jolt.Registry.get<ECS::LandscapeTileComponent>( jolt.Entities[0] );
+    const auto    body      = jolt.Collision->BodyOf( jolt.Entities[0] );
+    ASSERT_NE( body, Physics::kInvalidBody );
+
+    const auto x = [&]( float gx ) { return land.Frames[0].OriginX + gx * kSpacing; };
+    const auto z = [&]( float gz ) { return land.Frames[0].OriginZ + gz * kSpacing; };
+    ASSERT_TRUE( jolt.JoltHeight( x( 16.0f ), z( 16.0f ) ).has_value() ) << "ground before the hole";
+
+    // Painted after the body exists: the weight write alone must reach the collider (the dirty path).
+    CutHole( *component.Heights, 6u, 6u, 26u, 26u );
+    jolt.Sync( land );
+    EXPECT_EQ( jolt.Collision->BodyOf( jolt.Entities[0] ), body ) << "a hole is a patch, not a new body";
+    EXPECT_FALSE( jolt.JoltHeight( x( 16.0f ), z( 16.0f ) ).has_value() ) << "Jolt still has ground in the hole";
+    const auto rim = jolt.JoltHeight( x( 4.5f ), z( 16.0f ) );
+    ASSERT_TRUE( rim.has_value() ) << "the rim lost its collision";
+    EXPECT_NEAR( *rim, *land.Height( x( 4.5f ), z( 16.0f ) ), kJoltQuantisationCm );
+
+    constexpr float   kRadius = 40.0f;
+    const float       ground  = *land.Height( x( 16.0f ), z( 16.0f ) );
+    Physics::BodyDesc ball;
+    ball.Shape    = Physics::ShapeType::Sphere;
+    ball.Radius   = kRadius;
+    ball.Type     = Physics::BodyType::Dynamic;
+    ball.Mass     = 10.0f;
+    ball.Position = glm::vec3( x( 16.0f ), ground + 200.0f, z( 16.0f ) );
+    const auto id = jolt.World.CreateBody( ball );
+    ASSERT_NE( id, Physics::kInvalidBody );
+    for ( int step = 0; step < 120; ++step )
+        jolt.World.Step( 1.0f / 60.0f );
+    // Resting on ground would leave its centre a radius above it; through the hole it is metres below.
+    EXPECT_LT( jolt.World.GetPosition( id ).y, ground - 300.0f ) << "the ball rests on a hole";
+
+    // Filling it back (Shift) restores the ground.
+    const size_t               mask = component.Heights->VisibilityLayer().value();
+    const LandscapeRect        rect{ 6u, 6u, 26u, 26u };
+    const std::vector<uint8_t> none( rect.Area(), 0u );
+    ASSERT_TRUE( component.Heights->WriteWeightRegion( mask, rect, none ).IsSuccess() );
+    jolt.Sync( land );
+    const auto back = jolt.JoltHeight( x( 16.0f ), z( 16.0f ) );
+    ASSERT_TRUE( back.has_value() ) << "the filled hole has no collision";
+    EXPECT_NEAR( *back, ground, kJoltQuantisationCm );
+}

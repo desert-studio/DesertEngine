@@ -18,13 +18,22 @@ namespace Desert::ECS
         }
 
         // The heights Jolt is given: the same decode the renderer's shader and SampleLandscapeHeight use,
-        // relative to the frame's base (the body stands at BaseY).
+        // relative to the frame's base (the body stands at BaseY). A hole in the visibility layer is
+        // kHeightFieldNoCollision, so every triangle touching it is gone (UE: the collision component's
+        // hole material / visibility data).
         void DecodeHeights( const Landscape::LandscapeTileData& tile, float zScale, std::vector<float>& out )
         {
             const auto& samples = tile.Samples();
             out.resize( samples.size() );
             for ( size_t i = 0; i < samples.size(); ++i )
                 out[i] = Landscape::LandscapeHeightCm( samples[i], zScale );
+            if ( const auto visibility = tile.VisibilityLayer() )
+            {
+                const std::vector<uint8_t>& weights = tile.WeightLayers()[*visibility].Weights;
+                for ( size_t i = 0; i < weights.size(); ++i )
+                    if ( Landscape::LandscapeWeightIsHole( weights[i] ) )
+                        out[i] = Physics::kHeightFieldNoCollision;
+            }
         }
 
         Physics::HeightFieldDesc DescFor( const Landscape::LandscapeTileData& tile,
