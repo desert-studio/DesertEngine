@@ -368,10 +368,10 @@ TEST( LandscapeGrass, AVarietyNamesItsMaterialAndWindAndTheHeaderStatesTheMateri
     EXPECT_EQ( read.GetValue().GrassVarieties, data.GrassVarieties );
     const auto& header = read.GetValue().Header;
     ASSERT_TRUE( header.has_value() );
-    // The meshes first, then the materials: the registry cooks the material with the type.
-    EXPECT_EQ(
-         header->Dependencies,
-         ( std::vector<std::string>{ kMeshGuid, kMaterialGuid } ) ); // NOLINT(bugprone-unchecked-optional-access)
+    // The meshes first, then the materials: the registry cooks the material with the type. The access is
+    // checked by the ASSERT above.
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+    EXPECT_EQ( header->Dependencies, ( std::vector<std::string>{ kMeshGuid, kMaterialGuid } ) );
 
     LandscapeGrassTypeData halfMaterial = data;
     halfMaterial.GrassVarieties[0].Material.Path.clear();

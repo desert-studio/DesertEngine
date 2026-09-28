@@ -152,7 +152,7 @@ namespace
         constexpr std::array<Stop, 3> stops = { { { 0.0f, { 34.0f, 58.0f, 16.0f } },
                                                   { 0.45f, { 84.0f, 128.0f, 36.0f } },
                                                   { 1.0f, { 178.0f, 188.0f, 96.0f } } } };
-        std::vector<unsigned char>    rgb( static_cast<size_t>( kGradientWidth * kGradientHeight * 3 ) );
+        std::vector<unsigned char>    rgb( static_cast<size_t>( kGradientWidth ) * kGradientHeight * 3 );
         for ( int y = 0; y < kGradientHeight; ++y )
         {
             const float tip = 1.0f - static_cast<float>( y ) / static_cast<float>( kGradientHeight - 1 );
@@ -163,7 +163,7 @@ namespace
             const glm::vec3 c = glm::mix( stops[s].Srgb, stops[s + 1].Srgb, f );
             for ( int x = 0; x < kGradientWidth; ++x )
                 for ( int k = 0; k < 3; ++k )
-                    rgb[static_cast<size_t>( ( y * kGradientWidth + x ) * 3 + k )] =
+                    rgb[( ( static_cast<size_t>( y ) * kGradientWidth ) + x ) * 3 + k] =
                          static_cast<unsigned char>( std::lround( c[k] ) );
         }
         std::vector<std::byte> png;
@@ -184,15 +184,19 @@ namespace
         return { std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
     }
 
-    // The header GUID of a text asset: the first "Guid" in the file is the header's.
-    Common::Content::AssetGuid HeaderGuidOf( const std::string& text )
+    // The header GUID of a text asset, read through the header reader every loader uses.
+    Common::Content::AssetGuid HeaderGuidOf( const fs::path& path )
     {
-        const std::string key = "\"Guid\": \"";
-        const size_t      at  = text.find( key );
-        EXPECT_NE( at, std::string::npos );
-        if ( at == std::string::npos )
+        std::ifstream in( path, std::ios::binary );
+        auto          object = Common::Content::ReadTextHeaderObject( in );
+        EXPECT_TRUE( object.IsSuccess() ) << path << ": " << object.GetError();
+        if ( !object.IsSuccess() )
             return {};
-        auto guid = Common::Content::AssetGuidFromText( std::string_view( text ).substr( at + key.size(), 32 ) );
+        auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+        EXPECT_TRUE( header.IsSuccess() ) << path << ": " << header.GetError();
+        if ( !header.IsSuccess() )
+            return {};
+        auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
         EXPECT_TRUE( guid.IsSuccess() ) << guid.GetError();
         return guid.IsSuccess() ? guid.GetValue() : Common::Content::AssetGuid{};
     }
@@ -227,7 +231,8 @@ TEST( GrassBladeAsset, EveryBladeIsTwoSidedAndStandsOnItsRoot )
 {
     const Geometry::ShapeMesh clump   = GrassClump();
     const float               winding = FrontWindingSign();
-    float                     lowest = 1.0e9f, highest = -1.0e9f;
+    float                     lowest  = 1.0e9f;
+    float                     highest = -1.0e9f;
     for ( const Desert::Vertex& v : clump.Vertices )
     {
         lowest  = std::min( lowest, v.Position.y );
@@ -238,7 +243,8 @@ TEST( GrassBladeAsset, EveryBladeIsTwoSidedAndStandsOnItsRoot )
 
     // Each triangle faces along its own vertices' normal, and the two sheets of a blade face opposite ways:
     // from any side one of them is front-facing.
-    size_t facingUp = 0, facingDown = 0;
+    size_t facingUp   = 0;
+    size_t facingDown = 0;
     for ( const Desert::Index& t : clump.Indices )
     {
         const auto&     a = clump.Vertices[t.V1];
@@ -281,7 +287,7 @@ TEST( GrassBladeAsset, TheMaterialDrawsTheGradient )
     ASSERT_TRUE( texture.IsSuccess() ) << texture.GetError();
     const std::string material = ReadText( root / kMaterialPath );
     ASSERT_FALSE( material.empty() ) << kMaterialPath << " is missing";
-    EXPECT_NE( material.find( "\"u_AlbedoTexture\"" ), std::string::npos );
+    EXPECT_NE( material.find( R"("u_AlbedoTexture")" ), std::string::npos );
     EXPECT_NE( material.find( Common::Content::AssetGuidToText( texture.GetValue().Guid ) ), std::string::npos )
          << "the material must name the gradient by its GUID "
          << Common::Content::AssetGuidToText( texture.GetValue().Guid );
@@ -294,7 +300,7 @@ TEST( GrassBladeAsset, TheCheckedInBladeIsItsRecipe )
     ASSERT_FALSE( root.empty() );
     auto mesh = Geometry::ShapeToEditMesh( GrassClump() );
     ASSERT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
-    const Common::Content::AssetGuid material = HeaderGuidOf( ReadText( root / kMaterialPath ) );
+    const Common::Content::AssetGuid material = HeaderGuidOf( root / kMaterialPath );
 
     Assets::MeshSourceData expected;
     expected.Models.push_back( { Geometry::ToSerialized( mesh.GetValue() ) } );
