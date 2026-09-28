@@ -659,8 +659,8 @@ namespace Desert::Geometry::VoxelBlockout
             return UncoveredPieces( cell, it->second, f );
         };
         // One piece of UncoveredPieces as quads (and a last triangle) fanned from its first corner, facing out.
-        auto emitPiece = [&]( const glm::ivec3& c, int f, const Poly2& piece, float lu, const GridFrame& lf,
-                              int material )
+        auto emitPiece =
+             [&]( const glm::ivec3& c, int f, const Poly2& piece, float lu, const GridFrame& lf, int material )
         {
             const int n  = FaceNormalAxis( f );
             const int a0 = ( n + 1 ) % 3;
