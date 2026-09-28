@@ -34,6 +34,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 
@@ -58,11 +60,11 @@ namespace
     protected:
         void SetUp() override
         {
-            // The project root is the WORKING DIRECTORY, so that a working-directory-relative spelling —
+            // The project root is the (scratch) WORKING DIRECTORY, so that a working-directory-relative spelling —
             // the form CollectionsPanel carries verbatim out of a collection.json manifest — is genuinely
             // the same file as the absolute one, and the equivalence below is a fact about the filesystem
             // rather than an assumption about it.
-            m_ProjectDir = fs::current_path();
+            m_ProjectDir = m_Scratch.Path();
             Common::Constants::Path::SetProjectRoot( m_ProjectDir, fs::path( "Resources/Assets" ) );
         }
 
@@ -77,7 +79,10 @@ namespace
             return ( Common::Constants::Path::ASSETS_PATH / relative ).lexically_normal();
         }
 
-        fs::path m_ProjectDir;
+        // The working directory for the test's length: a relative spelling resolves under it, and nothing the
+        // project root leads to is the checkout.
+        Desert::TestSupport::ScratchWorkingDirectory m_Scratch{ "desert-thumbnailkey" };
+        fs::path                                     m_ProjectDir;
     };
 
     // ─── One asset, many spellings ────────────────────────────────────────────────────────────────────

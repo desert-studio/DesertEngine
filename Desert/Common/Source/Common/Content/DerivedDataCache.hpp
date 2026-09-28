@@ -99,6 +99,12 @@ namespace Common::DDC
     // made. Tests that need the cache hold a Desert::TestSupport::DerivedDataSandbox.
     Common::ResultStr<std::filesystem::path> WritableRoot();
 
+    // Whether a loose DDC entry may be written at `entry`. The entry paths come from PathFor()/BucketDir(),
+    // which are built on Root() and are therefore RELATIVE when no project is open and DerivedDataCachePath is
+    // not absolute — a writer that bypasses Put (font atlases, icon SDFs, environment cubes) would drop
+    // DerivedDataCache/ into the working directory. Refused with WritableRoot()'s reason instead.
+    Common::BoolResultStr CheckWritable( const std::filesystem::path& entry );
+
     // "Buckets/<Bucket>/<h0h1>/<h2h3>/<h4..h15><Extension>" over the key's 16 lowercase hex digits — UE's
     // two-level fan-out, so no directory holds more than 1/65536 of a bucket. The one layout shared by the
     // DDC, Saved/Cooked and the archive.

@@ -1,0 +1,160 @@
+// NO TEST WRITES FROM THE WORKING DIRECTORY (TST1).
+//
+// Owner, 2026-09-27: Assets/, DerivedDataCache/ and RegistryProbe/ appeared in the root of the Windows checkout.
+// Suites built probe projects as `current_path() / "RegistryProbe"`, and the Windows runner started every
+// binary in the repository root. The runners now start each suite in build/TestScratch/<config>/<suite>, but
+// handoff_check, an IDE and a shell still start them in the root — so the source itself must not treat the
+// working directory as a place to put things. A test that needs a directory holds a
+// Desert::TestSupport::ScratchDir / ScratchWorkingDirectory (Desert/Tests/TestSupport/scratch_dir.hpp).
+//
+// WHAT IS READ AS "WRITES FROM current_path()": the working directory READ (`current_path()` or
+// `current_path( ec )`) and then
+//   - joined onto (`current_path() / "X"`) — the shape that built RegistryProbe/;
+//   - handed to SetProjectRoot — every cache, cook and registry write of the code under test then lands in it;
+//   - stored under a name that says it is a place to write (project/output/scratch/dest/cache).
+// Reading the working directory to walk UP to the repository root, to name it in a failure message, or to
+// save it for a restore is not writing and is not flagged. The census is lexical, so an exception is a row in
+// kExceptions with its reason, never a relaxed rule.
+
+#include <gtest/gtest.h>
+
+#include <array>
+#include <filesystem>
+#include <fstream>
+#include <regex>
+#include <set>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace
+{
+    namespace fs = std::filesystem;
+
+    struct Exception
+    {
+        const char* File; // repository-relative, generic separators
+        const char* Why;
+    };
+
+    // One row per file that may keep a flagged line. Empty: every writer found on 2026-09-28 was moved onto
+    // the scratch helpers instead.
+    // std::array, not a C array: a zero-length C array is ill-formed (and refused by MSVC).
+    constexpr std::array<Exception, 0> kExceptions{};
+
+    fs::path RepoRoot()
+    {
+        for ( fs::path p = fs::current_path(); !p.empty(); p = p.parent_path() )
+        {
+            if ( fs::exists( p / "Desert" / "Tests" / "TestSupport" ) && fs::exists( p / "Editor" ) )
+                return p;
+            if ( p == p.parent_path() )
+                break;
+        }
+        return {};
+    }
+
+    // The rule, on one line of source. Pure, so the self-tests below pin it without touching the tree.
+    bool WritesFromWorkingDirectory( const std::string& line )
+    {
+        static const std::regex kRead( R"(current_path\(\s*(ec)?\s*\))" );
+        static const std::regex kJoin( R"(current_path\(\s*(ec)?\s*\)\s*/)" );
+        static const std::regex kProjectRoot( R"(SetProjectRoot\s*\(.*current_path\()" );
+        static const std::regex kWriteName(
+             R"(\b([A-Za-z0-9_]*(Project|project|Out|out|Scratch|scratch|Dest|dest|Cache|cache)[A-Za-z0-9_]*)\s*=\s*[A-Za-z:]*current_path\()" );
+        // A comment names the shape without having it (this census's own header, scratch_dir.hpp's).
+        const size_t code = line.find_first_not_of( " \t" );
+        if ( code != std::string::npos && line.compare( code, 2, "//" ) == 0 )
+            return false;
+        if ( !std::regex_search( line, kRead ) )
+            return false;
+        return std::regex_search( line, kJoin ) || std::regex_search( line, kProjectRoot ) ||
+               std::regex_search( line, kWriteName );
+    }
+
+    TEST( TestScratchCensus, TheRuleFlagsTheWritingShapes )
+    {
+        EXPECT_TRUE( WritesFromWorkingDirectory(
+             R"(    const std::filesystem::path projectDir = std::filesystem::current_path() / "RegistryProbe";)" ) );
+        EXPECT_TRUE( WritesFromWorkingDirectory( R"(auto dir = fs::current_path( ec ) / "Assets";)" ) );
+        EXPECT_TRUE( WritesFromWorkingDirectory(
+             R"(Common::Constants::Path::SetProjectRoot( std::filesystem::current_path(), "Content" );)" ) );
+        EXPECT_TRUE( WritesFromWorkingDirectory( R"(            m_ProjectDir = fs::current_path();)" ) );
+        EXPECT_TRUE( WritesFromWorkingDirectory( R"(const fs::path outDir = fs::current_path();)" ) );
+    }
+
+    TEST( TestScratchCensus, TheRuleLeavesReadsAlone )
+    {
+        EXPECT_FALSE( WritesFromWorkingDirectory(
+             R"(for ( fs::path dir = fs::current_path(); !dir.empty(); dir = dir.parent_path() ))" ) );
+        EXPECT_FALSE(
+             WritesFromWorkingDirectory( R"(std::filesystem::path here = std::filesystem::current_path();)" ) );
+        EXPECT_FALSE(
+             WritesFromWorkingDirectory( R"(<< "walked up from " << std::filesystem::current_path();)" ) );
+        EXPECT_FALSE( WritesFromWorkingDirectory( R"(fs::path Old = fs::current_path();)" ) );
+        EXPECT_FALSE( WritesFromWorkingDirectory(
+             R"(    // a probe built as `current_path() / "RegistryProbe"` landed)" ) );
+        EXPECT_FALSE( WritesFromWorkingDirectory( R"(std::filesystem::current_path( m_Previous, ec );)" ) );
+    }
+
+    TEST( TestScratchCensus, NoTestWritesFromTheWorkingDirectory )
+    {
+        const fs::path root = RepoRoot();
+        ASSERT_FALSE( root.empty() ) << "repository root not found from " << fs::current_path();
+
+        std::set<std::string> excepted;
+        for ( const Exception& row : kExceptions )
+        {
+            excepted.insert( row.File );
+            EXPECT_TRUE( fs::exists( root / row.File ) ) << "stale exception row: " << row.File;
+        }
+
+        const std::string        self = "Desert/Tests/Tools/TestScratchCensus/test_scratch_census_test.cpp";
+        std::vector<std::string> hits;
+        size_t                   scanned = 0;
+        std::set<std::string>    exceptedUsed;
+        for ( const auto& entry : fs::recursive_directory_iterator( root / "Desert" / "Tests" ) )
+        {
+            if ( !entry.is_regular_file() )
+                continue;
+            const std::string ext = entry.path().extension().string();
+            if ( ext != ".cpp" && ext != ".hpp" && ext != ".h" )
+                continue;
+            const std::string rel = entry.path().lexically_relative( root ).generic_string();
+            if ( rel == self )
+                continue;
+            ++scanned;
+            std::ifstream in( entry.path() );
+            std::string   line;
+            int           number = 0;
+            while ( std::getline( in, line ) )
+            {
+                ++number;
+                if ( !WritesFromWorkingDirectory( line ) )
+                    continue;
+                if ( excepted.contains( rel ) )
+                {
+                    exceptedUsed.insert( rel );
+                    continue;
+                }
+                hits.push_back( rel + ":" + std::to_string( number ) + ": " + line );
+            }
+        }
+
+        // A census that scanned nothing passes vacuously; the tree has hundreds of test sources.
+        EXPECT_GT( scanned, 200u ) << "the census walked " << ( root / "Desert" / "Tests" ).string();
+        for ( const std::string& hit : hits )
+            ADD_FAILURE() << "writes from the working directory — use Desert::TestSupport::ScratchDir / "
+                             "ScratchWorkingDirectory (Desert/Tests/TestSupport/scratch_dir.hpp):\n  "
+                          << hit;
+        for ( const Exception& row : kExceptions )
+            EXPECT_TRUE( exceptedUsed.contains( row.File ) )
+                 << "exception row matches nothing any more, remove it: " << row.File;
+    }
+} // namespace
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

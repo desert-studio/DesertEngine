@@ -64,6 +64,8 @@
 # status file is MISSING (a worker killed by the OOM killer writes nothing — that is the one failure
 # mode a "no output means success" runner cannot see), or if xargs itself reported a failure.
 #
+# Every suite runs with build/TestScratch/<config>/<suite> as its working directory (emptied first).
+#
 # Usage: scripts/MacOS/RunTests.sh <workspace-root> <config>
 #        TEST_JOBS=<n> scripts/MacOS/RunTests.sh <workspace-root> <config>
 set -uo pipefail
@@ -80,6 +82,17 @@ if [ "${1:-}" = "--one" ]; then
     W_REPORTS="$W_ROOT/build/TestReports"
     W_LOG="$W_REPORTS/logs/$W_NAME.log"
     W_STATUS="$W_REPORTS/status/$W_NAME"
+    # Each suite runs in its own emptied working directory, never the checkout: a suite that writes
+    # relative to the working directory used to leave Assets/, DerivedDataCache/ and RegistryProbe/ in the
+    # repository root (TST1, the UE Saved/Automation pattern). Emptied BEFORE the run, not after, so a
+    # failing suite's leftovers stay here to be read. Suites that need the checkout walk up to it.
+    W_SCRATCH="$W_ROOT/build/TestScratch/$W_CONFIG/$W_NAME"
+    rm -rf "$W_SCRATCH"
+    if ! mkdir -p "$W_SCRATCH" || ! cd "$W_SCRATCH"; then
+        echo "[ERROR] cannot enter the scratch working directory $W_SCRATCH" >"$W_LOG"
+        echo "1 0 0" >"$W_STATUS"
+        exit 1
+    fi
 
     W_START="$(date +%s)"
     # /usr/bin/time -l is BSD time's verbose form and prints "maximum resident set size" in bytes.
@@ -105,6 +118,9 @@ fi
 
 # ── driver ────────────────────────────────────────────────────────────────────────────────────────
 ROOT="${1:?workspace root required}"
+# Absolute: every suite runs with its own scratch directory as the working directory (see --one), so a
+# relative root would resolve against that and not against the caller's directory.
+ROOT="$(cd "$ROOT" && pwd)" || { echo "[ERROR] workspace root not found: $1"; exit 1; }
 CONFIG="${2:-Debug}"
 
 TEST_DIR="$ROOT/build/Bin/Tests/$CONFIG"

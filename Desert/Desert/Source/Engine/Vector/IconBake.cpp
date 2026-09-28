@@ -160,15 +160,17 @@ namespace Desert::Vector
         return false;
     }
 
-    bool StoreBakedIcon( const std::filesystem::path& path, const BakedIcon& icon )
+    Common::BoolResultStr StoreBakedIcon( const std::filesystem::path& path, const BakedIcon& icon )
     {
+        // No project and no absolute DerivedDataCachePath: the path is cwd-relative — refuse, never write it.
+        if ( auto writable = Common::DDC::CheckWritable( path ); !writable.IsSuccess() )
+            return writable;
         std::error_code ec;
         std::filesystem::create_directories( path.parent_path(), ec );
 
         // Write-then-rename (И2) — see ShaderSpirvCache::StoreCachedSpirv.
         const std::vector<uint8_t> bytes = SerializeBakedIcon( icon );
         return Common::Utils::FileSystem::WriteContentToFileAtomic(
-                    path, std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) )
-             .IsSuccess();
+             path, std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
     }
 } // namespace Desert::Vector

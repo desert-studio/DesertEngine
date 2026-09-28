@@ -172,7 +172,7 @@ namespace Desert::Editor
                         ++stats.Failures;
                         continue;
                     }
-                    if ( !Text::StoreBakedFont( Text::FontCachePath( key ), baked ) )
+                    if ( !Text::StoreBakedFont( Text::FontCachePath( key ), baked ).IsSuccess() )
                     {
                         LOG_ERROR( "[PackageCook] {} baked but its atlas did not reach {} — the package "
                                    "would ship a font the runtime must rebake",
@@ -226,7 +226,7 @@ namespace Desert::Editor
                         ++stats.Failures;
                         continue;
                     }
-                    if ( !Vector::StoreBakedIcon( Vector::IconCachePath( key ), baked ) )
+                    if ( !Vector::StoreBakedIcon( Vector::IconCachePath( key ), baked ).IsSuccess() )
                     {
                         LOG_ERROR( "[PackageCook] {} baked but its SDF did not reach {} — the package "
                                    "would ship an icon the runtime must rebake",

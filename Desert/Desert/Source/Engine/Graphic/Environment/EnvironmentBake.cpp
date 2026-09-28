@@ -241,6 +241,8 @@ namespace Desert::Graphic
         auto* vulkanCube = dynamic_cast<API::Vulkan::VulkanImageCube*>( &cube );
         if ( vulkanCube == nullptr )
             return Common::MakeError<bool>( "the environment bake can only read back a Vulkan cube" );
+        if ( auto writable = Common::DDC::CheckWritable( entry.Path ); !writable.IsSuccess() )
+            return writable;
         entry.FaceSize = cube.GetWidth();
         entry.Mips     = cube.GetMipmapLevels();
         auto begun     = vulkanCube->RT_BeginReadAllLevels();
