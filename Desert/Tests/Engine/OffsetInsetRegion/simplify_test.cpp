@@ -103,8 +103,9 @@ TEST( Simplify, HalfOfACubeSphereKeepsEveryPolygroupBorder )
     ASSERT_EQ( borders.size(), 12u * 8u );
     SimplifySettings   settings; // 50 %, Preserve PolyGroups
     const DynamicMesh3 after = Simplified( before, settings );
+    // Each interior collapse removes two triangles: the simplifier stops AT the target, not below it.
     EXPECT_LE( after.TriangleCount(), 384 );
-    EXPECT_GT( after.TriangleCount(), 0 );
+    EXPECT_GE( after.TriangleCount(), 383 );
     EXPECT_TRUE( Valid( after ) );
     EXPECT_EQ( GroupBorders( after ), borders );
 }
@@ -138,7 +139,7 @@ TEST( Simplify, VertexCountTargetStopsAtTheCount )
     settings.Target          = SimplifyTarget::VertexCount;
     settings.VertexCount     = 250;
     const DynamicMesh3 after = Simplified( before, settings );
-    EXPECT_LE( after.VertexCount(), 250 );
+    EXPECT_EQ( after.VertexCount(), 250 ); // one vertex per collapse
     EXPECT_TRUE( Valid( after ) );
     EXPECT_EQ( GroupBorders( after ), GroupBorders( before ) );
 }
