@@ -22,7 +22,7 @@ namespace Desert::Editor::Autosave
     // gate read an old-schema copy as a corpus scene, and six censuses grew a "skip Autosave/" branch. A
     // file that is in the wrong folder is fixed by the folder, not by every reader learning to look away.
     //
-    // Saved/ is the machine-local tree (gitignored as a whole, like Saved/Cooked and Saved/Crashes), so
+    // Saved/ is the machine-local tree (gitignored as a whole, like the cook output and Saved/Crashes), so
     // nothing here is committed, scanned, cooked or packed.
     //
     // HEADER-ONLY AND DISK-FREE except StatedIn()/ChooseRecovery(): the path relation is stated over Constants
@@ -36,7 +36,7 @@ namespace Desert::Editor::Autosave
     inline constexpr std::string_view kUntitledFolder = "Untitled";
 
     // <Project>/Saved/Autosaves. With no project open (the sandbox) ProjectDir is "", so this is the
-    // working-directory-relative Saved/Autosaves — the same rule Saved/Cooked follows.
+    // working-directory-relative Saved/Autosaves — the same rule every Saved/ subtree follows.
     inline std::filesystem::path Dir()
     {
         return ( Common::Constants::Path::CurrentProjectRoot().ProjectDir / "Saved" / "Autosaves" )
@@ -47,8 +47,8 @@ namespace Desert::Editor::Autosave
     {
         inline std::filesystem::path Absolute( const std::filesystem::path& p )
         {
-            std::error_code       ec;
-            std::filesystem::path abs = std::filesystem::absolute( p, ec );
+            std::error_code             ec;
+            const std::filesystem::path abs = std::filesystem::absolute( p, ec );
             return ( ec ? p : abs ).lexically_normal();
         }
 
@@ -56,7 +56,7 @@ namespace Desert::Editor::Autosave
         inline std::optional<std::filesystem::path> Under( const std::filesystem::path& root,
                                                            const std::filesystem::path& p )
         {
-            const std::filesystem::path rel = Absolute( p ).lexically_relative( Absolute( root ) );
+            std::filesystem::path rel = Absolute( p ).lexically_relative( Absolute( root ) );
             if ( rel.empty() || *rel.begin() == ".." )
                 return std::nullopt;
             return rel;

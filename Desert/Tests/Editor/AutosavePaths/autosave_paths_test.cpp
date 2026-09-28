@@ -100,13 +100,13 @@ TEST( AutosavePaths, RecoveryRoundTripNamesTheOriginalScene )
         {
             const auto original = AS::SceneFor( AS::PathFor( scene, "ignored", suffix ) );
             ASSERT_TRUE( original.has_value() ) << scene;
-            EXPECT_EQ( fs::absolute( *original ).lexically_normal(), fs::absolute( scene ).lexically_normal() );
+            EXPECT_EQ( fs::absolute( original.value_or( fs::path{} ) ).lexically_normal(),
+                       fs::absolute( scene ).lexically_normal() );
         }
     }
 
     const auto untitled = AS::SceneFor( AS::PathFor( {}, "New Scene", AS::kPeriodicSuffix ) );
-    ASSERT_TRUE( untitled.has_value() );
-    EXPECT_TRUE( untitled->empty() );
+    EXPECT_EQ( untitled, std::optional<fs::path>( fs::path{} ) );
 
     EXPECT_FALSE( AS::SceneFor( Path::SCENE_PATH / "Starter.desce" ).has_value() );
     EXPECT_FALSE( AS::SceneFor( AS::Dir() / "Scenes" / "Starter.desce" ).has_value() );
