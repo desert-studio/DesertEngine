@@ -300,10 +300,17 @@ namespace
 // ── 1. THE FORMAT ──────────────────────────────────────────────────────────────────────────────────
 
 // 1a. The corpus is where this suite thinks it is. Without this every corpus assertion below is a
-// vacuous pass over zero files.
+// vacuous pass over zero files. Pinned by NAME, not by a floor: SCN1 deleted the 68 scenes nothing named, and a
+// count would have been satisfied by editing the number. These are scenes the corpus assertions below lean on.
 TEST( WorldPartitionFormat, TheScenesAreWhereThisSuiteThinksTheyAre )
 {
-    EXPECT_GE( RepositoryScenes().size(), 100u );
+    std::set<std::string> names;
+    for ( const auto& path : RepositoryScenes() )
+        names.insert( path.stem().string() );
+    for ( const char* expected :
+          { "Starter", "G3_TwoTerrains", "Terrain_MatProbe", "Desert_Sandbox", "M4_RampNormalMap", "UI_ListProbe",
+            "UI_PrefabWitness", "UI_PrefabWitness_NoOverride" } )
+        EXPECT_TRUE( names.count( expected ) ) << expected << ".desce is not under Editor/Resources/Assets/Scenes";
 }
 
 // 1b. A scene nobody partitioned writes no `WorldPartition` key: the field is a std::optional and
@@ -704,13 +711,16 @@ namespace
     // records stay point-only once the gathered registry answers for them.
     //   * +4 with PFX1 (2599 / 2631, 36 asked): the four UI_Card instances state their transform (scene v37),
     //     so they are placed and their prefab is asked for its box; UI_Card has no extent, so they are points.
-    constexpr std::size_t kCorpusMeshReferences = 36;
+    //   * -9 with SCN1 (27 asked): the 68 scenes nothing named are deleted; nine of their mesh-asset records go.
+    constexpr std::size_t kCorpusMeshReferences = 27;
     // SET1 (scene v36) gave each of the 148 corpus scenes an unbound PostProcessVolume: a record with no
     // extent of its own (it grades everywhere and loads Global), so +148 on both counts.
     //   * -4 with LS-16 (2595 / 2627): G26_TerrainRockLayer is deleted with the built-in rock layer it existed
     //     to switch off; its landscape roots and scene records go with it.
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2595;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2627;
+    //   * -277 / -286 with SCN1 (2318 / 2341): the 68 scenes nothing named are deleted (Scenes/ 147 -> 79), and
+    //     their records go with them - each one's PostProcessVolume, lights, cloud volumes and UI entities.
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2318;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2341;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
