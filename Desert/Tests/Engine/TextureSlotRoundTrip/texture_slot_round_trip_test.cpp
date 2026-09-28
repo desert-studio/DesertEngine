@@ -51,7 +51,6 @@
 #include <string>
 
 using Desert::Assets::AssetManager;
-using Desert::Assets::AssetPriority;
 using Desert::Assets::TextureAsset;
 using Desert::Core::Serialize::TextureSlotFromPath;
 using Desert::Core::Serialize::TextureSlotToPath;
@@ -189,7 +188,7 @@ TEST( TextureSlotRoundTrip, AHandleStoredOnOneMachineNamesTheSameTextureOnAnothe
 
     AssetManager annsManager;
     const auto   annsTexture = annsManager.CreateAsset<TextureAsset>(
-         AssetPriority::Medium, Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
+         Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
     ASSERT_NE( annsTexture, nullptr );
     const uint64_t saved = static_cast<uint64_t>( annsTexture->GetMetadata().Handle );
     ASSERT_EQ( saved, kProbeHandle ) << "a texture's identity comes from its own file; the fixture is wrong";
@@ -234,8 +233,8 @@ TEST( TextureSlotRoundTrip, TheStoredFormCarriesNoPartOfTheMachineItWasWrittenOn
     Open( ann );
 
     AssetManager manager;
-    const auto   texture = manager.CreateAsset<TextureAsset>(
-         AssetPriority::Medium, Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
+    const auto   texture =
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
     ASSERT_NE( texture, nullptr );
 
     const std::string stored = TextureSlotToPath( static_cast<uint64_t>( texture->GetMetadata().Handle ) );
@@ -260,13 +259,12 @@ TEST( TextureSlotRoundTrip, AContentTextureAndACookedOneTakeDifferentRootsAndBot
     Open( ann );
 
     AssetManager manager;
-    ASSERT_NE( manager.CreateAsset<TextureAsset>(
-                    AssetPriority::Medium, Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex" ) ),
-               nullptr );
     ASSERT_NE(
-         manager.CreateAsset<TextureAsset>(
-              AssetPriority::Medium, Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Content.tex" ) ),
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex" ) ),
          nullptr );
+    ASSERT_NE( manager.CreateAsset<TextureAsset>(
+                    Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Content.tex" ) ),
+               nullptr );
 
     EXPECT_EQ( TextureSlotToPath( kProbeHandle ), "cooked:Textures/T_Cooked.tex" );
     EXPECT_EQ( TextureSlotToPath( kOtherHandle ), "assets:Textures/T_Content.tex" );
@@ -292,11 +290,9 @@ TEST( TextureSlotRoundTrip, TwoTexturesDoNotCollapseOntoOneReference )
     Open( ann );
 
     AssetManager manager;
-    ASSERT_NE( manager.CreateAsset<TextureAsset>( AssetPriority::Medium,
-                                                  Common::Filepath( ann.Dir / "Cooked" / "Textures" / "A.tex" ) ),
+    ASSERT_NE( manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "A.tex" ) ),
                nullptr );
-    ASSERT_NE( manager.CreateAsset<TextureAsset>( AssetPriority::Medium,
-                                                  Common::Filepath( ann.Dir / "Cooked" / "Textures" / "B.tex" ) ),
+    ASSERT_NE( manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "B.tex" ) ),
                nullptr );
 
     const std::string a = TextureSlotToPath( kProbeHandle );
@@ -327,9 +323,9 @@ TEST( TextureSlotRoundTrip, EverySpellingOfOneFileResolvesToOneTexture )
     Open( ann );
 
     AssetManager manager;
-    ASSERT_NE( manager.CreateAsset<TextureAsset>(
-                    AssetPriority::Medium, Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) ),
-               nullptr );
+    ASSERT_NE(
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) ),
+         nullptr );
 
     EXPECT_EQ( TextureSlotFromPath( manager, "cooked:Textures/T_Probe.tex" ), kProbeHandle );
     EXPECT_EQ( TextureSlotFromPath( manager, ( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ).string() ),

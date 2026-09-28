@@ -9,7 +9,7 @@ namespace Desert::Assets
     class StaticMeshAsset final : public MeshAsset
     {
     public:
-        StaticMeshAsset( const AssetPriority priority, const Common::Filepath& filepath );
+        StaticMeshAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

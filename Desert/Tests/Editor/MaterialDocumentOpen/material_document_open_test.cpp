@@ -123,8 +123,7 @@ TEST( MaterialDocumentOpen, ARecordIsLoadedByTheEditorsOwnPreparationNotByTheRou
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
 
     // A record only — what a scene's material slot names before anything has drawn it.
-    auto record = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::Medium,
-                                                                     Common::Filepath( tmp.File ), false );
+    auto record = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Common::Filepath( tmp.File ), false );
     if ( !record )
     {
         ADD_FAILURE() << "no record";
@@ -197,14 +196,13 @@ TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
     for ( const std::filesystem::path& shaderPath :
           Assets::ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ) )
     {
-        if ( manager.CreateAsset<Assets::ShaderAsset>( Assets::AssetPriority::Medium, shaderPath ) )
+        if ( manager.CreateAsset<Assets::ShaderAsset>( shaderPath ) )
             ++shaderCount;
     }
     ASSERT_GT( shaderCount, 0u ) << "no .shader registered - the content roots did not resolve";
 
     // A shell, as AssetPreloader registers every `.demat`: present in the database, not parsed.
-    auto shell = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::Medium,
-                                                                    Common::Filepath( material ), false );
+    auto shell = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Common::Filepath( material ), false );
     ASSERT_TRUE( shell ) << "M_CubemapCheck did not create as a shell";
     ASSERT_FALSE( shell->IsReadyForUse() );
 

@@ -10,8 +10,8 @@
 
 namespace Desert::Assets
 {
-    CloudNoiseVolumeAsset::CloudNoiseVolumeAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::CloudNoiseVolume )
+    CloudNoiseVolumeAsset::CloudNoiseVolumeAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::CloudNoiseVolume )
     {
         // THE VOLUME'S IDENTITY IS ITS ENVELOPE GUID (container 3), adopted HERE rather than in the load, for
         // the layout's reason: the asset manager keys its handle lookup at creation. A file with no readable

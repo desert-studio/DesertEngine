@@ -14,7 +14,7 @@ namespace Desert::Assets
     class SkyboxAsset final : public AssetBase
     {
     public:
-        SkyboxAsset( AssetPriority priority, const Common::Filepath& filepath );
+        SkyboxAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

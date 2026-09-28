@@ -30,7 +30,7 @@ namespace Desert::Assets
             Skybox
         };
 
-        explicit TextureAsset( AssetPriority priority, const Common::Filepath& filepath );
+        explicit TextureAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
 
