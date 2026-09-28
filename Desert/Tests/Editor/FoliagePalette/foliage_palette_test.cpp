@@ -252,6 +252,7 @@ namespace
         { "Button", "ICON_MDI_PLUS \" Foliage\"", Reach::Palette, { "\"Add type to the palette: \"", "\"Add mesh to the palette: \"" } },
         { "Selectable", "( ICON_MDI_GRASS \" \" + path.stem().string() ).c_str()", Reach::Palette, { "\"Add type to the palette: \"" } },
         { "Selectable", "( ICON_MDI_CUBE_OUTLINE \" \" + path.stem().string() ).c_str()", Reach::Palette, { "\"Add mesh to the palette: \"" } },
+        { "Selectable", "( ICON_MDI_PACKAGE_VARIANT \" \" + path.stem().string() ).c_str()", Reach::Palette, { "\"Add prefab to the palette: \"" } },
         { "Button", "ICON_MDI_CURSOR_DEFAULT_CLICK \" From Selection\"", Reach::Palette, { "\"Add the selected entity to the palette\"" } },
         { "Button", "grid ? ICON_MDI_VIEW_LIST : ICON_MDI_VIEW_GRID", Reach::Palette, { "\"Palette: grid view\"", "\"Palette: list view\"" } },
         { "InputTextWithHint", "\"##FoliageSearch\"", Reach::Palette, { "\"Palette: clear the search\"" } },
