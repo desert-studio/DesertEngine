@@ -416,8 +416,16 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBuffer::InvalidateForHost() const
     {
-        if ( m_Mapped != nullptr )
-            vmaInvalidateAllocation( m_Allocator, m_Allocation, 0, VK_WHOLE_SIZE );
+        if ( m_Mapped == nullptr )
+            return;
+        // A failed invalidate leaves the host view stale; the readback that follows still runs, so the
+        // failure is named here with its code rather than dropped.
+        const VkResult result = vmaInvalidateAllocation( m_Allocator, m_Allocation, 0, VK_WHOLE_SIZE );
+        if ( result != VK_SUCCESS )
+        {
+            LOG_ERROR( "[RenderGraph] vmaInvalidateAllocation failed on a host-visible graph buffer (VkResult {})",
+                       static_cast<int>( result ) );
+        }
     }
 
     // ── Pool ───────────────────────────────────────────────────────────────────────────────────────────

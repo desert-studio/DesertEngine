@@ -251,7 +251,8 @@ namespace Desert::Graphic::System
     {
         gpu.SpawnAccum = 0.0f;
         const std::vector<uint8_t> zeros( static_cast<size_t>( gpu.MaxParticles ) * kParticleStride, 0 );
-        return gpu.Particles->SetData( zeros.data(), static_cast<uint32_t>( zeros.size() ) );
+        auto written = gpu.Particles->SetData( zeros.data(), static_cast<uint32_t>( zeros.size() ) );
+        return written;
     }
 
     void ParticleRenderer::OnTemporalHistoryReset()

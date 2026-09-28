@@ -215,6 +215,9 @@ namespace
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceProperties", 1, "void" },
          // VKF1: driverName/driverInfo for the start-up capability line.
          { "DeviceCapsProbe.cpp", "vkGetPhysicalDeviceProperties2", 1, "void" },
+         // RDG1: the render graph's transient pool sizes its aliased image and buffer allocations.
+         { "VulkanRenderGraph.cpp", "vkGetImageMemoryRequirements", 1, "void" },
+         { "VulkanRenderGraph.cpp", "vkGetBufferMemoryRequirements", 1, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
          // В2, шаг 2 программы по миру: чтение бюджета памяти устройства. Возвращает void — результат
          // приходит через цепочку `pNext` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`), которую
