@@ -996,11 +996,11 @@ namespace Desert::Migration
             if ( Assets::MissingInstanceTransform( record ).empty() )
                 continue; // not an instance, or already states all three
 
-            const std::string site = ( record.id.has_value()
-                                            ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *record.id ) ) +
-                                                   "]"
-                                            : std::string( "Entities[?]" ) ) +
-                                     " > '" + *record.PrefabPath + "'";
+            const std::string site =
+                 ( record.id.has_value()
+                        ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *record.id ) ) + "]"
+                        : std::string( "Entities[?]" ) ) +
+                 " > '" + *record.PrefabPath + "'";
 
             const auto located = LocateMeshFile( *record.PrefabPath, assetsRoot );
             if ( !located )
@@ -1014,7 +1014,8 @@ namespace Desert::Migration
             const auto prefab = rfl::json::read<Assets::PrefabData>( text.str() );
             if ( !prefab )
             {
-                report.UnknownNames.push_back( site + ": the prefab file does not read: " + prefab.error().what() );
+                report.UnknownNames.push_back( site +
+                                               ": the prefab file does not read: " + prefab.error().what() );
                 continue;
             }
             const auto root = std::find_if( prefab->Entities.begin(), prefab->Entities.end(),
@@ -1097,8 +1098,8 @@ namespace Desert::Migration
             report.InstanceTransforms       = MigrateInstanceTransformsV36ToV37( scene.Entities, assetsRoot );
             if ( !report.InstanceTransforms.UnknownNames.empty() )
             {
-                report.Refused = "'" + scene.SceneName + "': " +
-                                 std::to_string( report.InstanceTransforms.UnknownNames.size() ) +
+                report.Refused = "'" + scene.SceneName +
+                                 "': " + std::to_string( report.InstanceTransforms.UnknownNames.size() ) +
                                  " prefab instance(s) whose root transform cannot be stated: " +
                                  report.InstanceTransforms.UnknownNames.front();
                 return report; // unstamped, as every refusal

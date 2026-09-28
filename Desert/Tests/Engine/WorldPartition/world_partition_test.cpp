@@ -681,7 +681,7 @@ namespace
     // records stay point-only once the gathered registry answers for them.
     //   * +4 with PFX1 (2599 / 2631, 36 asked): the four UI_Card instances state their transform (scene v37),
     //     so they are placed and their prefab is asked for its box; UI_Card has no extent, so they are points.
-    constexpr std::size_t kCorpusMeshReferences        = 36;
+    constexpr std::size_t kCorpusMeshReferences = 36;
     // SET1 (scene v36) gave each of the 148 corpus scenes an unbound PostProcessVolume: a record with no
     // extent of its own (it grades everywhere and loads Global), so +148 on both counts.
     constexpr std::size_t kCorpusPointOnlyWithRegistry = 2599;
@@ -1950,8 +1950,7 @@ namespace
     bool InSomeCell( const WorldPartitionPlan& plan, std::size_t composite )
     {
         return std::any_of( plan.Cells.begin(), plan.Cells.end(),
-                            [&]( const PlannedCell& cell )
-                            {
+                            [&]( const PlannedCell& cell ) {
                                 return std::find( cell.Composites.begin(), cell.Composites.end(), composite ) !=
                                        cell.Composites.end();
                             } );
@@ -2044,10 +2043,10 @@ TEST( WorldPartitionPrefabInstances, EveryCorpusPrefabInstanceLandsWhereItsWorld
     };
     // UI_Card instances under a screen-space canvas: the canvas makes its whole tree global.
     const std::vector<Row> kInstances = {
-        { "UI_PrefabWitness.desce", 6780486062127671715ull, AlwaysLoadedReason::Component },
-        { "UI_PrefabWitness.desce", 8708514101388726983ull, AlwaysLoadedReason::Component },
-        { "UI_PrefabWitness_NoOverride.desce", 5383751921808863294ull, AlwaysLoadedReason::Component },
-        { "UI_PrefabWitness_NoOverride.desce", 11835270700432038809ull, AlwaysLoadedReason::Component },
+         { "UI_PrefabWitness.desce", 6780486062127671715ull, AlwaysLoadedReason::Component },
+         { "UI_PrefabWitness.desce", 8708514101388726983ull, AlwaysLoadedReason::Component },
+         { "UI_PrefabWitness_NoOverride.desce", 5383751921808863294ull, AlwaysLoadedReason::Component },
+         { "UI_PrefabWitness_NoOverride.desce", 11835270700432038809ull, AlwaysLoadedReason::Component },
     };
     // Instances the partitioner may refuse. Empty: a row added here must name its scene and id.
     const std::set<std::pair<std::string, std::uint64_t>> kRefusedRegister = {};
@@ -2072,7 +2071,8 @@ TEST( WorldPartitionPrefabInstances, EveryCorpusPrefabInstanceLandsWhereItsWorld
         const std::string        scene   = path.filename().string();
         const WorldPartitionPlan plan    = PlanWorldPartition( records, Cells( 12800.0f ), anyPrefab );
         for ( const std::size_t record : plan.UnplacedPrefabInstances )
-            refused.emplace( scene, static_cast<std::uint64_t>( records[record].id.value_or( Common::UUID( 0 ) ) ) );
+            refused.emplace( scene,
+                             static_cast<std::uint64_t>( records[record].id.value_or( Common::UUID( 0 ) ) ) );
 
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
@@ -2103,8 +2103,9 @@ TEST( WorldPartitionPrefabInstances, EveryCorpusPrefabInstanceLandsWhereItsWorld
 
             ASSERT_TRUE( InSomeCell( plan, group ) ) << scene << " " << id;
             const CellBounds square = GridSquareOf( held.Cell, LevelCellSize( 12800.0f, held.Level ) );
-            for ( const glm::vec3 corner : { kCardBox.Min, kCardBox.Max, glm::vec3( kCardBox.Min.x, 0.0f, kCardBox.Max.z ),
-                                             glm::vec3( kCardBox.Max.x, 0.0f, kCardBox.Min.z ) } )
+            for ( const glm::vec3 corner :
+                  { kCardBox.Min, kCardBox.Max, glm::vec3( kCardBox.Min.x, 0.0f, kCardBox.Max.z ),
+                    glm::vec3( kCardBox.Max.x, 0.0f, kCardBox.Min.z ) } )
             {
                 const glm::vec4 at = world[record] * glm::vec4( corner, 1.0f );
                 EXPECT_TRUE( at.x >= square.MinX && at.x <= square.MaxX && at.z >= square.MinZ &&

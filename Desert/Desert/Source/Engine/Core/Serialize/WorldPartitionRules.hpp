@@ -1150,8 +1150,9 @@ namespace Desert::Core::Rules
             {
                 plan.UnplacedPrefabInstances.push_back( record );
                 plan.Issues.push_back( Common::Json::Issue{
-                     data.id.has_value() ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *data.id ) ) + "]"
-                                         : "Entities[" + std::to_string( record ) + "]",
+                     data.id.has_value()
+                          ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *data.id ) ) + "]"
+                          : "Entities[" + std::to_string( record ) + "]",
                      "a prefab instance stating its root transform (scene v37)",
                      "no " + missing + " on the instance of '" + *data.PrefabPath + "'" } );
             }
