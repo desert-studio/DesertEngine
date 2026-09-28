@@ -53,10 +53,11 @@
  *   as many words ("this rig has the SAME signature as its source").
  *
  *   SINCE RTGT 3 THE RIG IS NAMED BY ITS HEADER GUID, with the path kept beside it for the reader. The
- *   path is RELATIVE TO THE COOKED MESHES ROOT and was, before RTGT 3, joined in
+ *   path is RELATIVE TO THE ASSETS ROOT (AF8b; it was the cooked meshes root while rigs lived there) and was,
+ *   before RTGT 3, joined in
  *   `RetargetAsset::ResolveDependencies` — the shape `.decloudtype` uses for its noise volume, against the root a
- * `.skeleton` actually lives under (the content registry gathers skeletons from `MESH_PATH_COOKED` and from
- * nowhere else). Relative, so the library is the same library on another machine.
+ * `.skeleton` actually lives under (the content registry gathers skeletons from `ASSETS_PATH`). Relative, so
+ * the library is the same library on another machine.
  *
  *   THE TARGET RIG IS THE ENTITY'S OWN, AND IS NOT NAMED HERE. A second statement of it would be a
  *   second source of truth for which rig this entity has, and the loser of a disagreement between the
@@ -139,7 +140,7 @@ namespace Desert::Assets::Serialization
      *       handle (RetargetAsset's constructor), and this number under `RTGT`; the top-level FormatVersion
      *       is gone. A version-1 file is refused by name; Tools/SceneMigrator mints its GUID.
      *   3 - the source rig by `{Guid, Path}` (T7f): the rig's header GUID is its identity, the path relative
-     *       to the cooked meshes root is kept for the reader; that GUID is also the header's one Dependency,
+     *       to the assets root is kept for the reader; that GUID is also the header's one Dependency,
      *       so the registry sees the edge without parsing the payload. A version-2 file (a bare path) is
      *       refused by name; Tools/SceneMigrator reads the GUID out of the named `.skeleton`.
      *
@@ -255,7 +256,7 @@ namespace Desert::Assets::Serialization
 
         /// The `.skeleton` the CLIPS are authored on. Resolved by GUID in `RetargetAsset::ResolveDependencies`;
         /// its GUID is the header's one Dependency (WriteRetarget states it, ParseRetarget refuses a
-        /// disagreement). The path is RELATIVE to the cooked meshes root (e.g. "IKProbe.skeleton") and is
+        /// disagreement). The path is RELATIVE to the assets root (e.g. "Meshes/Skinned/IKProbe.skeleton") and is
         /// what a reader and every warning name. See the file note for why this is not a signature.
         AssetGuidRef SourceSkeleton;
 

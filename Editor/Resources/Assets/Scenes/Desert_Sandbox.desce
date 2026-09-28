@@ -16,7 +16,7 @@
             "Tag": "Text",
             "Translation": [-220.0, 340.0, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [100.0, 100.0, 100.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Text": {
                 "Text": "Desert Engine",
                 "Font": "engine:Fonts/Roboto-Regular.ttf",

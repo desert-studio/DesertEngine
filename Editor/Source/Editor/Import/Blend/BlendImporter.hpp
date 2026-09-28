@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Common/Core/Constants.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
 
 #include "../IAssetImporter.hpp"
 #include "../Assimp/AssimpImporter.hpp"
@@ -36,12 +36,13 @@ namespace Desert::Editor
         }
 
     private:
-        // Where converted FBXs (and their copied textures) live — a generated intermediate tree, per-source
-        // subfolder so texture copies from different .blends never collide.
+        // Where converted FBXs (and their copied textures) live — a DERIVED intermediate, so the DDC's
+        // BlendConvert bucket (deletable, never committed; AF8b took it out of the project's Cooked/ tree),
+        // per-source subfolder so texture copies from different .blends never collide.
         static std::filesystem::path IntermediateFbx( const std::filesystem::path& blendPath )
         {
             const std::string stem = blendPath.stem().string();
-            return Common::Constants::Path::COOKED_PATH / "BlendConvert" / stem / ( stem + ".fbx" );
+            return Common::DDC::BucketDir( "BlendConvert" ) / stem / ( stem + ".fbx" );
         }
 
         // Run Blender once to export <blend> -> <fbx>. Cached: if the FBX is already newer than the .blend we
@@ -156,7 +157,7 @@ namespace Desert::Editor
         // it, and that was what kept the write's refusal branch out of reach of every test binary.
         static std::filesystem::path WriteConvertScript()
         {
-            return WriteBlendConvertScript( Common::Constants::Path::COOKED_PATH / "BlendConvert/_convert.py" );
+            return WriteBlendConvertScript( Common::DDC::BucketDir( "BlendConvert" ) / "_convert.py" );
         }
     };
 } // namespace Desert::Editor

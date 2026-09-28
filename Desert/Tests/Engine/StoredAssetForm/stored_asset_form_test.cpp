@@ -107,11 +107,11 @@ TEST( StoredAssetForm, ATaggedKeyIsWrittenVerbatimAndIsTheOnlyFormThatCanNameBot
 {
     const OpenProject open( kProject );
 
-    // A cooked texture lives under COOKED_PATH, a SIBLING of the assets root. That is why the texture
-    // slot stores the tag: relative-to-the-assets-root gives `../Cooked/...` for this file and falls
-    // back to the absolute spelling, i.e. to a developer's home directory in a committed scene.
-    EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "cooked:Textures/T_Probe.tex" ),
-               "cooked:Textures/T_Probe.tex" );
+    // An engine texture lives under RESOURCE_PATH, outside the assets root. That is why the texture slot
+    // stores the tag: relative-to-the-assets-root gives a `..` chain for such a file and falls back to the
+    // absolute spelling, i.e. to a developer's home directory in a committed scene.
+    EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "engine:Textures/T_Probe.tex" ),
+               "engine:Textures/T_Probe.tex" );
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "assets:Textures/T_Content.tex" ),
                "assets:Textures/T_Content.tex" );
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "engine:Fonts/Roboto-Regular.ttf" ),
@@ -142,12 +142,12 @@ TEST( StoredAssetForm, AFileOutsideTheAssetsRootKeepsItsOwnSpellingInsteadOfEsca
     const OpenProject open( kProject );
 
     // The branches said it out loud — "outside the project — say so plainly" — and the reason is that
-    // relative-to-the-assets-root produces `../Cooked/...` here, which resolves against whatever the
-    // reader's assets root happens to be. A body under the COOKED root, and a file under no root at
+    // relative-to-the-assets-root produces a `..` chain here, which resolves against whatever the
+    // reader's assets root happens to be. A body under the ENGINE root, and a file under no root at
     // all, both take the path rather than a `..` chain.
-    const std::string cooked = RenderStoredForm( StoredAssetForm::AssetsRelative, "cooked:Volumes/B.dcmv" );
-    EXPECT_EQ( cooked.rfind( "..", 0 ), std::string::npos ) << cooked;
-    EXPECT_EQ( cooked, ( Common::Constants::Path::COOKED_PATH / "Volumes/B.dcmv" ).lexically_normal().string() );
+    const std::string engine = RenderStoredForm( StoredAssetForm::AssetsRelative, "engine:Volumes/B.dcmv" );
+    EXPECT_EQ( engine.rfind( "..", 0 ), std::string::npos ) << engine;
+    EXPECT_EQ( engine, ( Common::Constants::Path::RESOURCE_PATH / "Volumes/B.dcmv" ).lexically_normal().string() );
 
     const std::string outside = RenderStoredForm( StoredAssetForm::AssetsRelative, "/elsewhere/X.demat" );
     EXPECT_EQ( outside, "/elsewhere/X.demat" );
@@ -161,9 +161,9 @@ TEST( StoredAssetForm, AMachinePathIsTheFileAsThisMachineSpellsIt )
     // asserted through the round trip rather than assumed: the preloader creates a mesh shell at
     // exactly `PathForStableKey( row.Key )`, so the two must be the same string.
     const std::filesystem::path mesh =
-         ( Common::Constants::Path::COOKED_PATH / "Meshes/Probe.stmesh" ).lexically_normal();
+         ( Common::Constants::Path::ASSETS_PATH / "Meshes/Skinned/Probe.skmesh" ).lexically_normal();
     const std::string key = Common::AssetHandle::StableKeyForPath( mesh );
-    ASSERT_EQ( key, "cooked:Meshes/Probe.stmesh" );
+    ASSERT_EQ( key, "assets:Meshes/Skinned/Probe.skmesh" );
 
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::MachinePath, key ), mesh.string() );
 }
@@ -185,7 +185,7 @@ TEST( StoredAssetForm, TheMachinePathFormIsTheONEThatStillCarriesTheCheckoutDire
     // and so does searching for the all-backward one; the first fix here swapped one for the other and
     // was still wrong. What the test actually means is "this string contains the checkout directory",
     // and that question only has an answer once both sides are spelled the same way.
-    const std::string machine = RenderStoredForm( StoredAssetForm::MachinePath, "cooked:Meshes/Probe.stmesh" );
+    const std::string machine = RenderStoredForm( StoredAssetForm::MachinePath, "assets:Meshes/Probe.stmesh" );
     const std::string mesh    = std::filesystem::path( machine ).generic_string();
     EXPECT_NE( mesh.find( kProject.generic_string() ), std::string::npos )
          << "the mesh form no longer carries the checkout directory. That is an IMPROVEMENT and a "
@@ -193,7 +193,7 @@ TEST( StoredAssetForm, TheMachinePathFormIsTheONEThatStillCarriesTheCheckoutDire
             "same commit, and this test updated to assert the new form.";
 
     // While the two forms beside it do not.
-    EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "cooked:Textures/T.tex" ).find( kProject.string() ),
+    EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "assets:Textures/T.tex" ).find( kProject.string() ),
                std::string::npos );
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::AssetsRelative, "assets:Materials/M.demat" )
                     .find( kProject.generic_string() ),

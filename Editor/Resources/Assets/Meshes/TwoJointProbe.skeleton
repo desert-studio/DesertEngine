@@ -1,0 +1,40 @@
+{
+    "Header": {
+        "Kind": "Skeleton",
+        "Guid": "e287e4cefcdec52a99588849bcf0a0a0",
+        "Versions": {
+            "SKEL": 1
+        },
+        "Dependencies": []
+    },
+    "Signature": 6545059686777644984,
+    "Bones": [
+        {
+            "Name": "Joint_Base",
+            "OffsetMatrix": [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
+            ],
+            "LocalBindTransform": [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
+            ]
+        },
+        {
+            "Name": "Joint_Arm",
+            "OffsetMatrix": [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0, 0.0, -40.0, 0.0, 1.0
+            ],
+            "LocalBindTransform": [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0, 0.0, 40.0, 0.0, 1.0
+            ],
+            "ParentBoneID": 0
+        }
+    ],
+    "Import": {
+        "Source": "TwoJointProbe.gltf",
+        "SourceHash": 2080282809576534268
+    }
+}

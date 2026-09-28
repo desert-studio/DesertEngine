@@ -36,7 +36,7 @@ namespace Ser = Desert::Assets::Serialization;
 
 namespace
 {
-    constexpr const char* kCookedDir = "Editor/Cooked/Meshes/";
+    constexpr const char* kCookedDir = "Editor/Resources/Assets/Meshes/Skinned/";
 
     std::string RepoRoot()
     {

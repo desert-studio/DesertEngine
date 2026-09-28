@@ -31,6 +31,8 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <gtest/gtest.h>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -62,11 +64,29 @@ namespace
     constexpr const char*   kProbeBoneName  = "Root";
     constexpr std::uint64_t kProbeSignature = 4699069763035776985ull;
 
-    // The handle the shipped scene stores for the shipped probe mesh. Derived from the project-relative
-    // cooked path, so it is the same number on every machine — that is the whole reason the derivation is
-    // relative (see AssetHandle::StableKeyForPath).
-    constexpr const char*   kProbeCookedMeshPath = "Cooked/Meshes/SkinProbe.skmesh";
-    constexpr std::uint64_t kProbeMeshHandle     = 16266463617133760712ull;
+    // The identity the shipped scene stores for the shipped probe mesh: MESH_SkinnedProbe.desce names it by
+    // MeshGuid, and the mesh states the same GUID in its header (AF8b: authored, committed under the assets
+    // root). The runtime handle is that GUID folded (Content::HandleForGuid), so it no longer depends on
+    // where the file sits.
+    constexpr const char*   kProbeMeshPath   = "Editor/Resources/Assets/Meshes/Skinned/SkinProbe.skmesh";
+    constexpr std::uint64_t kProbeMeshGuidHi = 0x047623816f024edfull;
+    constexpr std::uint64_t kProbeMeshGuidLo = 0x9fd7a557f6501f7eull;
+
+    // The checkout root: the first directory above the working directory holding .gitignore and Editor/.
+    std::filesystem::path RepoRoot()
+    {
+        std::error_code ec;
+        for ( std::filesystem::path here = std::filesystem::current_path( ec ); !here.empty();
+              here                       = here.parent_path() )
+        {
+            if ( std::filesystem::exists( here / ".gitignore", ec ) &&
+                 std::filesystem::exists( here / "Editor", ec ) )
+                return here;
+            if ( here == here.parent_path() )
+                break;
+        }
+        return {};
+    }
 
     Desert::Assets::Serialization::SkeletonAssetData ProbeSkeletonData()
     {
@@ -364,10 +384,20 @@ TEST( SkinnedMeshDependency, TheShippedProbeKeepsTheIdentityTheSceneWasSavedWith
          << "The one-bone 'Root' rig no longer hashes to the signature SkinProbe.skmesh stores; the shipped "
             "probe mesh would find no skeleton and the scene that places it would render nothing.";
 
-    EXPECT_EQ( static_cast<std::uint64_t>( Common::AssetHandle::FromCookedPath( kProbeCookedMeshPath ) ),
-               kProbeMeshHandle )
-         << "The probe mesh's path-derived handle changed; MESH_SkinnedProbe.desce stores the old number and "
-            "would resolve to no mesh at all.";
+    const std::filesystem::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the checkout";
+    std::ifstream in( root / kProbeMeshPath, std::ios::binary );
+    std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+    in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+    prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+
+    const auto stated = Common::Content::ReadMeshHeaderGuid( prefix );
+    ASSERT_TRUE( stated.has_value() ) << kProbeMeshPath << " states no GUID in its header";
+    const Common::Content::AssetGuid expected{ kProbeMeshGuidHi, kProbeMeshGuidLo };
+    EXPECT_EQ( stated, expected ) << "SkinProbe.skmesh's GUID changed; MESH_SkinnedProbe.desce stores the old "
+                                     "MeshGuid and would resolve to no mesh at all.";
+    EXPECT_FALSE( Common::Content::HandleForGuid( expected ) == Common::AssetHandle::Null() )
+         << "the probe mesh's GUID folds to the null handle, so the scene's reference would name nothing";
 }
 
 int main( int argc, char** argv )

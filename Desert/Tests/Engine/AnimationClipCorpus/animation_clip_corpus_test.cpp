@@ -53,8 +53,8 @@
 #include <Common/Core/Core.hpp>
 namespace
 {
-    constexpr const char* kCorpusDir = "Editor/Cooked/Meshes/";
-    constexpr const char* kProbeRig  = "Editor/Cooked/Meshes/SkinProbe.skeleton";
+    constexpr const char* kCorpusDir = "Editor/Resources/Assets/Meshes/Skinned/";
+    constexpr const char* kProbeRig  = "Editor/Resources/Assets/Meshes/Skinned/SkinProbe.skeleton";
 
     // The probe rig's one bone. Named here as well as read from the file so that a corpus clip pointing at
     // a bone the rig does not have is a failure with a readable message rather than a silent non-match.

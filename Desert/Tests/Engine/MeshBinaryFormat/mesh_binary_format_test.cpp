@@ -47,6 +47,7 @@
  *    as StaticMeshCooked's census over `MeshService::BuildAndCache`.
  */
 
+#include <algorithm>
 #include <Common/Json/Json.hpp>
 #include <Common/Content/ImportRecord.hpp>
 
@@ -723,42 +724,29 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
 
 TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
 {
-    // THE CORPUS, AND THE REGISTER OF IT IS `.gitignore` ITSELF. `Editor/Cooked/` is a blanket ignore
-    // with one `!` line per committed fixture, so those lines are exactly the cooked meshes this
-    // repository ships — a list typed here would be one a new fixture can fall out of in silence,
-    // which is the A27 defect one level up.
-    //
-    // Enumerating the DIRECTORY would be wrong for the opposite reason: a developer's own cooks live
-    // there too (`base.stmesh` is 40 MB of them), are machine-local, and are none of this suite's
-    // business.
+    // THE CORPUS IS THE AUTHORED SKINNED-MESH FOLDER (AF8b). The committed meshes are authored assets under
+    // the assets root, beside their rigs and clips; `Cooked/` is derived and ignored whole, so nothing there
+    // is this suite's business. The folder is enumerated rather than listed here: a typed list is one a new
+    // mesh can fall out of in silence (A27).
     const std::filesystem::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not find the repository root from the working directory";
 
-    const std::string ignore = ReadFile( root / ".gitignore" );
-    ASSERT_FALSE( ignore.empty() );
-
+    const std::filesystem::path skinned =
+         std::filesystem::path( "Editor" ) / "Resources" / "Assets" / "Meshes" / "Skinned";
     std::vector<std::string> corpus;
-    std::istringstream       in( ignore );
-    std::string              line;
-    while ( std::getline( in, line ) )
-    {
-        while ( !line.empty() && ( line.back() == '\r' || line.back() == ' ' ) )
-            line.pop_back();
-        if ( line.empty() || line[0] == '#' || line[0] != '!' )
-            continue; // comments are dropped before parsing: §8.3
-        const std::string path = line.substr( 1 );
-        if ( path.size() > 7 && ( path.compare( path.size() - 7, 7, ".stmesh" ) == 0 ||
-                                  path.compare( path.size() - 7, 7, ".skmesh" ) == 0 ) )
-            corpus.push_back( path );
-    }
+    std::error_code          ec;
+    for ( const auto& entry : std::filesystem::directory_iterator( root / skinned, ec ) )
+        if ( entry.is_regular_file() && entry.path().extension() == ".skmesh" )
+            corpus.push_back( ( skinned / entry.path().filename() ).generic_string() );
+    std::sort( corpus.begin(), corpus.end() );
 
-    ASSERT_FALSE( corpus.empty() ) << ".gitignore admits no cooked mesh at all; either the rules moved "
-                                      "or this test is reading the wrong file";
+    ASSERT_FALSE( corpus.empty() ) << skinned.generic_string() << " holds no .skmesh; either the meshes moved "
+                                   << "or this test is reading the wrong folder";
 
     for ( const std::string& relative : corpus )
     {
         const std::string bytes = ReadFile( root / relative );
-        ASSERT_FALSE( bytes.empty() ) << relative << " is admitted by .gitignore and is empty or absent";
+        ASSERT_FALSE( bytes.empty() ) << relative << " is empty or unreadable";
         EXPECT_TRUE( Desert::Assets::Serialization::LooksLikeMeshBinary( bytes ) )
              << relative << " is still the retired JSON form. The corpus is converted BY THE COMMIT "
              << "that changed the format — a migration that only runs on someone's machine is not one.";

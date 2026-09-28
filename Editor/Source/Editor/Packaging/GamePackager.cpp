@@ -10,6 +10,7 @@
 #include <Engine/Project/ProjectContext.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Settings/ProductName.hpp>
@@ -26,9 +27,16 @@
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/PeImports.hpp>
 
+#ifdef _WIN32
+#define popen _popen
+#define pclose _pclose
+#endif
+
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -71,7 +79,7 @@ namespace Desert::Editor
         // content (the partitioned worlds). THE SOURCE TREES ARE READ HERE AND NOWHERE ELSE on the way to an
         // archive: the packer walks only Saved/Cooked/<Platform> (CollectCookedTree), as UE's pak step reads
         // only the cooker's output.
-        bool StageTree( const PackagedTree& tree, const fs::path& cooked,
+        bool StageTree( const PackagedTree& tree, const fs::path& cooked, bool developerInstruments,
                         std::vector<std::pair<std::string, fs::path>>& staged, std::string& error )
         {
             const fs::path& from = *tree.Tree;
@@ -100,7 +108,7 @@ namespace Desert::Editor
                     error = "cannot relativize " + src.string() + ": " + ec.message();
                     return false;
                 }
-                if ( IsEditorOnlyResource( src ) )
+                if ( IsLeftOutOfPackage( src, developerInstruments ) )
                     continue;
                 const std::string key = keyPrefix + "/" + rel.generic_string();
                 // A registry left on the disk from before the registry built itself (AF9) is not staged:
@@ -222,23 +230,25 @@ namespace Desert::Editor
         // already wiped the tree and staged the DDC buckets into it. `baseKeys` receives the keys that must
         // land in the base archive whatever the chunk plan says (registry, worlds, descriptor: the game reads
         // them before it knows which chunks exist).
-        bool StageShippedContent( std::vector<std::string>& baseKeys, std::string& error )
+        bool StageShippedContent( std::vector<std::string>& baseKeys, bool developerInstruments,
+                                  std::string& error )
         {
             const fs::path                                cooked = Common::DDC::PlatformCookedDir();
             std::vector<std::pair<std::string, fs::path>> staged;
             for ( const PackagedTree& tree : PackagedContentTrees() )
-                if ( !StageTree( tree, cooked, staged, error ) )
+                if ( !StageTree( tree, cooked, developerInstruments, staged, error ) )
                     return false;
 
             std::vector<std::pair<std::string, std::string>> pinned;
-            // The registry ships without the rows of editor-only resources: they are not staged, and a row
-            // naming a file the archive lacks is a load the game would attempt and fail at every start.
+            // The registry ships without the rows of what the package leaves out (editor-only resources, and
+            // a Shipping package's developer-only shaders): they are not staged, and a row naming a file the
+            // archive lacks is a load the game would attempt and fail at every start.
             Common::Utils::AssetRegistry shipped = Assets::ContentRegistry::Get();
-            std::vector<std::string>     editorOnlyRows;
+            std::vector<std::string>     leftOutRows;
             for ( const Common::Utils::AssetRegistryEntry& row : shipped.Entries() )
-                if ( IsEditorOnlyResource( Common::AssetHandle::PathForStableKey( row.Key ) ) )
-                    editorOnlyRows.push_back( row.Key );
-            for ( const std::string& key : editorOnlyRows )
+                if ( IsLeftOutOfPackage( Common::AssetHandle::PathForStableKey( row.Key ), developerInstruments ) )
+                    leftOutRows.push_back( row.Key );
+            for ( const std::string& key : leftOutRows )
                 shipped.Remove( key );
             pinned.emplace_back( ShippedRegistryKey(), shipped.Serialize() );
             if ( !CollectCookedWorlds( staged, pinned, error ) )
@@ -516,6 +526,226 @@ namespace Desert::Editor
         return text;
     }
 
+    namespace
+    {
+        // ── A MAC BUNDLE CARRIES ITS OWN VULKAN, AND THE PACKAGER PROVES IT (PKG2b) ──────────────────────
+        //
+        // The Runtime is linked against Homebrew's loader by absolute path
+        // (/opt/homebrew/opt/vulkan-loader/lib/libvulkan.1.dylib), and so is the loader's own install name.
+        // Copying the dylibs into Contents/Frameworks changed nothing about that: dyld resolved the absolute
+        // path first, so every "bundled" package still loaded the developer's Homebrew loader and failed to
+        // start on a machine without one. The copies are therefore relinked (install_name_tool), re-signed
+        // (an edited Mach-O's ad-hoc signature no longer matches, and arm64 refuses to run it), and the
+        // result is read back with otool: a bundle whose binaries still name a path outside the system or
+        // the bundle is refused, because it is a package that only runs on the machine that built it.
+        constexpr const char* kBundledLoaderName = "@executable_path/../Frameworks/libvulkan.1.dylib";
+        constexpr const char* kBundledDriverName = "@executable_path/../Frameworks/libMoltenVK.dylib";
+
+        struct CommandOutput
+        {
+            int         Status = -1;
+            std::string Text;
+        };
+
+        std::string ShellQuote( const std::string& text )
+        {
+            std::string quoted = "'";
+            for ( const char c : text )
+                quoted += c == '\'' ? std::string( "'\\''" ) : std::string( 1, c );
+            return quoted + "'";
+        }
+
+        CommandOutput RunCaptured( const std::string& command )
+        {
+            CommandOutput out;
+            FILE*         pipe = popen( ( command + " 2>&1" ).c_str(), "r" );
+            if ( pipe == nullptr )
+                return out;
+            std::array<char, 4096> chunk{};
+            while ( fgets( chunk.data(), static_cast<int>( chunk.size() ), pipe ) != nullptr )
+                out.Text += chunk.data();
+            out.Status = pclose( pipe );
+            return out;
+        }
+
+        Common::BoolResultStr Run( const std::string& command )
+        {
+            if ( const CommandOutput done = RunCaptured( command ); done.Status != 0 )
+                return Common::MakeError( "'" + command + "' failed (status " + std::to_string( done.Status ) +
+                                          "): " + done.Text );
+            return Common::MakeSuccess( true );
+        }
+
+        // Mach-O (thin, either width) or universal: the only files otool has anything to say about. A
+        // synthesized test runtime is a PE image and is correctly not one.
+        bool IsMachO( const fs::path& file )
+        {
+            std::ifstream                             in( file, std::ios::binary );
+            std::array<char, sizeof( std::uint32_t )> bytes{};
+            if ( !in.read( bytes.data(), bytes.size() ) )
+                return false;
+            const auto magic = std::bit_cast<std::uint32_t>( bytes );
+            return magic == 0xfeedfaceu || magic == 0xfeedfacfu || magic == 0xcefaedfeu || magic == 0xcffaedfeu ||
+                   magic == 0xcafebabeu || magic == 0xbebafecau;
+        }
+
+        // What a shipped binary may name: the OS, or a path inside the bundle.
+        bool IsBundleSafeReference( const std::string& path )
+        {
+            return path.starts_with( "/usr/lib/" ) || path.starts_with( "/System/Library/" ) ||
+                   path.starts_with( "@executable_path/" ) || path.starts_with( "@loader_path/" );
+        }
+
+        // Every dylib reference (`otool -L`: the install name and each dependency) and every LC_RPATH entry
+        // (`otool -l`) of @p binary, in the order otool prints them.
+        Common::ResultStr<std::vector<std::string>> LinkedPaths( const fs::path& binary )
+        {
+            std::vector<std::string> paths;
+            const CommandOutput      libs = RunCaptured( "otool -L " + ShellQuote( binary.string() ) );
+            if ( libs.Status != 0 )
+                return Common::MakeError<std::vector<std::string>>( "otool -L " + binary.string() +
+                                                                    " failed: " + libs.Text );
+            std::istringstream lines( libs.Text );
+            std::string        line;
+            std::getline( lines, line ); // "<file>:" header
+            while ( std::getline( lines, line ) )
+            {
+                const size_t start = line.find_first_not_of( " \t" );
+                const size_t paren = line.find( " (compatibility" );
+                if ( start != std::string::npos && paren != std::string::npos && paren > start )
+                    paths.push_back( line.substr( start, paren - start ) );
+            }
+            const CommandOutput loads = RunCaptured( "otool -l " + ShellQuote( binary.string() ) );
+            if ( loads.Status != 0 )
+                return Common::MakeError<std::vector<std::string>>( "otool -l " + binary.string() +
+                                                                    " failed: " + loads.Text );
+            std::istringstream commands( loads.Text );
+            bool               inRpath = false;
+            while ( std::getline( commands, line ) )
+            {
+                if ( line.find( "cmd LC_RPATH" ) != std::string::npos )
+                    inRpath = true;
+                else if ( inRpath && line.find( " path " ) != std::string::npos )
+                {
+                    const size_t start = line.find( " path " ) + 6;
+                    const size_t end   = line.find( " (offset" );
+                    paths.push_back( line.substr( start, end == std::string::npos ? end : end - start ) );
+                    inRpath = false;
+                }
+            }
+            return Common::MakeSuccess( std::move( paths ) );
+        }
+
+        // THE SELF-CHECK: every Mach-O in Contents/ names only the OS or the bundle. Refuses with every
+        // offending file and path, not the first, so one packaging run lists the whole fix.
+        Common::BoolResultStr BundleIsSelfContained( const fs::path& appRoot )
+        {
+            std::string     offenders;
+            std::error_code ec;
+            for ( auto it = fs::recursive_directory_iterator( appRoot / "Contents", ec );
+                  !ec && it != fs::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( !it->is_regular_file( ec ) || !IsMachO( it->path() ) )
+                    continue;
+                const auto paths = LinkedPaths( it->path() );
+                if ( !paths )
+                    return Common::MakeError( paths.GetError() );
+                for ( const std::string& path : paths.GetValue() )
+                    if ( !IsBundleSafeReference( path ) )
+                        offenders +=
+                             "\n  " + it->path().lexically_relative( appRoot ).generic_string() + " -> " + path;
+            }
+            if ( ec )
+                return Common::MakeError( "could not walk " + appRoot.string() + ": " + ec.message() );
+            if ( !offenders.empty() )
+                return Common::MakeError( "the bundle is not self-contained - these binaries name a path outside "
+                                          "the OS and the bundle, so it runs only where that path exists:" +
+                                          offenders );
+            return Common::MakeSuccess( true );
+        }
+
+        // Copies Homebrew's Vulkan loader, MoltenVK and its ICD manifest into the bundle, repoints the player
+        // binary and both dylibs at the bundled copies, re-signs what changed, then runs the self-check.
+        Common::BoolResultStr BundleVulkan( const fs::path& appRoot, const fs::path& playerBinary )
+        {
+            const char*     envPrefix = std::getenv( "HOMEBREW_PREFIX" ); // NOLINT(concurrency-mt-unsafe)
+            const fs::path  brew      = envPrefix != nullptr ? fs::path( envPrefix ) : fs::path( "/opt/homebrew" );
+            const fs::path  loaderSrc = brew / "lib" / "libvulkan.1.dylib";
+            const fs::path  mvkSrc    = brew / "lib" / "libMoltenVK.dylib";
+            const fs::path  icdSrc    = brew / "etc" / "vulkan" / "icd.d" / "MoltenVK_icd.json";
+            std::error_code ec;
+            for ( const fs::path& needed : { loaderSrc, mvkSrc, icdSrc } )
+                if ( !fs::exists( needed, ec ) )
+                    return Common::MakeError( "the bundle cannot carry Vulkan: " + needed.string() +
+                                              " does not exist (brew install vulkan-loader molten-vk, or set "
+                                              "HOMEBREW_PREFIX)" );
+
+            const fs::path frameworks = appRoot / "Contents" / "Frameworks";
+            const fs::path icdDir     = appRoot / "Contents" / "Resources" / "vulkan" / "icd.d";
+            const fs::path loader     = frameworks / "libvulkan.1.dylib";
+            const fs::path driver     = frameworks / "libMoltenVK.dylib";
+            fs::create_directories( frameworks, ec );
+            fs::create_directories( icdDir, ec );
+            // canonical(): the Homebrew names are symlinks, and the bundle carries the files they point at.
+            for ( const auto& [from, to] : { std::pair{ loaderSrc, loader }, std::pair{ mvkSrc, driver } } )
+            {
+                fs::copy_file( fs::canonical( from, ec ), to, fs::copy_options::overwrite_existing, ec );
+                if ( ec )
+                    return Common::MakeError( "could not copy " + from.string() +
+                                              " into the bundle: " + ec.message() );
+                fs::permissions( to, fs::perms::owner_write, fs::perm_options::add, ec );
+            }
+
+            // The loader's standard bundle location for driver manifests (Contents/Resources/vulkan/icd.d);
+            // library_path is resolved relative to the manifest, so it climbs to Frameworks.
+            auto icdRead = Common::Utils::FileSystem::ReadFileContent( icdSrc );
+            if ( !icdRead )
+                return Common::MakeError( icdRead.GetError() );
+            std::string icd    = icdRead.ExtractValue();
+            const auto  keyPos = icd.find( "\"library_path\"" );
+            const auto  valStart =
+                 keyPos == std::string::npos ? std::string::npos : icd.find( '\"', icd.find( ':', keyPos ) );
+            const auto valEnd = valStart == std::string::npos ? std::string::npos : icd.find( '\"', valStart + 1 );
+            if ( valEnd == std::string::npos )
+                return Common::MakeError( icdSrc.string() + " has no library_path the bundle could repoint" );
+            icd = icd.substr( 0, valStart + 1 ) + "../../../Frameworks/libMoltenVK.dylib" + icd.substr( valEnd );
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteContentToFileAtomic( icdDir / "MoltenVK_icd.json", icd );
+                 !written )
+                return Common::MakeError( "MoltenVK_icd.json was not written: " + written.GetError() );
+
+            // Relink: the dylibs' own install names, then every reference of the player binary that names a
+            // Vulkan loader outside the bundle (a synthesized non-Mach-O test runtime has none).
+            if ( auto r = Run( "install_name_tool -id " + std::string( kBundledLoaderName ) + " " +
+                               ShellQuote( loader.string() ) );
+                 !r )
+                return r;
+            if ( auto r = Run( "install_name_tool -id " + std::string( kBundledDriverName ) + " " +
+                               ShellQuote( driver.string() ) );
+                 !r )
+                return r;
+            std::vector<fs::path> signs = { loader, driver };
+            if ( IsMachO( playerBinary ) )
+            {
+                const auto paths = LinkedPaths( playerBinary );
+                if ( !paths )
+                    return Common::MakeError( paths.GetError() );
+                for ( const std::string& path : paths.GetValue() )
+                    if ( path.ends_with( "/libvulkan.1.dylib" ) && !IsBundleSafeReference( path ) )
+                        if ( auto r = Run( "install_name_tool -change " + ShellQuote( path ) + " " +
+                                           kBundledLoaderName + " " + ShellQuote( playerBinary.string() ) );
+                             !r )
+                            return r;
+                signs.push_back( playerBinary );
+            }
+            for ( const fs::path& binary : signs )
+                if ( auto r = Run( "codesign --force --sign - " + ShellQuote( binary.string() ) ); !r )
+                    return r;
+
+            return BundleIsSelfContained( appRoot );
+        }
+    } // namespace
+
     PackageResult PackageGame( const PackageOptions& options )
     {
         using Project::ProjectContext;
@@ -539,7 +769,11 @@ namespace Desert::Editor
         // into the project's own cache, never into the output directory, so the rule below still holds.
         // Cooked for the TARGET runtime's profile (options.Config), not this editor's: a Debug editor
         // packaging a Release game must produce Release cache keys or the shipped cache never hits.
-        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoForConfigName( options.Config ) );
+        // The shader SET is the target's too: a Shipping runtime cannot load the developer-instrument
+        // programs, so its package neither cooks nor carries them (Common/Core/DeveloperOnlyShaders.hpp).
+        const bool      developerInstruments = Common::ConfigHasDeveloperInstruments( options.Config );
+        const CookStats cook =
+             CookContentCaches( Core::SpirvDebugInfoForConfigName( options.Config ), developerInstruments );
 
         // BEFORE ANYTHING IS WRITTEN. A refusal after the output directory exists leaves half a
         // package behind, and half a package is the thing somebody ships by accident.
@@ -613,7 +847,6 @@ namespace Desert::Editor
         // exactly the knowledge a shipped game must not depend on.
         const fs::path root    = fs::path( options.OutputDir ) / ( bundle ? safeName + ".app" : safeName );
         const fs::path gameDir = bundle ? root / "Contents" / "MacOS" : root;
-        const fs::path fwDir   = root / "Contents" / "Frameworks"; // bundle only
         const char*    binName = bundle ? kBundlePlayerBinary : host.RuntimeBinary;
 
         fs::create_directories( gameDir, ec );
@@ -677,7 +910,7 @@ namespace Desert::Editor
         {
             // Everything that ships is staged into the one cooked tree, then packed from it and from nothing else.
             std::vector<std::string> baseKeys;
-            if ( !StageShippedContent( baseKeys, error ) ||
+            if ( !StageShippedContent( baseKeys, developerInstruments, error ) ||
                  !CollectCookedTree( baseKeys, contentFiles, baseBlobs, stats, error ) )
                 return { false, error, "" };
 
@@ -747,71 +980,24 @@ namespace Desert::Editor
                          "" };
         }
 
-        // 6) Bundle only: MoltenVK + the Vulkan loader travel INSIDE Contents/Frameworks so the player
-        // machine needs no Homebrew. The ICD json is rewritten to point at the bundled dylib (the
-        // loader resolves library_path relative to the json file).
-        bool bundledVulkan = false;
+        // 6) Bundle only: the bundle carries its own Vulkan - loader, MoltenVK and the ICD manifest - and the
+        // player binary is relinked to the loader inside it (BundleVulkan above). No fallback to the target
+        // machine's Homebrew: a bundle that needs one is not self-contained, so it is refused, not shipped.
         if ( bundle )
         {
-            const char*    envPrefix = std::getenv( "HOMEBREW_PREFIX" );
-            const fs::path brew      = envPrefix ? fs::path( envPrefix ) : fs::path( "/opt/homebrew" );
-
-            const fs::path loaderSrc = brew / "lib" / "libvulkan.1.dylib";
-            const fs::path mvkSrc    = brew / "lib" / "libMoltenVK.dylib";
-            const fs::path icdSrc    = brew / "etc" / "vulkan" / "icd.d" / "MoltenVK_icd.json";
-
-            if ( fs::exists( loaderSrc, ec ) && fs::exists( mvkSrc, ec ) && fs::exists( icdSrc, ec ) )
-            {
-                fs::create_directories( fwDir, ec );
-                // copy_options::none on a symlink source copies the TARGET file (what we want).
-                fs::copy_file( fs::canonical( loaderSrc, ec ), fwDir / "libvulkan.1.dylib",
-                               fs::copy_options::overwrite_existing, ec );
-                fs::copy_file( fs::canonical( mvkSrc, ec ), fwDir / "libMoltenVK.dylib",
-                               fs::copy_options::overwrite_existing, ec );
-
-                // Guarded by fs::exists(icdSrc) above; an unreadable file degrades to the same
-                // "library_path key not found" no-op patch the old empty read produced.
-                auto        icdRead = Common::Utils::FileSystem::ReadFileContent( icdSrc );
-                std::string icd     = icdRead ? icdRead.ExtractValue() : std::string{};
-                const auto  keyPos = icd.find( "\"library_path\"" );
-                if ( keyPos != std::string::npos )
-                {
-                    const auto valStart = icd.find( '\"', icd.find( ':', keyPos ) );
-                    const auto valEnd   = icd.find( '\"', valStart + 1 );
-                    if ( valStart != std::string::npos && valEnd != std::string::npos )
-                        icd = icd.substr( 0, valStart + 1 ) + "./libMoltenVK.dylib" + icd.substr( valEnd );
-                }
-                const auto icdWritten =
-                     Common::Utils::FileSystem::WriteContentToFileAtomic( fwDir / "MoltenVK_icd.json", icd );
-                if ( !icdWritten )
-                    LOG_WARN( "[Package] MoltenVK_icd.json was not written: {} — the .app falls back to "
-                              "the target machine's Homebrew Vulkan",
-                              icdWritten.GetError() );
-
-                // Not fatal, and now honest about it: the bundle only CLAIMS to carry Vulkan when the
-                // ICD that points at the bundled dylib is really there. It used to claim it whenever
-                // the copies succeeded, so a package with an unwritten ICD reported "Vulkan bundled"
-                // and then failed to find a driver on a machine without Homebrew.
-                bundledVulkan = !ec && icdWritten.IsSuccess();
-                stats.Files += 3;
-            }
-            else
-            {
-                LOG_WARN( "[Package] Homebrew Vulkan artifacts not found under {} — the .app will fall "
-                          "back to the target machine's Homebrew",
-                          brew.string() );
-            }
+            if ( const auto bundled = BundleVulkan( root, gameDir / binName ); !bundled )
+                return { false, bundled.GetError(), "" };
+            stats.Files += 3;
         }
 
-        // 7) Launcher + (bundle) Info.plist. The launcher script is the bundle's CFBundleExecutable:
-        // dyld reads DYLD_* only at process start, so the env MUST be set before the real binary execs.
+        // 7) Launcher + (bundle) Info.plist. The launcher script is the bundle's CFBundleExecutable.
         //
         // WHAT THE LAUNCHER IS STILL FOR, now that it no longer names the project (П5): the Vulkan
-        // environment, and only that. Finder gives a double-clicked .app no VK_ICD_FILENAMES and no
-        // DYLD_FALLBACK_LIBRARY_PATH, and both must exist BEFORE the image is loaded, so no amount of
-        // work inside the player can replace this. It is therefore not a second way to start the game
-        // — running the binary directly works and is tested — it is the environment the host does not
-        // provide.
+        // environment, and only that. Finder gives a double-clicked .app no VK_ICD_FILENAMES, and the loader
+        // reads it when the player first calls into Vulkan, so the launcher names the bundle's own ICD manifest.
+        // The library path is no longer part of it: the player binary names the bundled loader itself. It is
+        // therefore not a second way to start the game — running the binary directly works and is tested — it is
+        // the environment the host does not provide.
         if ( bundle )
         {
             std::ostringstream run;
@@ -819,19 +1005,9 @@ namespace Desert::Editor
                 << "# Launches " << projectName << " (packaged by the Desert Editor).\n"
                 << "set -euo pipefail\n"
                 << "DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n"
-                << "if [ -f \"$DIR/../Frameworks/MoltenVK_icd.json\" ]; then\n"
-                << "  export VK_ICD_FILENAMES=\"$DIR/../Frameworks/MoltenVK_icd.json\"\n"
-                << "  export "
-                   "DYLD_FALLBACK_LIBRARY_PATH=\"$DIR/../"
-                   "Frameworks${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}\"\n"
-                << "else\n"
-                << "  BREW_PREFIX=\"${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}\"\n"
-                << "  export "
-                   "VK_ICD_FILENAMES=\"${VK_ICD_FILENAMES:-$BREW_PREFIX/etc/vulkan/icd.d/MoltenVK_icd.json}\"\n"
-                << "  export "
-                   "DYLD_FALLBACK_LIBRARY_PATH=\"$BREW_PREFIX/"
-                   "lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}\"\n"
-                << "fi\n"
+                // The loader finds its driver through the bundle's own ICD manifest; the player binary already
+                // names the bundled loader (BundleVulkan), so no library search path is set.
+                << "export VK_ICD_FILENAMES=\"$DIR/../Resources/vulkan/icd.d/MoltenVK_icd.json\"\n"
                 // The game directory IS this script's own directory now, so the cd is only about where
                 // engine_log.txt lands — the player finds its content from its executable path.
                 << "cd \"$DIR\"\n"
@@ -904,8 +1080,7 @@ namespace Desert::Editor
         std::ostringstream msg;
         msg << "Packaged '" << projectName << "' -> " << fs::absolute( root, ec ).string() << "  (" << stats.Files
             << " files, " << ( stats.Bytes / ( std::size_t{ 1024 } * 1024 ) ) << " MB, " << options.Config
-            << " runtime" << ( bundle ? ( bundledVulkan ? ", Vulkan bundled" : ", Vulkan NOT bundled" ) : "" )
-            << ")";
+            << " runtime" << ( bundle ? ", Vulkan bundled" : "" ) << ")";
         msg << divisionSummary;
         // WHAT THE COOK COULD NOT PUT IN, said in the result rather than left to a log line nobody
         // reads — and carried as NUMBERS on PackageResult as well as prose, because a caller has to be
@@ -939,7 +1114,7 @@ namespace Desert::Editor
         // cross-config dev runtime misses and self-heals into loose Cooked/ — dev machines are
         // writable; only the shipped package must never rely on that.) FIRST, for PackageGame's
         // reason: the cook writes files the gather below must name.
-        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild() );
+        const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
 
         // The same gather PackageGame makes, for the same reason: this archive is what a developer's
         // Runtime mounts, so its registry must name what the archive holds.
@@ -957,7 +1132,7 @@ namespace Desert::Editor
         std::vector<std::pair<std::string, fs::path>>    contentFiles;
         std::vector<std::pair<std::string, std::string>> baseBlobs;
         std::vector<std::string>                         baseKeys;
-        if ( !StageShippedContent( baseKeys, error ) ||
+        if ( !StageShippedContent( baseKeys, DESERT_DEV_INSTRUMENTS != 0, error ) ||
              !CollectCookedTree( baseKeys, contentFiles, baseBlobs, stats, error ) )
             return { false, error, "" };
 

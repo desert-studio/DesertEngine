@@ -9,12 +9,17 @@
 // What is deliberately NOT tested: the on-disk .deproj format and the folders a new project is
 // scaffolded with — that census lives with the project format and has its own suite.
 
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <filesystem>
+#include <fstream>
+#include <map>
+#include <set>
+#include <sstream>
 #include <optional>
 #include <string>
 
@@ -127,8 +132,8 @@ TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
          { &Path::RETARGET_PATH, "Resources/Assets/Retargets/" },
          { &Path::FOLIAGE_TYPE_PATH, "Resources/Assets/Foliage/" },
          { &Path::LANDSCAPE_LAYER_INFO_PATH, "Resources/Assets/Landscape/Layers/" },
+         { &Path::ANIMATION_PATH, "Resources/Assets/Animations/" },
          { &Path::COOKED_PATH, "Cooked/" },
-         { &Path::MESH_PATH_COOKED, "Cooked/Meshes/" },
     } };
     static_assert( expected.size() == Path::CONTENT_DIR_COUNT,
                    "a census row was added without pinning its sandbox spelling here" );
@@ -249,6 +254,149 @@ TEST( PathCensus, TheInverseRefusesAPathOutsideTheRowAndKeepsACallerRelativeFram
     const auto relative = Path::RootForContentPath( Path::ContentDir::Scene, "Scenes/x.desce" );
     ASSERT_TRUE( relative.has_value() );
     EXPECT_TRUE( relative->empty() );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// NOTHING AUTHORED LIVES UNDER A COOKED FOLDER (AF8 census, extended by AF8b).
+//
+// `.gitignore` ignores every `Cooked/` folder: the project's Cooked tree holds derived caches (font and
+// icon atlases, the local asset registry) and the packager's cook is Saved/Cooked/<Platform>/. A file
+// written or referenced under a Cooked folder is therefore never committed - `git add` skips it in
+// silence, the author's tree stays green, and the next clone has nothing there (A27: a rig and a clip
+// were lost that way). Skinned meshes, rigs and clips lived in Editor/Cooked/Meshes behind a whitelist
+// until AF8b moved them into the assets tree; these three tests keep anything from going back.
+// ---------------------------------------------------------------------------------------------------
+
+namespace
+{
+    // The checkout root: the nearest ancestor of the working directory holding `.gitignore` and `Desert/`.
+    std::optional<fs::path> RepoRoot()
+    {
+        std::error_code ec;
+        for ( fs::path here = fs::current_path( ec ); !here.empty(); here = here.parent_path() )
+        {
+            if ( fs::exists( here / ".gitignore", ec ) && fs::exists( here / "Desert", ec ) )
+                return here;
+            if ( here == here.parent_path() )
+                break;
+        }
+        return std::nullopt;
+    }
+
+    std::string ReadText( const fs::path& file )
+    {
+        const std::ifstream in( file, std::ios::binary );
+        std::ostringstream  text;
+        text << in.rdbuf();
+        return text.str();
+    }
+} // namespace
+
+TEST( PathCensus, NoContentKindIsRootedUnderTheCookedTree )
+{
+    // A kind's root is where the registry scan and the importers put its files. Rooted under COOKED_PATH,
+    // every file of the kind is derived-and-ignored by construction, whatever the author meant.
+    const fs::path cooked = Path::COOKED_PATH.lexically_normal();
+    for ( const Common::Content::ContentKindSpec& kind : Common::Content::ContentKinds() )
+    {
+        if ( kind.StatedOnly() )
+            continue;
+        const fs::path rel   = kind.Root->lexically_normal().lexically_relative( cooked );
+        const bool     under = !rel.empty() && *rel.begin() != "..";
+        EXPECT_FALSE( under ) << "content kind " << kind.Name << " is rooted at '" << kind.Root->generic_string()
+                              << "', inside the Cooked tree '" << cooked.generic_string()
+                              << "', which git ignores: its files would never be committed";
+    }
+}
+
+TEST( PathCensus, EverySourceFileThatSpellsTheCookedRootIsARegisteredDerivedUse )
+{
+    // One named row per file, with the reason it may spell the root: each is a DERIVED use (a cache, the
+    // local registry, the packager's cook). A new file spelling it has to be added here - and the row's
+    // reason is the question a reviewer asks: is what it writes there really derived?
+    const std::map<std::string, std::string> registered = {
+         { "Desert/Common/Source/Common/Core/Constants.hpp", "defines COOKED_DIR_NAME and COOKED_PATH" },
+         { "Desert/Common/Source/Common/Content/DerivedDataCache.cpp",
+           "PackagedPath: derived font/icon atlases the packager ships" },
+         { "Desert/Common/Source/Common/Content/DerivedDataCache.hpp",
+           "comment: where PackagedPath puts a cache" },
+         { "Desert/Desert/Source/Engine/Text/FontCache.hpp", "comment: font atlases are a PackagedPath cache" },
+         { "Desert/Desert/Source/Engine/Vector/IconBake.hpp", "comment: icon atlases are a PackagedPath cache" },
+         { "Editor/Source/EditorLayer.cpp", "the local asset registry Cooked/AssetRegistry.dreg" },
+         { "Editor/Source/Editor/Packaging/PackagedContentTrees.hpp", "the packager packs the derived tree" },
+         { "Editor/Source/Editor/Packaging/GamePackager.cpp", "the cooked registry's place inside the pak" },
+         { "Editor/Source/Editor/Packaging/PackageCook.cpp", "Saved/Cooked/<Platform>/: the packager's cook" },
+    };
+
+    const auto root = RepoRoot();
+    ASSERT_TRUE( root.has_value() ) << "run from inside the checkout (no .gitignore + Desert/ above "
+                                    << fs::current_path().generic_string() << ")";
+
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
+    const fs::path& repo = root.value();
+
+    const std::set<std::string> extensions = { ".hpp", ".cpp", ".h", ".inl", ".mm" };
+    std::set<std::string>       found;
+    for ( const char* top :
+          { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source", "Tools" } )
+    {
+        std::error_code ec;
+        if ( !fs::exists( repo / top, ec ) )
+            continue;
+        for ( auto it = fs::recursive_directory_iterator( repo / top, ec );
+              it != fs::recursive_directory_iterator(); it.increment( ec ) )
+        {
+            if ( ec )
+                break;
+            if ( it->is_directory() && it->path().filename() == "ThirdParty" )
+            {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if ( !it->is_regular_file() || !extensions.contains( it->path().extension().string() ) )
+                continue;
+            const std::string text = ReadText( it->path() );
+            if ( text.find( "COOKED_PATH" ) != std::string::npos ||
+                 text.find( "COOKED_DIR_NAME" ) != std::string::npos )
+                found.insert( it->path().lexically_relative( repo ).generic_string() );
+        }
+    }
+
+    for ( const std::string& file : found )
+        EXPECT_TRUE( registered.contains( file ) )
+             << file << " spells the Cooked root and is not in this register; if what it writes there is "
+             << "authored content, it belongs under the assets root (git ignores every Cooked/ folder)";
+    for ( const auto& [file, why] : registered )
+        EXPECT_TRUE( found.contains( file ) )
+             << "registered '" << file << "' (" << why << ") no longer spells the Cooked root: delete its row";
+}
+
+TEST( PathCensus, NoAuthoredDocumentReferencesAFileUnderACookedFolder )
+{
+    // The reference side: a scene, a retarget or a project naming `Cooked/...` names a file git ignores,
+    // so the reference resolves only on the machine that wrote it.
+    const auto root = RepoRoot();
+    ASSERT_TRUE( root.has_value() );
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the ASSERT above returns on nullopt
+    const fs::path& repo = root.value();
+
+    const std::set<std::string> extensions = { ".desce", ".retarget", ".deproj" };
+    std::size_t                 read       = 0;
+    std::error_code             ec;
+    for ( auto it = fs::recursive_directory_iterator( repo / "Editor" / "Resources", ec );
+          it != fs::recursive_directory_iterator(); it.increment( ec ) )
+    {
+        if ( ec )
+            break;
+        if ( !it->is_regular_file() || !extensions.contains( it->path().extension().string() ) )
+            continue;
+        ++read;
+        const std::string text = ReadText( it->path() );
+        EXPECT_EQ( text.find( "Cooked/" ), std::string::npos )
+             << it->path().lexically_relative( repo ).generic_string()
+             << " references a file under a Cooked folder, which git ignores";
+    }
+    EXPECT_GT( read, 0u ) << "no scene was read under " << ( repo / "Editor" / "Resources" ).generic_string();
 }
 
 int main( int argc, char** argv )

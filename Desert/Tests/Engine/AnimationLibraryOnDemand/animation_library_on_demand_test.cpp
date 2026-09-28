@@ -24,13 +24,14 @@ namespace
     namespace fs   = std::filesystem;
     namespace Path = Common::Constants::Path;
 
-    constexpr const char* kClip = "SkinProbe_Tilt"; // Editor/Cooked/Meshes/SkinProbe_Tilt.anim
+    constexpr const char* kClip = "SkinProbe_Tilt"; // Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim
 
     fs::path RepoRoot()
     {
         for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
         {
-            const fs::path candidate = fs::path( prefix ) / "Editor/Cooked/Meshes/SkinProbe_Tilt.anim";
+            const fs::path candidate =
+                 fs::path( prefix ) / "Editor/Resources/Assets/Meshes/Skinned/SkinProbe_Tilt.anim";
             if ( fs::is_regular_file( candidate ) )
                 return fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) )
                      .lexically_normal();
