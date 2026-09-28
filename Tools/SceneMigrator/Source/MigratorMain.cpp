@@ -45,6 +45,7 @@
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
@@ -54,6 +55,7 @@
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "SettingsCanonical.hpp"
 
 #include <Common/Content/ShaderAssetHeader.hpp>
@@ -111,8 +113,10 @@ namespace
     // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (IsCloudLayout).
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
-                                                ".detheme",    ".derig",  ".retarget",    ".skeleton" };
+    // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype",
+                                                ".destrings",  ".detheme",  ".derig",
+                                                ".retarget",   ".skeleton", ".defoliage" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -274,6 +278,22 @@ namespace
         return static_cast<bool>( written );
     }
 
+    // A partitioned world is written as its header plus one file per entity, by the engine's own writer, so a
+    // migrated world and a world the editor saved are laid out alike, file for file.
+    bool WriteExternal( const std::filesystem::path& path, const std::string& json, std::ostream& err )
+    {
+        const auto document = Common::Json::TextDocument::Parse( json );
+        if ( !document )
+        {
+            err << "FAIL   " << path.string() << " — " << document.GetError() << "\n";
+            return false;
+        }
+        const auto written = Desert::Core::ExternalEntities::WriteSceneFile( path, document.GetValue() );
+        if ( !written )
+            err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+        return static_cast<bool>( written );
+    }
+
     // A file whose DOCUMENT is current but whose TEXT is not canonical is re-laid-out, not raised: its version
     // stays, because the content is unchanged (the CanonicalText suite proves old and new parse to one document).
     enum class Layout
@@ -411,6 +431,13 @@ namespace
 
     void PrintSteps( std::ostream& out, const Desert::Migration::FileMigrationReport& report )
     {
+        if ( report.ExternalEntitiesRaised )
+        {
+            out << " scene ->v" << Desert::Migration::kSceneVersionExternalEntities;
+            if ( report.EntitiesMovedOut > 0 )
+                out << " (" << report.EntitiesMovedOut << " entit"
+                    << ( report.EntitiesMovedOut == 1 ? "y" : "ies" ) << " moved to one file each)";
+        }
         if ( report.PathOnlyMeshGuidsRaised )
             out << " scene v" << Desert::Migration::kSceneVersionShaderGuids << "->v"
                 << Desert::Migration::kSceneVersionPathOnlyMeshGuids << " (" << report.PathOnlyMeshGuids.Rewritten
@@ -744,12 +771,27 @@ namespace Desert::Migration
 
         for ( const auto& path : scenes )
         {
-            const std::string source = ReadAll( path );
+            std::string source = ReadAll( path );
             if ( source.empty() )
             {
                 err << "FAIL   " << path.string() << " — unreadable or empty\n";
                 ++failed;
                 continue;
+            }
+            // A partitioned world's header (v35) is joined with its entity files first, by the engine's own
+            // reader, so every step below sees the one scene document it always has.
+            const auto document = Common::Json::TextDocument::Parse( source );
+            const bool isHeader = document && Desert::Core::ExternalEntities::IsHeader( document.GetValue() );
+            if ( isHeader )
+            {
+                auto joined = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+                if ( !joined )
+                {
+                    err << "FAIL   " << path.string() << " — " << joined.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                source = joined.ExtractValue();
             }
 
             auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( source );
@@ -764,7 +806,7 @@ namespace Desert::Migration
             // the migration as well as used for the write below, so the root the step resolves asset paths
             // against and the root the scene is written under are the same root by construction.
             const std::filesystem::path                  assetsRoot = SceneOutputRoot( path );
-            const Desert::Migration::FileMigrationReport report =
+            Desert::Migration::FileMigrationReport       report =
                  Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
 
             // A scene from a LATER build: nothing ran and nothing was stamped, so this is a FAILED file
@@ -777,8 +819,25 @@ namespace Desert::Migration
                 continue;
             }
 
+            // A partitioned world at the head whose records are still INLINE (written by a tool that
+            // predates v35's layout, or by hand) is moved out now: that is the whole of the v35 step.
+            const bool partitioned = parsed.value().WorldPartition.has_value();
+            if ( !report.Changed() && partitioned && !isHeader )
+            {
+                report.ExternalEntitiesRaised = true;
+                report.EntitiesMovedOut       = parsed.value().Entities.size();
+            }
+
             if ( !report.Changed() )
             {
+                // A header is the engine writer's canonical output piece by piece; `source` is the joined
+                // text, which is not the file, so there is no layout to compare it with.
+                if ( isHeader )
+                {
+                    out << "ok     " << path.string() << " — already at scene v"
+                        << Desert::Migration::kSceneVersion << " (one file per entity)\n";
+                    continue;
+                }
                 if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
                      layout != Layout::Canonical )
                 {
@@ -813,7 +872,8 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( !WriteText( path, rfl::json::write( parsed.value() ), err ) )
+            if ( !( partitioned ? WriteExternal( path, rfl::json::write( parsed.value() ), err )
+                                : WriteText( path, rfl::json::write( parsed.value() ), err ) ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched\n";
@@ -976,9 +1036,66 @@ namespace Desert::Migration
             ++prefabsChanged;
         }
 
+        int foliageRaised = 0;
         for ( const auto& path : texts )
         {
             const std::string text = ReadAll( path );
+            if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "FOLT" );
+                if ( !stated )
+                {
+                    err << "FAIL   " << stated.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                if ( stated.GetValue() >= 1u && stated.GetValue() <= 5u )
+                {
+                    // The chain: each generation below the engine's takes every step from its own on.
+                    using Step             = Common::ResultStr<std::string> ( * )( const std::string& );
+                    const Step  steps[]    = { &Desert::Migration::MigrateFoliageTypeV1ToV2,
+                                               &Desert::Migration::MigrateFoliageTypeV2ToV3,
+                                               &Desert::Migration::MigrateFoliageTypeV3ToV4,
+                                               &Desert::Migration::MigrateFoliageTypeV4ToV5,
+                                               &Desert::Migration::MigrateFoliageTypeV5ToV6 };
+                    std::string raisedText = text;
+                    bool        stepFailed = false;
+                    for ( uint32_t from = stated.GetValue(); from <= 5u; ++from )
+                    {
+                        const auto raised = steps[from - 1u]( raisedText );
+                        if ( !raised )
+                        {
+                            err << "FAIL   " << path.string() << " — FOLT " << from << " -> " << ( from + 1u )
+                                << ": " << raised.GetError() << "\n";
+                            stepFailed = true;
+                            break;
+                        }
+                        raisedText = raised.GetValue();
+                    }
+                    if ( stepFailed )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " FOLT " << stated.GetValue()
+                        << " -> " << Desert::Assets::kFoliageTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raisedText, err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++foliageRaised;
+                    continue;
+                }
+                if ( stated.GetValue() != Desert::Assets::kFoliageTypeSchemaVersion )
+                {
+                    err << "FAIL   " << path.string() << " — states FOLT v" << stated.GetValue()
+                        << ", and this tool reads v1 to v3 (raised) and v"
+                        << Desert::Assets::kFoliageTypeSchemaVersion << " only\n";
+                    ++failed;
+                    continue;
+                }
+            }
             if ( const TextHeaderGate* row = TextHeaderGateFor( path );
                  row != nullptr && !PassesTextHeaderGate( *row, path, text, err ) )
             {
@@ -994,13 +1111,14 @@ namespace Desert::Migration
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
             << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
             << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
-            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << tiles.size() << " landscape tile(s), "
-            << failed << " failed\n";
+            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
+            << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << tiles.size()
+            << " landscape tile(s), " << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 ) ) ? 1 : 0;
+        return ( check && ( changed > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ) ) ? 1 : 0;
     }
 
     // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over

@@ -92,8 +92,8 @@ namespace Desert::Assets
      *
      * ── WHY THIS EXISTS AT ALL, IN ONE SENTENCE FROM OUR OWN TREE ────────────────────────────────────
      *
-     * `AssetPreloader::PreloadCloudNoiseVolumes` explains its own eagerness with *"Deferring would buy a
-     * stall exactly where the sky first appears"*, and that sentence is correct: measured on this
+     * `AssetPreloader::PreloadCloudNoiseVolumes` (since deleted) explained its own eagerness with *"Deferring
+     * would buy a stall exactly where the sky first appears"*, and that sentence is correct: measured on this
      * machine, `CloudNoise_Default.dcnv` costs **607.12 ms by its own time** and the four cloud stages
      * cost **2918.9 ms of a 5707.0 ms boot**. Making those kinds lazy without an async path would not
      * remove that cost, it would move it into whichever frame first looked at the sky — which is worse,
@@ -221,9 +221,9 @@ namespace Desert::Assets
          */
         [[nodiscard]] bool IsRequested( const AssetHandle& handle ) const;
 
-        /// Drops every live request WITHOUT firing a delegate, and waits for any worker still inside a
-        /// read to leave. For teardown and for tests; a scene close uses `Cancel()` on its own handles
-        /// so the owners hear about it.
+        /// Drops every live request WITHOUT firing a delegate, and waits for every submitted read job,
+        /// running or still queued, to return. For teardown and for tests; a scene close uses `Cancel()` on its
+        /// own handles so the owners hear about it.
         void ShutdownAndDrain();
 
         /// Counters and live set back to the starting state. Tests only.

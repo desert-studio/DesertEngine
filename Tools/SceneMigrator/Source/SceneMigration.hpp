@@ -24,6 +24,7 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <array>
 
@@ -116,7 +117,18 @@ namespace Desert::Migration
     //       one is REFUSED by name (MigrateLandscapeLayerRefsV33ToV34) rather than guessed into assets.
     inline constexpr int kSceneVersionLandscapeLayerRefs = 34;
 
-    static_assert( kSceneVersionLandscapeLayerRefs == kSceneVersion,
+    //  35 - A PARTITIONED WORLD KEEPS ONE FILE PER ENTITY (WP16, Engine/Core/Serialize/ExternalEntities.hpp).
+    //       The tree does not change; a scene that states a WorldPartition block is WRITTEN as its header plus
+    //       one `.deent` per record, which is the caller's write (MigratorMain), counted here. Every other
+    //       scene and every prefab only gains the stamp.
+    inline constexpr int kSceneVersionExternalEntities = 35;
+
+    //  36 - THE GRADE AND THE SHADOW POLICY LEAVE THE SETTINGS BLOCK (SET1). SceneSettings' post-process keys
+    //       move into an Unbound PostProcessVolume entity, EnableShadows/ShadowBias/CascadeSplitLambda onto the
+    //       DirectionLight (MigrateSceneSettingsHomesV35ToV36). Scene-only; a prefab only gains the stamp.
+    inline constexpr int kSceneVersionSceneSettingsHomes = 36;
+
+    static_assert( kSceneVersionSceneSettingsHomes == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -142,6 +154,24 @@ namespace Desert::Migration
     MeshGuidsMigrationReport MigratePathOnlyMeshGuidsV31ToV32( std::vector<Assets::EntityData>& entities,
                                                                const std::filesystem::path&     assetsRoot );
 
+    // What MigrateSceneSettingsHomesV35ToV36 did to one scene.
+    struct SceneSettingsHomesReport
+    {
+        int  PostKeysMoved   = 0;     // Settings keys now stated by the Unbound PostProcessVolume
+        bool VolumeCreated   = false; // false when the Settings block stated no grade key at all
+        int  ShadowKeysFound = 0;     // EnableShadows / ShadowBias / CascadeSplitLambda stated by Settings
+        int  LightsStamped   = 0;     // DirectionLight blocks (records and prefab overrides) that took them
+    };
+
+    // Moves every grade key of the Settings block (the fields of Core::PostProcessSettings) into the
+    // `Settings` object of a new Unbound PostProcessVolume entity, and EnableShadows (renamed CastShadows),
+    // ShadowBias and CascadeSplitLambda onto every DirectionLight block of the scene, entity records and
+    // prefab overrides alike; all of them leave the Settings block. A key the block did not state is not
+    // written anywhere: its old default and its new default are the same number. Shadow keys of a scene
+    // with no DirectionLight are dropped - no light, no cascades to configure. The new entity's id is
+    // derived from the scene's GUID, so two runs on two branches mint one entity. PURE.
+    SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene );
+
     // The inline landscape layers a file still carries, as "Tag > Landscape.Layers[i] = 'Name'". Non-empty
     // REFUSES the file: the step would have to invent a `.delayerinfo` per layer, and it does not write assets.
     // PURE - no filesystem access.
@@ -151,6 +181,41 @@ namespace Desert::Migration
     //
     // `File` and not `Scene` since И11: the same report comes back from MigratePrefab, because a
     // `.deprefab` is raised by the same chain.
+    // FOLT 1 -> 2 (FO-3): A `.defoliage` STATES DENSITY IN UE's UNITS. v1's Density was "instances per paint
+    // dab"; the brush it was painted with scattered that many in its disk, whose radius was the brush's
+    // default of kFoliageV1ReferenceBrushRadiusCm unless the painter moved the slider. v2's Density is
+    // instances per 1000x1000 cm (UFoliageType::Density), so one dab of the reference brush places the same
+    // count under both. Instances already painted live in the scene's InstancedStaticMesh and are not touched.
+    inline constexpr float kFoliageV1ReferenceBrushRadiusCm = 300.0f;
+
+    // v1's per-dab count as v2's areal density: perDab / (pi r^2) * 1000^2, r = the reference radius.
+    float FoliageDensityFromPerDab( float perDab );
+
+    // The v2 text of a v1 `.defoliage`: Density converted, the v2 fields (Height, LandscapeLayers,
+    // MinimumLayerWeight) at UE's defaults, the header's GUID kept. A file that does not state FOLT 1, or
+    // whose v1 body does not read, is an error naming why. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text );
+
+    // The v3 text of a v2 `.defoliage`: every v2 number kept, CullDistance at UE's default {0, 0} (never
+    // culled), the header's GUID kept. A file that does not state FOLT 2 is an error naming what it states.
+    // PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV2ToV3( const std::string& text );
+
+    // The v4 text of a v3 `.defoliage`: every v3 number kept, Wind at Strength 0 (the instances stand still,
+    // as every v3 field drew), the header's GUID kept. A file that does not state FOLT 3 is an error naming
+    // what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV3ToV4( const std::string& text );
+
+    // The v5 text of a v4 `.defoliage`: every v4 value kept, IncludeInHLOD true (UE's default; every v4 field
+    // stood in its cell's HLOD), the header's GUID kept. A file that does not state FOLT 4 is an error naming
+    // what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV4ToV5( const std::string& text );
+
+    // The v6 text of a v5 `.defoliage`: every v5 value kept, Kind Mesh (FOLT 5 had no other kind), the header's
+    // GUID kept. A file that does not state FOLT 5 is an error naming what it states. PURE - no filesystem
+    // access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV5ToV6( const std::string& text );
+
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
     struct FoliageTypesMigrationReport
@@ -179,9 +244,16 @@ namespace Desert::Migration
         bool                        FoliageTypesRaised = false; // below kSceneVersionFoliageTypes
         FoliageTypesMigrationReport FoliageTypes;
 
+        bool        ExternalEntitiesRaised = false; // below kSceneVersionExternalEntities
+        std::size_t EntitiesMovedOut       = 0;     // records a partitioned world now keeps in their own files
+
+        bool                     SceneSettingsHomesRaised = false; // below kSceneVersionSceneSettingsHomes
+        SceneSettingsHomesReport SceneSettingsHomes;
+
         bool Changed() const
         {
-            return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised;
+            return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
+                   ExternalEntitiesRaised || SceneSettingsHomesRaised;
         }
     };
 

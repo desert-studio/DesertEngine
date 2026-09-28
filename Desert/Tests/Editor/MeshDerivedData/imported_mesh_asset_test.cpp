@@ -98,8 +98,10 @@ TEST( ImportedMeshAsset, CookingASourceWritesNothingBesideIt )
     for ( const auto& e : fs::directory_iterator( dir, ec ) )
         after.insert( e.path().filename().string() );
 
+    // FIX8: exactly one file joins the source - its import record, the mesh's identity (tracked, tiny).
+    before.insert( project.Source.filename().string() + ".deimport" );
     EXPECT_EQ( before, after ) << "the cook grew the source's directory by " << ( after.size() - before.size() )
-                               << " file(s)";
+                               << " file(s) where only the import record belongs";
 }
 
 TEST( ImportedMeshAsset, ReimportOfTheSameBytesKeepsGuidKeyAndWritesNoFile )
@@ -164,10 +166,9 @@ TEST( ImportedMeshAsset, FreshnessIsTheSourceHashNotItsTime )
     project.Write( "o Grid\nv 0 0 0\n" );
     EXPECT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "changed bytes were not seen";
 
-    // AF4h: a re-import after a BYTE change keys a DIFFERENT DDC entry (content-addressed) and mints a
-    // fresh envelope Guid for it - there is no beside-source file left to read an old one from, and the
-    // old entry (still in the DDC, under the old hash) is simply not this content's key any more. Scenes
-    // are unaffected: a static mesh's runtime handle comes from its PATH, not this Guid (ImportedMeshAsset.hpp).
+    // A re-import after a BYTE change keys a DIFFERENT DDC entry (content-addressed) - under the SAME identity
+    // (FIX8): the envelope states the import record's GUID, and the record is never rewritten, so every
+    // reference by GUID (a scene, a foliage type) survives the edit. AF4h minted a new GUID here.
     const auto re = Editor::WriteImportedMeshAsset( imported, {}, project.Source );
     ASSERT_TRUE( re.IsSuccess() ) << re.GetError();
     EXPECT_EQ( re.GetValue(), Editor::MeshAssetWrite::Written );
@@ -175,8 +176,8 @@ TEST( ImportedMeshAsset, FreshnessIsTheSourceHashNotItsTime )
     EXPECT_FALSE( fs::exists( file, ec ) ) << "the re-import left a file beside its source";
     const auto after = Assets::LoadMeshSourceAsset( file );
     ASSERT_TRUE( after.IsSuccess() ) << after.GetError();
-    EXPECT_NE( after.GetValue().Guid, before.GetValue().Guid )
-         << "changed content must not silently keep the previous entry's identity";
+    EXPECT_EQ( after.GetValue().Guid, before.GetValue().Guid )
+         << "a re-import of changed bytes gave the mesh a new identity: every reference by GUID is dead";
 }
 
 // StaticMeshCookAvailable is the gate ThumbnailSubject::ResolveMesh and MeshDnD::ResolveOrImport ask

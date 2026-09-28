@@ -38,6 +38,7 @@
 #include <optional>
 
 #include "PackagedContent.hpp"
+#include "RuntimeCrashTest.hpp"
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
@@ -90,15 +91,19 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     namespace fs = std::filesystem;
 
     std::string projectArg;
+#if DESERT_DEV_INSTRUMENTS
     std::string crashTestArg;
+#endif
     for ( int i = 1; i + 1 < argc; ++i )
     {
         if ( std::strcmp( argv[i], "--project" ) == 0 )
             projectArg = argv[++i];
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
             Desert::Player::s_SceneOverride = argv[++i];
+#if DESERT_DEV_INSTRUMENTS
         else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
             crashTestArg = argv[++i];
+#endif
     }
 
     // THE ONLY WAY TO PHOTOGRAPH THE PROCESS A PLAYER STARTS. Parsed from a vector rather than from
@@ -131,6 +136,22 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             FailStartup( "Crash handler: " + installed.GetError(), 1 );
         }
     }
+
+    // THE DELIBERATE CRASH IS PARSED UP FRONT, so a misspelt stage is refused before anything runs rather
+    // than discovered at the stage it never reaches. See RuntimeCrashTest.hpp; absent under Shipping.
+#if DESERT_DEV_INSTRUMENTS
+    std::optional<Desert::Player::CrashTestRequest> crashTest;
+    if ( !crashTestArg.empty() )
+    {
+        crashTest = Desert::Player::ParseCrashTest( crashTestArg );
+        if ( !crashTest.has_value() )
+        {
+            FailStartup( "--crash-test '" + crashTestArg + "' is not understood; it takes " +
+                              Desert::Player::kCrashTestUsage,
+                         2 );
+        }
+    }
+#endif
 
     // DEV: an explicit --project opens the loose on-disk descriptor (overrides packaged discovery).
     if ( !projectArg.empty() && !Desert::Project::ProjectContext::Open( projectArg ) )
@@ -172,6 +193,13 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     if ( content.ExitCode != Desert::Player::kContentOk )
         FailStartup( content.Message, content.ExitCode );
 
+#if DESERT_DEV_INSTRUMENTS
+    // @early: the archive is mounted, the descriptor is not read — the report must land under the
+    // engine's per-user root and say game=unread.
+    if ( crashTest.has_value() && crashTest->Stage == Desert::Player::CrashTestStage::Early )
+        Common::Crash::TriggerTestCrash( crashTest->Kind );
+#endif
+
     // PACKAGED: the descriptor lives at the archive root under the one name the packager writes it as —
     // open it through the now-mounted VFS. The result is checked here rather than inferred from
     // HasProject() below, because the two failures need opposite advice: a descriptor that is ABSENT
@@ -212,17 +240,12 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     {
         FailStartup( "Crash handler: " + moved.GetError(), 1 );
     }
+    Common::Crash::SetGameName( Desert::Project::ProjectContext::Current().Name );
 
-    if ( !crashTestArg.empty() )
-    {
-        const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( crashTestArg );
-        if ( !kind.has_value() )
-        {
-            FailStartup(
-                 "--crash-test '" + crashTestArg + "' is not a crash kind; it knows: segv, abort, purecall", 2 );
-        }
-        Common::Crash::TriggerTestCrash( *kind );
-    }
+#if DESERT_DEV_INSTRUMENTS
+    if ( crashTest.has_value() && crashTest->Stage == Desert::Player::CrashTestStage::Mounted )
+        Common::Crash::TriggerTestCrash( crashTest->Kind );
+#endif
 
     // Through the logger, so a support ticket's engine_log.txt says which BUILD and which content set
     // the player was actually running — the three facts every "it does not work" report is missing.

@@ -12,6 +12,7 @@
 
 #include "Engine/Geometry/DynamicMeshSelection.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/SubdividePoly.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -69,4 +70,40 @@ namespace Desert::Geometry
     // attributes welded along merged edges, the settings of test WeldClosesACubeCutAlongEverySeam. Mesh-wide;
     // leaves an empty selection in @p mode. Refused when there is no boundary edge to weld.
     [[nodiscard]] Common::ResultStr<RegionOutcome> WeldEdges( const DynamicMesh3& before, ElementMode mode );
+
+    // The tangent space of @p mesh rebuilt from its normals and UV layer 0 (MeshTangents, per triangle), as UE
+    // treats tangents as derived data after an edit (see TANGENTS above). A mesh without a tangent space is left
+    // as it is. Refused, naming @p name, when the mesh has tangents but no UV layer 0, or the tangents cannot be
+    // written.
+    [[nodiscard]] Common::BoolResultStr RecomputeTangentSpace( DynamicMesh3& mesh, const char* name );
+
+    // The Subdivide tool's settings, UE's USubdividePolyToolProperties (SubdividePolyTool.h:44-62) with its
+    // defaults. Not ported: bAddExtraCorners / ExtraCornerAngleThresholdDegrees (GroupTopology here has no
+    // extra-corner hook yet), bRenderGroups / bRenderCage (preview drawing).
+    struct SubdivideSettings
+    {
+        int                       Level         = 3;
+        SubdivisionScheme         Scheme        = SubdivisionScheme::CatmullClark;
+        SubdivisionBoundaryScheme Boundary      = SubdivisionBoundaryScheme::SmoothCorners;
+        SubdivisionOutputNormals  Normals       = SubdivisionOutputNormals::Generated;
+        bool                      NewPolyGroups = false;
+    };
+
+    // UE caps a subdivision at this many faces (SubdividePolyTool.cpp:150, from UDisplaceMeshTool).
+    inline constexpr int kMaxSubdividedFaces = 3000000;
+    // MaxSubdivisionLevel( 1 ): the highest level any cage reaches under kMaxSubdividedFaces - the editor's
+    // clamp for the level field (the operation still refuses a level too high for the mesh it runs on).
+    inline constexpr int kMaxSubdivisionLevel = 10;
+
+    // The highest level `faces` cage faces may be refined to under kMaxSubdividedFaces
+    // (UE: USubdividePolyTool::CapSubdivisionLevel, SubdividePolyTool.cpp:147-175).
+    [[nodiscard]] int MaxSubdivisionLevel( int faces );
+
+    // Subdivide, as UE's SubdivPostProcessor runs SubdividePoly on the whole mesh (SubdividePolyTool.cpp:55-82).
+    // Mesh-wide; leaves an empty selection in @p mode. A tangent space on @p before is rebuilt on the result.
+    // Refused, by name and numbers, on an empty mesh, a level below 1 or above MaxSubdivisionLevel (UE clamps it
+    // with a warning), a group topology Bilinear / Catmull-Clark cannot use (UE switches to Loop with a warning,
+    // SubdividePolyTool.cpp:230-235; here the user picks Loop), or SubdividePoly's own failure.
+    [[nodiscard]] Common::ResultStr<RegionOutcome>
+    SubdivideMesh( const DynamicMesh3& before, const SubdivideSettings& settings, ElementMode mode );
 } // namespace Desert::Geometry

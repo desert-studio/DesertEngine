@@ -1,5 +1,7 @@
 #include "MeshService.hpp"
 
+#include <Engine/Core/FrameManager.hpp>
+
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
@@ -336,13 +338,22 @@ namespace Desert::Runtime
             return false;
         }
 
+        // Parked, not destroyed: the frames recorded before this sweep may still be reading the buffers.
+        m_Retiring.Park( std::move( built->second ), Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         m_Meshes.erase( built );
         return true;
+    }
+
+    std::size_t MeshService::RetireEvicted()
+    {
+        const auto& frames = Engine::FrameManager::GetInstance();
+        return m_Retiring.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
     }
 
     void MeshService::Clear()
     {
         m_Meshes.clear();
+        m_Retiring.Clear();
         m_Entries.clear();
         m_AssetManager.reset();
     }

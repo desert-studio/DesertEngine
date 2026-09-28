@@ -78,25 +78,18 @@ namespace Desert::Editor::PreviewEnvironment
                       {
                           if ( assets == nullptr )
                               return std::nullopt;
-                          auto asset = assets->FindByPath<Assets::SkyboxAsset>( Common::Filepath( path ) );
-                          if ( !asset )
+                          const Assets::AssetHandle handle = Runtime::SkyboxHandleAtPath( path );
+                          if ( handle == 0 )
                               return std::nullopt;
-                          // Finding the record is not having the sky: the boot only SCANS .hdr files, so
-                          // an HDR no loaded scene uses has no MaterialSkybox, SkyboxECSSystem sends an
-                          // empty SkyboxCommand and the preview is lit by the black EMPTY environment
-                          // (EnsureSkyboxRegistered). Registering bakes it, once per asset.
+                          // Finding the row is not having the sky: an HDR no loaded scene uses has no
+                          // MaterialSkybox, SkyboxECSSystem sends an empty SkyboxCommand and the preview is lit
+                          // by the black EMPTY environment. So it is required here — created from its registry
+                          // row and requested once; the loader delivers it and the preview lights up then.
                           const auto* service = Runtime::ResourceRegistry::GetSkyboxService();
-                          if ( service != nullptr && !service->Get( asset->GetMetadata().Handle ) )
-                          {
-                              // Same as every mid-session registration in the editor: the bake must not
-                              // overlap a frame still in flight.
-                              Graphic::Renderer::GetInstance().WaitDeviceIdle();
-                              Runtime::EnsureSkyboxRegistered( asset );
-                              LOG_INFO( "[PreviewScene] '{}' was not registered; baked it for the preview "
-                                        "environment",
-                                        path );
-                          }
-                          return static_cast<uint64_t>( asset->GetMetadata().Handle );
+                          if ( service != nullptr && !service->Get( handle ) && !service->IsPending( handle ) &&
+                               !Runtime::RequireSkybox( handle ) )
+                              return std::nullopt;
+                          return static_cast<uint64_t>( handle );
                       } );
 
         // Named ONCE per path: this runs every frame in every preview, and the refusal does not change

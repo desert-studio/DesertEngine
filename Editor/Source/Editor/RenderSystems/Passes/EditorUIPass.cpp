@@ -2,6 +2,8 @@
 #include "EditorUIPass.hpp"
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
+#include <Engine/UI/LoadingOverlay.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIDataStore.hpp>
@@ -161,6 +163,11 @@ namespace Desert::Editor::Render
                  .Slot( scene.get() )
                  .Capture( m_UIView, scene->GetRegistry(), canvases, m_Render2D.GetDrawList(),
                            UI::Rect{ 0.0f, 0.0f, w, h } );
+            // World streaming waiting for the cell under the camera (WP12): the overlay a game shows, drawn into
+            // the same list as the level's canvases, so a viewport capture sees what a player would.
+            if ( const auto* wait = scene->GetRegistry().try_ctx<::Desert::Core::WorldStreamingWait>();
+                 wait != nullptr && wait->Assessment.Blocks() )
+                UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
             m_Render2D.Flush();
 
             if ( auto* renderer = ctx.Renderer )

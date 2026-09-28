@@ -1,3 +1,4 @@
+#include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include "ShaderCompiler.hpp"
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
@@ -81,6 +82,11 @@ namespace Desert::Core
         shaderc::CompileOptions  options;
 
         options.SetIncluder( std::make_unique<ShaderIncluder>( shaderPath, variant ) );
+        // THE OLDEST ACCEPTED DEVICE, NOT THE CURRENT ONE. SPIR-V is cached on disk and shipped, so its
+        // target cannot follow the GPU of the machine that compiled it; it follows DeviceCaps' minimum,
+        // which every device that passes CheckRequired meets. Raising it is VKF2's call (with the minimum).
+        static_assert( Graphic::API::Vulkan::kMinimumDeviceApiVersion == VK_API_VERSION_1_1,
+                       "the shader target below must move with kMinimumDeviceApiVersion" );
         options.SetTargetEnvironment( shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1 );
         options.SetWarningsAsErrors();
 

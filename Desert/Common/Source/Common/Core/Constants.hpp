@@ -391,11 +391,11 @@ namespace Common::Constants
         constexpr std::string_view MATERIAL_EXTENSION = ".demat";
         constexpr std::string_view PREFAB_EXTENSION   = ".deprefab";
         // st = STatic, sk = SKinned. These two were SWAPPED from the day they were written, and nothing
-        // caught it because nothing read them: AssetPreloader carried its own literal arrays and was
+        // caught it because nothing read them: the boot scanner of the time carried its own literal arrays and was
         // right, so the cooker, the loaders and the tests all agreed with each other and disagreed with
         // this file in silence. The bug could only surface the moment someone trusted these names — i.e.
         // it was a trap armed for a future reader, not a defect anyone could observe.
-        // AssetPreloader now consumes these, so the two spellings are one value again.
+        // The content-kind table now consumes these, so the two spellings are one value again.
         //
         // They are `constexpr string_view` and not `const std::string` so the agreement between the NAME
         // and the LETTERS can be asserted by the compiler below. A runtime test would only fail once

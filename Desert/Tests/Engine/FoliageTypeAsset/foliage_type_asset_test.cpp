@@ -29,6 +29,8 @@ namespace
         data.RandomYaw        = false;
         data.RandomPitchAngle = 18.5f;
         data.GroundSlopeAngle = { 7.0f, 62.5f };
+        data.CullDistance     = { 1500.0f, 4000.0f };
+        data.Wind             = { 35.0f, 0.8f, 140.0f, -25.0f }; // every member off its default (FO-7)
         return data;
     }
 
@@ -85,12 +87,44 @@ TEST( FoliageTypeAsset, AFileWithoutAHeaderIsRefusedByName )
     EXPECT_NE( parsed.GetError().find( "states no header" ), std::string::npos ) << parsed.GetError();
 }
 
+TEST( FoliageTypeAsset, CullDistanceIsAForwardRangeOfNonNegativeCentimetres )
+{
+    FoliageTypeData data = OffDefaults();
+    EXPECT_TRUE( ValidateFoliageTypeData( data ) );
+    data.CullDistance = { 0.0f, 0.0f }; // UE's never-culled default
+    EXPECT_TRUE( ValidateFoliageTypeData( data ) );
+    data.CullDistance = { 4000.0f, 1500.0f };
+    EXPECT_FALSE( ValidateFoliageTypeData( data ) );
+    data.CullDistance   = { -10.0f, 1500.0f };
+    const auto negative = ValidateFoliageTypeData( data );
+    ASSERT_FALSE( negative );
+    EXPECT_NE( negative.GetError().find( "CullDistance" ), std::string::npos ) << negative.GetError();
+}
+
+TEST( FoliageTypeAsset, WindIsAStillOrSwayingTypeWithAPositiveHeight )
+{
+    FoliageTypeData data = OffDefaults();
+    data.Wind            = {};
+    EXPECT_TRUE( ValidateFoliageTypeData( data ) ) << "the default is still and valid";
+    EXPECT_EQ( data.Wind.Strength, 0.0f );
+
+    for ( const auto& [bad, field] : { std::pair{ FoliageWind{ -1.0f, 0.5f, 100.0f, 0.0f }, "Wind.Strength" },
+                                       std::pair{ FoliageWind{ 10.0f, -0.1f, 100.0f, 0.0f }, "Wind.Speed" },
+                                       std::pair{ FoliageWind{ 10.0f, 0.5f, 0.0f, 0.0f }, "Wind.Height" } } )
+    {
+        data.Wind          = bad;
+        const auto refused = ValidateFoliageTypeData( data );
+        ASSERT_FALSE( refused ) << field;
+        EXPECT_NE( refused.GetError().find( field ), std::string::npos ) << refused.GetError();
+    }
+}
+
 TEST( FoliageTypeAsset, AnotherVersionIsRefused )
 {
-    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":1", "\"FOLT\":2" );
+    const std::string text   = Mutated( WriteFoliageType( OffDefaults() ), "\"FOLT\":6", "\"FOLT\":7" );
     const auto        parsed = ParseFoliageType( text );
     ASSERT_FALSE( parsed );
-    EXPECT_NE( parsed.GetError().find( "version 2" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "FOLT 6" ), std::string::npos ) << parsed.GetError();
 }
 
 TEST( FoliageTypeAsset, AnotherKindIsRefused )

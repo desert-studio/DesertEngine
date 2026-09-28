@@ -188,7 +188,7 @@ namespace Desert::Editor
         std::string CreateEmptyClip( const Animation::Skeleton& skeleton );
 
         // Writes the clip to Cooked/Meshes/_<name>.anim (rfl::json, same format the importer cooks) so an
-        // in-editor-authored clip PERSISTS and is rediscovered by the AssetPreloader next session.
+        // in-editor-authored clip PERSISTS and is indexed from its registry row next session.
         //
         // Returns the written path, or the REASON it was not written. It used to return a bare
         // std::string with "" for failure, and the only caller discarded it — so the refusal had

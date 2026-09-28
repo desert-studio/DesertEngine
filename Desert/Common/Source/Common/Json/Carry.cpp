@@ -255,6 +255,62 @@ namespace Common::Json
         return out;
     }
 
+    ResultStr<std::vector<TextDocument>> TextDocument::RecordsAt( std::string_view arrayMember ) const
+    {
+        yyjson_val* root = yyjson_doc_get_root( m_Doc.get() );
+        yyjson_val* array =
+             yyjson_is_obj( root ) ? yyjson_obj_getn( root, arrayMember.data(), arrayMember.size() ) : nullptr;
+        if ( !yyjson_is_arr( array ) )
+            return MakeError<std::vector<TextDocument>>( "document: no array member '" +
+                                                         std::string( arrayMember ) + "'" );
+        std::vector<TextDocument> records;
+        records.reserve( yyjson_get_len( array ) );
+        std::size_t index   = 0;
+        std::size_t count   = 0;
+        yyjson_val* element = nullptr;
+        yyjson_arr_foreach( array, index, count, element )
+        {
+            const MutDoc doc( Allocated( yyjson_mut_doc_new( nullptr ) ) );
+            yyjson_mut_doc_set_root( doc.get(), Copy( doc.get(), element ) );
+            records.push_back(
+                 TextDocument( Own( Allocated( yyjson_mut_doc_imut_copy( doc.get(), nullptr ) ) ) ) );
+        }
+        return MakeSuccess( std::move( records ) );
+    }
+
+    ResultStr<TextDocument> TextDocument::WithArrayMember( std::string_view member, std::string_view replacement,
+                                                           std::span<const TextDocument> elements ) const
+    {
+        yyjson_val* root = yyjson_doc_get_root( m_Doc.get() );
+        if ( !yyjson_is_obj( root ) || yyjson_obj_getn( root, member.data(), member.size() ) == nullptr )
+            return MakeError<TextDocument>( "document: no member '" + std::string( member ) + "' to replace" );
+
+        const MutDoc    doc( Allocated( yyjson_mut_doc_new( nullptr ) ) );
+        yyjson_mut_val* object = Allocated( yyjson_mut_obj( doc.get() ) );
+        yyjson_val*     key    = nullptr;
+        yyjson_obj_iter iter;
+        yyjson_obj_iter_init( root, &iter );
+        while ( ( key = yyjson_obj_iter_next( &iter ) ) != nullptr )
+        {
+            if ( KeyOf( key ) != member )
+            {
+                Add( doc.get(), object, key, Copy( doc.get(), yyjson_obj_iter_get_val( key ) ) );
+                continue;
+            }
+            yyjson_mut_val* array = Allocated( yyjson_mut_arr( doc.get() ) );
+            for ( const TextDocument& element : elements )
+                if ( !yyjson_mut_arr_append( array,
+                                             Copy( doc.get(), yyjson_doc_get_root( element.m_Doc.get() ) ) ) )
+                    throw std::bad_alloc();
+            yyjson_mut_val* name =
+                 Allocated( yyjson_mut_strncpy( doc.get(), replacement.data(), replacement.size() ) );
+            if ( !yyjson_mut_obj_add( object, name, array ) )
+                throw std::bad_alloc();
+        }
+        yyjson_mut_doc_set_root( doc.get(), object );
+        return MakeSuccess( TextDocument( Own( Allocated( yyjson_mut_doc_imut_copy( doc.get(), nullptr ) ) ) ) );
+    }
+
     TextDocument MergeCarried( const TextDocument& fresh, const TextDocument& source, const CarryRule& rule )
     {
         yyjson_val* freshRoot  = yyjson_doc_get_root( fresh.m_Doc.get() );

@@ -33,6 +33,7 @@
 
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -260,9 +261,9 @@ namespace Desert::Migration
             scan( entity.Components, tag );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                scan( ( *entity.PrefabOverrides )[i].Components,
-                      tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+            const auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                scan( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
         }
         return inline_layers;
     }
@@ -351,6 +352,9 @@ namespace Desert::Migration
                         return;
                     }
                 }
+                // The inline number was per dab, as v1 of the type file was: the file this step writes is the
+                // current generation, so it states UE's areal density (the FOLT 1 -> 2 conversion).
+                data.Density          = FoliageDensityFromPerDab( data.Density );
                 data.ScaleX           = { scaleMin, scaleMax };
                 data.ZOffset          = { zMin, zMax };
                 data.GroundSlopeAngle = { slopeMin, slopeMax };
@@ -406,6 +410,294 @@ namespace Desert::Migration
         };
     } // namespace
 
+    float FoliageDensityFromPerDab( float perDab )
+    {
+        constexpr float kPi   = 3.14159265358979f;
+        const float     discA = kPi * kFoliageV1ReferenceBrushRadiusCm * kFoliageV1ReferenceBrushRadiusCm;
+        return perDab * ( 1000.0f * 1000.0f ) / discA;
+    }
+
+    namespace
+    {
+        // FOLT 2's body, member for member: v3 added CullDistance, and the engine's struct is v4.
+        struct FoliageTypeDataV2
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+        };
+
+        // FOLT 3's body, member for member: the engine's struct is v4 and refuses a file without Wind.
+        struct FoliageTypeDataV3
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
+        };
+
+        // FOLT 4's body: v3 and Wind. The engine's struct is v6.
+        struct FoliageTypeDataV4
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind                        Wind;
+        };
+
+        // FOLT 5's body: v4 and IncludeInHLOD. The engine's struct is v6.
+        struct FoliageTypeDataV5
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 100.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval               Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>                         LandscapeLayers;
+            float                                                     MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind                        Wind;
+            bool                                                      IncludeInHLOD = true;
+        };
+
+        // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
+        struct FoliageTypeDataV1
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::AssetGuidRef                                      Mesh;
+            float                                                     Density = 6.0f;
+            Assets::Serialization::FoliageFloatInterval               ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval               ZOffset{ 0.0f, 0.0f };
+            bool                                                      AlignToNormal    = true;
+            bool                                                      RandomYaw        = true;
+            float                                                     RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval               GroundSlopeAngle{ 0.0f, 90.0f };
+        };
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV1ToV2( const std::string& text )
+    {
+        const auto v1 = Common::Json::Read<FoliageTypeDataV1>( text );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "FOLT 1 body does not read: {}", v1.GetError() );
+        const FoliageTypeDataV1& old = v1.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        const auto stated = old.Header->Versions.find( "FOLT" );
+        if ( stated == old.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 1 only",
+                 stated == old.Header->Versions.end() ? std::string( "nothing" )
+                                                      : std::to_string( stated->second ) );
+
+        // v2 text, not the engine's struct: the engine is v4, and the chain raises each generation in turn.
+        // v1 names no landscape layer, so its Dependencies (the mesh's GUID) are v2's as they stand.
+        FoliageTypeDataV2 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 2u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = FoliageDensityFromPerDab( old.Density );
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        std::string written           = Common::Json::Write( data );
+        // What the step writes, the next step must read: a v1 number v2 refuses fails HERE, naming the field.
+        if ( auto next = MigrateFoliageTypeV2ToV3( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 2: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV2ToV3( const std::string& text )
+    {
+        // The generation first: a v1 or v3 body would otherwise be named by its fields, not by what it is.
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 2u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 2 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v2 = Common::Json::Read<FoliageTypeDataV2>( text );
+        if ( !v2 )
+            return Common::MakeFormattedError<std::string>( "FOLT 2 body does not read: {}", v2.GetError() );
+        const FoliageTypeDataV2& old = v2.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+
+        // v3 text, not the engine's struct: the engine is v4, and v3 -> v4 is the chain's next step.
+        FoliageTypeDataV3 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 3u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = old.Density;
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        data.Height                   = old.Height;
+        data.LandscapeLayers          = old.LandscapeLayers;
+        data.MinimumLayerWeight       = old.MinimumLayerWeight;
+        // UE's default CullDistance {0, 0}: never culled, which is what every v2 field drew.
+        data.CullDistance   = { 0.0f, 0.0f };
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV3ToV4( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 3: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV3ToV4( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 3u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 3 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v3 = Common::Json::Read<FoliageTypeDataV3>( text );
+        if ( !v3 )
+            return Common::MakeFormattedError<std::string>( "FOLT 3 body does not read: {}", v3.GetError() );
+        const FoliageTypeDataV3& old = v3.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+
+        // v4 text, not the engine's struct: the engine is v6, and v4 -> v5 is the chain's next step.
+        FoliageTypeDataV4 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 4u;
+        data.Mesh               = old.Mesh;
+        data.Density            = old.Density;
+        data.ScaleX             = old.ScaleX;
+        data.ZOffset            = old.ZOffset;
+        data.AlignToNormal      = old.AlignToNormal;
+        data.RandomYaw          = old.RandomYaw;
+        data.RandomPitchAngle   = old.RandomPitchAngle;
+        data.GroundSlopeAngle   = old.GroundSlopeAngle;
+        data.Height             = old.Height;
+        data.LandscapeLayers    = old.LandscapeLayers;
+        data.MinimumLayerWeight = old.MinimumLayerWeight;
+        data.CullDistance       = old.CullDistance;
+        // Strength 0: the instances stand still, which is what every v3 field drew.
+        data.Wind = Assets::Serialization::FoliageWind{};
+
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV4ToV5( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 4: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV4ToV5( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 4u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 4 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v4 = Common::Json::Read<FoliageTypeDataV4>( text );
+        if ( !v4 )
+            return Common::MakeFormattedError<std::string>( "FOLT 4 body does not read: {}", v4.GetError() );
+        const FoliageTypeDataV4& old = v4.GetValue();
+        if ( !old.Header )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+
+        // v5 text, not the engine's struct: the engine is v6, and v5 -> v6 is the chain's next step.
+        FoliageTypeDataV5 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 5u;
+        data.Mesh                     = old.Mesh;
+        data.Density                  = old.Density;
+        data.ScaleX                   = old.ScaleX;
+        data.ZOffset                  = old.ZOffset;
+        data.AlignToNormal            = old.AlignToNormal;
+        data.RandomYaw                = old.RandomYaw;
+        data.RandomPitchAngle         = old.RandomPitchAngle;
+        data.GroundSlopeAngle         = old.GroundSlopeAngle;
+        data.Height                   = old.Height;
+        data.LandscapeLayers          = old.LandscapeLayers;
+        data.MinimumLayerWeight       = old.MinimumLayerWeight;
+        data.CullDistance             = old.CullDistance;
+        data.Wind                     = old.Wind;
+        // UE's default bIncludeInHLOD: every v4 field stood in its cell's HLOD.
+        data.IncludeInHLOD = true;
+
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV5ToV6( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 5: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV5ToV6( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 5u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 5 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v5 = Common::Json::Read<FoliageTypeDataV5>( text );
+        if ( !v5 )
+            return Common::MakeFormattedError<std::string>( "FOLT 5 body does not read: {}", v5.GetError() );
+        const FoliageTypeDataV5& old = v5.GetValue();
+
+        Assets::Serialization::FoliageTypeData data;
+        data.Header = old.Header;
+        // Every v5 type drew a mesh: FOLT 5 had no other kind.
+        data.Kind               = Assets::Serialization::FoliageTypeKind::Mesh;
+        data.Mesh               = old.Mesh;
+        data.Density            = old.Density;
+        data.ScaleX             = old.ScaleX;
+        data.ZOffset            = old.ZOffset;
+        data.AlignToNormal      = old.AlignToNormal;
+        data.RandomYaw          = old.RandomYaw;
+        data.RandomPitchAngle   = old.RandomPitchAngle;
+        data.GroundSlopeAngle   = old.GroundSlopeAngle;
+        data.Height             = old.Height;
+        data.LandscapeLayers    = old.LandscapeLayers;
+        data.MinimumLayerWeight = old.MinimumLayerWeight;
+        data.CullDistance       = old.CullDistance;
+        data.Wind               = old.Wind;
+        data.IncludeInHLOD      = old.IncludeInHLOD;
+
+        std::string written = Assets::Serialization::WriteFoliageType( data );
+        if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 6: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
     FoliageTypesMigrationReport MigrateInlineFoliageV32ToV33( std::vector<Assets::EntityData>& entities,
                                                               const std::string&               ownerName,
                                                               const std::filesystem::path&     assetsRoot )
@@ -433,6 +725,10 @@ namespace Desert::Migration
         void RunSteps( std::vector<Assets::EntityData>& entities, const std::string& name, int statedSceneVersion,
                        const std::filesystem::path& assetsRoot, FileMigrationReport& report )
         {
+            // v35 moves no key: it is the file layout of a partitioned world, which the caller writes.
+            if ( statedSceneVersion < kSceneVersionExternalEntities )
+                report.ExternalEntitiesRaised = true;
+
             // Adds MeshGuid where a StaticMesh/SkinnedMesh/InstancedStaticMesh block names a MeshPath but
             // states no MeshGuid; no step above writes one it lacks.
             if ( statedSceneVersion < kSceneVersionPathOnlyMeshGuids )
@@ -553,6 +849,144 @@ namespace Desert::Migration
         }
     } // namespace
 
+    namespace
+    {
+        // The fields of Core::PostProcessSettings, spelled as the Settings block stated them before v36.
+        constexpr std::array<std::string_view, 35> kGradeKeys = {
+             "EnableSSAO",
+             "GlobalIllumination",
+             "GIIntensity",
+             "EnableSSR",
+             "SSRIntensity",
+             "SSRMaxDistance",
+             "Tonemapper",
+             "Exposure",
+             "Gamma",
+             "WhitePoint",
+             "AutoExposure",
+             "AutoExposureKey",
+             "AutoExposureSpeed",
+             "AutoExposureMin",
+             "AutoExposureMax",
+             "EnableBloom",
+             "BloomThreshold",
+             "BloomIntensity",
+             "LensDispersion",
+             "EnableLensFlare",
+             "LensFlareIntensity",
+             "LensFlareTint",
+             "LensFlareThreshold",
+             "LensFlareGhostCount",
+             "LensFlareGhostSpacing",
+             "LensFlareGhostSizeNear",
+             "LensFlareGhostSizeFar",
+             "LensFlareGhostTintInner",
+             "LensFlareGhostTintOuter",
+             "LensFlareHaloIntensity",
+             "LensFlareHaloRadius",
+             "LensFlareStreakIntensity",
+             "LensFlareStreakLength",
+             "LensFlareStreakAngle",
+             "LensFlareChromaShift",
+        };
+
+        // Settings key -> DirectionalLightData key.
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 3> kShadowKeys = { {
+             { "EnableShadows", "CastShadows" },
+             { "ShadowBias", "ShadowBias" },
+             { "CascadeSplitLambda", "CascadeSplitLambda" },
+        } };
+
+        bool IsGradeKey( std::string_view key )
+        {
+            return std::find( kGradeKeys.begin(), kGradeKeys.end(), key ) != kGradeKeys.end();
+        }
+
+        int StampLight( Common::Json::KeyedValues& components, const rfl::Generic::Object& shadow )
+        {
+            const auto payload = components.get( "DirectionLight" );
+            if ( !payload.has_value() )
+                return 0;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return 0;
+            rfl::Generic::Object light;
+            for ( const auto& [key, field] : fields.value() )
+                if ( !shadow.get( key ).has_value() )
+                    light[key] = field;
+            for ( const auto& [key, field] : shadow )
+                light[key] = field;
+            components["DirectionLight"] = rfl::Generic( std::move( light ) );
+            return 1;
+        }
+    } // namespace
+
+    SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene )
+    {
+        SceneSettingsHomesReport report;
+        if ( !scene.Settings.has_value() )
+            return report;
+        const auto stated = scene.Settings.value().to_object();
+        if ( !stated.has_value() )
+            return report;
+
+        rfl::Generic::Object kept;
+        rfl::Generic::Object grade;
+        rfl::Generic::Object shadow;
+        for ( const auto& [key, field] : stated.value() )
+        {
+            if ( IsGradeKey( key ) )
+            {
+                grade[key] = field;
+                ++report.PostKeysMoved;
+                continue;
+            }
+            const auto shadowKey = std::find_if( kShadowKeys.begin(), kShadowKeys.end(),
+                                                 [&key]( const auto& pair ) { return pair.first == key; } );
+            if ( shadowKey != kShadowKeys.end() )
+            {
+                shadow[std::string( shadowKey->second )] = field;
+                ++report.ShadowKeysFound;
+                continue;
+            }
+            kept[key] = field;
+        }
+        scene.Settings = rfl::Generic( std::move( kept ) );
+
+        if ( report.ShadowKeysFound > 0 )
+            for ( auto& entity : scene.Entities )
+            {
+                report.LightsStamped += StampLight( entity.Components, shadow );
+                if ( entity.PrefabOverrides )
+                    for ( auto& overrideRecord : *entity.PrefabOverrides )
+                        report.LightsStamped += StampLight( overrideRecord.Components, shadow );
+            }
+
+        if ( report.PostKeysMoved == 0 )
+            return report;
+
+        uint32_t nextSibling = 0;
+        for ( const auto& entity : scene.Entities )
+            if ( !entity.parent && entity.siblingIndex )
+                nextSibling = std::max( nextSibling, *entity.siblingIndex + 1 );
+
+        const std::string  seed = ( scene.Header ? scene.Header->Guid : scene.SceneName ) + "/PostProcessVolume";
+        Assets::EntityData volume;
+        volume.id           = Common::UUID( Fnv1a64( seed, 0xcbf29ce484222325ull ) );
+        volume.siblingIndex = nextSibling;
+        volume.Tag          = "PostProcessVolume";
+        volume.Translation  = glm::vec3( 0.0f );
+        volume.Rotation     = glm::vec3( 0.0f );
+        volume.Scale        = glm::vec3( 1.0f );
+        rfl::Generic::Object data;
+        data["Unbound"]                        = rfl::Generic( true );
+        data["Settings"]                       = rfl::Generic( std::move( grade ) );
+        volume.Components["PostProcessVolume"] = rfl::Generic( std::move( data ) );
+        scene.Entities.push_back( std::move( volume ) );
+        report.VolumeCreated = true;
+        return report;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -585,6 +1019,16 @@ namespace Desert::Migration
         RunSteps( scene.Entities, scene.SceneName, statedSceneVersion, assetsRoot, report );
         if ( !report.Refused.empty() )
             return report; // unstamped: the file is FAILED by every caller and written by none
+        if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
+            report.EntitiesMovedOut = scene.Entities.size();
+
+        // Scene-only (it reads the Settings block a prefab does not have), so it runs here rather than in
+        // RunSteps, after every entity step of the chain.
+        if ( statedSceneVersion < kSceneVersionSceneSettingsHomes )
+        {
+            report.SceneSettingsHomesRaised = true;
+            report.SceneSettingsHomes       = MigrateSceneSettingsHomesV35ToV36( scene );
+        }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.

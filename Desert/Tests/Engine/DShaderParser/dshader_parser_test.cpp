@@ -219,8 +219,12 @@ TEST( DShaderParser, GeneratesAMaterialRowAndSamplersInFragmentOnly )
     EXPECT_EQ( vert.find( "sampler2D" ), std::string::npos );
 
     // Every stage gets the version header exactly once, as the first line.
-    EXPECT_EQ( frag.rfind( "#version 450", 0 ), 0u );
-    EXPECT_EQ( vert.rfind( "#version 450", 0 ), 0u );
+    EXPECT_EQ( frag.rfind( "#version 460\n", 0 ), 0u );
+    EXPECT_EQ( vert.rfind( "#version 460\n", 0 ), 0u );
+    // Neither stage names a ray-query type, so neither may carry the extension a device without ray
+    // query would refuse.
+    EXPECT_EQ( frag.find( "GL_EXT_ray_query" ), std::string::npos );
+    EXPECT_EQ( vert.find( "GL_EXT_ray_query" ), std::string::npos );
 }
 
 // THE RELATION the C++ packer stands on: a parameter of any type occupies a whole 16-byte slot, so

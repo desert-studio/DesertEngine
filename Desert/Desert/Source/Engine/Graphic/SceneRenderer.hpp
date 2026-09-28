@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/InstanceCullDistance.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -46,6 +48,7 @@
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
 
+#include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Graphic/DebugViewState.hpp>
 
@@ -196,6 +199,9 @@ namespace Desert::Graphic
                                      uint64_t visibleSubmeshMask, bool outlined = false,
                                      bool castShadows = false );
 
+        /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
+        [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;
+
         // UE-style Instanced Static Mesh: one mesh + one PBR material drawn for every transform in
         // @p transforms. Material and transforms are both co-owned handles for the reason SubmitMesh's
         // binding is (A8-3).
@@ -205,7 +211,8 @@ namespace Desert::Graphic
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         void SubmitInstancedMesh( Mesh* mesh, const MaterialInstancePtr& material,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                  bool                                                 castShadows );
+                                  bool castShadows, const InstanceCullDistance& cullDistance,
+                                  const InstanceWind& wind );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 

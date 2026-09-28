@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRef.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
@@ -53,6 +54,14 @@ namespace Desert::Runtime
         // SyncLoadLedger counts.
         std::string GetSourcePath( const Assets::AssetHandle& handle ) const;
 
+        /// Eviction (WP14b): forget the GPU texture built for @p handle, keeping the shell, so the next `Require`
+        /// reads the file and builds it again. False when nothing is built for it. The image is not freed here:
+        /// frames recorded before the sweep may still sample it, so it is parked (Assets::FrameRetireQueue).
+        bool EvictBuilt( const Assets::AssetHandle& handle );
+
+        /// Free the parked textures no frame in flight can still sample. Every frame, from the frame loop.
+        std::size_t RetireEvicted();
+
         void Clear();
 
     private:
@@ -76,5 +85,7 @@ namespace Desert::Runtime
         std::weak_ptr<Assets::AssetManager>                    m_Assets;
         /// Materials that drew a slot default while a texture was Pending.
         mutable TextureWaiters m_Waiters;
+        /// Textures eviction dropped, alive until the frames that could sample them have retired.
+        Assets::FrameRetireQueue<std::shared_ptr<Graphic::Texture2D>> m_Retiring;
     };
 } // namespace Desert::Runtime

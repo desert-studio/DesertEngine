@@ -1,0 +1,15 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "8dbbffaf988c2bd5931b389fd26e5702",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "base_basic_shaded.fbx",
+    "Bounds": {
+        "Min": [-57.682151794433594, 3.564498740615818e-7, -19.384780883789062],
+        "Max": [57.73945999145508, 189.8341064453125, 18.451244354248047]
+    }
+}

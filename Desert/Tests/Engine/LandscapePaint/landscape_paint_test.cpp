@@ -668,3 +668,79 @@ TEST( LandscapePaint, AlphaBlendFlagsPackLikeTheWeights )
     EXPECT_EQ( pages[0], vec4( 0.0f, 1.0f, 0.0f, 0.0f ) );
     EXPECT_EQ( pages[1], vec4( 0.0f, 0.0f, 1.0f, 0.0f ) );
 }
+
+// LS-14: one press of the brush is ONE transaction, and undo/redo are exact. The press drags across three
+// tiles (one of which starts with no layers at all), paints and then erases with Shift, so the record must
+// carry a tile that gained its first layers, a tile that gained a second one, and a tile it never reached must
+// stay out of it. Undo gives back every byte of every tile — names, order and weights — and redo every byte
+// of the painted state, twice over, so neither direction drifts.
+TEST( LandscapePaint, OneStrokeUndoesAndRedoesBitForBitAcrossTiles )
+{
+    LandscapeRoot root;
+    root.QuadsPerTile = 7;
+    root.SpacingCm    = 100.0f;
+    std::map<std::pair<int32_t, int32_t>, LandscapeTileData> tiles;
+    for ( int32_t tx = 0; tx < 4; ++tx )
+        tiles.emplace( std::make_pair( tx, 0 ), Tile( 8 ) );
+    Fill( tiles.at( { 0, 0 } ), "Rock", 255u );
+    Fill( tiles.at( { 1, 0 } ), "Rock", 200u ); // an unclaimed share of 55: the rule ground
+    const LandscapeTileLookup lookup = [&]( int32_t x, int32_t z )
+    {
+        auto it = tiles.find( { x, z } );
+        if ( it == tiles.end() )
+            return LandscapeTileSlot{};
+        return LandscapeTileSlot{ LandscapeTileState::Present, &it->second };
+    };
+    using Snapshot      = std::vector<std::vector<LandscapeWeightLayer>>;
+    const auto snapshot = [&]
+    {
+        Snapshot all;
+        for ( auto& [key, tile] : tiles )
+            all.push_back( tile.WeightLayers() );
+        return all;
+    };
+    const auto same = []( const Snapshot& a, const Snapshot& b )
+    {
+        if ( a.size() != b.size() )
+            return false;
+        for ( size_t t = 0; t < a.size(); ++t )
+        {
+            if ( a[t].size() != b[t].size() )
+                return false;
+            for ( size_t l = 0; l < a[t].size(); ++l )
+                if ( a[t][l].Name != b[t][l].Name || a[t][l].Weights != b[t][l].Weights )
+                    return false;
+        }
+        return true;
+    };
+    const Snapshot before = snapshot();
+
+    LandscapePaintStroke   stroke( root, lookup, { { "Grass", 0.5f, false }, { "Rock", 0.5f, false } } );
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 250.0f;
+    brush.Strength = 0.6f;
+    LandscapePaintSettings paint;
+    paint.Layer = "Grass";
+    for ( int step = 0; step < 12; ++step )
+    {
+        const glm::vec2 at( 300.0f + 100.0f * static_cast<float>( step ), 350.0f ); // drags west to east
+        auto            weights = ComputeLandscapeBrush( root, brush, { &at, 1 } );
+        ASSERT_TRUE( weights.IsSuccess() );
+        ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, step >= 9 ).IsSuccess() );
+    }
+    const Snapshot after = snapshot();
+    ASSERT_FALSE( same( before, after ) );
+    ASSERT_TRUE( tiles.at( { 3, 0 } ).WeightLayers().empty() ) << "the brush never reached tile 3";
+
+    auto record = stroke.Finish();
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    EXPECT_EQ( record.GetValue().Tiles.size(), 3u ) << "tiles 0..2 were touched, tile 3 was not";
+
+    for ( int round = 0; round < 2; ++round )
+    {
+        ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), true ).IsSuccess() );
+        EXPECT_TRUE( same( snapshot(), before ) ) << "undo, round " << round;
+        ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), false ).IsSuccess() );
+        EXPECT_TRUE( same( snapshot(), after ) ) << "redo, round " << round;
+    }
+}

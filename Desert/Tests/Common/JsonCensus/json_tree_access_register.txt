@@ -3,3 +3,4 @@
 # path every issue names. Format: <repo-relative path> | <owner step>: <what moves>. A row whose file is clean fails.
 Desert/Desert/Source/Engine/Assets/Prefab/PrefabOverrides.cpp | JS1c-S4: prefab overrides walk component blocks through Node
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
+Desert/Tests/Tools/SceneSettingsHomes/scene_settings_homes_test.cpp | KEEP: reads Migration::SceneSerialized::Settings, an rfl::Generic the SceneMigrator's SET1 step edits; the migrator schema has no Node reader

@@ -99,6 +99,13 @@ namespace Desert::Engine
             return m_ExitCode;
         }
 
+        // Non-empty when construction stopped before a device existed (e.g. DeviceCaps refused the GPU);
+        // EntryPoint then runs nothing and returns ExitCode().
+        NO_DISCARD const std::string& StartupRefusal() const
+        {
+            return m_StartupRefusal;
+        }
+
     private:
         void Init();
         void Destroy();
@@ -135,6 +142,7 @@ namespace Desert::Engine
 
         bool m_IsRunningApplication = true;
         int  m_ExitCode             = 0;
+        std::string m_StartupRefusal;
 
         // Failures already reported by ReportLayerFailure, keyed on stage + layer + message. Not a
         // counter: a counter cannot tell a message that is still recurring from a new one.

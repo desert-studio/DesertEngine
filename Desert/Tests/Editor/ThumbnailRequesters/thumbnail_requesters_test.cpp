@@ -115,6 +115,9 @@ namespace
          { "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp", "CollectionsPanel::DrawCard",
            Role::Shows, "RequestMesh", "the Collections card grid" },
 
+         { "Editor/Source/Editor/Panels/Foliage/FoliagePanel.cpp", "ThumbnailOf", Role::Shows, "RequestMesh",
+           "the Foliage palette's type tiles: each shows its type's mesh (FO-UI1)" },
+
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawPaintedThumbnail", Role::Shows, "RequestPainted",
            "the asset browser's tile for the four CLOUD formats, whose picture is PAINTED from the "
@@ -128,6 +131,14 @@ namespace
            "so there is nothing for it to queue: spending an offscreen capture here would produce a "
            "picture of the picture we started with. It is deliberately independent of the cook pipeline "
            "so that EVERY image previews, not only the already-cooked ones" },
+
+         { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
+           "FileExplorerPanel::UploadPrefetchedThumbnails", Role::Rereads, "",
+           "the splash's upload pass (THUMB2). It uploads only pictures a worker already decoded from the "
+           "disk cache for the tiles of the folder the browser opens on, before the window is shown; it "
+           "never asks for a capture because none may run before the hand-over, and the tiles' own draws "
+           "(DrawRenderedMaterialThumbnail / DrawRenderedMeshThumbnail, this file) queue any picture that "
+           "is missing on the first frame after it" },
 
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::EmitAssetDragSource", Role::Rereads, "",
@@ -546,8 +557,11 @@ TEST( ThumbnailRequesters, TheOnlyExceptionIsBackedByTheSiteThatQueuesForIt )
              << site.Why;
     }
 
-    EXPECT_EQ( exceptions, 1 ) << "the number of sites excused from asking has changed. One is a "
-                                  "documented re-read; two is a habit. Read the new row's argument and "
+    // Two, decided (THUMB2): the drag ghost, and the splash's upload pass — which runs before the window
+    // exists, where no capture may be asked for (Splash::ThumbnailCaptureAllowed), for pictures the same
+    // folder's tile draws ask for one frame later.
+    EXPECT_EQ( exceptions, 2 ) << "the number of sites excused from asking has changed. Two are "
+                                  "documented re-reads; three is a habit. Read the new row's argument and "
                                   "decide, then update this number deliberately.";
 }
 

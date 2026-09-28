@@ -28,6 +28,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -391,6 +392,65 @@ TEST( LandscapeScene, NeighbouringTilesAnswerTheSameHeightOnTheirSharedSeam )
 
     // And the rectangles the partitioner uses share the SAME edge number.
     EXPECT_EQ( LandscapeTileBounds( root, 0, 0 ).MaxX, LandscapeTileBounds( root, 1, 0 ).MinX );
+}
+
+// ── 7 ──────────────────────────────────────────────────────────────────────────────────────────────
+// LS-14: painted weights are saved WITH the landscape (UE: the weightmaps live in the component, not in a
+// runtime-only splat texture). Every tile carries a different set — none, three, and all eight layers — with
+// values that depend on the tile, the layer and the sample, so a layer swapped with its neighbour, a plane
+// read from the wrong tile file or a transposed row cannot come back equal; and the second save is the same
+// bytes, so nothing is lost or reordered by the trip.
+TEST( LandscapeScene, PaintedWeightLayersSurviveSaveAndLoadExactly )
+{
+    const fs::path dir       = Workspace( "weights" );
+    const fs::path scenePath = dir / "Painted.desce";
+
+    LandscapeScene                original = TwoByTwo();
+    const uint32_t                samples  = original.Root.QuadsPerTile + 1u;
+    const size_t                  plane    = static_cast<size_t>( samples ) * samples;
+    const std::array<uint32_t, 4> layerCounts{ 0u, 3u, kLandscapeMaxWeightLayers, 1u };
+    for ( size_t index = 0; index < original.Tiles.size(); ++index )
+    {
+        std::vector<LandscapeWeightLayer> layers;
+        for ( uint32_t layer = 0; layer < layerCounts[index]; ++layer )
+        {
+            LandscapeWeightLayer painted;
+            painted.Name = "Layer" + std::to_string( layer );
+            painted.Weights.resize( plane );
+            for ( size_t sample = 0; sample < plane; ++sample )
+                painted.Weights[sample] =
+                     static_cast<uint8_t>( ( sample * 7u + layer * 31u + index * 101u ) & 0xFFu );
+            layers.push_back( std::move( painted ) );
+        }
+        auto& heights  = original.Tiles[index].Tile.Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
+        const auto set = heights.SetWeightLayers( std::move( layers ) );
+        ASSERT_TRUE( set.IsSuccess() ) << set.GetError();
+    }
+    Save( original, scenePath );
+    std::vector<std::string> firstTiles;
+    for ( const TileEntity& entity : original.Tiles )
+        firstTiles.push_back( ReadText( entity.Tile.HeightFile ) );
+
+    LandscapeScene loaded = Load( scenePath );
+    ASSERT_EQ( loaded.Tiles.size(), original.Tiles.size() );
+    for ( size_t index = 0; index < loaded.Tiles.size(); ++index )
+    {
+        ASSERT_TRUE( loaded.Tiles[index].Tile.Heights.has_value() );
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        const auto& before = original.Tiles[index].Tile.Heights.value().WeightLayers();
+        const auto& after  = loaded.Tiles[index].Tile.Heights.value().WeightLayers();
+        // NOLINTEND(bugprone-unchecked-optional-access)
+        ASSERT_EQ( after.size(), layerCounts[index] ) << "tile " << index;
+        for ( size_t layer = 0; layer < after.size(); ++layer )
+        {
+            EXPECT_EQ( after[layer].Name, before[layer].Name ) << "tile " << index << " layer " << layer;
+            EXPECT_EQ( after[layer].Weights, before[layer].Weights ) << "tile " << index << " layer " << layer;
+        }
+    }
+
+    Save( loaded, scenePath );
+    for ( size_t index = 0; index < loaded.Tiles.size(); ++index )
+        EXPECT_EQ( ReadText( loaded.Tiles[index].Tile.HeightFile ), firstTiles[index] ) << "tile " << index;
 }
 
 int main( int argc, char** argv )

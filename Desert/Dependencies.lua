@@ -202,6 +202,8 @@ Dependencies = {
             entt = baseDir .. "/entt/include",
             reflect_cpp = baseDir .. "/reflect-cpp/include",
             meshoptimizer = baseDir .. "/meshoptimizer/src",
+            -- <opensubdiv/far/...>: the CPU refiner the Subdivide port runs on (BuildScripts/ThirdParty/OpenSubdiv.lua).
+            opensubdiv = baseDir .. "/OpenSubdiv",
             jolt = baseDir .. "/JoltPhysics",
             lua = baseDir .. "/lua",
             sol2 = baseDir .. "/sol2/include",

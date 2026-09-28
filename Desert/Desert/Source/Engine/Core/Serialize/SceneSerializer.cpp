@@ -7,6 +7,7 @@
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -214,6 +215,12 @@ namespace Desert::Core
                 
                 current = rel.Parent;
                 if ( registry->has<ECS::PrefabComponent>( current ) )
+                {
+                    return true;
+                }
+                // A foliage field's children are its prefab instances (FO-8), realized from the field's
+                // transforms on every load; saving them too would place each instance twice.
+                if ( registry->has<ECS::FoliageComponent>( current ) )
                 {
                     return true;
                 }
@@ -705,6 +712,15 @@ namespace Desert::Core
         if ( !document )
             return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
                                                document.GetError() );
+        // A partitioned world is written as its header plus one file per entity (v35, WP16); the document is
+        // the same one either way, so the foreign-key carry above does not know the difference.
+        if ( m_Scene->GetWorldPartition().has_value() )
+        {
+            if ( const auto split = ExternalEntities::WriteSceneFile( path, document.GetValue() ); !split )
+                return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
+                                                   split.GetError() );
+            return BOOLSUCCESS;
+        }
         const auto text = Common::Json::WriteCanonical( document.GetValue() );
         if ( !text )
             return Common::MakeFormattedError( "could not lay out '{}' as text: {}", m_Scene->GetSceneName(),

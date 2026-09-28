@@ -167,6 +167,16 @@ namespace CrashReporter
                     report.os = value;
                 else if ( key == "gpu" )
                     report.gpu = value;
+                else if ( key == "gpu_vendor" )
+                    report.gpuVendor = value;
+                else if ( key == "gpu_device" )
+                    report.gpuDevice = value;
+                else if ( key == "gpu_driver" )
+                    report.gpuDriver = value;
+                else if ( key == "gpu_api" )
+                    report.gpuApi = value;
+                else if ( key == "game" )
+                    report.game = value;
             }
             else if ( section == "stack" && key == "frame" )
             {

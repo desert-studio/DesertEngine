@@ -514,10 +514,8 @@ namespace Desert::Editor
         void SyncWindowTitle();
 
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
-        // BEFORE the preloader, which holds a non-owning reference to it and must therefore not outlive
-        // it: members are destroyed in reverse declaration order.
+        // The library the boot's "Indexing animation clips" stage fills (Assets::IndexAnimationClips).
         std::unique_ptr<Animation::AnimationLibrary> m_AnimationLibrary;
-        std::unique_ptr<Assets::AssetPreloader>      m_AssetPreloader;
         std::unique_ptr<ImportManager>               m_ImportManager;
         // The startup mesh cook, run after the reveal (AL1-11); see Editor/Import/BackgroundCook.hpp.
         std::unique_ptr<BackgroundCookQueue>         m_BackgroundCook;
@@ -732,7 +730,7 @@ namespace Desert::Editor
 
         // ===== The splash's progress, and the moment the editor is shown =====
         //
-        // THE BAR IS WEIGHED IN WORK (Splash/SplashProgress.hpp): the shader preload (OnAttach — not a
+        // THE BAR IS WEIGHED IN WORK (Splash/SplashProgress.hpp): the engine shader compile (OnAttach — not a
         // stage, because the render systems resolve their shaders in their constructors), every entry of
         // m_StartupStages and the settle wait after them, each weighted by its item count times a measured
         // cost per item. The plan is made once the cooked registry is read, which is what counts the items.
@@ -752,6 +750,12 @@ namespace Desert::Editor
         // Called at every presented frame; the first one presented after the start is over shows the
         // hidden main window and closes the splash. Until then the splash is the only window.
         void RevealWhenReady();
+        // THUMB2: before the hand-over, upload the opening folder's cached thumbnails as workers finish
+        // them, and hold the hand-over for them within Splash::kThumbnailUploadBudgetMs.
+        void UploadSplashThumbnails();
+        bool m_ThumbnailsHoldReveal = false;
+        // When every other reveal condition first held: the start of the thumbnails' budget.
+        std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
         void StartBackgroundCook();
         void DrainBackgroundCook();
         void ReloadRecookedMesh( const std::filesystem::path& source );

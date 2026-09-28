@@ -10,7 +10,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeHeightmapIO.hpp>
+#include <Editor/Import/LandscapeHeightmapIO.hpp>
 
 #include <Common/Core/Constants.hpp>
 

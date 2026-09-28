@@ -38,7 +38,11 @@ Shader "StaticMeshPBR_Instanced"
         {
         	mat4 Transform;     // offset 0  — unused here
         	uint MaterialIndex; // offset 64
+        	vec4 WindA;         // offset 80 — Graphic::kInstancedWindPushOffset (Common/FoliageWind.glslh)
+        	vec4 WindB;         // offset 96
         } m_PushConstants;
+
+        #include <Common/FoliageWind.glslh>
 
         Out(0) Vertex
         {
@@ -53,7 +57,9 @@ Shader "StaticMeshPBR_Instanced"
         {
         	mat4 model = transforms[gl_InstanceIndex];
 
-        	outVertex.WorldPosition  = vec3(model * vec4(a_Position, 1.0));
+        	vec3 worldPosition = InstancedWorldPosition(model, a_Position, m_PushConstants.WindA, m_PushConstants.WindB);
+
+        	outVertex.WorldPosition  = worldPosition;
         	outVertex.Texcoord       = vec2(a_TextureCoord.x, 1.0 - a_TextureCoord.y);
         	outVertex.CameraPosition = cameraUB.CameraPos;
 
@@ -66,7 +72,7 @@ Shader "StaticMeshPBR_Instanced"
         	outVertex.Normal = N;
         	outVertex.TBN    = mat3(T, B, N);
 
-        	gl_Position = cameraUB.Projection * cameraUB.View * model * vec4(a_Position, 1.0);
+        	gl_Position = cameraUB.Projection * cameraUB.View * vec4(worldPosition, 1.0);
         }
     }
 

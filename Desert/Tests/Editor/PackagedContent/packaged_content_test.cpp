@@ -1570,6 +1570,11 @@ namespace
              // the exact defect the asset was built to end. Covered by the ASSETS_PATH tree, since
              // Retargets/ lives under it.
              { "RETARGET_PATH", &P::RETARGET_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED: a FoliageComponent names its `.defoliage` (FO-1) and a landscape its `.delayerinfo`
+             // layers (LS-12b); a shipped scene resolves both at load, so a game without them loses its
+             // foliage and its paint layers. Covered by the ASSETS_PATH tree (Foliage/, Landscape/Layers/).
+             { "FOLIAGE_TYPE_PATH", &P::FOLIAGE_TYPE_PATH, RootVerdict::Packaged, "" },
+             { "LANDSCAPE_LAYER_INFO_PATH", &P::LANDSCAPE_LAYER_INFO_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
              { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
         };

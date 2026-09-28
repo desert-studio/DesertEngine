@@ -31,6 +31,15 @@
 // index (which carries the file's checksum) and nothing else — what makes a re-cook of a large world an upload
 // of two files.
 //
+// ── THE HLOD OF EVERY CELL (WP10) ────────────────────────────────────────────────────────────────
+//
+// Beside each cell that draws something the cook writes that cell's Instancing HLOD
+// (WorldPartitionHLODRules.hpp): the cell's meshes as InstancedStaticMesh records in a file of its own,
+// `HLOD_<cell file>`, listed in the index (WorldIndex::HLODs) with the cell unit it stands in for, the records it
+// covers, the ones it could not cover and why, and its asset closure. It is a cell file in every other respect
+// (same envelope, same checksum rule); its records belong to no unit, so assembling the world never reads it.
+// Which one is DRAWN, the cell or its HLOD, is WP11's; this is only the builder, as UE's HLOD builder is.
+//
 // ── THE ENVELOPE: THE SHARED ASSET ENVELOPE (AF1), CHECKED BEFORE THE CONTENT IS BELIEVED ──────────
 //
 // Every file is a Common/Content/AssetEnvelope: kind WorldIndex (the index) or WorldCell (a cell file), a GUID
@@ -43,6 +52,7 @@
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldCellSource.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -66,7 +76,7 @@ namespace Desert::Core::WorldCells
     // index/cell payload shapes below. A reader refuses any other number by name, older included; a cooked
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
-    inline constexpr std::uint32_t kWorldFormatVersion = 2;
+    inline constexpr std::uint32_t kWorldFormatVersion = 3;
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -107,6 +117,29 @@ namespace Desert::Core::WorldCells
         std::string   Field;
     };
 
+    // A record of a cell that draws something and has no instance in the cell's HLOD, and why (the closed
+    // list in WorldPartitionHLODRules.hpp): what WP11 must treat as a hole when the cell unloads.
+    struct IndexNotInstanced
+    {
+        std::uint64_t        Id     = 0;
+        Rules::HLODExclusion Reason = Rules::HLODExclusion::Unreadable;
+    };
+
+    // THE INSTANCING HLOD OF ONE CELL (WP10): the InstancedStaticMesh records that stand in for cell unit
+    // `Unit` while it is not loaded. One per cell that draws anything. `File` is absent when nothing in the
+    // cell could be batched (then every drawing record is in NotInstanced). The HLOD's records are not the
+    // world's: no unit holds them, `Records` does not count them, AssembleWorld never reads them.
+    struct IndexHLOD
+    {
+        std::uint32_t                  Unit = 0;
+        std::optional<std::string>     File;
+        std::vector<std::uint64_t>     Ids; // the HLOD's own records, one per batch, in batch order
+        std::uint64_t                  Instances = 0;
+        std::vector<std::uint64_t>     Sources; // the cell's records it stands in for, in member order
+        std::vector<IndexNotInstanced> NotInstanced;
+        std::vector<std::string>       Assets; // registry keys the HLOD needs, transitively; sorted
+    };
+
     struct WorldIndex
     {
         // The scene-wide part of the source, so a world is whole without the .desce it came from.
@@ -125,8 +158,9 @@ namespace Desert::Core::WorldCells
         std::vector<IndexUnit>      Units; // residency unit order: always-loaded, then cells
         std::vector<IndexFile>      Files; // every cell file, in the order the units first name them
         std::vector<IndexReference> References;
+        std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 2 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 3 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -135,7 +169,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 2 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 3 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
@@ -164,6 +198,20 @@ namespace Desert::Core::WorldCells
 
     // The bounds source a cook plans with: the first registry that knows the mesh answers.
     [[nodiscard]] Rules::AssetBoundsSource BoundsFrom( std::span<const Common::Utils::AssetRegistry> registries );
+
+    // WHETHER A MATERIAL DRAWS WITH ITS OWN SHADER, from the registries' rows alone: the material's row (by GUID,
+    // then path) names its shader among its dependencies, and a material instance names its parent — followed
+    // until a Shader row answers. A shader row whose stem is not a PBR surface name (Assets::IsPBRSurfaceShader)
+    // is a custom shader; a material that states none draws with the PBR surface. First registry that answers
+    // wins, as in BoundsFrom. Empty registries give an empty source (see Rules::CustomShaderSource).
+    [[nodiscard]] Rules::CustomShaderSource
+    CustomShaderFrom( std::span<const Common::Utils::AssetRegistry> registries );
+
+    // Whether a foliage type stands in its cell's HLOD (FO-6): the `.defoliage` the registry row of
+    // {guid, path} keys is read and its IncludeInHLOD answered. An error names the type when no registry holds
+    // it or its file does not read. Empty registries give an empty source (see Rules::FoliageHLODSource).
+    [[nodiscard]] Rules::FoliageHLODSource
+    FoliageInHLODFrom( std::span<const Common::Utils::AssetRegistry> registries );
 
     // ── Reading ──────────────────────────────────────────────────────────────────────────────────
 
@@ -228,6 +276,14 @@ namespace Desert::Core::WorldCells
     // What the round trip is checked with; the records are in unit order, not the source's file order.
     [[nodiscard]] Common::ResultStr<SceneSerialized> AssembleWorld( const WorldIndex& index,
                                                                     const FileReader& reader );
+
+    // The records of HLOD @p hlod (an index into index.HLODs): its InstancedStaticMesh records, read and checked
+    // as ReadCellFile checks a cell. Empty when the HLOD has no file (nothing in its cell could be batched).
+    [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>>
+    HLODRecords( const WorldIndex& index, const FileReader& reader, std::size_t hlod );
+
+    // The name of the HLOD file of the cell whose file is @p cellFile: `L0_3_4.dwcell` -> `HLOD_L0_3_4.dwcell`.
+    [[nodiscard]] std::string HLODFileName( std::string_view cellFile );
 
     // The scene's records in a canonical order (by id) as JSON, one per record: two scenes hold the same
     // records exactly when these are equal. What a round trip compares.

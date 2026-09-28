@@ -11,6 +11,7 @@
 #include "WorldPartitionPanel.hpp"
 
 #include "../../Core/CommandHistory.hpp"
+#include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
 #include <ranges>
 #include <Engine/Core/Camera.hpp>
@@ -281,6 +282,11 @@ namespace Desert::Editor
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
         CommandHistory::Get().PushCommand(
              std::make_unique<ConvertToWorldPartitionCommand>( m_Scene, std::move( before ), after ) );
+        // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
+        // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
+        if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
+            return Common::MakeFormattedError<bool>( "{}: the world is partitioned but its foliage is not: {}",
+                                                     kConvertButtonLabel, filed.GetError() );
 
         m_EditPlanStale = true;
         m_FocusPending  = true;

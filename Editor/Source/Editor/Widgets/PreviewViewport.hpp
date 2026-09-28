@@ -421,6 +421,7 @@ namespace Desert::Editor
         // — a floor that is switched off is an entity with no mesh in its slot, not an entity destroyed
         // and rebuilt, because rebuilding it every toggle would churn the mesh service for a checkbox.
         ECS::Entity m_Light;
+        ECS::Entity m_PostVolume; // the pane's Unbound PostProcessVolume: its exposure follows the setup
         ECS::Entity m_Floor;
         ECS::Entity m_Sky;
         // The HDR environment's carrier: a SkyboxComponent whose handle is empty while the preset sky shows.
