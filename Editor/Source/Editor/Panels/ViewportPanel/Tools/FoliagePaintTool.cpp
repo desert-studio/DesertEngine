@@ -343,7 +343,8 @@ namespace Desert::Editor::Tools
             if ( begin )
             {
                 ImGui::TextDisabled( "Mesh types only" );
-                ImGui::SetItemTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
                 ImGui::BeginDisabled();
             }
             else
@@ -475,8 +476,8 @@ namespace Desert::Editor::Tools
             ImGui::BeginDisabled( prefabType );
             commit = ImGui::Checkbox( "##IncludeInHLOD", &f.IncludeInHLOD ) || commit;
             ImGui::EndDisabled();
-            if ( prefabType )
-                ImGui::SetItemTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
+            if ( prefabType && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
             Row::EndPropertyRow();
         }
         s_Editing = active;
