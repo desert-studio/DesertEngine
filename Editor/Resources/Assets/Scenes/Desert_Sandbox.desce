@@ -21,7 +21,7 @@
                 "Text": "Desert Engine",
                 "Font": "engine:Fonts/Roboto-Regular.ttf",
                 "Color": [0.550000011920929, 0.8500000238418579, 1.0, 1.0],
-                "Size": 80.0000011920929,
+                "Size": 80.0,
                 "EmissiveIntensity": 2.5,
                 "Billboard": false
             }
