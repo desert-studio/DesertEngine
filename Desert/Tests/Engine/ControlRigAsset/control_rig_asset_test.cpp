@@ -538,6 +538,47 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
     EXPECT_NE( RigFile::WriteControlRig( sizedBack.GetValue() ).find( "ShapeTransform" ), std::string::npos );
 }
 
+TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTheFile )
+{
+    const Skeleton    skeleton = MakeArmRig();
+    const std::string text     = R"({
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
+      "Name": "Painted",
+      "Controls": [
+        { "Name": "Hand_L_CTRL", "ShapeName": "CircleXY",
+          "Offset": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] },
+        { "Name": "Tail_CTRL", "ShapeName": "CircleXY", "Color": [0.0, 1.0, 0.0],
+          "Offset": { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Pose":   { "Translation": [0.0, 0.0, 0.0], "Rotation": [1.0, 0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0] },
+          "Parents": [ { "Kind": "Component", "Target": "", "Weight": 1.0 } ] }
+      ],
+      "Drives": [ { "Control": "Hand_L_CTRL", "Bone": "Hand" }, { "Control": "Tail_CTRL", "Bone": "Tail" } ]
+    })";
+    auto parsed = RigFile::ParseControlRig( text );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    ControlRigStage stage;
+    ASSERT_TRUE( RigFile::BuildControlRig( parsed.GetValue(), skeleton, stage ).IsSuccess() );
+    Animation::ControlHierarchy& rig = stage.GetHierarchy();
+    EXPECT_EQ( rig.Get( rig.Find( "Hand_L_CTRL" ) ).Color, Animation::ControlSideColor( "Hand_L_CTRL" ) );
+    EXPECT_EQ( rig.Get( rig.Find( "Tail_CTRL" ) ).Color, glm::vec3( 0.0F, 1.0F, 0.0F ) );
+
+    auto back = RigFile::BuildDataFromControlRig( "Painted", stage, skeleton );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    for ( const RigFile::ControlElementData& c : back.GetValue().Controls )
+    {
+        EXPECT_EQ( c.Color.has_value(), c.Name == "Tail_CTRL" ) << c.Name << ": only a painted colour is written";
+    }
+
+    // A colour outside 0..1 is refused by name, never clamped.
+    std::string bad = text;
+    bad.replace( bad.find( "[0.0, 1.0, 0.0]" ), 15, "[0.0, 4.0, 0.0]" );
+    auto badParsed = RigFile::ParseControlRig( bad );
+    ASSERT_FALSE( badParsed.IsSuccess() );
+    EXPECT_NE( badParsed.GetError().find( "Tail_CTRL" ), std::string::npos ) << badParsed.GetError();
+}
+
 TEST( ControlRigAssetTest, AShapeScaledToZeroIsRefusedAndTheMessageNamesTheControlAndTheField )
 {
     RigFile::ControlRigData data = ArmRigFile();

@@ -36,6 +36,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <cmath>
 #include <utility>
 
@@ -175,8 +177,9 @@ TEST( ControlManipulatorTest, TheBuiltInShapesAreAValidLibrary )
     ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
     const ControlShapeLibrary& library = built.GetValue();
 
-    EXPECT_EQ( library.Size(), 6U );
-    for ( const char* name : { "CircleXY", "CircleXZ", "CircleYZ", "Sphere", "Box", "Diamond" } )
+    EXPECT_EQ( library.Size(), 11U );
+    for ( const char* name : { "CircleXY", "CircleXZ", "CircleYZ", "Sphere", "Box", "Diamond", "Square", "Hexagon",
+                               "Arrow", "Arrow4", "CircleThick" } )
     {
         EXPECT_NE( library.Find( name ), nullptr ) << name;
     }
@@ -190,6 +193,84 @@ TEST( ControlManipulatorTest, TheBuiltInShapesAreAValidLibrary )
     EXPECT_EQ( library.Find( "CircleXZ" )->Polylines.size(), 1U );
     EXPECT_NE( library.Find( "CircleXZ" )->Transform, glm::mat4( 1.0F ) );
     EXPECT_EQ( library.Find( "CircleXY" )->Transform, glm::mat4( 1.0F ) );
+}
+
+TEST( ControlManipulatorTest, TheUEFlatShapesHaveTheirOwnGeometry )
+{
+    const ControlShapeLibrary library = MustBuiltIn();
+    ASSERT_NE( library.Find( "Square" ), nullptr );
+    EXPECT_EQ( library.Find( "Square" )->Polylines.front().Points.size(), 4U );
+    ASSERT_NE( library.Find( "Hexagon" ), nullptr );
+    EXPECT_EQ( library.Find( "Hexagon" )->Polylines.front().Points.size(), 6U );
+    ASSERT_NE( library.Find( "Arrow4" ), nullptr );
+    EXPECT_EQ( library.Find( "Arrow4" )->Polylines.size(), 4U );
+
+    // THE ARROW POINTS SOMEWHERE: its tip is the one point at distance one along +X.
+    ASSERT_NE( library.Find( "Arrow" ), nullptr );
+    float furthestX = 0.0F;
+    for ( const glm::vec3& p : library.Find( "Arrow" )->Polylines.front().Points )
+    {
+        furthestX = std::max( furthestX, p.x );
+    }
+    EXPECT_FLOAT_EQ( furthestX, 1.0F );
+
+    // THE THICK CIRCLE IS A BAND: two rings at different radii, not one ring drawn twice.
+    ASSERT_NE( library.Find( "CircleThick" ), nullptr );
+    const auto& runs = library.Find( "CircleThick" )->Polylines;
+    ASSERT_EQ( runs.size(), 2U );
+    EXPECT_GT( glm::length( runs[1].Points.front() ) - glm::length( runs[0].Points.front() ), 0.1F );
+}
+
+TEST( ControlManipulatorTest, ControlsAreColouredBySideLikeUE )
+{
+    const glm::vec3 left   = Desert::Animation::ControlSideColor( "Hand_L_CTRL" );
+    const glm::vec3 right  = Desert::Animation::ControlSideColor( "hand_r" );
+    const glm::vec3 centre = Desert::Animation::ControlSideColor( "Spine_CTRL" );
+    EXPECT_GT( left.b, left.r ) << "left is blue";
+    EXPECT_GT( right.r, right.b ) << "right is red";
+    EXPECT_GT( centre.r, centre.b ) << "centre is yellow";
+    EXPECT_GT( centre.g, centre.b ) << "centre is yellow";
+    EXPECT_EQ( Desert::Animation::ControlSideColor( "l_foot" ), left );
+    EXPECT_EQ( Desert::Animation::ControlSideColor( "Elbow_R" ), right );
+    // A name that merely CONTAINS an l or r is centre: "Roll", "Pelvis" must not turn blue or red.
+    EXPECT_EQ( Desert::Animation::ControlSideColor( "Roll_CTRL" ), centre );
+    EXPECT_EQ( Desert::Animation::ControlSideColor( "Pelvis" ), centre );
+    EXPECT_NE( left, right );
+}
+
+TEST( ControlManipulatorTest, HoverAndSelectionLiftTheAuthoredColourWithoutReplacingIt )
+{
+    const glm::vec3     blue( 0.1F, 0.35F, 1.0F );
+    const Desert::Animation::ControlStroke idle     = Desert::Animation::StrokeForControl( blue, false, false );
+    const Desert::Animation::ControlStroke hovered  = Desert::Animation::StrokeForControl( blue, true, false );
+    const Desert::Animation::ControlStroke selected = Desert::Animation::StrokeForControl( blue, false, true );
+    EXPECT_GT( hovered.Color.r, idle.Color.r ) << "hover is lighter";
+    EXPECT_GT( selected.Thickness, idle.Thickness ) << "selection is thicker";
+    EXPECT_GT( selected.Thickness, hovered.Thickness );
+    // Still blue when selected: which side was grabbed stays readable.
+    EXPECT_GT( selected.Color.b, selected.Color.r );
+    EXPECT_GT( selected.Color.b, idle.Color.b * 0.99F );
+}
+
+TEST( ControlManipulatorTest, RotatingAControlByDegreesTurnsItAboutItsOwnAxisAndOnlyTurnsIt )
+{
+    ControlHierarchy rig;
+    ControlElement   element;
+    element.Name                 = "Elbow_CTRL";
+    element.Pose.Translation     = glm::vec3( 5.0F, 6.0F, 7.0F );
+    const auto added             = rig.Add( element );
+    ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
+    const uint32_t control       = added.GetValue();
+
+    ASSERT_TRUE( Desert::Animation::RotateControlLocal( rig, control, 2, 45.0F ).IsSuccess() );
+    const BoneTransform& pose = rig.Get( control ).Pose;
+    const glm::vec3      turned = pose.Rotation * glm::vec3( 1.0F, 0.0F, 0.0F );
+    EXPECT_NEAR( turned.x, std::sqrt( 0.5F ), 1e-5F );
+    EXPECT_NEAR( turned.y, std::sqrt( 0.5F ), 1e-5F );
+    EXPECT_EQ( pose.Translation, glm::vec3( 5.0F, 6.0F, 7.0F ) ) << "a rotation must not move the control";
+
+    EXPECT_FALSE( Desert::Animation::RotateControlLocal( rig, control, 3, 45.0F ).IsSuccess() ) << "no fourth axis";
+    EXPECT_FALSE( Desert::Animation::RotateControlLocal( rig, 99, 0, 45.0F ).IsSuccess() );
 }
 
 TEST( ControlManipulatorTest, ADegenerateShapeIsRefusedRatherThanRegistered )

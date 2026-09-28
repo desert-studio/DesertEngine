@@ -373,18 +373,13 @@ namespace Desert::Editor
             const bool isSelected = ( shape.Control == chosen );
             const bool isHovered  = ( shape.Control == hover.Control );
 
-            // Written as a lookup rather than as nested ternaries: three states (selected, hovered, idle)
-            // read as three rows, and the analyser refuses a conditional inside a conditional anyway.
-            ImU32 colour = IM_COL32( 90, 190, 255, 200 );
-            if ( isSelected )
-            {
-                colour = IM_COL32( 255, 200, 60, 255 );
-            }
-            else if ( isHovered )
-            {
-                colour = IM_COL32( 255, 255, 255, 255 );
-            }
-            const float thickness = isSelected ? 2.5f : 1.5f;
+            // THE AUTHORED COLOUR, LIFTED BY STATE (UE's rule; Animation::StrokeForControl): a left control is
+            // blue whether idle, hovered or grabbed, so the side stays readable while the animator works.
+            const Animation::ControlStroke stroke =
+                 Animation::StrokeForControl( hierarchy.Get( shape.Control ).Color, isHovered, isSelected );
+            const ImU32 colour    = ImGui::ColorConvertFloat4ToU32(
+                 ImVec4( stroke.Color.r, stroke.Color.g, stroke.Color.b, stroke.Color.a ) );
+            const float thickness = stroke.Thickness;
 
             for ( const Animation::ManipulatorSegment& segment : shape.Screen )
             {

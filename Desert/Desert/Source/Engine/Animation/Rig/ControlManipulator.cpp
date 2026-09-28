@@ -532,4 +532,42 @@ namespace Desert::Animation
         m_Active  = false;
         m_Control = ControlHierarchy::INVALID;
     }
+    ControlStroke StrokeForControl( const glm::vec3& authored, bool hovered, bool selected )
+    {
+        ControlStroke stroke;
+        glm::vec3     rgb = authored * 0.8F;
+        stroke.Thickness  = 2.0F;
+        if ( hovered )
+        {
+            rgb              = glm::mix( authored, glm::vec3( 1.0F ), 0.4F );
+            stroke.Thickness = 3.0F;
+        }
+        if ( selected )
+        {
+            rgb              = glm::mix( authored, glm::vec3( 1.0F ), 0.15F );
+            stroke.Thickness = 4.0F;
+        }
+        stroke.Color = glm::vec4( rgb, 1.0F );
+        return stroke;
+    }
+
+    Common::BoolResultStr RotateControlLocal( ControlHierarchy& hierarchy, uint32_t control, int axis, float degrees )
+    {
+        if ( control >= hierarchy.Size() )
+        {
+            return Common::MakeFormattedError<bool>( "cannot rotate control {} of a rig with {} controls", control,
+                                                     hierarchy.Size() );
+        }
+        if ( axis < 0 || axis > 2 || !std::isfinite( degrees ) )
+        {
+            return Common::MakeFormattedError<bool>( "control '{}': rotation about axis {} by {} degrees is not a "
+                                                     "rotation (axis is 0..2, degrees finite)",
+                                                     hierarchy.Get( control ).Name, axis, degrees );
+        }
+        glm::vec3 about( 0.0F );
+        about[axis]        = 1.0F;
+        BoneTransform pose = hierarchy.Get( control ).Pose;
+        pose.Rotation      = glm::normalize( pose.Rotation * glm::angleAxis( glm::radians( degrees ), about ) );
+        return hierarchy.SetPose( control, pose );
+    }
 } // namespace Desert::Animation

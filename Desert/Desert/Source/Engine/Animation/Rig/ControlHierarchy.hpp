@@ -45,8 +45,11 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/vec3.hpp>
+
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Animation
@@ -97,10 +100,24 @@ namespace Desert::Animation
      * asked for 26.4. So this is a separate value, it is read by NOTHING in this file, and that is the
      * property T5.2's suite asserts — resizing a control must leave its global bit-identical.
      */
+    /**
+     * @brief The colour UE gives a control from its name: left blue, right red, centre yellow.
+     *
+     * A NAMING CONVENTION, NOT A BONE NAME. The side is read from a `_l`/`_r` (or `l_`/`r_`) token at
+     * either end of the name, case-insensitive, which is how UE's rig templates and every DCC export we
+     * import spell sides; the engine never learns what a "hand" is. Used when a control is AUTHORED and by
+     * the corpus migration — a loaded control carries its colour in the file and never re-derives it,
+     * so a rigger who repaints a control keeps the paint.
+     */
+    [[nodiscard]] glm::vec3 ControlSideColor( std::string_view controlName );
+
     struct ControlElement
     {
         std::string               Name;
         std::string               ShapeName;
+        /// The shape's base colour, linear 0..1 (UE `FRigControlSettings::ShapeColor`). Hover and
+        /// selection are drawn OVER it by the manipulator, never written into it.
+        glm::vec3                 Color = glm::vec3( 1.0F, 0.85F, 0.1F );
         BoneTransform             ShapeTransform;
         BoneTransform             Offset;
         BoneTransform             Pose;
