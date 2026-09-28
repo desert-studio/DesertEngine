@@ -16,6 +16,8 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -392,12 +394,14 @@ TEST( LandscapeGrass, TheShippedGrassTypeIsReadable )
 {
     // The one tracked `.degrasstype` (the corpus row CookedRegistryGate requires): it parses at the current
     // version and its mesh is a file this repository tracks.
-    std::ifstream in( "Editor/Resources/Assets/Landscape/Grass/Meadow.degrasstype" );
-    ASSERT_TRUE( in ) << "run from the tree root";
+    const std::filesystem::path root = Desert::TestSupport::RepositoryRoot();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+    std::ifstream in( root / "Editor/Resources/Assets/Landscape/Grass/Meadow.degrasstype" );
+    ASSERT_TRUE( in ) << "Meadow.degrasstype is missing from the checkout";
     const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
     const auto        read = ParseLandscapeGrassType( text );
     ASSERT_TRUE( read ) << read.GetError();
     ASSERT_EQ( read.GetValue().GrassVarieties.size(), 1u );
     EXPECT_TRUE(
-         std::filesystem::exists( "Editor/Resources/" + read.GetValue().GrassVarieties[0].GrassMesh.Path ) );
+         std::filesystem::exists( root / "Editor/Resources" / read.GetValue().GrassVarieties[0].GrassMesh.Path ) );
 }
