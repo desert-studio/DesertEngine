@@ -264,17 +264,11 @@ namespace Desert::Core
                 Serialize::PrefabInstanceCapture capture =
                      Serialize::CapturePrefabInstance( entity, *m_AssetManager );
                 // The record keeps the live root's transform SerializeEntity wrote; the override loses it.
-                if ( entity.HasComponent<ECS::PrefabInstanceComponent>() )
-                    (void)Assets::TakeRootTransformOverride(
-                         capture.Overrides, entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath );
-
-                data.Tag = std::nullopt;
-                data.Components.clear();
-
-                if ( !capture.Overrides.empty() )
-                {
-                    data.PrefabOverrides = capture.Overrides;
-                }
+                Assets::ReduceInstanceRecord(
+                     data, capture.Overrides,
+                     entity.HasComponent<ECS::PrefabInstanceComponent>()
+                          ? &entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath
+                          : nullptr );
 
                 // The three things an override cannot express, said out loud with the instance's name and
                 // the counts. They used to be indistinguishable from "nothing was changed here".
@@ -589,11 +583,11 @@ namespace Desert::Core
 
             // A v37 instance record without its transform was not written by this engine. Placing it where
             // the prefab's root happens to stand would be a guess that looks exactly like a right answer.
-            if ( const auto missing = Assets::MissingInstanceTransform( *entityData ); !missing.empty() )
+            const auto stated = Assets::StatedInstanceTransform( *entityData );
+            if ( !stated )
             {
-                LOG_ERROR( "SceneSerializer: the instance of prefab '{0}' (record {1}) states no {2}; scene v37 "
-                           "writes an instance's root transform on its record. The instance was NOT loaded.",
-                           *entityData->PrefabPath, plannedPrefab.Record, missing );
+                LOG_ERROR( "SceneSerializer: record {0}: {1}. The instance was NOT loaded.", plannedPrefab.Record,
+                           stated.GetError() );
                 continue;
             }
 
@@ -653,10 +647,7 @@ namespace Desert::Core
 
             // WHERE THIS INSTANCE STANDS, which the record states itself since v37 and the overrides above
             // no longer do. After the overrides, so nothing the prefab or an override says can move it.
-            auto& rootTransform       = prefabRoot.GetComponent<ECS::TransformComponent>();
-            rootTransform.Translation = *entityData->Translation;
-            rootTransform.Rotation    = *entityData->Rotation;
-            rootTransform.Scale       = *entityData->Scale;
+            Assets::PlaceInstanceRoot( prefabRoot.GetComponent<ECS::TransformComponent>(), stated.GetValue() );
 
             // Register in map under the original saved UUID so parent links resolve. A prefab root saved
             // without an id has nothing for a child's `parent` to name, so there is nothing to register:
