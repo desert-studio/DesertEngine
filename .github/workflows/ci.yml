@@ -497,6 +497,30 @@ jobs:
           path: dist/Game/
           retention-days: 14
 
+      # THE PACKAGED GAME HAS TO START, not only exist (PKG2): a Debug package on a developer Mac packaged
+      # fine and then aborted at vkCreateInstance, because nothing ever ran the .app. `--shot` is not
+      # compiled into Shipping, so the smoke run packages the Release runtime and starts the bundle through
+      # its own CFBundleExecutable — the launcher that sets the bundled ICD — exactly as Finder would.
+      # macos-14 is a VM: whether MoltenVK gets a Metal device there is not proven, so the run is gated
+      # like the Windows one. Set the repository variable DESERT_MACOS_VULKAN_RUNNER to 'true' on a runner
+      # that has one (self-hosted Apple Silicon); a crash, a non-zero exit, a missing PNG or ten minutes
+      # without exiting fails the job.
+      - name: Smoke-run the packaged game (Vulkan runner only)
+        if: matrix.config == 'Release' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
+        run: |
+          ./build/Bin/Release/GamePackager Editor/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Release"
+          app="$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 1 -name '*.app' | head -n 1)"
+          exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          shot="$RUNNER_TEMP/packaged-smoke.png"
+          ( "$app/Contents/MacOS/$exe" --shot "$shot" --shot-frames 30 ) & pid=$!
+          ( sleep 600; kill "$pid" 2>/dev/null ) & watchdog=$!
+          wait "$pid"; kill "$watchdog" 2>/dev/null || true
+          [ -s "$shot" ] || { echo "the packaged game exited 0 but wrote no PNG at $shot"; exit 1; }
+
+      - name: Smoke run skipped — no Vulkan on this runner
+        if: matrix.config == 'Release' && vars.DESERT_MACOS_VULKAN_RUNNER != 'true'
+        run: echo "::notice title=Packaged game NOT started::macos-14 is a VM with no proven Metal device for MoltenVK; set DESERT_MACOS_VULKAN_RUNNER=true on a Vulkan-capable Mac runner to smoke-run the packaged .app"
+
       # Surface the test reports even when a step above failed.
       - name: Upload test reports
         if: always()
