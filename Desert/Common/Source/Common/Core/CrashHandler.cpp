@@ -1870,7 +1870,7 @@ namespace Common::Crash
 
         [[noreturn]] void CrashTestStackOverflowJob()
         {
-            std::future<void> job = JobSystem::Get().Async(
+            const std::future<void> job = JobSystem::Get().Async(
                  []
                  {
                      LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
