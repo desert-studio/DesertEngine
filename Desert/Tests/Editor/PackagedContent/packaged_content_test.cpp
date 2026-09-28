@@ -1730,7 +1730,7 @@ TEST( PackagedContent, EveryRootCalledContentIsCoveredByATreeThePackagerPacks )
 // developer-only is itself derived from the source text by ShippingPipelines.
 TEST( PackagedContent, EachConfigurationPackagesExactlyTheShaderProgramsItsRuntimeCanLoad )
 {
-    EnvironmentGuard guard;
+    const EnvironmentGuard guard;
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
     fs::current_path( fs::absolute( RepoRoot() ) / "Editor" );
 

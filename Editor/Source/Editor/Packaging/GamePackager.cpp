@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
@@ -579,10 +580,11 @@ namespace Desert::Editor
         // synthesized test runtime is a PE image and is correctly not one.
         bool IsMachO( const fs::path& file )
         {
-            std::ifstream in( file, std::ios::binary );
-            std::uint32_t magic = 0;
-            if ( !in.read( reinterpret_cast<char*>( &magic ), sizeof( magic ) ) )
+            std::ifstream                             in( file, std::ios::binary );
+            std::array<char, sizeof( std::uint32_t )> bytes{};
+            if ( !in.read( bytes.data(), bytes.size() ) )
                 return false;
+            const auto magic = std::bit_cast<std::uint32_t>( bytes );
             return magic == 0xfeedfaceu || magic == 0xfeedfacfu || magic == 0xcefaedfeu || magic == 0xcffaedfeu ||
                    magic == 0xcafebabeu || magic == 0xbebafecau;
         }
@@ -667,7 +669,7 @@ namespace Desert::Editor
         Common::BoolResultStr BundleVulkan( const fs::path& appRoot, const fs::path& playerBinary )
         {
             const char*     envPrefix = std::getenv( "HOMEBREW_PREFIX" ); // NOLINT(concurrency-mt-unsafe)
-            const fs::path  brew      = envPrefix ? fs::path( envPrefix ) : fs::path( "/opt/homebrew" );
+            const fs::path  brew      = envPrefix != nullptr ? fs::path( envPrefix ) : fs::path( "/opt/homebrew" );
             const fs::path  loaderSrc = brew / "lib" / "libvulkan.1.dylib";
             const fs::path  mvkSrc    = brew / "lib" / "libMoltenVK.dylib";
             const fs::path  icdSrc    = brew / "etc" / "vulkan" / "icd.d" / "MoltenVK_icd.json";
