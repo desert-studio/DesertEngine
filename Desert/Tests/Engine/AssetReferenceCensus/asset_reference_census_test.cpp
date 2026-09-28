@@ -207,7 +207,7 @@ namespace
             // submeshes' material GUIDs, read by the skinned-mesh reader rather than the source-asset one.
             if ( kind == CC::ContentKind::SkinnedMesh )
             {
-                std::ifstream      in( entry.path(), std::ios::binary );
+                const std::ifstream in( entry.path(), std::ios::binary );
                 std::ostringstream bytes;
                 bytes << in.rdbuf();
                 const auto mesh = Desert::Assets::Serialization::ReadMeshAssetData( bytes.str(), name );
