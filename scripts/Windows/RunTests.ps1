@@ -61,7 +61,13 @@
 # to be under test. Pointing TMPDIR/TMP/TEMP at a per-suite directory makes the collision
 # unrepresentable instead of merely absent, which is worth more than a census that has to be kept
 # green. It also means a failing suite's scratch files are still on disk afterwards, under
-# build/TestScratch/<Suite>, instead of mixed into the machine's temp directory.
+# build/TestScratch/<Config>/<Suite>/Temp, instead of mixed into the machine's temp directory.
+#
+# WHY EACH SUITE ALSO GETS ITS OWN WORKING DIRECTORY. This runner used to start every binary in the
+# repository root, and suites that wrote relative to the working directory left Assets/, DerivedDataCache/
+# and RegistryProbe/ in the checkout (owner, 2026-09-27; TST1). Each suite now starts in
+# build/TestScratch/<Config>/<Suite>, emptied before the run — UE's Saved/Automation pattern. Suites that
+# read tracked files walk up from there to the checkout.
 # ---------------------------------------------------------------------------------------------------
 
 [CmdletBinding()]
@@ -99,6 +105,9 @@ if (-not $Root)
 {
     $Root = (Resolve-Path ([IO.Path]::Combine($PSScriptRoot, "..", ".."))).Path
 }
+# Absolute either way: each suite starts in its own scratch directory, and a relative root would resolve
+# against that rather than against the caller's directory.
+$Root = (Resolve-Path -LiteralPath $Root).Path
 
 # `$IsWindows` does not exist in Windows PowerShell 5.1; this variable does, on every Windows since NT.
 # The suffix is derived rather than passed so that the same file is exercised when it is run on a
@@ -139,7 +148,7 @@ foreach ($name in $names)
     $records += [pscustomobject]@{
         Name    = $name
         Exe     = [IO.Path]::Combine($testDir, $name + $exeSuffix)
-        Scratch = [IO.Path]::Combine($scratchDir, $name)
+        Scratch = [IO.Path]::Combine($scratchDir, $Config, $name)
         Xml     = [IO.Path]::Combine($reportDir, $name + ".xml")
         Out     = [IO.Path]::Combine($reportDir, $name + ".out.log")
         Err     = [IO.Path]::Combine($reportDir, $name + ".err.log")
@@ -179,19 +188,23 @@ while ($emit -lt $records.Count)
             # child a snapshot of the environment as it stands right now. The directory has to
             # exist first — temp_directory_path() reports an error for a TMP that is not there,
             # and every scratch-using suite would fail identically and uninformatively.
-            if (-not (Test-Path -LiteralPath $r.Scratch))
+            # Emptied before the run (not after), so a failing suite's leftovers stay to be read.
+            if (Test-Path -LiteralPath $r.Scratch)
             {
-                New-Item -ItemType Directory -Path $r.Scratch -Force | Out-Null
+                Remove-Item -LiteralPath $r.Scratch -Recurse -Force
             }
-            $env:TMPDIR = $r.Scratch   # POSIX (this file is exercised on macOS; see the header)
-            $env:TMP    = $r.Scratch   # Windows: temp_directory_path() reads TMP, then TEMP
-            $env:TEMP   = $r.Scratch
+            $temp = [IO.Path]::Combine($r.Scratch, "Temp")
+            New-Item -ItemType Directory -Path $temp -Force | Out-Null
+            $env:TMPDIR = $temp   # POSIX (this file is exercised on macOS; see the header)
+            $env:TMP    = $temp   # Windows: temp_directory_path() reads TMP, then TEMP
+            $env:TEMP   = $temp
 
             $r.Started = Get-Date
             $r.Proc = Start-Process -FilePath $r.Exe `
                                     -ArgumentList "--gtest_output=xml:`"$($r.Xml)`"" `
                                     -RedirectStandardOutput $r.Out `
                                     -RedirectStandardError $r.Err `
+                                    -WorkingDirectory $r.Scratch `
                                     -NoNewWindow -PassThru
 
             # Touching .Handle is what makes .ExitCode readable later, and it is required, not a

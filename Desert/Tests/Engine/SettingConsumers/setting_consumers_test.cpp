@@ -44,7 +44,6 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
-#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -66,24 +65,6 @@ namespace
         const char* Where = nullptr;
         const char* Task  = nullptr;
         const char* Dead  = nullptr;
-
-        // THE OTHER END OF THE CHAIN, and the reason Г26 added it. `Where` proves that SOMEBODY reads
-        // the field; it cannot prove that the value reaches a frame. The procedural terrain's RockMode had a
-        // WIRED row that was true — its ECS system packed it into the draw command's LayerModes.y — and the
-        // terrain shader never read LayerModes.y and never sampled the green splat channel, so the
-        // `Rock (G)` brush the editor offers painted nothing anybody could see. The census was satisfied
-        // one link before the frame. The same shape retired the three Wind fields above: BeginScene read
-        // all three, into a struct nothing read.
-        //
-        // A Frame anchor closes the gap for the rows that can state it: `Frame` is the file the value
-        // must SURVIVE to (a shader, in every case so far) and `FrameRead` is the exact expression that
-        // must appear in it, outside comments and string literals. It is not derivable — the packing is
-        // `glm::vec3(GrassMode, RockMode, SnowMode)` widened to a vec4 and named `u_T.LayerModes`, and
-        // nothing in either file states the correspondence — so it is written down once, per row, and
-        // then checked. Where it is MANDATORY rather than optional is decided from reflection: see
-        // EveryLayerModeFieldStatesWhereItReachesTheFrame.
-        const char* Frame     = nullptr;
-        const char* FrameRead = nullptr;
     };
 
     // How a consumer file is allowed to get hold of a value of this type. `Component` is the ECS wrapper
@@ -446,45 +427,9 @@ namespace
     constexpr const char* kRuntimeLayer  = "Runtime/Source/RuntimeLayer.cpp";
 
     constexpr Row kSceneSettingsRows[] = {
+         // THE GRADE AND THE SHADOW ROWS LEFT WITH THEIR FIELDS (SET1): the 35 grade fields are
+         // PostProcessSettings rows below, the three shadow fields DirectionalLightData rows.
          { "RenderingPath", kSceneRenderer },
-         { "EnableSSAO", kSceneRenderer },
-         { "GlobalIllumination", kSceneRenderer },
-         { "GIIntensity", kSceneRenderer },
-         { "EnableSSR", kSceneRenderer },
-         { "SSRIntensity", kSceneRenderer },
-         { "SSRMaxDistance", kSceneRenderer },
-         { "EnableShadows", kSceneRenderer },
-         { "ShadowBias", kSceneRenderer },
-         { "CascadeSplitLambda", kSceneRenderer },
-         { "Tonemapper", kSceneRenderer },
-         { "Exposure", kSceneRenderer },
-         { "Gamma", kSceneRenderer },
-         { "WhitePoint", kSceneRenderer },
-         { "AutoExposure", kSceneRenderer },
-         { "AutoExposureKey", kSceneRenderer },
-         { "AutoExposureSpeed", kSceneRenderer },
-         { "AutoExposureMin", kSceneRenderer },
-         { "AutoExposureMax", kSceneRenderer },
-         { "EnableBloom", kSceneRenderer },
-         { "BloomThreshold", kSceneRenderer },
-         { "BloomIntensity", kSceneRenderer },
-         { "LensDispersion", kSceneRenderer },
-         { "EnableLensFlare", kSceneRenderer },
-         { "LensFlareIntensity", kSceneRenderer },
-         { "LensFlareTint", kSceneRenderer },
-         { "LensFlareThreshold", kSceneRenderer },
-         { "LensFlareGhostCount", kSceneRenderer },
-         { "LensFlareGhostSpacing", kSceneRenderer },
-         { "LensFlareGhostSizeNear", kSceneRenderer },
-         { "LensFlareGhostSizeFar", kSceneRenderer },
-         { "LensFlareGhostTintInner", kSceneRenderer },
-         { "LensFlareGhostTintOuter", kSceneRenderer },
-         { "LensFlareHaloIntensity", kSceneRenderer },
-         { "LensFlareHaloRadius", kSceneRenderer },
-         { "LensFlareStreakIntensity", kSceneRenderer },
-         { "LensFlareStreakLength", kSceneRenderer },
-         { "LensFlareStreakAngle", kSceneRenderer },
-         { "LensFlareChromaShift", kSceneRenderer },
 
          // THE FIVE MACHINE-QUALITY ROWS THAT USED TO SIT HERE ARE GONE WITH THE FIELDS (К3): AA, MeshLOD,
          // TextureFilterMode, Anisotropy and CloudQualityTier. Every one was a CORRECT row about a field
@@ -509,8 +454,7 @@ namespace
 
          // The three Wind rows are gone with their fields (Г26). They were WIRED to SceneRenderer, and
          // that row was TRUE and USELESS: BeginScene did read all three into a WindEnv, and nothing ever
-         // read the WindEnv, so the census was satisfied one link before the frame. See the note on
-         // LandscapeMaterialData's Frame anchors below, which is this suite's answer to that shape.
+         // read the WindEnv, so the census was satisfied one link before the frame.
 
          // The shipping player's, and nothing else's.
          { "SplashSprite", kRuntimeLayer },
@@ -544,19 +488,55 @@ namespace
          { "Far", kScene },
     };
 
-    // The one surface text every landscape in this engine is shaded by — Terrain.shader (forward) and
-    // TerrainGBuffer.shader (deferred) both include it. A layer mode that LandscapeECSSystem packs into the
-    // draw command has to be READ here, or the mode is a combo box that moves nothing.
-    constexpr const char* kTerrainShader = "Editor/Resources/Shaders/Programs/Terrain/TerrainSurface.glslh";
-
     constexpr Row kLandscapeMaterialRows[] = {
          { "Material", kLandscape },
-         // The three layer modes state BOTH ends: the C++ that packs the enum, and the slot the shader
-         // must read it out of. Two of the three have been dead in this exact way — GrassMode until Г25,
-         // RockMode until Г26 — with this census green throughout.
-         { "GrassMode", kLandscape, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.x" },
-         { "RockMode", kLandscape, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.y" },
-         { "SnowMode", kLandscape, nullptr, nullptr, kTerrainShader, "u_T.LayerModes.z" },
+    };
+
+    constexpr const char* kViewSettings = "Desert/Desert/Source/Engine/Graphic/ViewSettings.cpp";
+
+    // The volume's own fields are read where volumes are blended; the grade it carries is read by the
+    // renderer from the ONE resolved copy (FinalViewSettings::Post), never from a volume.
+    constexpr Row kPostProcessVolumeRows[] = {
+         { "Unbound", kViewSettings },  { "Extent", kViewSettings },      { "BlendRadius", kViewSettings },
+         { "Priority", kViewSettings }, { "BlendWeight", kViewSettings }, { "Settings", kViewSettings },
+    };
+
+    constexpr Row kPostProcessSettingsRows[] = {
+         { "EnableSSAO", kSceneRenderer },
+         { "GlobalIllumination", kSceneRenderer },
+         { "GIIntensity", kSceneRenderer },
+         { "EnableSSR", kSceneRenderer },
+         { "SSRIntensity", kSceneRenderer },
+         { "SSRMaxDistance", kSceneRenderer },
+         { "Tonemapper", kSceneRenderer },
+         { "Exposure", kSceneRenderer },
+         { "Gamma", kSceneRenderer },
+         { "WhitePoint", kSceneRenderer },
+         { "AutoExposure", kSceneRenderer },
+         { "AutoExposureKey", kSceneRenderer },
+         { "AutoExposureSpeed", kSceneRenderer },
+         { "AutoExposureMin", kSceneRenderer },
+         { "AutoExposureMax", kSceneRenderer },
+         { "EnableBloom", kSceneRenderer },
+         { "BloomThreshold", kSceneRenderer },
+         { "BloomIntensity", kSceneRenderer },
+         { "LensDispersion", kSceneRenderer },
+         { "EnableLensFlare", kSceneRenderer },
+         { "LensFlareIntensity", kSceneRenderer },
+         { "LensFlareTint", kSceneRenderer },
+         { "LensFlareThreshold", kSceneRenderer },
+         { "LensFlareGhostCount", kSceneRenderer },
+         { "LensFlareGhostSpacing", kSceneRenderer },
+         { "LensFlareGhostSizeNear", kSceneRenderer },
+         { "LensFlareGhostSizeFar", kSceneRenderer },
+         { "LensFlareGhostTintInner", kSceneRenderer },
+         { "LensFlareGhostTintOuter", kSceneRenderer },
+         { "LensFlareHaloIntensity", kSceneRenderer },
+         { "LensFlareHaloRadius", kSceneRenderer },
+         { "LensFlareStreakIntensity", kSceneRenderer },
+         { "LensFlareStreakLength", kSceneRenderer },
+         { "LensFlareStreakAngle", kSceneRenderer },
+         { "LensFlareChromaShift", kSceneRenderer },
     };
 
     constexpr Row kDirLightRows[] = {
@@ -570,6 +550,9 @@ namespace
          { "BloomThreshold", kCollector },
          { "BloomMaxBrightness", kCollector },
          { "BloomTint", kCollector },
+         { "CastShadows", kViewSettings },
+         { "ShadowBias", kViewSettings },
+         { "CascadeSplitLambda", kViewSettings },
     };
 
     constexpr Row kPointLightRows[] = {
@@ -769,9 +752,8 @@ namespace
     // which is the only place that knows how many texels the quad shows, and Tint/Opacity at the draw
     // site. The BACKEND then reads the path again out of the request — one value, passed, not copied.
     // Every field is copied into the entity's live TwoBoneIKControl by SyncSkeletalControls, which is the
-    // ONE place the authored data crosses into the solver. There is no Frame anchor here and the reason is
-    // worth stating: the value's destination is a bone transform in a pose, not a shader uniform — the
-    // frame end of this chain is pinned by `Tests/Engine/BoneControlContract` (the skinning matrices the
+    // ONE place the authored data crosses into the solver. The frame end of this chain — a bone transform
+    // in a pose, not a shader uniform — is pinned by `Tests/Engine/BoneControlContract` (the skinning matrices the
     // GPU sees carry the solve) and by the shots in Docs/Animation/Shots/A3.
     constexpr Row kTwoBoneIKRows[] = {
          { "EndBone", kAnimationSystem },
@@ -938,6 +920,8 @@ namespace
          { "SceneSettings", nullptr, "GetSettings", CENSUS_ROWS( kSceneSettingsRows ) },
          { "SkyAtmosphereData", "SkyAtmosphereComponent", nullptr, CENSUS_ROWS( kSkyRows ) },
          { "ExponentialHeightFogData", "ExponentialHeightFogComponent", nullptr, CENSUS_ROWS( kFogRows ) },
+         { "PostProcessVolumeData", "PostProcessVolumeComponent", nullptr, CENSUS_ROWS( kPostProcessVolumeRows ) },
+         { "PostProcessSettings", nullptr, nullptr, CENSUS_ROWS( kPostProcessSettingsRows ) },
          { "VolumetricCloudData", "VolumetricCloudComponent", nullptr, CENSUS_ROWS( kCloudRows ) },
          { "HeroCloudData", "HeroCloudComponent", nullptr, CENSUS_ROWS( kHeroCloudRows ) },
 
@@ -1160,7 +1144,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     // the only place an authored retarget handle becomes a source rig on the Animator — and before A25
     // there was no such place at all, which is the whole of what that task was. Read off THIS branch's
     // run; per the rule above the TOTAL does not survive a merge, the DELTA does.
-    EXPECT_EQ( all.size(), 45u );
+    //
+    // -> 47 with SET1's PostProcessVolumeData and PostProcessSettings: the grade left SceneSettings for a
+    // volume component, and the renderer reads it from the one resolved copy (Graphic::ResolveViewSettings).
+    EXPECT_EQ( all.size(), 47u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )
@@ -1218,129 +1205,6 @@ TEST( SettingConsumers, EveryNamedConsumerActuallyReadsTheFieldItClaims )
                                    "another file and this row must follow it.";
         }
     }
-}
-
-// THE GAP BETWEEN "SOMEBODY READ IT" AND "IT REACHED THE FRAME".
-//
-// Both halves of this are new in Г26 and both come from one measured defect. The procedural terrain's RockMode
-// (retired in v23) was WIRED to its ECS system and the row was TRUE: the system did read the field and packed it
-// into the draw command's LayerModes.y. Terrain.shader then read LayerModes.x and LayerModes.z and never .y, and
-// never sampled the green splat channel — so the editor's `Rock (G)` brush, whose own overlay tells the user to
-// "set the layer to 'Manual' in Details to see painted weights", painted a channel no pixel was computed from.
-// This suite was green the whole time, because it asks about the FIRST link of the chain and the defect was in the
-// LAST one. Г25 had fixed the identical defect one channel over (GrassMode / LayerModes.x) without the census
-// noticing either.
-//
-// So a row may state where the value must END UP, and here that statement is checked.
-namespace
-{
-    // The census tables are (pointer, count) pairs, which every loop in this file walks by hand. A span
-    // says the same thing without the pointer arithmetic, and is what the new checks below walk.
-    std::span<const Row> RowsOf( const Census& census )
-    {
-        return { census.Rows, census.Count };
-    }
-
-    // One row's frame anchor, checked. Split out of the TEST body because a per-row check inside two
-    // nested loops is what pushes a test function past the analyser's complexity threshold, and because
-    // the failure message is easier to read next to the thing it describes.
-    void ExpectFrameAnchorIsRead( const std::string& root, const Census& census, const Row& row )
-    {
-        using namespace Desert::Tests::ConsumerText;
-
-        ASSERT_NE( row.FrameRead, nullptr )
-             << census.Type << "::" << row.Field << " names a Frame file and no expression to find in it";
-
-        // Comments and string literals are stripped for the reason this file strips them everywhere
-        // else, and here it is load-bearing rather than tidy: the terrain shader NAMES `LayerModes.y` in
-        // the comment explaining why it went unread for two releases, so a plain substring search over
-        // the raw text would pass on the prose that documents the defect.
-        const std::string text = StripCommentsAndLiterals( ReadFile( root + row.Frame ) );
-        ASSERT_FALSE( text.empty() ) << "frame anchor " << row.Frame << " could not be read";
-
-        EXPECT_NE( text.find( row.FrameRead ), std::string::npos )
-             << census.Type << "::" << row.Field << " is packed and delivered, and " << row.Frame
-             << " does not read `" << row.FrameRead
-             << "`. The field has a consumer and still moves nothing on screen: that is the half-way "
-                "satisfaction this anchor exists to refuse.";
-    }
-
-    const Row* FindRow( const Census& census, std::string_view field )
-    {
-        for ( const Row& row : RowsOf( census ) )
-        {
-            if ( field == row.Field )
-            {
-                return &row;
-            }
-        }
-        return nullptr;
-    }
-
-    // Out of the TEST body for the same reason ExpectFrameAnchorIsRead is.
-    void ExpectLayerModeStatesItsFrame( const Census& census, const FieldInfo& field )
-    {
-        const Row* row = FindRow( census, field.Name );
-        ASSERT_NE( row, nullptr ) << census.Type << "::" << field.Name << " has no census row at all";
-        EXPECT_NE( row->Frame, nullptr )
-             << census.Type << "::" << field.Name
-             << " is a splat-layer mode and states no Frame anchor. A layer mode is honoured by a shader "
-                "or by nothing: name the shader and the slot it must read, or the combo box in Details is "
-                "decoration.";
-    }
-} // namespace
-
-TEST( SettingConsumers, EveryFrameAnchorIsActuallyReadWhereItSaysItIs )
-{
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found - run from the workspace root or build/Bin";
-
-    int checked = 0;
-    for ( const Census& census : kCensus )
-    {
-        for ( const Row& row : RowsOf( census ) )
-        {
-            if ( row.Frame == nullptr )
-            {
-                continue;
-            }
-            ExpectFrameAnchorIsRead( root, census, row );
-            ++checked;
-        }
-    }
-
-    EXPECT_GT( checked, 0 ) << "no row states a frame anchor any more, so this test proves nothing";
-}
-
-// WHERE A FRAME ANCHOR IS COMPULSORY, DERIVED RATHER THAN LISTED.
-//
-// An opt-in anchor catches the rows somebody remembered; the next dead knob is the one nobody did. The
-// smallest rule that cannot be forgotten is stated over a TYPE rather than over a field name: every
-// reflected field whose type is `LandscapeLayerMode` is, by construction, an authored choice that only a
-// shader can honour, so every one of them must say which slot honours it. A fourth terrain layer added
-// tomorrow inherits the requirement without anybody reading this file.
-//
-// This is deliberately NOT stated for every field that happens to reach a shader. Most do so through a
-// packing this census cannot see, and a rule that demanded an anchor it cannot derive would be answered
-// with whatever token makes it pass. The enum is the case where the demand is exact.
-TEST( SettingConsumers, EveryLayerModeFieldStatesWhereItReachesTheFrame )
-{
-    int found = 0;
-    for ( const Census& census : kCensus )
-    {
-        for ( const FieldInfo& field : Type( census.Type ).Fields )
-        {
-            if ( std::string( field.TypeName ) != "LandscapeLayerMode" )
-            {
-                continue;
-            }
-            ++found;
-            ExpectLayerModeStatesItsFrame( census, field );
-        }
-    }
-
-    EXPECT_EQ( found, 3 ) << "the landscape's layer modes are Grass, Rock and Snow; a fourth (or a missing "
-                             "one) changes what Terrain.shader has to blend and is a reviewable edit";
 }
 
 // The debt register, pinned in both directions.

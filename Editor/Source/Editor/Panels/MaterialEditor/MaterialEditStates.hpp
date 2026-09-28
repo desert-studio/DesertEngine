@@ -647,11 +647,10 @@ namespace Desert::Editor::MaterialEdit
     /// whichever group already exists.
     ///
     /// AN UNCATEGORISED PARAM GETS A GROUP THAT SAYS SO. It is not folded into the previous named group and
-    /// not left in an unnamed block that reads as a rendering accident. Six shipped shaders have such params
-    /// (Terrain declares four: DetailTiling, u_GrassTex, u_RockTex, u_SnowTex; MatProbe, MatProbeUnlit,
-    /// Skybox, TextSDF and Unlit one each), and the caller must tell "nothing here is categorised" — draw
-    /// the flat table exactly as before — from "some of it is", where the leftovers get their own heading.
-    /// Those are different facts about the shader and must not produce the same picture.
+    /// not left in an unnamed block that reads as a rendering accident. Five shipped shaders have such params
+    /// (MatProbe, MatProbeUnlit, Skybox, TextSDF and Unlit one each), and the caller must tell "nothing here is
+    /// categorised" — draw the flat table exactly as before — from "some of it is", where the leftovers get their
+    /// own heading. Those are different facts about the shader and must not produce the same picture.
     [[nodiscard]] inline std::vector<ParameterGroup>
     PlanParameterGroups( const ::Desert::Core::Formats::ShaderProgramMeta& schema )
     {

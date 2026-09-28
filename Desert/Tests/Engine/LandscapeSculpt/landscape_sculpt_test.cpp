@@ -1414,3 +1414,117 @@ TEST( LandscapeSculpt, StrokeFramesRewriteTheHeightmapAndAddNoTerrainMaterial )
     EXPECT_EQ( frame( false ), LandscapeTileImageUpdate::Kept );
     EXPECT_EQ( image->Writes, kStrokeFrames );
 }
+
+// LS-10b: the Ramp tool's points in the viewport, UE's FLandscapeToolRamp (BeginTool / MouseMove / the hit-proxy
+// pick / EndTool). A press on bare landscape lays the next point; a drag off the first point lays the second; a
+// press on a drawn point grabs it; with two points a press elsewhere moves the selected one.
+TEST( LandscapeRampPoints, PressLaysAndDragOffTheFirstLaysTheSecond )
+{
+    LandscapeRampPoints ramp;
+    ASSERT_TRUE( LandscapeRampPress( ramp, -1, glm::vec3( 100.0f, 0.0f, 0.0f ) ) );
+    EXPECT_EQ( ramp.NumPoints, 1 );
+    EXPECT_EQ( ramp.SelectedPoint, 0 );
+    EXPECT_TRUE( ramp.Moving );
+    ASSERT_TRUE( LandscapeRampMove( ramp, glm::vec3( 900.0f, 50.0f, 0.0f ) ) );
+    EXPECT_EQ( ramp.NumPoints, 2 );
+    EXPECT_EQ( ramp.SelectedPoint, 1 );
+    EXPECT_EQ( ramp.Points[0], glm::vec3( 100.0f, 0.0f, 0.0f ) );
+    EXPECT_EQ( ramp.Points[1], glm::vec3( 900.0f, 50.0f, 0.0f ) );
+    LandscapeRampRelease( ramp );
+    EXPECT_FALSE( ramp.Moving );
+    EXPECT_FALSE( LandscapeRampMove( ramp, glm::vec3( 0.0f ) ) ) << "a move without the button moves nothing";
+    EXPECT_EQ( ramp.Points[1], glm::vec3( 900.0f, 50.0f, 0.0f ) );
+}
+
+TEST( LandscapeRampPoints, ClickClickLaysBothWithoutADrag )
+{
+    LandscapeRampPoints ramp;
+    ASSERT_TRUE( LandscapeRampPress( ramp, -1, glm::vec3( 0.0f ) ) );
+    LandscapeRampRelease( ramp );
+    ASSERT_TRUE( LandscapeRampPress( ramp, -1, glm::vec3( 500.0f, 0.0f, 500.0f ) ) );
+    LandscapeRampRelease( ramp );
+    EXPECT_EQ( ramp.NumPoints, 2 );
+    EXPECT_EQ( ramp.Points[1], glm::vec3( 500.0f, 0.0f, 500.0f ) );
+    LandscapeRampPoints empty;
+    EXPECT_FALSE( LandscapeRampPress( empty, -1, std::nullopt ) ) << "nothing under the cursor";
+    EXPECT_EQ( empty, LandscapeRampPoints{} );
+}
+
+TEST( LandscapeRampPoints, PressOnAPointGrabsItAndTheDragMovesOnlyIt )
+{
+    LandscapeRampPoints ramp;
+    ramp.Points        = { glm::vec3( 0.0f ), glm::vec3( 1000.0f, 0.0f, 0.0f ) };
+    ramp.NumPoints     = 2;
+    ramp.SelectedPoint = 1;
+    const glm::vec3 eye( 0.0f, 1000.0f, -1000.0f );
+    // The cursor ray points at the start: the pick finds it, the press grabs it without moving it.
+    const int32_t picked = PickLandscapeRampPoint( ramp, eye, glm::normalize( ramp.Points[0] - eye ), 0.02f );
+    ASSERT_EQ( picked, 0 );
+    ASSERT_TRUE( LandscapeRampPress( ramp, picked, glm::vec3( 3.0f, 0.0f, 3.0f ) ) );
+    EXPECT_EQ( ramp.SelectedPoint, 0 );
+    EXPECT_EQ( ramp.Points[0], glm::vec3( 0.0f ) ) << "grabbing is not moving";
+    ASSERT_TRUE( LandscapeRampMove( ramp, glm::vec3( -200.0f, 10.0f, 40.0f ) ) );
+    EXPECT_EQ( ramp.Points[0], glm::vec3( -200.0f, 10.0f, 40.0f ) );
+    EXPECT_EQ( ramp.Points[1], glm::vec3( 1000.0f, 0.0f, 0.0f ) );
+    LandscapeRampRelease( ramp );
+    // Two points and no point under the cursor: the press moves the selected point there (UE's BeginTool).
+    ASSERT_TRUE( LandscapeRampPress( ramp, -1, glm::vec3( 7.0f, 0.0f, 7.0f ) ) );
+    EXPECT_EQ( ramp.Points[0], glm::vec3( 7.0f, 0.0f, 7.0f ) );
+    EXPECT_EQ( ramp.NumPoints, 2 );
+}
+
+TEST( LandscapeRampPoints, PickIsTheNearestAngleWithinTheTolerance )
+{
+    LandscapeRampPoints ramp;
+    ramp.Points    = { glm::vec3( 0.0f ), glm::vec3( 100.0f, 0.0f, 0.0f ) };
+    ramp.NumPoints = 2;
+    const glm::vec3 eye( 50.0f, 0.0f, -10000.0f );
+    const auto      at = [&]( float x ) { return glm::normalize( glm::vec3( x, 0.0f, 0.0f ) - eye ); };
+    // Both lie within 0.02 rad of a ray between them; the nearer angle wins.
+    EXPECT_EQ( PickLandscapeRampPoint( ramp, eye, at( 60.0f ), 0.02f ), 1 );
+    EXPECT_EQ( PickLandscapeRampPoint( ramp, eye, at( 40.0f ), 0.02f ), 0 );
+    // A ray far off both picks nothing, and so does a ray at a point not yet laid.
+    EXPECT_EQ( PickLandscapeRampPoint( ramp, eye, glm::vec3( 0.0f, 1.0f, 0.0f ), 0.02f ), -1 );
+    ramp.NumPoints = 1;
+    EXPECT_EQ( PickLandscapeRampPoint( ramp, eye, at( 100.0f ), 0.001f ), -1 );
+}
+
+TEST( LandscapeRampPoints, OutlineIsUEsInnerAndOuterRectangles )
+{
+    LandscapeRampPoints ramp;
+    ramp.Points    = { glm::vec3( 0.0f, 0.0f, 0.0f ), glm::vec3( 0.0f, 300.0f, 1000.0f ) };
+    ramp.NumPoints = 2;
+    LandscapeRampSettings settings;
+    settings.WidthCm     = 2000.0f;
+    settings.SideFalloff = 0.4f;
+    const auto outline   = LandscapeRampOutlineOf( ramp, settings );
+    ASSERT_TRUE( outline.has_value() );
+    // Along +Z the side is X: half widths 1000 (outer) and 600 (inner); the ends keep the points' heights.
+    EXPECT_NEAR( std::abs( outline->Outer[0].x ), 1000.0f, 1e-3f );
+    EXPECT_NEAR( std::abs( outline->Inner[0].x ), 600.0f, 1e-3f );
+    EXPECT_NEAR( outline->Outer[2].y, 300.0f, 1e-3f );
+    EXPECT_NEAR( outline->Inner[2].z, 1000.0f, 1e-3f );
+    EXPECT_NEAR( outline->Outer[0].x, -outline->Outer[1].x, 1e-3f );
+    ramp.Points[1] = glm::vec3( 0.0f, 500.0f, 0.0f );
+    EXPECT_FALSE( LandscapeRampOutlineOf( ramp, settings ).has_value() ) << "coincident in plan: no side";
+    ramp.NumPoints = 1;
+    EXPECT_FALSE( LandscapeRampOutlineOf( ramp, settings ).has_value() );
+}
+
+// GR-1b: 48 palette strokes in Paint mode answered ok and wrote no weight, because the queued stroke refused
+// (no target layer) frames later and only a toast said so. The palette asks StrokeRefusal before queueing.
+TEST( LandscapeSculpt, APaintStrokeWithoutATargetLayerIsRefusedBeforeItIsQueued )
+{
+    Desert::Editor::Core::LandscapeSculptState state;
+    state.Mode = Desert::Editor::Core::LandscapeEdMode::Paint;
+    ASSERT_TRUE( state.StrokeRefusal().has_value() ) << "Paint mode with no target layer";
+    EXPECT_NE( state.StrokeRefusal()->find( "Target layer" ),
+               std::string::npos ) // NOLINT(bugprone-unchecked-optional-access)
+         << "the refusal names the palette command that fixes it: "
+         << *state.StrokeRefusal(); // NOLINT(bugprone-unchecked-optional-access)
+    state.Paint.Layer = "Grass";
+    EXPECT_FALSE( state.StrokeRefusal().has_value() );
+    state.Paint.Layer.clear();
+    state.Mode = Desert::Editor::Core::LandscapeEdMode::Sculpt;
+    EXPECT_FALSE( state.StrokeRefusal().has_value() ) << "sculpting needs no layer";
+}

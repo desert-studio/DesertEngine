@@ -52,9 +52,11 @@
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ImportRecord.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: the glm/UUID adapters plus the json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -193,6 +195,11 @@ namespace
             const CC::ContentKind kind   = header.value().Kind;
             if ( kind != CC::ContentKind::StaticMesh && kind != CC::ContentKind::SkinnedMesh )
                 continue;
+            // An import record (FIX8) states Kind "StaticMesh" because its GUID IS the imported mesh's
+            // identity, but it is not a mesh source asset: it carries the source's name and box, no material
+            // slots, so it makes no reference to ask about. Its handle is still derived below.
+            if ( CC::IsImportRecord( entry.path() ) )
+                continue;
 
             const std::string name  = fs::relative( entry.path(), contentRoot ).generic_string();
             const auto        asset = Desert::Assets::ReadMeshSourceAssetFile( entry.path() );
@@ -232,6 +239,9 @@ namespace
             for ( const auto& v : Desert::Assets::CloudTypeTextSubsystems() )
                 out.push_back( v );
             for ( const auto& v : Desert::Assets::MaterialTextSubsystems() )
+                out.push_back( v );
+            // An import record's header GUID is the handle of the mesh it imports (FIX8), read under DIMP.
+            for ( const auto& v : Desert::Assets::Serialization::ImportRecordTextSubsystems() )
                 out.push_back( v );
             return out;
         }();

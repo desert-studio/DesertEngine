@@ -3,6 +3,7 @@
 #include "../IPanel.hpp"
 
 #include <Common/Core/ResultStr.hpp>
+#include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Common/Core/UUID.hpp>
@@ -35,10 +36,6 @@ namespace Desert::Editor
 
         bool IsRelevant() const override;
 
-        // Trim's cutter. The panel's Pick Cutter takes the first selected entity other than the one being
-        // edited; the palette names one. Both refuse the edited entity itself, which cannot cut itself.
-        static Common::BoolResultStr PickTrimCutterFromSelection();
-        static Common::BoolResultStr PickTrimCutter( const Common::UUID& cutter );
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override
         {
             m_Scene = scene;
@@ -60,6 +57,9 @@ namespace Desert::Editor
         // A mesh / XForm operation on one click; a refusal is logged with its reason.
         void Operate( Core::MeshOperation op );
         void Transform( Core::XformOperation op );
+        void RunBoolean( Core::BooleanTool tool );
+        // Boolean and Trim share their Output options (UE's Write To and Handle Inputs).
+        static void DrawBooleanOutput();
 
         std::shared_ptr<Desert::Core::Scene> m_Scene;
         int                                  m_Category  = 0; // index into the rail (Palette in the .cpp)

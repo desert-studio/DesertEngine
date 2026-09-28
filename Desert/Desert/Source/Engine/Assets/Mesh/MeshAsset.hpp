@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/ImportRecord.hpp>
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetEvents.hpp>
@@ -33,11 +34,20 @@ namespace Desert::Assets
         MeshAsset( const AssetPriority priority, const Common::Filepath& filepath, const AssetTypeID type )
              : AssetBase( priority, filepath, type )
         {
-            std::error_code missing;
-            if ( !std::filesystem::is_regular_file( m_Metadata.Filepath, missing ) )
-                return;
+            // AN IMPORT SINCE AF4h HAS NO FILE AT THIS PATH (its envelope is in the DDC): its identity is the
+            // import record beside the source (FIX8, Common/Content/ImportRecord.hpp) - the file the content
+            // registry reads for the same mesh, so the two agree. No record: no GUID, never one from the path.
+            std::filesystem::path identity = m_Metadata.Filepath;
+            std::error_code       missing;
+            if ( !std::filesystem::is_regular_file( identity, missing ) )
+            {
+                const auto record = Common::Content::ImportRecordStandingFor( identity );
+                if ( !record )
+                    return;
+                identity = *record;
+            }
             const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
-            const auto stated = Common::Content::ReadAssetHeaderIfStated( m_Metadata.Filepath, recordOnly );
+            const auto stated = Common::Content::ReadAssetHeaderIfStated( identity, recordOnly );
             if ( !stated )
                 return;
             const auto& header = stated.GetValue();

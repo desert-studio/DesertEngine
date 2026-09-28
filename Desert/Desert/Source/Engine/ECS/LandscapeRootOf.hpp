@@ -30,17 +30,6 @@ namespace Desert::ECS
         return root;
     }
 
-    /// The paint stroke's layer rules, in the component's order — the one conversion from the authored
-    /// layer list, so the panel's Hardness and the stroke's normalisation cannot read two different lists.
-    inline std::vector<World::Landscape::LandscapeLayerRule> LandscapeLayerRulesOf( const LandscapeComponent& c )
-    {
-        std::vector<World::Landscape::LandscapeLayerRule> rules;
-        rules.reserve( c.Layers.size() );
-        for ( const auto& layer : c.Layers )
-            rules.push_back( { layer.Name, layer.Hardness, layer.NoWeightBlend } );
-        return rules;
-    }
-
     /// The root entity (the one holding the LandscapeComponent) whose UUID is @p id; entt::null when none is
     /// loaded.
     inline entt::entity FindLandscapeRootEntity( entt::registry& registry, const Common::UUID& id )
@@ -104,8 +93,12 @@ namespace Desert::ECS
             if ( !component.Heights.has_value() )
                 continue;
             const auto root = FindLandscapeRoot( registry, component.Landscape );
-            const auto fits = root ? World::Landscape::CheckTileMatchesRoot( *component.Heights, *root )
-                                   : Common::MakeError<bool>( "its root is not loaded or is not a landscape" );
+            if ( !root )
+            {
+                out.Refused.push_back( { entity, "its root is not loaded or is not a landscape" } );
+                continue;
+            }
+            const auto fits = World::Landscape::CheckTileMatchesRoot( *component.Heights, *root );
             if ( !fits.IsSuccess() )
             {
                 out.Refused.push_back( { entity, fits.GetError() } );

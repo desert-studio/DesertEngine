@@ -28,10 +28,13 @@
 export HOME=/private/tmp/claude-501/<T>/home; mkdir -p $HOME
 cd <TREE>/Editor && /Users/daniilsavcenko/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
   --scene Resources/Assets/Scenes/Starter.desce \
-  --shot /private/tmp/claude-501/<T>/shot.png --shot-frames 90 --camera 0,200,0 --look 0,0.9,-1 \
+  --shot /private/tmp/claude-501/<T>/shot.png --shot-frames 90 --camera 0,200,400 --look 0,-0.3,-1 \
   > /private/tmp/claude-501/<T>/editor.log 2>&1
 ```
-`--camera`/`--look` ОБЯЗАТЕЛЬНО со значениями. Падение в teardown после записи PNG — известное, PNG уже записан.
+`--camera`/`--look` ОБЯЗАТЕЛЬНО со значениями. **Камера `0,200,0 --look 0,0.9,-1` на Starter видит ТОЛЬКО небо** (09-27: AL1-4, AL1-12a,
+PSO1 — кадр «= dev» ничего не доказывал); для объектов Starter — `--camera 0,200,400 --look 0,-0.3,-1`; для неба —
+три высоты (память check-three-elevations). **GPU-строка одного прохода:** `--gpu-profile` + `grep 'slot 0 | <pass>'`
+в логе — мерить свою строку, не разницу кадров. Падение в teardown после записи PNG — известное, PNG уже записан.
 Облака/накопление: 90 кадров; per-frame-in-flight состояние — снимай и `--shot-frames 3`.
 
 ## 2. Сценарий (команды палитры, камера, несколько кадров) — DesertCtl
@@ -75,3 +78,61 @@ $C quit 0
   `/private/tmp/claude-501/p10e/` (скрипт в `agent/`).
 
 Появился новый рабочий рецепт — допиши сюда строкой в отчёте тимлиду (сам `.claude/` не правишь).
+
+## 4. Добавлено 2026-09-27
+- **DesertCtl из Bash-инструмента** — через `/bin/bash -c '…'`: инструмент запускает zsh, и `$C` не делится на аргументы.
+- **Открыть ассет:** `$C run Open "<папка>/<файл>"` (путь от корня Assets), напр. `run Open "Textures/HDR/PreviewCheck.detex"`.
+- **Details:** `run Entity <имя>` → `run Details "Show field: <Компонент> / <Поле>"`, `run Details "Open picker: Skybox|Static mesh|Material slot N"`;
+  список появляется КАДРОМ ПОЗЖЕ — `sleep 2` перед `shot-window`. Popup выше окна уходит в окно ОС и в кадр не попадает.
+- **Content Browser:** `run Panel "Open Assets"`, `run Assets "Open folder: Materials"`, `run Panel "Maximize panel: Assets"` / `"Restore panel"`.
+- **Сокет на Windows:** путь ≤ 107 символов (AF_UNIX), напр. `C:/aftmp/x.sock`.
+- **Если редактор вышел, а обёртка висит** — это был `footprint -p` (теперь с тайм-аутом 5 с в run_capped.sh).
+
+## Sky bake runs (AL1-3b/3c, 09-27)
+- `/private/tmp/claude-501/al1-3b/run.sh <name> <cold|warm> <look>` — SKY_HdrOrientation cold/warm run with a shot and the cache lines of the log.
+- Look directions that match the reference frames `/private/tmp/claude-501/al1-3/pv-*`: horizon `0,0,-1`, zenith `0,1,0.01`, mid `0,1,-1`.
+- DesertCtl may be unbuilt in an agent tree — use `DesertEngine/build/Bin/Debug/DesertCtl` from the main tree (AL1-5b, 09-27).
+- `al1-3b/run.sh` waits until NO Editor runs — a foreign interactive Editor (control socket) blocks it forever; `/private/tmp/claude-501/al1-3c/run3.sh` does not wait (AL1-3c, 09-27).
+- Mesh DnD through DesertCtl: `run Assets "Drop into the viewport: <path under Assets>"` (AL1-5c, 09-27).
+- Pipeline build census after the splash: `/private/tmp/claude-501/pso2/measure.sh` (PSO2, 09-27).
+- Budget refusal repro (CB_Red at `--view-budget-mib 250`, frames before/after): `/private/tmp/claude-501/rt2m/repro.sh [tag]` (RT2m, 09-27).
+- Generated landscape frame (New Landscape → Create, then shot): `/private/tmp/claude-501/ls10/frame.sh` (LS-10, 09-27; the DesertCtl look direction did not apply there — check).
+- Subdivide on a fresh mesh (Modeling): `run Modeling "Create shape tool: Box|Cylinder"` → `"Create shape: place at the viewport centre"` → `"Select Elements tool"` → `"Subdivide scheme: <Bilinear|Catmull-Clark|Loop>"` → `"Mesh operation: Subdivide"` → `shot-viewport`; script `/private/tmp/claude-501/p15/frames/run.sh` (P15, 09-27).
+- Modeling shapes via palette with Output type = Dynamic Mesh (no .stmesh lands in the tree): `/private/tmp/claude-501/m6/frames/run.sh` (M6, 09-27).
+- Landscape layer slots frame (Terrain_Grass, two "Create Layer Info"): `bash /private/tmp/claude-501/ls12b/frame.sh` (LS-12b, 09-27).
+- All modeling shapes in a row (Output type = Dynamic Mesh; flat shapes sit on Y=0 and z-fight the floor — lift them for a clean shot): `/private/tmp/claude-501/m6b/frames/run.sh` (M6b, 09-27).
+- Foliage palette with collection types: `run Foliage "Foliage mode"` → `run Foliage "Add collection to the palette: <dir>"` → `shot-window` (FO-2, 09-27).
+- Plane Cut / Mirror on a cylinder, Output = Dynamic Mesh: `/private/tmp/claude-501/p14/frames/run.sh` (P14, 09-27).
+
+## World Partition flight (`--flight`, WP7/WP11/WP12)
+Scene WP11_HLODFlight lives in the scratchpad (/private/tmp/claude-501/wp11/WP11_HLODFlight.desce) — copy it into
+Editor/Resources/Assets/Scenes/ for the run and delete it after (never commit it). Own HOME per run; remove Autosave/.session.lock.
+```
+cd <tree>/Editor && ~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor --project Desert.deproj \
+  --scene Resources/Assets/Scenes/WP11_HLODFlight.desce --play \
+  --flight line:500,700,500:13500,700,500 --flight-speed <cm/s> --flight-csv <out>/flight.csv \
+  --stream-delay-ticks <n> --shot-sequence <out>/seq --shot-every 6 --shot <out>/last.png > <out>/editor.log 2>&1
+```
+Full script: /private/tmp/claude-501/wp12/fly.sh. The CSV has NO asset-memory column yet (WP13b adds it).
+
+## Foliage cull distance (FO-5)
+`TAG=<name> CULLMIN=<cm> CULLMAX=<cm> bash /private/tmp/claude-501/fo5/frame.sh` — FOLT 3 type with that Cull, paints a
+strip on Terrain_Grass, shoots from (0,1200,1200) along it, prints `views.ismInstancesDrawn`.
+
+## Landscape paint undo (LS-14)
+Each brush PRESS is its own undo record: for "stroke → Ctrl+Z → empty" shoot ONE stroke (LS-13's frame2.sh does four; one
+Ctrl+Z then removes only the last and looks like broken undo). Script: /private/tmp/claude-501/ls14/frame.sh; afterwards
+`git checkout` Terrain_Grass + its tiles and delete Assets/Landscape/.
+
+## World Partition panel (WP15c)
+`run Panel "Open World Partition"` → `run Panel "Maximize panel: World Partition"` → `shot-window`. Script:
+/private/tmp/claude-501/wp15c/run.sh. Foliage palette undo is `Action / Undo` (not Edit / Undo).
+
+## Foliage Fill (FO-4b)
+`bash /private/tmp/claude-501/fo4/fill.sh` — Terrain_Grass, camera 0,500,500; Modeling "Create shape tool: Box" → "place at
+the viewport centre" (box stays selected) → Foliage "Add type to the palette" → "Fill the selected mesh" → `Action "Undo"`.
+
+## Foliage in World Partition cells (FO-6), scene v36
+`bash /private/tmp/claude-501/fo6/live.sh && bash /private/tmp/claude-501/fo6/fly.sh 10000` — flight
+`line:-60000,1500,3000:60000,1500,3000`, `flight.csv` has `asset_gpu_bytes`. Afterwards delete `Scenes/FO6_Cells*`,
+`Scenes/__ExternalEntities__/FO6_Cells`, `Foliage/FO6_Cells.defoliage`. (The WP11_HLODFlight recipe above is scene v32 and no longer loads.)

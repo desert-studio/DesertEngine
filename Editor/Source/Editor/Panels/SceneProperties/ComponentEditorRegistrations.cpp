@@ -44,6 +44,7 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
@@ -74,11 +75,10 @@
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PointLightComponent, Data, "PointLightData", "Point Light" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "SpotLightData", "Spot Light" )
 // Camera is a CUSTOM entry: reflected fields + a focal-length readout and "look through". See MakeCameraEntry.
-// Landscape Material is a CUSTOM entry: reflected LandscapeMaterialData UI (the layer modes) + the
-// landscape's MATERIAL ROW (an asset field and an Edit button — the material itself is authored in the
-// Material Editor window, like every other). See MakeLandscapeMaterialEntry below.
-// Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the
-// plain reflected one-liner — see MakeColliderEntry.
+// Landscape Material is a CUSTOM entry: the landscape's MATERIAL ROW (an asset field and an Edit button — the
+// material itself is authored in the Material Editor window, like every other). See MakeLandscapeMaterialEntry
+// below. Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the plain
+// reflected one-liner — see MakeColliderEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
 // Character Controller is a CUSTOM entry: the reflected capsule fields PLUS the live state the physics
 // step writes back (on ground / speed / swimming). Those are the values you actually need while the game
@@ -143,6 +143,9 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::UIOverlayTriggerComponent, D
 // scene, and the fog height deliberately is not a field (it is the entity's transform Y).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponent, Data,
                                      "ExponentialHeightFogData", "Exponential Height Fog" )
+// Post Process Volume likewise: its bounds are the entity's Translation plus the Extent field.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, Data, "PostProcessVolumeData",
+                                     "Post Process Volume" )
 
 // Volumetric Cloud is a CUSTOM entry since O1: the reflected budget/routing fields PLUS the material
 // row — the same one-handle-with-Edit-button arrangement the landscape has, for the same Stage 3 reason.
@@ -254,10 +257,9 @@ namespace Desert::Editor
     // its own way to edit a material while everything else had the Material Editor window
     // (Docs/MaterialEditor/PLAN_STAGE3_ASSET_DOCUMENTS.md, M3).
     //
-    // ONE handle, not a slot vector. `Terrain.shader` is a single program of domain Terrain whose three
-    // splat layers (u_GrassTex/u_RockTex/u_SnowTex) are TEXTURE PARAMETERS of that one program, blended
-    // in-shader by the layer modes above. A vector would promise a material per layer and nothing
-    // downstream could consume one.
+    // ONE handle, not a slot vector. `Terrain.shader` is a single program of domain Terrain; the ground's
+    // layers are the root's painted layer infos, not parameters of it. A vector would promise a material
+    // per layer and nothing downstream could consume one.
     //
     // The combo went with the schema table: there is exactly one Terrain-domain shader, so "which shader"
     // was a control with one entry. A landscape material is created with that shader already chosen.
@@ -871,10 +873,10 @@ namespace Desert::Editor
         return e;
     }
 
-    // Landscape Material: the reflected LandscapeMaterialData UI (the three layer-mode combos), plus the
-    // material ROW in the same section — one asset field, an Edit button that opens the Material Editor
-    // window, and nothing that edits a material here. The handle itself is `PROPERTY Hidden` in the
-    // reflection, because the builder's generic asset slot is texture-oriented; the row below is its UI.
+    // Landscape Material: the material ROW — one asset field, an Edit button that opens the Material Editor
+    // window, and nothing that edits a material here. The handle is LandscapeMaterialData's one field and is
+    // `PROPERTY Hidden` in the reflection, because the builder's generic asset slot is texture-oriented; the
+    // row is its UI.
     static ComponentEditorEntry MakeLandscapeMaterialEntry()
     {
         using ::Desert::ECS::LandscapeMaterialComponent;
@@ -887,9 +889,6 @@ namespace Desert::Editor
         e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
         {
             auto& c = en.GetComponent<LandscapeMaterialComponent>();
-            PropertyEditorBuilder::Draw( &c.Data, "LandscapeMaterialData", ctx.AssetMgr(), ctx.UIHelper );
-
-            ::ImGui::Separator();
             DrawLandscapeMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag, ctx.AssetMgr() );
         };
         return e;
@@ -1765,8 +1764,8 @@ namespace Desert::Editor
         return e;
     }
 
-    // Foliage type: the scatter parameters the paint brush reads. They lived ONLY in the viewport's paint
-    // overlay, so a type could not be tuned without holding the brush.
+    // Foliage field: the `.defoliage` it is painted with (drop one on the row) and that type's scatter
+    // numbers, edited in the file itself so every field painted with the type sees the edit (FO-1).
     static ComponentEditorEntry MakeFoliageEntry()
     {
         using C = ::Desert::ECS::FoliageComponent;
@@ -1776,42 +1775,33 @@ namespace Desert::Editor
         e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
         e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
         e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
-        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& )
+        e.Draw      = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& context )
         {
-            namespace U = ::Desert::Editor::Utils;
-            auto& f     = en.GetComponent<C>();
+            using Tool    = ::Desert::Editor::Tools::FoliagePaintTool;
+            auto& f       = en.GetComponent<C>();
+            auto  manager = context.AssetManager.lock();
+            if ( !manager )
+                return;
 
-            U::ImGuiUtilities::ResetPropertyRows();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Density", "Instances scattered per paint dab" );
-            ImGui::SliderFloat( "##foldensity", &f.Density, 1.0f, 80.0f, "%.0f / dab" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Scale Range", "Random uniform scale per instance" );
-            ImGui::DragFloatRange2( "##folscale", &f.ScaleMin, &f.ScaleMax, 0.01f, 0.02f, 10.0f, "%.2f", "%.2f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Z Offset", "Sink (-) / raise (+) along world up" );
-            ImGui::DragFloatRange2( "##folz", &f.ZOffsetMin, &f.ZOffsetMax, 0.5f, -500.0f, 500.0f, "%.0f",
-                                    "%.0f" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Max Pitch", "Random tilt off the up/normal axis" );
-            ImGui::SliderFloat( "##folpitch", &f.MaxPitchDeg, 0.0f, 90.0f, "%.0f deg" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Slope Range", "Only paint where the surface slope fits" );
-            ImGui::DragFloatRange2( "##folslope", &f.SlopeMinDeg, &f.SlopeMaxDeg, 0.5f, 0.0f, 90.0f, "%.0f",
-                                    "%.0f deg" );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Align to Normal" );
-            ImGui::Checkbox( "##folalign", &f.AlignToNormal );
-            U::ImGuiUtilities::EndPropertyRow();
-
-            U::ImGuiUtilities::BeginPropertyRow( "Random Yaw" );
-            ImGui::Checkbox( "##folyaw", &f.RandomYaw );
-            U::ImGuiUtilities::EndPropertyRow();
+            const auto type = Tool::ResolveType( *manager, f.FoliageType );
+            ImGui::Button( type ? type->GetMetadata().Filepath.filename().string().c_str()
+                                : "Drop a .defoliage to choose the type",
+                           ImVec2( -1, 0 ) );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                if ( const ImGuiPayload* p =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                {
+                    const std::string path( static_cast<const char*>( p->Data ) );
+                    if ( std::filesystem::path( path ).extension() ==
+                         ::Desert::Assets::Serialization::kFoliageTypeExtension )
+                        if ( const auto dropped = Tool::OpenTypeFile( *manager, path ) )
+                            f.FoliageType = dropped->GetMetadata().Handle;
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if ( type )
+                Tool::DrawTypeSettings( *manager, type );
         };
         return e;
     }

@@ -4,7 +4,6 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <fstream>
-#include <iterator>
 #include <vector>
 
 namespace Common::Utils
@@ -13,14 +12,24 @@ namespace Common::Utils
     {
         // Straight off the disk, not through FileSystem::ReadFileContent: a file served from a mounted pak has
         // no write time, so it never reaches here, and a watched file is by definition a loose one.
+        //
+        // ONE READ OF THE WHOLE FILE, NOT A BYTE AT A TIME. This runs on the editor's thread for every racy
+        // observation, and the decoded-thumbnail memo observes each picture on screen every frame: a capture
+        // landing keeps its PNG racy for kRacyWriteWindow, and a folder of materials being captured keeps a
+        // handful of ~300 KB PNGs racy at all times. Read through istreambuf_iterator (a push_back per byte),
+        // that was 36 % of the editor thread in a folder of 240 materials (THUMB3, sampled), which is most
+        // of why opening such a folder held every frame at 60-100 ms for minutes.
         std::optional<uint32_t> HashContent( const std::filesystem::path& path )
         {
-            std::ifstream in( path, std::ios::binary );
+            std::ifstream in( path, std::ios::binary | std::ios::ate );
             if ( !in )
                 return std::nullopt;
-            const std::vector<char> bytes( ( std::istreambuf_iterator<char>( in ) ),
-                                           std::istreambuf_iterator<char>() );
-            if ( in.bad() )
+            const std::streamoff end = in.tellg();
+            if ( end < 0 )
+                return std::nullopt;
+            std::vector<char> bytes( static_cast<std::size_t>( end ) );
+            in.seekg( 0 );
+            if ( !bytes.empty() && !in.read( bytes.data(), static_cast<std::streamsize>( bytes.size() ) ) )
                 return std::nullopt;
             return Crc32c( bytes.data(), bytes.size() );
         }

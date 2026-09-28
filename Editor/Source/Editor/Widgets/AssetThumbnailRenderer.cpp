@@ -112,8 +112,7 @@ namespace Desert::Editor
         // (Graphic::DebugViewState, all-off by default) and only EditorLayer's main loop ever pushes the
         // editor's flags into a renderer. This used to switch the scene's own ShowGrid off, which worked
         // and said the wrong thing — a thumbnail scene had to know about an editor aid to opt out of it.
-        auto& settings       = m_Scene->GetSettings();
-        settings.EnableBloom = false;
+        // No PostProcessVolume in this scene, so the grade is Core::PostProcessSettings{} — bloom off.
 
         // `settings.AA = FXAA` used to stand here and said NOTHING: FXAA is the default, so the line
         // restated it. The mode is machine quality now (К3) and this renderer is simply never pushed to,

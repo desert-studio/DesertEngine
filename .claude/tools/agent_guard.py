@@ -51,6 +51,22 @@ CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
 MAX_READ_LINES = 150
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
+
+
+def runs_editor(cmd):
+    """True only when a shell segment EXECUTES the editor/runtime binary. The bare path regex also caught
+    `cp .../Editor.exe`, `test -f .../Editor`, a path passed as an argument (reported from Windows 09-27),
+    and agents worked around it with variables. A segment executes it when its first word (after
+    VAR=value assignments and exec/time/nohup/env) is the binary."""
+    for segment in re.split(r"[;&|\n]+|\$\(|`", cmd):
+        words = segment.strip().split()
+        while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("exec", "time", "nohup", "env", "command")):
+            words = words[1:]
+        if words and words[0] in ("python", "python3", "py") and len(words) > 1 and "run_capped" in words[1]:
+            continue
+        if words and EDITOR_RUN.search(words[0].strip("\"'")):
+            return True
+    return False
 ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 
 
@@ -392,13 +408,14 @@ def main():
                      "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
                      "done; make ...",
                      data, agent)
-        if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b|\bstat\b|\bshasum\b|\botool\b|\bnm\b", cmd):
+        if runs_editor(cmd) and "run_capped" not in cmd:
             save_state(state, path)
             deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
-                 "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... "
-                 "(путь: /Users/daniilsavcenko/.claude/tools/run_capped.sh). "
+                 "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... на macOS "
+                 "(путь: /Users/daniilsavcenko/.claude/tools/run_capped.sh), "
+                 "python .claude/tools/run_capped.py build/Bin/Debug/Editor.exe ... на Windows. "
                  "2026-09-24 один редактор съел 13.7 ГБ из 16 и уронил машину.", data, agent)
-        if EDITOR_RUN.search(cmd) and not re.search(r"\bpkill\b|\bpgrep\b", cmd) and editor_running():
+        if (runs_editor(cmd) or "run_capped" in cmd) and editor_running():
             save_state(state, path)
             deny("[agent_guard] Уже запущен редактор/рантайм (другой агент). Одновременно — только ОДИН процесс с GPU: "
                  "2026-09-24 несколько редакторов повесили WindowServer, ядро ушло в panic. Подожди в той же команде: "

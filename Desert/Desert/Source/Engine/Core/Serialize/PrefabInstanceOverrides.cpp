@@ -121,6 +121,10 @@ namespace Desert::Core::Serialize
             }
 
             const std::vector<Common::UUID>& path = entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+            if ( handle == instanceRoot.GetHandle() )
+            {
+                capture.RootPath = path;
+            }
             const auto                       found = base.find( Assets::PrefabPathKey( path ) );
             if ( found == base.end() )
             {

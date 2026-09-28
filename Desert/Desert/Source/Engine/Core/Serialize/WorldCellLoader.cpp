@@ -24,6 +24,7 @@ namespace Desert::Core
         Flight                                        flight;
         flight.Unit   = unit;
         flight.Ticket = ticket;
+        flight.HoldTicks = m_DebugDelayTicks;
         flight.Result = Common::JobSystem::Get().Async(
              [source = std::move( source ), unit]
              {
@@ -59,6 +60,12 @@ namespace Desert::Core
         std::vector<Flight>             still;
         for ( Flight& flight : m_Flights )
         {
+            if ( flight.HoldTicks > 0 )
+            {
+                --flight.HoldTicks;
+                still.push_back( std::move( flight ) );
+                continue;
+            }
             if ( flight.Result.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
             {
                 still.push_back( std::move( flight ) );

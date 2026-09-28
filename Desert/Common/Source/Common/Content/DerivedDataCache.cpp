@@ -63,6 +63,22 @@ namespace Common::DDC
              std::filesystem::current_path( ec ).generic_string() );
     }
 
+    Common::BoolResultStr CheckWritable( const std::filesystem::path& entry )
+    {
+        if ( entry.is_absolute() )
+            return Common::MakeSuccess( true );
+        auto root = WritableRoot();
+        if ( !root.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "DDC entry '{}' refused: {}", entry.generic_string(),
+                                                     root.GetError() );
+        std::error_code ec;
+        return Common::MakeFormattedError<bool>(
+             "DDC entry '{}' refused: it is relative although the cache root '{}' is not, so it would be written "
+             "into the working directory '{}'",
+             entry.generic_string(), root.GetValue().generic_string(),
+             std::filesystem::current_path( ec ).generic_string() );
+    }
+
     std::filesystem::path RelativePath( const Deriver& deriver, const uint64_t key )
     {
         const std::string hex = std::format( "{:016x}", key );

@@ -30,7 +30,6 @@
 
 #include <cstdio>
 #include <cstring>
-#include <filesystem>
 #include <string>
 
 using Desert::Editor::Control::ControlSocket;
@@ -51,15 +50,16 @@ namespace
 #endif
     }
 
-    /// A path in the machine's own temp directory, unique to this process so two runs of the suite cannot
-    /// collide. Asked of <filesystem> rather than written as "/tmp/...": the sockets in this suite are real
-    /// files, and Windows has no /tmp.
+    /// A socket path RELATIVE to the working directory, unique to this process so two runs of the suite
+    /// cannot collide. Relative, not under temp_directory_path(): an AF_UNIX address holds ~104-108 bytes
+    /// (Socket::MaxPathLength()), and since TST1 the runners point TMP at the suite's own
+    /// build/TestScratch/<Config>/<Suite>/Temp — on the Windows CI runner that directory alone is ~75
+    /// characters, and "desert_ctl_generation-stable_<pid>.sock" under it no longer fit, so six tests
+    /// failed at Listen(). The runners start every suite IN its scratch directory, so the socket file
+    /// still lands there, and a relative name stays short on every checkout depth.
     std::string TempSocketPath( const char* tag )
     {
-        const std::filesystem::path directory = std::filesystem::temp_directory_path();
-        return ( directory /
-                 ( std::string( "desert_ctl_" ) + tag + "_" + std::to_string( OwnProcessId() ) + ".sock" ) )
-             .string();
+        return std::string( "ctl_" ) + tag + "_" + std::to_string( OwnProcessId() ) + ".sock";
     }
 
     /// A bare client: connect, send a line, read a line, close. Deliberately not DesertCtl — the point is

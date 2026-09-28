@@ -77,6 +77,15 @@ namespace Desert::Editor
         // This view's camera. Empty when the view is gone — the panel then says "Camera was not found"
         // instead of quietly showing another angle's picture.
         [[nodiscard]] std::shared_ptr<::Desert::Core::Camera> ViewCamera() const;
+        // One foliage stroke (press + release: one undo step) at the viewport centre with the checked types -
+        // the click a hand gives there, for the palette (PaletteCommand::Run takes no coordinates).
+        Common::BoolResultStr StrokeFoliageAtCentre();
+        // The same on the viewport the user is working in (ActiveViewport); an error when there is none.
+        static Common::BoolResultStr StrokeFoliageInActiveViewport();
+        // FO-UI1: the brush footprint preview aimed at the viewport centre (where a hand would hover), so the
+        // preview is reachable without a cursor. An error when the centre ray meets no surface.
+        static Common::BoolResultStr PreviewFoliageInActiveViewport();
+        Common::BoolResultStr        PreviewFoliageAtCentre();
         ~ViewportPanel() override; // defined in the .cpp (unique_ptr<AsyncMeshLoader> needs the complete type)
 
         // A SELF-REGISTERING TYPE MUST NOT BE COPYABLE OR MOVABLE. The constructor pushes `this` into

@@ -1030,12 +1030,12 @@ TEST( MaterialEditStates, MembersOfOneCategoryMeetInOneGroupEvenWhenTheFileScatt
 
 TEST( MaterialEditStates, AShaderThatCategorisedNothingHasOneUnnamedGroupAndIsDrawnFlat )
 {
-    // Terrain, Skybox, Unlit, TextSDF and the two MatProbes are all in this state. The window must keep
+    // Skybox, Unlit, TextSDF and the two MatProbes are all in this state. The window must keep
     // drawing them exactly as it did before groups existed -- an undivided table IS what "this shader has
     // no categories" looks like, and putting them under a heading would be this code inventing a fact.
     const auto groups =
-         MaterialEdit::PlanParameterGroups( SchemaOf( { Value( "DetailTiling", Formats::ShaderValueType::Float ),
-                                                        Texture( "u_GrassTex" ), Texture( "u_RockTex" ) } ) );
+         MaterialEdit::PlanParameterGroups( SchemaOf( { Value( "Tiling", Formats::ShaderValueType::Float ),
+                                                        Texture( "u_AlbedoTex" ), Texture( "u_NormalTex" ) } ) );
 
     ASSERT_EQ( groups.size(), 1u );
     EXPECT_TRUE( groups[0].Category.empty() );

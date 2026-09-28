@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -213,6 +214,13 @@ namespace Desert::Editor
         // the alternative — the project's path — is the defect this field exists to remove.
         std::map<std::string, std::vector<std::string>> FavouriteFolders;
 
+        // THE FOLDER THE CONTENT BROWSER WAS LAST IN, per project (THUMB3) — UE's content browser reopens where
+        // it was left, and the splash prefetches the thumbnails of the folder the browser is about to show
+        // (THUMB2), so remembering it is also what lets those pictures be ready at the hand-over. Keyed and
+        // stored exactly as FavouriteFolders is (the project's Name; the folder relative to the assets root,
+        // "." for the root itself), for the same reasons, and through the same two accessors below only.
+        std::map<std::string, std::string> BrowserFolders;
+
         // The environment every asset-editor preview shows its subject in (UE's Preview Scene Settings):
         // which HDR, its rotation and EV, and whether the backdrop and the floor show. Per user, shared by
         // every preview window — PreviewEnvironment.hpp says why it is not a field of the asset.
@@ -269,6 +277,21 @@ namespace Desert::Editor
         // with the file and the reason, and this session then holds the pin in memory only; that is why
         // there is no third return convention here for one store.
         static void ToggleFavouriteFolder( const std::string& absoluteFolder );
+
+        // The folder the browser opens on: the one it was last in for the open project, as an absolute path,
+        // or nothing (no project, never navigated, or the folder has since left the assets root). Whether it
+        // still EXISTS is the browser's question: it walks to it and stays at the root when it cannot.
+        static std::optional<std::string> CurrentBrowserFolder();
+        // Records a navigation and saves when the remembered folder changed; a folder outside the assets root
+        // is not stored (the browser cannot reach one), and the previous answer stands.
+        static void RememberBrowserFolder( const std::string& absoluteFolder );
+        // The two above on an explicit store, project and root — what a test drives without touching the
+        // user's file. Remember returns whether the store changed.
+        static std::optional<std::string> BrowserFolderIn( const EditorPreferences& p, const std::string& project,
+                                                           const std::filesystem::path& assetsRoot );
+        static bool RememberBrowserFolderIn( EditorPreferences& p, const std::string& project,
+                                             const std::filesystem::path& assetsRoot,
+                                             const std::string&           absoluteFolder );
 
         // ~/.desertengine (created on demand); shared with the Project Hub's projects.json.
         static std::string ConfigDirectory();

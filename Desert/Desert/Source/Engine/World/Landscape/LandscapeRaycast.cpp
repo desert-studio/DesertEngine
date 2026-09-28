@@ -104,9 +104,10 @@ namespace Desert::World::Landscape
 
             // The vertical slab bounds the traversal to where the ray is between the tile's lowest and
             // highest sample: a cell's triangles never leave the range of its four corners.
-            const auto [lowIt, highIt] = std::minmax_element( tile.Samples().begin(), tile.Samples().end() );
-            const auto low             = static_cast<double>( LandscapeHeightCm( *lowIt, frame.ZScale ) );
-            const auto high            = static_cast<double>( LandscapeHeightCm( *highIt, frame.ZScale ) );
+            // The tile keeps its range (LandscapeTileData::LowestSample): scanning it here, per tile per ray,
+            // was the foliage brush's whole 20 s dab (FO-3b).
+            const auto low  = static_cast<double>( LandscapeHeightCm( tile.LowestSample(), frame.ZScale ) );
+            const auto high = static_cast<double>( LandscapeHeightCm( tile.HighestSample(), frame.ZScale ) );
 
             double tMin = 0.0;
             double tMax = maxDistance;
@@ -192,9 +193,19 @@ namespace Desert::World::Landscape
                                                      const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance )
     {
+        return RaycastLandscape( tiles, origin, direction, maxDistance, {} );
+    }
+
+    std::optional<LandscapeRayHit> RaycastLandscape( std::span<const LandscapeRayTile> tiles,
+                                                     const glm::vec3& origin, const glm::vec3& direction,
+                                                     float                                maxDistance,
+                                                     const std::function<bool( size_t )>& accept )
+    {
         std::optional<LandscapeRayHit> best;
         for ( size_t index = 0; index < tiles.size(); ++index )
         {
+            if ( accept && !accept( index ) )
+                continue;
             const LandscapeRayTile& entry = tiles[index];
             if ( entry.Heights == nullptr )
             {

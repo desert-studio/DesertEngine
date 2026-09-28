@@ -5,6 +5,8 @@
 // registered function (the editor's) instead of IMeshBuilderModule, so a packaged game carries no builder.
 #include <Engine/Assets/MeshDerivedData.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -27,27 +29,6 @@ namespace Desert::Assets
         std::mutex              s_BuilderMutex;
         MeshPlatformDataBuilder s_Builder;
 
-        // Every raw format ImportManager recognises for a mesh (Editor/Import/ImportManager's registered
-        // importers; the same set GamePackager::IsRawMeshSource excludes from a package, since the runtime
-        // never reads these directly either). Kept as its own list rather than shared with that one: this
-        // is Engine code and cannot depend on Editor's.
-        constexpr std::string_view kRawMeshSourceExtensions[] = { ".fbx", ".obj",   ".gltf",
-                                                                  ".glb", ".blend", ".dae" };
-
-        // The raw source beside @p assetPath, if one exists under a recognised extension - same stem, same
-        // folder (CookPaths::MeshAsset's own mapping, inverted).
-        std::optional<std::filesystem::path> CompanionSourceFile( const std::filesystem::path& assetPath )
-        {
-            for ( const std::string_view ext : kRawMeshSourceExtensions )
-            {
-                std::filesystem::path candidate = assetPath;
-                candidate.replace_extension( ext );
-                std::error_code ec;
-                if ( std::filesystem::exists( candidate, ec ) )
-                    return candidate;
-            }
-            return std::nullopt;
-        }
     } // namespace
 
     std::vector<std::byte> SerializeMeshSettingsForKey( const MeshBuildSettings& settings )
@@ -124,11 +105,32 @@ namespace Desert::Assets
                                      sizeof( kMeshSourceBuilderVersion ) );
     }
 
+    bool IsEditedImportedMesh( const std::filesystem::path& assetPath )
+    {
+        std::error_code ec;
+        if ( !std::filesystem::is_regular_file( assetPath, ec ) )
+            return false;
+        const auto companion = Common::Content::MeshSourceBeside( assetPath );
+        if ( !companion.has_value() )
+            return false;
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( *companion );
+        if ( !std::filesystem::is_regular_file( record, ec ) )
+            return false;
+        const auto recordHeader = Common::Content::ReadAssetHeaderIfStated( record, { {}, true } );
+        const auto assetHeader =
+             Common::Content::ReadAssetHeaderIfStated( assetPath, MeshAssetHeaderReadContext() );
+        if ( !recordHeader.IsSuccess() || !assetHeader.IsSuccess() || !recordHeader.GetValue().has_value() ||
+             !assetHeader.GetValue().has_value() )
+            return false;
+        const auto& guid = recordHeader.GetValue()->Guid;
+        return !guid.IsNull() && assetHeader.GetValue()->Guid == guid;
+    }
+
     Common::ResultStr<MeshSourceAsset> LoadMeshSourceAsset( const std::filesystem::path& assetPath )
     {
-        const auto companion = CompanionSourceFile( assetPath );
-        if ( !companion.has_value() )
-            return ReadMeshSourceAssetFile( assetPath ); // hand-authored: unchanged (AF4h c)
+        const auto companion = Common::Content::MeshSourceBeside( assetPath );
+        if ( !companion.has_value() || IsEditedImportedMesh( assetPath ) )
+            return ReadMeshSourceAssetFile( assetPath ); // hand-authored (AF4h c) or an edited import (P9b)
 
         const auto hash = HashMeshSourceFile( *companion );
         if ( !hash.IsSuccess() )

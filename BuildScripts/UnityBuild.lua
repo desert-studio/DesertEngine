@@ -45,10 +45,6 @@ DesertUnity.OptOut = {
            .. "pl_mpeg, ImGuizmo) define their implementation macros and file-scope helpers for ONE "
            .. "translation unit, and are compiled with warnings off per file",
     },
-    {
-        pattern = "**lightweightvk/**",
-        why = "vendored LightweightVK sources (the second vendored tree, see BuildScripts/Workspace.lua)",
-    },
 
     -- OUR OWN SOURCES THAT DO NOT SURVIVE A SHARED TRANSLATION UNIT, found by grouping each project's
     -- sources as the generated .vcxproj orders them (12 per group, at offsets 0 and 6) and compiling

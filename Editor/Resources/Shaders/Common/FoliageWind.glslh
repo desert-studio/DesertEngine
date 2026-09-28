@@ -1,0 +1,29 @@
+// FOLIAGE WIND - the world-position offset of an instanced vertex (FO-7; UE: SimpleGrassWind as a WPO).
+//
+// ONE function for every instanced vertex stage - the forward surface, the G-buffer write and the shadow
+// caster - so the shadow and the depth a plant leaves are the shadow and the depth of the plant that is
+// drawn. Desert/Tests/Engine/MeshVertexPath refuses an instanced vertex stage that computes its position
+// any other way. The GPU twin of Graphic::FoliageWindOffset (Engine/Graphic/InstanceWind.hpp): the same
+// expressions in the same order; change one, change both, and the FrustumCulling suite holds the CPU half.
+//
+// windA = (dir.x, dir.z, Strength cm, Height cm), windB = (Speed Hz, Seconds, 0, 0), pushed at offset 80
+// (Graphic::kInstancedWindPushOffset). Strength 0 = no offset, which every non-foliage instance pushes.
+
+vec3 FoliageWindOffset(vec3 localPosition, vec3 instanceOrigin, vec4 windA, vec4 windB)
+{
+    if (windA.z <= 0.0)
+        return vec3(0.0);
+    float mask = clamp(localPosition.y / windA.w, 0.0, 1.0);
+    mask *= mask;
+    float phase  = instanceOrigin.x * 0.0123 + instanceOrigin.z * 0.0171;
+    float t      = 6.2831853 * windB.x * windB.y;
+    float sway   = 0.65 * sin(t + phase) + 0.35 * sin(2.3 * t + 1.7 * phase);
+    float amount = windA.z * mask * (0.5 + 0.5 * sway);
+    return vec3(windA.x, 0.0, windA.y) * amount;
+}
+
+// The world position of an instanced vertex: the instance's model matrix, then the wind.
+vec3 InstancedWorldPosition(mat4 model, vec3 localPosition, vec4 windA, vec4 windB)
+{
+    return vec3(model * vec4(localPosition, 1.0)) + FoliageWindOffset(localPosition, vec3(model[3]), windA, windB);
+}

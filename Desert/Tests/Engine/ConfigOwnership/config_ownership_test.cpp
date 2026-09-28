@@ -313,6 +313,7 @@ namespace
          // The consumer is EditorPreferences.cpp rather than the browser, like its two neighbours above
          // and for the same reason: the panel is handed absolute paths by the three helpers there, and
          // which project a pin belongs to and what it is relative to are decided in this field's own file.
+         { "BrowserFolders", Owner::Machine, kPrefsImpl },
          { "FavouriteFolders", Owner::Machine, kPrefsImpl },
 
          // The three packaging answers, moved out of the Build Settings panel's own memory by П6 — they
@@ -462,52 +463,10 @@ namespace
 
     constexpr Row kSceneSettingsRows[] = {
          { "RenderingPath", Owner::Level }, // two shading models, not two fidelities
-         { "EnableSSAO", Owner::Level },    // the closest call; see the header
-         { "GlobalIllumination", Owner::Level },
-         { "GIIntensity", Owner::Level },
-         { "EnableSSR", Owner::Level },
-         { "SSRIntensity", Owner::Level },
-         { "SSRMaxDistance", Owner::Level },
 
-         { "EnableShadows", Owner::Level },
-         { "ShadowBias", Owner::Level },
-         { "CascadeSplitLambda", Owner::Level },
-
-         // The grade. "Which one a scene is graded through is a property of the scene, the way film stock
-         // was a property of the shoot" — SceneSettings.hpp's own words, and they are the rule's words.
-         { "Tonemapper", Owner::Level },
-         { "Exposure", Owner::Level },
-         { "Gamma", Owner::Level },
-         { "WhitePoint", Owner::Level },
-         { "AutoExposure", Owner::Level },
-         { "AutoExposureKey", Owner::Level },
-         { "AutoExposureSpeed", Owner::Level },
-         { "AutoExposureMin", Owner::Level },
-         { "AutoExposureMax", Owner::Level },
-
-         { "EnableBloom", Owner::Level },
-         { "BloomThreshold", Owner::Level },
-         { "BloomIntensity", Owner::Level },
-         { "LensDispersion", Owner::Level },
-
-         // The lens. Every one of these is authored content: the pass hardcodes no colour, no ghost count
-         // and no spacing.
-         { "EnableLensFlare", Owner::Level },
-         { "LensFlareIntensity", Owner::Level },
-         { "LensFlareTint", Owner::Level },
-         { "LensFlareThreshold", Owner::Level },
-         { "LensFlareGhostCount", Owner::Level },
-         { "LensFlareGhostSpacing", Owner::Level },
-         { "LensFlareGhostSizeNear", Owner::Level },
-         { "LensFlareGhostSizeFar", Owner::Level },
-         { "LensFlareGhostTintInner", Owner::Level },
-         { "LensFlareGhostTintOuter", Owner::Level },
-         { "LensFlareHaloIntensity", Owner::Level },
-         { "LensFlareHaloRadius", Owner::Level },
-         { "LensFlareStreakIntensity", Owner::Level },
-         { "LensFlareStreakLength", Owner::Level },
-         { "LensFlareStreakAngle", Owner::Level },
-         { "LensFlareChromaShift", Owner::Level },
+         // The grade, the lens and the shadow policy left this block for their UE homes (SET1): the
+         // PostProcessVolume component and the DirectionalLight. They are component fields now, which
+         // SettingConsumers audits; this census covers config FILES, and a component is not one.
 
          { "Gravity", Owner::Level },
          // The three Wind rows left with their fields (Г26): they were level data with no reader, and a

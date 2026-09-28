@@ -1222,7 +1222,19 @@ namespace Desert::Core::Preprocess
                                    const std::string& autoDecls )
         {
             std::ostringstream out;
-            out << "#version 450\n";
+            // 460, not 450: GL_EXT_ray_query (rayQueryEXT, accelerationStructureEXT) requires GLSL 460, and
+            // one version for every stage keeps every program on the same language rules.
+            out << "#version 460\n";
+
+            // A stage that names a ray-query type gets the extension; every other stage compiles exactly
+            // as before, with no OpExtension and no RayQueryKHR capability a device without ray query
+            // would refuse. An #extension must precede every declaration, so the stage text cannot
+            // enable it itself below the automatic declarations; a ray-query type used only inside an
+            // #include'd header is not seen here and fails in glslang naming the undeclared type.
+            static const std::regex kRayQueryType( R"(\b(rayQueryEXT|accelerationStructureEXT)\b)" );
+            if ( std::regex_search( code.Content, kRayQueryType ) ||
+                 std::regex_search( include.Content, kRayQueryType ) )
+                out << "#extension GL_EXT_ray_query : require\n";
 
             if ( !autoDecls.empty() && ( stage == ShaderStage::Fragment || stage == ShaderStage::Compute ) )
                 out << autoDecls;

@@ -8,6 +8,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
 #include <ImGui/imgui.h>
@@ -61,7 +62,8 @@ namespace Desert::Editor
             if ( entity.HasComponent<ECS::SkyboxComponent>() )
             {
                 const auto& sh = entity.GetComponent<ECS::SkyboxComponent>().SkyboxHandle;
-                if ( sh && m_Assets && !m_Assets->FindByHandle<Assets::SkyboxAsset>( sh ) )
+                if ( sh && !Assets::ContentRegistry::RowOf( Common::Content::ContentKind::Skybox,
+                                                            static_cast<uint64_t>( sh ) ) )
                     m_Issues.push_back( { idOf( entity ), name + " -> missing skybox asset" } );
             }
         }

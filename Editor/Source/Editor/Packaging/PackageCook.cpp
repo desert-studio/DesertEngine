@@ -33,7 +33,7 @@ namespace Desert::Editor
 
     namespace
     {
-        // The same enumeration + extension filter AssetPreloader::PreloadShaders uses (lowercased
+        // The same enumeration + extension filter the engine shader boot used (lowercased
         // extension over ListFilesRecursive of the live SHADERDIR_PATH): the cook must see exactly
         // the set of shaders the runtime will register, or a shader the runtime compiles at startup
         // is one the cook silently skipped.
@@ -172,7 +172,7 @@ namespace Desert::Editor
                         ++stats.Failures;
                         continue;
                     }
-                    if ( !Text::StoreBakedFont( Text::FontCachePath( key ), baked ) )
+                    if ( !Text::StoreBakedFont( Text::FontCachePath( key ), baked ).IsSuccess() )
                     {
                         LOG_ERROR( "[PackageCook] {} baked but its atlas did not reach {} — the package "
                                    "would ship a font the runtime must rebake",
@@ -226,7 +226,7 @@ namespace Desert::Editor
                         ++stats.Failures;
                         continue;
                     }
-                    if ( !Vector::StoreBakedIcon( Vector::IconCachePath( key ), baked ) )
+                    if ( !Vector::StoreBakedIcon( Vector::IconCachePath( key ), baked ).IsSuccess() )
                     {
                         LOG_ERROR( "[PackageCook] {} baked but its SDF did not reach {} — the package "
                                    "would ship an icon the runtime must rebake",

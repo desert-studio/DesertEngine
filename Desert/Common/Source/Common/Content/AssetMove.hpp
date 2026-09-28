@@ -26,12 +26,22 @@ namespace Common::Content
     // is), a source with no registry row, a source that is itself a redirector, and a source whose header
     // states no GUID (a redirector can only name its target by GUID - skeletons, animations, raw cloud
     // volumes and shaders cannot be moved this way until their formats carry one).
+    //
+    // A PARTITIONED SCENE MOVES WITH ITS ENTITY FILES (WP16b): its folder ExternalEntitiesDirectoryOf(from) is
+    // renamed to ExternalEntitiesDirectoryOf(to) in the same step, and the `__ExternalEntities__` folder it
+    // leaves empty is removed - the folder is found by the scene's path, so a scene moved without it would load
+    // with every entity missing, and one left behind would be adopted by the next scene given the old name. The
+    // redirector at the old path is a redirector, not a scene: nothing there reads the folder. REFUSED, naming
+    // the path, before anything moves: a destination entity folder that already exists.
     struct AssetMoveRecord
     {
         std::filesystem::path     From;
         std::filesystem::path     To;
         AssetRedirector           Redirector; // the one written at From
         Utils::AssetRegistryEntry MovedRow;   // the row as it was before the move, restored by undo
+        // A partitioned scene's entity files (Content/ExternalEntitiesFolder.hpp) moved with it, from
+        // ExternalEntitiesDirectoryOf(From) to ExternalEntitiesDirectoryOf(To).
+        bool MovedExternalEntities = false;
     };
 
     // Every row whose dependency edges name `row` (by its GUID fold, its declared identity or its path

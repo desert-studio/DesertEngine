@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <glm/glm.hpp>
 
@@ -46,17 +47,18 @@ namespace Desert::Graphic::System
     // instead of one checked).
     struct TerrainInstance
     {
-        // x = tile extent (cm), y = the tile's continuous LOD (LandscapeLodFromScreenSize), z = height range
-        // (cm), w = the LOD whose grid the tile is drawn with (floor of y; the vertex count is that grid's).
+        // x = tile extent (cm), y = the tile's continuous LOD (LandscapeLodFromScreenSize), z = std430 padding,
+        // w = the LOD whose grid the tile is drawn with (floor of y; the vertex count is that grid's).
         glm::vec4 Params{ 0.0f };
         // x = 1 / LOD blend range (UE's InvLODBlendRange), y = the tile's weight layer count (0 = no weightmap
-        // bound; the surface keeps its rule albedo), z = std430 padding, w = the tile's LandscapeNeighbourMask
-        // (which sides have their ring row in the heightmap).
+        // bound; the surface keeps its ground), z = the weightmap's page count (LandscapeWeightmapPageCount
+        // of y: the pages are stacked along the image's height, see LandscapeWeightDraw), w = the tile's
+        // LandscapeNeighbourMask (which sides have their ring row in the heightmap).
         glm::vec4 Params2{ 0.0f };
-        // x = grass, y = rock, z = snow (ECS::LandscapeLayerMode: 0=Auto, 1=Off). w is std430 padding: a
-        // vec3 here would still occupy 16 bytes and a glm::vec3 member would occupy 12, which is how a
-        // C++/GLSL mirror silently shears.
-        glm::vec4 LayerModes{ 0.0f };
+        // The ground under the painted layers: rgb = the root's FIRST layer colour, a = 1 when the root names
+        // a layer (UE shows its first layer where nothing is painted); a = 0 draws white ground. See
+        // LandscapeWeightDraw::Ground.
+        glm::vec4 GroundColor{ 0.0f };
         // x/z = the ROOT's origin, y = its base height, w = spacing (cm between samples), see LandscapeTileDraw.
         glm::vec4 LandscapeFrame{ 0.0f };
         // x/y = this tile's first sample in the landscape's global sample grid, z = quads per tile side,
@@ -66,36 +68,46 @@ namespace Desert::Graphic::System
         glm::vec4 LodEdges{ 0.0f };
         // ...and on each corner: the max of the four tiles sharing it, at (-x,-z), (+x,-z), (-x,+z), (+x,+z).
         glm::vec4 LodCorners{ 0.0f };
-        // The colour each weightmap channel paints (rgb) and whether that channel is a layer at all (a = 1;
-        // a = 0 ignores the channel). See LandscapeWeightDraw.
-        std::array<glm::vec4, 4> LayerColors{};
-        // Per channel: 1 = the layer is NoWeightBlend (UE LB_AlphaBlend), laid over the weight blend.
-        glm::vec4 LayerAlphaBlend{ 0.0f };
+        // The colour each tile layer paints (rgb) and whether that layer is drawn at all (a = 1; a = 0 ignores
+        // it), in the tile's layer order - layer i is page i / 4, channel i % 4. See LandscapeWeightDraw.
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerColors{};
+        // Per layer, four to a vec4 like the pages: 1 = the layer is NoWeightBlend (UE LB_AlphaBlend), laid
+        // over the weight blend.
+        std::array<glm::vec4, 2> LayerAlphaBlend{};
     };
 
-    static_assert( sizeof( TerrainInstance ) == 12 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay twelve 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+    static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
+                        2u * World::Landscape::kLandscapeWeightmapChannels,
+                   "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
+                   "blends two RGBA8 pages" );
+    static_assert( sizeof( TerrainInstance ) == 17 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay seventeen 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
                    "reads these offsets" );
-    static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, LayerModes ) == 32 &&
+    static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
                         offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
                         offsetof( TerrainInstance, LandscapeTile ) == 64 &&
                         offsetof( TerrainInstance, LodEdges ) == 80 &&
                         offsetof( TerrainInstance, LodCorners ) == 96 &&
                         offsetof( TerrainInstance, LayerColors ) == 112 &&
-                        offsetof( TerrainInstance, LayerAlphaBlend ) == 176,
+                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
     // apart from LandscapeTileDraw: that one feeds the LOD/seam keys, and painting must not touch them.
-    // The weightmap is LandscapeECSSystem's RGBA8 copy of the tile's layer weights (one channel per layer,
-    // LandscapeWeightmap.hpp), updated in place per stroke so its address - part of TerrainTextureKey -
-    // stays put. LayerCount 0 means no weightmap: the tile keeps its rule albedo.
+    // The weightmap is LandscapeECSSystem's RGBA8 copy of the tile's layer weights: every page of the tile
+    // (UE's weightmap textures, four layers each) stacked along the image's height, page p in rows
+    // [p * SamplesZ, (p + 1) * SamplesZ) - LandscapeWeightmapAtlasTexels. Updated in place per stroke so its
+    // address - part of TerrainTextureKey - stays put. LayerCount 0 means no weightmap: the tile shows its
+    // ground.
     struct LandscapeWeightDraw
     {
-        Image2D*                 Weightmap  = nullptr;
-        uint32_t                 LayerCount = 0;
-        std::array<glm::vec4, 4> Colors{};
-        glm::vec4                AlphaBlend{ 0.0f };
+        Image2D*                                                           Weightmap  = nullptr;
+        uint32_t                                                           LayerCount = 0;
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
+        std::array<glm::vec4, 2>                                           AlphaBlend{};
+        // The root's first layer colour (rgb) with a = 1, or a = 0 when the root names no layer - drawn
+        // where the tile has no weightmap or its layers leave a pixel unclaimed.
+        glm::vec4 Ground{ 0.0f };
     };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first

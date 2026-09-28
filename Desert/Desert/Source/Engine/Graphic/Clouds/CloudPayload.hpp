@@ -281,9 +281,8 @@ namespace Desert::Graphic
      * period of the erosion rather than a saving.
      *
      * FOUR AND NOT MORE, because a layer has four species and therefore at most four distinct volumes.
-     * THEY COST NOTHING IN MEMORY: Assets::AssetPreloader uploads every `.dcnv` in the project at startup
-     * whatever any scene names, so the images are already resident and this is four descriptors pointing
-     * at bytes that were paid for either way.
+     * THEY COST ONLY WHAT IS NAMED: a `.dcnv` is read and uploaded when a layer names it (AL1-2), so the
+     * four descriptors point at volumes the scene asked for, never at the whole project's.
      *
      * SLOT 0 KEEPS BINDING 3 so that the number the whole subsystem has always meant by "the cloud noise"
      * is unchanged, and the three that follow take the first free numbers after the authored atlas.

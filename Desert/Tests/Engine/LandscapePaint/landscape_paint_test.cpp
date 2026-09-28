@@ -13,6 +13,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <map>
 #include <numeric>
 #include <utility>
@@ -22,6 +25,7 @@ using namespace Desert::World::Landscape;
 namespace
 {
     using glm::mix;
+    using glm::vec2;
     using glm::vec3;
     using glm::vec4;
     DESERT_GLSL_AS_CPP_BEGIN
@@ -74,6 +78,25 @@ TEST( LandscapePaint, PaintingAOverBKeepsTheSumAt255 )
     LandscapeNormalizeWeights( w, three, 0, 0u );
     EXPECT_EQ( w[0], 0 );
     EXPECT_EQ( Sum( w ), 255 );
+}
+
+TEST( LandscapePaint, PaintingOverAFadedLayerDoesNotPumpItUp )
+{
+    // The LS-13 frame's staircase: at the soft edge of an earlier stroke a sample holds A = 100 and the rest
+    // (155) is unpainted ground. Painting B to 30 there fits in the unclaimed share — A must stay 100.
+    // Scaling A up to 225 to "keep the sum at 255" turned every faint sample the new brush touched into a
+    // full one, a hard edge on the sample grid wherever the two strokes met.
+    const std::vector<LandscapeLayerRule> rules = { { "A", 0.5f, false }, { "B", 0.5f, false } };
+    std::vector<uint8_t>                  w     = { 100u, 0u };
+    LandscapeNormalizeWeights( w, rules, 1, 30u );
+    EXPECT_EQ( w, ( std::vector<uint8_t>{ 100u, 30u } ) );
+    // Past the unclaimed share, A gives exactly the overflow.
+    LandscapeNormalizeWeights( w, rules, 1, 200u );
+    EXPECT_EQ( w, ( std::vector<uint8_t>{ 55u, 200u } ) );
+    // Erasing B from a sample that was not full gives A back only what B held, not up to 255.
+    std::vector<uint8_t> partial = { 60u, 40u };
+    LandscapeNormalizeWeights( partial, rules, 1, 10u );
+    EXPECT_EQ( partial, ( std::vector<uint8_t>{ 90u, 10u } ) );
 }
 
 TEST( LandscapePaint, NoWeightBlendLayerIsNeitherNormalisedNorCounted )
@@ -136,7 +159,9 @@ TEST( LandscapePaint, TileBlobRoundTripsWeightLayers )
     EXPECT_FALSE( DecodeLandscapeTile( bad ).IsSuccess() );
 }
 
-TEST( LandscapePaint, VersionOneBlobIsATileWithNoWeightLayers )
+// No legacy reader (LS-15): a well-formed v1 blob - valid checksum, valid sizes - is refused by its number,
+// never read as a tile with no weight layers.
+TEST( LandscapePaint, VersionOneBlobIsRefusedByItsNumber )
 {
     LandscapeTileData tile = Tile( 3 );
     tile.SetSample( 1, 1, 40000u );
@@ -148,21 +173,76 @@ TEST( LandscapePaint, VersionOneBlobIsATileWithNoWeightLayers )
     for ( int i = 0; i < 4; ++i )
         blob.push_back( static_cast<unsigned char>( ( crc >> ( 8 * i ) ) & 0xFFu ) );
     auto v1 = DecodeLandscapeTile( blob );
-    ASSERT_TRUE( v1.IsSuccess() ) << v1.GetError();
-    EXPECT_TRUE( v1.GetValue().WeightLayers().empty() );
-    EXPECT_EQ( v1.GetValue().Sample( 1, 1 ), 40000u );
+    ASSERT_FALSE( v1.IsSuccess() );
+    EXPECT_NE( v1.GetError().find( "version 1 " ), std::string::npos ) << v1.GetError();
+    EXPECT_NE( v1.GetError().find( "supported 2" ), std::string::npos ) << v1.GetError();
 }
 
-TEST( LandscapePaint, FifthLayerIsRefusedByName )
+TEST( LandscapePaint, NinthLayerIsRefusedByName )
 {
+    // Owner decision O3: up to eight paint layers a tile.
     LandscapeTileData tile = Tile( 3 );
-    for ( const char* name : { "A", "B", "C", "D" } )
-        ASSERT_TRUE( tile.AddWeightLayer( name ).IsSuccess() );
-    auto fifth = tile.AddWeightLayer( "E" );
-    ASSERT_FALSE( fifth.IsSuccess() );
-    EXPECT_NE( fifth.GetError().find( "'E'" ), std::string::npos );
+    for ( const char* name : { "A", "B", "C", "D", "E", "F", "G", "H" } )
+        ASSERT_TRUE( tile.AddWeightLayer( name ).IsSuccess() ) << name;
+    auto ninth = tile.AddWeightLayer( "I" );
+    ASSERT_FALSE( ninth.IsSuccess() );
+    EXPECT_NE( ninth.GetError().find( "'I'" ), std::string::npos );
     auto again = tile.AddWeightLayer( "B" );
     EXPECT_EQ( again.GetValue(), 1u ); // an existing name is found, not refused
+
+    std::vector<LandscapeWeightLayer> nine = tile.WeightLayers();
+    nine.push_back( { "I", std::vector<uint8_t>( 9u, 0u ) } );
+    EXPECT_FALSE( tile.SetWeightLayers( nine ).IsSuccess() );
+    EXPECT_EQ( tile.WeightLayers().size(), 8u ); // the refusal wrote nothing
+}
+
+TEST( LandscapePaint, EightLayersRoundTripAndANinthInABlobIsRefused )
+{
+    LandscapeTileData tile    = Tile( 5 );
+    const char*       names[] = { "A", "B", "C", "D", "E", "F", "G", "H" };
+    for ( uint8_t l = 0; l < 8u; ++l )
+        Fill( tile, names[l], static_cast<uint8_t>( 10u + l ) );
+
+    const std::vector<unsigned char> blob = EncodeLandscapeTile( tile );
+    auto                             back = DecodeLandscapeTile( blob );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    ASSERT_EQ( back.GetValue().WeightLayers().size(), 8u );
+    for ( size_t l = 0; l < 8u; ++l )
+    {
+        EXPECT_EQ( back.GetValue().WeightLayers()[l].Name, names[l] );
+        EXPECT_EQ( back.GetValue().WeightLayers()[l].Weights, tile.WeightLayers()[l].Weights );
+    }
+
+    // The same blob claiming nine layers, with a checksum that matches: refused on the count, by number.
+    std::vector<unsigned char> nine  = blob;
+    const size_t               count = kLandscapeTileHeaderSize + 2u * 25u;
+    ASSERT_EQ( nine[count], 8u );
+    nine[count]         = 9u;
+    const size_t   body = nine.size() - kLandscapeTileTrailerSize;
+    const uint32_t crc  = Common::Utils::Crc32c( nine.data(), body );
+    for ( size_t b = 0; b < 4u; ++b )
+        nine[body + b] = static_cast<unsigned char>( crc >> ( 8u * b ) );
+    auto refused = DecodeLandscapeTile( nine );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "9 weight layers" ), std::string::npos ) << refused.GetError();
+}
+
+TEST( LandscapePaint, EightWeightBlendedLayersAlwaysSumToExactly255 )
+{
+    // Every layer painted to every value in turn, from an uneven start: the rounding residue of seven
+    // proportional shares must land somewhere every time, and never make the sum 254 or 256.
+    const std::vector<LandscapeLayerRule> rules = {
+         { "A", 0.0f, false }, { "B", 0.2f, false }, { "C", 0.5f, false }, { "D", 0.9f, false },
+         { "E", 1.0f, false }, { "F", 0.5f, false }, { "G", 0.3f, false }, { "H", 0.7f, false } };
+    std::vector<uint8_t> w = { 30u, 30u, 30u, 30u, 30u, 30u, 30u, 45u };
+    ASSERT_EQ( Sum( w ), 255 );
+    for ( size_t painted = 0; painted < 8u; ++painted )
+        for ( int value = 0; value <= 255; value += 13 )
+        {
+            LandscapeNormalizeWeights( w, rules, painted, static_cast<uint8_t>( value ) );
+            ASSERT_EQ( Sum( w ), 255 ) << "layer " << painted << " painted to " << value;
+            EXPECT_EQ( w[painted], value ) << "layer " << painted;
+        }
 }
 
 TEST( LandscapePaint, WeightWritesDirtyOnlyTheWeightConsumer )
@@ -277,7 +357,7 @@ TEST( LandscapePaint, UndoAndRedoDirtyTheWeightmapAndRestoreItsTexels )
                              LandscapeDirtyConsumer::Weights } )
                 tile.TakeDirtyRects( c );
     };
-    const std::vector<uint8_t> westBefore = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) );
+    const std::vector<uint8_t> westBefore = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u );
     drainAll();
 
     LandscapePaintStroke   stroke( root, lookup, { { "Grass", 0.5f, false }, { "Rock", 0.5f, false } } );
@@ -292,7 +372,7 @@ TEST( LandscapePaint, UndoAndRedoDirtyTheWeightmapAndRestoreItsTexels )
     for ( int step = 0; step < 5; ++step )
         ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
     ASSERT_FALSE( tiles.at( { 1, 0 } ).WeightLayers().empty() );
-    const std::vector<uint8_t> westStroke = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) );
+    const std::vector<uint8_t> westStroke = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u );
     ASSERT_NE( westStroke, westBefore ); // the stroke did change what the GPU shows
     auto record = stroke.Finish();
     ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
@@ -307,14 +387,14 @@ TEST( LandscapePaint, UndoAndRedoDirtyTheWeightmapAndRestoreItsTexels )
         EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() ) << "tile " << key.first;
         EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Physics ).empty() ) << "tile " << key.first;
     }
-    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) ), westBefore );
+    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u ), westBefore );
     EXPECT_TRUE( tiles.at( { 1, 0 } ).WeightLayers().empty() );
 
     drainAll();
     ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), false ).IsSuccess() );
     EXPECT_FALSE( tiles.at( { 0, 0 } ).DirtyRects( LandscapeDirtyConsumer::Weights ).empty() );
     EXPECT_FALSE( tiles.at( { 1, 0 } ).DirtyRects( LandscapeDirtyConsumer::Weights ).empty() );
-    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) ), westStroke );
+    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ), 0u ), westStroke );
 }
 
 TEST( LandscapePaint, UnknownTargetLayerIsRefused )
@@ -339,81 +419,145 @@ int main( int argc, char** argv )
 
 namespace
 {
-    // The root's layer list as LandscapeECSSystem hands it over (ECS::LandscapeLayerInfo has these members).
+    // The root's layer list as LandscapeECSSystem hands it over: the `.delayerinfo` data of each target layer
+    // (Assets::Serialization::LandscapeLayerInfoData has these members).
     struct RootLayer
     {
-        std::string Name;
-        float       Hardness      = 0.5f;
-        bool        NoWeightBlend = false;
-        glm::vec3   Color         = glm::vec3( 1.0f );
+        std::string LayerName;
+        float       Hardness             = 0.5f;
+        bool        NoWeightBlend        = false;
+        glm::vec3   LayerUsageDebugColor = glm::vec3( 1.0f );
     };
 
-    const vec4 kC0( 0.9f, 0.1f, 0.1f, 1.0f );
-    const vec4 kC1( 0.2f, 0.6f, 0.1f, 1.0f );
-    const vec4 kC2( 0.1f, 0.2f, 0.8f, 1.0f );
-    const vec4 kC3( 0.5f, 0.5f, 0.5f, 1.0f );
-    const vec3 kRule( 0.35f, 0.3f, 0.25f );
-    const vec4 kWeightBlendAll( 0.0f );
+    using Colors = std::array<vec4, kLandscapeMaxWeightLayers>;
+
+    const Colors kColors = { vec4( 0.9f, 0.1f, 0.1f, 1.0f ), vec4( 0.2f, 0.6f, 0.1f, 1.0f ),
+                             vec4( 0.1f, 0.2f, 0.8f, 1.0f ), vec4( 0.5f, 0.5f, 0.5f, 1.0f ),
+                             vec4( 0.7f, 0.6f, 0.2f, 1.0f ), vec4( 0.3f, 0.1f, 0.5f, 1.0f ),
+                             vec4( 0.0f, 0.4f, 0.4f, 1.0f ), vec4( 0.95f, 0.9f, 0.85f, 1.0f ) };
+    const vec3   kGround( 0.35f, 0.3f, 0.25f );
+    const vec4   kWeightBlendAll( 0.0f );
+
+    // The shader's call: two weightmap pages, the eight layer colours of the instance row, two alpha pages.
+    vec3 Blend( vec4 w0, vec4 w1, const Colors& c, vec4 alpha0, vec4 alpha1, vec3 ground )
+    {
+        return LandscapeWeightBlend( w0, w1, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], alpha0, alpha1,
+                                     ground );
+    }
+
+    vec3 Blend( vec4 w0, const Colors& c, vec4 alpha0, vec3 ground )
+    {
+        return Blend( w0, vec4( 0.0f ), c, alpha0, kWeightBlendAll, ground );
+    }
 } // namespace
 
 TEST( LandscapePaint, FullyPaintedLayerIsExactlyItsColour )
 {
-    for ( const vec3 rule : { kRule, vec3( 0.0f ), vec3( 1.0f ) } )
+    for ( const vec3 ground : { kGround, vec3( 0.0f ), vec3( 1.0f ) } )
     {
-        const LandscapeWeightBlendResult r =
-             LandscapeWeightBlend( vec4( 0.0f, 1.0f, 0.0f, 0.0f ), kC0, kC1, kC2, kC3, kWeightBlendAll, rule );
-        EXPECT_EQ( r.Albedo, vec3( kC1 ) );
-        EXPECT_EQ( r.RuleShare, 0.0f );
+        const vec3 r = Blend( vec4( 0.0f, 1.0f, 0.0f, 0.0f ), kColors, kWeightBlendAll, ground );
+        EXPECT_EQ( r, vec3( kColors[1] ) );
     }
 }
 
-TEST( LandscapePaint, UnpaintedGroundKeepsTheRuleAlbedoExactly )
+TEST( LandscapePaint, EveryLayerOfBothPagesPaintsItsOwnColour )
+{
+    // Layer i is page i / 4, channel i % 4: a full weight on each of the eight in turn is exactly that
+    // layer's colour — the fifth to eighth come from the second page, which one RGBA8 texture never reached.
+    for ( uint32_t layer = 0; layer < kLandscapeMaxWeightLayers; ++layer )
+    {
+        std::array<vec4, 2> w{};
+        w[layer / 4u][static_cast<glm::length_t>( layer % 4u )] = 1.0f;
+        const vec3 r = Blend( w[0], w[1], kColors, kWeightBlendAll, kWeightBlendAll, kGround );
+        EXPECT_EQ( r, vec3( kColors[layer] ) ) << "layer " << layer;
+    }
+}
+
+TEST( LandscapePaint, UnpaintedGroundKeepsTheGroundAlbedoExactly )
 {
     // UE allocates a layer to a tile on its first stroke with every weight zero; the ground around the
-    // stroke must stay what the height/slope rules made it, not turn black.
-    const LandscapeWeightBlendResult r =
-         LandscapeWeightBlend( vec4( 0.0f ), kC0, kC1, kC2, kC3, kWeightBlendAll, kRule );
-    EXPECT_EQ( r.Albedo, kRule );
-    EXPECT_EQ( r.RuleShare, 1.0f );
+    // stroke must stay the ground (the root's first layer), not turn black.
+    const vec3 r = Blend( vec4( 0.0f ), kColors, kWeightBlendAll, kGround );
+    EXPECT_EQ( r, kGround );
 }
 
 TEST( LandscapePaint, TwoWeightBlendedLayersMixByTheirWeights )
 {
     const vec4                       w( 128.0f / 255.0f, 127.0f / 255.0f, 0.0f, 0.0f );
-    const LandscapeWeightBlendResult r = LandscapeWeightBlend( w, kC0, kC1, kC2, kC3, kWeightBlendAll, kRule );
-    const vec3                       expected = vec3( kC0 ) * w.x + vec3( kC1 ) * w.y;
+    const vec3                       r        = Blend( w, kColors, kWeightBlendAll, kGround );
+    const vec3                       expected = vec3( kColors[0] ) * w.x + vec3( kColors[1] ) * w.y;
     for ( int c = 0; c < 3; ++c )
-        EXPECT_NEAR( r.Albedo[c], expected[c], 1e-6f ) << "channel " << c;
-    EXPECT_NEAR( r.RuleShare, 0.0f, 1e-6f );
+        EXPECT_NEAR( r[c], expected[c], 1e-6f ) << "channel " << c;
+}
+
+TEST( LandscapePaint, LayersOnDifferentPagesMixByTheirWeights )
+{
+    // Weights that sum to 255 across the page boundary (layers 2, 5 and 7): the claim is counted over both
+    // pages, so nothing of the ground ground shows through.
+    const vec4                       w0( 0.0f, 0.0f, 100.0f / 255.0f, 0.0f );
+    const vec4                       w1( 0.0f, 80.0f / 255.0f, 0.0f, 75.0f / 255.0f );
+    const vec3                       r = Blend( w0, w1, kColors, kWeightBlendAll, kWeightBlendAll, kGround );
+    const vec3 expected = vec3( kColors[2] ) * w0.z + vec3( kColors[5] ) * w1.y + vec3( kColors[7] ) * w1.w;
+    for ( int c = 0; c < 3; ++c )
+        EXPECT_NEAR( r[c], expected[c], 1e-6f ) << "channel " << c;
 }
 
 TEST( LandscapePaint, ChannelTheRootDoesNotNameIsIgnored )
 {
-    vec4 unnamed = kC2;
-    unnamed.a    = 0.0f;
-    const LandscapeWeightBlendResult r =
-         LandscapeWeightBlend( vec4( 0.0f, 0.0f, 1.0f, 0.0f ), kC0, kC1, unnamed, kC3, kWeightBlendAll, kRule );
-    EXPECT_EQ( r.Albedo, kRule );
-    EXPECT_EQ( r.RuleShare, 1.0f );
+    for ( const uint32_t layer : { 2u, 6u } )
+    {
+        Colors unnamed   = kColors;
+        unnamed[layer].a = 0.0f;
+        std::array<vec4, 2> w{};
+        w[layer / 4u][static_cast<glm::length_t>( layer % 4u )] = 1.0f;
+        const vec3 r = Blend( w[0], w[1], unnamed, kWeightBlendAll, kWeightBlendAll, kGround );
+        EXPECT_EQ( r, kGround ) << "layer " << layer;
+    }
 }
 
 TEST( LandscapePaint, NoWeightBlendLayerIsLaidOverTheBlendNotCountedInIt )
 {
     // UE's LB_AlphaBlend: a lerp over the weight-blended result, applied after it.
     const vec4                       alpha3( 0.0f, 0.0f, 0.0f, 1.0f );
-    const LandscapeWeightBlendResult half =
-         LandscapeWeightBlend( vec4( 0.0f, 0.0f, 0.0f, 0.5f ), kC0, kC1, kC2, kC3, alpha3, kRule );
-    const vec3 expected = mix( kRule, vec3( kC3 ), 0.5f );
+    const vec3                       half     = Blend( vec4( 0.0f, 0.0f, 0.0f, 0.5f ), kColors, alpha3, kGround );
+    const vec3                       expected = mix( kGround, vec3( kColors[3] ), 0.5f );
     for ( int c = 0; c < 3; ++c )
-        EXPECT_NEAR( half.Albedo[c], expected[c], 1e-6f ) << "channel " << c;
-    EXPECT_NEAR( half.RuleShare, 0.5f, 1e-6f );
+        EXPECT_NEAR( half[c], expected[c], 1e-6f ) << "channel " << c;
 
     // Full weight on a weight-blended layer AND on the no-weight-blend one: the latter covers, and its
     // weight never took anything from the former's claim.
-    const LandscapeWeightBlendResult over =
-         LandscapeWeightBlend( vec4( 1.0f, 0.0f, 0.0f, 1.0f ), kC0, kC1, kC2, kC3, alpha3, kRule );
-    EXPECT_EQ( over.Albedo, vec3( kC3 ) );
-    EXPECT_EQ( over.RuleShare, 0.0f );
+    const vec3 over = Blend( vec4( 1.0f, 0.0f, 0.0f, 1.0f ), kColors, alpha3, kGround );
+    EXPECT_EQ( over, vec3( kColors[3] ) );
+}
+
+TEST( LandscapePaint, NoWeightBlendLayerOnTheSecondPageIsLaidOverLast )
+{
+    // Layer 6 (page 1, channel 2) is NoWeightBlend: at half weight over a fully painted layer 0 it is a
+    // half lerp, and it is applied after the first page's own lerps (layer order).
+    const vec4                       alpha1( 0.0f, 0.0f, 1.0f, 0.0f );
+    const vec3 r = Blend( vec4( 1.0f, 0.0f, 0.0f, 0.0f ), vec4( 0.0f, 0.0f, 0.5f, 0.0f ), kColors, kWeightBlendAll,
+                          alpha1, kGround );
+    const vec3                       expected = mix( vec3( kColors[0] ), vec3( kColors[6] ), 0.5f );
+    for ( int c = 0; c < 3; ++c )
+        EXPECT_NEAR( r[c], expected[c], 1e-6f ) << "channel " << c;
+}
+
+TEST( LandscapePaint, PageUVStaysInsideItsPageRows )
+{
+    // A 5 x 5 sample tile with two pages is a 5 x 10 image; sample row z of page p is image row p * 5 + z.
+    const vec2 size( 5.0f, 10.0f );
+    for ( const float page : { 0.0f, 1.0f } )
+        for ( const float z : { 0.0f, 2.0f, 4.0f } )
+        {
+            const vec2 uv = LandscapeWeightmapPageUV( vec2( 3.0f, z ), page, size, 2.0f );
+            EXPECT_FLOAT_EQ( uv.x, 3.5f / 5.0f );
+            EXPECT_FLOAT_EQ( uv.y * size.y, page * 5.0f + z + 0.5f ) << "page " << page << " row " << z;
+        }
+    // The tile's last sample row is a texel centre: the bilinear filter reaches no row of the other page.
+    EXPECT_FLOAT_EQ( LandscapeWeightmapPageUV( vec2( 0.0f, 4.0f ), 0.0f, size, 2.0f ).y * size.y, 4.5f );
+    EXPECT_FLOAT_EQ( LandscapeWeightmapPageUV( vec2( 0.0f, 0.0f ), 1.0f, size, 2.0f ).y * size.y, 5.5f );
+    // One page: the whole image.
+    EXPECT_FLOAT_EQ( LandscapeWeightmapPageUV( vec2( 0.0f, 4.0f ), 0.0f, vec2( 5.0f ), 1.0f ).y, 4.5f / 5.0f );
 }
 
 TEST( LandscapePaint, WeightmapTexelCarriesTheTileLayersInChannelOrder )
@@ -424,7 +568,7 @@ TEST( LandscapePaint, WeightmapTexelCarriesTheTileLayersInChannelOrder )
     ASSERT_TRUE(
          tile.WriteWeightRegion( 1u, LandscapeRect{ 2u, 1u, 3u, 2u }, std::vector<uint8_t>{ 77u } ).IsSuccess() );
 
-    const std::vector<uint8_t> texels = LandscapeWeightmapTexels( tile );
+    const std::vector<uint8_t> texels = LandscapeWeightmapTexels( tile, 0u );
     ASSERT_EQ( texels.size(), 9u * 4u );
     for ( uint32_t i = 0; i < 9u; ++i )
     {
@@ -450,7 +594,143 @@ TEST( LandscapePaint, ChannelsTakeTheirLookFromTheRootLayerOfTheSameName )
     EXPECT_EQ( channels.Colors[1], vec4( 0.0f ) ); // "Ghost" is not the root's: drawn as unpainted, reported
     EXPECT_EQ( channels.Colors[2], vec4( 0.1f, 0.5f, 0.1f, 1.0f ) );
     EXPECT_EQ( channels.Colors[3], vec4( 0.0f ) );
-    EXPECT_EQ( channels.AlphaBlend, vec4( 1.0f, 0.0f, 0.0f, 0.0f ) );
+    EXPECT_EQ( channels.AlphaBlend[0], 1.0f );
+    EXPECT_EQ( channels.AlphaBlend[1], 0.0f );
+    EXPECT_EQ( channels.AlphaBlend[2], 0.0f );
     ASSERT_EQ( channels.Unknown.size(), 1u );
     EXPECT_EQ( channels.Unknown[0], "Ghost" );
+}
+
+TEST( LandscapePaint, LayersFiveToEightFillTheSecondWeightmapPage )
+{
+    // UE's allocation: layer i in weightmap texture i / 4, channel i % 4.
+    LandscapeTileData tile = Tile( 2 );
+    for ( uint8_t l = 0; l < 6u; ++l )
+        Fill( tile, std::string( 1, static_cast<char>( 'A' + l ) ), static_cast<uint8_t>( 1u + l ) );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 0u ), 0u );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 4u ), 1u );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 5u ), 2u );
+    EXPECT_EQ( LandscapeWeightmapPageCount( 8u ), 2u );
+
+    const std::vector<uint8_t> page0 = LandscapeWeightmapTexels( tile, 0u );
+    const std::vector<uint8_t> page1 = LandscapeWeightmapTexels( tile, 1u );
+    ASSERT_EQ( page1.size(), 4u * 4u );
+    for ( uint32_t t = 0; t < 4u; ++t )
+    {
+        EXPECT_EQ( page0[t * 4u + 0u], 1u );
+        EXPECT_EQ( page0[t * 4u + 3u], 4u );
+        EXPECT_EQ( page1[t * 4u + 0u], 5u ) << "texel " << t;
+        EXPECT_EQ( page1[t * 4u + 1u], 6u ) << "texel " << t;
+        EXPECT_EQ( page1[t * 4u + 2u], 0u ) << "texel " << t; // no seventh layer
+        EXPECT_EQ( page1[t * 4u + 3u], 0u ) << "texel " << t;
+    }
+}
+
+TEST( LandscapePaint, AtlasStacksEveryPageAlongTheHeight )
+{
+    // The upload the terrain samples: page 0's rows, then page 1's, each exactly LandscapeWeightmapTexels.
+    LandscapeTileData tile = Tile( 3 );
+    for ( uint8_t l = 0; l < 7u; ++l )
+        Fill( tile, std::string( 1, static_cast<char>( 'A' + l ) ), static_cast<uint8_t>( 10u + l ) );
+    const std::vector<uint8_t> atlas = LandscapeWeightmapAtlasTexels( tile );
+    const std::vector<uint8_t> page0 = LandscapeWeightmapTexels( tile, 0u );
+    const std::vector<uint8_t> page1 = LandscapeWeightmapTexels( tile, 1u );
+    ASSERT_EQ( atlas.size(), 3u * 3u * 2u * 4u );
+    EXPECT_TRUE( std::equal( page0.begin(), page0.end(), atlas.begin() ) );
+    EXPECT_TRUE(
+         std::equal( page1.begin(), page1.end(), atlas.begin() + static_cast<std::ptrdiff_t>( page0.size() ) ) );
+    EXPECT_EQ( atlas[page0.size() + 2u], 16u ); // seventh layer: page 1, channel 2
+
+    LandscapeTileData four = Tile( 3 );
+    for ( uint8_t l = 0; l < 4u; ++l )
+        Fill( four, std::string( 1, static_cast<char>( 'A' + l ) ), 1u );
+    EXPECT_EQ( LandscapeWeightmapAtlasTexels( four ), LandscapeWeightmapTexels( four, 0u ) );
+    EXPECT_TRUE( LandscapeWeightmapAtlasTexels( Tile( 3 ) ).empty() );
+}
+
+TEST( LandscapePaint, AlphaBlendFlagsPackLikeTheWeights )
+{
+    LandscapeWeightChannels channels;
+    channels.Count                  = 7u;
+    channels.AlphaBlend[1]          = 1.0f;
+    channels.AlphaBlend[6]          = 1.0f;
+    const std::array<vec4, 2> pages = LandscapeAlphaBlendPages( channels );
+    EXPECT_EQ( pages[0], vec4( 0.0f, 1.0f, 0.0f, 0.0f ) );
+    EXPECT_EQ( pages[1], vec4( 0.0f, 0.0f, 1.0f, 0.0f ) );
+}
+
+// LS-14: one press of the brush is ONE transaction, and undo/redo are exact. The press drags across three
+// tiles (one of which starts with no layers at all), paints and then erases with Shift, so the record must
+// carry a tile that gained its first layers, a tile that gained a second one, and a tile it never reached must
+// stay out of it. Undo gives back every byte of every tile — names, order and weights — and redo every byte
+// of the painted state, twice over, so neither direction drifts.
+TEST( LandscapePaint, OneStrokeUndoesAndRedoesBitForBitAcrossTiles )
+{
+    LandscapeRoot root;
+    root.QuadsPerTile = 7;
+    root.SpacingCm    = 100.0f;
+    std::map<std::pair<int32_t, int32_t>, LandscapeTileData> tiles;
+    for ( int32_t tx = 0; tx < 4; ++tx )
+        tiles.emplace( std::make_pair( tx, 0 ), Tile( 8 ) );
+    Fill( tiles.at( { 0, 0 } ), "Rock", 255u );
+    Fill( tiles.at( { 1, 0 } ), "Rock", 200u ); // an unclaimed share of 55: the rule ground
+    const LandscapeTileLookup lookup = [&]( int32_t x, int32_t z )
+    {
+        auto it = tiles.find( { x, z } );
+        if ( it == tiles.end() )
+            return LandscapeTileSlot{};
+        return LandscapeTileSlot{ LandscapeTileState::Present, &it->second };
+    };
+    using Snapshot      = std::vector<std::vector<LandscapeWeightLayer>>;
+    const auto snapshot = [&]
+    {
+        Snapshot all;
+        for ( auto& [key, tile] : tiles )
+            all.push_back( tile.WeightLayers() );
+        return all;
+    };
+    const auto same = []( const Snapshot& a, const Snapshot& b )
+    {
+        if ( a.size() != b.size() )
+            return false;
+        for ( size_t t = 0; t < a.size(); ++t )
+        {
+            if ( a[t].size() != b[t].size() )
+                return false;
+            for ( size_t l = 0; l < a[t].size(); ++l )
+                if ( a[t][l].Name != b[t][l].Name || a[t][l].Weights != b[t][l].Weights )
+                    return false;
+        }
+        return true;
+    };
+    const Snapshot before = snapshot();
+
+    LandscapePaintStroke   stroke( root, lookup, { { "Grass", 0.5f, false }, { "Rock", 0.5f, false } } );
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 250.0f;
+    brush.Strength = 0.6f;
+    LandscapePaintSettings paint;
+    paint.Layer = "Grass";
+    for ( int step = 0; step < 12; ++step )
+    {
+        const glm::vec2 at( 300.0f + 100.0f * static_cast<float>( step ), 350.0f ); // drags west to east
+        auto            weights = ComputeLandscapeBrush( root, brush, { &at, 1 } );
+        ASSERT_TRUE( weights.IsSuccess() );
+        ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, step >= 9 ).IsSuccess() );
+    }
+    const Snapshot after = snapshot();
+    ASSERT_FALSE( same( before, after ) );
+    ASSERT_TRUE( tiles.at( { 3, 0 } ).WeightLayers().empty() ) << "the brush never reached tile 3";
+
+    auto record = stroke.Finish();
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    EXPECT_EQ( record.GetValue().Tiles.size(), 3u ) << "tiles 0..2 were touched, tile 3 was not";
+
+    for ( int round = 0; round < 2; ++round )
+    {
+        ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), true ).IsSuccess() );
+        EXPECT_TRUE( same( snapshot(), before ) ) << "undo, round " << round;
+        ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), false ).IsSuccess() );
+        EXPECT_TRUE( same( snapshot(), after ) ) << "redo, round " << round;
+    }
 }

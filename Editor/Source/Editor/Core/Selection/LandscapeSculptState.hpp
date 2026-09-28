@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/World/Landscape/LandscapeGenerator.hpp>
 #include <Engine/World/Landscape/LandscapePaint.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
@@ -235,6 +236,8 @@ namespace Desert::Editor::Core
     /// the user had picked survives a trip to Paint and back.
     enum class LandscapeEdMode : uint8_t
     {
+        /// UE's Manage tab: New Landscape. No viewport tool — the landscape is made by the panel's Create.
+        Manage,
         Sculpt,
         Paint,
     };
@@ -245,16 +248,29 @@ namespace Desert::Editor::Core
         LandscapeSculptSettings Settings;
         /// The Paint tool's settings; the brush (Settings.Brush) is shared with the sculpt tools, as in UE.
         World::Landscape::LandscapePaintSettings Paint;
+        /// UE's New Landscape settings (Manage mode); kept across uses like UE's editor object keeps them.
+        World::Landscape::LandscapeGenerateSettings NewLandscape;
         LandscapeStrokeRequest                   Request = LandscapeStrokeRequest::None;
-        /// UE's FLandscapeToolRamp::Points, in world cm; applying keeps them, as UE does until the tool is reset.
-        std::optional<glm::vec3> RampStart;
-        std::optional<glm::vec3> RampEnd;
+        /// UE's FLandscapeToolRamp points, in world cm, and which one the mouse holds; applying keeps them, as UE
+        /// does until the tool is reset. Placed and dragged in the viewport, drawn by the gizmo overlay.
+        World::Landscape::LandscapeRampPoints RampPoints;
         /// UE's MirrorPoint in world cm; unset means the landscape's centre (UE's CenterMirrorPoint).
         std::optional<glm::vec3> MirrorPoint;
         /// The copy region's corners (UE: the gizmo's extent) and what the last Copy took.
         std::optional<glm::vec3>              CopyCornerA;
         std::optional<glm::vec3>              CopyCornerB;
         World::Landscape::LandscapeCopyBuffer CopyBuffer;
+
+        /// Why a stroke cannot start in the current mode, or nothing. The palette asks BEFORE it queues a stroke:
+        /// the queued stroke runs frames later, so its own refusal reached only a toast while the control
+        /// channel had already answered ok (GR-1b: 48 "ok" strokes, no weight written).
+        [[nodiscard]] std::optional<std::string> StrokeRefusal() const
+        {
+            if ( Mode == LandscapeEdMode::Paint && Paint.Layer.empty() )
+                return std::string( "landscape paint: no target layer is selected; pick one under Target Layers "
+                                    "or run 'Landscape: Target layer: <name>'" );
+            return std::nullopt;
+        }
 
         static LandscapeSculptState& Get()
         {

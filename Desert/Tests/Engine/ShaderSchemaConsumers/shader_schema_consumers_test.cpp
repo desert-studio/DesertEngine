@@ -756,10 +756,10 @@ namespace
     /// file once. The files are concatenated rather than spliced in place: the census asks whether a declaration
     /// EXISTS in what a stage compiles, not where.
     ///
-    /// WHY THE CENSUS FOLLOWS INCLUDES. Terrain.shader offers u_GrassTex/u_RockTex/u_SnowTex and its
-    /// fragment stage is a single `#include <Programs/Terrain/TerrainSurface.glslh>`, where the three
-    /// `sampler2D` lines live. Reading only the `.shader` file reported three wired slots as dead; moving
-    /// the declarations back to satisfy the census would have made the census the design authority.
+    /// WHY THE CENSUS FOLLOWS INCLUDES. Terrain.shader's fragment stage is a single
+    /// `#include <Programs/Terrain/TerrainSurface.glslh>`, where its `sampler2D` lines live. Reading only
+    /// the `.shader` file once reported wired slots as dead; moving the declarations back to satisfy the
+    /// census would have made the census the design authority.
     ///
     /// Directives are read from the RAW text, line by line: the stripper blanks what sits between the
     /// delimiters of an include, so the stripped text no longer names the file.
@@ -823,7 +823,7 @@ namespace
 TEST( ShaderSchemaConsumers, TheSamplerSearchFollowsIncludes )
 {
     // THE RELATION the sampler census depends on, pinned on the shader that needed it: Terrain.shader's
-    // own text declares none of its three texture samplers, and its expansion declares all three.
+    // own text declares none of its fragment samplers, and its expansion declares them.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";
@@ -833,7 +833,7 @@ TEST( ShaderSchemaConsumers, TheSamplerSearchFollowsIncludes )
     const std::string    own      = Strip( ReadAll( terrain ) );
     const ExpandedShader expanded = ExpandIncludes( shadersDir, terrain );
     EXPECT_TRUE( expanded.Unresolved.empty() ) << "first unresolved include: " << expanded.Unresolved.front();
-    for ( const char* name : { "u_GrassTex", "u_RockTex", "u_SnowTex" } )
+    for ( const char* name : { "u_Weightmap" } )
     {
         EXPECT_EQ( own.find( std::string( "sampler2D " ) + name ), std::string::npos )
              << name << " is declared in Terrain.shader itself again; this test no longer exercises includes";

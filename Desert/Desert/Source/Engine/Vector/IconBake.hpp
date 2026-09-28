@@ -18,6 +18,8 @@
 
 #include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstdint>
 #include <filesystem>
 #include <vector>
@@ -87,8 +89,8 @@ namespace Desert::Vector
     // Loose file first (dev override), then the mounted .dpak. false on miss/corruption.
     bool TryLoadBakedIcon( const std::filesystem::path& path, BakedIcon& out );
 
-    // Whether the bake actually landed on disk — best-effort for the runtime (a read-only install
+    // Whether the bake actually landed on disk, and if not why — best-effort for the runtime (a read-only install
     // keeps no cache), load-bearing for the packager: an unwritten cook ships nothing under that key
     // and the player pays the bake. See ShaderSpirvCache::StoreCachedSpirv for the same contract.
-    bool StoreBakedIcon( const std::filesystem::path& path, const BakedIcon& icon );
+    Common::BoolResultStr StoreBakedIcon( const std::filesystem::path& path, const BakedIcon& icon );
 } // namespace Desert::Vector

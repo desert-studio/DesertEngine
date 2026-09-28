@@ -115,6 +115,35 @@ TEST( ControlOrdering, DescribeNamesExactlyWhatIsOutstanding )
                std::string::npos );
 }
 
+// LS-10b: a background run (New Landscape's Create) answers its command at once. It holds no reply — a frame
+// drawn while it runs discharges the gate — yet the editor is not idle, and `state` names the run, which is
+// what a client polls before photographing the result.
+TEST( ControlOrdering, BackgroundWorkHoldsNoReplyButIsReportedUntilDone )
+{
+    using Desert::Editor::Control::BackgroundWork;
+    using Desert::Editor::Control::kBackgroundWorkNames;
+    for ( std::size_t i = 0; i < static_cast<std::size_t>( BackgroundWork::Count ); ++i )
+    {
+        EditorQuiescence running;
+        running.Set( static_cast<BackgroundWork>( i ), true );
+        EXPECT_TRUE( running.Settled() ) << kBackgroundWorkNames[i];
+        EXPECT_TRUE( running.Describe().empty() ) << "a refusal must not blame a run nobody waits for";
+        EXPECT_FALSE( running.Idle() ) << kBackgroundWorkNames[i];
+        EXPECT_EQ( running.DescribeBackground(), kBackgroundWorkNames[i] );
+
+        FrameGate gate;
+        gate.ArmAfterExecution( 0 );
+        EXPECT_EQ( gate.ObserveFramePresented( 0, running ), GateVerdict::Discharged ) << kBackgroundWorkNames[i];
+    }
+    EXPECT_TRUE( Settled().Idle() );
+    EXPECT_TRUE( Settled().DescribeBackground().empty() );
+    // Foreground work still unsettles, background or not.
+    EditorQuiescence both = Busy( PendingWork::SceneLoad );
+    both.Set( BackgroundWork::LandscapeGenerate, true );
+    EXPECT_FALSE( both.Settled() );
+    EXPECT_FALSE( both.Idle() );
+}
+
 // ---------------------------------------------------------------------------------------------------
 // 1-3. Order, settling, and discharging once.
 // ---------------------------------------------------------------------------------------------------

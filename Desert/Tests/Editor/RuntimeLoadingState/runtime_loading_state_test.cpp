@@ -206,7 +206,10 @@ TEST( RuntimeLoadingState, GameplayTimeIsFrozenWhileTheGateIsShut )
     const std::string runtime = WithoutComments( ReadFile( root + kRuntimeLayer ) );
     ASSERT_FALSE( runtime.empty() );
 
-    const std::regex frozen( R"(m_Scene->OnUpdate\(\s*m_Content\.Loading\(\)\s*\?)" );
+    // The gate is the FIRST operand of the condition that zeroes the step; WP12 ORs further reasons after
+    // it (streaming waiting for the cell under the camera), which freeze time too and must not hide it.
+    const std::regex frozen(
+         R"(m_Scene->OnUpdate\(\s*m_Content\.Loading\(\)\s*(\|\|\s*\w+\s*)*\?\s*Common::Timestep\(\s*0\.0f\s*\))" );
     EXPECT_TRUE( std::regex_search( runtime, frozen ) )
          << kRuntimeLayer
          << " advances the scene with the wall-clock timestep while the loading screen is up. The "

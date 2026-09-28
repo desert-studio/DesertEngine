@@ -122,9 +122,6 @@ TEST( QueueSubmitCensus, EveryQueueCallOutsideTheDeviceLockIsAViolation )
             const fs::path& p = it->path();
             if ( p.extension() != ".cpp" && p.extension() != ".hpp" && p.extension() != ".h" )
                 continue;
-            // lightweightvk is a vendored third-party tree under our Vulkan folder; it is not compiled.
-            if ( p.string().find( "lightweightvk" ) != std::string::npos )
-                continue;
             ++scanned;
             const std::string src     = Desert::Tests::ConsumerText::StripCommentsAndLiterals( ReadAll( p ) );
             const bool        isOwner = p.generic_string().ends_with( k_Device );

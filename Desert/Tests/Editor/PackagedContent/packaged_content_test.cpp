@@ -66,6 +66,7 @@
 
 #include "../../TestSupport/result_assert.hpp"
 #include "../../TestSupport/pe_image.hpp"
+#include "../../TestSupport/scratch_dir.hpp"
 
 namespace fs = std::filesystem;
 
@@ -668,14 +669,14 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     // one this build renders, so a fixture that leaves it at zero is a fixture that gets refused.
     font.DistanceRangeTexels = Desert::Text::kDistanceRangeTexels;
     const uint64_t fontKey = Desert::Text::FontCacheKey( { 1, 2, 3 }, font.PixelHeight, {} );
-    Desert::Text::StoreBakedFont( Desert::Text::FontCachePath( fontKey ), font );
+    ASSERT_TRUE( Desert::Text::StoreBakedFont( Desert::Text::FontCachePath( fontKey ), font ).IsSuccess() );
 
     Desert::Vector::BakedIcon icon;
     icon.Aspect = 2.0f;
     icon.Layers.push_back(
          { std::vector<uint8_t>( Desert::Vector::kIconCellDim * Desert::Vector::kIconCellDim, 7 ), 0x11223344u } );
     const uint64_t iconKey = Desert::Vector::IconCacheKey( { 4, 5, 6 } );
-    Desert::Vector::StoreBakedIcon( Desert::Vector::IconCachePath( iconKey ), icon );
+    ASSERT_TRUE( Desert::Vector::StoreBakedIcon( Desert::Vector::IconCachePath( iconKey ), icon ).IsSuccess() );
 
     const auto result = Desert::Editor::BuildContentPak();
     ASSERT_TRUE( result.Success ) << result.Message;
@@ -973,8 +974,10 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     // A REAL font, so the cook has something to write: a scene-only project cooks nothing, and "nothing
     // was written" would then hold whichever order the packager used. The positive control at the end
     // proves this fixture does make the cook write.
-    const fs::path realFont = fs::current_path() / "Editor" / "Resources" / "Fonts" / "Roboto-Regular.ttf";
-    ASSERT_TRUE( fs::exists( realFont ) ) << "the suite runs from the repository root: " << realFont;
+    const fs::path repoRoot = Desert::TestSupport::RepositoryRoot();
+    ASSERT_FALSE( repoRoot.empty() ) << "no repository above the working directory";
+    const fs::path realFont = repoRoot / "Editor" / "Resources" / "Fonts" / "Roboto-Regular.ttf";
+    ASSERT_TRUE( fs::exists( realFont ) ) << realFont;
     fs::create_directories( proj / "Resources" / "Fonts" );
     fs::copy_file( realFont, proj / "Resources" / "Fonts" / "Roboto-Regular.ttf" );
 
@@ -1570,6 +1573,11 @@ namespace
              // the exact defect the asset was built to end. Covered by the ASSETS_PATH tree, since
              // Retargets/ lives under it.
              { "RETARGET_PATH", &P::RETARGET_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED: a FoliageComponent names its `.defoliage` (FO-1) and a landscape its `.delayerinfo`
+             // layers (LS-12b); a shipped scene resolves both at load, so a game without them loses its
+             // foliage and its paint layers. Covered by the ASSETS_PATH tree (Foliage/, Landscape/Layers/).
+             { "FOLIAGE_TYPE_PATH", &P::FOLIAGE_TYPE_PATH, RootVerdict::Packaged, "" },
+             { "LANDSCAPE_LAYER_INFO_PATH", &P::LANDSCAPE_LAYER_INFO_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
              { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
         };

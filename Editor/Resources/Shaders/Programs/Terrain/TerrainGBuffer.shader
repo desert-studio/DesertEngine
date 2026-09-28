@@ -12,10 +12,6 @@ Shader "TerrainGBuffer"
     Properties Binding(1)
     {
         Color       Tint ("Tint") = (1, 1, 1, 1)
-        Float       DetailTiling ("Texture Tiling (m)", Range(0.25,64)) = 4
-        Texture2D   u_GrassTex ("Grass Texture")
-        Texture2D   u_RockTex ("Rock Texture")
-        Texture2D   u_SnowTex ("Snow Texture")
     }
 
     State
@@ -36,7 +32,7 @@ Shader "TerrainGBuffer"
         // The G-buffer's four targets, as StaticMeshGBuffer.shader writes them.
         Out(0) vec4 oGBufferA;        // Albedo.rgb, Metallic.a
         Out(1) vec4 oGBufferB;        // Normal.rgb, Roughness.a
-        Out(2) vec4 oGBufferC;        // WorldPosition.xyz, texCount.w
+        Out(2) vec4 oGBufferC;        // WorldPosition.xyz, texCount.w (0: the ground samples no maps)
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
 
         #include <Programs/Terrain/TerrainSurface.glslh>
@@ -45,19 +41,12 @@ Shader "TerrainGBuffer"
         {
             TerrainSurface s = EvaluateTerrainSurface();
 
-            // Ground is a dielectric. Rock and grass are matte; snow is the one layer with a sheen — the
-            // forward program's Blinn gloss 0..0.5 over the snow cover, expressed as a roughness.
-            float roughness = mix( 0.9, 0.45, s.Snow );
-
-            // The complexity proxy the deferred debug view heat-maps: the three layer maps.
-            int texCount = 0;
-            if ( textureSize( u_GrassTex, 0 ).x > 1 ) texCount++;
-            if ( textureSize( u_RockTex, 0 ).x > 1 ) texCount++;
-            if ( textureSize( u_SnowTex, 0 ).x > 1 ) texCount++;
+            // Ground is a matte dielectric, as the forward program's diffuse-only lighting draws it.
+            const float roughness = 0.9;
 
             oGBufferA        = vec4( s.Albedo * u_Material.Tint.rgb, 0.0 );
             oGBufferB        = vec4( s.N, roughness );
-            oGBufferC        = vec4( v_WorldPos, float( texCount ) );
+            oGBufferC        = vec4( v_WorldPos, 0.0 );
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, 1.0 );
         }
     }

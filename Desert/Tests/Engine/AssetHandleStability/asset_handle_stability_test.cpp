@@ -26,6 +26,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/scratch_dir.hpp"
+
 #include <random>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -40,6 +42,8 @@
 #include <Engine/Assets/AssetMetadata.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/FoliageTypeAsset.hpp>
+#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -157,8 +161,15 @@ namespace
              { AssetTypeID::CloudLayout, "CloudLayoutAsset", &HandleOf<Desert::Assets::CloudLayoutAsset>,
                &MetadataTypeOf<Desert::Assets::CloudLayoutAsset>,
                &DeclaredTypeOf<Desert::Assets::CloudLayoutAsset> },
+             { AssetTypeID::FoliageType, "FoliageTypeAsset", &HandleOf<Desert::Assets::FoliageTypeAsset>,
+               &MetadataTypeOf<Desert::Assets::FoliageTypeAsset>,
+               &DeclaredTypeOf<Desert::Assets::FoliageTypeAsset> },
              { AssetTypeID::UITheme, "UIThemeAsset", &HandleOf<Desert::Assets::UIThemeAsset>,
                &MetadataTypeOf<Desert::Assets::UIThemeAsset>, &DeclaredTypeOf<Desert::Assets::UIThemeAsset> },
+             { AssetTypeID::LandscapeLayerInfo, "LandscapeLayerInfoAsset",
+               &HandleOf<Desert::Assets::LandscapeLayerInfoAsset>,
+               &MetadataTypeOf<Desert::Assets::LandscapeLayerInfoAsset>,
+               &DeclaredTypeOf<Desert::Assets::LandscapeLayerInfoAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -213,44 +224,7 @@ namespace
     // directory (that is what they measure), but the suites run from the tree root, and a test that died
     // between writing and cleaning up used to leave `Assets/Library/` or `RegistryProbe/Content/` in the
     // checkout (TST1). Here a failure can leave at most a directory in temp.
-    class ScratchWorkingDirectory
-    {
-    public:
-        ScratchWorkingDirectory()
-        {
-            std::error_code ec;
-            m_Previous = std::filesystem::current_path( ec );
-            if ( ec )
-            {
-                ADD_FAILURE() << "could not read the working directory: " << ec.message();
-                return;
-            }
-            m_Dir = std::filesystem::temp_directory_path( ec ) /
-                    ( "desert-assethandlestability-" + std::to_string( std::random_device{}() ) );
-            std::filesystem::create_directories( m_Dir, ec );
-            if ( !ec )
-                std::filesystem::current_path( m_Dir, ec );
-            if ( ec )
-                ADD_FAILURE() << "could not enter the scratch directory '" << m_Dir.string()
-                              << "': " << ec.message();
-        }
-
-        ~ScratchWorkingDirectory()
-        {
-            std::error_code ec;
-            if ( !m_Previous.empty() )
-                std::filesystem::current_path( m_Previous, ec );
-            if ( !m_Dir.empty() )
-                std::filesystem::remove_all( m_Dir, ec );
-        }
-
-        ScratchWorkingDirectory( const ScratchWorkingDirectory& )            = delete;
-        ScratchWorkingDirectory& operator=( const ScratchWorkingDirectory& ) = delete;
-
-    private:
-        std::filesystem::path m_Previous;
-        std::filesystem::path m_Dir;
-    };
+    using Desert::TestSupport::ScratchWorkingDirectory;
 
     // A file that exists for the duration of one test and is removed afterwards; create it inside a
     // ScratchWorkingDirectory, which owns the directories it needs.
@@ -794,9 +768,10 @@ TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
     // and most callers pass absolute paths, but shaders never do (SHADERDIR_PATH is const and is never
     // remapped), the prefab save box hardcodes a relative literal while the instantiate box defaults to
     // the absolute root, and .dpak entries arrive relative. One file under two spellings was two assets.
-    ProjectRootGuard guard;
+    const ScratchWorkingDirectory scratchDir;
+    ProjectRootGuard              guard;
 
-    const std::filesystem::path projectDir = std::filesystem::current_path() / "SpellingProbe";
+    const std::filesystem::path projectDir = scratchDir.Path() / "SpellingProbe";
     Common::Constants::Path::SetProjectRoot( projectDir, "Content" );
 
     const uint64_t absolute = HandleValue( projectDir / "Content" / "Clouds" / "Cumulus.dcnv" );
@@ -1069,7 +1044,7 @@ TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
     const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
 
-    const std::filesystem::path projectDir = std::filesystem::current_path() / "RegistryProbe";
+    const std::filesystem::path projectDir = scratchDir.Path() / "RegistryProbe";
     Common::Constants::Path::SetProjectRoot( projectDir, "Content" );
 
     Desert::Assets::AssetManager manager;
@@ -1098,7 +1073,7 @@ TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
     // The companion: a dedup key that answered "yes" to everything would satisfy the test above and
     // collapse the whole library onto one record.
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
+    Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
     const ScratchFile            a( "RegistryProbe/Content/A.hdr" );
@@ -1118,7 +1093,7 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
     // top of this file), so the registry's key has to carry the type as well or the second type would be
     // deduplicated away as a duplicate of the first.
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
+    Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
     const ScratchFile            shared( "RegistryProbe/Content/Shared.asset" );
@@ -1159,7 +1134,7 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 {
     const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
+    Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
 
@@ -1197,7 +1172,7 @@ TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
 {
     const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
-    Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
+    Common::Constants::Path::SetProjectRoot( scratchDir.Path() / "RegistryProbe", "Content" );
 
     Desert::Assets::AssetManager manager;
 
@@ -1314,6 +1289,8 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::ShaderGraph,
          AssetTypeID::AnimGraph,
          AssetTypeID::Retarget,
+         AssetTypeID::FoliageType,
+         AssetTypeID::LandscapeLayerInfo,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
@@ -1472,6 +1449,22 @@ TEST( AssetHandleStability, AThemeHandleIsHandleForGuidOfItsHeader )
     fs::remove_all( dir );
 }
 
+// LS-12b: a landscape names its layers by handle, so the handle must be the layer file's header GUID.
+TEST( AssetHandleStability, ALandscapeLayerInfoHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "LS12bLayerInfoHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path                                        file = dir / "Grass.delayerinfo";
+    Desert::Assets::Serialization::LandscapeLayerInfoData data;
+    data.LayerName = "Grass";
+    ASSERT_TRUE( Desert::Assets::LandscapeLayerInfoAsset::Save( file, data ) );
+    ExpectHeaderGuidIdentity<Desert::Assets::LandscapeLayerInfoAsset>(
+         file, Common::Content::ContentKind::LandscapeLayerInfo );
+    fs::remove_all( dir );
+}
+
 // A CONTROL RIG'S AND A RETARGET'S HANDLE IS HandleForGuid OF THEIR HEADER GUID (T7c, format 2): the
 // migrated corpus files (suites run from the tree root), copied out so the rename probe writes nothing
 // into the tree.
@@ -1483,7 +1476,7 @@ namespace
         const fs::path dir = fs::temp_directory_path() / dirName;
         fs::remove_all( dir );
         fs::create_directories( dir );
-        const fs::path source( relative );
+        const fs::path source = Desert::TestSupport::RepositoryRoot() / relative;
         const fs::path file = dir / source.filename();
         fs::copy_file( source, file, fs::copy_options::overwrite_existing );
         return file;
@@ -1599,7 +1592,8 @@ namespace
     bool CopyCorpus( const char* relative, const std::filesystem::path& file )
     {
         std::error_code copied;
-        std::filesystem::copy_file( relative, file, std::filesystem::copy_options::overwrite_existing, copied );
+        std::filesystem::copy_file( Desert::TestSupport::RepositoryRoot() / relative, file,
+                                    std::filesystem::copy_options::overwrite_existing, copied );
         return !copied;
     }
 

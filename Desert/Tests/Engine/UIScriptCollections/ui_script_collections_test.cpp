@@ -30,7 +30,12 @@ namespace
         void Run( const std::string& code )
         {
             const auto r = Impl.Lua.safe_script( code, sol::script_pass_on_error );
-            ASSERT_TRUE( r.valid() ) << sol::error( r ).what();
+            if ( !r.valid() )
+            {
+                // sol2's documented conversion; MSVC rejects the functional cast sol::error( r ) (C2440).
+                const sol::error err = r;
+                FAIL() << err.what();
+            }
         }
     };
 

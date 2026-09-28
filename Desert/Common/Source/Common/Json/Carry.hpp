@@ -18,6 +18,7 @@
 
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -69,6 +70,19 @@ namespace Common::Json
 
         // The document as the writer's one line (the text Json::Write gives for the same values).
         [[nodiscard]] std::string Text() const;
+
+        // Every element of the root's array member `arrayMember`, each as a document of its own, in order.
+        // Each element is copied as parsed, so a number keeps its width in the piece as it had in the whole.
+        // No such array member = an error naming it.
+        [[nodiscard]] ResultStr<std::vector<TextDocument>> RecordsAt( std::string_view arrayMember ) const;
+
+        // This root object with its member `member` replaced, IN THE POSITION IT STOOD, by `replacement`
+        // holding an array of the roots of `elements`. Position is kept because a document split into pieces
+        // and joined back must be the same document, member order included - the canonical text is written
+        // in member order. No such member, or a root that is not an object = an error naming it.
+        [[nodiscard]] ResultStr<TextDocument> WithArrayMember( std::string_view              member,
+                                                               std::string_view              replacement,
+                                                               std::span<const TextDocument> elements ) const;
 
     private:
         explicit TextDocument( std::shared_ptr<yyjson_doc> doc ) : m_Doc( std::move( doc ) )

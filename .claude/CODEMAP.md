@@ -243,6 +243,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `WorldGen/Source` — 5 files, 793 lines: MaterialRef, WorldSpec, WorldStats
 
 ## Source → suites/projects that compile it (only sources compiled outside their own library)
+- `Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.cpp` — 1: RenderGraphCompile
+- `Desert/Desert/Source/Engine/Graphic/RDG/RDGCompile.cpp` — 1: RenderGraphCompile
+- `Desert/Desert/Source/Engine/Graphic/RDG/RDGResources.cpp` — 1: RenderGraphCompile
 - `Desert/Common/Source/Common/Core/Timestep.cpp` — 3: AnimatorBlending, BoneControlContract, IKProbeRig
 - `Desert/Common/Source/Common/Core/UUID.cpp` — 2: LODFold, MemoryDetector
 - `Desert/Common/Source/Common/Utilities/ProcessMemory.cpp` — 1: MemoryDetector

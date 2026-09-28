@@ -209,33 +209,28 @@ namespace
          //      factory that seven allocation sites bypass, so it was blind to 2.79 GB of what it exists
          //      to count.
          { "VulkanAllocator.cpp", "vmaGetAllocationInfo", 2, "void" },
-         // FOUR SITES, the count derived from them: device selection (scoring + the chosen GPU), the device name
-         // read at logical-device
-         // creation, and AF7's PipelineCacheKey — the GPU/driver identity that keys the pipeline-cache DDC entry.
-         { "VulkanDevice.cpp", "vkGetPhysicalDeviceProperties", 4, "void" },
-         { "VulkanDevice.cpp", "vkGetPhysicalDeviceFeatures", 1, "void" },
+         // ONE SITE: AF7's PipelineCacheKey — the GPU/driver identity that keys the pipeline-cache DDC
+         // entry. Device selection, features, extensions, queue families and memory properties are read by
+         // vk-bootstrap now (VKF1), through DeviceCapsProbe.
+         { "VulkanDevice.cpp", "vkGetPhysicalDeviceProperties", 1, "void" },
+         // VKF1: driverName/driverInfo for the start-up capability line.
+         { "DeviceCapsProbe.cpp", "vkGetPhysicalDeviceProperties2", 1, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
-         { "VulkanDevice.cpp", "vkGetPhysicalDeviceMemoryProperties", 1, "void" },
          // В2, шаг 2 программы по миру: чтение бюджета памяти устройства. Возвращает void — результат
          // приходит через цепочку `pNext` (`VkPhysicalDeviceMemoryBudgetPropertiesEXT`), которую
          // вызывающий и читает, так что «выброшенного результата» здесь нет. Строка нужна для полноты
          // счёта: если в будущем заголовке эта функция станет возвращать VkResult, перепись это заметит.
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceMemoryProperties2", 1, "void" },
-         { "VulkanDevice.cpp", "vkGetPhysicalDeviceQueueFamilyProperties", 2, "void" },
          { "VulkanDevice.cpp", "vkGetDeviceQueue", 3, "void" },
          { "VulkanGpuProfiler.cpp", "vkGetPhysicalDeviceQueueFamilyProperties", 2, "void" },
          { "VulkanMaterialBackend.cpp", "vkUpdateDescriptorSets", 1, "void" },
          { "VulkanPipelineCompute.cpp", "vkUpdateDescriptorSets", 1, "void" },
 
-         // ---- returns VkResult and the result is DROPPED. Eleven, each with its reason --------------
+         // ---- returns VkResult and the result is DROPPED. Five, each with its reason --------------
          // The count-then-fill enumeration idiom, at startup. Both halves can only fail with
          // OUT_OF_HOST_MEMORY or an unusable driver, and in every case the caller's next line already
-         // refuses on the count being zero -- VulkanDevice's "no physical devices" verify, and
-         // GetImageFormatAndColorSpace's "null format count" error. Worth checking one day; not worth
-         // pretending it is this task.
-         { "VulkanContext.cpp", "vkEnumerateInstanceLayerProperties", 2, "dropped: startup enumeration" },
-         { "VulkanDevice.cpp", "vkEnumeratePhysicalDevices", 2, "dropped: startup enumeration" },
-         { "VulkanDevice.cpp", "vkEnumerateDeviceExtensionProperties", 2, "dropped: startup enumeration" },
+         // refuses on the count being zero -- GetImageFormatAndColorSpace's "null format count" error.
+         // Worth checking one day; not worth pretending it is this task.
          { "VulkanSwapChain.cpp", "vkGetPhysicalDeviceSurfacePresentModesKHR", 2, "dropped: startup enumeration" },
          { "VulkanSwapChain.cpp", "vkGetPhysicalDeviceSurfaceFormatsKHR", 2, "dropped: startup enumeration" },
 
@@ -289,9 +284,6 @@ namespace
         }
         for ( const fs::path& p : files )
         {
-            // lightweightvk is a vendored third-party tree that happens to live under our Vulkan folder.
-            if ( p.string().find( "lightweightvk" ) != std::string::npos )
-                continue;
             if ( p.extension() != ".cpp" && p.extension() != ".hpp" )
                 continue;
 
@@ -428,15 +420,16 @@ TEST( DeviceLostCensus, TheDroppedResultCensusStillHoldsAndCanOnlyShrink )
              << ", and it does not any more. Delete the row -- a census that pins nothing passes silently.";
     }
 
-    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Eleven VkResults
-    // are dropped in the whole Vulkan backend; it was eighteen before this change, and every survivor is
+    // THE NUMBER, stated so a regression is visible as a number and not only as a diff. Five VkResults
+    // are dropped in the whole Vulkan backend (eighteen, then eleven; VKF1 moved the six startup
+    // enumerations of instance layers, devices and extensions into vk-bootstrap), and every survivor is
     // either a startup enumeration whose caller refuses on the count, or a teardown wait that is already
     // behind the gate.
     int droppedResults = 0;
     for ( const auto& row : k_Census )
         if ( std::string( row.Verdict ) != "void" )
             droppedResults += row.Count;
-    EXPECT_EQ( droppedResults, 11 )
+    EXPECT_EQ( droppedResults, 5 )
          << "the number of Vulkan calls whose result nobody reads has changed. Up is a regression; down is "
             "welcome, and this line moves with it.";
 }

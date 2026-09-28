@@ -111,6 +111,15 @@ workspace "Desert"
         preferredtoolarchitecture "x86_64"
     filter {}
 
+    -- /BIGOBJ FOR EVERY PROJECT, NOT PER PROJECT. MSVC caps an object file at 65279 sections (C1128) and a
+    -- template-heavy engine source crosses it wherever it is compiled: Desert and Editor had the flag, but
+    -- WorldCells.cpp (grown by FO-6) is also compiled straight into GamePackager, WorldCook and the
+    -- WorldCells / PackagedContent suites, and all four failed on dev (run 36349834210). Per-project flags
+    -- miss every new project that compiles an engine .cpp directly; the flag costs nothing at runtime.
+    filter "system:windows"
+        buildoptions { "/bigobj" }
+    filter {}
+
     -- Vendored code is not ours to fix, and its warnings would drown ours the moment they appeared.
     -- A path rule rather than `warnings "Off"` in each of the eleven ThirdParty project scripts,
     -- because the eleven do not cover it: `vk_mem_alloc.cpp`, `stb_image.cpp`, `stb_truetype.cpp`,
@@ -128,16 +137,6 @@ workspace "Desert"
     -- matching, the tree does not go quiet — it goes LOUD, because vendored code starts reporting,
     -- and that is the direction this failure should point.
     filter "files:**/ThirdParty/**"
-        warnings "Off"
-    filter {}
-
-    -- AND ONE VENDORED TREE THAT IS NOT UNDER `ThirdParty/`. LightweightVK (MIT, and it still carries its
-    -- upstream licence header) was copied into the engine's own Vulkan utilities as
-    -- `Graphic/API/Vulkan/VulkanUtils/lightweightvk`, so the rule above walks straight past it while it
-    -- reports ten diagnostics we have no standing to fix. Its headers are included only by its own four
-    -- sources, so a file rule reaches all ten. If it ever moves under `ThirdParty/` this block becomes
-    -- redundant rather than wrong.
-    filter "files:**/lightweightvk/**"
         warnings "Off"
     filter {}
 

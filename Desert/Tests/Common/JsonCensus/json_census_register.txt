@@ -3,7 +3,11 @@
 # A row whose file is already clean is a failure: delete the row when the file moves to the facade.
 Desert/Common/Source/Common/Content/CanonicalText.cpp | KEEP: the canonical-layout printer walks yyjson documents itself; it is the layout, not a protocol
 Desert/Tests/Common/CanonicalText/canonical_text_test.cpp | KEEP: proves the canonical printer against yyjson directly
+Desert/Tests/Common/AssetResolveByGuidCensus/asset_resolve_by_guid_census_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
+Desert/Tests/Engine/FoliageTypeAsset/foliage_type_asset_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SettingConsumers/setting_consumers_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
+Desert/Tests/Engine/WorldCells/world_cells_hlod_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
+Desert/Tests/Tools/SceneSettingsHomes/scene_settings_homes_test.cpp | KEEP: drives SceneMigrator's SET1 step on Migration::SceneSerialized, whose Settings block is an rfl::Generic of a schema that no longer has a struct (the migrator allowance; its path lacks "Migrat")

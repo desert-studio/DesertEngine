@@ -407,8 +407,7 @@ namespace Desert::Tests::ArgumentOrder
                   !ec && it != fs::recursive_directory_iterator(); ++it )
             {
                 const fs::path& p = it->path();
-                if ( p.string().find( "ThirdParty" ) != std::string::npos ||
-                     p.string().find( "lightweightvk" ) != std::string::npos )
+                if ( p.string().find( "ThirdParty" ) != std::string::npos )
                 {
                     continue;
                 }
