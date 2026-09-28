@@ -278,7 +278,7 @@ namespace Common::Constants
         //
         // LEXICAL, and deliberately so: it consults no disk, so a caller can ask about a file it is only
         // about to create, and the answer cannot change with what happens to exist. The LAST occurrence of
-        // the row's components wins, so `<root>/Scenes/Autosave/x.desce` resolves against the project's own
+        // the row's components wins, so `<root>/Scenes/Levels/x.desce` resolves against the project's own
         // `Scenes/` and not against some `Scenes` further up a developer's home directory.
         //
         // An EMPTY path is a real answer and means "the root is the working directory" — it is what a

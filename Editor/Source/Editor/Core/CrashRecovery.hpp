@@ -8,9 +8,10 @@ namespace Desert::Editor
     // runs; a clean shutdown removes it. If the lock is still there at the next start, the previous
     // session did not exit cleanly — and if an autosave exists, the editor offers to reopen it.
     //
-    // This pairs with the existing autosave timer (EditorLayer + EditorPreferences::AutosaveMinutes),
-    // which periodically writes Scene/Autosave/<name>_autosave.desce; recovery just reopens the newest
-    // one through the normal scene-load path. Project-scoped via Constants::Path::SCENE_PATH.
+    // This pairs with the autosave timer (EditorLayer + EditorPreferences::AutosaveMinutes), which writes
+    // <Project>/Saved/Autosaves/<scene path mirror>_autosave.desce (see AutosavePaths.hpp for why it is
+    // not under the assets root); recovery reopens the newest one through the normal scene-load path,
+    // bound to the scene it stands for (Autosave::SceneFor).
     class CrashRecovery
     {
     public:
@@ -29,15 +30,15 @@ namespace Desert::Editor
         // Remove the session lock (clean shutdown).
         static void DisarmSession();
 
-        // Newest *_autosave.desce in the autosave dir, or empty when there is none.
+        // Newest *_autosave.desce anywhere under the autosave dir, or empty when there is none.
         static std::filesystem::path LatestAutosave();
 
         // RAISE EVERY AUTOSAVE IN THIS DIRECTORY TO THE CURRENT SCHEMA, IN PLACE, AND SAY WHAT WAS DONE.
         //
         // WHY THE EDITOR DOES THIS AND NOT THE MIGRATOR TOOL. Every other `.desce` in this project is
         // converted by a task: the schema is raised, `Tools/SceneMigrator` is run over the repository,
-        // and the converted files are committed. `Scenes/Autosave/` cannot be converted that way and the
-        // reason is structural rather than an oversight — it is in `.gitignore`, so it does not exist in
+        // and the converted files are committed. `Saved/Autosaves/` cannot be converted that way and the
+        // reason is structural rather than an oversight — it is under the gitignored Saved/, so it does not exist in
         // the worktree where a schema step is written, and it is not in the commit where the corpus is
         // converted. The schema then reaches the owner's machine and five of his autosaves stop opening
         // (measured on the v17 -> v18 raise; he migrated them by hand). Pointing the tool at the

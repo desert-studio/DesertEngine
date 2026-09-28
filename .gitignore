@@ -196,11 +196,6 @@ ThirdParty/dlib/
 *.log
 engine_log.txt
 
-# Editor autosaves. Machine-written copies of a scene: tracking them means every schema change drags
-# extra files behind it, and a stale autosave left on an old schema is a file in the repository that
-# keeps the old format alive.
-Editor/Resources/Assets/Scenes/Autosave/
-
 # macOS Finder junk
 .DS_Store
 

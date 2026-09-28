@@ -66,6 +66,7 @@
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp" // resolving a request to a palette entry
+#include "Editor/Core/AutosavePaths.hpp"
 #include "Editor/Core/CrashRecovery.hpp"
 
 // The device-lost latch, read in OnDetach: a shutdown caused by a lost GPU must save the user's work
@@ -1561,7 +1562,8 @@ namespace Desert::Editor
             }
 
             // Autosave: Edit mode only, only when something actually changed since the last autosave.
-            // Writes a SEPARATE file (Scene/Autosave/<name>_autosave.desce) — never touches the main save.
+            // Writes a SEPARATE file under <Project>/Saved/Autosaves (Autosave::PathFor) — never the main
+            // save, and never anything under the assets root.
             static float    s_AutosaveAccum        = 0.0f;
             static uint64_t s_LastAutosaveRevision = 0;
             const auto&     prefs                  = EditorPreferences::Get();
@@ -1575,15 +1577,11 @@ namespace Desert::Editor
                     if ( rev != s_LastAutosaveRevision )
                     {
                         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-                        std::string                   name = m_MainScene->GetSceneName();
-                        for ( auto& ch : name )
-                            if ( ch == ' ' )
-                                ch = '_';
-                        const auto      dir = Common::Constants::Path::SCENE_PATH / "Autosave";
+                        const auto path = Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(),
+                                                             Autosave::kPeriodicSuffix );
+                        const auto dir  = path.parent_path();
                         std::error_code ec;
                         std::filesystem::create_directories( dir, ec );
-                        const auto path    = dir / ( name + "_autosave" +
-                                                  std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
                                                                               dir.string(), ec.message() )
                                                 : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText(
@@ -7301,7 +7299,7 @@ namespace Desert::Editor
         // now holds the register, so a third has to be argued for rather than merely written.
         //
         // RECURSION AND THE MISSING-DIRECTORY CASE COME WITH IT: scenes live in subfolders (Levels/,
-        // Autosave/, per-feature folders), which a flat scan simply did not list, and a missing scenes
+        // per-feature folders), which a flat scan simply did not list, and a missing scenes
         // directory contributes nothing rather than throwing.
         for ( const std::filesystem::path& file :
               Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::SCENE_PATH ) )
@@ -8729,7 +8727,7 @@ namespace Desert::Editor
             // Wrapped for the same reason as the footer below: at 380 px this line was clipped to
             // "...the main file is nev" and the reassurance it exists to give was the part cut off.
             ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
-            ImGui::TextWrapped( "Autosaves land in Scene/Autosave/, the main file is never touched." );
+            ImGui::TextWrapped( "Autosaves land in <Project>/Saved/Autosaves/, the main file is never touched." );
             ImGui::PopStyleColor();
 
             ImGui::Spacing();
@@ -9391,6 +9389,19 @@ namespace Desert::Editor
         // THE OPEN SCENE IS NOW THIS FILE, and it is set HERE rather than at the top of the function on
         // purpose: every early return above leaves a scene that was NOT replaced, and adopting a path for
         // a load that refused would point the next Ctrl+S at a file the user never opened.
+        //
+        // A RECOVERY COPY OPENS AS THE SCENE IT STANDS FOR. Bound to the copy, Ctrl+S would write the
+        // user's work back into Saved/Autosaves and the real scene would never get it; bound to the
+        // original (empty for a never-saved scene: Save As), Save writes the user's file. The copy is
+        // work the original does not have yet, so the scene starts DIRTY — a revision no command reaches.
+        if ( const auto original = Autosave::SceneFor( path ) )
+        {
+            m_OpenScenePath = *original;
+            s_SavedRevision = ~CommandHistory::Get().Revision();
+            LOG_INFO( "[Recovery] '{}' opened as '{}' (unsaved)", path.string(),
+                      original->empty() ? std::string( "an untitled scene" ) : original->string() );
+            return;
+        }
         m_OpenScenePath = path;
 
         // Update recent scenes
@@ -10134,15 +10145,11 @@ namespace Desert::Editor
             }
             else
             {
-                std::string name = m_MainScene->GetSceneName();
-                for ( auto& ch : name )
-                    if ( ch == ' ' )
-                        ch = '_';
-                const auto      dir = Common::Constants::Path::SCENE_PATH / "Autosave";
+                const auto path =
+                     Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(), Autosave::kDeviceLostSuffix );
+                const auto      dir = path.parent_path();
                 std::error_code ec;
                 std::filesystem::create_directories( dir, ec );
-                const auto path = dir / ( name + "_devicelost_autosave" +
-                                          std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                 const auto written =
                      ec ? Common::MakeFormattedError( "could not create {}: {}", dir.string(), ec.message() )
                         : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText( path, text ) );

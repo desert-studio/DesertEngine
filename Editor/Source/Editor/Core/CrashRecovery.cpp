@@ -1,5 +1,7 @@
 #include "CrashRecovery.hpp"
 
+#include "AutosavePaths.hpp"
+
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -17,7 +19,7 @@ namespace Desert::Editor
 {
     std::filesystem::path CrashRecovery::AutosaveDir()
     {
-        return Common::Constants::Path::SCENE_PATH / "Autosave";
+        return Autosave::Dir();
     }
 
     std::filesystem::path CrashRecovery::LockPath()
@@ -81,32 +83,7 @@ namespace Desert::Editor
 
     std::filesystem::path CrashRecovery::LatestAutosave()
     {
-        namespace fs = std::filesystem;
-        const fs::path              dir = AutosaveDir();
-        fs::path                    newest;
-        fs::file_time_type          newestTime{};
-        std::error_code             ec;
-
-        for ( const auto& entry : fs::directory_iterator( dir, ec ) )
-        {
-            if ( ec )
-                break;
-            const fs::path& p = entry.path();
-            if ( p.extension() != Common::Constants::Extensions::SCENE_EXTENSION )
-                continue;
-            if ( p.filename().string().find( "_autosave" ) == std::string::npos )
-                continue;
-
-            const auto t = fs::last_write_time( p, ec );
-            if ( ec )
-                continue;
-            if ( newest.empty() || t > newestTime )
-            {
-                newest     = p;
-                newestTime = t;
-            }
-        }
-        return newest;
+        return Autosave::LatestIn( AutosaveDir() );
     }
 
     bool CrashRecovery::MigrateAutosaves()
@@ -124,7 +101,8 @@ namespace Desert::Editor
         // distinguishable: RunSceneMigrator answers 2 for an empty search, which is a usage code and not
         // a failure, and reading it as one would put an error in the log on every clean start.
         int candidates = 0;
-        for ( const auto& entry : fs::directory_iterator( dir, err ) )
+        // Recursive: the copies mirror the scene tree (Saved/Autosaves/Scenes/<folders>/...).
+        for ( const auto& entry : fs::recursive_directory_iterator( dir, err ) )
         {
             if ( err )
             {

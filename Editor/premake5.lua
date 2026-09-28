@@ -20,8 +20,8 @@ project "Editor"
 
         -- THE SCENE MIGRATOR'S OWN SOURCES, linked into the Editor and into nothing else.
         --
-        -- The Editor is the only process that writes `Scenes/Autosave/`, and it is therefore the only
-        -- one that can convert it: the directory is gitignored, so it exists on the owner's machine and
+        -- The Editor is the only process that writes `Saved/Autosaves/`, and it is therefore the only
+        -- one that can convert it: the directory is under the gitignored Saved/, so it exists on the owner's machine and
         -- in no worktree where a schema step is written, and a task that raises the schema cannot reach
         -- it. CrashRecovery::MigrateAutosaves calls Migration::RunSceneMigrator over that one directory
         -- at startup. `main.cpp` is deliberately NOT listed -- it defines the tool's main().
