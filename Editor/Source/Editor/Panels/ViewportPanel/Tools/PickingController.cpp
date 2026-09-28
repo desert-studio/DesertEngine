@@ -5,6 +5,7 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/FoliageFieldEntities.hpp>
 
 namespace Desert::Editor::Tools
 {
@@ -87,6 +88,15 @@ namespace Desert::Editor::Tools
                 }
             }
         }
+
+        // A PREFAB INSTANCE PLACED BY A FOLIAGE FIELD SELECTS THE FIELD (UE: clicking foliage selects the
+        // foliage actor). The instance is derived state, re-realized from the field every frame, so
+        // selecting, deleting or moving it would be undone at once; the field is what the outliner lists.
+        // Individual instances are edited in Foliage mode.
+        if ( auto hitRef = scene.FindEntityByID( selectedUUID ) )
+            if ( const entt::entity field = ECS::OwningFoliageField( registry, hitRef->get().GetHandle() );
+                 field != entt::null && registry.has<ECS::UUIDComponent>( field ) )
+                selectedUUID = registry.get<ECS::UUIDComponent>( field ).UUID;
 
         // THE LOCK, and it is tested AFTER the prefab promotion above rather than before. Locking a prefab
         // root locks the whole instance, so the question to ask is about the entity that would ACTUALLY be
