@@ -338,11 +338,11 @@ namespace Desert::Assets
     {
         if ( !record.PrefabPath.has_value() )
             return Common::MakeFormattedError<InstanceRootTransform>( "{}", "the record names no prefab" );
-        if ( const std::string missing = MissingInstanceTransform( record ); !missing.empty() )
+        if ( !record.Translation.has_value() || !record.Rotation.has_value() || !record.Scale.has_value() )
             return Common::MakeFormattedError<InstanceRootTransform>(
                  "the instance of prefab '{}' states no {}; scene v37 writes an instance's root transform on "
                  "its record",
-                 *record.PrefabPath, missing );
+                 *record.PrefabPath, MissingInstanceTransform( record ) );
         return Common::MakeSuccess(
              InstanceRootTransform{ *record.Translation, *record.Rotation, *record.Scale } );
     }

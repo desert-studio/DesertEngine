@@ -993,23 +993,24 @@ namespace Desert::Migration
         InstanceTransformsReport report;
         for ( Assets::EntityData& record : entities )
         {
-            if ( Assets::MissingInstanceTransform( record ).empty() )
+            if ( !record.PrefabPath.has_value() || Assets::MissingInstanceTransform( record ).empty() )
                 continue; // not an instance, or already states all three
+            const std::string& prefabPath = *record.PrefabPath;
 
             const std::string site =
                  ( record.id.has_value()
                         ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *record.id ) ) + "]"
                         : std::string( "Entities[?]" ) ) +
-                 " > '" + *record.PrefabPath + "'";
+                 " > '" + prefabPath + "'";
 
-            const auto located = LocateMeshFile( *record.PrefabPath, assetsRoot );
+            const auto located = LocateMeshFile( prefabPath, assetsRoot );
             if ( !located )
             {
                 report.UnknownNames.push_back( site + ": " + located.GetError() );
                 continue;
             }
-            std::ifstream      in( located.GetValue().File, std::ios::binary );
-            std::ostringstream text;
+            const std::ifstream in( located.GetValue().File, std::ios::binary );
+            std::ostringstream  text;
             text << in.rdbuf();
             const auto prefab = rfl::json::read<Assets::PrefabData>( text.str() );
             if ( !prefab )

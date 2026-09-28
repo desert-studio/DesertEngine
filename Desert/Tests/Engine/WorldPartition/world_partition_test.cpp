@@ -2077,8 +2077,8 @@ TEST( WorldPartitionPrefabInstances, EveryCorpusPrefabInstanceLandsWhereItsWorld
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            if ( records[record].id.has_value() )
-                byId.emplace( *records[record].id, record );
+            if ( const std::optional<Common::UUID>& id = records[record].id; id.has_value() )
+                byId.emplace( *id, record );
         }
         const std::vector<glm::mat4> world = Desert::Core::Rules::Detail::ComposeWorld( records, byId );
 

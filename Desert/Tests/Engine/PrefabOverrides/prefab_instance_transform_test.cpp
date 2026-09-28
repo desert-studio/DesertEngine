@@ -125,8 +125,8 @@ namespace
 
     std::string ReadText( const std::filesystem::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
-        std::ostringstream text;
+        const std::ifstream in( path, std::ios::binary );
+        std::ostringstream  text;
         text << in.rdbuf();
         return text.str();
     }

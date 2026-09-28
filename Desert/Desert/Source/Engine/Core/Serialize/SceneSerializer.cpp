@@ -261,14 +261,11 @@ namespace Desert::Core
             // in an override addressed by ids the `.deprefab` resolves, and every instance was unplaceable.
             if ( entity.HasComponent<ECS::PrefabComponent>() && data.PrefabPath.has_value() )
             {
-                Serialize::PrefabInstanceCapture capture =
+                const Serialize::PrefabInstanceCapture capture =
                      Serialize::CapturePrefabInstance( entity, *m_AssetManager );
                 // The record keeps the live root's transform SerializeEntity wrote; the override loses it.
-                Assets::ReduceInstanceRecord(
-                     data, capture.Overrides,
-                     entity.HasComponent<ECS::PrefabInstanceComponent>()
-                          ? &entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath
-                          : nullptr );
+                Assets::ReduceInstanceRecord( data, capture.Overrides,
+                                              capture.RootPath.has_value() ? &*capture.RootPath : nullptr );
 
                 // The three things an override cannot express, said out loud with the instance's name and
                 // the counts. They used to be indistinguishable from "nothing was changed here".

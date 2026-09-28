@@ -717,8 +717,10 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 
     std::vector<EntityData> named;
     EntityData              instance = Record( 1, "Instance", where );
-    instance.Scale                   = scale;
-    instance.PrefabPath              = prefabPath;
+    // Scene v37: an instance's record states all three parts of its root transform, as the saver writes it.
+    instance.Rotation   = glm::vec3( 0.0f );
+    instance.Scale      = scale;
+    instance.PrefabPath = prefabPath;
     named.push_back( instance );
 
     std::vector<EntityData> instantiated;

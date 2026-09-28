@@ -67,7 +67,7 @@ namespace
         kInvisible, // cube, Visibility false
         kLamp,      // no mesh at all
         kFar,       // cell (5,5): one cube
-        kPrefab,    // unplaced prefab instance: the origin cell
+        kPrefab,    // prefab instance standing at the origin: the origin cell
         kEmptyCell, // cell (3,3): no mesh
     };
 
@@ -191,6 +191,10 @@ namespace
         prefab.id         = Common::UUID( kPrefab );
         prefab.Tag        = "Prefab";
         prefab.PrefabPath = "Prefabs/Thing.deprefab";
+        // Scene v37: an instance's record states its root transform, all three parts, as the saver writes it.
+        prefab.Translation = glm::vec3( 0.0f );
+        prefab.Rotation    = glm::vec3( 0.0f );
+        prefab.Scale       = glm::vec3( 1.0f );
         records.push_back( prefab );
 
         records.push_back( Record( kEmptyCell, "Empty", CellCentre( 3, 3 ) ) );
