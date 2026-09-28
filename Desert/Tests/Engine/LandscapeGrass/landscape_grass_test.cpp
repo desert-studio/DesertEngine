@@ -194,17 +194,17 @@ TEST( LandscapeGrass, TheCullDistanceIsTheFoliageFade )
     EXPECT_EQ( cull.Min, v.StartCullDistance );
     EXPECT_EQ( cull.Max, v.EndCullDistance );
     const glm::vec3 eye( 0.0f );
-    uint32_t        near = 0, band = 0, far = 0;
+    uint32_t        nearCount = 0, band = 0, farCount = 0;
     for ( uint32_t i = 0; i < 1000u; ++i )
     {
-        near += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 3000.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
+        nearCount += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 3000.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
         band += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 4500.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
-        far += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 5000.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
+        farCount += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 5000.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
     }
-    EXPECT_EQ( near, 1000u );
+    EXPECT_EQ( nearCount, 1000u );
     EXPECT_GT( band, 300u );
     EXPECT_LT( band, 700u );
-    EXPECT_EQ( far, 0u );
+    EXPECT_EQ( farCount, 0u );
 }
 
 TEST( LandscapeGrass, CellsAroundTheCameraAppearAndDisappearAsItMoves )

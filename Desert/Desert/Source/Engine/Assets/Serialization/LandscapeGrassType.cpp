@@ -13,7 +13,7 @@ namespace Desert::Assets::Serialization
 {
     namespace
     {
-        Common::BoolResultStr CheckInterval( size_t variety, const char* name, const GrassFloatInterval& range,
+        Common::BoolResultStr CheckGrassInterval( size_t variety, const char* name, const GrassFloatInterval& range,
                                              float lowest, float highest )
         {
             if ( !std::isfinite( range.Min ) || !std::isfinite( range.Max ) || range.Min > range.Max ||
@@ -26,7 +26,7 @@ namespace Desert::Assets::Serialization
 
         // One edge per distinct mesh, in the order the varieties first name it: two varieties drawing the
         // same mesh are one dependency, not two.
-        std::vector<std::string> DependenciesOf( const LandscapeGrassTypeData& data )
+        std::vector<std::string> GrassTypeDependenciesOf( const LandscapeGrassTypeData& data )
         {
             std::vector<std::string> out;
             for ( const GrassVariety& v : data.GrassVarieties )
@@ -63,13 +63,13 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>(
                      "variety {}: StartCullDistance {} cm must lie in [0, EndCullDistance {}]", i,
                      v.StartCullDistance, v.EndCullDistance );
-            if ( auto ok = CheckInterval( i, "AllowedDensityRange", v.AllowedDensityRange, 0.0f, 1.0f ); !ok )
+            if ( auto ok = CheckGrassInterval( i, "AllowedDensityRange", v.AllowedDensityRange, 0.0f, 1.0f ); !ok )
                 return ok;
             // A zero scale is an invisible instance; the UI clamps nothing, so the file is where it is refused.
             for ( const auto& [name, range] : { std::pair{ "ScaleX", &v.ScaleX }, std::pair{ "ScaleY", &v.ScaleY },
                                                 std::pair{ "ScaleZ", &v.ScaleZ } } )
             {
-                if ( auto ok = CheckInterval( i, name, *range, 0.0f, 1.0e6f ); !ok )
+                if ( auto ok = CheckGrassInterval( i, name, *range, 0.0f, 1.0e6f ); !ok )
                     return ok;
                 if ( range->Min <= 0.0f )
                     return Common::MakeFormattedError<bool>( "variety {}: {}.Min {} must be above zero", i, name,
@@ -107,10 +107,10 @@ namespace Desert::Assets::Serialization
 
         // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edges from the header, the loader from
         // the varieties. A file where they disagree would have the two sides load different meshes.
-        if ( data.Header->Dependencies != DependenciesOf( data ) )
+        if ( data.Header->Dependencies != GrassTypeDependenciesOf( data ) )
             return Common::MakeFormattedError<LandscapeGrassTypeData>(
                  "the header's Dependencies ({} entries) do not state exactly the varieties' mesh GUIDs ({})",
-                 data.Header->Dependencies.size(), DependenciesOf( data ).size() );
+                 data.Header->Dependencies.size(), GrassTypeDependenciesOf( data ).size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }
@@ -120,7 +120,7 @@ namespace Desert::Assets::Serialization
         LandscapeGrassTypeData out = data;
         out.Header = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::LandscapeGrassType,
                                               LandscapeGrassTypeTextSubsystems() );
-        out.Header->Dependencies = DependenciesOf( data );
+        out.Header->Dependencies = GrassTypeDependenciesOf( data );
         return Common::Json::Write( out );
     }
 
