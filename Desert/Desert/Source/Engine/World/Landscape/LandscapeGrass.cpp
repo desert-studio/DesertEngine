@@ -164,15 +164,17 @@ namespace Desert::World::Landscape
             return std::nullopt;
         const float u     = ( worldX - frame.OriginX ) / frame.SpacingCm;
         const float v     = ( worldZ - frame.OriginZ ) / frame.SpacingCm;
-        const float lastX = static_cast<float>( tile.SamplesX() - 1u );
-        const float lastZ = static_cast<float>( tile.SamplesZ() - 1u );
+        const auto  lastX = static_cast<float>( tile.SamplesX() - 1u );
+        const auto  lastZ = static_cast<float>( tile.SamplesZ() - 1u );
+        // A NaN coordinate must land outside: the negated form rejects it, De Morgan's rewrite would not.
+        // NOLINTNEXTLINE(readability-simplify-boolean-expr)
         if ( !( u >= 0.0f && v >= 0.0f && u <= lastX && v <= lastZ ) )
             return std::nullopt;
         const uint32_t x0 = std::min( static_cast<uint32_t>( u ), tile.SamplesX() - 2u );
         const uint32_t z0 = std::min( static_cast<uint32_t>( v ), tile.SamplesZ() - 2u );
         const float    fx = u - static_cast<float>( x0 );
         const float    fz = v - static_cast<float>( z0 );
-        const auto     w  = [&]( uint32_t x, uint32_t z ) { return tile.Weight( layer, x, z ) / 255.0f; };
+        const auto     w  = [&]( uint32_t x, uint32_t z ) { return static_cast<float>( tile.Weight( layer, x, z ) ) / 255.0f; };
         const float    a  = w( x0, z0 ) + ( w( x0 + 1u, z0 ) - w( x0, z0 ) ) * fx;
         const float    b  = w( x0, z0 + 1u ) + ( w( x0 + 1u, z0 + 1u ) - w( x0, z0 + 1u ) ) * fx;
         return a + ( b - a ) * fz;

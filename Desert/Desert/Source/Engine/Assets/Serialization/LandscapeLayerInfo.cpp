@@ -14,7 +14,7 @@ namespace Desert::Assets::Serialization
 {
     namespace
     {
-        std::vector<std::string> DependenciesOf( const LandscapeLayerInfoData& data )
+        std::vector<std::string> LayerInfoDependenciesOf( const LandscapeLayerInfoData& data )
         {
             if ( data.GrassType.Guid.empty() )
                 return {};
@@ -74,10 +74,11 @@ namespace Desert::Assets::Serialization
 
         // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edge from the header, the grass from
         // GrassType. A file where they disagree would have the two sides load different grass.
-        if ( data.Header->Dependencies != DependenciesOf( data ) )
+        const std::vector<std::string> stated = data.Header ? data.Header->Dependencies : std::vector<std::string>{};
+        if ( stated != LayerInfoDependenciesOf( data ) )
             return Common::MakeFormattedError<LandscapeLayerInfoData>(
                  "the header states {} Dependencies; layer '{}' names {} grass type(s)",
-                 data.Header->Dependencies.size(), data.LayerName, DependenciesOf( data ).size() );
+                 stated.size(), data.LayerName, LayerInfoDependenciesOf( data ).size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }
@@ -87,7 +88,7 @@ namespace Desert::Assets::Serialization
         LandscapeLayerInfoData out = data;
         out.Header = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::LandscapeLayerInfo,
                                               LandscapeLayerInfoTextSubsystems() );
-        out.Header->Dependencies = DependenciesOf( data );
+        out.Header->Dependencies = LayerInfoDependenciesOf( data );
         return Common::Json::Write( out );
     }
 

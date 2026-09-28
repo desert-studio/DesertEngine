@@ -13,8 +13,8 @@ namespace Desert::Assets::Serialization
 {
     namespace
     {
-        Common::BoolResultStr CheckGrassInterval( size_t variety, const char* name, const GrassFloatInterval& range,
-                                             float lowest, float highest )
+        Common::BoolResultStr CheckGrassInterval( size_t variety, const char* name,
+                                                  const GrassFloatInterval& range, float lowest, float highest )
         {
             if ( !std::isfinite( range.Min ) || !std::isfinite( range.Max ) || range.Min > range.Max ||
                  range.Min < lowest || range.Max > highest )
@@ -107,10 +107,11 @@ namespace Desert::Assets::Serialization
 
         // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edges from the header, the loader from
         // the varieties. A file where they disagree would have the two sides load different meshes.
-        if ( data.Header->Dependencies != GrassTypeDependenciesOf( data ) )
+        const std::vector<std::string> stated = data.Header ? data.Header->Dependencies : std::vector<std::string>{};
+        if ( stated != GrassTypeDependenciesOf( data ) )
             return Common::MakeFormattedError<LandscapeGrassTypeData>(
                  "the header's Dependencies ({} entries) do not state exactly the varieties' mesh GUIDs ({})",
-                 data.Header->Dependencies.size(), GrassTypeDependenciesOf( data ).size() );
+                 stated.size(), GrassTypeDependenciesOf( data ).size() );
 
         return Common::MakeSuccess( std::move( data ) );
     }

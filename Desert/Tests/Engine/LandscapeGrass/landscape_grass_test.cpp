@@ -35,11 +35,11 @@ namespace
     GrassVariety Variety( float density = 40.0f )
     {
         GrassVariety v;
-        v.GrassMesh       = { kMeshGuid, "Assets/Meshes/Blade.stmesh" };
-        v.GrassDensity    = density;
+        v.GrassMesh         = { kMeshGuid, "Assets/Meshes/Blade.stmesh" };
+        v.GrassDensity      = density;
         v.StartCullDistance = 4000.0f;
-        v.EndCullDistance = 5000.0f;
-        v.ScaleX          = { 0.8f, 1.2f };
+        v.EndCullDistance   = 5000.0f;
+        v.ScaleX            = { 0.8f, 1.2f };
         return v;
     }
 
@@ -59,7 +59,7 @@ namespace
         {
             unsigned char bytes[sizeof( glm::mat4 )];
             std::memcpy( bytes, &m, sizeof( bytes ) );
-            for ( unsigned char b : bytes )
+            for ( const unsigned char b : bytes )
                 h = ( h ^ b ) * 1099511628211ull;
         }
         return h;
@@ -163,9 +163,13 @@ TEST( LandscapeGrass, GrassGrowsOnlyWhereTheLayerIsPainted )
     for ( const glm::mat4& m : instances )
         EXPECT_LT( m[3].x, 1000.0f ) << "an instance grew on the unpainted half";
 
-    EXPECT_FLOAT_EQ( SampleLandscapeWeight( tile, frame, layer, 450.0f, 700.0f ).value(), 1.0f );
-    EXPECT_FLOAT_EQ( SampleLandscapeWeight( tile, frame, layer, 950.0f, 700.0f ).value(), 0.5f );
-    EXPECT_FLOAT_EQ( SampleLandscapeWeight( tile, frame, layer, 1500.0f, 700.0f ).value(), 0.0f );
+    const auto painted = SampleLandscapeWeight( tile, frame, layer, 450.0f, 700.0f );
+    const auto edge    = SampleLandscapeWeight( tile, frame, layer, 950.0f, 700.0f );
+    const auto bare    = SampleLandscapeWeight( tile, frame, layer, 1500.0f, 700.0f );
+    ASSERT_TRUE( painted.has_value() && edge.has_value() && bare.has_value() );
+    EXPECT_FLOAT_EQ( *painted, 1.0f );
+    EXPECT_FLOAT_EQ( *edge, 0.5f );
+    EXPECT_FLOAT_EQ( *bare, 0.0f );
     EXPECT_FALSE( SampleLandscapeWeight( tile, frame, layer, 2000.5f, 700.0f ).has_value() );
 }
 
@@ -194,7 +198,9 @@ TEST( LandscapeGrass, TheCullDistanceIsTheFoliageFade )
     EXPECT_EQ( cull.Min, v.StartCullDistance );
     EXPECT_EQ( cull.Max, v.EndCullDistance );
     const glm::vec3 eye( 0.0f );
-    uint32_t        nearCount = 0, band = 0, farCount = 0;
+    uint32_t        nearCount = 0;
+    uint32_t        band      = 0;
+    uint32_t        farCount  = 0;
     for ( uint32_t i = 0; i < 1000u; ++i )
     {
         nearCount += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 3000.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
@@ -235,7 +241,7 @@ TEST( LandscapeGrass, CellsAroundTheCameraAppearAndDisappearAsItMoves )
     EXPECT_GT( second.Generated, 0u );
     EXPECT_FALSE( streamer.Cells().contains( GrassCellAt( 100.0f, 100.0f ) ) );
     const auto               now = GrassCellsInRange( moved, radius );
-    std::set<GrassCellCoord> expected( now.begin(), now.end() );
+    const std::set<GrassCellCoord> expected( now.begin(), now.end() );
     std::set<GrassCellCoord> held;
     for ( const auto& [cell, instances] : streamer.Cells() )
         held.insert( cell );
@@ -307,12 +313,14 @@ TEST( LandscapeGrass, AGrassTypeRoundTripsAndStatesItsMeshes )
     ASSERT_TRUE( read ) << read.GetError();
     EXPECT_EQ( read.GetValue().GrassVarieties, data.GrassVarieties );
     // Two varieties of one mesh are ONE dependency.
-    EXPECT_EQ( read.GetValue().Header->Dependencies, std::vector<std::string>{ kMeshGuid } );
+    const auto& header = read.GetValue().Header;
+    ASSERT_TRUE( header.has_value() );
+    EXPECT_EQ( header->Dependencies, std::vector<std::string>{ kMeshGuid } );
 }
 
 TEST( LandscapeGrass, AGrassTypeRefusesWhatItCannotGrow )
 {
-    LandscapeGrassTypeData none;
+    const LandscapeGrassTypeData none;
     EXPECT_FALSE( ValidateLandscapeGrassTypeData( none ) );
 
     LandscapeGrassTypeData noMesh;
@@ -338,6 +346,7 @@ TEST( LandscapeGrass, AGrassTypeRefusesWhatItCannotGrow )
     ok.GrassVarieties = { Variety() };
     auto parsed       = ParseLandscapeGrassType( WriteLandscapeGrassType( ok ) );
     auto stamped      = parsed.ExtractValue();
+    ASSERT_TRUE( stamped.Header.has_value() );
     stamped.Header->Dependencies.clear();
     EXPECT_FALSE( ParseLandscapeGrassType( Common::Json::Write( stamped ) ) );
 }
@@ -350,7 +359,9 @@ TEST( LandscapeGrass, ALayerInfoNamesItsGrassAsItsOneDependency )
     const auto read = ParseLandscapeLayerInfo( WriteLandscapeLayerInfo( layer ) );
     ASSERT_TRUE( read ) << read.GetError();
     EXPECT_EQ( read.GetValue().GrassType, layer.GrassType );
-    EXPECT_EQ( read.GetValue().Header->Dependencies, std::vector<std::string>{ kGrassGuid } );
+    const auto& header = read.GetValue().Header;
+    ASSERT_TRUE( header.has_value() );
+    EXPECT_EQ( header->Dependencies, std::vector<std::string>{ kGrassGuid } );
 
     // A GUID without a path (or the reverse) is refused, not half-read.
     layer.GrassType.Path.clear();
@@ -363,6 +374,7 @@ TEST( LandscapeGrass, ALayerInfoOfTheFirstGenerationIsRefusedByNumber )
     layer.LayerName = "Grass";
     auto parsed     = ParseLandscapeLayerInfo( WriteLandscapeLayerInfo( layer ) );
     auto stamped    = parsed.ExtractValue();
+    ASSERT_TRUE( stamped.Header.has_value() );
     for ( auto& [tag, version] : stamped.Header->Versions )
         version = 1u;
     const auto refused = ParseLandscapeLayerInfo( Common::Json::Write( stamped ) );

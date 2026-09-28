@@ -37,7 +37,7 @@ namespace Desert::Runtime
         State StateOf( const Assets::AssetHandle& handle );
 
         /// Why a Failed handle failed; empty for any other state.
-        std::string ErrorOf( const Assets::AssetHandle& handle ) const;
+        [[nodiscard]] std::string ErrorOf( const Assets::AssetHandle& handle ) const;
 
         void Clear();
 

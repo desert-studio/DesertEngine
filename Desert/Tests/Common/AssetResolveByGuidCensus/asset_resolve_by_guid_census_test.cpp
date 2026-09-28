@@ -265,10 +265,10 @@ namespace
             case ContentKind::LandscapeGrassType:
             {
                 // No grass type ships with the corpus; the least `.degrasstype` the header reader accepts.
-                const std::string text = "{\"Header\":{\"Kind\":\"LandscapeGrassType\",\"Guid\":\"" +
+                const std::string text = R"({"Header":{"Kind":"LandscapeGrassType","Guid":")" +
                                          Common::Content::AssetGuidToText( guid ) +
-                                         "\",\"Versions\":{\"LGRT\":1},\"Dependencies\":[]},"
-                                         "\"GrassVarieties\":[]}\n";
+                                         R"(","Versions":{"LGRT":1},"Dependencies":[]},"GrassVarieties":[]})"
+                                         "\n";
                 return { text.begin(), text.end() };
             }
             default:

@@ -25,8 +25,7 @@ namespace Desert::ECS
             const auto guid = Common::Content::AssetGuidFromText( text );
             if ( !guid )
                 return Assets::AssetHandle::Null();
-            return Assets::AssetHandle(
-                 static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
+            return { static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) };
         }
     } // namespace
 
@@ -87,7 +86,7 @@ namespace Desert::ECS
         {
             if ( IsHidden( registry, rootEntity ) )
                 continue;
-            const uint64_t rootId = static_cast<uint64_t>( registry.get<UUIDComponent>( rootEntity ).UUID );
+            const auto rootId = static_cast<uint64_t>( registry.get<UUIDComponent>( rootEntity ).UUID );
             const auto     any    = anyTileOfRoot.find( rootId );
             if ( any == anyTileOfRoot.end() )
                 continue;
@@ -104,20 +103,20 @@ namespace Desert::ECS
             {
                 // Pending or failed layer infos and grass types grow nothing; the services say why, once.
                 const auto* info = Runtime::ResourceRegistry::GetLandscapeLayerInfoService()->Get( layerHandle );
-                if ( !info || info->GrassType.Guid.empty() )
+                if ( info == nullptr || info->GrassType.Guid.empty() )
                     continue;
                 const auto* grass = Runtime::ResourceRegistry::GetLandscapeGrassTypeService()->Get(
                      HandleOfGuidText( info->GrassType.Guid ) );
-                if ( !grass )
+                if ( grass == nullptr )
                     continue;
 
                 const std::string& layerName = info->LayerName;
                 const auto surface = [&]( float x, float z ) -> std::optional<Landscape::GrassSurfaceSample>
                 {
-                    const int32_t tx = static_cast<int32_t>( std::floor( ( x - root.Origin.x ) / extent ) );
-                    const int32_t tz = static_cast<int32_t>( std::floor( ( z - root.Origin.z ) / extent ) );
+                    const auto tx = static_cast<int32_t>( std::floor( ( x - root.Origin.x ) / extent ) );
+                    const auto tz = static_cast<int32_t>( std::floor( ( z - root.Origin.z ) / extent ) );
                     const LandscapeTileRef* tile = tileUnder( tx, tz );
-                    if ( !tile )
+                    if ( tile == nullptr )
                         return std::nullopt;
                     const Landscape::LandscapeTileData& data  = *tile->Component->Heights;
                     const auto                          layer = data.FindWeightLayer( layerName );
@@ -130,7 +129,7 @@ namespace Desert::ECS
                     const auto neighbour = [&]( int32_t dx, int32_t dz ) -> const Landscape::LandscapeTileData*
                     {
                         const LandscapeTileRef* n = tileUnder( tx + dx, tz + dz );
-                        return n ? &*n->Component->Heights : nullptr;
+                        return n != nullptr ? &*n->Component->Heights : nullptr;
                     };
                     const Landscape::LandscapeTileNeighbours around{ neighbour( -1, 0 ), neighbour( 1, 0 ),
                                                                      neighbour( 0, -1 ), neighbour( 0, 1 ) };
@@ -144,7 +143,7 @@ namespace Desert::ECS
                     const auto& variety = grass->GrassVarieties[v];
                     Mesh*       mesh    = Runtime::ResourceRegistry::GetMeshService()->Get(
                          HandleOfGuidText( variety.GrassMesh.Guid ) );
-                    if ( !mesh )
+                    if ( mesh == nullptr )
                         continue; // pending: requested by the ask, drawn from the frame it lands
 
                     const StreamerKey key{ rootId, static_cast<uint64_t>( layerHandle ), v };
