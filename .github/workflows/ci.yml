@@ -451,7 +451,7 @@ jobs:
           path: ${{ runner.temp }}
 
       - name: Unpack the test bundle
-        run: tar -xzf "$./scripts/MacOS/RunTests.sh_TEMP/test-bundle.tgz"
+        run: tar -xzf "$RUNNER_TEMP/test-bundle.tgz"
 
       - name: Run tests under sanitizers
         env:
