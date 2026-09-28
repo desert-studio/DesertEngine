@@ -581,7 +581,7 @@ namespace Desert::Editor
 
                 // Entity is a handle: the copy names the same registry row, so nothing here needs
                 // the panel's const reference made mutable.
-                ECS::Entity sourceEntity = selectedEntity;
+                const ECS::Entity sourceEntity = selectedEntity;
                 const auto  saved =
                      Assets::PrefabAsset::SaveNewFromEntity( sourceEntity, *m_AssetManager, fullPath );
                 {
