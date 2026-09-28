@@ -84,7 +84,7 @@ namespace Desert::ECS
         auto roots = registry.view<LandscapeComponent, UUIDComponent>();
         for ( const entt::entity rootEntity : roots )
         {
-            if ( IsHidden( registry, rootEntity ) )
+            if ( ECS::IsHidden( registry, rootEntity ) )
                 continue;
             const auto rootId = static_cast<uint64_t>( registry.get<UUIDComponent>( rootEntity ).UUID );
             const auto any    = anyTileOfRoot.find( rootId );
