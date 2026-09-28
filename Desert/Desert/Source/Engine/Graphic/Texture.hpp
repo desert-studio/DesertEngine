@@ -13,6 +13,26 @@ namespace Desert::Runtime
 
 namespace Desert::Graphic
 {
+    /// A cooked 2D texture decoded into memory and not yet on the GPU: what a worker hands the main thread.
+    struct CookedTexture2D
+    {
+        std::string                              Tag;
+        uint32_t                                 Width  = 0;
+        uint32_t                                 Height = 0;
+        Core::Formats::ImageFormat               Format{};
+        Core::Formats::ImagePixelData            Pixels;
+        std::vector<Core::Formats::MipLevelSpan> Levels;
+
+        /// The bytes the upload copies to staging: what the per-frame upload budget counts.
+        uint64_t UploadBytes() const
+        {
+            uint64_t bytes = 0;
+            for ( const Core::Formats::MipLevelSpan& level : Levels )
+                bytes += level.ByteSize;
+            return bytes;
+        }
+    };
+
     class Texture
     {
     public:
@@ -82,6 +102,12 @@ namespace Desert::Graphic
         /// level table that does not describe the file — because "the texture is missing" with no
         /// sentence attached is the most expensive kind of missing.
         static Common::ResultStr<std::shared_ptr<Texture2D>> CreateFromAsset( const std::filesystem::path& asset );
+
+        /// `CreateFromAsset` in its two halves (AM2), so the on-demand path can put them on different threads.
+        /// `ReadCooked` is CPU only -- the DDC read, and the cook on a DDC miss, then the container decode -- and
+        /// is safe on a worker. `CreateFromCooked` creates the GPU image and uploads it, on the main thread.
+        static Common::ResultStr<CookedTexture2D> ReadCooked( const std::filesystem::path& asset );
+        static Common::ResultStr<std::shared_ptr<Texture2D>> CreateFromCooked( CookedTexture2D&& cooked );
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).
