@@ -34,31 +34,11 @@ namespace Desert::Editor
 
     namespace
     {
-        // The same enumeration + extension filter the engine shader boot used (lowercased
-        // extension over ListFilesRecursive of the live SHADERDIR_PATH): the cook must see exactly
-        // the set of shaders the runtime will register, or a shader the runtime compiles at startup
-        // is one the cook silently skipped.
-        std::vector<fs::path> ShippedShaderFiles()
-        {
-            std::vector<fs::path> out;
-            for ( const auto& candidate :
-                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::SHADERDIR_PATH ) )
-            {
-                std::string ext = candidate.extension().string();
-                std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-                // An editor-only program (PackagedContentTrees.hpp) is not in the package, so it is not cooked for
-                // it.
-                if ( ext == ".shader" && !IsEditorOnlyResource( candidate ) )
-                    out.push_back( candidate );
-            }
-            return out;
-        }
-
-        void CookShaders( bool spirvDebugInfo, CookStats& stats )
+        void CookShaders( bool spirvDebugInfo, bool developerInstruments, CookStats& stats )
         {
             namespace Preprocess = Core::Preprocess;
 
-            for ( const fs::path& file : ShippedShaderFiles() )
+            for ( const fs::path& file : PackagedShaderPrograms( developerInstruments ) )
             {
                 // Ф3 made the primitive return a ResultStr, so a miss is a named refusal instead of an
                 // empty string indistinguishable from an empty file. Policy here is unchanged - count it
@@ -333,14 +313,34 @@ namespace Desert::Editor
         }
     } // namespace
 
-    CookStats CookContentCaches( bool spirvDebugInfo )
+    // The same enumeration + extension filter the engine shader boot used (lowercased
+    // extension over ListFilesRecursive of the live SHADERDIR_PATH): the cook must see exactly
+    // the set of shaders the runtime will register, or a shader the runtime compiles at startup
+    // is one the cook silently skipped.
+    std::vector<fs::path> PackagedShaderPrograms( bool developerInstruments )
+    {
+        std::vector<fs::path> out;
+        for ( const auto& candidate :
+              Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::SHADERDIR_PATH ) )
+        {
+            std::string ext = candidate.extension().string();
+            std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+            // A program the package leaves out (PackagedContentTrees.hpp: editor-only, or developer-only
+            // under a Shipping runtime) is not in the package, so it is not cooked for it.
+            if ( ext == ".shader" && !IsLeftOutOfPackage( candidate, developerInstruments ) )
+                out.push_back( candidate );
+        }
+        return out;
+    }
+
+    CookStats CookContentCaches( bool spirvDebugInfo, bool developerInstruments )
     {
         CookStats stats;
         // THE ONE COOKED TREE starts empty: a package never carries a previous cook's leftovers, and
         // everything the packager packs is written into it by this cook and by StageShippedContent.
         std::error_code wipe;
         fs::remove_all( Common::DDC::PlatformCookedDir(), wipe );
-        CookShaders( spirvDebugInfo, stats );
+        CookShaders( spirvDebugInfo, developerInstruments, stats );
         CookFonts( stats );
         CookIcons( stats );
         CookTextures( stats );

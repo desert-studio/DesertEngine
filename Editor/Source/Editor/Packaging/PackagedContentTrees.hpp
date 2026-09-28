@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/DeveloperOnlyShaders.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 
 #include <algorithm>
@@ -74,6 +75,19 @@ namespace Desert::Editor
                                              normal.lexically_relative( tree.Tree->lexically_normal() );
                                         return !rel.empty() && *rel.begin() == tree.EditorOnlySubtree;
                                     } );
+    }
+
+    // Whether a package whose runtime is (not) built with DESERT_DEV_INSTRUMENTS leaves @p file out: every
+    // editor-only resource, and — for a Shipping runtime only — the shader programs nothing but the
+    // developer-instrument pipelines load (Common/Core/DeveloperOnlyShaders.hpp). The stager, the shader
+    // cook and the shipped registry all ask this one predicate, so the archive, its SPIR-V cook and the rows
+    // the runtime binds cannot disagree about which programs a configuration carries.
+    inline bool IsLeftOutOfPackage( const std::filesystem::path& file, bool developerInstruments )
+    {
+        if ( IsEditorOnlyResource( file ) )
+            return true;
+        return !developerInstruments && file.extension() == ".shader" &&
+               Common::IsDeveloperOnlyShaderProgram( file.stem().string() );
     }
 
     // THE DESCRIPTOR A PACKAGE SHIPS, derived from the project's own rather than copied verbatim: the
