@@ -8,7 +8,7 @@
 
 struct TerrainInstance
 {
-    vec4 Params;         // x = tile extent (cm), y = continuous LOD, z = std430 padding, w = grid LOD
+    vec4 Params;         // x = tile extent (cm), y = continuous LOD, z = visibility layer + 1 (0 = no holes), w = grid LOD
     vec4 Params2;        // x = 1 / LOD blend range, y = weight layer count, z = weightmap pages, w = neighbour mask
     vec4 GroundColor;    // rgb = the root's first layer colour, a = 1 when the root names a layer (else white ground)
     vec4 LandscapeFrame; // x = root origin X, y = base height, z = root origin Z, w = spacing

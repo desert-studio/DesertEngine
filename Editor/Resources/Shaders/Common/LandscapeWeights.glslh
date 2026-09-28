@@ -59,4 +59,27 @@ vec2 LandscapeWeightmapPageUV( vec2 g, float page, vec2 imageSize, float pages )
     return vec2( ( g.x + 0.5f ) / imageSize.x, ( g.y + 0.5f + page * rows ) / imageSize.y );
 }
 
+// The tile's visibility at this pixel: its visibility layer's weight (kLandscapeVisibilityLayerName, UE's
+// ALandscapeProxy::VisibilityLayer), read from the same two pages as the paint layers. @p layerPlusOne is
+// TerrainInstance.Params.z — the visibility layer's index + 1, 0 when the tile has none (visibility 0: no hole).
+//
+// Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeVisibilityMask.cpp:
+// 28-33 (Compile: the mask is 1 - the layer's weight, 1 where the layer is not allocated), adapted: we return the
+// weight itself and LandscapeIsHole compares it, instead of a mask fed to a material's opacity-mask clip.
+float LandscapeVisibility( vec4 w0, vec4 w1, float layerPlusOne )
+{
+    int layer = int( layerPlusOne + 0.5f ) - 1;
+    if ( layer < 0 )
+        return 0.0f;
+    return layer < 4 ? w0[layer] : w1[layer - 4];
+}
+
+// A hole: visibility at or past one half. ONE statement of the threshold for every terrain program that
+// discards (surface, G-buffer, shadow caster) — a caster with its own threshold would shadow the hole's rim
+// differently from what the camera sees missing.
+bool LandscapeIsHole( float visibility )
+{
+    return visibility >= 0.5f;
+}
+
 #endif // LANDSCAPE_WEIGHTS_GLSLH

@@ -205,6 +205,24 @@ namespace Desert::World::Landscape
     inline constexpr uint32_t kLandscapeMaxWeightLayerName = 64u;
 
     /**
+     * @brief The reserved name of a tile's VISIBILITY layer — UE's ALandscapeProxy::VisibilityLayer, whose
+     * LayerName is UMaterialExpressionLandscapeVisibilityMask::ParameterName.
+     *
+     * Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeVisibilityMask.cpp:20
+     * and LandscapeProxy.cpp (VisibilityLayer: bNoWeightBlend = true), adapted: the layer is a plain
+     * LandscapeWeightLayer under this name rather than a ULandscapeLayerInfoObject, so it is stored, encoded
+     * and uploaded exactly as the paint layers are (one weightmap channel, no container change).
+     *
+     * It is NOT a paint layer: the root never lists it, it has no colour (ResolveLandscapeWeightChannels
+     * reports it as LandscapeWeightChannels::Visibility, never as Unknown), and it is NoWeightBlend — neither
+     * normalised nor counted in the others' sum (LandscapePaintStroke's rule for it). A weight of 0.5 or more
+     * is a hole: the surface, the G-buffer and the shadow caster all discard there
+     * (LandscapeIsHole in LandscapeWeights.glslh).
+     */
+    inline constexpr std::string_view kLandscapeVisibilityLayerName = "__LANDSCAPE_VISIBILITY__";
+    static_assert( kLandscapeVisibilityLayerName.size() <= kLandscapeMaxWeightLayerName );
+
+    /**
      * @brief One layer's weights on one tile — UE's FWeightmapLayerAllocationInfo plus its channel of the
      * component's weightmap texture, stored as its own plane.
      *
@@ -320,6 +338,13 @@ namespace Desert::World::Landscape
 
         /// The index of the layer named @p name on this tile, or nullopt when the tile carries none.
         std::optional<size_t> FindWeightLayer( std::string_view name ) const;
+
+        /// The index of the tile's visibility layer (kLandscapeVisibilityLayerName), or nullopt when the tile
+        /// has no holes.
+        std::optional<size_t> VisibilityLayer() const
+        {
+            return FindWeightLayer( kLandscapeVisibilityLayerName );
+        }
 
         /// Allocates @p name on this tile with every weight zero and returns its index (UE: a component gets
         /// a layer allocation on the first stroke that paints it). Adding a name already present returns

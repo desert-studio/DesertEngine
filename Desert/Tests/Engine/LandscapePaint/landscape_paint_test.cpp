@@ -734,3 +734,97 @@ TEST( LandscapePaint, OneStrokeUndoesAndRedoesBitForBitAcrossTiles )
         EXPECT_TRUE( same( snapshot(), after ) ) << "redo, round " << round;
     }
 }
+
+// ── The visibility layer (UE's Landscape Visibility Layer / Visibility Mask) ──────────────────────────
+
+TEST( LandscapePaint, VisibilityLayerIsNeitherDrawnNorReportedButNamed )
+{
+    LandscapeTileData tile = Tile( 3 );
+    Fill( tile, "Moss", 0u );
+    Fill( tile, std::string( kLandscapeVisibilityLayerName ), 255u );
+
+    const std::vector<RootLayer>  root     = { { "Moss", 0.5f, false, glm::vec3( 0.1f, 0.5f, 0.1f ) } };
+    const LandscapeWeightChannels channels = ResolveLandscapeWeightChannels( tile, root );
+    EXPECT_EQ( channels.Count, 2u );
+    EXPECT_EQ( channels.Visibility, 1 );
+    EXPECT_EQ( channels.Colors[1], vec4( 0.0f ) ) << "the holes are not a colour";
+    EXPECT_EQ( channels.AlphaBlend[1], 0.0f );
+    EXPECT_TRUE( channels.Unknown.empty() ) << "the visibility layer is not a layer the root forgot";
+
+    // Even a root layer carrying the reserved name does not turn the mask into a colour.
+    const std::vector<RootLayer> impostor = { { std::string( kLandscapeVisibilityLayerName ), 0.5f, false,
+                                                glm::vec3( 1.0f ) } };
+    EXPECT_EQ( ResolveLandscapeWeightChannels( tile, impostor ).Colors[1], vec4( 0.0f ) );
+
+    LandscapeTileData plain = Tile( 3 );
+    Fill( plain, "Moss", 0u );
+    EXPECT_EQ( ResolveLandscapeWeightChannels( plain, root ).Visibility, -1 );
+}
+
+TEST( LandscapePaint, PaintingOverAHoleNeitherMovesNorCountsTheVisibilityLayer )
+{
+    // The painter's normalisation is the one place a paint layer and the mask meet: a stroke of Grass over a
+    // tile of Rock (255) with a half-open hole must end with Grass + Rock = 255 and the mask exactly as it was.
+    LandscapeRoot root;
+    root.QuadsPerTile = 7;
+    root.SpacingCm    = 100.0f;
+    std::map<std::pair<int32_t, int32_t>, LandscapeTileData> tiles;
+    tiles.emplace( std::make_pair( 0, 0 ), Tile( 8 ) );
+    Fill( tiles.at( { 0, 0 } ), "Rock", 255u );
+    Fill( tiles.at( { 0, 0 } ), std::string( kLandscapeVisibilityLayerName ), 128u );
+    const LandscapeTileLookup lookup = [&]( int32_t x, int32_t z )
+    {
+        auto it = tiles.find( { x, z } );
+        if ( it == tiles.end() )
+            return LandscapeTileSlot{};
+        return LandscapeTileSlot{ LandscapeTileState::Present, &it->second };
+    };
+
+    // The root's rules name only the paint layers, as LandscapeComponent::Layers does.
+    LandscapePaintStroke   stroke( root, lookup, { { "Grass", 0.5f, false }, { "Rock", 0.5f, false } } );
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 300.0f;
+    brush.Strength = 1.0f;
+    const glm::vec2 at( 350.0f, 350.0f );
+    auto            weights = ComputeLandscapeBrush( root, brush, { &at, 1 } );
+    ASSERT_TRUE( weights.IsSuccess() );
+    LandscapePaintSettings paint;
+    paint.Layer = "Grass";
+    for ( int step = 0; step < 5; ++step )
+    {
+        const auto applied = stroke.Apply( weights.GetValue(), brush, paint, false );
+        ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
+    }
+
+    const LandscapeTileData& tile  = tiles.at( { 0, 0 } );
+    const size_t             grass = tile.FindWeightLayer( "Grass" ).value();
+    const size_t             rock  = tile.FindWeightLayer( "Rock" ).value();
+    const size_t             mask  = tile.VisibilityLayer().value();
+    EXPECT_EQ( tile.Weight( grass, 3, 3 ), 255 ) << "the stroke's centre was painted";
+    for ( uint32_t z = 0; z < tile.SamplesZ(); ++z )
+        for ( uint32_t x = 0; x < tile.SamplesX(); ++x )
+        {
+            EXPECT_EQ( tile.Weight( mask, x, z ), 128 ) << x << ", " << z;
+            EXPECT_EQ( tile.Weight( grass, x, z ) + tile.Weight( rock, x, z ), 255 ) << x << ", " << z;
+        }
+}
+
+TEST( LandscapePaint, VisibilityReadsItsOwnChannelOfEitherPage )
+{
+    const vec4 w0( 0.1f, 0.2f, 0.3f, 0.4f );
+    const vec4 w1( 0.5f, 0.6f, 0.7f, 0.8f );
+    EXPECT_EQ( LandscapeVisibility( w0, w1, 0.0f ), 0.0f ) << "no visibility layer: no hole anywhere";
+    for ( int layer = 0; layer < 8; ++layer )
+        EXPECT_EQ( LandscapeVisibility( w0, w1, static_cast<float>( layer + 1 ) ),
+                   layer < 4 ? w0[layer] : w1[layer - 4] )
+             << "layer " << layer;
+}
+
+TEST( LandscapePaint, HoleStartsAtHalfVisibility )
+{
+    EXPECT_FALSE( LandscapeIsHole( 0.0f ) );
+    EXPECT_FALSE( LandscapeIsHole( 127.0f / 255.0f ) );
+    EXPECT_TRUE( LandscapeIsHole( 0.5f ) );
+    EXPECT_TRUE( LandscapeIsHole( 128.0f / 255.0f ) );
+    EXPECT_TRUE( LandscapeIsHole( 1.0f ) );
+}
