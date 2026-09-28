@@ -875,7 +875,7 @@ namespace Desert::Editor
             return;
         EnsureInit();
 
-        auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
@@ -894,12 +894,12 @@ namespace Desert::Editor
         anim.Playing     = false;
         anim.Loop        = true;
 
-        m_Clip          = std::move( clip );
-        m_AnimationTime = 0.0;
-        m_MeshHandle    = mesh;
-        m_Fill          = Fill::Object;
-        m_HasContent    = true;
-        m_Focus         = glm::vec3( 0.0f );
+        m_Clip            = std::move( clip );
+        m_AnimationTime   = 0.0;
+        m_MeshHandle      = mesh;
+        m_Fill            = Fill::Object;
+        m_HasContent      = true;
+        m_Focus           = glm::vec3( 0.0f );
         m_FrameHalfExtent = glm::vec3( 50.0f ); // stand-in until the bounds are known (see TryFrameMesh)
         m_FrameRadius     = RadiusOfHalfExtent( m_FrameHalfExtent );
         m_Target.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f );
