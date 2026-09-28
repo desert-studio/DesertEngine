@@ -70,6 +70,28 @@ def runs_editor(cmd):
 ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 
 
+def map_digest():
+    """CODEMAP's index (every '## ' heading with its line number) and its hand-written Notes section."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        lines = open(os.path.join(root, ".claude", "CODEMAP.md"), encoding="utf-8").read().split("\n")
+    except OSError:
+        return "[agent_guard] .claude/CODEMAP.md is missing — tell the lead; do not search the tree instead."
+    index = [f"{i + 1}: {l}" for i, l in enumerate(lines) if l.startswith("## ")]
+    notes, inside = [], False
+    for l in lines:
+        if l.startswith("## "):
+            inside = l.startswith("## Notes")
+            continue
+        if inside and l.strip():
+            notes.append(l)
+    return ("[agent_guard] КАРТА ПРОЕКТА (.claude/CODEMAP.md). Разделы (строка: заголовок):\n" + "\n".join(index) +
+            "\nЗаметки карты:\n" + "\n".join(notes[:40]) +
+            "\nПрочитай СВОЙ раздел: sed -n 'A,Bp' .claude/CODEMAP.md (A..B — от его заголовка до следующего) и строку "
+            "своего .cpp в «Source → suites». До этого чтение кода отклоняется. Поиск по многим файлам — Explore на "
+            "haiku (Agent subagent_type \"Explore\", model \"haiku\"): его чтение не ложится в твой контекст.")
+
+
 def emit(obj):
     sys.stdout.write(json.dumps(obj))
     sys.exit(0)
@@ -283,6 +305,14 @@ def main():
     # budget from ~/.claude/tools/agent_extend.py: re-reading the same files in a fresh agent was 40-60 % of a step.
     limit = state.get("limit", TURN_LIMIT)
     if event == "PostToolUse":
+        # Owner 2026-09-28: «надо гарантировать что агенты прочитают карту проекта». The map's index (section
+        # headings with line numbers) and its hand-written notes are put into the agent's context after its
+        # FIRST call, so no agent starts without them; the code-read rule below still demands its own section.
+        if not state.get("map_shown"):
+            state["map_shown"] = True
+            save_state(state, path)
+            emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": map_digest()}})
+            sys.exit(0)
         pin = data.get("tool_input") or {}
         if data.get("tool_name") == "Bash" and pin.get("run_in_background"):
             # Any background job, not only build_quiet.sh: T6c5 ran suite.sh in the background and went idle.
@@ -336,7 +366,10 @@ def main():
         save_state(state, path)
         deny("[agent_guard] Explore запускается на haiku: Agent(subagent_type: \"Explore\", model: \"haiku\", ...). "
              "Он только находит файлы; дорогая модель тут — пустая трата.", data, agent)
-    if tool == "Bash" and "CODEMAP.md" in cmd or (tool == "Read" and (tin.get("file_path") or "").endswith("CODEMAP.md")):
+    # A SECTION read counts (sed -n 'A,Bp' / Read with an offset), not a mere mention: `grep -n '^## '` alone
+    # listed the headings and let the agent go on searching (ledger 09-28: search+read still 55-80 %).
+    if (tool == "Bash" and "CODEMAP.md" in cmd and re.search(r"sed\s+-n\s+'?\d+,\d+p", cmd)) or \
+            (tool == "Read" and (tin.get("file_path") or "").endswith("CODEMAP.md") and tin.get("offset")):
         state["map_read"] = True
     reading_code = (tool == "Read" and CODE_FILE.search(tin.get("file_path") or "")) or \
                    (tool == "Bash" and CODE_READ.search(cmd) and CODE_FILE.search(cmd))

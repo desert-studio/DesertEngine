@@ -229,8 +229,10 @@ TEST( VoxelBlockout, FrozenLayersCullAcrossUnitsButNotAcrossGridFrames )
     WorkPlane side{ 0, 1, 2 };
     v.PushPull( side, Rect{ 0, 1, 0, 1 }, +1, 1, 0 ); // 2 x 2 x 1 of 50 cm cells against the cube's +X face
     const auto mesh = v.Bake();
-    // Cube: 6 quads. Small slab: 5 visible greedy quads (its -X face is buried against the cube).
-    EXPECT_EQ( mesh.Indices.size(), ( 6u + 5u ) * 2u );
+    // Small slab: 5 visible greedy quads (its -X face is buried against the cube). Cube: 5 - the slab covers
+    // its +X face whole, so that face is buried too (M10c; it used to stay, doubling the contact).
+    EXPECT_EQ( mesh.Indices.size(), ( 5u + 5u ) * 2u );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
 }
 
 TEST( VoxelBlockout, RefineSplitsEveryCellAndKeepsTheGeometry )
@@ -1024,4 +1026,218 @@ TEST( VoxelBlockoutCornerMode, ACommittedSlabIsThawedAndSlopesAsTheActiveOneDoes
     ExpectClosed( m );
     EXPECT_EQ( NonConformingEdges( mesh ), 0 );
     EXPECT_NEAR( m.Volume, 9.0e6 + 1.5e6, 2.0 );
+}
+
+// M10c: pieces of different Block Sizes. A 100 cm wall is committed and 50 cm blocks are pushed out of its side;
+// the fine blocks' faces against the wall are culled, so the wall's face must show exactly the part they do not
+// cover - shown whole it doubled the contact and left the blocks' side walls ending inside it with no partner.
+namespace
+{
+    // Welded vertices whose triangles form more than one fan (bowties): the editable mesh refuses them.
+    int BowtieVertices( const Desert::Geometry::RenderMeshData& m )
+    {
+        using Key = std::tuple<long, long, long>;
+        auto key  = []( const glm::vec3& p )
+        { return Key( std::lround( p.x * 100.0f ), std::lround( p.y * 100.0f ), std::lround( p.z * 100.0f ) ); };
+        // Per vertex: the edges of its one-ring (the far edge of each incident triangle).
+        std::map<Key, std::vector<std::pair<Key, Key>>> ring;
+        for ( const auto& sm : m.Submeshes )
+            for ( uint32_t i = sm.IndexOffset / 3; i < ( sm.IndexOffset + sm.IndexCount ) / 3; ++i )
+            {
+                const auto& t    = m.Indices[i];
+                const Key   k[3] = { key( m.Vertices[sm.VertexOffset + t.V1].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V2].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V3].Position ) };
+                for ( int e = 0; e < 3; ++e )
+                    ring[k[e]].emplace_back( k[( e + 1 ) % 3], k[( e + 2 ) % 3] );
+            }
+        int bad = 0;
+        for ( const auto& [v, edges] : ring )
+        {
+            // Union-find over the ring's vertices: one fan is one connected component.
+            std::map<Key, Key> parent;
+            auto               root = [&parent]( Key k )
+            {
+                while ( parent.at( k ) != k )
+                    k = parent.at( k );
+                return k;
+            };
+            for ( const auto& [a, b] : edges )
+            {
+                parent.try_emplace( a, a );
+                parent.try_emplace( b, b );
+            }
+            for ( const auto& [a, b] : edges )
+                parent[root( a )] = root( b );
+            int roots = 0;
+            for ( const auto& [k, p] : parent )
+                roots += k == p ? 1 : 0;
+            bad += roots > 1 ? 1 : 0;
+        }
+        return bad;
+    }
+
+    // The editor's sequence: a 100 cm wall (X 0..100, Y 0..200, Z 0..400) is committed, Block Size 50, then
+    // from the wall's +X side a 100 x 100 block across two of the wall's cells and a single 50 cm block.
+    Volume WallWithFineBlocks( const GridFrame& frame )
+    {
+        Volume v  = Ground();
+        v.m_Frame = frame;
+        WorkPlane floor;
+        v.PushPull( floor, Rect{ 0, 3, 0, 0 }, +1, 2, 0 );
+        EXPECT_TRUE( v.Freeze() );
+        v.m_Unit = 50.0f;
+        WorkPlane side{ 0, 1, 2 }; // u = Y, v = Z, at x = 100 cm
+        v.PushPull( side, Rect{ 0, 1, 1, 2 }, +1, 1, 0 );
+        WorkPlane side2{ 0, 1, 2 };
+        v.PushPull( side2, Rect{ 2, 2, 5, 5 }, +1, 1, 0 );
+        EXPECT_EQ( v.m_Cells.size(), 5u );
+        return v;
+    }
+    // Wall 8 m3 + 0.5 m3 + 0.125 m3; faces 28 m2 + 2 m2 + 1 m2 (each block adds its five free faces and takes
+    // its contact from the wall).
+    constexpr double kWallBlocksVolume = ( 8.0 + 0.5 + 0.125 ) * 1.0e6;
+    constexpr double kWallBlocksArea   = ( 28.0 + 2.0 + 1.0 ) * 1.0e4;
+} // namespace
+
+TEST( VoxelBlockoutMixedStep, FineBlocksAgainstACoarseWallCloseTheSurface )
+{
+    const auto    mesh = WallWithFineBlocks( GridFrame{} ).Bake();
+    const Measure m    = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_EQ( BowtieVertices( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, kWallBlocksVolume, 2.0 );
+    EXPECT_NEAR( m.Area, kWallBlocksArea, 1.0 ) << "the wall's face under the blocks must be gone";
+}
+
+TEST( VoxelBlockoutMixedStep, TheSameInAFrameTurned30Degrees )
+{
+    const GridFrame turned = MakeGridFrame( { 40.0f, 0.0f, -25.0f }, { 0.0f, 30.0f, 0.0f } );
+    const auto      mesh   = WallWithFineBlocks( turned ).Bake();
+    const Measure   m      = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_EQ( BowtieVertices( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, kWallBlocksVolume, 4.0 );
+    EXPECT_NEAR( m.Area, kWallBlocksArea, 1.0 );
+}
+
+TEST( VoxelBlockoutMixedStep, ACoarseFaceCoveredWholeByFineBlocksIsHiddenWhole )
+{
+    // Four 50 cm blocks against the wall's -Z end over its lower cell: that 100 x 100 face is covered whole.
+    Volume v = WallWithFineBlocks( GridFrame{} );
+    for ( const glm::ivec3 c : { glm::ivec3{ 0, 0, -1 }, { 1, 0, -1 }, { 0, 1, -1 }, { 1, 1, -1 } } )
+        v.m_Cells[Pack( c )] = Cell{};
+    const auto    mesh = v.Bake();
+    const Measure m    = Measured( mesh );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_EQ( BowtieVertices( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, kWallBlocksVolume + 0.5e6, 2.0 );
+    EXPECT_NEAR( m.Area, kWallBlocksArea + 2.0e4, 1.0 );
+}
+
+TEST( VoxelBlockoutMixedStep, SlopesAlongDifferentAxesSideBySideShowOnlyWhatTheOtherDoesNotCover )
+{
+    // a rises along Y towards +X (its +X face reaches 150 cm up), b beside it leans along Z (its -X face runs out
+    // to 150 cm at the top). The two faces on x = 100 overlap in the 100 x 100 square only; M12 showed both
+    // whole (different axes: all or nothing), doubling that square.
+    Cell a;
+    a.Axis         = 1;
+    a.V[2 | 1]     = CornerDen / 2;
+    a.V[2 | 1 | 4] = CornerDen / 2;
+    Cell b;
+    b.Axis     = 2;
+    b.V[4 | 2] = CornerDen / 2;
+    auto alone = []( const Cell& cell, const glm::ivec3& at )
+    {
+        Volume v              = Ground();
+        v.m_Cells[Pack( at )] = cell;
+        return Measured( v.Bake() );
+    };
+    Volume v                       = Ground();
+    v.m_Cells[Pack( { 0, 0, 0 } )] = a;
+    v.m_Cells[Pack( { 1, 0, 0 } )] = b;
+    const auto    mesh             = v.Bake();
+    const Measure m                = Measured( mesh );
+    const Measure ma               = alone( a, { 0, 0, 0 } );
+    const Measure mb               = alone( b, { 1, 0, 0 } );
+    ExpectClosed( m );
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 );
+    EXPECT_EQ( BowtieVertices( mesh ), 0 );
+    EXPECT_NEAR( m.Volume, ma.Volume + mb.Volume, 2.0 );
+    EXPECT_NEAR( m.Area, ma.Area + mb.Area - 2.0e4, 1.0 ) << "the shared square is shown by neither";
+}
+
+namespace
+{
+    // Undirected welded edges by how many triangles use them: a closed 2-manifold has every edge on exactly two.
+    struct EdgeCensus
+    {
+        int Boundary    = 0; // on one triangle: a hole in the surface
+        int NonManifold = 0; // on three or more: a doubled face or a fin
+    };
+    EdgeCensus CountEdges( const Desert::Geometry::RenderMeshData& m )
+    {
+        using Key = std::tuple<long, long, long>;
+        auto key  = []( const glm::vec3& p )
+        { return Key( std::lround( p.x * 100.0f ), std::lround( p.y * 100.0f ), std::lround( p.z * 100.0f ) ); };
+        std::map<std::pair<Key, Key>, int> uses;
+        for ( const auto& sm : m.Submeshes )
+            for ( uint32_t i = sm.IndexOffset / 3; i < ( sm.IndexOffset + sm.IndexCount ) / 3; ++i )
+            {
+                const auto& t    = m.Indices[i];
+                const Key   k[3] = { key( m.Vertices[sm.VertexOffset + t.V1].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V2].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V3].Position ) };
+                for ( int e = 0; e < 3; ++e )
+                    ++uses[std::minmax( k[e], k[( e + 1 ) % 3] )];
+            }
+        EdgeCensus r;
+        for ( const auto& [edge, count] : uses )
+        {
+            r.Boundary += count == 1 ? 1 : 0;
+            r.NonManifold += count > 2 ? 1 : 0;
+        }
+        return r;
+    }
+
+    // Three Block Sizes: the 100 cm wall and 50 cm blocks of WallWithFineBlocks are committed, Block Size 25, then
+    // a 50 x 50 x 25 block out of the 100 x 100 block's +X face and a 25 cm cube straight on the wall's +X face.
+    // The cube stays clear of the 50 cm block: touching it along an edge only would be non-manifold by design.
+    Volume WallWithTwoFinerSizes()
+    {
+        Volume v = WallWithFineBlocks( GridFrame{} );
+        EXPECT_TRUE( v.Freeze() );
+        v.m_Unit = 25.0f;
+        WorkPlane onBlock{ 0, 1, 6 }; // x = 150 cm
+        v.PushPull( onBlock, Rect{ 1, 2, 3, 4 }, +1, 1, 0 );
+        WorkPlane onWall{ 0, 1, 4 }; // x = 100 cm
+        v.PushPull( onWall, Rect{ 6, 6, 14, 14 }, +1, 1, 0 );
+        EXPECT_EQ( v.m_Cells.size(), 5u );
+        return v;
+    }
+} // namespace
+
+TEST( VoxelBlockoutMixedStep, TwoAndThreeBlockSizesBakeOneClosedManifoldSurface )
+{
+    {
+        const auto       mesh = WallWithFineBlocks( GridFrame{} ).Bake();
+        const EdgeCensus e    = CountEdges( mesh );
+        EXPECT_EQ( e.Boundary, 0 ) << "two sizes";
+        EXPECT_EQ( e.NonManifold, 0 ) << "two sizes";
+        EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "two sizes";
+    }
+    const auto       mesh = WallWithTwoFinerSizes().Bake();
+    const EdgeCensus e    = CountEdges( mesh );
+    const Measure    m    = Measured( mesh );
+    EXPECT_EQ( e.Boundary, 0 ) << "three sizes";
+    EXPECT_EQ( e.NonManifold, 0 ) << "three sizes";
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "three sizes";
+    EXPECT_EQ( BowtieVertices( mesh ), 0 ) << "three sizes";
+    ExpectClosed( m );
+    // + 50 x 50 x 25 and 25^3; each adds its box area less twice its contact (2500 cm2 and 625 cm2).
+    EXPECT_NEAR( m.Volume, kWallBlocksVolume + 62500.0 + 15625.0, 2.0 );
+    EXPECT_NEAR( m.Area, kWallBlocksArea + ( 10000.0 - 5000.0 ) + ( 3750.0 - 1250.0 ), 1.0 );
 }
