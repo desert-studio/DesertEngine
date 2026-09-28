@@ -306,10 +306,15 @@ namespace Desert::Editor
     // the half no suite could reach because of it.
     Common::ResultStr<std::string> SequencerPanel::SaveClipToDisk( const Animation::AnimationClip& clip )
     {
+        // An authored clip is content (AF8b): it goes to the project's Animations/ folder, which the
+        // registry gathers with the rest of the assets root.
         std::error_code ec;
-        std::filesystem::create_directories( Common::Constants::Path::MESH_PATH_COOKED, ec );
+        std::filesystem::create_directories( Common::Constants::Path::ANIMATION_PATH, ec );
+        if ( ec )
+            return Common::MakeFormattedError<std::string>(
+                 "cannot create '{}': {}", Common::Constants::Path::ANIMATION_PATH.string(), ec.message() );
         const std::filesystem::path path =
-             Common::Constants::Path::MESH_PATH_COOKED / ( "_" + clip.AnimationName + ".anim" );
+             Common::Constants::Path::ANIMATION_PATH / ( clip.AnimationName + ".anim" );
 
         // IT RETURNS A RESULT AND NOT A PATH-OR-EMPTY-STRING. The old signature was `std::string`, an
         // empty one meaning failure — and its only caller, the Save button, discarded it, so a refusal
@@ -478,7 +483,7 @@ namespace Desert::Editor
                     ToastManager::Push( "Clip NOT saved: " + saved.GetError(), ToastLevel::Error, 8.0f );
             }
             Utils::ImGuiUtilities::Tooltip(
-                 "Write this clip to Cooked/Meshes/_<name>.anim so it survives a restart\n"
+                 "Write this clip to Assets/Animations/<name>.anim so it survives a restart\n"
                  "(rediscovered by the asset preloader next session)." );
         }
 

@@ -48,7 +48,7 @@
 
 namespace
 {
-    constexpr const char* kCookedDir = "Editor/Cooked/Meshes/";
+    constexpr const char* kCookedDir = "Editor/Resources/Assets/Meshes/Skinned/";
     constexpr const char* kWitness   = "Editor/Resources/Assets/Scenes/ANIM_IKWitness.desce";
     constexpr const char* kNoControl = "Editor/Resources/Assets/Scenes/ANIM_IKWitness_NoIK.desce";
 

@@ -27,11 +27,11 @@ namespace Desert::Core::Serialize
     // The string a `.desce` stores for `handle`, or "" when the handle is unset (0).
     //
     // The form is `Common::AssetHandle::StableKeyForPath` — the asset's place in the project behind its
-    // root's tag, e.g. `cooked:Textures/T_Checker.tex`. Not the raw filepath, which is ABSOLUTE with a
+    // root's tag, e.g. `assets:Textures/T_Checker.detex`. Not the raw filepath, which is ABSOLUTE with a
     // project open and so writes a developer's home directory into a committed file; and not simply
-    // relative to the assets root the way a material's path is, because a cooked texture lives under
-    // COOKED_PATH, a SIBLING of the assets root, where that reduction yields `../Cooked/...` and falls
-    // back to absolute anyway. The tag is the bit no plain path can carry.
+    // relative to the assets root the way a material's path is, because an engine texture lives under
+    // RESOURCE_PATH, which is not inside the assets root in a project, where that reduction yields `../...`
+    // and falls back to absolute anyway. The tag is the bit no plain path can carry.
     //
     // A handle the cooked asset registry has no row for returns "" and LOGS why (DC §1.4): the slot is
     // about to be saved as empty, which is indistinguishable from an empty slot, so the next save loses

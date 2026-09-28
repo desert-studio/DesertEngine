@@ -55,7 +55,7 @@
 
 namespace
 {
-    constexpr const char* kCookedDir = "Editor/Cooked/Meshes/";
+    constexpr const char* kCookedDir = "Editor/Resources/Assets/Meshes/Skinned/";
     constexpr const char* kSceneFile = "Editor/Resources/Assets/Scenes/ANIM_TwoBoneWitness.desce";
 
     constexpr const char* kBaseBone = "Base";

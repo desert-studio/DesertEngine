@@ -61,10 +61,10 @@ namespace
     using Desert::Animation::Retarget::Retargeter;
     using Desert::Animation::Retarget::RetargetSetup;
 
-    constexpr const char* kRigPath     = "Editor/Cooked/Meshes/IKProbe.skeleton";
-    constexpr const char* kClipPath    = "Editor/Cooked/Meshes/IKProbe_Swing.anim";
-    constexpr const char* kTwoBoneRig  = "Editor/Cooked/Meshes/TwoBoneProbe.skeleton";
-    constexpr const char* kTwoBoneClip = "Editor/Cooked/Meshes/TwoBoneProbe_Wave.anim";
+    constexpr const char* kRigPath     = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kClipPath    = "Editor/Resources/Assets/Meshes/Skinned/IKProbe_Swing.anim";
+    constexpr const char* kTwoBoneRig  = "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe.skeleton";
+    constexpr const char* kTwoBoneClip = "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
 
     // The probe limb, and the only three-bone chain in the corpus. A limb is what a retargeter is judged
     // on, and IK_Shoulder is also the rig's root, so it doubles as the pelvis.

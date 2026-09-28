@@ -116,7 +116,7 @@ TEST( AnimationClipFormat, AssetFieldCensus )
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
     EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
-               ( std::vector<std::string>{ "Bones", "Header", "Signature" } ) );
+               ( std::vector<std::string>{ "Bones", "Header", "Import", "Signature" } ) );
     // BoneInfo is written to .skeleton verbatim; it carried the same redundant index.
     EXPECT_EQ( FieldNames<Desert::Animation::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );

@@ -66,16 +66,17 @@ namespace Common
 
         // The roots an asset can live under, each with the TAG its relative paths are hashed behind.
         //
-        // Why a TAG and not the bare relative path: `Cooked/Meshes/T.stmesh` and
-        // `Resources/Assets/Meshes/T.stmesh` both reduce to `Meshes/T.stmesh`, so without a tag a cooked
-        // asset and a content asset that happen to sit at mirrored offsets would share one handle. The
-        // tag is part of the hashed key, never of any path on disk.
+        // Why a TAG and not the bare relative path: `Resources/Assets/Fonts/X.ttf` (project content) and
+        // `Resources/Fonts/X.ttf` (an engine resource) both reduce to `Fonts/X.ttf`, so without a tag a
+        // content asset and an engine resource that happen to sit at mirrored offsets would share one
+        // handle. The tag is part of the hashed key, never of any path on disk.
         //
-        // Why THESE three: they are exactly the roots the content registry gathers. Content and cooked assets
-        // move with the project (Constants::Path::SetProjectRoot rewrites them); engine resources never
-        // do. Longest match wins, which is what makes the default sandbox layout — where ASSETS_PATH
-        // (`Resources/Assets/`) is NESTED INSIDE RESOURCE_PATH (`Resources/`) — resolve to `assets`
-        // rather than to `engine`, without the answer depending on the order of this array.
+        // Why THESE two: they are exactly the roots the content registry gathers. Content moves with the
+        // project (Constants::Path::SetProjectRoot rewrites it); engine resources never do. The project's
+        // Cooked/ tree is NOT a root: it holds generated intermediates only, and no asset is authored or
+        // gathered there (AF8b). Longest match wins, which is what makes the default sandbox layout — where
+        // ASSETS_PATH (`Resources/Assets/`) is NESTED INSIDE RESOURCE_PATH (`Resources/`) — resolve to
+        // `assets` rather than to `engine`, without the answer depending on the order of this array.
         struct PathRoot
         {
             const std::filesystem::path* Root;
@@ -86,11 +87,10 @@ namespace Common
         // the moment the inverse below appeared that would have made two lists of roots that must agree
         // with nothing checking that they do — the defect shape this file's own comments are about. A
         // root added here reaches the writer and the reader in the same edit.
-        static const std::array<PathRoot, 3>& ContentRoots() noexcept
+        static const std::array<PathRoot, 2>& ContentRoots() noexcept
         {
-            static const std::array<PathRoot, 3> roots = {
+            static const std::array<PathRoot, 2> roots = {
                  PathRoot{ &Constants::Path::ASSETS_PATH, "assets" },
-                 PathRoot{ &Constants::Path::COOKED_PATH, "cooked" },
                  PathRoot{ &Constants::Path::RESOURCE_PATH, "engine" },
             };
             return roots;
@@ -242,10 +242,9 @@ namespace Common
         // sent to another machine, and StableKeyForPath is already the engine's one answer to "where is
         // this asset in the project". Storing that answer is only useful if it can be read back, and no
         // plain relative path can do the job for every asset class: a material lives under ASSETS_PATH
-        // while a cooked texture lives under COOKED_PATH, which is a SIBLING of it, so a path made
-        // relative to the assets root comes out as `../Cooked/...` for a texture and falls back to the
-        // absolute spelling — i.e. to a developer's home directory in a committed file. The tag is what
-        // carries the missing bit, and it is a bit no path can carry.
+        // while an engine font lives under RESOURCE_PATH, which CONTAINS it in the sandbox and is a
+        // sibling of it in a project, so no one relative spelling names both. The tag is what carries the
+        // missing bit, and it is a bit no path can carry.
         //
         // A string with no known tag is returned unchanged. That covers three real cases and is not a
         // fallback: a plain relative path written before this form existed, an absolute path to a file

@@ -18,6 +18,9 @@ project(test_name)
         -- A mesh is a MeshSourceAsset (AF4d): its header states the MSAS subsystem, and its material slots
         -- are references this census counts, read by the engine's own ReadMeshSourceAssetFile.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
+        -- A skinned mesh is authored in the cooked container (AF8b); its slot materials are read by the
+        -- engine's own ReadMeshAssetData.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
     }
 
     includedirs {

@@ -470,8 +470,8 @@ namespace Desert::Editor
 
         m_ImportManager = std::make_unique<ImportManager>();
         // Cook only what's missing/stale (skips the expensive Assimp re-parse on every launch). Collections
-        // hold packs (a character + its animation FBXs), so they're cooked too — their outputs land under
-        // Cooked/Meshes/Collections/... where the content registry gathers them (see CookPaths::CookedSkinned).
+        // hold packs (a character + its animation FBXs), so they're imported too — their skinned assets land
+        // beside each source, where the content registry gathers them (see CookPaths::SkinnedAsset).
         //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.

@@ -91,7 +91,7 @@ TEST( CookedAssetRegistry, ADeclaredIdentityOverridesTheDerivedHandleAndBothStil
     // would answer for half the corpus, so this asserts both.
     constexpr uint64_t declared = 0xD00DFEEDCAFEBABEull;
 
-    AssetRegistryEntry row = Row( "cooked:Textures/T_Probe.tex", "Texture", 128 );
+    AssetRegistryEntry row = Row( "assets:Textures/T_Probe.tex", "Texture", 128 );
     row.Identity           = declared;
 
     const uint64_t derived = row.PathHandle();
@@ -115,7 +115,7 @@ TEST( CookedAssetRegistry, EveryColumnSurvivesSerializeAndParse )
 {
     AssetRegistry written;
 
-    AssetRegistryEntry texture = Row( "cooked:Textures/T_Probe.tex", "Texture", 4096 );
+    AssetRegistryEntry texture = Row( "assets:Textures/T_Probe.tex", "Texture", 4096 );
     texture.Identity           = 0x0123456789ABCDEFull;
     texture.Dependencies       = { 7, 3, 11 };
     ASSERT_TRUE( written.Insert( texture ) );
@@ -131,7 +131,7 @@ TEST( CookedAssetRegistry, EveryColumnSurvivesSerializeAndParse )
     const AssetRegistry& read = parsed.GetValue();
     ASSERT_EQ( read.Count(), written.Count() );
 
-    const AssetRegistryEntry* back = read.FindByKey( "cooked:Textures/T_Probe.tex" );
+    const AssetRegistryEntry* back = read.FindByKey( "assets:Textures/T_Probe.tex" );
     ASSERT_NE( back, nullptr );
     EXPECT_EQ( back->Kind, "Texture" );
     EXPECT_EQ( back->Size, 4096u );
@@ -152,7 +152,7 @@ TEST( CookedAssetRegistry, TwoCooksOfOneTreeSerializeToTheSameBytes )
     AssetRegistry forwards;
     AssetRegistry backwards;
 
-    const std::vector<std::string> keys  = { "assets:A.demat", "cooked:B.tex", "engine:C.shader",
+    const std::vector<std::string> keys  = { "assets:A.demat", "assets:B.tex", "engine:C.shader",
                                              "assets:D.derig" };
     const std::vector<std::string> kinds = { "Material", "Texture", "Shader", "ControlRig" };
 
@@ -230,7 +230,7 @@ namespace
 TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
 {
     AssetRegistry            written;
-    AssetRegistryEntry       mesh = Row( "cooked:Meshes/Bridge.stmesh", "StaticMesh", 100 );
+    AssetRegistryEntry       mesh = Row( "assets:Meshes/Bridge.stmesh", "StaticMesh", 100 );
     const Common::Math::AABB box =
          Box( glm::vec3( -50000.0f, -0.0f, 1.0f / 3.0f ), glm::vec3( 50000.0f, 1.0e-30f, 12345.678f ) );
     mesh.Bounds = box;
@@ -241,7 +241,7 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
     const auto        parsed = AssetRegistry::Parse( text );
     ASSERT_TRUE( parsed ) << parsed.GetError();
 
-    const AssetRegistryEntry* back = parsed.GetValue().FindByKey( "cooked:Meshes/Bridge.stmesh" );
+    const AssetRegistryEntry* back = parsed.GetValue().FindByKey( "assets:Meshes/Bridge.stmesh" );
     ASSERT_NE( back, nullptr );
     ASSERT_TRUE( back->Bounds.has_value() );
     EXPECT_TRUE( Common::Utils::SameBounds( back->Bounds, box ) );
@@ -263,7 +263,7 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
 // and put skeletal meshes on the static list with nothing saying why. The refusal names the gather.
 TEST( CookedAssetRegistry, AnOlderVersionIsRefusedNamingTheGatherThatRewritesIt )
 {
-    for ( const char* text : { "DesertAssetRegistry 1\n3536 StaticMesh - - cooked:Meshes/StaticProbe.stmesh\n",
+    for ( const char* text : { "DesertAssetRegistry 1\n3536 StaticMesh - - assets:Meshes/StaticProbe.stmesh\n",
                                "DesertAssetRegistry 2\n229 Material 0000000000000009 - - assets:M.demat\n",
                                "DesertAssetRegistry 3\n229 Material - 0000000000000009 - - assets:M.demat\n" } )
     {
@@ -281,7 +281,7 @@ TEST( CookedAssetRegistry, AMalformedBoundsColumnIsRefused )
     const std::string one  = "3f800000";
     const std::string nan  = "7fc00000";
     const auto        row  = []( const std::string& bounds )
-    { return "DesertAssetRegistry 5\n9 StaticMesh - - - " + bounds + " - cooked:Meshes/M.stmesh\n"; };
+    { return "DesertAssetRegistry 5\n9 StaticMesh - - - " + bounds + " - assets:Meshes/M.stmesh\n"; };
 
     ASSERT_TRUE(
          AssetRegistry::Parse( row( zero + "," + zero + "," + zero + "," + one + "," + one + "," + one ) ) );
@@ -301,16 +301,16 @@ TEST( CookedAssetRegistry, AMalformedBoundsColumnIsRefused )
 TEST( CookedAssetRegistry, SetBoundsTouchesOnlyAnExistingRow )
 {
     AssetRegistry registry;
-    ASSERT_TRUE( registry.Insert( Row( "cooked:Meshes/M.stmesh", "StaticMesh", 9 ) ) );
+    ASSERT_TRUE( registry.Insert( Row( "assets:Meshes/M.stmesh", "StaticMesh", 9 ) ) );
 
     EXPECT_FALSE(
-         registry.SetBounds( "cooked:Meshes/Other.stmesh", Box( glm::vec3( 0.0f ), glm::vec3( 1.0f ) ) ) );
+         registry.SetBounds( "assets:Meshes/Other.stmesh", Box( glm::vec3( 0.0f ), glm::vec3( 1.0f ) ) ) );
     EXPECT_EQ( registry.Count(), 1u );
 
-    ASSERT_TRUE( registry.SetBounds( "cooked:Meshes/M.stmesh", Box( glm::vec3( -1.0f ), glm::vec3( 2.0f ) ) ) );
-    EXPECT_TRUE( registry.FindByKey( "cooked:Meshes/M.stmesh" )->Bounds.has_value() );
-    ASSERT_TRUE( registry.SetBounds( "cooked:Meshes/M.stmesh", std::nullopt ) );
-    EXPECT_FALSE( registry.FindByKey( "cooked:Meshes/M.stmesh" )->Bounds.has_value() );
+    ASSERT_TRUE( registry.SetBounds( "assets:Meshes/M.stmesh", Box( glm::vec3( -1.0f ), glm::vec3( 2.0f ) ) ) );
+    EXPECT_TRUE( registry.FindByKey( "assets:Meshes/M.stmesh" )->Bounds.has_value() );
+    ASSERT_TRUE( registry.SetBounds( "assets:Meshes/M.stmesh", std::nullopt ) );
+    EXPECT_FALSE( registry.FindByKey( "assets:Meshes/M.stmesh" )->Bounds.has_value() );
 }
 
 // A SCENE REFERENCE IS A HANDLE, OR FAILING THAT A PATH. Both must find the row, and a declared identity
@@ -318,18 +318,18 @@ TEST( CookedAssetRegistry, SetBoundsTouchesOnlyAnExistingRow )
 TEST( CookedAssetRegistry, AReferenceFindsItsRowByHandleOrByPath )
 {
     AssetRegistry      registry;
-    AssetRegistryEntry mesh = Row( "cooked:Meshes/M.stmesh", "StaticMesh", 9 );
+    AssetRegistryEntry mesh = Row( "assets:Meshes/M.stmesh", "StaticMesh", 9 );
     mesh.Identity           = 0x1111222233334444ull;
     ASSERT_TRUE( registry.Insert( mesh ) );
-    const AssetRegistryEntry* row = registry.FindByKey( "cooked:Meshes/M.stmesh" );
+    const AssetRegistryEntry* row = registry.FindByKey( "assets:Meshes/M.stmesh" );
 
     EXPECT_EQ( registry.FindByReference( row->PathHandle(), "" ), row );
     EXPECT_EQ( registry.FindByReference( 0x1111222233334444ull, "" ), row );
     EXPECT_EQ( registry.FindByReference( 0, "" ), nullptr );
     EXPECT_EQ( registry.FindByReference( 0x9999ull, "" ), nullptr ) << "an unknown handle named a row";
 
-    // By path: the stable key of the cooked mesh root plus the file name — the spelling a `.desce` writes.
-    const std::string path = ( Common::Constants::Path::MESH_PATH_COOKED / "M.stmesh" ).generic_string();
+    // By path: the assets root plus the file's place under it — the spelling a `.desce` writes.
+    const std::string path = ( Common::Constants::Path::ASSETS_PATH / "Meshes" / "M.stmesh" ).generic_string();
     EXPECT_EQ( registry.FindByReference( 0, path ), row ) << path;
     EXPECT_EQ( registry.FindByReference( 0x9999ull, path ), row ) << "a stale handle must not hide the path";
 }
@@ -347,7 +347,7 @@ TEST( CookedAssetRegistry, PublishingTheRowsMakesEveryHandleNameItsFileWithNothi
 
     AssetRegistry registry;
     ASSERT_TRUE( registry.Insert( Row( "assets:Materials/M_Rock.demat", "Material", 512 ) ) );
-    ASSERT_TRUE( registry.Insert( Row( "cooked:Meshes/Probe.stmesh", "StaticMesh", 900 ) ) );
+    ASSERT_TRUE( registry.Insert( Row( "assets:Meshes/Probe.stmesh", "StaticMesh", 900 ) ) );
 
     EXPECT_EQ( Common::AssetPathIndex::Size(), 0u );
     EXPECT_EQ( registry.PublishIdentities(), 2u );
@@ -374,7 +374,7 @@ TEST( CookedAssetRegistry, ADeclaredIdentityIsNotPublishedIntoThePathIndex )
     const SandboxRootGuard guard;
     Common::AssetPathIndex::Clear();
 
-    AssetRegistryEntry texture = Row( "cooked:Textures/T_Probe.tex", "Texture", 128 );
+    AssetRegistryEntry texture = Row( "assets:Textures/T_Probe.tex", "Texture", 128 );
     texture.Identity           = 0xABCDEF0123456789ull;
 
     AssetRegistry registry;
@@ -391,16 +391,16 @@ TEST( CookedAssetRegistry, ADeclaredIdentityIsNotPublishedIntoThePathIndex )
 TEST( CookedAssetRegistry, RowsAreSelectableByKindBecauseThatIsWhatReplacedTheDirectoryWalk )
 {
     AssetRegistry registry;
-    ASSERT_TRUE( registry.Insert( Row( "cooked:Meshes/A.stmesh", "StaticMesh" ) ) );
-    ASSERT_TRUE( registry.Insert( Row( "cooked:Meshes/B.stmesh", "StaticMesh" ) ) );
-    ASSERT_TRUE( registry.Insert( Row( "cooked:Meshes/C.skmesh", "SkinnedMesh" ) ) );
+    ASSERT_TRUE( registry.Insert( Row( "assets:Meshes/A.stmesh", "StaticMesh" ) ) );
+    ASSERT_TRUE( registry.Insert( Row( "assets:Meshes/B.stmesh", "StaticMesh" ) ) );
+    ASSERT_TRUE( registry.Insert( Row( "assets:Meshes/C.skmesh", "SkinnedMesh" ) ) );
 
     const auto statics = registry.OfKind( "StaticMesh" );
     ASSERT_EQ( statics.size(), 2u );
-    EXPECT_EQ( statics[0]->Key, "cooked:Meshes/A.stmesh" ) << "rows of a kind must come back in key "
+    EXPECT_EQ( statics[0]->Key, "assets:Meshes/A.stmesh" ) << "rows of a kind must come back in key "
                                                               "order, or the preload order becomes a "
                                                               "property of the walk again";
-    EXPECT_EQ( statics[1]->Key, "cooked:Meshes/B.stmesh" );
+    EXPECT_EQ( statics[1]->Key, "assets:Meshes/B.stmesh" );
     EXPECT_EQ( registry.OfKind( "SkinnedMesh" ).size(), 1u );
     EXPECT_TRUE( registry.OfKind( "Skybox" ).empty() );
 }
@@ -409,17 +409,17 @@ TEST( CookedAssetRegistry, RemovingARowTakesBothOfItsNumbersWithIt )
 {
     // A row whose file was deleted leaves; if only one of its two numbers left the index, a lookup
     // would succeed and then find no row — a worse answer than a miss.
-    AssetRegistryEntry texture = Row( "cooked:Textures/T.tex", "Texture" );
+    AssetRegistryEntry texture = Row( "assets:Textures/T.tex", "Texture" );
     texture.Identity           = 0xFEEDul;
     const uint64_t derived     = texture.PathHandle();
 
     AssetRegistry registry;
     ASSERT_TRUE( registry.Insert( texture ) );
-    ASSERT_TRUE( registry.Remove( "cooked:Textures/T.tex" ) );
+    ASSERT_TRUE( registry.Remove( "assets:Textures/T.tex" ) );
 
     EXPECT_EQ( registry.FindByHandle( 0xFEEDul ), nullptr );
     EXPECT_EQ( registry.FindByHandle( derived ), nullptr );
-    EXPECT_FALSE( registry.Remove( "cooked:Textures/T.tex" ) );
+    EXPECT_FALSE( registry.Remove( "assets:Textures/T.tex" ) );
 }
 
 // ── THE COMPARATOR THE COOK GATE IS MADE OF ─────────────────────────────────────────────────────────
@@ -568,9 +568,9 @@ TEST( CookedAssetRegistry, TheTagsColumnSurvivesARoundTripWithEveryAwkwardByte )
     AssetRegistry      written;
     AssetRegistryEntry theme = Row( "assets:UI/Themes/Dark.detheme", "UITheme", 10 );
     theme.DisplayName        = "Desert Dark, 100% = \xD0\x94\xD1\x8E\xD0\xBD\xD0\xB0\tend";
-    AssetRegistryEntry mesh  = Row( "cooked:Meshes/Probe.skmesh", "SkinnedMesh", 20 );
+    AssetRegistryEntry mesh  = Row( "assets:Meshes/Probe.skmesh", "SkinnedMesh", 20 );
     mesh.Skinned             = true;
-    AssetRegistryEntry both  = Row( "cooked:Meshes/Named.skmesh", "SkinnedMesh", 30 );
+    AssetRegistryEntry both  = Row( "assets:Meshes/Named.skmesh", "SkinnedMesh", 30 );
     both.DisplayName         = "Named";
     both.Skinned             = true;
     ASSERT_TRUE( written.Insert( theme ) );
@@ -580,16 +580,16 @@ TEST( CookedAssetRegistry, TheTagsColumnSurvivesARoundTripWithEveryAwkwardByte )
 
     const std::string text = written.Serialize();
     EXPECT_NE( text.find( " Name=Desert%20Dark%2C%20100%25%20%3D%20" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( " Name=Named,Skinned cooked:Meshes/Named.skmesh" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( " Name=Named,Skinned assets:Meshes/Named.skmesh" ), std::string::npos ) << text;
     const auto parsed = AssetRegistry::Parse( text );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     const AssetRegistry& read = parsed.GetValue();
     EXPECT_EQ( read.FindByKey( "assets:UI/Themes/Dark.detheme" )->DisplayName, theme.DisplayName );
     EXPECT_FALSE( read.FindByKey( "assets:UI/Themes/Dark.detheme" )->Skinned );
-    EXPECT_TRUE( read.FindByKey( "cooked:Meshes/Probe.skmesh" )->Skinned );
-    EXPECT_TRUE( read.FindByKey( "cooked:Meshes/Probe.skmesh" )->DisplayName.empty() );
-    EXPECT_EQ( read.FindByKey( "cooked:Meshes/Named.skmesh" )->DisplayName, "Named" );
-    EXPECT_TRUE( read.FindByKey( "cooked:Meshes/Named.skmesh" )->Skinned );
+    EXPECT_TRUE( read.FindByKey( "assets:Meshes/Probe.skmesh" )->Skinned );
+    EXPECT_TRUE( read.FindByKey( "assets:Meshes/Probe.skmesh" )->DisplayName.empty() );
+    EXPECT_EQ( read.FindByKey( "assets:Meshes/Named.skmesh" )->DisplayName, "Named" );
+    EXPECT_TRUE( read.FindByKey( "assets:Meshes/Named.skmesh" )->Skinned );
     EXPECT_TRUE( read.FindByKey( "assets:Materials/M.demat" )->DisplayName.empty() );
     EXPECT_EQ( read.Serialize(), text ) << "a second write of what was read is a different file";
 }
@@ -600,27 +600,27 @@ TEST( CookedAssetRegistry, TheRigTagCarriesTheFullSignatureOnBothRowsAndRefusesA
 {
     constexpr uint64_t kSignature = 0xF00DCAFE12345678ull;
     AssetRegistry      written;
-    AssetRegistryEntry mesh = Row( "cooked:Meshes/Hero.skmesh", "SkinnedMesh", 20 );
+    AssetRegistryEntry mesh = Row( "assets:Meshes/Hero.skmesh", "SkinnedMesh", 20 );
     mesh.Skinned            = true;
     mesh.RigSignature       = kSignature;
-    AssetRegistryEntry rig  = Row( "cooked:Meshes/Hero.skeleton", "Skeleton", 21 );
+    AssetRegistryEntry rig  = Row( "assets:Meshes/Hero.skeleton", "Skeleton", 21 );
     rig.RigSignature        = kSignature;
     ASSERT_TRUE( written.Insert( mesh ) );
     ASSERT_TRUE( written.Insert( rig ) );
 
     const std::string text = written.Serialize();
-    EXPECT_NE( text.find( " Skinned,Rig=" + std::to_string( kSignature ) + " cooked:Meshes/Hero.skmesh" ),
+    EXPECT_NE( text.find( " Skinned,Rig=" + std::to_string( kSignature ) + " assets:Meshes/Hero.skmesh" ),
                std::string::npos )
          << text;
     const auto parsed = AssetRegistry::Parse( text );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().FindByKey( "cooked:Meshes/Hero.skmesh" )->RigSignature, kSignature );
-    EXPECT_EQ( parsed.GetValue().FindByKey( "cooked:Meshes/Hero.skeleton" )->RigSignature, kSignature );
+    EXPECT_EQ( parsed.GetValue().FindByKey( "assets:Meshes/Hero.skmesh" )->RigSignature, kSignature );
+    EXPECT_EQ( parsed.GetValue().FindByKey( "assets:Meshes/Hero.skeleton" )->RigSignature, kSignature );
     EXPECT_EQ( parsed.GetValue().Serialize(), text );
 
     for ( const char* bad : { "Rig=", "Rig=0", "Rig=12x", "Rig=-4" } )
         EXPECT_FALSE( AssetRegistry::Parse( std::string( "DesertAssetRegistry 5\n9 Skeleton - - - - " ) + bad +
-                                            " cooked:Meshes/R.skeleton\n" ) )
+                                            " assets:Meshes/R.skeleton\n" ) )
              << bad;
 }
 

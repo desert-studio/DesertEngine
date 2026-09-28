@@ -318,7 +318,7 @@ def strip_text_kind_header(old, new, ext, path):
 
 def strip_retarget_rig_guid(root, old, new, ext):
     """.retarget RTGT 2 -> 3 (T7f): the bare rig path becomes {Guid, Path}, the Guid the one the named
-    Editor/Cooked/Meshes rig's header states and the header's one Dependency. Normalised back to the v2 shape
+    Editor/Resources/Assets rig's header states and the header's one Dependency. Normalised back to the v2 shape
     only when all of that holds. True when stripped."""
     if ext != ".retarget" or not isinstance(old, dict) or not isinstance(new, dict):
         return False
@@ -326,7 +326,7 @@ def strip_retarget_rig_guid(root, old, new, ext):
     if old_header.get("Versions") != {"RTGT": 2} or header.get("Versions") != {"RTGT": 3} or \
             not isinstance(old.get("SourceSkeleton"), str) or not isinstance(rig, dict) or \
             rig.get("Path") != old["SourceSkeleton"] or header.get("Dependencies") != [rig.get("Guid")] or \
-            locator_header_guid(f"{root}/Editor/Cooked/Meshes/{rig['Path']}") != rig.get("Guid"):
+            locator_header_guid(f"{root}/Editor/Resources/Assets/{rig['Path']}") != rig.get("Guid"):
         return False
     new["SourceSkeleton"] = rig["Path"]
     header["Versions"] = {"RTGT": 2}

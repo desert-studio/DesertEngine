@@ -120,7 +120,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/SkinProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
                 "MeshGuid": "047623816f024edf9fd7a557f6501f7e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -142,7 +142,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/TwoBoneProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -164,7 +164,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/TwoBoneProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -185,7 +185,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/TwoBoneProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]

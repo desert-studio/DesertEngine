@@ -157,7 +157,7 @@ namespace
     }
 
     // EVERY SPELLING OF ONE FILE THAT THIS ENGINE ACTUALLY PRODUCES, for the file `Meshes/base.stmesh`
-    // under the cooked root. They are not decorative: each one is a form some caller holds.
+    // under the assets root. They are not decorative: each one is a form some caller holds.
     //
     //   [0] the absolute one AssetPreloader registers, because the roots go absolute with a project open
     //   [1] the same place reached through a sibling directory — what `lexically_normal` exists for, and
@@ -169,12 +169,12 @@ namespace
     // project; the first three are lexical and hold anywhere.
     std::vector<Common::Filepath> SpellingsOfOneFile()
     {
-        const std::filesystem::path cooked = Common::Constants::Path::COOKED_PATH;
+        const std::filesystem::path assets = Common::Constants::Path::ASSETS_PATH;
         return {
-             cooked / "Meshes" / "base.stmesh",
-             cooked / "Textures" / ".." / "Meshes" / "base.stmesh",
-             cooked / "." / "Meshes" / "base.stmesh",
-             std::filesystem::path( "Cooked" ) / "Meshes" / "base.stmesh",
+             assets / "Meshes" / "base.stmesh",
+             assets / "Textures" / ".." / "Meshes" / "base.stmesh",
+             assets / "." / "Meshes" / "base.stmesh",
+             std::filesystem::path( "Resources" ) / "Assets" / "Meshes" / "base.stmesh",
         };
     }
 } // namespace
@@ -246,8 +246,9 @@ TEST( AssetPathIdentity, TheScenesSpellingFindsThePreloadersUnparsedShell )
 
     AssetManager mgr;
 
-    const Common::Filepath preloaderSpelling = Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh";
-    const Common::Filepath sceneSpelling     = std::filesystem::path( "Cooked" ) / "Meshes" / "base.stmesh";
+    const Common::Filepath preloaderSpelling = Common::Constants::Path::ASSETS_PATH / "Meshes" / "base.stmesh";
+    const Common::Filepath sceneSpelling =
+         std::filesystem::path( "Resources" ) / "Assets" / "Meshes" / "base.stmesh";
 
     const auto shell = mgr.CreateAsset<TextureProbe>( preloaderSpelling, /*loadAfterCreate=*/false );
     ASSERT_NE( shell, nullptr );
@@ -296,8 +297,8 @@ TEST( AssetPathIdentity, TwoDifferentFilesStayTwoAssets )
 
     AssetManager mgr;
 
-    const Common::Filepath a = Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh";
-    const Common::Filepath b = Common::Constants::Path::COOKED_PATH / "Meshes" / "other.stmesh";
+    const Common::Filepath a = Common::Constants::Path::ASSETS_PATH / "Meshes" / "base.stmesh";
+    const Common::Filepath b = Common::Constants::Path::ASSETS_PATH / "Meshes" / "other.stmesh";
 
     const auto first  = mgr.CreateAsset<TextureProbe>( a, /*loadAfterCreate=*/false );
     const auto second = mgr.CreateAsset<TextureProbe>( b, /*loadAfterCreate=*/false );
@@ -350,11 +351,11 @@ TEST( AssetPathIdentity, AFileNobodyRegisteredIsStillNotFound )
 
     AssetManager mgr;
 
-    ASSERT_NE( mgr.CreateAsset<TextureProbe>( Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh",
+    ASSERT_NE( mgr.CreateAsset<TextureProbe>( Common::Constants::Path::ASSETS_PATH / "Meshes" / "base.stmesh",
                                               /*loadAfterCreate=*/false ),
                nullptr );
 
-    EXPECT_EQ( mgr.FindByPath<TextureProbe>( Common::Constants::Path::COOKED_PATH / "Meshes" /
+    EXPECT_EQ( mgr.FindByPath<TextureProbe>( Common::Constants::Path::ASSETS_PATH / "Meshes" /
                                              "never_registered.stmesh" ),
                nullptr );
     EXPECT_EQ( mgr.FindByPath<TextureProbe>( "" ), nullptr );
@@ -428,11 +429,12 @@ TEST( AssetPathIdentity, RelativeSpellingsAreResolvedLexicallyNotThroughLinks )
     AssetManager mgr;
 
     const auto registered =
-         mgr.CreateAsset<TextureProbe>( Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh",
+         mgr.CreateAsset<TextureProbe>( Common::Constants::Path::ASSETS_PATH / "Meshes" / "base.stmesh",
                                         /*loadAfterCreate=*/false );
     ASSERT_NE( registered, nullptr );
 
-    EXPECT_EQ( mgr.FindByPath<TextureProbe>( std::filesystem::path( "Cooked" ) / "Meshes" / "base.stmesh" ),
+    EXPECT_EQ( mgr.FindByPath<TextureProbe>( std::filesystem::path( "Resources" ) / "Assets" / "Meshes" /
+                                             "base.stmesh" ),
                nullptr )
          << "the derivation has become link-aware; that is a bigger change than it looks (it puts a stat "
             "inside the identity of every asset) and this test is where to argue it";

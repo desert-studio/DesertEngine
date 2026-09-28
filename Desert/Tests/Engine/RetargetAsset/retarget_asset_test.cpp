@@ -86,9 +86,9 @@ namespace
 
     namespace File = Desert::Assets::Serialization;
 
-    constexpr const char* kTargetRig    = "Editor/Cooked/Meshes/IKProbe.skeleton";
-    constexpr const char* kSourceRig    = "Editor/Cooked/Meshes/ForeignArm.skeleton";
-    constexpr const char* kSourceClip   = "Editor/Cooked/Meshes/ForeignArm_Swing.anim";
+    constexpr const char* kTargetRig    = "Editor/Resources/Assets/Meshes/Skinned/IKProbe.skeleton";
+    constexpr const char* kSourceRig    = "Editor/Resources/Assets/Meshes/Skinned/ForeignArm.skeleton";
+    constexpr const char* kSourceClip   = "Editor/Resources/Assets/Meshes/Skinned/ForeignArm_Swing.anim";
     constexpr const char* kRetargetFile = "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget";
 
     /// The clip is 48000 ticks long and its motion is one full sine, so tick 0 and tick 48000 are the rest
@@ -508,7 +508,7 @@ TEST( RetargetAssetTest, TheSourceRigIsNamedByTheGuidItsSkeletonStates )
     // number minted beside it: a GUID nobody states resolves to nothing, which loads fine and does nothing.
     const File::RetargetAssetData data = ShippedRetarget();
     const auto                    rigGuid =
-         Desert::Assets::ReadTextHeaderGuid( RepoRoot() + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path );
+         Desert::Assets::ReadTextHeaderGuid( RepoRoot() + "Editor/Resources/Assets/" + data.SourceSkeleton.Path );
     ASSERT_FALSE( rigGuid.IsNull() ) << data.SourceSkeleton.Path << " states no header GUID";
     EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( rigGuid ) );
 }
@@ -1124,7 +1124,7 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     // `MESH_PATH_COOKED / SourceSkeleton.Path` (for the reader; the rig resolves by GUID); checking it here is
     // what stops the corpus from shipping a retarget whose source rig is a typo, which loads perfectly and does
     // nothing.
-    const std::string rig = root + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path;
+    const std::string rig = root + "Editor/Resources/Assets/" + data.SourceSkeleton.Path;
     EXPECT_FALSE( ReadFile( rig ).empty() )
          << "the shipped retarget names " << data.SourceSkeleton.Path << ", which is not in the cooked meshes";
 

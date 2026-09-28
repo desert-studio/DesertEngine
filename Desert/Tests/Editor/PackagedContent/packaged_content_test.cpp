@@ -1581,8 +1581,10 @@ namespace
              // foliage and its paint layers. Covered by the ASSETS_PATH tree (Foliage/, Landscape/Layers/).
              { "FOLIAGE_TYPE_PATH", &P::FOLIAGE_TYPE_PATH, RootVerdict::Packaged, "" },
              { "LANDSCAPE_LAYER_INFO_PATH", &P::LANDSCAPE_LAYER_INFO_PATH, RootVerdict::Packaged, "" },
+             // PACKAGED: editor-authored clips (the Sequencer's Save, AF8b) are content an anim graph names.
+             // Covered by the ASSETS_PATH tree (Animations/).
+             { "ANIMATION_PATH", &P::ANIMATION_PATH, RootVerdict::Packaged, "" },
              { "COOKED_PATH", &P::COOKED_PATH, RootVerdict::Packaged, "" },
-             { "MESH_PATH_COOKED", &P::MESH_PATH_COOKED, RootVerdict::Packaged, "" },
         };
         return roots;
     }

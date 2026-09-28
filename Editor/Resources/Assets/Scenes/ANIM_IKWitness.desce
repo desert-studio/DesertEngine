@@ -107,7 +107,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -127,7 +127,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -153,7 +153,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -179,7 +179,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -205,7 +205,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
