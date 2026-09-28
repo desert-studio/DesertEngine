@@ -47,7 +47,7 @@ namespace Desert::Graphic
     }
 
     Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
-    GraphicsPipeline::CreateAsync( const GraphicsPipelineSpecification& spec )
+    GraphicsPipeline::CreateAsync( const GraphicsPipelineSpecification& spec, const PipelineRole role )
     {
         if ( const auto buildable = CheckGraphicsPipelineSpecification( spec ); !buildable )
             return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( buildable.GetError() );
@@ -60,7 +60,7 @@ namespace Desert::Graphic
             case RendererAPIType::Vulkan:
             {
                 auto pipeline = std::make_shared<API::Vulkan::VulkanPipeline>( spec );
-                pipeline->InvalidateAsync();
+                pipeline->InvalidateAsync( role );
                 // UNBUILT here means the leaf refused before any compile was handed out (its reason is
                 // logged); Compiling/Built/Failed all mean the driver has it.
                 if ( pipeline->GetBuildState() == API::Vulkan::VulkanPipeline::BuildState::Unbuilt )

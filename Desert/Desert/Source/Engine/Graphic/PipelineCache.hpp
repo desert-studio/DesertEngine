@@ -190,6 +190,24 @@ namespace Desert::Graphic
         NO_DISCARD Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
                    GetOrCreate( const GraphicsPipelineSpecification& spec )
         {
+            return GetOrCreate( spec, PipelineRole::Engine );
+        }
+
+        /**
+         * The same, for a CONTENT MATERIAL's own shader (AL1-12, UE's PSO precache): the compile is not waited
+         * for by the content gate, and the draw path asks the pipeline's readiness and draws the engine's
+         * default surface until it is Ready. Only MeshRenderer's material draws call this.
+         */
+        NO_DISCARD Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
+                   GetOrCreateMaterial( const GraphicsPipelineSpecification& spec )
+        {
+            return GetOrCreate( spec, PipelineRole::Material );
+        }
+
+    private:
+        NO_DISCARD Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
+                   GetOrCreate( const GraphicsPipelineSpecification& spec, const PipelineRole role )
+        {
             if ( const auto buildable = CheckGraphicsPipelineSpecification( spec ); !buildable )
                 return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( buildable.GetError() );
 
@@ -201,12 +219,13 @@ namespace Desert::Graphic
             // The driver compile goes to a worker (PSO1): this is the path content takes — a material or a
             // mesh appearing — and the frame must not stall on the driver for it.
             const auto requested = std::chrono::steady_clock::now();
-            auto       built     = GraphicsPipeline::CreateAsync( spec );
+            auto       built     = GraphicsPipeline::CreateAsync( spec, role );
             PipelineBuilds::Get().RecordCallerBlock( std::chrono::steady_clock::now() - requested );
             m_Cache.emplace( key, built );
             return built;
         }
 
+    public:
         void Clear()
         {
             m_Cache.clear();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -228,6 +229,15 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
+    // Where a pipeline's driver compile stands, as the draw path needs to know it (AL1-12): only Ready draws
+    // through its own pipeline; Compiling and Failed draw the engine's default surface instead.
+    enum class PipelineReadiness : uint8_t
+    {
+        Compiling,
+        Ready,
+        Failed,
+    };
+
     class GraphicsPipeline : public IPipeline
     {
     public:
@@ -236,6 +246,7 @@ namespace Desert::Graphic
         }
 
         [[nodiscard]] virtual const GraphicsPipelineSpecification& GetSpecification() const = 0;
+        [[nodiscard]] virtual PipelineReadiness                    GetReadiness() const     = 0;
 
         /**
          * The ONLY way to obtain a graphics pipeline, and it hands back one that is already BUILT.
@@ -260,10 +271,11 @@ namespace Desert::Graphic
          * counted by PipelineBuilds, which ContentGate waits on. A driver refusal on the worker is logged
          * with its VkResult and leaves the pipeline unbuilt (reported by name at the first draw).
          * PipelineCache::GetOrCreate is the one caller: material and mesh pipelines, which appear with
-         * content. Pipelines a system builds once at renderer start keep the synchronous Create.
+         * content. Pipelines a system builds once at renderer start keep the synchronous Create. @p role
+         * decides whether the content gate waits for the compile (PipelineBuilds).
          */
         NO_DISCARD static Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
-        CreateAsync( const GraphicsPipelineSpecification& spec );
+        CreateAsync( const GraphicsPipelineSpecification& spec, PipelineRole role );
     };
 
     // --- Compute Pipeline ---
