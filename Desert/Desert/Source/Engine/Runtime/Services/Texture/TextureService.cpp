@@ -109,8 +109,7 @@ namespace Desert::Runtime
              } );
     }
 
-    void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry,
-                                     TextureCookOutcome&& outcome )
+    void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome )
     {
         entry.Cooking = false;
         if ( outcome.Cooked )
@@ -272,7 +271,9 @@ namespace Desert::Runtime
             // Stale: the entry was cleared, or a later cook replaced the one this result belongs to.
             if ( it == m_Entries.end() || !it->second.Cooking || it->second.CookTicket != item.Ticket )
                 continue;
-            FinishCook( item.Handle, it->second, std::move( item.Data ) );
+            // Read before the move: argument evaluation order is unspecified (clang L->R, MSVC R->L).
+            const Assets::AssetHandle handle = item.Handle;
+            FinishCook( handle, it->second, std::move( item.Data ) );
         }
         return taken.size();
     }

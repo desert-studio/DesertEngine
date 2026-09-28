@@ -74,7 +74,7 @@ namespace Desert::Graphic
         return Common::MakeSuccess( std::move( cooked ) );
     }
 
-    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D&& cooked )
+    Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D cooked )
     {
         auto texture      = std::make_shared<Texture2D>();
         texture->m_Width  = cooked.Width;

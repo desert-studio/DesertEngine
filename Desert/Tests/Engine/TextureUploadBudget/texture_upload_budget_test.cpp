@@ -31,6 +31,7 @@ namespace
     std::vector<uint64_t> Handles( const std::vector<Queue::Item>& items )
     {
         std::vector<uint64_t> out;
+        out.reserve( items.size() );
         for ( const auto& item : items )
             out.push_back( item.Handle );
         return out;
@@ -167,19 +168,20 @@ TEST( TextureUploadBudget, WorkersPushWhileTheFrameTakes )
     constexpr int            kThreads = 4;
     constexpr int            kEach    = 500;
     std::vector<std::thread> workers;
+    workers.reserve( kThreads );
     for ( int t = 0; t < kThreads; ++t )
         workers.emplace_back(
              [&queue, t]
              {
                  for ( int i = 0; i < kEach; ++i )
-                     queue.Push( Make( static_cast<uint64_t>( t * kEach + i ), 1 ) );
+                     queue.Push( Make( ( static_cast<uint64_t>( t ) * kEach ) + static_cast<uint64_t>( i ), 1 ) );
              } );
     std::size_t taken = 0;
-    while ( taken < static_cast<std::size_t>( kThreads * kEach ) )
+    while ( taken < static_cast<std::size_t>( kThreads ) * kEach )
         taken += queue.TakeWithinBudget( 64 ).size();
     for ( auto& worker : workers )
         worker.join();
-    EXPECT_EQ( taken, static_cast<std::size_t>( kThreads * kEach ) );
+    EXPECT_EQ( taken, static_cast<std::size_t>( kThreads ) * kEach );
     EXPECT_EQ( queue.PendingBytes(), 0u );
 }
 

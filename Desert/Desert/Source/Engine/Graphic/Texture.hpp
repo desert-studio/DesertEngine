@@ -24,7 +24,7 @@ namespace Desert::Graphic
         std::vector<Core::Formats::MipLevelSpan> Levels;
 
         /// The bytes the upload copies to staging: what the per-frame upload budget counts.
-        uint64_t UploadBytes() const
+        [[nodiscard]] uint64_t UploadBytes() const
         {
             uint64_t bytes = 0;
             for ( const Core::Formats::MipLevelSpan& level : Levels )
@@ -106,8 +106,8 @@ namespace Desert::Graphic
         /// `CreateFromAsset` in its two halves (AM2), so the on-demand path can put them on different threads.
         /// `ReadCooked` is CPU only -- the DDC read, and the cook on a DDC miss, then the container decode -- and
         /// is safe on a worker. `CreateFromCooked` creates the GPU image and uploads it, on the main thread.
-        static Common::ResultStr<CookedTexture2D>            ReadCooked( const std::filesystem::path& asset );
-        static Common::ResultStr<std::shared_ptr<Texture2D>> CreateFromCooked( CookedTexture2D&& cooked );
+        static Common::ResultStr<CookedTexture2D>            ReadCooked( const std::filesystem::path& cookedPath );
+        static Common::ResultStr<std::shared_ptr<Texture2D>> CreateFromCooked( CookedTexture2D cooked );
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).

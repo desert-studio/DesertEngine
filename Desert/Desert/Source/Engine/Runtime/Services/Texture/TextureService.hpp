@@ -115,7 +115,7 @@ namespace Desert::Runtime
         Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
         void        BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
         void        BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
-        void        FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome&& outcome );
+        void        FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome );
 
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
         // of what the service answers.
