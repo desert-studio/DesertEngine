@@ -11,6 +11,8 @@
 #include "CrashHandler.hpp"
 
 #include <Common/Core/Core.hpp>
+#include <Common/Core/EngineThread.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Version.hpp>
 #include <Common/Settings/EngineUserDirectory.hpp>
@@ -22,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <future>
 #include <mutex>
 #include <thread>
 
@@ -34,6 +37,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <spawn.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -42,6 +46,7 @@
 #include <sys/ucontext.h>
 #else
 #include <execinfo.h>
+#include <sys/syscall.h>
 #include <ucontext.h>
 #endif
 extern char** environ;
@@ -1257,7 +1262,7 @@ namespace Common::Crash::Detail
         fault.codeName    = SignalName( inSignal );
         fault.address     = reinterpret_cast<std::uint64_t>( inInfo != nullptr ? inInfo->si_addr : nullptr );
         fault.synthesized = true;
-        WriteCrashText( fault, static_cast<std::uint64_t>( ::getpid() ) );
+        WriteCrashText( fault, CurrentThreadId() );
 
         LaunchReporter();
         TerminateAfterReport();
@@ -1556,6 +1561,100 @@ namespace Common::Crash
         return Detail::g_Installed.load( std::memory_order_acquire );
     }
 
+    std::uint64_t CurrentThreadId()
+    {
+#if defined( DESERT_PLATFORM_WINDOWS )
+        return ::GetCurrentThreadId();
+#elif defined( __APPLE__ )
+        std::uint64_t id = 0;
+        (void)::pthread_threadid_np( nullptr, &id );
+        return id;
+#else
+        return static_cast<std::uint64_t>( ::syscall( SYS_gettid ) );
+#endif
+    }
+
+#if defined( DESERT_PLATFORM_WINDOWS )
+    // The report thread writes the report (CR1b), but the faulting thread still has to get from
+    // EXCEPTION_STACK_OVERFLOW through the OS dispatch into UnhandledFilter and its SetEvent + wait.
+    // With the default guarantee a worker thread has only a few pages left for that; when the
+    // dispatch overruns them the second overflow kills the process before the filter runs and no
+    // report is written. Give every engine thread the guarantee Install() gives the main thread.
+    ThreadCrashStackScope::ThreadCrashStackScope()
+    {
+        ULONG guarantee = Detail::kStackGuaranteeBytes;
+        if ( ::SetThreadStackGuarantee( &guarantee ) == 0 )
+        {
+            LOG_ERROR( "[Crash] thread {}: SetThreadStackGuarantee({} bytes) failed, GetLastError {}; a stack "
+                       "overflow on this thread may not be reported",
+                       CurrentThreadId(), Detail::kStackGuaranteeBytes, ::GetLastError() );
+        }
+    }
+    // The guarantee lives and dies with the thread; there is nothing to give back.
+    ThreadCrashStackScope::~ThreadCrashStackScope() = default;
+#else
+    namespace
+    {
+        // The handler's deepest path is backtrace() + dladdr() per frame into fixed globals; the main
+        // thread's static stack is 256 KiB and a worker's matches it. The pages are only reserved:
+        // an untouched alternate stack costs address space, not memory.
+        constexpr std::size_t kThreadAltStackSize = std::size_t{ 1 } << 18;
+    } // namespace
+
+    ThreadCrashStackScope::ThreadCrashStackScope()
+    {
+        stack_t current = {};
+        if ( ::sigaltstack( nullptr, &current ) == 0 && ( current.ss_flags & SS_DISABLE ) == 0 )
+        {
+            // Already has one (the thread Install() ran on, or a nested scope): keep it.
+            return;
+        }
+
+        const auto        page    = static_cast<std::size_t>( ::sysconf( _SC_PAGESIZE ) );
+        const std::size_t mapping = kThreadAltStackSize + page;
+        void* const       base = ::mmap( nullptr, mapping, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0 );
+        if ( base == MAP_FAILED )
+        {
+            LOG_ERROR( "[Crash] thread {}: mmap({} bytes) for the alternate signal stack failed, errno {}; "
+                       "a stack overflow on this thread will not be reported",
+                       CurrentThreadId(), mapping, errno );
+            return;
+        }
+        // The lowest page is the guard: the handler overrunning its own stack faults there instead of
+        // writing into whatever the allocator placed below.
+        (void)::mprotect( base, page, PROT_NONE );
+
+        stack_t alternate  = {};
+        alternate.ss_sp    = static_cast<char*>( base ) + page;
+        alternate.ss_size  = kThreadAltStackSize;
+        alternate.ss_flags = 0;
+        if ( ::sigaltstack( &alternate, nullptr ) != 0 )
+        {
+            LOG_ERROR( "[Crash] thread {}: sigaltstack({} bytes) failed, errno {}; a stack overflow on this "
+                       "thread will not be reported",
+                       CurrentThreadId(), kThreadAltStackSize, errno );
+            (void)::munmap( base, mapping );
+            return;
+        }
+        m_Mapping     = base;
+        m_MappingSize = mapping;
+    }
+
+    ThreadCrashStackScope::~ThreadCrashStackScope()
+    {
+        if ( m_Mapping == nullptr )
+        {
+            return;
+        }
+        // Uninstall BEFORE unmapping: a signal delivered between the two would otherwise run on freed
+        // pages.
+        stack_t disabled  = {};
+        disabled.ss_flags = SS_DISABLE;
+        (void)::sigaltstack( &disabled, nullptr );
+        (void)::munmap( m_Mapping, m_MappingSize );
+    }
+#endif
+
     const std::filesystem::path& ReportRootDirectory()
     {
         return Detail::g_ReportRoot;
@@ -1635,6 +1734,10 @@ namespace Common::Crash
         {
             return TestKind::StackOverflowWorker;
         }
+        if ( inWord == "stackoverflow-job" )
+        {
+            return TestKind::StackOverflowJob;
+        }
         return std::nullopt;
     }
 
@@ -1652,6 +1755,8 @@ namespace Common::Crash
                 return "stackoverflow";
             case TestKind::StackOverflowWorker:
                 return "stackoverflow-worker";
+            case TestKind::StackOverflowJob:
+                return "stackoverflow-job";
         }
         return "unknown";
     }
@@ -1748,20 +1853,31 @@ namespace Common::Crash
             std::abort();
         }
 
-        // The worker logs its own thread id before recursing, so the suite can check that the report's
+        // Each worker logs its own thread id before recursing, so the suite can check that the report's
         // `tid=` names the thread that overflowed and not the main thread or the report thread.
         [[noreturn]] void CrashTestStackOverflowWorker()
         {
-            std::thread worker(
+            std::thread worker = StartEngineThread(
                  []
                  {
-#if defined( DESERT_PLATFORM_WINDOWS )
-                     LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", ::GetCurrentThreadId() );
-#endif
+                     LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
                      CrashTestStackOverflow();
                  } );
             worker.join();
             // Reached only if the worker returned: say so rather than exit clean.
+            std::abort();
+        }
+
+        [[noreturn]] void CrashTestStackOverflowJob()
+        {
+            const std::future<void> job = JobSystem::Get().Async(
+                 []
+                 {
+                     LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
+                     CrashTestStackOverflow();
+                 } );
+            job.wait();
+            // Reached only if the job returned: say so rather than exit clean.
             std::abort();
         }
     } // namespace
@@ -1780,6 +1896,8 @@ namespace Common::Crash
                 CrashTestStackOverflow();
             case TestKind::StackOverflowWorker:
                 CrashTestStackOverflowWorker();
+            case TestKind::StackOverflowJob:
+                CrashTestStackOverflowJob();
         }
         std::abort();
     }

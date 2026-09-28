@@ -154,7 +154,8 @@ namespace
         EXPECT_NE( code, 0 ) << "a deliberate crash must not exit successfully";
 
         const std::filesystem::path report = SoleReportDirectory( root );
-        ASSERT_FALSE( report.empty() ) << "no single report directory under " << root.string();
+        ASSERT_FALSE( report.empty() ) << "no single report directory under " << root.string()
+                                       << " (child exit code " << code << ")";
 
         const std::filesystem::path text = report / "crash.txt";
         ASSERT_TRUE( std::filesystem::exists( text ) ) << "crash.txt missing in " << report.string();
@@ -254,6 +255,7 @@ TEST( CrashHandler, ParsesEveryTestKind )
     EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow" ), Common::Crash::TestKind::StackOverflow );
     EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow-worker" ),
                Common::Crash::TestKind::StackOverflowWorker );
+    EXPECT_EQ( Common::Crash::ParseTestKind( "stackoverflow-job" ), Common::Crash::TestKind::StackOverflowJob );
     // An unknown word is refused rather than defaulted: a --crash-test typo that crashed in some
     // other way would file a report describing a fault nobody asked for.
     EXPECT_FALSE( Common::Crash::ParseTestKind( "sigsegv" ).has_value() );
@@ -334,8 +336,31 @@ TEST( CrashHandler, StackOverflowWritesAReportWhoseStackIsTheRecursion )
     }
 }
 
-// A worker thread has neither the main thread's stack guarantee nor (POSIX) its alternate signal stack:
-// only a report written off the faulting thread survives this. The report's tid must be the worker's.
+namespace
+{
+    // The child's worker logged its own OS thread id before recursing; the report's tid must be that
+    // number, not the main thread's, the report thread's or the pid.
+    void ExpectReportTidIsTheLoggedWorker( const std::string& contents )
+    {
+        const std::string tid = FieldValue( contents, "tid" );
+        ASSERT_FALSE( tid.empty() );
+        // The [log] line is a spdlog-formatted record whose end-of-line the ring sink turns into a
+        // trailing space (newlines would break the one-field-per-line report contract), so the number
+        // is not immediately followed by '\n'. Match the number itself and require that what follows
+        // is not another digit, so a truncated or extended tid cannot pass for the child's.
+        const std::string needle = "stackoverflow worker thread tid=" + tid;
+        const std::size_t at     = contents.find( needle );
+        ASSERT_NE( at, std::string::npos )
+             << "the report's tid=" << tid << " is not the worker thread the child logged";
+        const std::size_t afterTid = at + needle.size();
+        EXPECT_FALSE( afterTid < contents.size() && contents[afterTid] >= '0' && contents[afterTid] <= '9' )
+             << "the report's tid=" << tid << " is not the worker thread the child logged";
+    }
+} // namespace
+
+// A thread other than the one Install() ran on has neither the main thread's stack guarantee nor its
+// alternate signal stack: the report survives only because StartEngineThread prepared the thread
+// (POSIX, CR1d) / the report thread writes it (Windows, CR1b). The report's tid must be the worker's.
 TEST( CrashHandler, StackOverflowOnAWorkerThreadReportsThatThread )
 {
     const std::string contents = RunStackOverflowCase( "stackoverflow-worker" );
@@ -344,21 +369,20 @@ TEST( CrashHandler, StackOverflowOnAWorkerThreadReportsThatThread )
         return;
     }
     ExpectReportStackIsTheRecursion( contents );
-#if defined( _WIN32 )
-    const std::string tid = FieldValue( contents, "tid" );
-    ASSERT_FALSE( tid.empty() );
-    // The [log] line is a spdlog-formatted record whose end-of-line the ring sink turns into a
-    // trailing space (newlines would break the one-field-per-line report contract), so the number
-    // is not immediately followed by '\n'. Match the number itself and require that what follows
-    // is not another digit, so a truncated or extended tid cannot pass for the child's.
-    const std::string needle = "stackoverflow worker thread tid=" + tid;
-    const std::size_t at     = contents.find( needle );
-    ASSERT_NE( at, std::string::npos ) << "the report's tid=" << tid
-                                       << " is not the worker thread the child logged";
-    const std::size_t afterTid = at + needle.size();
-    EXPECT_FALSE( afterTid < contents.size() && contents[afterTid] >= '0' && contents[afterTid] <= '9' )
-         << "the report's tid=" << tid << " is not the worker thread the child logged";
-#endif
+    ExpectReportTidIsTheLoggedWorker( contents );
+}
+
+// The same overflow inside a JobSystem job: the pool's workers are engine threads too, and a job is where
+// most off-main-thread recursion (cooks, imports, parallel systems) actually runs.
+TEST( CrashHandler, StackOverflowInAJobSystemJobReportsThatWorker )
+{
+    const std::string contents = RunStackOverflowCase( "stackoverflow-job" );
+    if ( contents.empty() )
+    {
+        return;
+    }
+    ExpectReportStackIsTheRecursion( contents );
+    ExpectReportTidIsTheLoggedWorker( contents );
 }
 
 // PKG1c: the Runtime installs BEFORE the archive mount, under the engine's per-user root, and moves the

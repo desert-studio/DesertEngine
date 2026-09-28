@@ -1,5 +1,6 @@
 #include "JobSystem.hpp"
 
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -60,6 +61,9 @@ namespace Common
 
     void JobSystem::WorkerLoop()
     {
+        // Held for the worker's whole life: without it a stack overflow in a job dies with no crash
+        // report on POSIX (CR1d; see ThreadCrashStackScope).
+        const Crash::ThreadCrashStackScope crashStack;
         // Register with Optick so job scopes (e.g. parallel ECS systems) show on their own timeline
         // rows instead of being silently dropped for an unknown thread.
 #if DESERT_DEV_INSTRUMENTS

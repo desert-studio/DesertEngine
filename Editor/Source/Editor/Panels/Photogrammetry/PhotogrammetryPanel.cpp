@@ -1,3 +1,4 @@
+#include <Common/Core/EngineThread.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include "PhotogrammetryPanel.hpp"
 
@@ -388,7 +389,7 @@ namespace Desert::Editor
         if ( m_Worker.joinable() )
             m_Worker.join();
 
-        m_Worker = std::thread(
+        m_Worker = Common::StartEngineThread(
              [this, cmd]()
              {
 #if defined( DE_POSIX_PROC )

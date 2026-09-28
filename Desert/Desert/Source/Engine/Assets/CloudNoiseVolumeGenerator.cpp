@@ -1,3 +1,4 @@
+#include <Common/Core/EngineThread.hpp>
 #include <Common/Core/Math/Rounding.hpp>
 #include "CloudNoiseVolumeGenerator.hpp"
 
@@ -129,7 +130,7 @@ namespace Desert::Assets
         std::vector<std::thread> threads;
         threads.reserve( workers - 1u );
         for ( uint32_t worker = 1; worker < workers; ++worker )
-            threads.emplace_back( fillSlabs, worker );
+            threads.push_back( Common::StartEngineThread( fillSlabs, worker ) );
 
         fillSlabs( 0u );
 
