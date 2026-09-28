@@ -78,7 +78,11 @@ namespace Desert::Editor::Tools
                 return Common::MakeFormattedError<Assets::AssetGuidRef>(
                      "'{}' is not under the assets root '{}'", file.string(),
                      Common::Constants::Path::ASSETS_PATH.string() );
-            return Common::MakeSuccess( Assets::AssetGuidRef{ info.GetValue().Header->Guid, relative } );
+            const auto& header = info.GetValue().Header;
+            if ( !header )
+                return Common::MakeFormattedError<Assets::AssetGuidRef>(
+                     "'{}' has no asset header, so no GUID to reference it by", file.string() );
+            return Common::MakeSuccess( Assets::AssetGuidRef{ header->Guid, relative } );
         }
 
         // The reference a `.defoliage` records for a cooked static mesh: its header GUID and its path under the
@@ -538,8 +542,10 @@ namespace Desert::Editor::Tools
                         continue;
                     const auto& tile = entity.GetComponent<ECS::LandscapeTileComponent>();
                     m_ByEntity.emplace( id, *sample );
-                    LandscapeTiles& landscape = LandscapeOf( scene, tile.Landscape );
-                    landscape.ByCoord.emplace( Key( tile.TileX, tile.TileZ ), *sample );
+                    LandscapeTiles* landscape = LandscapeOf( scene, tile.Landscape );
+                    if ( !landscape )
+                        continue;
+                    landscape->ByCoord.emplace( Key( tile.TileX, tile.TileZ ), *sample );
                 }
             }
 
@@ -594,19 +600,22 @@ namespace Desert::Editor::Tools
                        z >= sample.Frame.OriginZ && z <= sample.Frame.OriginZ + spanZ;
             }
 
-            // TileOf has already checked that the root exists and is a landscape.
-            LandscapeTiles& LandscapeOf( ::Desert::Core::Scene& scene, const Common::UUID& root )
+            // Null when the root is not in the scene: the tile is then skipped like any TileOf refuses.
+            LandscapeTiles* LandscapeOf( ::Desert::Core::Scene& scene, const Common::UUID& root )
             {
                 for ( auto& landscape : m_Landscapes )
                     if ( landscape.Root == root )
-                        return landscape;
-                const auto layout = ECS::LandscapeRootOf( scene.FindEntityByID( root )->get() );
+                        return &landscape;
+                const auto rootEntity = scene.FindEntityByID( root );
+                if ( !rootEntity )
+                    return nullptr;
+                const auto layout = ECS::LandscapeRootOf( rootEntity->get() );
                 auto&      added  = m_Landscapes.emplace_back();
                 added.Root        = root;
                 added.OriginX     = layout.Origin.x;
                 added.OriginZ     = layout.Origin.z;
                 added.ExtentCm    = static_cast<float>( layout.QuadsPerTile ) * layout.SpacingCm;
-                return added;
+                return &added;
             }
 
             std::unordered_map<Common::UUID, TileSample> m_ByEntity;
@@ -952,7 +961,7 @@ namespace Desert::Editor::Tools
 
         if ( m_StrokeTool == Core::FoliageTool::Select )
         {
-            PickAlongRay( scene, ray, shift );
+            PickAlongRay( scene, ray, shift, *m_Stroke );
             m_Applied = true;
             return;
         }
@@ -1133,7 +1142,8 @@ namespace Desert::Editor::Tools
         m_Stroke.reset();
     }
 
-    void FoliagePaintTool::PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift )
+    void FoliagePaintTool::PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift,
+                                         FoliageStroke& stroke )
     {
         // UE SelectInstanceAtLocation over every checked type: the instance the ray enters first wins; a plain
         // click replaces the selection of the checked types, Shift adds to it.
@@ -1153,7 +1163,7 @@ namespace Desert::Editor::Tools
                 continue;
             const auto& instances =
                  ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-            m_Stroke->Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
+            stroke.Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
             if ( !shift )
                 Core::FoliagePaint::Selection()[uuid].clear();
             // The instance's mesh box (Geometry::LocalBounds, the culler's extent), not a stand-in sphere.
@@ -1595,7 +1605,8 @@ namespace Desert::Editor::Tools
         for ( const auto& field : PaletteFields( scene ) )
         {
             const auto type = ResolveType( manager, field.GetComponent<ECS::FoliageComponent>().FoliageType );
-            if ( !type || !type->GetData().Header )
+            const auto* data = type ? &type->GetData() : nullptr;
+            if ( !data || !data->Header )
                 return Common::MakeFormattedError<bool>( "foliage preset '{}': the type of '{}' does not load",
                                                          name, field.GetComponent<ECS::TagComponent>().Tag );
             std::error_code   ec;
@@ -1605,10 +1616,9 @@ namespace Desert::Editor::Tools
                       .lexically_relative( std::filesystem::absolute( Common::Constants::Path::ASSETS_PATH, ec )
                                                 .lexically_normal() )
                       .generic_string();
-            entries.push_back(
-                 { type->GetDisplayName(),
-                   ( Common::Constants::Path::ASSETS_PATH / type->GetData().Mesh.Path ).generic_string(),
-                   Assets::AssetGuidRef{ type->GetData().Header->Guid, typePath } } );
+            entries.push_back( { type->GetDisplayName(),
+                                 ( Common::Constants::Path::ASSETS_PATH / data->Mesh.Path ).generic_string(),
+                                 Assets::AssetGuidRef{ data->Header->Guid, typePath } } );
         }
         const auto saved = Foliage::SavePalettePreset( Common::Constants::Path::COLLECTIONS_PATH, name, entries );
         if ( !saved )

@@ -406,12 +406,48 @@ namespace
             h = ( h ^ bytes[i] ) * 1099511628211ull;
         return h;
     }
+
+    // What a recorded stroke pins ACROSS PLATFORMS. Not the bytes: clang on arm64 contracts a*b+c into one
+    // fused multiply-add and MSVC on x64 does not, so the same stream of draws lands every transform a few
+    // ulps apart and a byte hash is a per-compiler constant (it was: Windows failed on a Mac recording).
+    // The draw stream itself is pinned bit for bit (TheStreamIsDefinedBitForBit); a changed ORDER of draws,
+    // a dropped draw or a changed rule moves instances by whole centimetres, which these sums still see.
+    struct FieldDigest
+    {
+        size_t Count       = 0;
+        double Translation = 0.0; // sum of x + y + z of every instance's origin, in cm
+        double Basis       = 0.0; // sum of every rotation-scale entry, so yaw, pitch and scale are pinned too
+    };
+
+    FieldDigest DigestOf( const std::vector<glm::mat4>& field )
+    {
+        FieldDigest d;
+        d.Count = field.size();
+        for ( const auto& m : field )
+        {
+            d.Translation += static_cast<double>( m[3].x ) + m[3].y + m[3].z;
+            for ( int c = 0; c < 3; ++c )
+                for ( int r = 0; r < 3; ++r )
+                    d.Basis += static_cast<double>( m[c][r] );
+        }
+        return d;
+    }
+
+    void ExpectDigest( const std::vector<glm::mat4>& field, size_t count, double translation, double basis )
+    {
+        const FieldDigest d = DigestOf( field );
+        std::printf( "[ digest ] %zu instances, translation %.4f, basis %.6f\n", d.Count, d.Translation, d.Basis );
+        EXPECT_EQ( d.Count, count );
+        // Ulp drift over a few hundred instances stays far below a millimetre; a moved instance does not.
+        EXPECT_NEAR( d.Translation, translation, 0.05 );
+        EXPECT_NEAR( d.Basis, basis, 1e-3 );
+    }
 } // namespace
 
 // FO-3b: the editor's default dab (300 cm) of the frame's layered type (3000 per 1000 x 1000 cm) on a landscape
-// the size of Terrain_Grass. The hash was recorded BEFORE the stroke was made fast; any speed-up that changes
-// one byte of one placed transform fails here.
-TEST( FoliageBrush, ALandscapeStrokeFromOneSeedPlacesTheRecordedInstancesByteForByte )
+// the size of Terrain_Grass. The digest was recorded from the stroke as it stands; a speed-up that changes which
+// instances are placed, or where, fails here. Byte identity holds per compiler only (see FieldDigest).
+TEST( FoliageBrush, ALandscapeStrokeFromOneSeedPlacesTheRecordedInstances )
 {
     const GrassLandscape land;
     FoliageTypeData      type = Grass();
@@ -439,7 +475,7 @@ TEST( FoliageBrush, ALandscapeStrokeFromOneSeedPlacesTheRecordedInstancesByteFor
 
     EXPECT_GT( stats.Placed, 100 );
     EXPECT_EQ( stats.Placed, static_cast<int>( field.size() ) );
-    EXPECT_EQ( Fnv1a( field ), 0xfa8d00c62198be7eull );
+    ExpectDigest( field, 409u, -14883.2323, -4.188752 );
 }
 
 int main( int argc, char** argv )

@@ -173,27 +173,22 @@ namespace Desert::Graphic::API::Vulkan
         // an uncaught std::bad_optional_access inside a constructor or undefined behaviour, depending on
         // which of them ran first. GetQueueFamilyIndices() already falls the compute and transfer families
         // back to the graphics one, so all three are present exactly when the graphics family is.
-        if ( !device->m_QueueFamilyIndices.GraphicsFamily || !device->m_QueueFamilyIndices.ComputeFamily ||
-             !device->m_QueueFamilyIndices.TransferFamily )
+        // A plain reference, not `device->...`: the static analyser forgets a has_value() check across the
+        // smart pointer's operator->, so the unwraps below would read as unchecked.
+        const auto& families = device->m_QueueFamilyIndices;
+        if ( !families.GraphicsFamily || !families.ComputeFamily || !families.TransferFamily )
         {
+            const auto spell = []( const auto& family ) { return family ? std::to_string( *family ) : "none"; };
             return Common::MakeFormattedError<std::shared_ptr<VulkanPhysicalDevice>>(
                  "the selected physical device reports no usable queue families for the work this engine "
                  "submits — graphics: {}, compute: {}, transfer: {} (of {} families the driver listed)",
-                 device->m_QueueFamilyIndices.GraphicsFamily
-                      ? std::to_string( *device->m_QueueFamilyIndices.GraphicsFamily )
-                      : "none",
-                 device->m_QueueFamilyIndices.ComputeFamily
-                      ? std::to_string( *device->m_QueueFamilyIndices.ComputeFamily )
-                      : "none",
-                 device->m_QueueFamilyIndices.TransferFamily
-                      ? std::to_string( *device->m_QueueFamilyIndices.TransferFamily )
-                      : "none",
-                 device->m_QueueFamilyProperties.size() );
+                 spell( families.GraphicsFamily ), spell( families.ComputeFamily ),
+                 spell( families.TransferFamily ), device->m_QueueFamilyProperties.size() );
         }
 
-        device->m_ResolvedQueueFamilies.Graphics = *device->m_QueueFamilyIndices.GraphicsFamily;
-        device->m_ResolvedQueueFamilies.Compute  = *device->m_QueueFamilyIndices.ComputeFamily;
-        device->m_ResolvedQueueFamilies.Transfer = *device->m_QueueFamilyIndices.TransferFamily;
+        device->m_ResolvedQueueFamilies.Graphics = *families.GraphicsFamily;
+        device->m_ResolvedQueueFamilies.Compute  = *families.ComputeFamily;
+        device->m_ResolvedQueueFamilies.Transfer = *families.TransferFamily;
         device->m_QueueFamiliesResolved          = true;
 
         return Common::MakeSuccess( std::move( device ) );

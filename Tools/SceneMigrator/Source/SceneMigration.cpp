@@ -261,9 +261,9 @@ namespace Desert::Migration
             scan( entity.Components, tag );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                scan( ( *entity.PrefabOverrides )[i].Components,
-                      tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+            const auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                scan( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
         }
         return inline_layers;
     }

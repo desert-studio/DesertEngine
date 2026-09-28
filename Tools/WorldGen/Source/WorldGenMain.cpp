@@ -134,13 +134,15 @@ namespace Desert::WorldGen
             const auto file   = assetsRoot / slot.Path.substr( kAssetsScheme.size() );
             const auto header = Common::Content::ReadAssetHeader( file, kRecordOnly );
             if ( !header )
-                return Common::MakeError<bool>( where + " texture '" + file.string() + "': " + header.GetError() );
+                return Common::MakeError<bool>( where + " texture '" + file.generic_string() +
+                                                "': " + header.GetError() );
             if ( header.GetValue().Kind != Common::Content::ContentKind::Texture )
-                return Common::MakeError<bool>( where + " texture '" + file.string() + "' is not a texture file" );
+                return Common::MakeError<bool>( where + " texture '" + file.generic_string() +
+                                                "' is not a texture file" );
             const std::string stated = Common::Content::AssetGuidToText( header.GetValue().Guid );
             if ( stated != slot.Guid )
-                return Common::MakeError<bool>( where + " states GUID " + slot.Guid + " but '" + file.string() +
-                                                "' is " + stated );
+                return Common::MakeError<bool>( where + " states GUID " + slot.Guid + " but '" +
+                                                file.generic_string() + "' is " + stated );
             return Common::MakeSuccess( true );
         }
 
@@ -201,7 +203,7 @@ namespace Desert::WorldGen
                                              bool skinned )
         {
             const auto        file   = projectRoot / relative;
-            const std::string where  = "mesh '" + relative + "' (" + file.string() + ")";
+            const std::string where  = "mesh '" + relative + "' (" + file.generic_string() + ")";
             const auto        header = Common::Content::ReadAssetHeader( file, kRecordOnly );
             if ( !header )
                 return Common::MakeError<MeshRef>( where + ": " + header.GetError() );

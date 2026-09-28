@@ -84,9 +84,12 @@ TEST( LandscapeLayerInfo, SavedFileParsesBack )
     const auto file = dir / "Landscape" / "Layers" / "Grass.delayerinfo";
     std::filesystem::remove_all( dir );
     ASSERT_TRUE( SaveLandscapeLayerInfoFile( file, Grass() ) );
-    std::ifstream     in( file, std::ios::binary );
     std::stringstream text;
-    text << in.rdbuf();
+    {
+        // Closed before remove_all below: Windows refuses to delete a file that still has an open handle.
+        std::ifstream in( file, std::ios::binary );
+        text << in.rdbuf();
+    }
     auto parsed = ParseLandscapeLayerInfo( text.str() );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     EXPECT_EQ( parsed.GetValue().LayerName, "Grass" );

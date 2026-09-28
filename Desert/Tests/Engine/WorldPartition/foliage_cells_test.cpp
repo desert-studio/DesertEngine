@@ -354,11 +354,11 @@ TEST( FoliageCells, AnUnloadedCellTakesItsFoliageAndTheLastCellTakesTheTypesHold
     gathered.Instances = StrokeOverTheEdge();
     auto records       = Records( Scatter( gathered ) );
     ASSERT_EQ( records.size(), 2u );
-    EntityData far;
-    far.id          = Common::UUID( 9 );
-    far.Tag         = "Block";
-    far.Translation = F::FoliageCellAnchor( { 8, 0 }, kCell );
-    records.push_back( far );
+    EntityData farBlock;
+    farBlock.id          = Common::UUID( 9 );
+    farBlock.Tag         = "Block";
+    farBlock.Translation = F::FoliageCellAnchor( { 8, 0 }, kCell );
+    records.push_back( farBlock );
 
     const auto           plan = R::PlanWorldPartition( records, Grid() );
     R::ResidencySettings settings;
