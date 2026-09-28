@@ -418,6 +418,30 @@ namespace Desert::Editor
             if ( ImGui::Button( Core::ToString( MO::Subdivide ), ImVec2( -1.0f, 0.0f ) ) )
                 operate( MO::Subdivide );
         }
+        if ( Utils::ImGuiUtilities::SectionHeader( "Simplify" ) )
+        {
+            const float half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+            using MO         = Core::MeshOperation;
+            // UE's Simplify tool settings (SimplifyMeshTool.h): the target is a percentage of the triangles or a
+            // vertex count; polygroup borders are held Fixed (UE's FullyConstrained) unless unticked.
+            Geometry::SimplifySettings&                 simplify = ms.ElementSimplify;
+            int                                         target   = static_cast<int>( simplify.Target );
+            static constexpr std::array<const char*, 2> kTargets = { "Percentage", "Vertex Count" };
+            ImGui::SetNextItemWidth( half );
+            if ( ImGui::Combo( "##ElementSimplifyTarget", &target, kTargets.data(),
+                               static_cast<int>( kTargets.size() ) ) )
+                simplify.Target = static_cast<Geometry::SimplifyTarget>( target );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( half );
+            if ( simplify.Target == Geometry::SimplifyTarget::Percentage )
+                ImGui::SliderFloat( "##ElementSimplifyPercentage", &simplify.Percentage, 1.0f, 100.0f, "%.0f %%" );
+            else
+                ImGui::DragInt( "##ElementSimplifyVertexCount", &simplify.VertexCount, 1.0f, 3, 1000000,
+                                "%d vertices" );
+            ImGui::Checkbox( "Preserve PolyGroups", &simplify.PreserveGroupBoundaries );
+            if ( ImGui::Button( Core::ToString( MO::Simplify ), ImVec2( -1.0f, 0.0f ) ) )
+                Operate( MO::Simplify );
+        }
         ImGui::Separator();
         if ( active )
         {

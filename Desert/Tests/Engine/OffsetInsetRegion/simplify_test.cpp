@@ -9,10 +9,13 @@
 #include <glm/geometric.hpp>
 
 #include <array>
+#include <cmath>
 #include <map>
 #include <set>
 #include <string>
 #include <tuple>
+#include <utility>
+#include <vector>
 
 using namespace Desert;
 using namespace Desert::Geometry;
@@ -156,4 +159,72 @@ TEST( Simplify, RefusalsNameTheirNumbers )
     auto met             = SimplifyMesh( before, settings, ElementMode::Triangle );
     ASSERT_FALSE( met.IsSuccess() );
     EXPECT_NE( met.GetError().find( "already has" ), std::string::npos ) << met.GetError();
+}
+
+namespace
+{
+    // The flat cube with every face-interior vertex moved in its face's plane by up to @p jitter of a cell
+    // (a fixed LCG, so the mesh is the same on every run). A flat face has zero quadrics, so the collapse
+    // position is the fallback, and a jittered one-ring is not convex: without the flip check
+    // (CreatesFlipOrInvalid) collapses here turn triangles inside out and leave zero-area ones.
+    DynamicMesh3 JitteredCube( int n, double jitter )
+    {
+        DynamicMesh3     mesh = CubeSphere( n, false );
+        std::vector<int> ids;
+        for ( const int v : mesh.VertexIndicesItr() )
+            ids.push_back( v );
+        unsigned   seed = 12345u;
+        const auto rnd  = [&]
+        {
+            seed = seed * 1664525u + 1013904223u;
+            return static_cast<double>( seed >> 8 ) / static_cast<double>( 1u << 24 ) - 0.5;
+        };
+        const double cell        = 2.0 * kHalf / n;
+        const auto   onFacePlane = [&]( double c ) { return std::abs( std::abs( c ) - kHalf ) < 1e-6; };
+        for ( const int v : ids )
+        {
+            glm::dvec3 p = mesh.GetVertex( v );
+            if ( onFacePlane( p.x ) + onFacePlane( p.y ) + onFacePlane( p.z ) != 1 )
+                continue; // on a cube edge: moving it would bend the face
+            for ( int k = 0; k < 3; ++k )
+                if ( !onFacePlane( p[k] ) )
+                    p[k] += rnd() * 2.0 * jitter * cell;
+            mesh.SetVertex( v, p );
+        }
+        return mesh;
+    }
+
+    // Triangles facing the centre (the cube is convex, so none may) and triangles of zero area.
+    std::pair<int, int> InwardAndDegenerate( const DynamicMesh3& mesh )
+    {
+        int inward = 0, degenerate = 0;
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const Index3i    tri = mesh.GetTriangle( t );
+            const glm::dvec3 a = mesh.GetVertex( tri.A ), b = mesh.GetVertex( tri.B ), c = mesh.GetVertex( tri.C );
+            const glm::dvec3 normal = glm::cross( b - a, c - a );
+            if ( glm::length( normal ) < 1e-6 )
+                ++degenerate;
+            else if ( glm::dot( normal, a + b + c ) < 0.0 )
+                ++inward;
+        }
+        return { inward, degenerate };
+    }
+} // namespace
+
+TEST( Simplify, FlatJitteredFacesNeverTurnATriangleInsideOut )
+{
+    const DynamicMesh3 before = JitteredCube( 16, 0.3 );
+    ASSERT_EQ( InwardAndDegenerate( before ), std::make_pair( 0, 0 ) );
+    for ( const bool preserve : { false, true } )
+    {
+        SimplifySettings settings;
+        settings.Percentage              = 30.0f;
+        settings.PreserveGroupBoundaries = preserve;
+        const DynamicMesh3 after         = Simplified( before, settings );
+        EXPECT_EQ( after.TriangleCount(), 920 ) << "preserve " << preserve;
+        EXPECT_TRUE( Valid( after ) );
+        // Measured without the flip check: 128 / 30 (free borders) and 108 / 60 (kept borders).
+        EXPECT_EQ( InwardAndDegenerate( after ), std::make_pair( 0, 0 ) ) << "preserve " << preserve;
+    }
 }
