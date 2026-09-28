@@ -277,6 +277,10 @@ namespace Desert::Engine
             Runtime::ResourceRegistry::GetMeshService()->RetireEvicted();
             Runtime::ResourceRegistry::GetTextureService()->RetireEvicted();
 
+            // Textures whose cook finished on a worker get their GPU image here, within the per-frame upload
+            // budget (TextureUploadSettings), before any command buffer of this frame is open.
+            Runtime::ResourceRegistry::GetTextureService()->PumpUploads();
+
             // 3. Start recording commands for this frame
             const auto frameBegun = Graphic::Renderer::GetInstance().BeginFrame();
             if ( !frameBegun.IsSuccess() )
