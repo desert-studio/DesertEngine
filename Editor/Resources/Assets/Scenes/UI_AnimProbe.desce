@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "c7dcf9f6e1b4fe938842d9b535552be0",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -19,10 +19,21 @@
             "Scale": [1.0, 1.0, 1.0],
             "UICanvas": {
                 "ScaleMode": 2,
+                "RenderMode": 0,
+                "WorldScale": 400.0,
                 "ReferenceWidth": 1280.0,
                 "ReferenceHeight": 720.0,
                 "MatchWidthHeight": 0.5,
-                "Visible": true
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Visible": true,
+                "SortOrder": 0,
+                "SafeArea": [0.0, 0.0, 0.0, 0.0],
+                "Theme": "",
+                "FontScale": 1.0,
+                "HighContrast": false
             }
         },
         {
@@ -34,17 +45,52 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "UILayout": {
-                "AnchorMin": [0, 0],
-                "AnchorMax": [1, 1],
-                "OffsetMin": [0, 0],
-                "OffsetMax": [0, 0],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 1.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 0.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
-                "Color": [0.09, 0.1, 0.13],
+                "Color": [0.09000000357627869, 0.10000000149011612, 0.12999999523162842],
                 "Opacity": 1.0,
-                "CornerRadius": 0.0
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
             }
         },
         {
@@ -58,15 +104,50 @@
             "UILayout": {
                 "AnchorMin": [0.5, 0.5],
                 "AnchorMax": [0.5, 0.5],
-                "OffsetMin": [-160, -90],
-                "OffsetMax": [160, 90],
-                "CustomMinimumSize": [0, 0],
-                "ClipContents": false
+                "OffsetMin": [-160.0, -90.0],
+                "OffsetMax": [160.0, 90.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
             },
             "UIPanel": {
-                "Color": [0.86, 0.45, 0.15],
+                "Color": [0.8600000143051147, 0.44999998807907104, 0.15000000596046448],
                 "Opacity": 1.0,
-                "CornerRadius": 12.0
+                "CornerRadius": 12.0,
+                "BackdropBlur": 0.0,
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
             },
             "UIAnim": {
                 "Tracks": [
@@ -115,6 +196,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,

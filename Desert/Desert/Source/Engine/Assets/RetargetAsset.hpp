@@ -37,7 +37,7 @@ namespace Desert::Assets
     class RetargetAsset final : public AssetBase
     {
     public:
-        RetargetAsset( AssetPriority priority, const Common::Filepath& filepath );
+        RetargetAsset( const Common::Filepath& filepath );
 
         /// Reads and parses the file. A file that is missing, malformed, from an unknown format version or
         /// describing a retarget the loader cannot honour is an ERROR carrying the reason — never a

@@ -79,8 +79,7 @@ namespace Desert::Scripting
             }
             auto prefab = impl->Assets->FindByPath<Assets::PrefabAsset>( prefabPath );
             if ( !prefab )
-                prefab = impl->Assets->CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High,
-                                                                         prefabPath );
+                prefab = impl->Assets->CreateAsset<Assets::PrefabAsset>( prefabPath );
             if ( !prefab )
             {
                 LOG_ERROR( "[Lua] World.spawn: prefab not found '{}'", prefabPath );

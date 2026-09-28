@@ -789,8 +789,8 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
     // ONE ROW PER LINK, NAMED, and the count derived from the rows rather than pinned as a number — a gate
     // pinning a COUNT can be satisfied by editing the number.
     const std::vector<Link> links = {
-         { "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp",
-           "MakeReflected<ECS::ControlRigComponent, ECS::ControlRigData>",
+         { "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp",
+           "ReflectedMemberBlock<ControlRigComponent, ControlRigData>",
            "without this the component is not serialized and a saved scene loses its rig" },
          { "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp", "\"ControlRigAsset\"",
            "without this the handle has no path handler and the slot round-trips as zero" },

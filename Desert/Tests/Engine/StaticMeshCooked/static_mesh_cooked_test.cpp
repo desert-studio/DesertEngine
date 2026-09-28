@@ -57,7 +57,6 @@
 #include <vector>
 
 using Desert::Assets::AssetManager;
-using Desert::Assets::AssetPriority;
 using Desert::Assets::StaticMeshAsset;
 using Desert::Assets::Serialization::MeshAssetData;
 
@@ -207,7 +206,7 @@ TEST( StaticMeshCooked, LoadPutsExactlyWhatTheFileCarries )
 {
     const auto& file = ProbeFileContents();
 
-    StaticMeshAsset asset( AssetPriority::Low, Common::Filepath( ProbeFile() ) );
+    StaticMeshAsset asset{ Common::Filepath( ProbeFile() ) };
     ASSERT_FALSE( asset.IsReadyForUse() );
 
     const auto loaded = asset.Load();
@@ -231,7 +230,7 @@ TEST( StaticMeshCooked, AnUnparsedShellReportsNoSubmeshesAndSaysItIsNotReady )
     AssetManager manager;
 
     // Exactly what AssetPreloader does for every cooked mesh.
-    auto shell = manager.CreateAsset<StaticMeshAsset>( AssetPriority::Low, ProbeFile().generic_string(),
+    auto shell = manager.CreateAsset<StaticMeshAsset>( ProbeFile().generic_string(),
                                                        /*loadAfterCreate=*/false );
     ASSERT_TRUE( shell );
     EXPECT_FALSE( shell->IsReadyForUse() );
@@ -255,7 +254,7 @@ TEST( StaticMeshCooked, AFileWithNoSubmeshesIsRefusedRatherThanLoadedEmpty )
     data.Submeshes.clear(); // vertices and indices intact — only the drawable parts are gone
     ASSERT_GT( vertices, 0u );
 
-    StaticMeshAsset asset( AssetPriority::Low, Common::Filepath( scratch.Write( "NoSubmeshes", data ) ) );
+    StaticMeshAsset asset{ Common::Filepath( scratch.Write( "NoSubmeshes", data ) ) };
 
     const auto loaded = asset.Load();
     EXPECT_FALSE( loaded.IsSuccess() )
@@ -276,7 +275,7 @@ TEST( StaticMeshCooked, ARefusedLoadDoesNotDestroyWhatTheAssetAlreadyHeld )
     ScratchDir scratch( "keep" );
 
     const auto      path = scratch.Write( "Probe", ProbeFileContents() );
-    StaticMeshAsset asset( AssetPriority::Low, Common::Filepath( path ) );
+    StaticMeshAsset asset{ Common::Filepath( path ) };
     ASSERT_TRUE( asset.Load().IsSuccess() );
     const auto submeshes = asset.GetSubmeshes().size();
     const auto vertices  = asset.GetVertices().size();
@@ -308,11 +307,10 @@ TEST( StaticMeshCooked, TheEagerAndDeferredRoutesReachTheSameGeometry )
     const auto deferredPath = scratch.Write( "Deferred", ProbeFileContents() );
 
     AssetManager manager;
-    auto eager = manager.CreateAsset<StaticMeshAsset>( AssetPriority::Low, eagerPath, /*loadAfterCreate=*/true );
+    auto         eager = manager.CreateAsset<StaticMeshAsset>( eagerPath, /*loadAfterCreate=*/true );
     ASSERT_TRUE( eager );
 
-    auto deferred =
-         manager.CreateAsset<StaticMeshAsset>( AssetPriority::Low, deferredPath, /*loadAfterCreate=*/false );
+    auto deferred = manager.CreateAsset<StaticMeshAsset>( deferredPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( deferred );
     ASSERT_TRUE( deferred->EnsureLoaded( manager ).IsSuccess() );
 
@@ -329,7 +327,7 @@ TEST( StaticMeshCooked, ReloadingLeavesTheSameCountsRatherThanDoubledOnes )
 {
     const auto& file = ProbeFileContents();
 
-    StaticMeshAsset asset( AssetPriority::Low, Common::Filepath( ProbeFile() ) );
+    StaticMeshAsset asset{ Common::Filepath( ProbeFile() ) };
     ASSERT_TRUE( asset.Load().IsSuccess() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
 
@@ -344,7 +342,7 @@ TEST( StaticMeshCooked, ReloadingLeavesTheSameCountsRatherThanDoubledOnes )
 // one nobody will ever reload — and a mesh with no submeshes reporting "ready" is this task's defect again.
 TEST( StaticMeshCooked, UnloadEmptiesTheAssetAndStopsItClaimingToBeReady )
 {
-    StaticMeshAsset asset( AssetPriority::Low, Common::Filepath( ProbeFile() ) );
+    StaticMeshAsset asset{ Common::Filepath( ProbeFile() ) };
     ASSERT_TRUE( asset.Load().IsSuccess() );
     ASSERT_FALSE( asset.GetSubmeshes().empty() );
 

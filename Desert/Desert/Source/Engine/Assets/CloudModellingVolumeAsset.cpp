@@ -10,9 +10,8 @@
 
 namespace Desert::Assets
 {
-    CloudModellingVolumeAsset::CloudModellingVolumeAsset( AssetPriority           priority,
-                                                          const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::CloudModellingVolume )
+    CloudModellingVolumeAsset::CloudModellingVolumeAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::CloudModellingVolume )
     {
         // THE VOLUME'S IDENTITY IS ITS ENVELOPE GUID (container 3), adopted HERE rather than in the load, for
         // the layout's reason: the asset manager keys its handle lookup at creation. A file with no readable

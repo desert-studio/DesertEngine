@@ -263,7 +263,7 @@ namespace Desert::Editor
 
         auto asset = assets->FindByPath<Assets::StaticMeshAsset>( path );
         if ( !asset )
-            asset = assets->CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::Medium, path );
+            asset = assets->CreateAsset<Assets::StaticMeshAsset>( path );
         if ( !asset )
         {
             LOG_ERROR( "[Assets] '{}' could not be registered as a static mesh — no viewer was opened.", path );

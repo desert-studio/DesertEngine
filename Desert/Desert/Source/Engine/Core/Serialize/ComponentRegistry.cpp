@@ -3,6 +3,7 @@
 #include <Engine/Core/Serialize/AssetReferenceResolve.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+#include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 #include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/TextureSlot.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
@@ -702,7 +703,7 @@ namespace Desert::Core::Serialize
                      [&]
                      {
                          return Assets::Asset<Assets::MaterialAsset>(
-                              m.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, full,
+                              m.CreateAsset<Assets::SurfaceMaterialAsset>( full,
                                                                            /*loadAfterCreate=*/false ) );
                      },
                      []( const Assets::Asset<Assets::MaterialAsset>& material, ReferenceOrigin )
@@ -744,7 +745,7 @@ namespace Desert::Core::Serialize
 
                 auto a = mgr.FindByPath<Assets::CloudModellingVolumeAsset>( full );
                 if ( !a )
-                    a = m.CreateAsset<Assets::CloudModellingVolumeAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::CloudModellingVolumeAsset>( full,
                                                                           /*loadAfterCreate=*/false );
                 if ( !a )
                     return 0;
@@ -774,7 +775,7 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::ControlRigAsset>( full,
                                                                 /*loadAfterCreate=*/false );
                 }
                 if ( !a )
@@ -808,7 +809,7 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::RetargetAsset>( full,
                                                               /*loadAfterCreate=*/false );
                 }
                 if ( !a )
@@ -842,7 +843,7 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::AnimGraphAsset>( full,
                                                                /*loadAfterCreate=*/false );
                 }
                 if ( !a )
@@ -874,7 +875,7 @@ namespace Desert::Core::Serialize
 
                 auto a = mgr.FindByPath<Assets::UIThemeAsset>( full );
                 if ( !a )
-                    a = m.CreateAsset<Assets::UIThemeAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::UIThemeAsset>( full,
                                                              /*loadAfterCreate=*/false );
                 if ( !a )
                     return 0;
@@ -919,9 +920,9 @@ namespace Desert::Core::Serialize
                      {
                          return type == "SkinnedMeshAsset"
                                      ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
-                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) )
+                                            path, /*loadAfterCreate=*/false ) )
                                      : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
-                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) );
+                                            path, /*loadAfterCreate=*/false ) );
                      },
                      [&m]( const Assets::Asset<Assets::MeshAsset>& mesh, ReferenceOrigin )
                      { Runtime::EnsureMeshRegistered( mesh, m ); } );
@@ -1048,6 +1049,18 @@ namespace Desert::Core::Serialize
             };
 
             return s;
+        }
+
+        // One row of ReflectedComponentBlocks.hpp as the serializer its shape needs.
+        template <class TComponent, class TData>
+        ComponentSerializer MakeReflectedBlock( const ReflectedMemberBlock<TComponent, TData>& row )
+        {
+            return MakeReflected<TComponent, TData>( row.Key, row.TypeName, row.Member );
+        }
+        template <class TComponent>
+        ComponentSerializer MakeReflectedBlock( const ReflectedWholeBlock<TComponent>& row )
+        {
+            return MakeReflectedSelf<TComponent>( row.Key, row.TypeName );
         }
 
         using Reflection::ResolveGuidRef;
@@ -1669,43 +1682,17 @@ namespace Desert::Core::Serialize
             Register( std::move( s ) );
         }
 
-        // ---- Reflected data blocks (auto-serialized via reflection) ----
-        Register( MakeReflected<ECS::CameraComponent, ECS::CameraData>( "Camera", "CameraData",
-                                                                        &ECS::CameraComponent::Data ) );
-        Register( MakeReflected<ECS::DirectionLightComponent, ECS::DirectionalLightData>(
-             "DirectionLight", "DirectionalLightData", &ECS::DirectionLightComponent::Data ) );
-        Register( MakeReflected<ECS::PointLightComponent, ECS::PointLightData>(
-             "PointLight", "PointLightData", &ECS::PointLightComponent::Data ) );
-        Register( MakeReflected<ECS::SpotLightComponent, ECS::SpotLightData>( "SpotLight", "SpotLightData",
-                                                                              &ECS::SpotLightComponent::Data ) );
-        Register( MakeReflected<ECS::TwoBoneIKComponent, ECS::TwoBoneIKData>( "TwoBoneIK", "TwoBoneIKData",
-                                                                              &ECS::TwoBoneIKComponent::Data ) );
-        Register( MakeReflected<ECS::ControlRigComponent, ECS::ControlRigData>(
-             "ControlRig", "ControlRigData", &ECS::ControlRigComponent::Data ) );
-        Register( MakeReflected<ECS::RetargetComponent, ECS::RetargetData>( "Retarget", "RetargetData",
-                                                                            &ECS::RetargetComponent::Data ) );
-        Register( MakeReflected<ECS::ColliderComponent, ECS::ColliderData>( "Collider", "ColliderData",
-                                                                            &ECS::ColliderComponent::Data ) );
-        Register( MakeReflected<ECS::RigidBodyComponent, ECS::RigidBodyData>( "RigidBody", "RigidBodyData",
-                                                                              &ECS::RigidBodyComponent::Data ) );
-        Register( MakeReflected<ECS::CharacterControllerComponent, ECS::CharacterControllerData>(
-             "CharacterController", "CharacterControllerData", &ECS::CharacterControllerComponent::Data ) );
-        Register( MakeReflected<ECS::AudioSourceComponent, ECS::AudioSourceData>(
-             "AudioSource", "AudioSourceData", &ECS::AudioSourceComponent::Data ) );
-        Register( MakeReflected<ECS::ParticleEmitterComponent, ECS::ParticleEmitterData>(
-             "ParticleEmitter", "ParticleEmitterData", &ECS::ParticleEmitterComponent::Data ) );
-        Register( MakeReflected<ECS::UICanvasComponent, ECS::UICanvasData>( "UICanvas", "UICanvasData",
-                                                                            &ECS::UICanvasComponent::Data ) );
-        Register( MakeReflected<ECS::UILayoutComponent, ECS::UILayoutData>( "UILayout", "UILayoutData",
-                                                                            &ECS::UILayoutComponent::Data ) );
-        Register( MakeReflected<ECS::UIPanelComponent, ECS::UIPanelData>( "UIPanel", "UIPanelData",
-                                                                          &ECS::UIPanelComponent::Data ) );
-        Register( MakeReflected<ECS::UITextComponent2D, ECS::UITextData>( "UIText", "UITextData",
-                                                                          &ECS::UITextComponent2D::Data ) );
-        Register( MakeReflected<ECS::UIButtonComponent, ECS::UIButtonData>( "UIButton", "UIButtonData",
-                                                                            &ECS::UIButtonComponent::Data ) );
-        Register( MakeReflected<ECS::UIIconComponent, ECS::UIIconData>( "UIIcon", "UIIconData",
-                                                                        &ECS::UIIconComponent::Data ) );
+        // ---- Reflected data blocks: the rows of ReflectedComponentBlocks.hpp, run by run ----
+        const auto registerRun = [this]( ReflectedBlockRun run )
+        {
+            ForEachReflectedComponentBlock(
+                 [&]( const auto& row )
+                 {
+                     if ( row.Run == run )
+                         Register( MakeReflectedBlock( row ) );
+                 } );
+        };
+        registerRun( ReflectedBlockRun::ActorsAndUI );
         {
             // BY GUID (SCNE 31), like a material's shader: the runtime field is the path the host opens, the
             // file states `"Scene": {Guid, Path}` - the scene's header GUID, and its key for the reader.
@@ -1773,47 +1760,7 @@ namespace Desert::Core::Serialize
             Register( std::move( s ) );
         }
 
-        Register( MakeReflected<ECS::UIBindingComponent, ECS::UIBindingData>( "UIBinding", "UIBindingData",
-                                                                              &ECS::UIBindingComponent::Data ) );
-        Register( MakeReflected<ECS::UIScreenComponent, ECS::UIScreenData>( "UIScreen", "UIScreenData",
-                                                                            &ECS::UIScreenComponent::Data ) );
-        Register( MakeReflected<ECS::UIScreenStackComponent, ECS::UIScreenStackData>(
-             "UIScreenStack", "UIScreenStackData", &ECS::UIScreenStackComponent::Data ) );
-        Register( MakeReflected<ECS::UITweenComponent, ECS::UITweenData>( "UITween", "UITweenData",
-                                                                          &ECS::UITweenComponent::Data ) );
-        Register( MakeReflected<ECS::UIPointerEventsComponent, ECS::UIPointerEventsData>(
-             "UIPointerEvents", "UIPointerEventsData", &ECS::UIPointerEventsComponent::Data ) );
-        Register( MakeReflected<ECS::UIDraggableComponent, ECS::UIDraggableData>(
-             "UIDraggable", "UIDraggableData", &ECS::UIDraggableComponent::Data ) );
-        Register( MakeReflected<ECS::UIDropTargetComponent, ECS::UIDropTargetData>(
-             "UIDropTarget", "UIDropTargetData", &ECS::UIDropTargetComponent::Data ) );
-        Register( MakeReflected<ECS::UIImageComponent, ECS::UIImageData>( "UIImage", "UIImageData",
-                                                                          &ECS::UIImageComponent::Data ) );
-        Register( MakeReflected<ECS::UILayoutGroupComponent, ECS::UILayoutGroupData>(
-             "UILayoutGroup", "UILayoutGroupData", &ECS::UILayoutGroupComponent::Data ) );
-        Register( MakeReflected<ECS::UIProgressBarComponent, ECS::UIProgressBarData>(
-             "UIProgressBar", "UIProgressBarData", &ECS::UIProgressBarComponent::Data ) );
-        Register( MakeReflected<ECS::UIStyleComponent, ECS::UIStyleData>( "UIStyle", "UIStyleData",
-                                                                          &ECS::UIStyleComponent::Data ) );
-        Register( MakeReflected<ECS::UIToggleComponent, ECS::UIToggleData>( "UIToggle", "UIToggleData",
-                                                                            &ECS::UIToggleComponent::Data ) );
-        Register( MakeReflected<ECS::UISliderComponent, ECS::UISliderData>( "UISlider", "UISliderData",
-                                                                            &ECS::UISliderComponent::Data ) );
-        Register( MakeReflected<ECS::UIScrollViewComponent, ECS::UIScrollViewData>(
-             "UIScrollView", "UIScrollViewData", &ECS::UIScrollViewComponent::Data ) );
-        Register( MakeReflected<ECS::UIListViewComponent, ECS::UIListViewData>(
-             "UIListView", "UIListViewData", &ECS::UIListViewComponent::Data ) );
-        Register( MakeReflected<ECS::UIInputFieldComponent, ECS::UIInputFieldData>(
-             "UIInputField", "UIInputFieldData", &ECS::UIInputFieldComponent::Data ) );
-        Register( MakeReflected<ECS::UIDropdownComponent, ECS::UIDropdownData>(
-             "UIDropdown", "UIDropdownData", &ECS::UIDropdownComponent::Data ) );
-        // Overlays (Ю12). An overlay canvas and a trigger are ORDINARY scene data — that is the whole point
-        // of the shape: nothing is spawned at runtime, so a tooltip, a menu, a dialog and a toast stack
-        // survive a save and a reload because they are entities like any other.
-        Register( MakeReflected<ECS::UIOverlayComponent, ECS::UIOverlayData>( "UIOverlay", "UIOverlayData",
-                                                                              &ECS::UIOverlayComponent::Data ) );
-        Register( MakeReflected<ECS::UIOverlayTriggerComponent, ECS::UIOverlayTriggerData>(
-             "UIOverlayTrigger", "UIOverlayTriggerData", &ECS::UIOverlayTriggerComponent::Data ) );
+        registerRun( ReflectedBlockRun::UIAfterRenderTexture );
 
         // The voxels a Cube Grid blockout was baked from, so the tool reopens on it
         // (CubeGridBlockoutComponent.hpp). No version bump - an added key is what ForeignKeys is for.
@@ -1950,28 +1897,11 @@ namespace Desert::Core::Serialize
         // The root is its frame and nothing else; the tile loads its heights from the file it names
         // (MakeLandscapeTile above). No version bump: two new block keys, and no scene carried them before.
         Register( MakeLandscapeRoot() );
-        Register( MakeReflected<ECS::LandscapeMaterialComponent, ECS::LandscapeMaterialData>(
-             "LandscapeMaterial", "LandscapeMaterialData", &ECS::LandscapeMaterialComponent::Data ) );
+        registerRun( ReflectedBlockRun::Landscape );
         Register( MakeLandscapeTile() );
 
-        // ---- Skybox (now FULLY REFLECTED via RA3) ----
-        // No more hand-written SkyboxComponentSer / field mapping: the whole component reflects, and its
-        // SkyboxHandle round-trips as a path through the AssetResolver. It now carries the HDR path ONLY —
-        // the procedural sky lives under "SkyAtmosphere".
-        Register( MakeReflectedSelf<ECS::SkyboxComponent>( "Skybox", "SkyboxComponent" ) );
-
-        // ---- Sky / fog ----
-        // Data-block components, so one line each is the whole of save/load, duplicate and undo.
-        Register( MakeReflected<ECS::SkyAtmosphereComponent, ECS::SkyAtmosphereData>(
-             "SkyAtmosphere", "SkyAtmosphereData", &ECS::SkyAtmosphereComponent::Data ) );
-        Register( MakeReflected<ECS::ExponentialHeightFogComponent, ECS::ExponentialHeightFogData>(
-             "ExponentialHeightFog", "ExponentialHeightFogData", &ECS::ExponentialHeightFogComponent::Data ) );
-        Register( MakeReflected<ECS::PostProcessVolumeComponent, ECS::PostProcessVolumeData>(
-             "PostProcessVolume", "PostProcessVolumeData", &ECS::PostProcessVolumeComponent::Data ) );
-        Register( MakeReflected<ECS::VolumetricCloudComponent, ECS::VolumetricCloudData>(
-             "VolumetricCloud", "VolumetricCloudData", &ECS::VolumetricCloudComponent::Data ) );
-        Register( MakeReflected<ECS::HeroCloudComponent, ECS::HeroCloudData>( "HeroCloud", "HeroCloudData",
-                                                                              &ECS::HeroCloudComponent::Data ) );
+        // ---- Skybox, sky, fog, post-process, clouds: one row each in ReflectedComponentBlocks.hpp ----
+        registerRun( ReflectedBlockRun::SkyAndAtmosphere );
 
         // ---- Script (manual: .lua path + exposed-property values) ----
         Register( MakeScript() );

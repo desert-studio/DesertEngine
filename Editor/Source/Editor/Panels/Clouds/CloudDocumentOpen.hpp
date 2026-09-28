@@ -81,7 +81,7 @@ namespace Desert::Editor
             // First time anything asked for this file. Noise volumes, hero-cloud bodies and painted layouts
             // have no boot stage (AL1-2): their shells exist only once a scene or a window has named them,
             // so this is the ordinary path from the Content Browser, not an exception to it.
-            asset = assetManager->CreateAsset<AssetT>( Assets::AssetPriority::Medium, assetPath );
+            asset = assetManager->CreateAsset<AssetT>( assetPath );
         }
 
         if ( !asset )

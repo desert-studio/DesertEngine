@@ -29,7 +29,6 @@
 #include <vector>
 
 using Desert::Assets::AssetBase;
-using Desert::Assets::AssetPriority;
 using Desert::Assets::AssetTypeID;
 using Desert::Assets::AsyncAssetLoader;
 using Desert::Assets::LoadOutcome;
@@ -45,8 +44,7 @@ namespace
     {
     public:
         explicit ProbeAsset( const std::string& name, const bool succeeds = true )
-             : AssetBase( AssetPriority::Medium, Common::Filepath( name ), AssetTypeID::Unknown ),
-               m_Succeeds( succeeds )
+             : AssetBase( Common::Filepath( name ), AssetTypeID::Unknown ), m_Succeeds( succeeds )
         {
         }
 

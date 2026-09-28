@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "f98d5a114ad5d446dc11c69932b58593",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -20,6 +20,14 @@
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
                 "Intensity": 1.0,
+                "AtmosphereSunLight": true,
+                "AtmosphereSunLightIndex": 0,
+                "AffectedByAtmosphereTransmittance": true,
+                "LightShaftBloom": false,
+                "BloomScale": 0.20000000298023224,
+                "BloomThreshold": 0.0,
+                "BloomMaxBrightness": 100.0,
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "ShadowBias": 0.004999999888241291,
                 "CascadeSplitLambda": 0.6000000238418579
@@ -37,13 +45,58 @@
                     "Guid": "",
                     "Path": ""
                 },
-                "Intensity": 1.0
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             },
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
+                "HorizonFalloff": 0.8500000238418579,
+                "ZenithColor": [0.07999999821186066, 0.25999999046325684, 0.699999988079071],
+                "HorizonColor": [0.5, 0.6600000262260437, 0.9200000166893005],
+                "GroundColor": [0.1599999964237213, 0.1899999976158142, 0.23999999463558197],
+                "NightColor": [0.009999999776482582, 0.019999999552965164, 0.05000000074505806],
                 "SunIntensity": 22.0,
-                "TimeOfDay": 12.0
+                "SunColor": [1.0, 0.9599999785423279, 0.8799999952316284],
+                "SunAngularDiameter": 2.291800022125244,
+                "SunGlow": 1.0,
+                "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
+                "SunsetIntensity": 1.0,
+                "StarIntensity": 1.0,
+                "DriveSunFromTimeOfDay": false,
+                "TimeOfDay": 12.0,
+                "DayLengthSeconds": 600.0,
+                "Latitude": 45.0,
+                "NorthOffset": 0.0,
+                "AutoRebakeEnvironment": true,
+                "RebakeSunAngleThreshold": 5.0,
+                "EnvironmentResolution": 1,
+                "ActivePreset": 0,
+                "PlanetRadius": 6360.0,
+                "Model": 0,
+                "AtmosphereHeight": 60.0,
+                "MultiScatteringFactor": 1.0,
+                "GroundAlbedo": [0.4019779860973358, 0.4019779860973358, 0.4019779860973358],
+                "RayleighScatteringScale": 0.03310000151395798,
+                "RayleighScattering": [0.17528699338436127, 0.4096069931983948, 1.0],
+                "RayleighExponentialDistribution": 8.0,
+                "MieScatteringScale": 0.003996000159531832,
+                "MieScattering": [1.0, 1.0, 1.0],
+                "MieAbsorptionScale": 0.0004440000047907233,
+                "MieAbsorption": [1.0, 1.0, 1.0],
+                "MieAnisotropy": 0.800000011920929,
+                "MieExponentialDistribution": 1.2000000476837158,
+                "OtherAbsorptionScale": 0.0018810000037774444,
+                "OtherAbsorption": [0.3455609977245331, 1.0, 0.04518900066614151],
+                "AbsorptionTipAltitude": 25.0,
+                "AbsorptionTipValue": 1.0,
+                "AbsorptionTentWidth": 15.0,
+                "SkyLuminanceFactor": [1.0, 1.0, 1.0],
+                "SkyAndAerialPerspectiveLuminanceFactor": [1.0, 1.0, 1.0],
+                "AerialPerspectiveViewDistanceScale": 1.0,
+                "AerialPerspectiveStartDepth": 0.10000000149011612,
+                "AerialPerspectiveDistance": 96.0
             }
         },
         {
@@ -97,7 +150,7 @@
             "Camera": {
                 "IsMainCamera": true,
                 "FOV": 45.0,
-                "Near": 10.000000149011612,
+                "Near": 10.0,
                 "Far": 5000000.0
             }
         },
@@ -110,6 +163,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
                     "GlobalIllumination": 1,

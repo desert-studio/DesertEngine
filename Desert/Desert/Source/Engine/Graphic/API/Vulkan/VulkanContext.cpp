@@ -112,10 +112,12 @@ namespace Desert::Graphic::API::Vulkan
              .require_api_version( kMaximumApiVersion )
              .set_minimum_instance_version( kMinimumDeviceApiVersion );
 
+        bool validationRequested = false;
         if ( s_DebugValidation )
         {
             const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
-            if ( system && system.value().validation_layers_available )
+            validationRequested = system && system.value().validation_layers_available;
+            if ( validationRequested )
                 builder.request_validation_layers( true );
             else
                 LOG_ERROR( "Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled" );
@@ -124,6 +126,22 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         auto built = builder.build();
+
+        // "AVAILABLE" ONLY MEANS THE MANIFEST WAS FOUND. The loader lists a layer from its json and dlopens
+        // the library named inside it only at vkCreateInstance. A packaged Debug game on a developer Mac
+        // finds Homebrew's VkLayer_khronos_validation.json (a system path), but its bare library name
+        // resolves through DYLD_FALLBACK_LIBRARY_PATH, which the package points at its own Frameworks —
+        // so the layer "is available" and then fails with VK_ERROR_LAYER_NOT_PRESENT, and the whole
+        // game aborted (PKG2). A package does not ship the layer and must not need it: that answer is
+        // the same "not present" as above, said as loudly, and the instance is built without it.
+        if ( !built && validationRequested && built.vk_result() == VK_ERROR_LAYER_NOT_PRESENT )
+        {
+            LOG_ERROR( "Validation layer VK_LAYER_KHRONOS_validation is listed but its library could not be "
+                       "loaded (VK_ERROR_LAYER_NOT_PRESENT; VK_LOADER_DEBUG=layer names the path), validation "
+                       "is disabled" );
+            builder.request_validation_layers( false );
+            built = builder.build();
+        }
         if ( !built )
             return Common::MakeFormattedError<VkResult>(
                  "vk-bootstrap could not create the Vulkan instance: {} ({})", built.error().message(),

@@ -26,7 +26,7 @@ namespace Desert::Assets
         // and the other header-stating types do), so the handle the content registry states for the row
         // and the one this asset carries are the same number. A file that does not exist yet keeps the
         // path handle - which is why a NEW prefab is written first and created second (SaveNewFromEntity).
-        explicit PrefabAsset( AssetPriority priority, const Common::Filepath& filepath );
+        explicit PrefabAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

@@ -321,8 +321,7 @@ namespace Desert::Editor
         }
 
         auto asset = const_cast<Assets::AssetManager&>( *m_AssetManager )
-                          .CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High,
-                                                                  path.generic_string() );
+                          .CreateAsset<Assets::SurfaceMaterialAsset>( path.generic_string() );
         if ( !asset )
             return {};
 
@@ -369,8 +368,7 @@ namespace Desert::Editor
         }
 
         auto asset = const_cast<Assets::AssetManager&>( *m_AssetManager )
-                          .CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High,
-                                                                      path.generic_string() );
+                          .CreateAsset<Assets::SurfaceMaterialAsset>( path.generic_string() );
         if ( !asset )
             return Common::UUID::Null();
 
@@ -399,7 +397,7 @@ namespace Desert::Editor
         auto asset = m_AssetManager->FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
             asset = const_cast<Assets::AssetManager&>( *m_AssetManager )
-                         .CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath );
+                         .CreateAsset<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
             return;
 

@@ -136,8 +136,7 @@ namespace
     class ProbeAsset final : public AssetBase
     {
     public:
-        ProbeAsset( const AssetPriority priority, const Common::Filepath& filepath )
-             : AssetBase( priority, filepath, GetTypeID() )
+        ProbeAsset( const Common::Filepath& filepath ) : AssetBase( filepath, GetTypeID() )
         {
         }
 
@@ -182,7 +181,7 @@ namespace
 
     std::shared_ptr<ProbeAsset> Register( AssetManager& manager, const char* path, const bool load )
     {
-        auto asset = manager.CreateAsset<ProbeAsset>( AssetPriority::Medium, Common::Filepath( path ), load );
+        auto asset = manager.CreateAsset<ProbeAsset>( Common::Filepath( path ), load );
         EXPECT_TRUE( asset ) << "the registry refused " << path;
         return asset;
     }
@@ -479,44 +478,44 @@ TEST( AssetEviction, EveryUnloadLeavesTheAssetNotReadyOrRefusesWithAReason )
                 "EnsureLoaded will never re-read it: the asset is emptied and unreloadable.";
     };
 
-    StaticMeshAsset staticMesh( AssetPriority::Medium, path );
+    StaticMeshAsset staticMesh( path );
     check( "StaticMeshAsset", staticMesh );
 
-    SkinnedMeshAsset skinnedMesh( AssetPriority::Medium, path );
+    SkinnedMeshAsset skinnedMesh( path );
     check( "SkinnedMeshAsset", skinnedMesh );
 
-    SkeletonAsset skeleton( AssetPriority::Medium, path );
+    SkeletonAsset skeleton( path );
     check( "SkeletonAsset", skeleton );
 
-    AnimationAsset animation( AssetPriority::Medium, path );
+    AnimationAsset animation( path );
     check( "AnimationAsset", animation );
 
-    SurfaceMaterialAsset material( AssetPriority::Medium, path );
+    SurfaceMaterialAsset material( path );
     check( "SurfaceMaterialAsset", material );
 
-    TextureAsset texture( AssetPriority::Medium, path );
+    TextureAsset texture( path );
     check( "TextureAsset", texture );
 
-    SkyboxAsset skybox( AssetPriority::Medium, path );
+    SkyboxAsset skybox( path );
     check( "SkyboxAsset", skybox );
 
-    ShaderAsset shader( AssetPriority::Medium, path );
+    ShaderAsset shader( path );
     check( "ShaderAsset", shader );
 
     // PrefabAsset is held to the same contract textually, in Desert/Tests/Engine/AssetRoots: constructing
     // one here would link the whole ECS and scene-serializer layer into a suite that exists to run without
     // a world.
 
-    CloudNoiseVolumeAsset noise( AssetPriority::Medium, path );
+    CloudNoiseVolumeAsset noise( path );
     check( "CloudNoiseVolumeAsset", noise );
 
-    CloudTypeAsset cloudType( AssetPriority::Medium, path );
+    CloudTypeAsset cloudType( path );
     check( "CloudTypeAsset", cloudType );
 
-    CloudModellingVolumeAsset modelling( AssetPriority::Medium, path );
+    CloudModellingVolumeAsset modelling( path );
     check( "CloudModellingVolumeAsset", modelling );
 
-    CloudLayoutAsset layout( AssetPriority::Medium, path );
+    CloudLayoutAsset layout( path );
     check( "CloudLayoutAsset", layout );
 }
 
@@ -528,18 +527,18 @@ TEST( AssetEviction, AnUnloadedAssetStopsAnsweringWithItsPayload )
     // nothing downstream is written to expect.
     const Common::Filepath path( "probe/asset.bin" );
 
-    SkinnedMeshAsset skinned( AssetPriority::Medium, path );
+    SkinnedMeshAsset skinned( path );
     ASSERT_TRUE( skinned.Unload() );
     EXPECT_EQ( skinned.GetSkeletonSignature(), 0U )
          << "an unloaded skinned mesh still claims a rig signature; ResolveDependencies matches rigs on "
             "that number";
 
-    AnimationAsset animation( AssetPriority::Medium, path );
+    AnimationAsset animation( path );
     ASSERT_TRUE( animation.Unload() );
     EXPECT_EQ( animation.GetSkeletonSignature(), 0U );
     EXPECT_TRUE( animation.GetClip().Tracks.empty() );
 
-    CloudNoiseVolumeAsset noise( AssetPriority::Medium, path );
+    CloudNoiseVolumeAsset noise( path );
     ASSERT_TRUE( noise.Unload() );
     EXPECT_TRUE( noise.GetVolume().Voxels.empty() );
     EXPECT_FALSE( noise.IsReadyForUse() );
@@ -548,12 +547,12 @@ TEST( AssetEviction, AnUnloadedAssetStopsAnsweringWithItsPayload )
     // asset holding its recipe's defaults is the same state a never-loaded one holds. `Voxels.empty()`
     // and `IsReadyForUse()` are the two facts a caller may act on, and both are now true.
 
-    CloudLayoutAsset layout( AssetPriority::Medium, path );
+    CloudLayoutAsset layout( path );
     ASSERT_TRUE( layout.Unload() );
     EXPECT_EQ( layout.GetLayout().Resolution, 0U );
     EXPECT_EQ( layout.GetLayout().ContentHash, 0U );
 
-    SkeletonAsset skeleton( AssetPriority::Medium, path );
+    SkeletonAsset skeleton( path );
     EXPECT_EQ( skeleton.GetSignature(), 0U )
          << "a rig that has never been read claims a signature. Zero is what 'not known yet' is spelled "
             "as, and SkinnedMeshAsset::ResolveDependencies refuses to match it for that reason.";
@@ -598,8 +597,7 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
 
     AssetManager manager;
 
-    auto texture =
-         manager.CreateAsset<TextureAsset>( AssetPriority::Medium, Common::Filepath( texturePath ), false );
+    auto texture = manager.CreateAsset<TextureAsset>( Common::Filepath( texturePath ), false );
     ASSERT_TRUE( texture );
 
     {
@@ -611,8 +609,7 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
         ASSERT_TRUE( written ) << written.GetError();
     }
 
-    auto material = manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium,
-                                                               Common::Filepath( materialPath ), true );
+    auto material = manager.CreateAsset<SurfaceMaterialAsset>( Common::Filepath( materialPath ), true );
     ASSERT_TRUE( material );
     ASSERT_TRUE( material->IsReadyForUse() ) << "the probe material did not load; the edge cannot be tested";
     ASSERT_EQ( material->Data().Textures.size(), 1u );
@@ -668,8 +665,7 @@ TEST( AssetEviction, ATextureCreatedWithoutLoadIsKeyedByItsHeaderGuid )
     const auto byPath = Common::AssetHandle::FromCookedPath( texturePath );
 
     AssetManager manager;
-    auto         texture =
-         manager.CreateAsset<TextureAsset>( AssetPriority::Medium, Common::Filepath( texturePath ), false );
+    auto         texture = manager.CreateAsset<TextureAsset>( Common::Filepath( texturePath ), false );
     ASSERT_TRUE( texture );
     EXPECT_FALSE( texture->IsReadyForUse() );
     EXPECT_EQ( static_cast<uint64_t>( texture->GetMetadata().Handle ), static_cast<uint64_t>( byGuid ) );
@@ -705,14 +701,14 @@ TEST( AssetEviction, ASkinnedMeshRebindsItsRigAfterASweepHasReleasedBoth )
 
     AssetManager manager;
 
-    auto skeleton = manager.CreateAsset<SkeletonAsset>(
-         AssetPriority::Medium, Common::Filepath( WriteProbeRig( dir / "probe.skeleton" ) ) );
+    auto skeleton =
+         manager.CreateAsset<SkeletonAsset>( Common::Filepath( WriteProbeRig( dir / "probe.skeleton" ) ) );
     ASSERT_TRUE( skeleton );
     const std::uint64_t signature = skeleton->GetSignature();
     ASSERT_NE( signature, 0U ) << "the probe rig did not load; the relation cannot be tested";
 
     auto mesh = manager.CreateAsset<SkinnedMeshAsset>(
-         AssetPriority::Medium, Common::Filepath( WriteProbeSkinnedMesh( dir / "probe.skmesh", signature ) ),
+         Common::Filepath( WriteProbeSkinnedMesh( dir / "probe.skmesh", signature ) ),
          /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );
@@ -902,14 +898,13 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
         const auto written = WriteMaterialFile( materialPath, MaterialData{} );
         ASSERT_TRUE( written ) << written.GetError();
     }
-    auto material =
-         manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium, Common::Filepath( materialPath ) );
+    auto material = manager.CreateAsset<SurfaceMaterialAsset>( Common::Filepath( materialPath ) );
     ASSERT_TRUE( material );
 
     ASSERT_FALSE( material->Data().Guid().IsNull() ) << "the probe material states no GUID for the mesh to name";
     const std::filesystem::path derived = WriteProbeStaticMesh( meshPath, material->Data().Guid() );
     ASSERT_FALSE( derived.empty() );
-    auto mesh = manager.CreateAsset<StaticMeshAsset>( AssetPriority::Medium, Common::Filepath( meshPath ) );
+    auto mesh = manager.CreateAsset<StaticMeshAsset>( Common::Filepath( meshPath ) );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->IsReadyForUse() ) << "the probe mesh did not load; the edge cannot be tested";
     ASSERT_EQ( mesh->GetMaterialHandles().size(), 1u );

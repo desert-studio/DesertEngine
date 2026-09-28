@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "b4e293534d5d0788a0b2774594303507",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -22,15 +22,16 @@
                     "Guid": "",
                     "Path": ""
                 },
-                "Intensity": 1.0
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [1.0, 1.0, 1.0]
             },
             "SkyAtmosphere": {
                 "Enabled": true,
-                "Model": 1,
                 "SkyBrightness": 1.0,
                 "HorizonFalloff": 0.8500000238418579,
-                "ZenithColor": [0.05, 0.18, 0.58],
-                "HorizonColor": [0.46, 0.62, 0.9],
+                "ZenithColor": [0.05000000074505806, 0.18000000715255737, 0.5799999833106995],
+                "HorizonColor": [0.46000000834465027, 0.6200000047683716, 0.8999999761581421],
                 "GroundColor": [0.1599999964237213, 0.1899999976158142, 0.23999999463558197],
                 "NightColor": [0.009999999776482582, 0.019999999552965164, 0.05000000074505806],
                 "SunIntensity": 22.0,
@@ -49,7 +50,30 @@
                 "RebakeSunAngleThreshold": 5.0,
                 "EnvironmentResolution": 1,
                 "ActivePreset": 0,
-                "PlanetRadius": 6360.0
+                "PlanetRadius": 6360.0,
+                "Model": 1,
+                "AtmosphereHeight": 60.0,
+                "MultiScatteringFactor": 1.0,
+                "GroundAlbedo": [0.4019779860973358, 0.4019779860973358, 0.4019779860973358],
+                "RayleighScatteringScale": 0.03310000151395798,
+                "RayleighScattering": [0.17528699338436127, 0.4096069931983948, 1.0],
+                "RayleighExponentialDistribution": 8.0,
+                "MieScatteringScale": 0.003996000159531832,
+                "MieScattering": [1.0, 1.0, 1.0],
+                "MieAbsorptionScale": 0.0004440000047907233,
+                "MieAbsorption": [1.0, 1.0, 1.0],
+                "MieAnisotropy": 0.800000011920929,
+                "MieExponentialDistribution": 1.2000000476837158,
+                "OtherAbsorptionScale": 0.0018810000037774444,
+                "OtherAbsorption": [0.3455609977245331, 1.0, 0.04518900066614151],
+                "AbsorptionTipAltitude": 25.0,
+                "AbsorptionTipValue": 1.0,
+                "AbsorptionTentWidth": 15.0,
+                "SkyLuminanceFactor": [1.0, 1.0, 1.0],
+                "SkyAndAerialPerspectiveLuminanceFactor": [1.0, 1.0, 1.0],
+                "AerialPerspectiveViewDistanceScale": 1.0,
+                "AerialPerspectiveStartDepth": 0.10000000149011612,
+                "AerialPerspectiveDistance": 96.0
             }
         },
         {
@@ -62,6 +86,14 @@
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
                 "Intensity": 1.0,
+                "AtmosphereSunLight": true,
+                "AtmosphereSunLightIndex": 0,
+                "AffectedByAtmosphereTransmittance": true,
+                "LightShaftBloom": false,
+                "BloomScale": 0.20000000298023224,
+                "BloomThreshold": 0.0,
+                "BloomMaxBrightness": 100.0,
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "ShadowBias": 0.004999999888241291,
                 "CascadeSplitLambda": 0.6000000238418579
@@ -76,15 +108,15 @@
             "Scale": [1.0, 1.0, 1.0],
             "ExponentialHeightFog": {
                 "Enabled": true,
-                "FogDensity": 0.02,
-                "FogHeightFalloff": 0.2,
-                "FogInscatteringLuminance": [0.447, 0.638, 1.0],
+                "FogDensity": 0.019999999552965164,
+                "FogHeightFalloff": 0.20000000298023224,
+                "FogInscatteringLuminance": [0.44699999690055847, 0.6380000114440918, 1.0],
                 "SkyAtmosphereAmbientContributionColorScale": [1.0, 1.0, 1.0],
                 "FogMaxOpacity": 1.0,
                 "StartDistance": 0.0,
                 "FogCutoffDistance": 0.0,
                 "SecondFogDensity": 0.0,
-                "SecondFogHeightFalloff": 0.2,
+                "SecondFogHeightFalloff": 0.20000000298023224,
                 "SecondFogHeightOffset": 0.0,
                 "DirectionalInscatteringExponent": 4.0,
                 "DirectionalInscatteringStartDistance": 10000.0,
@@ -208,6 +240,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,

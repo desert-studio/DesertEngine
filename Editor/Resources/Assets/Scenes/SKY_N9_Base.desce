@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "48b563efb581cea016249cb7f23ec0c1",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -37,7 +37,7 @@
             "Camera": {
                 "IsMainCamera": true,
                 "FOV": 45.0,
-                "Near": 10.000000149011612,
+                "Near": 10.0,
                 "Far": 5000000.0
             }
         },
@@ -50,6 +50,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": false,
                     "GlobalIllumination": 1,

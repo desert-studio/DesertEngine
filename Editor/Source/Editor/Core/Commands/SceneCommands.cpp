@@ -932,8 +932,7 @@ namespace Desert::Editor::Commands
 
             // Registered and BUILT now (MeshDnD's reason): an entity must never be handed a handle that
             // draws air, and the refusal names the file.
-            auto created = s_AssetManager->CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High,
-                                                                                 path.generic_string() );
+            auto created = s_AssetManager->CreateAsset<Assets::StaticMeshAsset>( path.generic_string() );
             if ( !created )
                 return Common::MakeFormattedError<WrittenStaticMesh>(
                      "'{}' was written and could not be loaded back; the parse error is logged above",

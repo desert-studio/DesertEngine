@@ -140,7 +140,18 @@ namespace Desert::Migration
     //       alone, as UE's is (MigrateLandscapeLayerModesV37ToV38). Scenes and prefabs alike.
     inline constexpr int kSceneVersionNoLandscapeLayerModes = 38;
 
-    static_assert( kSceneVersionNoLandscapeLayerModes == kSceneVersion,
+    //  39 - EVERY KEY A BLOCK STATES IS ONE THE BUILD DECLARES, IN THE TYPE IT DECLARES (SAVE1). Four
+    //       hand-authoring slips the lenient reader used to skip are settled in the files
+    //       (MigrateUndeclaredKeysV38ToV39): UIToggle.On and UIButton.CornerRadius were never fields of
+    //       either component (UIToggleData has stated its state as `Value` since it was introduced, and
+    //       UIButtonData never had a corner radius), so the build never read them and they go; a
+    //       UIButton.Action stated as a NAME was a message name (the only string an action carries), so it
+    //       becomes SendEvent + that name as the Action Target; a light's Falloff stated as an enumerator
+    //       NAME becomes that enumerator's number, which is how every other light in the corpus states it.
+    //       Scenes and prefabs alike.
+    inline constexpr int kSceneVersionNoUndeclaredKeys = 39;
+
+    static_assert( kSceneVersionNoUndeclaredKeys == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -191,6 +202,29 @@ namespace Desert::Migration
     // Takes kRetiredLandscapeLayerModeKeys out of every LandscapeMaterial block of @p entities (records and
     // their prefab overrides). Returns how many keys went. PURE.
     std::size_t MigrateLandscapeLayerModesV37ToV38( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateUndeclaredKeysV38ToV39 did to one file.
+    struct UndeclaredKeysReport
+    {
+        std::size_t TogglesOnDropped         = 0; // UIToggle.On
+        std::size_t ButtonCornerRadiiDropped = 0; // UIButton.CornerRadius
+        std::size_t ButtonActionNamesMoved   = 0; // UIButton.Action "<name>" -> SendEvent + OnClickMessage
+        std::size_t FalloffNamesNumbered     = 0; // PointLight/SpotLight.Falloff "<name>" -> its number
+
+        // One line per block the step cannot settle without guessing (named entity, key, value). Non-empty
+        // refuses the file.
+        std::vector<std::string> Refused;
+
+        [[nodiscard]] std::size_t Rewritten() const
+        {
+            return TogglesOnDropped + ButtonCornerRadiiDropped + ButtonActionNamesMoved + FalloffNamesNumbered;
+        }
+    };
+
+    // Settles the four slips kSceneVersionNoUndeclaredKeys names in every block of @p entities (records and
+    // their prefab overrides). A UIButton whose Action is a name while its OnClickMessage already states a
+    // DIFFERENT non-empty target, and a Falloff name that is no LightFalloff enumerator, are refused. PURE.
+    UndeclaredKeysReport MigrateUndeclaredKeysV38ToV39( std::vector<Assets::EntityData>& entities );
 
     // What MigrateInstanceTransformsV36ToV37 did to one scene.
     struct InstanceTransformsReport
@@ -295,11 +329,14 @@ namespace Desert::Migration
         bool        LandscapeLayerModesRaised  = false; // below kSceneVersionNoLandscapeLayerModes
         std::size_t LandscapeLayerModesDropped = 0;
 
+        bool                 UndeclaredKeysRaised = false; // below kSceneVersionNoUndeclaredKeys
+        UndeclaredKeysReport UndeclaredKeys;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
-                   LandscapeLayerModesRaised;
+                   LandscapeLayerModesRaised || UndeclaredKeysRaised;
         }
     };
 

@@ -11,7 +11,7 @@ namespace Desert::Assets
     class SkeletonAsset : public AssetBase
     {
     public:
-        SkeletonAsset( const AssetPriority priority, const Common::Filepath& filepath );
+        SkeletonAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

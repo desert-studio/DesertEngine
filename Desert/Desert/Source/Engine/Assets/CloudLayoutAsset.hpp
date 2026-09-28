@@ -32,7 +32,7 @@ namespace Desert::Assets
     class CloudLayoutAsset final : public AssetBase
     {
     public:
-        CloudLayoutAsset( AssetPriority priority, const Common::Filepath& filepath );
+        CloudLayoutAsset( const Common::Filepath& filepath );
 
         /// The envelope GUID this layout was created from; null when the file states none.
         [[nodiscard]] const Common::Content::AssetGuid& Guid() const
