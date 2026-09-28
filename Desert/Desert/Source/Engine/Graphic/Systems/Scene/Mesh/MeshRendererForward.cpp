@@ -427,7 +427,6 @@ namespace Desert::Graphic::System
         return built.GetValue();
     }
 
-
     void MeshRenderer::RenderGenericManual()
     {
         const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
