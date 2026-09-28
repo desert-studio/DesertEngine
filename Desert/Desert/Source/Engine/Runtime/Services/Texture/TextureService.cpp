@@ -8,6 +8,8 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <chrono>
+
 namespace Desert::Runtime
 {
     namespace
@@ -89,7 +91,12 @@ namespace Desert::Runtime
              [job]
              {
                  TextureCookOutcome outcome;
+                 const auto         began  = std::chrono::steady_clock::now();
                  auto               cooked = Graphic::Texture2D::ReadCooked( job->Asset );
+                 LOG_DEBUG( "[TextureService] '{}' platform data read on a worker in {:.1f} ms",
+                            job->Asset.filename().string(),
+                            std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began )
+                                 .count() );
                  uint64_t           bytes  = 0;
                  if ( cooked.IsSuccess() )
                  {
@@ -107,11 +114,17 @@ namespace Desert::Runtime
         entry.Cooking = false;
         if ( outcome.Cooked )
         {
-            auto built = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
+            const auto     began = std::chrono::steady_clock::now();
+            const uint64_t bytes = outcome.Cooked->UploadBytes();
+            auto           built = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
             if ( built.IsSuccess() )
                 entry.Built = built.ExtractValue();
             else
                 outcome.Error = built.GetError();
+            LOG_DEBUG( "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes)",
+                       entry.Source->GetMetadata().Filepath.filename().string(),
+                       std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
+                       bytes );
         }
         if ( !entry.Built )
         {
