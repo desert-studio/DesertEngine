@@ -59,7 +59,11 @@ namespace Desert::Runtime
                 LOG_ERROR( "[FontService] Failed to bake SDF atlas for '{}'", ttfPath );
                 return nullptr;
             }
-            Text::StoreBakedFont( cachePath, baked );
+            if ( auto stored = Text::StoreBakedFont( cachePath, baked ); !stored.IsSuccess() )
+            {
+                LOG_WARN( "[FontService] '{}' baked but not cached, the next run bakes it again: {}", ttfPath,
+                          stored.GetError() );
+            }
         }
 
         const auto atlasMs =
