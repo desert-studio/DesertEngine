@@ -150,7 +150,9 @@ namespace Desert::Editor::Tools
 
     private:
         void EndStroke( ::Desert::Core::Scene& scene );
-        void PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift );
+        // @p stroke is the press being recorded: the caller owns the check that one is open.
+        void PickAlongRay( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool shift,
+                           FoliageStroke& stroke );
         // Sets the selection of each field in @p wanted (UE SelectInstances), ONE undo step; an error when
         // there is nothing to select.
         static Common::BoolResultStr
