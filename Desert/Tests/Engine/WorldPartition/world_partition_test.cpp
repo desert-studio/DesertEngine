@@ -719,9 +719,10 @@ namespace
     //     to switch off; its landscape roots and scene records go with it.
     //   * -277 / -286 with SCN1 (2318 / 2341): the 68 scenes nothing named are deleted (Scenes/ 147 -> 79), and
     //     their records go with them - each one's PostProcessVolume, lights, cloud volumes and UI entities.
-    //   * +16 with RDG3 (2334): the two render-graph bench scenes, RDG_DeferredSSRGI and RDG_LandscapeParticles.
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2334;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2341;
+    //   * +14 with RDG3 (2332 / 2355): the two render-graph bench scenes, RDG_DeferredSSRGI and
+    //     RDG_LandscapeParticles, fourteen point-only records on both counts (measured at SCNE 39).
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2332;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2355;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.

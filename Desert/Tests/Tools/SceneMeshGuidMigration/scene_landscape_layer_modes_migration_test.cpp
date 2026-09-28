@@ -130,8 +130,8 @@ TEST( SceneLandscapeLayerModesMigration, CorpusLandscapesStateOnlyTheKeptFields 
             }
         }
     }
-    // G3_TwoTerrains (2), Terrain_Grass, Terrain_MatProbe.
-    EXPECT_EQ( roots, 4u );
+    // G3_TwoTerrains (2), Terrain_Grass, Terrain_MatProbe, and the render-graph bench RDG_LandscapeParticles.
+    EXPECT_EQ( roots, 5u );
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
