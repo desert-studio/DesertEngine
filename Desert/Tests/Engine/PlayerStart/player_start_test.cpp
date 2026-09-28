@@ -4,6 +4,9 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -114,6 +117,38 @@ TEST( ViewTargetRule, TheEditorCameraOnlyInPlayFromHere )
     const auto play = ChooseViewTarget( { .Level = "L", .PawnSpawned = true } );
     ASSERT_FALSE( play );
     EXPECT_NE( play.GetError().find( "Play from Here" ), std::string::npos ) << play.GetError();
+}
+
+// Owner 2026-09-28: "the camera is both the spawn and the view? that is what we must separate". A level
+// with no Default Pawn spawns nothing, and the view rule alone picks what the player looks through.
+TEST( ViewTargetRule, NoPawnStillLooksThroughTheAutoActivateCamera )
+{
+    const std::vector<std::string> autoCams{ "SceneCam" };
+    const auto r = ChooseViewTarget( { .Level = "L", .PawnSpawned = false, .AutoActivateCameras = autoCams } );
+    ASSERT_TRUE( r ) << r.GetError();
+    EXPECT_EQ( r.GetValue().Kind, ViewTargetKind::AutoActivateCamera );
+
+    const auto none = ChooseViewTarget( { .Level = "L", .PawnSpawned = false } );
+    EXPECT_FALSE( none ) << "no pawn and no camera must refuse Play, not fall back to the editor camera";
+}
+
+// SPAWN is PlayerStart (or Play from Here's explicit editor viewpoint, UE's exception) and nothing else: the
+// code that places the pawn never reads a camera, so no camera can move or place the player.
+TEST( SpawnIsNotACamera, SpawnDefaultPawnNeverReadsACameraComponent )
+{
+    std::filesystem::path       dir = std::filesystem::current_path();
+    const std::filesystem::path rel = "Desert/Desert/Source/Engine/Core/PlayerStart.cpp";
+    while ( !std::filesystem::exists( dir / rel ) && dir != dir.parent_path() )
+        dir = dir.parent_path();
+    std::ifstream in( dir / rel );
+    ASSERT_TRUE( in ) << "could not open " << rel << " above " << std::filesystem::current_path();
+    std::stringstream text;
+    text << in.rdbuf();
+    const std::string src = text.str();
+    ASSERT_NE( src.find( "SpawnDefaultPawn" ), std::string::npos );
+    EXPECT_EQ( src.find( "CameraComponent" ), std::string::npos )
+         << "PlayerStart.cpp reads a CameraComponent: a camera is the VIEW, never the spawn";
+    EXPECT_NE( src.find( "PlayerStartComponent" ), std::string::npos );
 }
 
 int main( int argc, char** argv )
