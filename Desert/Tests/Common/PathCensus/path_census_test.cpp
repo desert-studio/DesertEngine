@@ -225,9 +225,9 @@ TEST( PathCensus, TheInverseRecoversTheRootEveryRowWasDerivedFrom )
 }
 
 // THE LAST OCCURRENCE WINS, and the case that made it matter: this repository's scenes live flat in
-// Scenes/ with subdirectories (Levels/, per-feature folders), and the tool is pointed at all of them. A first-occurrence rule
-// would resolve a checkout that itself sits under a folder called Scenes against the wrong ancestor and
-// write the migrated material into a developer's home directory.
+// Scenes/ with subdirectories (Levels/, per-feature folders), and the tool is pointed at all of them. A
+// first-occurrence rule would resolve a checkout that itself sits under a folder called Scenes against the wrong
+// ancestor and write the migrated material into a developer's home directory.
 //
 // No ProjectRootGuard here or below, and that is the point being made: the inverse reads the census row
 // and the path handed to it, never the open project — which is what lets a tool ask about a file that

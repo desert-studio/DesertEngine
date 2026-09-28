@@ -112,7 +112,6 @@ TEST( AutosavePaths, RecoveryRoundTripNamesTheOriginalScene )
     EXPECT_FALSE( AS::SceneFor( AS::Dir() / "Scenes" / "Starter.desce" ).has_value() );
 }
 
-
 namespace
 {
     constexpr uint32_t kScene = Common::Content::FourCC( "SCNE" );
@@ -124,8 +123,9 @@ namespace
     void WriteCopy( const fs::path& p, int scene, int unit )
     {
         fs::create_directories( p.parent_path() );
-        std::ofstream( p ) << R"({"Header":{"Kind":"Scene","Guid":"0123456789abcdef0123456789abcdef","Versions":{"SCNE":)"
-                           << scene << R"(,"UNIT":)" << unit << R"(},"Dependencies":[]},"SceneName":"S"})";
+        std::ofstream( p )
+             << R"({"Header":{"Kind":"Scene","Guid":"0123456789abcdef0123456789abcdef","Versions":{"SCNE":)"
+             << scene << R"(,"UNIT":)" << unit << R"(},"Dependencies":[]},"SceneName":"S"})";
     }
 
     std::string BytesOf( const fs::path& p )
@@ -178,8 +178,8 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
 {
     const fs::path         project = TempProject( "Older" );
     const ProjectRootGuard guard( project, "Content" );
-    const fs::path current = AS::PathFor( Path::SCENE_PATH / "Starter.desce", "Starter", AS::kPeriodicSuffix );
-    const fs::path stale   = AS::PathFor( Path::SCENE_PATH / "Levels" / "A.desce", "A", AS::kPeriodicSuffix );
+    const fs::path current   = AS::PathFor( Path::SCENE_PATH / "Starter.desce", "Starter", AS::kPeriodicSuffix );
+    const fs::path stale     = AS::PathFor( Path::SCENE_PATH / "Levels" / "A.desce", "A", AS::kPeriodicSuffix );
     const fs::path wrongUnit = AS::PathFor( {}, "Untitled Scene", AS::kDeviceLostSuffix );
     WriteCopy( current, kCurrent.Scene, kCurrent.Unit );
     WriteCopy( stale, kCurrent.Scene - 1, kCurrent.Unit );
@@ -190,7 +190,8 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
     const std::string staleBytes = BytesOf( stale );
 
     const AS::RecoveryChoice choice = AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit );
-    EXPECT_EQ( choice.Offered, current ) << "the newest file on disk is at an older version and must not be offered";
+    EXPECT_EQ( choice.Offered, current )
+         << "the newest file on disk is at an older version and must not be offered";
     ASSERT_EQ( choice.NotOffered.size(), 2u );
     for ( const AS::NotOfferedCopy& copy : choice.NotOffered )
     {

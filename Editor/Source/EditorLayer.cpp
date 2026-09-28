@@ -1575,9 +1575,9 @@ namespace Desert::Editor
                     if ( rev != s_LastAutosaveRevision )
                     {
                         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
-                        const auto path = Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(),
-                                                             Autosave::kPeriodicSuffix );
-                        const auto dir  = path.parent_path();
+                        const auto      path = Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(),
+                                                                  Autosave::kPeriodicSuffix );
+                        const auto      dir  = path.parent_path();
                         std::error_code ec;
                         std::filesystem::create_directories( dir, ec );
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
@@ -10143,9 +10143,9 @@ namespace Desert::Editor
             }
             else
             {
-                const auto path =
-                     Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(), Autosave::kDeviceLostSuffix );
-                const auto      dir = path.parent_path();
+                const auto      path = Autosave::PathFor( m_OpenScenePath, m_MainScene->GetSceneName(),
+                                                          Autosave::kDeviceLostSuffix );
+                const auto      dir  = path.parent_path();
                 std::error_code ec;
                 std::filesystem::create_directories( dir, ec );
                 const auto written =

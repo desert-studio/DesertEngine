@@ -25,8 +25,8 @@ namespace Desert::Editor::Autosave
     // Saved/ is the machine-local tree (gitignored as a whole, like Saved/Cooked and Saved/Crashes), so
     // nothing here is committed, scanned, cooked or packed.
     //
-    // HEADER-ONLY AND DISK-FREE except StatedIn()/ChooseRecovery(): the path relation is stated over Constants alone so the
-    // AutosavePaths suite can hold it without the editor, a device or the migrator.
+    // HEADER-ONLY AND DISK-FREE except StatedIn()/ChooseRecovery(): the path relation is stated over Constants
+    // alone so the AutosavePaths suite can hold it without the editor, a device or the migrator.
 
     // The two kinds of recovery copy. Both end in "_autosave" — SceneFor() matches on it.
     inline constexpr std::string_view kPeriodicSuffix   = "_autosave";
@@ -139,8 +139,9 @@ namespace Desert::Editor::Autosave
         const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
         if ( !header )
             return {};
-        return { static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), sceneTag ).value_or( 0 ) ),
-                 static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), unitTag ).value_or( 0 ) ) };
+        return {
+             static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), sceneTag ).value_or( 0 ) ),
+             static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), unitTag ).value_or( 0 ) ) };
     }
 
     struct NotOfferedCopy
