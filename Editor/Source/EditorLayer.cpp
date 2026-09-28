@@ -2456,9 +2456,9 @@ namespace Desert::Editor
                         return Control::Response::Failure( request.Id, after.GetError() );
                     ECS::Entity entity = m_MainScene->FindEntityByID( uuid )->get();
                     auto&       tc     = entity.GetComponent<ECS::TransformComponent>();
-                    tc.Translation = after.GetValue().Translation;
-                    tc.Rotation    = after.GetValue().Rotation;
-                    tc.Scale       = after.GetValue().Scale;
+                    tc.Translation     = after.GetValue().Translation;
+                    tc.Rotation        = after.GetValue().Rotation;
+                    tc.Scale           = after.GetValue().Scale;
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
@@ -2577,7 +2577,8 @@ namespace Desert::Editor
             return Common::MakeFormattedError<Result>( "the selected entity {} has no transform",
                                                        static_cast<uint64_t>( uuid ) );
         const auto& tc = entity.GetComponent<ECS::TransformComponent>();
-        return Common::MakeSuccess( Result{ uuid, Core::SelectionTransform{ tc.Translation, tc.Rotation, tc.Scale } } );
+        return Common::MakeSuccess(
+             Result{ uuid, Core::SelectionTransform{ tc.Translation, tc.Rotation, tc.Scale } } );
     }
 
     Control::Response EditorLayer::SetViewportCameraProperty( const Control::Request& request )

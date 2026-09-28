@@ -278,9 +278,9 @@ namespace
         return static_cast<bool>( written );
     }
 
-    // A SCENE goes through the engine's one scene writer (ExternalEntities::WriteSceneFile), partitioned or not, so a
-    // migrated scene and a scene the editor saved are laid out alike, file for file: a partitioned world as its
-    // header plus one file per entity, any other scene whole and canonical.
+    // A SCENE goes through the engine's one scene writer (ExternalEntities::WriteSceneFile), partitioned or not,
+    // so a migrated scene and a scene the editor saved are laid out alike, file for file: a partitioned world as
+    // its header plus one file per entity, any other scene whole and canonical.
     bool WriteScene( const std::filesystem::path& path, const std::string& json, std::ostream& err )
     {
         const auto written = Desert::Core::ExternalEntities::WriteSceneText( path, json );

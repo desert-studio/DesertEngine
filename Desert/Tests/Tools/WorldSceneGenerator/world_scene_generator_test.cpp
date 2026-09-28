@@ -555,12 +555,13 @@ namespace
         std::vector<std::size_t> created( tree.Entities.size() );
         for ( std::size_t i = 0; i < created.size(); ++i )
             created[i] = i;
-        std::stable_sort( created.begin(), created.end(),
-                          [&tree]( std::size_t a, std::size_t b )
-                          {
-                              return tree.Entities[a].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() ) <
-                                     tree.Entities[b].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
-                          } );
+        std::stable_sort(
+             created.begin(), created.end(),
+             [&tree]( std::size_t a, std::size_t b )
+             {
+                 return tree.Entities[a].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() ) <
+                        tree.Entities[b].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
+             } );
         std::map<uint64_t, uint32_t> childrenSoFar;
         uint32_t                     nextRootIndex = 0;
         for ( const std::size_t i : created )
@@ -573,7 +574,7 @@ namespace
         const auto* type = Desert::Reflection::ReflectionRegistry::Get().Find( "SceneSettings" );
         ASSERT_NE( type, nullptr ) << "the reflection table this suite reads is empty";
         ASSERT_TRUE( tree.Settings.has_value() );
-        const auto               resolver = ResolverOfAWorldThatNamesNoSettingsAsset();
+        const auto                  resolver = ResolverOfAWorldThatNamesNoSettingsAsset();
         Desert::Core::SceneSettings values;
         Common::Json::Issues        issues;
         Desert::Reflection::DeserializeReflected(
@@ -598,11 +599,11 @@ TEST( WorldSceneGenerator, OpeningAndSavingAGeneratedWorldWithNoEditChangesNoFil
     const auto dir = Scratch() / "editor_save";
     std::filesystem::remove_all( dir );
     std::filesystem::create_directories( dir );
-    const auto               out = dir / "world.desce";
+    const auto                     out = dir / "world.desce";
     const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
                                          "--preset", "smoke",      "--partition" };
-    std::ostringstream       reported;
-    std::ostringstream       refused;
+    std::ostringstream             reported;
+    std::ostringstream             refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
     const auto generated = FilesBelow( dir );
     ASSERT_GT( generated.size(), 2u ) << "a partitioned world is a header plus one file per entity";

@@ -181,7 +181,8 @@ namespace Desert::Editor
         [[nodiscard]] Control::Response SetViewportCameraProperty( const Control::Request& request );
         // The `selection` subject's entity and its transform: exactly one selected entity that has a
         // TransformComponent, or a refusal saying what is selected instead.
-        [[nodiscard]] Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> SelectedTransform() const;
+        [[nodiscard]] Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>>
+        SelectedTransform() const;
         // The active view IF it is the editor's fly camera; null in Play, where the scene's own
         // CameraComponent drives. NoEditorCameraReason() is the refusal that goes with the null.
         [[nodiscard]] ::Desert::Core::EditorCamera* ActiveEditorCamera() const;
