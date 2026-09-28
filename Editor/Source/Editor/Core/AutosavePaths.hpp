@@ -1,12 +1,16 @@
 #pragma once
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Editor::Autosave
 {
@@ -21,10 +25,10 @@ namespace Desert::Editor::Autosave
     // Saved/ is the machine-local tree (gitignored as a whole, like Saved/Cooked and Saved/Crashes), so
     // nothing here is committed, scanned, cooked or packed.
     //
-    // HEADER-ONLY AND DISK-FREE except LatestIn(): the path relation is stated over Constants alone so the
+    // HEADER-ONLY AND DISK-FREE except StatedIn()/ChooseRecovery(): the path relation is stated over Constants alone so the
     // AutosavePaths suite can hold it without the editor, a device or the migrator.
 
-    // The two kinds of recovery copy. Both end in "_autosave" — LatestIn() and SceneFor() match on it.
+    // The two kinds of recovery copy. Both end in "_autosave" — SceneFor() matches on it.
     inline constexpr std::string_view kPeriodicSuffix   = "_autosave";
     inline constexpr std::string_view kDeviceLostSuffix = "_devicelost_autosave";
 
@@ -114,18 +118,58 @@ namespace Desert::Editor::Autosave
                ( stem + std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
     }
 
-    // The newest recovery copy anywhere under `dir` (recursive: copies mirror the scene tree), or empty.
-    inline std::filesystem::path LatestIn( const std::filesystem::path& dir )
+    // The two generations a scene file states in its header (absent = 0, never "current" -- the same rule
+    // the loader's gate applies). Reads the header object only, not the scene body.
+    struct StatedGenerations
+    {
+        int Scene = 0;
+        int Unit  = 0;
+
+        bool operator==( const StatedGenerations& ) const = default;
+    };
+
+    inline StatedGenerations StatedIn( const std::filesystem::path& copy, uint32_t sceneTag, uint32_t unitTag )
+    {
+        std::ifstream in( copy, std::ios::binary );
+        if ( !in )
+            return {};
+        const auto object = Common::Content::ReadTextHeaderObject( in );
+        if ( !object )
+            return {};
+        const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+        if ( !header )
+            return {};
+        return { static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), sceneTag ).value_or( 0 ) ),
+                 static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), unitTag ).value_or( 0 ) ) };
+    }
+
+    struct NotOfferedCopy
+    {
+        std::filesystem::path Path;
+        StatedGenerations     Stated;
+    };
+
+    struct RecoveryChoice
+    {
+        std::filesystem::path       Offered; // empty = nothing to offer
+        std::vector<NotOfferedCopy> NotOffered;
+    };
+
+    // WHAT RECOVERY OFFERS: the newest recovery copy under `dir` (recursive: copies mirror the scene tree)
+    // whose header states exactly `current`. A copy at any other generation is NOT offered and NOT
+    // converted -- autosaves are never migrated (no legacy path; nothing is written anywhere) -- it is
+    // returned in NotOffered so the caller can name its path and version.
+    inline RecoveryChoice ChooseRecovery( const std::filesystem::path& dir, StatedGenerations current,
+                                          uint32_t sceneTag, uint32_t unitTag )
     {
         namespace fs = std::filesystem;
-        fs::path           newest;
+        RecoveryChoice     choice;
         fs::file_time_type newestTime{};
         std::error_code    ec;
         for ( fs::recursive_directory_iterator it( dir, ec ), end; !ec && it != end; it.increment( ec ) )
         {
             const fs::path& p = it->path();
-            if ( !it->is_regular_file( ec ) || p.extension() != Common::Constants::Extensions::SCENE_EXTENSION ||
-                 !p.stem().string().ends_with( kPeriodicSuffix ) )
+            if ( !it->is_regular_file( ec ) || !SceneFor( p ).has_value() )
                 continue;
             const auto t = fs::last_write_time( p, ec );
             if ( ec )
@@ -133,12 +177,18 @@ namespace Desert::Editor::Autosave
                 ec.clear();
                 continue;
             }
-            if ( newest.empty() || t > newestTime )
+            const StatedGenerations stated = StatedIn( p, sceneTag, unitTag );
+            if ( stated != current )
             {
-                newest     = p;
-                newestTime = t;
+                choice.NotOffered.push_back( { p, stated } );
+                continue;
+            }
+            if ( choice.Offered.empty() || t > newestTime )
+            {
+                choice.Offered = p;
+                newestTime     = t;
             }
         }
-        return newest;
+        return choice;
     }
 } // namespace Desert::Editor::Autosave

@@ -658,24 +658,22 @@ namespace Desert::Editor
 
         BuiltinMeshRegistry::Init( nullptr );
 
-        // AUTOSAVES ARE RAISED TO THE CURRENT SCHEMA BEFORE ANYTHING ASKS TO OPEN ONE. They are the one
-        // class of `.desce` no task can convert -- the directory is gitignored, so it is absent from the
-        // worktree a schema step is written in and from the commit that converts the corpus -- and the
-        // consequence was measured on the v17 -> v18 raise: five of the owner's recovery copies stopped
-        // opening and had to be run through the migrator by hand. See CrashRecovery::MigrateAutosaves.
-        if ( !CrashRecovery::MigrateAutosaves() )
-        {
-            Editor::ToastManager::Push( "An autosave could not be raised to the current scene format and "
-                                        "will not open (see the log)",
-                                        Editor::ToastLevel::Error );
-        }
-
         // Crash recovery: if the previous session left its lock behind (unclean exit) and an autosave
         // exists, arm a prompt to reopen it. Then (re)arm the lock for THIS session; a clean shutdown
         // (OnDetach) removes it.
         if ( CrashRecovery::WasUncleanExit() )
         {
-            m_RecoveryAutosave   = CrashRecovery::LatestAutosave();
+            // Only a copy at this build's scene schema is offered; autosaves are never migrated, so one
+            // from another generation is named here and left as it is (CrashRecovery::ChooseAutosave).
+            const Autosave::RecoveryChoice choice = CrashRecovery::ChooseAutosave();
+            for ( const Autosave::NotOfferedCopy& copy : choice.NotOffered )
+            {
+                LOG_WARN( "[Recovery] not offered: '{}' states scene schema v{} / world units v{}; this build "
+                          "opens v{} / v{} only. Autosaves are not migrated -- the file is left as it is.",
+                          copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, Desert::Core::kSceneVersion,
+                          Desert::Core::kUnitVersion );
+            }
+            m_RecoveryAutosave   = choice.Offered;
             m_ShowRecoveryPrompt = !m_RecoveryAutosave.empty();
         }
         if ( !CrashRecovery::ArmSession() )
@@ -10122,7 +10120,7 @@ namespace Desert::Editor
         // it runs in Edit mode only. This one runs ONCE, unconditionally, at the moment of loss.
         //
         // It writes a SEPARATE file so that a good periodic autosave is never clobbered by it. The name
-        // still contains "_autosave", which is what CrashRecovery::LatestAutosave matches on, and it is
+        // still contains "_autosave", which is what Autosave::SceneFor matches on, and it is
         // the newest file there, so the recovery prompt offers this one.
         //
         // IN PLAY MODE THE AUTHORED SCENE IS WHAT GETS WRITTEN — m_PlaySnapshot, the same text Stop would

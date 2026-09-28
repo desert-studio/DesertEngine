@@ -6,11 +6,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
-
-// The migrator's own file loop, called rather than re-implemented -- see MigrateAutosaves in the header
-// for why the Editor is the process that runs it over this one directory.
-#include <MigratorMain.hpp>
 
 #include <sstream>
 #include <string>
@@ -81,83 +78,10 @@ namespace Desert::Editor
         std::filesystem::remove( LockPath(), ec );
     }
 
-    std::filesystem::path CrashRecovery::LatestAutosave()
+    Autosave::RecoveryChoice CrashRecovery::ChooseAutosave()
     {
-        return Autosave::LatestIn( AutosaveDir() );
-    }
-
-    bool CrashRecovery::MigrateAutosaves()
-    {
-        namespace fs = std::filesystem;
-
-        const fs::path  dir = AutosaveDir();
-        std::error_code err;
-        if ( !fs::exists( dir, err ) || err )
-        {
-            return true; // no autosaves have ever been written for this project
-        }
-
-        // Counted first so that "nothing to migrate" and "the migrator found nothing" stay
-        // distinguishable: RunSceneMigrator answers 2 for an empty search, which is a usage code and not
-        // a failure, and reading it as one would put an error in the log on every clean start.
-        int candidates = 0;
-        // Recursive: the copies mirror the scene tree (Saved/Autosaves/Scenes/<folders>/...).
-        for ( const auto& entry : fs::recursive_directory_iterator( dir, err ) )
-        {
-            if ( err )
-            {
-                break;
-            }
-            if ( entry.path().extension() == Common::Constants::Extensions::SCENE_EXTENSION )
-            {
-                ++candidates;
-            }
-        }
-        if ( candidates == 0 )
-        {
-            return true;
-        }
-
-        std::ostringstream toolOut;
-        std::ostringstream toolErr;
-        const int          code = Migration::RunSceneMigrator( { dir.string() }, toolOut, toolErr );
-
-        // The tool reports per file and says nothing at all about a file already at the head, so a quiet
-        // run is the normal case and is left quiet. Anything it did say is worth a line: these are the
-        // owner's own recovery copies being rewritten under him.
-        const auto emit = []( const std::string& text, bool isError )
-        {
-            std::istringstream lines( text );
-            std::string        line;
-            while ( std::getline( lines, line ) )
-            {
-                if ( line.empty() )
-                {
-                    continue;
-                }
-                // Braced deliberately: LOG_ERROR/LOG_INFO already end in a semicolon, so an unbraced
-                // if/else expands to an empty statement before the `else` and does not compile.
-                if ( isError )
-                {
-                    LOG_ERROR( "[Autosave] {}", line );
-                }
-                else
-                {
-                    LOG_INFO( "[Autosave] {}", line );
-                }
-            }
-        };
-        emit( toolOut.str(), false );
-        emit( toolErr.str(), true );
-
-        if ( code == 1 )
-        {
-            LOG_ERROR( "[Autosave] at least one autosave in '{}' could NOT be raised to the current "
-                       "scene schema and was left exactly as it was. It will not open in this build "
-                       "until it is converted -- the lines above name which file and why.",
-                       dir.string() );
-            return false;
-        }
-        return true;
+        return Autosave::ChooseRecovery( AutosaveDir(),
+                                         { Desert::Core::kSceneVersion, Desert::Core::kUnitVersion },
+                                         Desert::Assets::kSceneSchemaTag, Desert::Assets::kUnitSchemaTag );
     }
 } // namespace Desert::Editor

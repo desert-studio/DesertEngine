@@ -20,6 +20,12 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",          -- <Editor/Core/AutosavePaths.hpp>
     }
 
+    -- StatedIn reads the header through Common's text-header reader.
+    links { "Common", "Optick" }
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end

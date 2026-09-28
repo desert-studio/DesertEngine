@@ -11,6 +11,10 @@
 #include <chrono>
 #include <fstream>
 #include <optional>
+#include <vector>
+#include <string>
+#include <iterator>
+#include <algorithm>
 
 namespace fs   = std::filesystem;
 namespace Path = Common::Constants::Path;
@@ -108,22 +112,105 @@ TEST( AutosavePaths, RecoveryRoundTripNamesTheOriginalScene )
     EXPECT_FALSE( AS::SceneFor( AS::Dir() / "Scenes" / "Starter.desce" ).has_value() );
 }
 
-// Recovery offers the NEWEST copy anywhere in the mirrored tree, on disk.
-TEST( AutosavePaths, LatestFindsTheNewestCopyInTheMirroredTree )
+
+namespace
+{
+    constexpr uint32_t kScene = Common::Content::FourCC( "SCNE" );
+    constexpr uint32_t kUnit  = Common::Content::FourCC( "UNIT" );
+    // The generation this "build" opens; the suite does not link the engine, so the numbers are its own.
+    constexpr AS::StatedGenerations kCurrent{ 39, 1 };
+
+    // A recovery copy stating (scene, unit) in its header, the way SceneSerializer writes one.
+    void WriteCopy( const fs::path& p, int scene, int unit )
+    {
+        fs::create_directories( p.parent_path() );
+        std::ofstream( p ) << R"({"Header":{"Kind":"Scene","Guid":"0123456789abcdef0123456789abcdef","Versions":{"SCNE":)"
+                           << scene << R"(,"UNIT":)" << unit << R"(},"Dependencies":[]},"SceneName":"S"})";
+    }
+
+    std::string BytesOf( const fs::path& p )
+    {
+        std::ifstream in( p, std::ios::binary );
+        return { std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() };
+    }
+
+    std::vector<fs::path> FilesUnder( const fs::path& root )
+    {
+        std::vector<fs::path> files;
+        for ( const auto& e : fs::recursive_directory_iterator( root ) )
+            files.push_back( e.path() );
+        std::sort( files.begin(), files.end() );
+        return files;
+    }
+} // namespace
+
+// The header reader is the instrument the choice below rests on: if it read 0 for everything, every copy
+// would be "not offered" and the refusal side of the tests below would pass on a broken reader.
+TEST( AutosavePaths, StatedInReadsBothGenerationsFromTheHeader )
+{
+    const fs::path copy = TempProject( "Stated" ) / "A_autosave.desce";
+    WriteCopy( copy, 38, 1 );
+    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit ), ( AS::StatedGenerations{ 38, 1 } ) );
+    std::ofstream( copy ) << "{}";
+    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit ), ( AS::StatedGenerations{ 0, 0 } ) ) << "absent is 0";
+}
+
+TEST( AutosavePaths, RecoveryOffersTheNewestCopyAtTheCurrentVersion )
 {
     const ProjectRootGuard guard( TempProject( "Latest" ), "Content" );
     const fs::path older = AS::PathFor( Path::SCENE_PATH / "Starter.desce", "Starter", AS::kPeriodicSuffix );
     const fs::path newer = AS::PathFor( Path::SCENE_PATH / "Levels" / "A.desce", "A", AS::kDeviceLostSuffix );
-    for ( const fs::path& p : { older, newer } )
-    {
-        fs::create_directories( p.parent_path() );
-        std::ofstream( p ) << "{}";
-    }
+    WriteCopy( older, kCurrent.Scene, kCurrent.Unit );
+    WriteCopy( newer, kCurrent.Scene, kCurrent.Unit );
     fs::last_write_time( older, fs::file_time_type::clock::now() - std::chrono::hours( 1 ) );
-    std::ofstream( AS::Dir() / "Scenes" / "NotACopy.desce" ) << "{}";
+    WriteCopy( AS::Dir() / "Scenes" / "NotACopy.desce", kCurrent.Scene, kCurrent.Unit );
 
-    EXPECT_EQ( AS::LatestIn( AS::Dir() ), newer );
-    EXPECT_FALSE( IsUnder( Path::ASSETS_PATH, AS::LatestIn( AS::Dir() ) ) );
+    const AS::RecoveryChoice choice = AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit );
+    EXPECT_EQ( choice.Offered, newer );
+    EXPECT_TRUE( choice.NotOffered.empty() );
+    EXPECT_FALSE( IsUnder( Path::ASSETS_PATH, choice.Offered ) );
+}
+
+// THE LEAD'S DECISION (AUTO1), HELD: an older copy -- even the NEWEST file on disk -- is not offered, is
+// reported by path and stated version, and is NOT migrated: the project tree has the same files afterwards,
+// the copy's bytes are unchanged, and no material (or anything else) appears anywhere.
+TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
+{
+    const fs::path         project = TempProject( "Older" );
+    const ProjectRootGuard guard( project, "Content" );
+    const fs::path current = AS::PathFor( Path::SCENE_PATH / "Starter.desce", "Starter", AS::kPeriodicSuffix );
+    const fs::path stale   = AS::PathFor( Path::SCENE_PATH / "Levels" / "A.desce", "A", AS::kPeriodicSuffix );
+    const fs::path wrongUnit = AS::PathFor( {}, "Untitled Scene", AS::kDeviceLostSuffix );
+    WriteCopy( current, kCurrent.Scene, kCurrent.Unit );
+    WriteCopy( stale, kCurrent.Scene - 1, kCurrent.Unit );
+    WriteCopy( wrongUnit, kCurrent.Scene, kCurrent.Unit - 1 );
+    fs::last_write_time( current, fs::file_time_type::clock::now() - std::chrono::hours( 1 ) );
+
+    const auto        before     = FilesUnder( project );
+    const std::string staleBytes = BytesOf( stale );
+
+    const AS::RecoveryChoice choice = AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit );
+    EXPECT_EQ( choice.Offered, current ) << "the newest file on disk is at an older version and must not be offered";
+    ASSERT_EQ( choice.NotOffered.size(), 2u );
+    for ( const AS::NotOfferedCopy& copy : choice.NotOffered )
+    {
+        if ( copy.Path == stale )
+        {
+            EXPECT_EQ( copy.Stated, ( AS::StatedGenerations{ kCurrent.Scene - 1, kCurrent.Unit } ) );
+        }
+        else
+        {
+            EXPECT_EQ( copy.Path, wrongUnit );
+            EXPECT_EQ( copy.Stated, ( AS::StatedGenerations{ kCurrent.Scene, kCurrent.Unit - 1 } ) );
+        }
+    }
+
+    EXPECT_EQ( FilesUnder( project ), before ) << "choosing created or removed a file";
+    EXPECT_EQ( BytesOf( stale ), staleBytes ) << "the older copy was rewritten";
+
+    // Only older copies left: nothing is offered at all.
+    fs::remove( current );
+    EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit ).Offered.empty() );
 }
 
 int main( int argc, char** argv )
