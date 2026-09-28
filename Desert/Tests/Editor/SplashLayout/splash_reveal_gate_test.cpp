@@ -106,3 +106,31 @@ TEST( SplashRevealGate, TheOpeningFolderThumbnailsHoldTheHandOverWithinABudget )
          << "a slow disk must not hold the splash past the budget";
     EXPECT_FALSE( Splash::ThumbnailsHoldReveal( 0, 0.0 ) ) << "nothing pending must not hold the splash";
 }
+
+// THUMB3: the splash may capture the open scene's materials, once the start-up stages are done and the
+// scene is loaded: a capture needs the renderer, and the warm list needs the scene's roots.
+TEST( SplashRevealGate, TheScenesCapturesMayRunOnTheSplashOnceTheSceneIsLoaded )
+{
+    Splash::RevealState s = Ready();
+    EXPECT_TRUE( Splash::SceneThumbnailCaptureAllowed( s ) );
+    EXPECT_FALSE( Splash::ThumbnailCaptureAllowed( s ) ) << "the folder's captures still wait for the reveal";
+
+    s.StartupLoading = true;
+    EXPECT_FALSE( Splash::SceneThumbnailCaptureAllowed( s ) ) << "no renderer before the stages are done";
+    s.StartupLoading   = false;
+    s.SceneLoadPending = true;
+    EXPECT_FALSE( Splash::SceneThumbnailCaptureAllowed( s ) ) << "no scene roots before the scene is loaded";
+    s.SceneLoadPending = false;
+    s.Revealed         = true;
+    EXPECT_FALSE( Splash::SceneThumbnailCaptureAllowed( s ) ) << "after the reveal the whole queue runs instead";
+}
+
+TEST( SplashRevealGate, TheScenesCapturesHoldTheHandOverOnlyWithinTheirBudget )
+{
+    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 3, 0.0 ) );
+    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 3, Splash::kSceneCaptureBudgetMs - 1.0 ) );
+    EXPECT_FALSE( Splash::SceneCapturesHoldReveal( 3, Splash::kSceneCaptureBudgetMs ) );
+    EXPECT_FALSE( Splash::SceneCapturesHoldReveal( 0, 0.0 ) );
+    // The owner's bound: the splash may grow by a couple of seconds, not more.
+    EXPECT_LE( Splash::kSceneCaptureBudgetMs, 2000.0 );
+}

@@ -94,6 +94,40 @@ namespace Desert::Editor
         return png;
     }
 
+    void ThumbnailService::WarmMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
+                                         ThumbnailSubject::Preview how )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        const auto        firstCold =
+             std::find_if( m_Queue.begin(), m_Queue.end(),
+                           [this]( const Request& r ) { return !m_SceneWarm.contains( r.Identity ); } );
+        if ( const auto queued = std::find_if( firstCold, m_Queue.end(),
+                                               [&]( const Request& r ) { return r.Identity == identity; } );
+             queued != m_Queue.end() )
+        {
+            // The browser asked first: the same request, moved to the end of the scene-warm run.
+            const Request req = *queued;
+            m_Queue.erase( queued );
+            m_Queue.insert( firstCold, req );
+            m_SceneWarm.insert( identity );
+            return;
+        }
+        const std::string png = ThumbnailKey::DiskPath( assetPath );
+        if ( !ShouldQueue( identity, png, assetPath ) )
+            return;
+        m_Queue.insert( firstCold, { Kind::Material, material, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                                     identity, assetPath, png, how } );
+        m_Queued.insert( identity );
+        m_SceneWarm.insert( identity );
+    }
+
+    std::size_t ThumbnailService::SceneWarmPending() const
+    {
+        return static_cast<std::size_t>( std::count_if( m_SceneWarm.begin(), m_SceneWarm.end(),
+                                                        [this]( const std::string& identity )
+                                                        { return m_Queued.contains( identity ); } ) );
+    }
+
     std::string ThumbnailService::RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
                                                const Assets::AssetHandle& material )
     {
@@ -169,6 +203,7 @@ namespace Desert::Editor
         // reported as "never completed" by the give-up path if the service were ever ticked again.
         m_Queue.clear();
         m_Queued.clear();
+        m_SceneWarm.clear();
         m_Capture.Reset();
         m_InFlightTicks = 0;
         m_Captured      = 0;
@@ -292,12 +327,14 @@ namespace Desert::Editor
         ThumbnailPrefetch::Get().Tick();
     }
 
-    void ThumbnailService::TickCapture()
+    void ThumbnailService::TickCapture( const ThumbnailWarmup::CaptureScope scope )
     {
         // The slot-free half runs FIRST and unconditionally: every early return below is a statement
         // about a renderer, and a paint has no renderer to be blocked by. Putting it after them is how a
         // cloud thumbnail would come to depend on whether a mesh was being photographed.
-        TickPainted();
+        // The splash runs the scene's captures only; a cloud paint is folder work and waits for the reveal.
+        if ( scope == ThumbnailWarmup::CaptureScope::Everything )
+            TickPainted();
 
         // WHAT THIS RUN DID, ONCE, ON THE FRAME EVERYTHING IS DONE — and asked of BOTH queues, which is
         // why it no longer lives inside the renderer's idle branch below. A session that only ever
@@ -409,7 +446,8 @@ namespace Desert::Editor
 
         // The previous capture's main-thread cost is repaid before the next one starts — for at most
         // CaptureBudget::kMaxWaitFrames frames, so a queued request always progresses.
-        if ( m_Renderer->HasPending() )
+        const bool frontIsWarm = !m_Queue.empty() && m_SceneWarm.contains( m_Queue.front().Identity );
+        if ( !ThumbnailWarmup::MayDispatch( true, m_Renderer->HasPending(), scope, frontIsWarm ) )
             return;
         if ( !m_Budget.MayDispatch() )
         {
