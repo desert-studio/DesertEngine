@@ -208,7 +208,7 @@ namespace
             if ( kind == CC::ContentKind::SkinnedMesh )
             {
                 const std::ifstream in( entry.path(), std::ios::binary );
-                std::ostringstream bytes;
+                std::ostringstream  bytes;
                 bytes << in.rdbuf();
                 const auto mesh = Desert::Assets::Serialization::ReadMeshAssetData( bytes.str(), name );
                 if ( !mesh.IsSuccess() )

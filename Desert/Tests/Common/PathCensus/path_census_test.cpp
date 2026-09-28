@@ -286,7 +286,7 @@ namespace
     std::string ReadText( const fs::path& file )
     {
         const std::ifstream in( file, std::ios::binary );
-        std::ostringstream text;
+        std::ostringstream  text;
         text << in.rdbuf();
         return text.str();
     }
