@@ -2931,7 +2931,8 @@ namespace Desert::Editor
         {
             DESERT_PROFILE_SCOPE( "WorldStreamer::Tick" );
             m_WorldStreamClock += ts.GetSeconds();
-            if ( auto streamed = m_WorldStreamer->Tick( m_WorldStreamClock ); !streamed )
+            if ( auto streamed = m_WorldStreamer->Tick( m_WorldStreamClock, InstrumentStreamingSources() );
+                 !streamed )
             {
                 // The world stays as it is now, and Play goes on in it; streaming does not.
                 LOG_ERROR( "[Scene] world streaming stopped: {0}", streamed.GetError() );
@@ -8382,6 +8383,16 @@ namespace Desert::Editor
     //
     // The GPU column comes from the backend's timestamp queries, so it is device time, not the CPU's wait
     // for it; the two columns disagreeing is the interesting case rather than a fault.
+    std::vector<::Desert::Core::Rules::StreamingSource> EditorLayer::InstrumentStreamingSources() const
+    {
+        const ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
+        if ( !ShotOptions::Get().FlightRoute || camera == nullptr )
+            return {};
+        ::Desert::Core::Rules::StreamingSource source;
+        source.Position = camera->GetPosition();
+        return { source };
+    }
+
     void EditorLayer::RecordFlightFrame( bool counted )
     {
         const ShotOptions&           shot     = ShotOptions::Get();
@@ -9859,7 +9870,8 @@ namespace Desert::Editor
             return;
         }
         phases.Lap( "spawn the player's pawn", m_MainScene->GetAllEntities().size() );
-        auto streamer = Desert::Core::WorldStreamer::Begin( *m_MainScene, *m_AssetManager, m_PlaySnapshot );
+        auto streamer = Desert::Core::WorldStreamer::Begin( *m_MainScene, *m_AssetManager, m_PlaySnapshot,
+                                                            InstrumentStreamingSources() );
         phases.Lap( "begin the world streamer", m_MainScene->GetAllEntities().size() );
         phases.LogSummary();
         if ( !streamer )

@@ -2633,6 +2633,39 @@ namespace Desert::ECS
         PlayerStartData Data;
     };
 
+    // UE's UWorldPartitionStreamingSourceComponent: what makes an entity a point a partitioned world loads
+    // around in Play and in the game. Residency follows the union of every enabled source (Core::WorldStreamer);
+    // the camera is not one by itself. The player's pawn gets one when its prefab has none
+    // (Core::SpawnDefaultPawn), as UE's player controller is a source. Its entity loads Global
+    // (WorldPartitionRules), so a source never streams itself out.
+    struct StreamingSourceData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Enabled" ), Category( "Streaming Source" ),
+                  Tooltip( "Off = the world does not load around this entity." ) )
+        bool Enabled = true;
+
+        PROPERTY( DisplayName( "Override Loading Range" ), Category( "Streaming Source" ),
+                  Tooltip( "Off = the World Partition grid's Loading Range." ) )
+        bool OverrideLoadingRange = false;
+
+        PROPERTY( DisplayName( "Loading Range" ), Category( "Streaming Source" ), Units( "cm" ),
+                  Range( 0.0f, 1000000.0f ), EditCondition( "OverrideLoadingRange" ),
+                  Tooltip( "Cells within this distance of the entity load (cm)." ) )
+        float LoadingRange = 0.0f;
+
+        PROPERTY( DisplayName( "Priority" ), Category( "Streaming Source" ),
+                  Tooltip( "Higher loads first when several sources want cells; it never changes which cells "
+                           "load." ) )
+        int Priority = 0;
+    };
+
+    struct StreamingSourceComponent
+    {
+        StreamingSourceData Data;
+    };
+
     // Attaches a Lua script to an entity. The ScriptSystem loads the file and calls its OnStart()/OnUpdate(dt);
     // the script drives behavior through the bound API (self:move/jump/addYaw..., Input.*). See ScriptEngine.
     // A behavior unit, like a UE ActorComponent: one .lua file + its exposed properties + lifecycle flag.

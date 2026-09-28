@@ -304,7 +304,6 @@ namespace Desert::Editor
         avail.y             = std::max( avail.y, kMinMapPixels );
         const glm::dvec2 size( avail.x, avail.y );
         const float      cellSize = partition.Grids[0].CellSize;
-        const float      range    = partition.Grids[0].LoadingRange;
 
         ImGui::InvisibleButton( "##wpmap", avail,
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
@@ -312,20 +311,21 @@ namespace Desert::Editor
         const bool     hovered = ImGui::IsItemHovered();
         const ImGuiIO& io      = ImGui::GetIO();
 
-        // Where the streaming source is: the streamer's last one in Play, the scene's camera in Edit.
-        std::optional<glm::vec3> sourcePos;
-        float                    rangeScale = 1.0f;
-        if ( streamer != nullptr )
-        {
-            if ( const auto& last = streamer->LastSource() )
-            {
-                sourcePos  = last->Position;
-                rangeScale = last->RangeScale;
-            }
-        }
+        // Where the streaming sources are: the streamer's last ones in Play (every enabled Streaming Source and
+        // the pawn's, WorldStreamer.hpp), the editor's camera in Edit — UE's editor streams around its view.
+        std::vector<::Desert::Core::Rules::StreamingSource> sources;
         const std::shared_ptr<::Desert::Core::Camera> camera = m_Scene ? m_Scene->GetActiveCamera() : nullptr;
-        if ( !sourcePos && camera )
-            sourcePos = camera->GetPosition();
+        if ( streamer != nullptr )
+            sources = streamer->LastSources();
+        else if ( camera )
+        {
+            ::Desert::Core::Rules::StreamingSource source;
+            source.Position = camera->GetPosition();
+            sources.push_back( source );
+        }
+        // The map follows the first: the pawn's when the level has one and nothing else is a source.
+        const std::optional<glm::vec3> sourcePos =
+             sources.empty() ? std::nullopt : std::optional<glm::vec3>( sources.front().Position );
 
         // ── view: focus, follow, wheel, drag ──
         // The map grows with the window: a resize refits a view nobody has zoomed or dragged since the last
@@ -408,18 +408,18 @@ namespace Desert::Editor
             list.AddLine( ImVec2( zero.x, origin.y ), ImVec2( zero.x, corner.y ), IM_COL32( 0, 255, 0, 102 ) );
         }
 
-        // ── the streaming source: its loading circle, its unload band, where it looks ──
-        if ( sourcePos )
+        // ── every streaming source: its loading circle, its unload band; where the view looks, in Edit ──
+        for ( const ::Desert::Core::Rules::StreamingSource& source : sources )
         {
-            const ImVec2 at     = ToScreen( m_View, size, origin, { sourcePos->x, sourcePos->z } );
-            const double loadCm = static_cast<double>( range ) * static_cast<double>( rangeScale );
+            const ImVec2 at     = ToScreen( m_View, size, origin, { source.Position.x, source.Position.z } );
+            const double loadCm = ::Desert::Core::Rules::SourceRadius( source, partition.Grids[0] );
             const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
                                                       : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
             const ImU32  ring   = IM_COL32( 255, 255, 255, 200 );
             list.AddCircle( at, static_cast<float>( Map::RadiusPixels( m_View, loadCm ) ), ring, 96, 1.5f );
             DashedCircle( list, at, static_cast<float>( Map::RadiusPixels( m_View, loadCm * ( 1.0 + margin ) ) ),
                           IM_COL32( 255, 255, 255, 120 ) );
-            if ( camera )
+            if ( camera && streamer == nullptr )
             {
                 // The view's forward is the third row of the view rotation, negated.
                 const glm::mat4  view = camera->GetViewMatrix();
@@ -427,7 +427,7 @@ namespace Desert::Editor
                 if ( const double length = glm::length( forward ); length > 1e-6 )
                 {
                     const glm::dvec2 dir = forward / length;
-                    const glm::dvec2 tip = glm::dvec2( sourcePos->x, sourcePos->z ) + dir * loadCm * 0.5;
+                    const glm::dvec2 tip = glm::dvec2( source.Position.x, source.Position.z ) + dir * loadCm * 0.5;
                     list.AddLine( at, ToScreen( m_View, size, origin, tip ), IM_COL32( 255, 220, 64, 255 ), 2.0f );
                 }
             }
