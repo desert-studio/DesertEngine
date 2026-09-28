@@ -287,6 +287,9 @@ namespace Desert::Graphic
         {
             const void* Shader        = nullptr;
             const void* Framebuffer   = nullptr;
+            // FNV-1a over a render-graph pipeline's attachment formats and sample count (TargetLayout,
+            // read by VulkanPipeline to build its compatible render pass); 0 when the spec has none.
+            uint64_t    TargetSignature = 0;
             const void* Renderpass    = nullptr;
             bool        DepthTest     = false;
             bool        DepthWrite    = false;
@@ -326,6 +329,7 @@ namespace Desert::Graphic
                 };
                 mix( reinterpret_cast<size_t>( k.Shader ) );
                 mix( reinterpret_cast<size_t>( k.Framebuffer ) );
+                mix( static_cast<size_t>( k.TargetSignature ) );
                 mix( reinterpret_cast<size_t>( k.Renderpass ) );
                 mix( ( k.DepthTest ? 1u : 0u ) | ( k.DepthWrite ? 2u : 0u ) | ( k.StencilTest ? 4u : 0u ) |
                      ( k.Blend ? 8u : 0u ) );
@@ -351,6 +355,22 @@ namespace Desert::Graphic
             Key k;
             k.Shader       = s.Shader.get();
             k.Framebuffer  = s.Framebuffer.get();
+            if ( s.TargetLayout )
+            {
+                uint64_t   sig = 1469598103934665603ull;
+                const auto mix = [&sig]( uint64_t v )
+                {
+                    sig ^= v;
+                    sig *= 1099511628211ull;
+                };
+                mix( s.TargetLayout->ColorFormats.size() );
+                for ( const auto format : s.TargetLayout->ColorFormats )
+                    mix( static_cast<uint64_t>( format ) );
+                // One more than any format, so "no depth" differs from every depth format.
+                mix( s.TargetLayout->DepthFormat ? static_cast<uint64_t>( *s.TargetLayout->DepthFormat ) + 1 : 0 );
+                mix( s.TargetLayout->Samples );
+                k.TargetSignature = sig;
+            }
             k.Renderpass   = s.Renderpass.get();
             k.DepthTest    = s.DepthTestEnabled;
             k.DepthWrite   = s.DepthWriteEnabled;

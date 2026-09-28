@@ -99,6 +99,37 @@ TEST( PipelineCacheKey, FramebufferSeparates )
     MustDiffer( s, "Framebuffer" );
 }
 
+TEST( PipelineCacheKey, TargetLayoutSeparates )
+{
+    // Each change on its own: presence, a colour format, the colour count, the depth format, the samples.
+    const RenderTargetLayout target{ { Desert::Core::Formats::ImageFormat::RGBA16F }, std::nullopt, 1 };
+    auto                     s = Baseline();
+    s.TargetLayout             = target;
+    MustDiffer( s, "TargetLayout presence" );
+
+    const auto differsFrom = []( const RenderTargetLayout& a, const RenderTargetLayout& b, const char* what )
+    {
+        auto x         = Baseline();
+        auto y         = Baseline();
+        x.TargetLayout = a;
+        y.TargetLayout = b;
+        EXPECT_FALSE( PipelineCache::SharesPipeline( x, y ) )
+             << what << " does not reach the key, so two different pipelines would share one cache entry";
+    };
+    RenderTargetLayout other = target;
+    other.ColorFormats[0]    = Desert::Core::Formats::ImageFormat::RGBA8F;
+    differsFrom( target, other, "TargetLayout colour format" );
+    other = target;
+    other.ColorFormats.push_back( Desert::Core::Formats::ImageFormat::RGBA16F );
+    differsFrom( target, other, "TargetLayout colour count" );
+    other             = target;
+    other.DepthFormat = Desert::Core::Formats::ImageFormat::DEPTH32F;
+    differsFrom( target, other, "TargetLayout depth format" );
+    other         = target;
+    other.Samples = 4;
+    differsFrom( target, other, "TargetLayout samples" );
+}
+
 TEST( PipelineCacheKey, RenderpassSeparates )
 {
     auto s       = Baseline();
@@ -421,12 +452,12 @@ TEST( PipelineCacheKey, EveryFieldOfTheSpecificationIsAccountedFor )
     // 19 + 2 == 21 passes forever and checks nothing. Structured bindings must name every member of the
     // aggregate exactly, so adding or removing one in Pipeline.hpp fails to build right here.
     //
-    // Separating (19): the binding names them in declaration order.
+    // Separating (20): the binding names them in declaration order.
     // Deliberately inert (2): lineWidth is dynamic state, debugName is a label.
     GraphicsPipelineSpecification spec                                      = Baseline();
-    auto& [shader, framebuffer, renderpass, layout, pullingConfig, depthTest, depthCompare, stencilTest,
-           stencilFront, stencilBack, cullMode, depthWrite, blendEnable, srcBlend, dstBlend, useLoadRenderPass,
-           lineWidth, topology, polygonMode, patchControlPoints, debugName] = spec;
+    auto& [shader, framebuffer, targetLayout, renderpass, layout, pullingConfig, depthTest, depthCompare,
+           stencilTest, stencilFront, stencilBack, cullMode, depthWrite, blendEnable, srcBlend, dstBlend,
+           useLoadRenderPass, lineWidth, topology, polygonMode, patchControlPoints, debugName] = spec;
 
     // Touch the two inert ones so the census also states WHICH members were excused, rather than leaving a
     // reader to infer it from an unused-variable warning.
