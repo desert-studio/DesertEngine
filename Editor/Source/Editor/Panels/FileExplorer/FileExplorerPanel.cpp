@@ -2009,6 +2009,12 @@ namespace Desert::Editor
 
         const SortMode mode = m_SortMode;
         const bool     desc = m_SortDescending;
+        // THE SORT KEY IS MADE ONCE PER ENTRY, not twice per comparison: this runs every frame, and building a
+        // path and a lower-cased copy inside the comparator was ~n log n allocations a frame — 18 % of the
+        // editor thread in a folder of 240 materials once the tiles themselves were cheap (THUMB3, sampled).
+        std::vector<std::string> names( children.size() );
+        for ( const size_t i : order )
+            names[i] = ToLowerCopy( std::filesystem::path( children[i]->AssetPath ).filename().string() );
         std::sort( order.begin(), order.end(),
                    [&]( size_t a, size_t b )
                    {
@@ -2036,11 +2042,7 @@ namespace Desert::Editor
                        }
                        if ( cmp == 0 ) // Name mode + tiebreak: case-insensitive filename
                        {
-                           const auto na =
-                                ToLowerCopy( std::filesystem::path( ca->AssetPath ).filename().string() );
-                           const auto nb =
-                                ToLowerCopy( std::filesystem::path( cb->AssetPath ).filename().string() );
-                           cmp = na.compare( nb );
+                           cmp = names[a].compare( names[b] );
                        }
                        return desc ? cmp > 0 : cmp < 0;
                    } );
