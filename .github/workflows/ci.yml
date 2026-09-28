@@ -384,7 +384,9 @@ jobs:
       # object files, so ASan reports in a shard name functions but not lines; reproduce locally for lines.
       - name: Bundle the test binaries
         run: |
-          tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/Debug build/TestManifest.txt build/TestPlan
+          # AssimpLibraryPin compares the linked assimp with build/generated/assimp/VERSION.txt (Assimp.lua).
+          tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/Debug build/TestManifest.txt build/TestPlan \
+            build/generated/assimp/VERSION.txt
           du -sh build/Bin/Tests/Debug "$RUNNER_TEMP/test-bundle.tgz"
 
       - name: Upload the test bundle
@@ -987,7 +989,10 @@ jobs:
           Get-ChildItem build\Bin\Tests\${{ matrix.config }} -Recurse -File | Group-Object Extension |
             ForEach-Object { "{0,-8} {1,5} files {2,10:N0} MB" -f $_.Name, $_.Count, (($_.Group | Measure-Object Length -Sum).Sum / 1MB) }
 
-      # PDBs travel: CrashHandler asserts a symbol for its faulting frame and reads the PDB beside itself.
+      # PDBs STAY, except CrashHandler's. Measured in run 36441711706 (Windows Debug): 354 .exe = 2.3 GB,
+      # 354 .pdb = 16.9 GB; the bundle with them zipped to 3.85 GB and took 6.6 min to upload. CrashHandler
+      # asserts a symbol for its faulting frame and reads the PDB beside itself, so its PDB travels; a
+      # failing suite elsewhere still prints its gtest assertion, only a native crash loses line numbers.
       - name: Upload the test bundle
         if: matrix.shards > 0
         uses: actions/upload-artifact@v4
@@ -997,9 +1002,12 @@ jobs:
             build/Bin/Tests/${{ matrix.config }}/
             build/TestManifest.txt
             build/TestPlan/
+            build/generated/assimp/VERSION.txt
             !build/Bin/Tests/${{ matrix.config }}/**/*.ilk
             !build/Bin/Tests/${{ matrix.config }}/**/*.lib
             !build/Bin/Tests/${{ matrix.config }}/**/*.exp
+            !build/Bin/Tests/${{ matrix.config }}/**/*.pdb
+            build/Bin/Tests/${{ matrix.config }}/CrashHandler.pdb
           retention-days: 3
 
       - name: Upload the shard plan
