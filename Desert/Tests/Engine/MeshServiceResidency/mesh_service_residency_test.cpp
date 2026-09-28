@@ -37,7 +37,7 @@ namespace
     {
     public:
         explicit ProbeMeshAsset( const std::string& name )
-             : MeshAsset( Assets::AssetPriority::Medium, Common::Filepath( name ), Assets::AssetTypeID::Unknown )
+             : MeshAsset( Common::Filepath( name ), Assets::AssetTypeID::Unknown )
         {
         }
 

@@ -86,9 +86,8 @@ namespace Desert::Editor
 
         auto asset = assetManager->FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
-            asset =
-                 assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath,
-                                                                          /*loadAfterCreate=*/false );
+            asset = assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( assetPath,
+                                                                             /*loadAfterCreate=*/false );
         if ( !asset )
         {
             LOG_ERROR( "[Assets] '{}' could not be opened as a material — no Material Editor window was "

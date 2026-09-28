@@ -36,7 +36,7 @@ namespace Desert::Assets
     class AnimGraphAsset final : public AssetBase
     {
     public:
-        AnimGraphAsset( AssetPriority priority, const Common::Filepath& filepath );
+        AnimGraphAsset( const Common::Filepath& filepath );
 
         /// Reads and parses the file. Missing, empty or malformed is an ERROR carrying the reason — never
         /// a quietly substituted empty graph, which would leave a character standing still while its scene

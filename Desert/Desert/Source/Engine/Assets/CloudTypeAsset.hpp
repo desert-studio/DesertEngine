@@ -31,7 +31,7 @@ namespace Desert::Assets
     class CloudTypeAsset final : public AssetBase
     {
     public:
-        CloudTypeAsset( AssetPriority priority, const Common::Filepath& filepath );
+        CloudTypeAsset( const Common::Filepath& filepath );
 
         /// The header GUID this type was created from; null when the file states none.
         [[nodiscard]] const Common::Content::AssetGuid& Guid() const

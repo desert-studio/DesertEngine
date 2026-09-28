@@ -14,7 +14,7 @@ namespace Desert::Assets
     class SkinnedMeshAsset final : public MeshAsset
     {
     public:
-        SkinnedMeshAsset( const AssetPriority priority, const Common::Filepath& filepath );
+        SkinnedMeshAsset( const Common::Filepath& filepath );
 
         // -------------------------------------------------
         // Asset lifecycle

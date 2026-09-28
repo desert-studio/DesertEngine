@@ -348,7 +348,7 @@ namespace Desert::Editor
             return;
         }
 
-        auto asset = assets->CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, path );
+        auto asset = assets->CreateAsset<Assets::AnimGraphAsset>( path );
         if ( !asset || !asset->IsReadyForUse() )
         {
             LOG_ERROR( "[Animation] '{}' was written but could not be registered as an asset; the entity's "

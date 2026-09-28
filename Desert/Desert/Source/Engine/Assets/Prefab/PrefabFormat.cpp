@@ -77,4 +77,27 @@ namespace Desert::Assets
         return Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( prefab ) );
     }
 
+    Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab, const Common::Content::AssetGuid& identity )
+    {
+        if ( !identity.IsNull() )
+        {
+            // Kind, Versions and Dependencies are the stamp's to write (WritePrefabJson below); only the
+            // identity is carried in.
+            prefab.Header =
+                 Common::Content::TextAssetHeaderSerialized{ .Kind = {},
+                                                             .Guid = Common::Content::AssetGuidToText( identity ),
+                                                             .Versions     = {},
+                                                             .Dependencies = {} };
+        }
+        return WritePrefabJson( std::move( prefab ) );
+    }
+
+    Common::Content::AssetGuid PrefabStatedGuid( const PrefabData& prefab )
+    {
+        if ( !prefab.Header )
+            return {};
+        const auto guid = Common::Content::AssetGuidFromText( prefab.Header->Guid );
+        return guid ? guid.GetValue() : Common::Content::AssetGuid{};
+    }
+
 } // namespace Desert::Assets

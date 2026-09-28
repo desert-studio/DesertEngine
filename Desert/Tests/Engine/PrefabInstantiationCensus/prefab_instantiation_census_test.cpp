@@ -274,6 +274,45 @@ TEST( PrefabInstantiationCensus, EveryPrefabOnDiskIsLoadableAndItsOverridesAddre
     std::cout << "[census] .deprefab files swept: " << prefabs.size() << std::endl;
 }
 
+// --- THE IDENTITY A SAVE KEEPS (FO-9) -------------------------------------------------------------------
+//
+// PrefabAsset::Serialize builds a FRESH PrefabData (no Header) from its entities and writes it with the GUID
+// the asset read from its file. Before FO-9 it passed no identity, the stamp minted a new GUID on every save,
+// and a foliage type naming the old one stopped resolving ("no prefab in the content registry states this
+// GUID"). This holds the writer to the shape Serialize uses.
+
+TEST( PrefabInstantiationCensus, ASaveWithTheFilesIdentityStatesThatGuidAndNotANewOne )
+{
+    using Desert::Assets::PrefabData;
+
+    PrefabData first;
+    first.Name        = "FO9_Identity";
+    const auto minted = Desert::Assets::WritePrefabJson( first );
+    ASSERT_TRUE( minted ) << minted.GetError();
+    const auto loaded = Desert::Assets::ParseLoadablePrefab( "minted", minted.GetValue() );
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    const Common::Content::AssetGuid stated = Desert::Assets::PrefabStatedGuid( loaded.GetValue() );
+    ASSERT_FALSE( stated.IsNull() ) << "a written prefab states no readable header GUID";
+
+    // Serialize's shape: a tree with NO header, plus the identity the asset holds.
+    PrefabData resaved;
+    resaved.Name     = "FO9_Identity";
+    const auto again = Desert::Assets::WritePrefabJson( resaved, stated );
+    ASSERT_TRUE( again ) << again.GetError();
+    const auto reloaded = Desert::Assets::ParseLoadablePrefab( "resaved", again.GetValue() );
+    ASSERT_TRUE( reloaded ) << reloaded.GetError();
+    EXPECT_EQ( Desert::Assets::PrefabStatedGuid( reloaded.GetValue() ), stated )
+         << "re-saving a prefab minted a new GUID; everything naming the old one stops resolving";
+
+    // A prefab no file has held yet (null identity) is still given one.
+    const auto fresh = Desert::Assets::WritePrefabJson( PrefabData{}, Common::Content::AssetGuid{} );
+    ASSERT_TRUE( fresh ) << fresh.GetError();
+    const auto freshTree = Desert::Assets::ParseLoadablePrefab( "fresh", fresh.GetValue() );
+    ASSERT_TRUE( freshTree ) << freshTree.GetError();
+    EXPECT_FALSE( Desert::Assets::PrefabStatedGuid( freshTree.GetValue() ).IsNull() );
+    EXPECT_NE( Desert::Assets::PrefabStatedGuid( freshTree.GetValue() ), stated );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

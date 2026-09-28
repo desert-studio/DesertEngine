@@ -80,8 +80,8 @@ namespace Desert::Animation
             {
                 if ( const auto located = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::Animation,
                                                                           static_cast<uint64_t>( row.Handle ) ) )
-                    asset = m_AssetManager->CreateAsset<Assets::AnimationAsset>(
-                         Assets::AssetPriority::Low, located->Path, /*loadAfterCreate=*/false );
+                    asset = m_AssetManager->CreateAsset<Assets::AnimationAsset>( located->Path,
+                                                                                 /*loadAfterCreate=*/false );
             }
             if ( !asset )
             {

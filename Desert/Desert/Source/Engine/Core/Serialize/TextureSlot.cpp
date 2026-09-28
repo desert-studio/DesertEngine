@@ -54,7 +54,7 @@ namespace Desert::Core::Serialize
         // shell whose load failed with only the raw path in the log. (Historically this check was
         // load-bearing in a harder way: ReadFileContent used to abort the process on a missing file.)
         if ( !asset && Common::Utils::FileSystem::Exists( full ) )
-            asset = manager.CreateAsset<Assets::TextureAsset>( Assets::AssetPriority::High, full );
+            asset = manager.CreateAsset<Assets::TextureAsset>( full );
 
         if ( !asset )
         {

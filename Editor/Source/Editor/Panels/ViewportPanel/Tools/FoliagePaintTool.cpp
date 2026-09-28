@@ -152,7 +152,7 @@ namespace Desert::Editor::Tools
              named.is_absolute() ? named : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
         auto type = manager.FindByPath<Assets::FoliageTypeAsset>( full );
         if ( !type )
-            type = manager.CreateAsset<Assets::FoliageTypeAsset>( Assets::AssetPriority::Medium, full,
+            type = manager.CreateAsset<Assets::FoliageTypeAsset>( full,
                                                                   /*loadAfterCreate=*/false );
         if ( !type )
             return nullptr;

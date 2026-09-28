@@ -590,7 +590,7 @@ namespace Desert::Editor
 
         auto prefab = m_AssetManager->FindByPath<Assets::PrefabAsset>( prefabPath );
         if ( !prefab )
-            prefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High, prefabPath );
+            prefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>( prefabPath );
         if ( !prefab )
             return;
         if ( !prefab->IsReadyForUse() )

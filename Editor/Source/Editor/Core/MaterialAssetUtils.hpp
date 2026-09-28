@@ -136,7 +136,7 @@ namespace Desert::Editor::MaterialAssetUtils
         }
 
         auto asset = const_cast<Assets::AssetManager&>( *am ).CreateAsset<Assets::SurfaceMaterialAsset>(
-             Assets::AssetPriority::High, path.generic_string() );
+             path.generic_string() );
         if ( !asset )
         {
             LOG_ERROR( "[Material] '{}' could not be created as an asset.", path.generic_string() );

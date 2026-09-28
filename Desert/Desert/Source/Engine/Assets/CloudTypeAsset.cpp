@@ -15,8 +15,8 @@
 
 namespace Desert::Assets
 {
-    CloudTypeAsset::CloudTypeAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::CloudType )
+    CloudTypeAsset::CloudTypeAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::CloudType )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
 

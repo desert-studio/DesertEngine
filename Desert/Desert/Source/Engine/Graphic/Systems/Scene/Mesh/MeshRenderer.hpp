@@ -19,6 +19,7 @@
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/PBRSceneFrame.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/MaterialPipelineStates.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/RenderGraphBuilder.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
@@ -392,6 +393,17 @@ namespace Desert::Graphic::System
         void DrawStaticMeshes();
         void DrawSkinnedMeshes( bool useLoadPass = false );
         void DrawGenericMeshes( bool useLoadPass = false ); // per-object data-driven materials (v3 slots + overrides)
+
+        // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
+        // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
+        // which is what a draw uses until its own pipeline is Ready.
+        [[nodiscard]] static GraphicsPipelineSpecification
+        GenericPipelineSpec( const std::shared_ptr<Shader>& shader, const std::shared_ptr<Framebuffer>& target,
+                             bool useLoadPass );
+        void PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target, bool useLoadPass );
+        void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
+        std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target,
+                                                                  bool useLoadPass );
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
 #if DESERT_DEV_INSTRUMENTS
@@ -596,6 +608,12 @@ namespace Desert::Graphic::System
         // one's textures.
         std::vector<GenericMeshRenderData>                              m_GenericQueue;
         std::unordered_map<std::string, std::unique_ptr<DataDrivenMaterial>> m_GenericMaterials;
+
+        // AL1-12: which material pipelines this renderer asked for and what they are doing; how far it has
+        // read the process-wide on-load request list; the stand-in every not-yet-ready material draws with.
+        MaterialPipelineTracker             m_MaterialPipelines;
+        size_t                              m_MaterialRequestCursor = 0;
+        std::unique_ptr<DataDrivenMaterial> m_DefaultSurfaceMaterial;
 
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).

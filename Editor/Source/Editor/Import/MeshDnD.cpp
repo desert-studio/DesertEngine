@@ -88,7 +88,7 @@ namespace Desert::Editor::MeshDnD
                 const std::string matPath = f.path().generic_string();
                 auto asset = mgr.FindByPath<Assets::SurfaceMaterialAsset>( matPath );
                 if ( !asset )
-                    asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, matPath,
+                    asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( matPath,
                                                                            /*loadAfterCreate=*/false );
                 if ( !asset )
                     continue;
@@ -139,7 +139,7 @@ namespace Desert::Editor::MeshDnD
         }
 
         // Create + register + load the cooked static mesh, return its handle.
-        auto created = mgr.CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High, cookedStr,
+        auto created = mgr.CreateAsset<Assets::StaticMeshAsset>( cookedStr,
                                                                  /*loadAfterCreate=*/false );
         if ( !created )
             return Common::UUID::Null();
@@ -204,7 +204,7 @@ namespace Desert::Editor::MeshDnD
         {
             // Created as an UNPARSED shell: MeshService reads it and its rig through the loader.
             NoteFreshSkinnedCook( skinnedStr );
-            auto created = mgr.CreateAsset<Assets::SkinnedMeshAsset>( Assets::AssetPriority::High, skinnedStr,
+            auto created = mgr.CreateAsset<Assets::SkinnedMeshAsset>( skinnedStr,
                                                                       /*loadAfterCreate=*/false );
             if ( !created )
                 return { Common::UUID::Null(), false };
@@ -212,7 +212,7 @@ namespace Desert::Editor::MeshDnD
             return { FinalizeSkinned( mgr, created ), true };
         }
 
-        auto created = mgr.CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High, staticStr,
+        auto created = mgr.CreateAsset<Assets::StaticMeshAsset>( staticStr,
                                                                  /*loadAfterCreate=*/false );
         if ( !created )
             return { Common::UUID::Null(), false };

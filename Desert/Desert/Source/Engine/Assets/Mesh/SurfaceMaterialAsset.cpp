@@ -19,8 +19,8 @@
 namespace Desert::Assets
 {
 
-    SurfaceMaterialAsset::SurfaceMaterialAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : MaterialAsset( priority, filepath, AssetTypeID::Material )
+    SurfaceMaterialAsset::SurfaceMaterialAsset( const Common::Filepath& filepath )
+         : MaterialAsset( filepath, AssetTypeID::Material )
     {
         // THE IDENTITY IS ADOPTED HERE, NOT IN LOAD, as TextureAsset does. A shell created from a content
         // registry row (Assets::CreateFromRegistryRow) is never loaded before its handle is compared with
@@ -39,8 +39,7 @@ namespace Desert::Assets
     std::shared_ptr<SurfaceMaterialAsset>
     SurfaceMaterialAsset::CreateWorkingCopy( const SurfaceMaterialAsset& source )
     {
-        auto copy =
-             std::make_shared<SurfaceMaterialAsset>( source.m_Metadata.Priority, source.m_Metadata.Filepath );
+        auto copy = std::make_shared<SurfaceMaterialAsset>( source.m_Metadata.Filepath );
 
         copy->m_Data       = source.m_Data;
         copy->m_ShaderName = source.m_ShaderName;

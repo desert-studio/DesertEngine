@@ -702,7 +702,7 @@ namespace Desert::Core::Serialize
                      [&]
                      {
                          return Assets::Asset<Assets::MaterialAsset>(
-                              m.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, full,
+                              m.CreateAsset<Assets::SurfaceMaterialAsset>( full,
                                                                            /*loadAfterCreate=*/false ) );
                      },
                      []( const Assets::Asset<Assets::MaterialAsset>& material, ReferenceOrigin )
@@ -744,7 +744,7 @@ namespace Desert::Core::Serialize
 
                 auto a = mgr.FindByPath<Assets::CloudModellingVolumeAsset>( full );
                 if ( !a )
-                    a = m.CreateAsset<Assets::CloudModellingVolumeAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::CloudModellingVolumeAsset>( full,
                                                                           /*loadAfterCreate=*/false );
                 if ( !a )
                     return 0;
@@ -774,7 +774,7 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::ControlRigAsset>( full,
                                                                 /*loadAfterCreate=*/false );
                 }
                 if ( !a )
@@ -808,7 +808,7 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::RetargetAsset>( full,
                                                               /*loadAfterCreate=*/false );
                 }
                 if ( !a )
@@ -842,7 +842,7 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::AnimGraphAsset>( full,
                                                                /*loadAfterCreate=*/false );
                 }
                 if ( !a )
@@ -874,7 +874,7 @@ namespace Desert::Core::Serialize
 
                 auto a = mgr.FindByPath<Assets::UIThemeAsset>( full );
                 if ( !a )
-                    a = m.CreateAsset<Assets::UIThemeAsset>( Assets::AssetPriority::Medium, full,
+                    a = m.CreateAsset<Assets::UIThemeAsset>( full,
                                                              /*loadAfterCreate=*/false );
                 if ( !a )
                     return 0;
@@ -919,9 +919,9 @@ namespace Desert::Core::Serialize
                      {
                          return type == "SkinnedMeshAsset"
                                      ? Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::SkinnedMeshAsset>(
-                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) )
+                                            path, /*loadAfterCreate=*/false ) )
                                      : Assets::Asset<Assets::MeshAsset>( m.CreateAsset<Assets::StaticMeshAsset>(
-                                            Assets::AssetPriority::High, path, /*loadAfterCreate=*/false ) );
+                                            path, /*loadAfterCreate=*/false ) );
                      },
                      [&m]( const Assets::Asset<Assets::MeshAsset>& mesh, ReferenceOrigin )
                      { Runtime::EnsureMeshRegistered( mesh, m ); } );

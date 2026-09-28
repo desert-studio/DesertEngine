@@ -692,7 +692,7 @@ namespace Desert::Editor
         if ( asset )
             asset->Load(); // overwritten in place: re-read so the cached bytes are the new ones
         else
-            asset = m_Assets->CreateAsset<Assets::CloudNoiseVolumeAsset>( Assets::AssetPriority::Medium, target );
+            asset = m_Assets->CreateAsset<Assets::CloudNoiseVolumeAsset>( target );
 
         if ( !asset )
             return true;

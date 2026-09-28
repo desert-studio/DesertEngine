@@ -37,8 +37,7 @@ namespace
     // after Load, because the AssetManager keys a not-yet-loaded shell by it.
     uint64_t HandleOf( const std::string& path )
     {
-        const Desert::Assets::CloudNoiseVolumeAsset asset( Desert::Assets::AssetPriority::Medium,
-                                                           Common::Filepath( path ) );
+        const Desert::Assets::CloudNoiseVolumeAsset asset{ Common::Filepath( path ) };
         return static_cast<uint64_t>( asset.GetMetadata().Handle );
     }
 

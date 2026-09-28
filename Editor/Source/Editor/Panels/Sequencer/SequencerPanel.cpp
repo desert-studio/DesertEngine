@@ -292,7 +292,7 @@ namespace Desert::Editor
         }
 
         auto asset = m_AssetManager->CreateAsset<Assets::AnimationAsset>(
-             Assets::AssetPriority::Medium, Common::Filepath( "memory://clip/" + name ), false );
+             Common::Filepath( "memory://clip/" + name ), false );
         if ( !asset )
             return {};
         asset->SetInMemoryClip( clip );
