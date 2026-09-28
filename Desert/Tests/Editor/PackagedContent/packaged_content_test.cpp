@@ -38,6 +38,8 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/DeveloperOnlyShaders.hpp>
+#include <Common/Core/DevInstruments.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -773,7 +775,8 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // The packager's cook, at this build's own profile (what BuildContentPak passes).
-    const auto stats = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
+    const auto stats =
+         Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
     EXPECT_EQ( stats.ShadersCompiled, 2u ) << "vertex + fragment of the one probe shader";
     EXPECT_EQ( stats.Failures, 0u );
 
@@ -801,7 +804,8 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
     }
 
     // And the cook is incremental: a second pass finds everything under its key and compiles nothing.
-    const auto again = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
+    const auto again =
+         Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
     EXPECT_EQ( again.ShadersCompiled, 0u );
     EXPECT_EQ( again.ShadersCached, 2u );
 }
@@ -852,7 +856,8 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
     WriteFile( cacheDir, "not a directory" );
     ASSERT_TRUE( fs::is_regular_file( cacheDir ) );
 
-    const auto stats = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
+    const auto stats =
+         Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
 
     EXPECT_EQ( stats.ShadersCompiled, 0u ) << "an artifact that never reached the disk was counted as cooked";
     EXPECT_EQ( stats.StoreFailures, 2u ) << "vertex + fragment, each produced and each unwritten";
@@ -1212,8 +1217,14 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
 
     if ( host.SupportsAppBundle )
     {
-        EXPECT_FALSE( fs::exists( root / "Contents" / "Resources" ) )
-             << "Contents/Resources is still produced. Nothing on macOS requires it, and holding the "
+        // Contents/Resources holds ONE thing: the Vulkan driver manifest, in the loader's own bundle location
+        // (vulkan/icd.d, PKG2b). No game payload.
+        std::vector<std::string> resources;
+        for ( const auto& entry : fs::directory_iterator( root / "Contents" / "Resources" ) )
+            resources.push_back( entry.path().filename().string() );
+        EXPECT_EQ( resources, std::vector<std::string>{ "vulkan" } )
+             << "Contents/Resources holds more than the Vulkan ICD manifest. Nothing on macOS requires it, and "
+                "holding the "
                 "payload there is exactly what made the launcher hand the descriptor over on the command "
                 "line - a second place the player has to be told about.";
 
@@ -1710,6 +1721,58 @@ TEST( PackagedContent, EveryRootCalledContentIsCoveredByATreeThePackagerPacks )
     }
 }
 
+// THE SHADER SET IS THE TARGET CONFIGURATION'S (PKG2b). Against the real engine shader tree: a runtime built with
+// DESERT_DEV_INSTRUMENTS (Debug, Release) is packaged with every runtime program, the developer-instrument ones
+// included, because it creates their pipelines at boot; a Shipping runtime is compiled without those pipelines
+// and is packaged with every program BUT them. Both directions per configuration — a missing program is a
+// runtime that cannot boot, an extra one is content a player's build cannot use. Which programs are
+// developer-only is itself derived from the source text by ShippingPipelines.
+TEST( PackagedContent, EachConfigurationPackagesExactlyTheShaderProgramsItsRuntimeCanLoad )
+{
+    EnvironmentGuard guard;
+    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
+    fs::current_path( fs::absolute( RepoRoot() ) / "Editor" );
+
+    std::set<std::string> runtimePrograms; // every program a runtime of SOME configuration may load
+    for ( const auto& file :
+          Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::SHADERDIR_PATH ) )
+        if ( file.extension() == ".shader" && !Desert::Editor::IsEditorOnlyResource( file ) )
+            runtimePrograms.insert( file.stem().string() );
+    ASSERT_GT( runtimePrograms.size(), 40u ) << "the engine shader tree was not found from " << fs::current_path();
+
+    const auto stems = []( const std::vector<fs::path>& files )
+    {
+        std::set<std::string> out;
+        for ( const fs::path& f : files )
+            out.insert( f.stem().string() );
+        return out;
+    };
+
+    for ( const std::string config : { "Debug", "Release", "Shipping" } )
+    {
+        const bool dev = Common::ConfigHasDeveloperInstruments( config );
+        EXPECT_EQ( dev, config != "Shipping" ) << config;
+        const std::set<std::string> packaged = stems( Desert::Editor::PackagedShaderPrograms( dev ) );
+
+        std::set<std::string> expected = runtimePrograms;
+        if ( !dev )
+            for ( const std::string_view name : Common::kDeveloperOnlyShaderPrograms )
+                expected.erase( std::string( name ) );
+
+        for ( const std::string& name : expected )
+            EXPECT_TRUE( packaged.contains( name ) )
+                 << "a " << config << " package lacks the program " << name << " its runtime loads";
+        for ( const std::string& name : packaged )
+            EXPECT_TRUE( expected.contains( name ) )
+                 << "a " << config << " package carries the program " << name << ", which its runtime cannot load";
+    }
+
+    // The list names programs that exist: a renamed shader would otherwise leave a Shipping package carrying it.
+    for ( const std::string_view name : Common::kDeveloperOnlyShaderPrograms )
+        EXPECT_TRUE( runtimePrograms.contains( std::string( name ) ) )
+             << name << " is listed as developer-only and no such program is in the engine shader tree";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
@@ -1944,7 +2007,8 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
-    const auto again = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
+    const auto again =
+         Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild(), DESERT_DEV_INSTRUMENTS != 0 );
     EXPECT_EQ( again.TexturesCooked, 0u ) << "an unchanged source was cooked again";
     EXPECT_EQ( again.TexturesCached, 3u );
 }
