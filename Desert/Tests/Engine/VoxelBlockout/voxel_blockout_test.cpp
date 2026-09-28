@@ -1169,3 +1169,75 @@ TEST( VoxelBlockoutMixedStep, SlopesAlongDifferentAxesSideBySideShowOnlyWhatTheO
     EXPECT_NEAR( m.Volume, ma.Volume + mb.Volume, 2.0 );
     EXPECT_NEAR( m.Area, ma.Area + mb.Area - 2.0e4, 1.0 ) << "the shared square is shown by neither";
 }
+
+namespace
+{
+    // Undirected welded edges by how many triangles use them: a closed 2-manifold has every edge on exactly two.
+    struct EdgeCensus
+    {
+        int Boundary    = 0; // on one triangle: a hole in the surface
+        int NonManifold = 0; // on three or more: a doubled face or a fin
+    };
+    EdgeCensus CountEdges( const Desert::Geometry::RenderMeshData& m )
+    {
+        using Key = std::tuple<long, long, long>;
+        auto key  = []( const glm::vec3& p )
+        { return Key( std::lround( p.x * 100.0f ), std::lround( p.y * 100.0f ), std::lround( p.z * 100.0f ) ); };
+        std::map<std::pair<Key, Key>, int> uses;
+        for ( const auto& sm : m.Submeshes )
+            for ( uint32_t i = sm.IndexOffset / 3; i < ( sm.IndexOffset + sm.IndexCount ) / 3; ++i )
+            {
+                const auto& t    = m.Indices[i];
+                const Key   k[3] = { key( m.Vertices[sm.VertexOffset + t.V1].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V2].Position ),
+                                     key( m.Vertices[sm.VertexOffset + t.V3].Position ) };
+                for ( int e = 0; e < 3; ++e )
+                    ++uses[std::minmax( k[e], k[( e + 1 ) % 3] )];
+            }
+        EdgeCensus r;
+        for ( const auto& [edge, count] : uses )
+        {
+            r.Boundary += count == 1 ? 1 : 0;
+            r.NonManifold += count > 2 ? 1 : 0;
+        }
+        return r;
+    }
+
+    // Three Block Sizes: the 100 cm wall and 50 cm blocks of WallWithFineBlocks are committed, Block Size 25, then
+    // a 50 x 50 x 25 block out of the 100 x 100 block's +X face and a 25 cm cube straight on the wall's +X face.
+    // The cube stays clear of the 50 cm block: touching it along an edge only would be non-manifold by design.
+    Volume WallWithTwoFinerSizes()
+    {
+        Volume v = WallWithFineBlocks( GridFrame{} );
+        EXPECT_TRUE( v.Freeze() );
+        v.m_Unit = 25.0f;
+        WorkPlane onBlock{ 0, 1, 6 }; // x = 150 cm
+        v.PushPull( onBlock, Rect{ 1, 2, 3, 4 }, +1, 1, 0 );
+        WorkPlane onWall{ 0, 1, 4 }; // x = 100 cm
+        v.PushPull( onWall, Rect{ 6, 6, 14, 14 }, +1, 1, 0 );
+        EXPECT_EQ( v.m_Cells.size(), 5u );
+        return v;
+    }
+} // namespace
+
+TEST( VoxelBlockoutMixedStep, TwoAndThreeBlockSizesBakeOneClosedManifoldSurface )
+{
+    {
+        const auto       mesh = WallWithFineBlocks( GridFrame{} ).Bake();
+        const EdgeCensus e    = CountEdges( mesh );
+        EXPECT_EQ( e.Boundary, 0 ) << "two sizes";
+        EXPECT_EQ( e.NonManifold, 0 ) << "two sizes";
+        EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "two sizes";
+    }
+    const auto       mesh = WallWithTwoFinerSizes().Bake();
+    const EdgeCensus e    = CountEdges( mesh );
+    const Measure    m    = Measured( mesh );
+    EXPECT_EQ( e.Boundary, 0 ) << "three sizes";
+    EXPECT_EQ( e.NonManifold, 0 ) << "three sizes";
+    EXPECT_EQ( NonConformingEdges( mesh ), 0 ) << "three sizes";
+    EXPECT_EQ( BowtieVertices( mesh ), 0 ) << "three sizes";
+    ExpectClosed( m );
+    // + 50 x 50 x 25 and 25^3; each adds its box area less twice its contact (2500 cm2 and 625 cm2).
+    EXPECT_NEAR( m.Volume, kWallBlocksVolume + 62500.0 + 15625.0, 2.0 );
+    EXPECT_NEAR( m.Area, kWallBlocksArea + ( 10000.0 - 5000.0 ) + ( 3750.0 - 1250.0 ), 1.0 );
+}
