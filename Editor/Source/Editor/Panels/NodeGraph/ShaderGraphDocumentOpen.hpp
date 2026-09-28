@@ -62,7 +62,7 @@ namespace Desert::Editor
             // would be work for a reader that does not exist — which makes this find-or-create the ONE
             // place a `.dgraph` becomes an asset.
             asset =
-                 assetManager->CreateAsset<Assets::ShaderGraphAsset>( Assets::AssetPriority::Medium, assetPath );
+                 assetManager->CreateAsset<Assets::ShaderGraphAsset>( assetPath );
         }
 
         if ( !asset )

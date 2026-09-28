@@ -40,7 +40,6 @@
 using Desert::Assets::AssetKey;
 using Desert::Assets::AssetManager;
 using Desert::Assets::AssetMetadata;
-using Desert::Assets::AssetPriority;
 using Desert::Assets::AssetTypeID;
 
 namespace
@@ -98,8 +97,7 @@ namespace
     class ProbeAsset final : public Desert::Assets::AssetBase
     {
     public:
-        ProbeAsset( const AssetPriority priority, const Common::Filepath& filepath )
-             : AssetBase( priority, filepath, GetTypeID() )
+        ProbeAsset( const Common::Filepath& filepath ) : AssetBase( filepath, GetTypeID() )
         {
         }
 
@@ -197,8 +195,7 @@ TEST( AssetPathIdentity, EverySpellingOfOneFileFindsTheAssetRegisteredUnderAnoth
     AssetManager mgr;
 
     const auto spellings = SpellingsOfOneFile();
-    const auto registered =
-         mgr.CreateAsset<TextureProbe>( AssetPriority::Low, spellings.front(), /*loadAfterCreate=*/false );
+    const auto registered = mgr.CreateAsset<TextureProbe>( spellings.front(), /*loadAfterCreate=*/false );
     ASSERT_NE( registered, nullptr );
 
     for ( const auto& spelling : spellings )
@@ -222,8 +219,7 @@ TEST( AssetPathIdentity, TheTwoEntryPointsAnswerOneQuestionTheSameWay )
 
     for ( const auto& spelling : SpellingsOfOneFile() )
     {
-        const auto viaCreate =
-             mgr.CreateAsset<TextureProbe>( AssetPriority::Low, spelling, /*loadAfterCreate=*/false );
+        const auto viaCreate = mgr.CreateAsset<TextureProbe>( spelling, /*loadAfterCreate=*/false );
         const auto viaFind = mgr.FindByPath<TextureProbe>( spelling );
 
         ASSERT_NE( viaCreate, nullptr ) << spelling.generic_string();
@@ -253,8 +249,7 @@ TEST( AssetPathIdentity, TheScenesSpellingFindsThePreloadersUnparsedShell )
     const Common::Filepath preloaderSpelling = Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh";
     const Common::Filepath sceneSpelling     = std::filesystem::path( "Cooked" ) / "Meshes" / "base.stmesh";
 
-    const auto shell =
-         mgr.CreateAsset<TextureProbe>( AssetPriority::Low, preloaderSpelling, /*loadAfterCreate=*/false );
+    const auto shell = mgr.CreateAsset<TextureProbe>( preloaderSpelling, /*loadAfterCreate=*/false );
     ASSERT_NE( shell, nullptr );
     ASSERT_FALSE( shell->IsReadyForUse() ) << "the fixture is meant to be an UNPARSED shell";
 
@@ -277,7 +272,7 @@ TEST( AssetPathIdentity, TheRecordsOwnKeyEqualsTheKeyOfEverySpellingOfIt )
     AssetManager mgr;
 
     const auto spellings = SpellingsOfOneFile();
-    ASSERT_NE( mgr.CreateAsset<TextureProbe>( AssetPriority::Low, spellings.front(),
+    ASSERT_NE( mgr.CreateAsset<TextureProbe>( spellings.front(),
                                               /*loadAfterCreate=*/false ),
                nullptr );
 
@@ -304,8 +299,8 @@ TEST( AssetPathIdentity, TwoDifferentFilesStayTwoAssets )
     const Common::Filepath a = Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh";
     const Common::Filepath b = Common::Constants::Path::COOKED_PATH / "Meshes" / "other.stmesh";
 
-    const auto first  = mgr.CreateAsset<TextureProbe>( AssetPriority::Low, a, /*loadAfterCreate=*/false );
-    const auto second = mgr.CreateAsset<TextureProbe>( AssetPriority::Low, b, /*loadAfterCreate=*/false );
+    const auto first  = mgr.CreateAsset<TextureProbe>( a, /*loadAfterCreate=*/false );
+    const auto second = mgr.CreateAsset<TextureProbe>( b, /*loadAfterCreate=*/false );
 
     ASSERT_NE( first, nullptr );
     ASSERT_NE( second, nullptr );
@@ -330,10 +325,8 @@ TEST( AssetPathIdentity, OnePathTwoTypesStaysTwoRecordsUnderEverySpelling )
 
     const auto spellings = SpellingsOfOneFile();
 
-    const auto texture =
-         mgr.CreateAsset<TextureProbe>( AssetPriority::Low, spellings.front(), /*loadAfterCreate=*/false );
-    const auto skybox =
-         mgr.CreateAsset<SkyboxProbe>( AssetPriority::Low, spellings.back(), /*loadAfterCreate=*/false );
+    const auto texture = mgr.CreateAsset<TextureProbe>( spellings.front(), /*loadAfterCreate=*/false );
+    const auto skybox  = mgr.CreateAsset<SkyboxProbe>( spellings.back(), /*loadAfterCreate=*/false );
 
     ASSERT_NE( texture, nullptr );
     ASSERT_NE( skybox, nullptr );
@@ -357,8 +350,7 @@ TEST( AssetPathIdentity, AFileNobodyRegisteredIsStillNotFound )
 
     AssetManager mgr;
 
-    ASSERT_NE( mgr.CreateAsset<TextureProbe>( AssetPriority::Low,
-                                              Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh",
+    ASSERT_NE( mgr.CreateAsset<TextureProbe>( Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh",
                                               /*loadAfterCreate=*/false ),
                nullptr );
 
@@ -386,8 +378,7 @@ TEST( AssetPathIdentity, OutsideEveryContentRootOnlyLexicalSpellingsAgree )
 
     const std::filesystem::path outside = ScratchRoot() / "elsewhere" / "loose.stmesh";
 
-    const auto registered =
-         mgr.CreateAsset<TextureProbe>( AssetPriority::Low, outside, /*loadAfterCreate=*/false );
+    const auto registered = mgr.CreateAsset<TextureProbe>( outside, /*loadAfterCreate=*/false );
     ASSERT_NE( registered, nullptr );
 
     // Lexically different, same place: these agree, because normalization is spelling-independent.
@@ -436,9 +427,9 @@ TEST( AssetPathIdentity, RelativeSpellingsAreResolvedLexicallyNotThroughLinks )
 
     AssetManager mgr;
 
-    const auto registered = mgr.CreateAsset<TextureProbe>(
-         AssetPriority::Low, Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh",
-         /*loadAfterCreate=*/false );
+    const auto registered =
+         mgr.CreateAsset<TextureProbe>( Common::Constants::Path::COOKED_PATH / "Meshes" / "base.stmesh",
+                                        /*loadAfterCreate=*/false );
     ASSERT_NE( registered, nullptr );
 
     EXPECT_EQ( mgr.FindByPath<TextureProbe>( std::filesystem::path( "Cooked" ) / "Meshes" / "base.stmesh" ),
@@ -505,7 +496,7 @@ TEST( AssetPathIdentity, ARootRelativeReferenceIsAnotherIdentityUntilItsOwnForma
     const Common::Filepath      rooted = ( Common::Constants::Path::ASSETS_PATH / stored ).lexically_normal();
 
     AssetManager mgr;
-    const auto registered = mgr.CreateAsset<TextureProbe>( AssetPriority::Low, rooted, /*loadAfterCreate=*/false );
+    const auto   registered = mgr.CreateAsset<TextureProbe>( rooted, /*loadAfterCreate=*/false );
     ASSERT_NE( registered, nullptr );
 
     // The two keys are the finding, and they are asserted BEFORE the lookups so that a red line here says

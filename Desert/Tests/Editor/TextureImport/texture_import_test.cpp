@@ -409,8 +409,7 @@ TEST_F( TextureImport, TheCommittedAssetCarriesItsIdToAnotherCheckoutAndAFreshIm
         std::ofstream out( checkedOut, std::ios::binary );
         out << committed;
     }
-    const Desert::Assets::TextureAsset asset( Desert::Assets::AssetPriority::Medium,
-                                              Common::Filepath( checkedOut ) );
+    const Desert::Assets::TextureAsset asset{ Common::Filepath( checkedOut ) };
     const uint64_t                     onAnother = (uint64_t)asset.GetHandle();
 
     fs::remove_all( elsewhere );
@@ -599,7 +598,7 @@ TEST_F( TextureImport, AnAssetImportedInOneCheckoutLoadsItsPixelsInAnother )
     Common::Constants::Path::SetProjectRoot( other, "Content" );
     Desert::Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
 
-    Desert::Assets::TextureAsset asset( Desert::Assets::AssetPriority::Medium, Common::Filepath( otherAsset ) );
+    Desert::Assets::TextureAsset asset{ Common::Filepath( otherAsset ) };
     ASSERT_TRUE( asset.Load().IsSuccess() );
     const auto platform = Desert::Assets::LoadTexturePlatformData( otherAsset );
     Desert::Assets::SetTexturePlatformDataBuilder( nullptr );

@@ -11,7 +11,7 @@ namespace Desert::Assets
     class ShaderAsset final : public AssetBase
     {
     public:
-        ShaderAsset( AssetPriority priority, const Common::Filepath& filepath );
+        ShaderAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

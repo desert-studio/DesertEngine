@@ -354,7 +354,7 @@ TEST( NewCloudAsset, ARebakeOverAnExistingModellingVolumeKeepsItsGuidAndANewPath
     EXPECT_FALSE( copied.IsNull() );
     EXPECT_NE( copied, first );
 
-    const Assets::CloudModellingVolumeAsset asset( Assets::AssetPriority::Low, path );
+    const Assets::CloudModellingVolumeAsset asset( path );
     EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
                static_cast<uint64_t>( Common::Content::HandleForGuid( first ) ) );
 }

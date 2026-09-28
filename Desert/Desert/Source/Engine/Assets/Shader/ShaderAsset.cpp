@@ -13,8 +13,8 @@
 
 namespace Desert::Assets
 {
-    ShaderAsset::ShaderAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, GetTypeID() )
+    ShaderAsset::ShaderAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, GetTypeID() )
     {
         // THE SHADER'S IDENTITY IS ITS HEADER GUID (SHDR 1, T7j), adopted here for AnimGraphAsset's reason: the
         // asset manager keys its handle lookup at creation. A file with no readable header keeps the

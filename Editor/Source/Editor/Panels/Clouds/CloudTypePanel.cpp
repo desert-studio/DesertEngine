@@ -207,7 +207,7 @@ namespace Desert::Editor
 
         auto asset = m_Assets->FindByPath<Assets::CloudTypeAsset>( path );
         if ( !asset )
-            asset = m_Assets->CreateAsset<Assets::CloudTypeAsset>( Assets::AssetPriority::Medium, path );
+            asset = m_Assets->CreateAsset<Assets::CloudTypeAsset>( path );
 
         // REGISTERED IS NOT LOADED. An asset the manager knows about but has not read yet answers false to
         // IsReadyForUse, and this window used to give up on it — so a type opened in the first seconds of a
@@ -654,7 +654,7 @@ namespace Desert::Editor
             if ( asset )
                 asset->Load(); // overwritten in place: re-read so the cached numbers are the new ones
             else
-                asset = m_Assets->CreateAsset<Assets::CloudTypeAsset>( Assets::AssetPriority::Medium, target );
+                asset = m_Assets->CreateAsset<Assets::CloudTypeAsset>( target );
 
             if ( asset )
             {

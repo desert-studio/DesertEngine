@@ -142,8 +142,8 @@ namespace Desert::Assets
         // still overwrite this in Load: an id stored in the file additionally survives a rename, which a
         // path-derived one cannot. That is a strictly better identity for the same asset, not a second way
         // of doing the same thing.
-        explicit AssetBase( const AssetPriority priority, const Common::Filepath& filepath, AssetTypeID assetType )
-             : m_Metadata{ Common::AssetHandle::FromCookedPath( filepath ), filepath, priority, assetType }
+        explicit AssetBase( const Common::Filepath& filepath, AssetTypeID assetType )
+             : m_Metadata{ Common::AssetHandle::FromCookedPath( filepath ), filepath, assetType }
         {
         }
 

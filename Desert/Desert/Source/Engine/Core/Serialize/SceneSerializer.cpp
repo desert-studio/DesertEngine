@@ -592,7 +592,7 @@ namespace Desert::Core
             if ( !prefabAsset )
             {
                 prefabAsset = m_AssetManager->CreateAsset<Assets::PrefabAsset>(
-                    Assets::AssetPriority::High, *entityData->PrefabPath );
+                    *entityData->PrefabPath );
             }
 
             if ( !prefabAsset )

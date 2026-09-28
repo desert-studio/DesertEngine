@@ -576,7 +576,7 @@ namespace Desert::Editor
 
                 // Register in AssetManager (skip Load — we populate via CreateFromEntity)
                 auto newPrefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>(
-                    Assets::AssetPriority::High, fullPath, false );
+                    fullPath, false );
 
                 if ( newPrefab )
                 {

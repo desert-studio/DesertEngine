@@ -691,7 +691,7 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
          Desert::TestSupport::WriteCookedStaticMesh( path, Ser::EncodeMeshBinary( source ) );
     ASSERT_FALSE( derived.empty() );
 
-    Desert::Assets::StaticMeshAsset asset( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::StaticMeshAsset asset( path );
     const auto                      loaded = asset.LoadFromFile();
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
 
@@ -711,7 +711,7 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
     const std::filesystem::path cutDerived =
          Desert::TestSupport::WriteCookedStaticMesh( cut, std::string( full.substr( 0, full.size() - 16 ) ) );
     ASSERT_FALSE( cutDerived.empty() );
-    Desert::Assets::StaticMeshAsset truncated( Desert::Assets::AssetPriority::Medium, cut );
+    Desert::Assets::StaticMeshAsset truncated( cut );
     EXPECT_FALSE( truncated.LoadFromFile().IsSuccess() );
 
     std::error_code ec;

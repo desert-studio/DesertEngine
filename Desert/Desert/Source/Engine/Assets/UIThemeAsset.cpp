@@ -10,8 +10,8 @@
 
 namespace Desert::Assets
 {
-    UIThemeAsset::UIThemeAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::UITheme )
+    UIThemeAsset::UIThemeAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::UITheme )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
 

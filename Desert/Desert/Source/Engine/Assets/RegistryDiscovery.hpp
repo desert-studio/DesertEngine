@@ -57,7 +57,7 @@ namespace Desert::Assets
                  Common::Content::KindName( kind ), row->Path.generic_string(), guid,
                  static_cast<uint64_t>( handle ) );
 
-        auto created = manager->CreateAsset<AssetType>( AssetPriority::Medium, row->Path,
+        auto created = manager->CreateAsset<AssetType>( row->Path,
                                                         /*loadAfterCreate=*/false );
         if ( !created )
             return Common::MakeFormattedError<Asset<AssetType>>( "{} '{}' (GUID {}) could not be created",
@@ -85,7 +85,7 @@ namespace Desert::Assets
         for ( const auto& row : ContentRegistry::Rows( kind ) )
         {
             if ( row.Guid && *row.Guid == guid )
-                return manager.CreateAsset<AssetType>( AssetPriority::Medium, row.Path,
+                return manager.CreateAsset<AssetType>( row.Path,
                                                        /*loadAfterCreate=*/false );
         }
         return nullptr;

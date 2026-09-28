@@ -162,7 +162,7 @@ namespace Desert::Animation
         for ( const AnimationClip* clip : clips )
         {
             auto asset = assets.CreateAsset<Assets::AnimationAsset>(
-                 Assets::AssetPriority::Medium, Common::Filepath( "procedural://humanoid/" + clip->AnimationName ),
+                 Common::Filepath( "procedural://humanoid/" + clip->AnimationName ),
                  false );
             if ( !asset )
             {

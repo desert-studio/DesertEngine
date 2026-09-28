@@ -87,7 +87,7 @@ namespace Desert::Editor
         auto asset = assetManager->FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
             asset =
-                 assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath,
+                 assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( assetPath,
                                                                           /*loadAfterCreate=*/false );
         if ( !asset )
         {

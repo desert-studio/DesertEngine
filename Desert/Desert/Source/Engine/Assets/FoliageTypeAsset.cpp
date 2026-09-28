@@ -10,8 +10,8 @@
 
 namespace Desert::Assets
 {
-    FoliageTypeAsset::FoliageTypeAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::FoliageType )
+    FoliageTypeAsset::FoliageTypeAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::FoliageType )
     {
         if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
              !identity.Guid.IsNull() )

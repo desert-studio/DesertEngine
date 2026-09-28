@@ -11,8 +11,8 @@
 
 namespace Desert::Assets
 {
-    RetargetAsset::RetargetAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::Retarget )
+    RetargetAsset::RetargetAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::Retarget )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
 

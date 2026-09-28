@@ -223,7 +223,7 @@ namespace Desert::Editor
         }
 
         auto asset = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-             ::Desert::Assets::AssetPriority::High, path.generic_string() );
+             path.generic_string() );
         if ( !asset )
         {
             LOG_ERROR( "[Landscape] could not create a landscape material at '{}' — the landscape's material "
@@ -314,7 +314,7 @@ namespace Desert::Editor
                     if ( !dropped )
                     {
                         dropped = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-                             ::Desert::Assets::AssetPriority::High, path );
+                             path );
                         if ( dropped && !dropped->IsReadyForUse() )
                             dropped->Load();
                     }
@@ -687,7 +687,7 @@ namespace Desert::Editor
         }
 
         auto asset = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-             ::Desert::Assets::AssetPriority::High, path.generic_string() );
+             path.generic_string() );
         if ( !asset )
         {
             LOG_ERROR( "[Clouds] could not create a cloud material at '{}' — the layer's material slot is "
@@ -758,7 +758,7 @@ namespace Desert::Editor
                     if ( !dropped )
                     {
                         dropped = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-                             ::Desert::Assets::AssetPriority::High, path );
+                             path );
                         if ( dropped && !dropped->IsReadyForUse() )
                             dropped->Load();
                     }

@@ -27,7 +27,6 @@ using Desert::Animation::Graph::AnimGraph;
 using Desert::Animation::Graph::Evaluator;
 using Desert::Animation::Graph::State;
 using Desert::Assets::AnimGraphAsset;
-using Desert::Assets::AssetPriority;
 
 namespace
 {
@@ -83,7 +82,7 @@ TEST( AnimGraphAsset, SaveThenLoadIsTheSameGraph )
 
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), Locomotion() ).IsSuccess() );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     const auto     loaded = asset.Load();
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
     ASSERT_TRUE( asset.IsReadyForUse() );
@@ -108,7 +107,7 @@ TEST( AnimGraphAsset, THE_RELATION_OneFileIsOneObjectAndNotACopyPerCaller )
     const ScratchFile file( "desert_animgraph_shared.danimgraph" );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), Locomotion() ).IsSuccess() );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
 
     const auto first  = asset.GetGraph();
@@ -132,7 +131,7 @@ TEST( AnimGraphAsset, AnEditBumpsTheRevisionSoEveryEntitySharingItResyncs )
     const ScratchFile file( "desert_animgraph_revision.danimgraph" );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), Locomotion() ).IsSuccess() );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
 
     const uint32_t afterLoad = asset.GetRevision();
@@ -155,7 +154,7 @@ TEST( AnimGraphAsset, AReloadReplacesTheObjectRatherThanRewritingItUnderARunning
     const ScratchFile file( "desert_animgraph_reload.danimgraph" );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), Locomotion() ).IsSuccess() );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
     const auto held = asset.GetGraph();
 
@@ -179,7 +178,7 @@ TEST( AnimGraphAsset, TheObjectItHandsOutIsWhatAnEvaluatorCanBeBuiltFrom )
     const ScratchFile file( "desert_animgraph_eval.danimgraph" );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), Locomotion() ).IsSuccess() );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
 
     Evaluator evaluator( *asset.GetGraph() );
@@ -190,8 +189,7 @@ TEST( AnimGraphAsset, TheObjectItHandsOutIsWhatAnEvaluatorCanBeBuiltFrom )
 
 TEST( AnimGraphAsset, AMissingFileIsAnErrorAndNotAnEmptyGraph )
 {
-    AnimGraphAsset asset( AssetPriority::Medium,
-                          std::filesystem::temp_directory_path() / "desert_animgraph_absent.danimgraph" );
+    AnimGraphAsset asset( std::filesystem::temp_directory_path() / "desert_animgraph_absent.danimgraph" );
 
     const auto loaded = asset.Load();
     EXPECT_FALSE( loaded.IsSuccess() );
@@ -208,7 +206,7 @@ TEST( AnimGraphAsset, MalformedJsonIsRefusedAndNamesTheFile )
     const ScratchFile file( "desert_animgraph_broken.danimgraph" );
     file.Write( "{ this is not json" );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     const auto     loaded = asset.Load();
 
     EXPECT_FALSE( loaded.IsSuccess() );
@@ -222,7 +220,7 @@ TEST( AnimGraphAsset, AnUnloadKeepsTheRevisionMonotonic )
     const ScratchFile file( "desert_animgraph_unload.danimgraph" );
     ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), Locomotion() ).IsSuccess() );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     ASSERT_TRUE( asset.Load().IsSuccess() );
     const uint32_t before = asset.GetRevision();
 
@@ -324,7 +322,7 @@ TEST( AnimGraphAsset, ASaveStatesTheHeaderAndAResaveKeepsItsGuid )
     ASSERT_EQ( first.GetValue().Subsystems.size(), 1u );
     EXPECT_EQ( first.GetValue().Subsystems[0].Version, 1u );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
                static_cast<uint64_t>( Common::Content::HandleForGuid( first.GetValue().Guid ) ) )
          << "the constructor did not adopt the header GUID";
@@ -341,7 +339,7 @@ TEST( AnimGraphAsset, AGraphWithNoHeaderIsRefusedByNameAndPointsAtTheMigrator )
     const ScratchFile file( "desert_animgraph_gen0.danimgraph" );
     file.Write( R"({"Name":"Old","Entry":"Idle","Parameters":[],"States":[{"Name":"Idle","Clip":"A"}]})" );
 
-    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    AnimGraphAsset asset( file.Path() );
     const auto     loaded = asset.Load();
     ASSERT_FALSE( loaded.IsSuccess() );
     EXPECT_EQ( asset.GetGraph(), nullptr );

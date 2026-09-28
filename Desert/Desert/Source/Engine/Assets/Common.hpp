@@ -13,13 +13,6 @@ namespace Desert::Assets
 
     using NullAsset = nullptr_t;
 
-    enum class AssetPriority
-    {
-        Low    = 0,
-        Medium = 1,
-        High   = 2,
-    };
-
     enum class AssetTypeID
     {
         Unknown = 0,

@@ -9,8 +9,8 @@
 
 namespace Desert::Assets
 {
-    SkyboxAsset::SkyboxAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::Skybox )
+    SkyboxAsset::SkyboxAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::Skybox )
     {
         // THE SKYBOX'S IDENTITY IS ITS PANORAMA ASSET'S HEADER GUID, adopted here for TextureAsset's reason
         // (TextureAsset.cpp): the manager keys its lookup at creation. A material's cube slot names the

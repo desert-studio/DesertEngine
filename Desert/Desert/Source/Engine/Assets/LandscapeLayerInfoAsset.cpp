@@ -10,8 +10,8 @@
 
 namespace Desert::Assets
 {
-    LandscapeLayerInfoAsset::LandscapeLayerInfoAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::LandscapeLayerInfo )
+    LandscapeLayerInfoAsset::LandscapeLayerInfoAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::LandscapeLayerInfo )
     {
         if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
              !identity.Guid.IsNull() )

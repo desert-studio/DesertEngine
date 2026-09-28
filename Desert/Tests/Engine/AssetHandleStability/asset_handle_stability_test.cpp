@@ -76,7 +76,6 @@
 #include <string>
 #include <vector>
 
-using Desert::Assets::AssetPriority;
 using Desert::Assets::AssetTypeID;
 
 namespace
@@ -94,7 +93,7 @@ namespace
     template <typename TAsset>
     uint64_t HandleOf( const std::string& path )
     {
-        const TAsset asset( AssetPriority::Medium, Common::Filepath( path ) );
+        const TAsset asset{ Common::Filepath( path ) };
         return static_cast<uint64_t>( asset.GetMetadata().Handle );
     }
 
@@ -104,7 +103,7 @@ namespace
     template <typename TAsset>
     AssetTypeID MetadataTypeOf( const std::string& path )
     {
-        const TAsset asset( AssetPriority::Medium, Common::Filepath( path ) );
+        const TAsset asset{ Common::Filepath( path ) };
         return asset.GetMetadata().AssetType;
     }
 
@@ -529,7 +528,7 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
         out << R"({"Params":[],"Textures":[],"CloudAssets":[]})";
     }
 
-    Desert::Assets::SurfaceMaterialAsset material( AssetPriority::Medium, Common::Filepath( scratch ) );
+    Desert::Assets::SurfaceMaterialAsset material{ Common::Filepath( scratch ) };
     ASSERT_TRUE( material.Load().IsSuccess() );
     std::filesystem::remove( scratch );
 
@@ -555,7 +554,7 @@ TEST( AssetHandleStability, AnUnloadedMaterialShellAlreadyWearsItsHeaderGuidHand
     const auto guid = Desert::Assets::ReadTextHeaderGuid( Common::Filepath( scratch ) );
     ASSERT_FALSE( guid.IsNull() ) << "the fixture's header GUID did not parse";
 
-    const Desert::Assets::SurfaceMaterialAsset shell( AssetPriority::Medium, Common::Filepath( scratch ) );
+    const Desert::Assets::SurfaceMaterialAsset shell{ Common::Filepath( scratch ) };
     std::filesystem::remove( scratch );
 
     EXPECT_FALSE( shell.IsReadyForUse() ) << "the shell was loaded; this test is about one that was not";
@@ -978,13 +977,13 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
     ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
-    Desert::Assets::TextureAsset underOneRoot( AssetPriority::Medium, Common::Filepath( scratch ) );
+    Desert::Assets::TextureAsset underOneRoot{ Common::Filepath( scratch ) };
     EXPECT_EQ( static_cast<uint64_t>( underOneRoot.GetMetadata().Handle ), kIdInTheFile )
          << "the identity must be adopted at creation, before any Load: the asset manager keys its lookup then";
     ASSERT_TRUE( underOneRoot.Load().IsSuccess() );
 
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Game", "Assets" );
-    Desert::Assets::TextureAsset underAnother( AssetPriority::Medium, Common::Filepath( scratch ) );
+    Desert::Assets::TextureAsset underAnother{ Common::Filepath( scratch ) };
     ASSERT_TRUE( underAnother.Load().IsSuccess() );
 
     std::filesystem::remove( scratch );
@@ -1016,11 +1015,11 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
     ProjectRootGuard guard;
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
-    Desert::Assets::SurfaceMaterialAsset underOneRoot( AssetPriority::Medium, Common::Filepath( scratch ) );
+    Desert::Assets::SurfaceMaterialAsset underOneRoot{ Common::Filepath( scratch ) };
     ASSERT_TRUE( underOneRoot.Load().IsSuccess() );
 
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Game", "Assets" );
-    Desert::Assets::SurfaceMaterialAsset underAnother( AssetPriority::Medium, Common::Filepath( scratch ) );
+    Desert::Assets::SurfaceMaterialAsset underAnother{ Common::Filepath( scratch ) };
     ASSERT_TRUE( underAnother.Load().IsSuccess() );
 
     std::filesystem::remove( scratch );
@@ -1052,9 +1051,9 @@ TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
     const ScratchFile dawn( projectDir / "Content" / "Sky" / "Dawn.hdr" );
 
     const auto viaAbsolute = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         AssetPriority::Medium, Common::Filepath( projectDir / "Content" / "Sky" / "Dawn.hdr" ) );
+         Common::Filepath( projectDir / "Content" / "Sky" / "Dawn.hdr" ) );
     const auto viaRelative = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         AssetPriority::Medium, Common::Filepath( "RegistryProbe/Content/Sky/Dawn.hdr" ) );
+         Common::Filepath( "RegistryProbe/Content/Sky/Dawn.hdr" ) );
 
     ASSERT_TRUE( viaAbsolute != nullptr );
     ASSERT_TRUE( viaRelative != nullptr );
@@ -1078,10 +1077,8 @@ TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
     Desert::Assets::AssetManager manager;
     const ScratchFile            a( "RegistryProbe/Content/A.hdr" );
     const ScratchFile            b( "RegistryProbe/Content/B.hdr" );
-    manager.CreateAsset<Desert::Assets::SkyboxAsset>( AssetPriority::Medium,
-                                                      Common::Filepath( "RegistryProbe/Content/A.hdr" ) );
-    manager.CreateAsset<Desert::Assets::SkyboxAsset>( AssetPriority::Medium,
-                                                      Common::Filepath( "RegistryProbe/Content/B.hdr" ) );
+    manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "RegistryProbe/Content/A.hdr" ) );
+    manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( "RegistryProbe/Content/B.hdr" ) );
 
     EXPECT_EQ( manager.FindAllByType<Desert::Assets::SkyboxAsset>().size(), 2u );
 }
@@ -1098,10 +1095,10 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
     Desert::Assets::AssetManager manager;
     const ScratchFile            shared( "RegistryProbe/Content/Shared.asset" );
     const auto                   sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         AssetPriority::Medium, Common::Filepath( "RegistryProbe/Content/Shared.asset" ) );
+         Common::Filepath( "RegistryProbe/Content/Shared.asset" ) );
     // loadAfterCreate=false: no such file exists, and this test is about the registry key, not parsing.
     const auto cloudType = manager.CreateAsset<Desert::Assets::CloudTypeAsset>(
-         AssetPriority::Medium, Common::Filepath( "RegistryProbe/Content/Shared.asset" ), false );
+         Common::Filepath( "RegistryProbe/Content/Shared.asset" ), false );
 
     // Asserted by TYPE CENSUS, and not by a null check on the returned pointer. The manager casts with
     // std::static_pointer_cast, so a registry that handed back the skybox record for the cloud type
@@ -1143,7 +1140,7 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
     // saved scene stores a bare 64-bit number with no type beside it.
     const ScratchFile impostor( "RegistryProbe/Content/Impostor.asset" );
     const auto        sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
-         AssetPriority::Medium, Common::Filepath( "RegistryProbe/Content/Impostor.asset" ) );
+         Common::Filepath( "RegistryProbe/Content/Impostor.asset" ) );
     ASSERT_NE( sky, nullptr );
 
     const Common::AssetHandle handle = sky->GetMetadata().Handle;
@@ -1182,7 +1179,7 @@ TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
     ASSERT_EQ( Desert::Assets::StaticMeshAsset::GetTypeID(), Desert::Assets::SkinnedMeshAsset::GetTypeID() );
 
     const auto staticMesh = manager.CreateAsset<Desert::Assets::StaticMeshAsset>(
-         AssetPriority::Medium, Common::Filepath( "RegistryProbe/Content/Rigged.stmesh" ), false );
+         Common::Filepath( "RegistryProbe/Content/Rigged.stmesh" ), false );
     ASSERT_NE( staticMesh, nullptr );
 
     const Common::AssetHandle handle = staticMesh->GetMetadata().Handle;
@@ -1338,7 +1335,7 @@ int main( int argc, char** argv )
     if ( argc >= 4 && std::strcmp( argv[1], kResolveFlag ) == 0 )
     {
         Desert::Assets::AssetManager manager;
-        manager.CreateAsset<Desert::Assets::SkyboxAsset>( AssetPriority::Medium, Common::Filepath( argv[2] ) );
+        manager.CreateAsset<Desert::Assets::SkyboxAsset>( Common::Filepath( argv[2] ) );
 
         const uint64_t wanted = std::strtoull( argv[3], nullptr, 10 );
         const auto     found  = manager.FindByHandle<Desert::Assets::SkyboxAsset>( Common::AssetHandle( wanted ) );
@@ -1367,7 +1364,7 @@ TEST( AssetHandleStability, ACloudTypeHandleIsHandleForGuidOfItsHeader )
     Desert::Assets::CloudTypeData data = Desert::Assets::CloudTypeDefault();
     ASSERT_TRUE( Desert::Assets::CloudTypeAsset::Save( first, data ) );
 
-    const Desert::Assets::CloudTypeAsset asset( Desert::Assets::AssetPriority{}, first );
+    const Desert::Assets::CloudTypeAsset asset( first );
     ASSERT_FALSE( asset.Guid().IsNull() ) << "the constructor did not read the header GUID";
     EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
                static_cast<uint64_t>( Common::Content::HandleForGuid( asset.Guid() ) ) );
@@ -1376,7 +1373,7 @@ TEST( AssetHandleStability, ACloudTypeHandleIsHandleForGuidOfItsHeader )
 
     const fs::path moved = dir / "Renamed.decloudtype";
     fs::copy_file( first, moved );
-    const Desert::Assets::CloudTypeAsset renamed( Desert::Assets::AssetPriority{}, moved );
+    const Desert::Assets::CloudTypeAsset renamed( moved );
     EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ),
                static_cast<uint64_t>( asset.GetMetadata().Handle ) )
          << "a rename changed the type's identity";
@@ -1397,7 +1394,7 @@ namespace
         ASSERT_FALSE( header.GetValue().Guid.IsNull() );
         const uint64_t byGuid = static_cast<uint64_t>( Common::Content::HandleForGuid( header.GetValue().Guid ) );
 
-        const AssetT asset( Desert::Assets::AssetPriority{}, file );
+        const AssetT asset( file );
         EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ), byGuid )
              << "the constructor did not adopt the header GUID";
         EXPECT_NE( static_cast<uint64_t>( asset.GetMetadata().Handle ),
@@ -1405,7 +1402,7 @@ namespace
 
         const std::filesystem::path moved = file.parent_path() / ( "Renamed" + file.extension().string() );
         std::filesystem::copy_file( file, moved, std::filesystem::copy_options::overwrite_existing );
-        const AssetT renamed( Desert::Assets::AssetPriority{}, moved );
+        const AssetT renamed( moved );
         EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ), byGuid )
              << "a rename changed the identity";
 
@@ -1505,7 +1502,7 @@ TEST( AssetHandleStability, ASkeletonHandleIsHandleForGuidOfItsHeader )
 {
     const auto file = CopyCorpusFile( "Editor/Cooked/Meshes/IKProbe.skeleton", "T7eSkeletonHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::SkeletonAsset>( file, Common::Content::ContentKind::Skeleton );
-    Desert::Assets::SkeletonAsset asset( Desert::Assets::AssetPriority{}, file );
+    Desert::Assets::SkeletonAsset asset( file );
     const auto                    loaded = asset.Load();
     EXPECT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
     std::filesystem::remove_all( file.parent_path() );
@@ -1522,7 +1519,7 @@ TEST( AssetHandleStability, ASkeletonWithNoHeaderIsRefusedByNameAndPointsAtTheMi
         std::ofstream out( file, std::ios::binary );
         out << R"({"Signature":0,"Bones":[]})";
     }
-    Desert::Assets::SkeletonAsset asset( Desert::Assets::AssetPriority{}, file );
+    Desert::Assets::SkeletonAsset asset( file );
     const auto                    loaded = asset.Load();
     ASSERT_FALSE( loaded.IsSuccess() );
     EXPECT_NE( loaded.GetError().find( "format version 0" ), std::string::npos ) << loaded.GetError();
@@ -1585,7 +1582,7 @@ namespace
     template <typename AssetT>
     std::unique_ptr<Desert::Assets::AssetBase> OpenAs( const std::filesystem::path& file )
     {
-        return std::make_unique<AssetT>( Desert::Assets::AssetPriority{}, file );
+        return std::make_unique<AssetT>( file );
     }
 
     // The migrated corpus files (suites run from the tree root), copied into the probe's own project.
@@ -1747,7 +1744,7 @@ TEST( ShaderAssetIdentity, TheHandleIsTheCommentHeadersGuidAndAHeaderlessShaderI
     const auto headed = dir / "Probe.shader";
     std::ofstream( headed, std::ios::binary )
          << CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) << body;
-    Desert::Assets::ShaderAsset asset( Desert::Assets::AssetPriority::Medium, headed );
+    Desert::Assets::ShaderAsset asset( headed );
     EXPECT_TRUE( asset.GetMetadata().Handle ==
                  Common::UUID( static_cast<uint64_t>( CC::HandleForGuid( guid ) ) ) );
     const auto loaded = asset.LoadFromFile();
@@ -1755,7 +1752,7 @@ TEST( ShaderAssetIdentity, TheHandleIsTheCommentHeadersGuidAndAHeaderlessShaderI
 
     const auto bare = dir / "Bare.shader";
     std::ofstream( bare, std::ios::binary ) << body;
-    Desert::Assets::ShaderAsset old( Desert::Assets::AssetPriority::Medium, bare );
+    Desert::Assets::ShaderAsset old( bare );
     const auto                  refused = old.LoadFromFile();
     ASSERT_TRUE( !refused );
     EXPECT_NE( refused.GetError().find( "Bare.shader" ), std::string::npos ) << refused.GetError();
@@ -1779,7 +1776,7 @@ TEST( ShaderAssetIdentity, AGraphRecompileKeepsTheShadersGuidAndAFirstCompileMin
     const auto minted = CC::ReadShaderHeader( first );
     ASSERT_FALSE( !minted ) << minted.GetError();
     std::ofstream( target, std::ios::binary ) << first;
-    Desert::Assets::ShaderAsset firstAsset( Desert::Assets::AssetPriority::Medium, target );
+    Desert::Assets::ShaderAsset firstAsset( target );
     const auto                  firstLoad = firstAsset.LoadFromFile();
     ASSERT_FALSE( !firstLoad ) << firstLoad.GetError();
 
@@ -1788,7 +1785,7 @@ TEST( ShaderAssetIdentity, AGraphRecompileKeepsTheShadersGuidAndAFirstCompileMin
     ASSERT_FALSE( !kept ) << kept.GetError();
     EXPECT_EQ( kept.GetValue().Guid, minted.GetValue().Guid );
     std::ofstream( target, std::ios::binary | std::ios::trunc ) << second;
-    Desert::Assets::ShaderAsset secondAsset( Desert::Assets::AssetPriority::Medium, target );
+    Desert::Assets::ShaderAsset secondAsset( target );
     EXPECT_TRUE( secondAsset.GetMetadata().Handle == firstAsset.GetMetadata().Handle );
     const auto secondLoad = secondAsset.LoadFromFile();
     ASSERT_FALSE( !secondLoad ) << secondLoad.GetError();
@@ -1861,7 +1858,7 @@ TEST( ShaderAssetIdentity, AShaderDeclaringAnotherNameThanItsFileIsRefusedByName
 {
     const auto dir  = std::filesystem::temp_directory_path() / "DesertShaderDeclaredName";
     const auto file = WriteHeadedShader( dir / "Bravo.shader", "Alpha", Common::Content::AssetGuid::Generate() );
-    Desert::Assets::ShaderAsset asset( Desert::Assets::AssetPriority::Medium, file );
+    Desert::Assets::ShaderAsset asset( file );
     const auto                  refused = asset.LoadFromFile();
     ASSERT_TRUE( !refused );
     EXPECT_NE( refused.GetError().find( "Bravo" ), std::string::npos ) << refused.GetError();
@@ -1881,7 +1878,7 @@ TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
     const auto          shaderFile = WriteHeadedShader( dir / "Moved" / "Unlit.shader", "Unlit", shaderGuid );
 
     Desert::Assets::AssetManager manager;
-    manager.CreateAsset<Desert::Assets::ShaderAsset>( AssetPriority::Medium, Common::Filepath( shaderFile ) );
+    manager.CreateAsset<Desert::Assets::ShaderAsset>( Common::Filepath( shaderFile ) );
 
     const auto materialAt = [&]( const char* name, const std::optional<CC::AssetGuid>& shader )
     {
@@ -1895,7 +1892,7 @@ TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
         return file;
     };
 
-    Desert::Assets::SurfaceMaterialAsset named( AssetPriority::Medium, materialAt( "named.demat", shaderGuid ) );
+    Desert::Assets::SurfaceMaterialAsset named( materialAt( "named.demat", shaderGuid ) );
     ASSERT_TRUE( named.Load().IsSuccess() );
     EXPECT_TRUE( named.GetShaderName().empty() ) << "resolved without a manager";
     named.ResolveDependencies( manager );
@@ -1903,13 +1900,12 @@ TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
     EXPECT_TRUE( named.UsesCustomShader() );
     EXPECT_EQ( Desert::Assets::SurfaceMaterialAsset::CreateWorkingCopy( named )->GetShaderName(), "Unlit" );
 
-    Desert::Assets::SurfaceMaterialAsset lost( AssetPriority::Medium,
-                                               materialAt( "lost.demat", CC::AssetGuid::Generate() ) );
+    Desert::Assets::SurfaceMaterialAsset lost( materialAt( "lost.demat", CC::AssetGuid::Generate() ) );
     ASSERT_TRUE( lost.Load().IsSuccess() );
     lost.ResolveDependencies( manager );
     EXPECT_TRUE( lost.GetShaderName().empty() ) << "an unknown GUID must not fall back to a shader by name";
 
-    Desert::Assets::SurfaceMaterialAsset plain( AssetPriority::Medium, materialAt( "plain.demat", std::nullopt ) );
+    Desert::Assets::SurfaceMaterialAsset plain( materialAt( "plain.demat", std::nullopt ) );
     ASSERT_TRUE( plain.Load().IsSuccess() );
     plain.ResolveDependencies( manager );
     EXPECT_EQ( plain.GetShaderName(), "StaticMeshPBR" );

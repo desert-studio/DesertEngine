@@ -28,7 +28,7 @@ namespace Desert::Assets
     class ShaderGraphAsset final : public AssetBase
     {
     public:
-        ShaderGraphAsset( AssetPriority priority, const Common::Filepath& filepath );
+        ShaderGraphAsset( const Common::Filepath& filepath );
 
         /// Reads and parses the file. Missing, empty or malformed is an ERROR carrying the reason — never
         /// a quietly substituted empty graph, which would open as a blank canvas over a file that has

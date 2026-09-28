@@ -50,7 +50,6 @@
 #include <string>
 
 using Desert::Assets::AssetManager;
-using Desert::Assets::AssetPriority;
 using Desert::Assets::SkeletonAsset;
 using Desert::Assets::SkinnedMeshAsset;
 
@@ -180,12 +179,12 @@ TEST( SkinnedMeshDependency, AShellBindsItsSkeletonOnceTheDeferredLoadRevealsThe
     const auto skeletonPath = files.WriteSkeleton();
     const auto meshPath     = files.WriteMesh( kProbeSignature );
 
-    auto skeleton = manager.CreateAsset<SkeletonAsset>( AssetPriority::Low, skeletonPath );
+    auto skeleton = manager.CreateAsset<SkeletonAsset>( skeletonPath );
     ASSERT_TRUE( skeleton );
     ASSERT_EQ( skeleton->GetSignature(), kProbeSignature );
 
     // Exactly what AssetPreloader does: register the mesh WITHOUT parsing it.
-    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, meshPath, /*loadAfterCreate=*/false );
+    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( meshPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
 
     // Before the parse the mesh cannot know which rig it wants, so it must be bound to none. This half of
@@ -209,18 +208,18 @@ TEST( SkinnedMeshDependency, TheEagerAndDeferredRoutesReachTheSameBinding )
     const ProbeFiles files( "routes" );
     AssetManager     manager;
 
-    auto skeleton = manager.CreateAsset<SkeletonAsset>( AssetPriority::Low, files.WriteSkeleton() );
+    auto skeleton = manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton() );
     ASSERT_TRUE( skeleton );
 
     // Two copies of one mesh at two paths, so the manager keeps them as two records.
     const auto eagerPath    = files.WriteMesh( kProbeSignature, "Eager" );
     const auto deferredPath = files.WriteMesh( kProbeSignature, "Deferred" );
 
-    auto eager = manager.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, eagerPath, /*loadAfterCreate=*/true );
+    auto eager = manager.CreateAsset<SkinnedMeshAsset>( eagerPath, /*loadAfterCreate=*/true );
     ASSERT_TRUE( eager );
 
     auto deferred =
-         manager.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, deferredPath, /*loadAfterCreate=*/false );
+         manager.CreateAsset<SkinnedMeshAsset>( deferredPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( deferred );
     ASSERT_TRUE( deferred->EnsureLoaded( manager ).IsSuccess() );
 
@@ -240,10 +239,10 @@ TEST( SkinnedMeshDependency, AnUnknownSignatureNeverMatchesAnUnreadSkeleton )
 
     // A skeleton record that exists but has not been read: its signature is 0, exactly like an unparsed
     // mesh shell's.
-    SkeletonAsset unreadSkeleton( AssetPriority::Low, Common::Filepath( files.WriteSkeleton() ) );
+    SkeletonAsset unreadSkeleton{ Common::Filepath( files.WriteSkeleton() ) };
     ASSERT_EQ( unreadSkeleton.GetSignature(), 0ull );
 
-    auto shell = manager.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, files.WriteMesh( kProbeSignature ),
+    auto shell = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSignature ),
                                                         /*loadAfterCreate=*/false );
     ASSERT_TRUE( shell );
     ASSERT_EQ( shell->GetSkeletonSignature(), 0ull );
@@ -259,9 +258,9 @@ TEST( SkinnedMeshDependency, ResolvingAgainstAManagerWithoutTheRigDropsTheBindin
     const ProbeFiles files( "drop" );
 
     AssetManager withRig;
-    ASSERT_TRUE( withRig.CreateAsset<SkeletonAsset>( AssetPriority::Low, files.WriteSkeleton() ) );
+    ASSERT_TRUE( withRig.CreateAsset<SkeletonAsset>( files.WriteSkeleton() ) );
 
-    auto mesh = withRig.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, files.WriteMesh( kProbeSignature ),
+    auto mesh = withRig.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSignature ),
                                                        /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->EnsureLoaded( withRig ).IsSuccess() );
@@ -280,10 +279,10 @@ TEST( SkinnedMeshDependency, TheDeferredLoadIsNotRepeatedOnEveryAsk )
     const ProbeFiles files( "once" );
     AssetManager     manager;
 
-    ASSERT_TRUE( manager.CreateAsset<SkeletonAsset>( AssetPriority::Low, files.WriteSkeleton() ) );
+    ASSERT_TRUE( manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton() ) );
 
     const auto meshPath = files.WriteMesh( kProbeSignature );
-    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, meshPath, /*loadAfterCreate=*/false );
+    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( meshPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     EXPECT_FALSE( mesh->IsReadyForUse() );
 
@@ -322,10 +321,10 @@ TEST( SkinnedMeshDependency, AMeshBindsItsRigWhetherOrNotTheRigsPayloadIsResiden
     const ProbeFiles files( "evicted" );
     AssetManager     manager;
 
-    auto skeleton = manager.CreateAsset<SkeletonAsset>( AssetPriority::Low, files.WriteSkeleton() );
+    auto skeleton = manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton() );
     ASSERT_TRUE( skeleton );
 
-    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( AssetPriority::Low, files.WriteMesh( kProbeSignature ),
+    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSignature ),
                                                        /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->EnsureLoaded( manager ).IsSuccess() );

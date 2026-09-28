@@ -21,7 +21,7 @@ namespace Desert::Assets
     class FoliageTypeAsset final : public AssetBase
     {
     public:
-        FoliageTypeAsset( AssetPriority priority, const Common::Filepath& filepath );
+        FoliageTypeAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

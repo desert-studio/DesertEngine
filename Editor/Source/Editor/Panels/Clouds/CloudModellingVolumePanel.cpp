@@ -248,8 +248,7 @@ namespace Desert::Editor
         if ( asset )
             asset->Load(); // overwritten in place: re-read so the cached bytes are the new ones
         else
-            asset = m_Assets->CreateAsset<Assets::CloudModellingVolumeAsset>( Assets::AssetPriority::Medium,
-                                                                              m_BakeTarget );
+            asset = m_Assets->CreateAsset<Assets::CloudModellingVolumeAsset>( m_BakeTarget );
 
         if ( !asset )
             return;

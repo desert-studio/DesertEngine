@@ -975,7 +975,7 @@ namespace Desert::Editor
                         {
                             prefabAsset =
                                  const_cast<Assets::AssetManager&>( *m_AssetManager )
-                                      .CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High, path );
+                                      .CreateAsset<Assets::PrefabAsset>( path );
                         }
                         if ( prefabAsset )
                         {
@@ -1088,7 +1088,7 @@ namespace Desert::Editor
                 auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( m_SavePrefabPath );
                 if ( !prefabAsset )
                     prefabAsset = m_AssetManager->CreateAsset<Assets::PrefabAsset>(
-                         Assets::AssetPriority::High, m_SavePrefabPath,
+                         m_SavePrefabPath,
                          /*loadAfterCreate=*/false ); // the file does not exist yet — we are creating it
 
                 if ( !prefabAsset )
@@ -1175,8 +1175,7 @@ namespace Desert::Editor
                     if ( !prefabAsset )
                     {
                         prefabAsset = const_cast<Assets::AssetManager&>( *m_AssetManager )
-                                           .CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High,
-                                                                              m_PrefabInstantiatePath );
+                                           .CreateAsset<Assets::PrefabAsset>( m_PrefabInstantiatePath );
                     }
                     if ( prefabAsset )
                     {

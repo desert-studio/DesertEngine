@@ -48,7 +48,7 @@ namespace Desert::Assets
                 return;
             for ( const std::filesystem::path& file : files->second )
             {
-                auto shell = manager->CreateAsset<StringTableAsset>( AssetPriority::High, file,
+                auto shell = manager->CreateAsset<StringTableAsset>( file,
                                                                      /*loadAfterCreate=*/false );
                 if ( !shell )
                 {

@@ -21,7 +21,7 @@ namespace Desert::Assets
     class LandscapeLayerInfoAsset final : public AssetBase
     {
     public:
-        LandscapeLayerInfoAsset( AssetPriority priority, const Common::Filepath& filepath );
+        LandscapeLayerInfoAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

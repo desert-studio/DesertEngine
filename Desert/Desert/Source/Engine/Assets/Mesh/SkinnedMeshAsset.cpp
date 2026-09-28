@@ -7,8 +7,8 @@
 
 namespace Desert::Assets
 {
-    SkinnedMeshAsset::SkinnedMeshAsset( const AssetPriority priority, const Common::Filepath& filepath )
-         : MeshAsset( priority, filepath, GetTypeID() )
+    SkinnedMeshAsset::SkinnedMeshAsset( const Common::Filepath& filepath )
+         : MeshAsset( filepath, GetTypeID() )
     {
         // The path-derived handle this type used to compute for itself (twice — here and again in Load)
         // now comes from AssetBase, which derives it the same way for every asset type. See the comment on
