@@ -1069,7 +1069,8 @@ namespace
          { "Editor/Source/Editor/Panels/Logs/LogsPanel.cpp",
            "a tail follower: the log only grows, so a missed tick is read with the next append" },
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp", "display and sort order only" },
-         { "Editor/Source/Editor/Core/CrashRecovery.cpp", "picks the newest autosave: ordering, not identity" },
+         { "Editor/Source/Editor/Core/AutosavePaths.hpp",
+           "ChooseRecovery picks the newest recovery copy: ordering, not identity; nothing caches by it" },
          { "Editor/Source/Editor/Import/Blend/BlendImporter.hpp", "blend-newer-than-fbx ordering, not identity" },
          { "Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
            "TH2: the stamp only matches decoded pixels to ThumbnailCache's request; the cache applies the racy "

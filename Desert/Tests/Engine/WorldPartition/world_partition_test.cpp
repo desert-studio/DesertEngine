@@ -218,13 +218,6 @@ namespace
         for ( auto it = std::filesystem::recursive_directory_iterator( root, ec );
               it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
         {
-            // Scenes/Autosave is .gitignore'd: the editor writes it on THIS machine only, so a census that
-            // walked it would pin numbers no clean clone can reproduce (it moved the corpus by 17 records).
-            if ( it->is_directory() && it->path().filename() == "Autosave" )
-            {
-                it.disable_recursion_pending();
-                continue;
-            }
             if ( it->is_regular_file() && it->path().extension() == ".desce" )
                 scenes.push_back( it->path() );
         }

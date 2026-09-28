@@ -18,20 +18,6 @@ project "Editor"
         "Source/**.hpp",
         "ThirdParty/ImGuizmo/ImGuizmo.cpp",
 
-        -- THE SCENE MIGRATOR'S OWN SOURCES, linked into the Editor and into nothing else.
-        --
-        -- The Editor is the only process that writes `Scenes/Autosave/`, and it is therefore the only
-        -- one that can convert it: the directory is gitignored, so it exists on the owner's machine and
-        -- in no worktree where a schema step is written, and a task that raises the schema cannot reach
-        -- it. CrashRecovery::MigrateAutosaves calls Migration::RunSceneMigrator over that one directory
-        -- at startup. `main.cpp` is deliberately NOT listed -- it defines the tool's main().
-        --
-        -- This does NOT put the old formats back into the engine. `Desert` and `Runtime` link none of
-        -- this; the engine's loader still refuses a scene that is not at Core::kSceneVersion, and a
-        -- packaged game never opens an autosave.
-        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SceneMigration.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/MigratorMain.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
     }
 
     includedirs {
@@ -40,8 +26,6 @@ project "Editor"
 
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
 
-        -- <MigratorMain.hpp> / the migrator's own includes of its siblings (see the files list above).
-        "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
     }
     externalincludedirs {
 

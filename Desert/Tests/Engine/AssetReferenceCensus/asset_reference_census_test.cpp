@@ -578,15 +578,6 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
             if ( extension != ".desce" && extension != ".deprefab" )
                 continue;
 
-            // `Scenes/Autosave/` is the editor's gitignored crash-recovery copy (.gitignore) — not content,
-            // never migrated, and present only on a machine that has run the editor. A sweep that descends
-            // into it passes in CI and fails on a developer's desk, which is the worst of both.
-            bool autosave = false;
-            for ( const auto& part : entry.path() )
-                autosave = autosave || part == "Autosave";
-            if ( autosave )
-                continue;
-
             const auto parsed = Common::Json::Parse( ReadAll( entry.path() ) );
             if ( !parsed )
                 continue; // parsing is SceneVersionGate's subject, not this one
@@ -707,12 +698,6 @@ TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone 
         {
             const auto extension = entry.path().extension();
             if ( !entry.is_regular_file() || ( extension != ".desce" && extension != ".deprefab" ) )
-                continue;
-            // The editor's gitignored crash-recovery copies are not content (see the census above).
-            bool autosave = false;
-            for ( const auto& part : entry.path() )
-                autosave = autosave || part == "Autosave";
-            if ( autosave )
                 continue;
             const auto parsed = Common::Json::Parse( ReadAll( entry.path() ) );
             if ( !parsed )
