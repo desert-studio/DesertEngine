@@ -455,10 +455,10 @@ int main( int argc, char** argv )
 
 // A WORLD LABEL IS DRAWN AT Size x ITS TRANSFORM SCALE, IN CENTIMETRES (PKG2c). The metre -> centimetre corpus
 // migration of 2026-08-18 (f12f85ccc) multiplied BOTH the Text's Size (0.8 -> 80) and its entity Scale (1 -> 100),
-// so Starter's "Desert Engine" was 80 m tall: from any Starter camera one glyph filled the view and read as a solid
-// white quad, in the editor and in every package, while every text test was green. Nothing about the text path
-// was wrong; the SIZE was, and only the corpus can say so. The bound is generous (a 10 m tall glyph is already a
-// building-sized sign) and exists to catch the hundredfold class, not to police style.
+// so Starter's "Desert Engine" was 80 m tall: from any Starter camera one glyph filled the view and read as a
+// solid white quad, in the editor and in every package, while every text test was green. Nothing about the text
+// path was wrong; the SIZE was, and only the corpus can say so. The bound is generous (a 10 m tall glyph is
+// already a building-sized sign) and exists to catch the hundredfold class, not to police style.
 TEST( LocalizedContentCensus, EveryWorldLabelIsDrawnAtAHumanScale )
 {
     const std::string root = RepoRoot();
