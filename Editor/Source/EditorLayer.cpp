@@ -1427,7 +1427,10 @@ namespace Desert::Editor
         // only if nothing in it integrates a number that came from a clock, and "the scene is deterministic
         // but the thing above it is not" is the kind of split that holds until the day something above it
         // starts feeding the scene. Outside `--play` this is `ts` itself, so no existing frame moves.
-        const Common::Timestep frameTs( ShotOptions::Get().FrameSeconds( ts.GetSeconds() ) );
+        //
+        // Held at zero under `--play` until the capture's count is armed (see ArmShotCount): the start-up
+        // frames before it are a machine- and load-dependent number, and none of them may move the world.
+        const Common::Timestep frameTs( ShotOptions::Get().FrameSeconds( ts.GetSeconds(), m_ShotArmed ) );
 
         // A scene handed over by a panel (dropped on the viewport, double-clicked in the asset browser).
         // It goes through the SAME deferred load as the menu — but a drag is easy to do by accident, so
@@ -1811,7 +1814,7 @@ namespace Desert::Editor
             RecordFlightFrame( !ContentSettling() );
 
         if ( auto& shot = ShotOptions::Get();
-             shot.Active() && !m_SceneLoadRequested && !StartupLoading() && !ContentSettling() )
+             shot.Active() && !m_SceneLoadRequested && !StartupLoading() && !ContentSettling() && ArmShotCount() )
         {
             ++m_ShotFrame;
 
@@ -7461,6 +7464,40 @@ namespace Desert::Editor
                            .count(),
                       m_BackgroundCookChanged, m_BackgroundCookFailed );
         }
+    }
+
+    bool EditorLayer::ArmShotCount()
+    {
+        if ( m_ShotArmed )
+            return true;
+
+        // THE FRAME COUNT STARTS ON A PICTURE THAT CAN BE THE SAME ON EVERY RUN. Before the reveal the
+        // viewport is still being laid out - 64x64, then the docked size, then the final one - and the
+        // first frames after each resize are black; a count that started there made every short capture
+        // the same black PNG. So: revealed, and the final image the same size as on the previous frame.
+        const auto     image  = m_MainScene ? m_MainScene->GetFinalImage() : nullptr;
+        const uint32_t width  = image ? image->GetWidth() : 0u;
+        const uint32_t height = image ? image->GetHeight() : 0u;
+        const bool     stable =
+             m_Revealed && width > 0u && height > 0u && width == m_ShotExtentW && height == m_ShotExtentH;
+        m_ShotExtentW = width;
+        m_ShotExtentH = height;
+        if ( !stable )
+            return false;
+
+        // This frame is the ARM frame and is not counted. What every view integrated over the start-up
+        // frames - frame indices, reprojected histories, exposure, particles - is cut here, so frame 1 of
+        // the count follows the same history on every run however many frames the start-up took.
+        m_ShotArmed = true;
+        for ( size_t view = 0; view < m_MainScene->GetViewCount(); ++view )
+        {
+            if ( auto* renderer = m_MainScene->GetViewRenderer( view ) )
+                renderer->ResetTemporalHistory();
+        }
+        LOG_INFO( "[Shot] count armed at {}x{}: temporal history reset on {} view(s); counting from the next "
+                  "frame",
+                  width, height, m_MainScene->GetViewCount() );
+        return false;
     }
 
     void EditorLayer::RevealWhenReady()

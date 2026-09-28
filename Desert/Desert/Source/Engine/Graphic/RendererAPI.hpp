@@ -6,6 +6,8 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <memory>
 
 namespace Desert::ShaderResources
 {
@@ -14,6 +16,12 @@ namespace Desert::ShaderResources
 
 namespace Desert::Graphic
 {
+    namespace RDG
+    {
+        class Builder;
+        class IPhysicalTexture;
+    } // namespace RDG
+
     enum class RendererAPIType : uint8_t
     {
         None   = 0,
@@ -52,7 +60,16 @@ namespace Desert::Graphic
         virtual void EndDebugLabel()
         {
         }
-        
+
+        // Records a frame graph into the frame's command buffer: the backend's barriers, render passes,
+        // labels and pass timings, and each pass's own recording, in the graph's order.
+        virtual Common::BoolResultStr ExecuteGraph( RDG::Builder& graph ) = 0;
+
+        // The graph's handle on an engine image that legacy passes render into and sample. Null when the
+        // image is not in SHADER_READ_ONLY, the layout Builder::AddLegacyPass assumes around every legacy
+        // pass: declaring it would make the graph issue barriers from a layout the image is not in.
+        virtual std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) = 0;
+
         // @p instanceCount > 1 issues a hardware-instanced draw (the instanced pipeline's vertex shader
         // reads the per-instance model matrix from an InstanceTransforms SSBO by gl_InstanceIndex).
         // @p firstInstance offsets gl_InstanceIndex (== firstInstance + 0..instanceCount-1), so several

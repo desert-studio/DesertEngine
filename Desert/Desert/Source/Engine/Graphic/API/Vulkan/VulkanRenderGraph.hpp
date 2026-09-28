@@ -312,6 +312,9 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::shared_ptr<VulkanRdgTexture>> m_Textures; // by resource index, this graph only
         std::vector<std::shared_ptr<VulkanRdgBuffer>>  m_Buffers;
         std::vector<int32_t>                           m_ProfilerScopes; // open scope per nesting level
+#if DESERT_DEV_INSTRUMENTS
+        std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> m_CpuScopes; // CPU row of the same pass
+#endif
         bool                                           m_RenderPassOpen = false;
         std::map<RdgRenderPassKey, VkRenderPass>       m_RenderPasses;
         std::vector<FramebufferEntry>                  m_Framebuffers;

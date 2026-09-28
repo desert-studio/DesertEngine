@@ -47,13 +47,25 @@ namespace Desert::Graphic::System
         // may still be being read by the last submitted frame, and this engine has no deferred-free queue.
         void OnSceneReplaced() override;
 
+        // Camera cut - see IRenderSystem::OnTemporalHistoryReset. Every cached emitter's state is zeroed
+        // (the same in-place clear as the editor's Restart: the buffer may still be read by the frame in
+        // flight, so it is rewritten, never dropped), spawn carries go to zero and the simulated time - the
+        // shader's noise seed - starts again at zero. The next frame simulates from the authored state.
+        void OnTemporalHistoryReset() override;
+
         // CPU snapshot of the scene's emitters (params, world position, per-frame spawn budget, zeroed spawn
         // counters). Call once per frame in BeginScene.
         void PrepareFrame( const ::Desert::Core::Scene& scene );
 
         // Record the per-emitter compute dispatches. Call in OnUpdate, outside any render pass, BEFORE the
         // render graph records the billboard draw.
-        void SimulateInFrame();
+        //
+        // @p frameSeconds is the FRAME'S timestep (SceneRenderer::UpdateInfo::Timestep) and the only time
+        // this system integrates: the spawn budget, the shader's dt and its seed (the accumulated simulated
+        // time) all come from it. Outside a `--play` capture that is the measured wall-clock step, so the
+        // editor sees what it always saw; under one it is the fixed step, so two runs simulate alike. This
+        // system reads no clock of its own - the ParticleTimestep suite holds it to that.
+        void SimulateInFrame( float frameSeconds );
 
     private:
         // Push constant for ParticleSimulate (must match the shader's 128-byte block).
@@ -91,11 +103,16 @@ namespace Desert::Graphic::System
         {
             EmitterGpu* Gpu = nullptr;
             SimPush     Push;
-            bool        Additive = true;
+            bool        Additive  = true;
+            float       SpawnRate = 0.0f; // particles/s; turned into this frame's budget by SimulateInFrame
+            bool        Looping   = true;
         };
 
         bool        CreatePipelines();
         EmitterGpu& GetOrCreate( uint32_t entityId, int maxParticles );
+        // Rewrites @p gpu's particle state with zeros in place and drops its spawn carry. The failure is
+        // returned for the caller to report, since only the caller knows why it asked.
+        static Common::BoolResultStr ClearEmitterState( EmitterGpu& gpu );
 
         std::shared_ptr<ComputePipeline>  m_SimPipeline;
         std::shared_ptr<GraphicsPipeline> m_AddPipeline;   // additive blend
@@ -103,6 +120,8 @@ namespace Desert::Graphic::System
 
         std::unordered_map<uint32_t, EmitterGpu> m_Emitters;
         std::vector<FrameEmitter>                m_FrameEmitters;
-        double                                   m_LastTime = 0.0;
+        // Simulated seconds since the last OnTemporalHistoryReset: the sum of the frames' timesteps. The
+        // shader's per-frame seed (Push.Gravity.w).
+        double m_SimSeconds = 0.0;
     };
 } // namespace Desert::Graphic::System

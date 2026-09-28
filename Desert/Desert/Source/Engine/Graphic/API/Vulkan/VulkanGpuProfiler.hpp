@@ -109,6 +109,8 @@ namespace Desert::Graphic::API::Vulkan
 
         /// Scratch for vkGetQueryPoolResults: {value, availability} per query, reused every frame.
         std::vector<uint64_t> m_ResultScratch;
+        // The last pass-order trace Resolve logged (see there); a new line only when the order changes.
+        std::string m_LastLoggedOrder;
         /// Per-scope working values during Resolve. Members rather than locals so their capacity survives
         /// between frames instead of being rebuilt from nothing every time. -1 in m_Inclusive marks a
         /// scope whose two queries did not both land.

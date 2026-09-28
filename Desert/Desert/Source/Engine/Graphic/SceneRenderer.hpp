@@ -62,6 +62,12 @@ namespace Desert::Core
 
 namespace Desert::Graphic
 {
+    namespace RDG
+    {
+        class Builder;
+    }
+    class LegacyFrameTextures;
+
     class SceneRenderer final
     {
     public:
@@ -165,6 +171,14 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr EndScene();
 
         void Resize( const uint32_t width, const uint32_t height );
+
+        // CAMERA CUT: the next frame this view renders starts a new temporal sequence in the SAME world.
+        // Every render system gets IRenderSystem::OnTemporalHistoryReset (frame indices to zero, histories
+        // invalid, exposure snaps, particle simulation restarts). Nothing is released and no pass is added,
+        // so it is legal between any two frames. Not tied to any one caller: the headless capture calls it
+        // when its frame count starts, a camera cut or a teleport asks for the same thing.
+        void ResetTemporalHistory();
+
         [[nodiscard]] const ViewExtent& GetViewExtent() const
         {
             return m_ViewExtent;
@@ -479,18 +493,12 @@ namespace Desert::Graphic
         void RebindScene();
 
         void ClearMainFramebuffer();
-        void ExecuteRenderGraph();
-        // Debug-phase passes (bounding boxes, colliders) drawn as a LOAD overlay AFTER the deferred
-        // lighting composite — in Deferred the composite would otherwise paint lit meshes over any
-        // debug lines recorded earlier in the graph, hiding them wherever geometry is present.
-        void ExecuteDebugOverlay();
-        // Transparency-phase passes (GPU particles, ...) drawn as a LOAD overlay AFTER the deferred
-        // lighting composite, for the exact same reason as ExecuteDebugOverlay: recorded inside the
-        // graph they land on the target BEFORE the composite and get painted over wherever geometry
-        // exists (visible against sky, gone against the ground — the particle "top-down" bug).
-        void ExecuteTransparency();
+        // Adds the sorted registered passes whose phase @p selects accepts, one legacy pass each, in sort
+        // order; consecutive passes on one framebuffer share one render pass (CLEAR iff @p clearFirst).
+        void AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                  bool ( *selects )( RenderPhaseID ), bool  clearFirst );
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
-        // and ExecuteTransparency() — the one point in the frame where the scene depth is finished in
+        // and the Transparency-phase passes — the one point in the frame where the scene depth is finished in
         // BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its apply
         // is a graph pass in Transparency at RenderPassOrder::AtmosphericFog, BELOW the particles, so
         // they composite over the fogged scene. When Sky Phase 3 lands, this pass composes fog OVER the
@@ -508,11 +516,6 @@ namespace Desert::Graphic
         // depends on nothing the frame produces — no scene depth, no G-buffer, no atmosphere LUT — so
         // nothing forces it later, and its consumer forces it earlier.
         void ExecuteCloudShadowMap();
-        // UI-phase passes (the Render2D canvas) drawn as a LOAD overlay AFTER the deferred lighting
-        // composite — same reason as ExecuteTransparency/ExecuteDebugOverlay: recorded inside the graph
-        // they land on the target BEFORE the composite (painted over) AND a CLEAR begin would wipe the
-        // depth the grid/overlays load afterwards. Runs on top of the finished scene.
-        void ExecuteUI();
 
     private:
         struct

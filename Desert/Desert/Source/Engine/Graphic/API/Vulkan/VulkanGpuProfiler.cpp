@@ -268,6 +268,25 @@ namespace Desert::Graphic::API::Vulkan
         frame.FrameTotalWritten = false;
 
         const std::vector<GpuScopeRecorder::Scope>& scopes = frame.Recorder.Scopes();
+
+        // PASS ORDER TRACE: the frame's timed scopes in recording order, one '>' per nesting level, logged
+        // whenever the sequence changes. It is how a change to the way the frame is recorded proves it kept
+        // the pass order: two builds on one scene must print the same line.
+        {
+            std::string order;
+            for ( const GpuScopeRecorder::Scope& scope : scopes )
+            {
+                for ( int32_t parent = scope.Parent; parent != kGpuNoParent; parent = scopes[parent].Parent )
+                    order += '>';
+                order += scope.Name;
+                order += '|';
+            }
+            if ( order != m_LastLoggedOrder )
+            {
+                LOG_INFO( "[GpuOrder] {}", order );
+                m_LastLoggedOrder = std::move( order );
+            }
+        }
         const uint32_t queryCount = GpuQueriesForScopes( static_cast<uint32_t>( scopes.size() ) );
         m_ResultScratch.assign( static_cast<size_t>( queryCount ) * kWordsPerQuery, 0ull );
 

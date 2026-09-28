@@ -668,6 +668,9 @@ namespace Desert::Graphic::API::Vulkan
             label.pLabelName = pass.Name.c_str();
             m_Device.CmdBeginLabel( m_CommandBuffer, &label );
         }
+#if DESERT_DEV_INSTRUMENTS
+        m_CpuScopes.push_back( std::make_unique<Common::Profiling::ScopedTimer>( pass.Name.c_str() ) );
+#endif
         m_ProfilerScopes.push_back(
              m_Device.Profiler != nullptr ? m_Device.Profiler->BeginScope( pass.Name.c_str() ) : -1 );
     }
@@ -679,6 +682,10 @@ namespace Desert::Graphic::API::Vulkan
             if ( m_Device.Profiler != nullptr )
                 m_Device.Profiler->EndScope( m_ProfilerScopes.back() );
             m_ProfilerScopes.pop_back();
+#if DESERT_DEV_INSTRUMENTS
+            if ( !m_CpuScopes.empty() )
+                m_CpuScopes.pop_back();
+#endif
         }
         if ( m_Device.CmdEndLabel != nullptr )
             m_Device.CmdEndLabel( m_CommandBuffer );

@@ -109,6 +109,15 @@ namespace Desert::Graphic::System
             m_HistoryValid = false;
         }
 
+        // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
+        // and the history ping-pong parity, so it restarts with the history rather than carrying the count
+        // of whatever frames came before the cut.
+        void OnTemporalHistoryReset() override
+        {
+            m_FrameIndex   = 0;
+            m_HistoryValid = false;
+        }
+
         // gbuffer = the camera G-buffer (albedo/normal/worldpos at 0/1/2); sceneColor = snapshot of the lit
         // opaque scene; viewProj/cameraPos = the camera; maxDistance and thickness are WORLD distances,
         // and a world unit is a centimetre - callers passing literature values convert through Common::Units.

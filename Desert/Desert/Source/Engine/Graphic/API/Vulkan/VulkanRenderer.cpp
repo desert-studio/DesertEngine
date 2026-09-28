@@ -1,5 +1,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Common/Core/Profiler.hpp>
 
@@ -718,6 +719,50 @@ namespace Desert::Graphic::API::Vulkan
              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
              VK_ACCESS_SHADER_READ_BIT,
              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::ExecuteGraph( RDG::Builder& graph )
+    {
+        if ( !IsRecording() )
+            return Common::MakeError( "No active command buffer" );
+
+        if ( !m_RdgBackend )
+        {
+            m_RdgDevice.Device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                      ->GetVulkanLogicalDevice();
+            m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
+            m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
+            m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
+            m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice,
+                                                                         EngineContext::GetInstance().GetMaxFramesInFlight() );
+            m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
+        }
+        // The sink the profiler holds now: GPU timing can be switched on and off between frames.
+#if DESERT_DEV_INSTRUMENTS
+        m_RdgDevice.Profiler = ::Common::Profiling::Profiler::Get().GetGpuSink();
+#endif
+        m_RdgPool->BeginFrame( EngineContext::GetInstance().GetCurrentFrameIndex() );
+        m_RdgBackend->SetCommandBuffer( m_CurrentCommandBuffer );
+        return graph.Execute( *m_RdgBackend );
+    }
+
+    std::shared_ptr<RDG::IPhysicalTexture> VulkanRendererAPI::WrapLegacyImage( Image2D& image )
+    {
+        const auto* vulkanImage = dynamic_cast<const VulkanImage2D*>( &image );
+        if ( vulkanImage == nullptr )
+            return nullptr;
+        const VulkanImageResource& resource = vulkanImage->GetResource();
+        if ( resource.Image == VK_NULL_HANDLE || resource.Layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL )
+            return nullptr;
+
+        RDG::TextureDesc desc;
+        desc.Size   = { image.GetWidth(), image.GetHeight(), 1 };
+        desc.Format = image.GetImageSpecification().Format;
+        desc.Mips   = resource.MipLevels;
+        desc.Layers = resource.LayerCount;
+        const VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        return VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc );
     }
 
     void VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )
