@@ -488,7 +488,10 @@ TEST( LocalizedContentCensus, EveryWorldLabelIsDrawnAtAHumanScale )
                      if ( !text.has_value() || text->GetKind() != Common::Json::Kind::Object )
                          return;
                      const auto size = text->Find( "Size" );
-                     if ( !size.has_value() || !size->AsNumber() )
+                     if ( !size.has_value() )
+                         return;
+                     const auto sizeCm = size->AsNumber();
+                     if ( !sizeCm )
                          return;
                      double scale = 1.0;
                      if ( const auto s = entity.Find( "Scale" ); s.has_value() )
@@ -499,10 +502,10 @@ TEST( LocalizedContentCensus, EveryWorldLabelIsDrawnAtAHumanScale )
                                       scale = std::max( scale, std::abs( v.GetValue() ) );
                               } );
                      ++labels;
-                     const double glyphCm = size->AsNumber().GetValue() * scale;
+                     const double glyphCm = sizeCm.GetValue() * scale;
                      EXPECT_LE( glyphCm, kTallestGlyphCm )
                           << entry.path().filename().string() << ": a world label is " << glyphCm / 100.0
-                          << " m tall (Size " << size->AsNumber().GetValue() << " x Scale " << scale
+                          << " m tall (Size " << sizeCm.GetValue() << " x Scale " << scale
                           << ") - Size is already centimetres, so the entity Scale almost certainly carries a "
                              "second metre->centimetre factor";
                  } );
