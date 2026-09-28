@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "4889e7696edd99f42725d628298f20d3",
         "Versions": {
-            "SCNE": 37,
+            "SCNE": 38,
             "UNIT": 1
         },
         "Dependencies": []
@@ -37,11 +37,7 @@
                 "SpacingCm": 3.9215686321258545,
                 "ZScale": 3.515625
             },
-            "LandscapeMaterial": {
-                "GrassMode": 0,
-                "RockMode": 0,
-                "SnowMode": 1
-            }
+            "LandscapeMaterial": {}
         },
         {
             "id": 926102,
@@ -55,11 +51,7 @@
                 "SpacingCm": 3.9215686321258545,
                 "ZScale": 3.515625
             },
-            "LandscapeMaterial": {
-                "GrassMode": 0,
-                "RockMode": 1,
-                "SnowMode": 1
-            }
+            "LandscapeMaterial": {}
         },
         {
             "id": 216185395719206479,

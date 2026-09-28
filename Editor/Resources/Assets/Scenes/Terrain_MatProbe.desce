@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "588ea69bc9d0cce516b7f46047dd2a1e",
         "Versions": {
-            "SCNE": 37,
+            "SCNE": 38,
             "UNIT": 1
         },
         "Dependencies": []
@@ -60,8 +60,7 @@
                 "ZScale": 1.5625
             },
             "LandscapeMaterial": {
-                "Material": "Materials/M_TerrainProbe.demat",
-                "GrassMode": 1
+                "Material": "Materials/M_TerrainProbe.demat"
             }
         },
         {
