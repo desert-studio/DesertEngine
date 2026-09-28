@@ -264,12 +264,13 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::DrawGenericMeshes( bool useLoadPass )
     {
-        if ( m_GenericQueue.empty() )
-            return;
-
         const auto  targetFb = m_TargetFramebuffer.lock();
         const auto* camera   = m_SceneRenderer->GetMainCamera();
         if ( !targetFb || !camera )
+            return;
+
+        PrecacheRequestedMaterials( targetFb, useLoadPass );
+        if ( m_GenericQueue.empty() )
             return;
 
         // THE SAME per-frame scene snapshot the PBR queue is drawn with — camera, lights, cascades, the
@@ -285,12 +286,6 @@ namespace Desert::Graphic::System
         const PBRSceneFrame frameState = CaptureFrameState( camera );
 
         const Core::Frustum frustum = camera->GetFrustum();
-
-        const VertexBufferLayout meshLayout = { { Graphic::ShaderDataType::Float3, "a_Position" },
-                                                { Graphic::ShaderDataType::Float3, "a_Normal" },
-                                                { Graphic::ShaderDataType::Float3, "a_Tangent" },
-                                                { Graphic::ShaderDataType::Float3, "a_Bitangent" },
-                                                { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
 
         // Reused across frames like every other accumulator in this file — this runs once per frame per
         // submesh group, and two fresh vectors a frame is the allocation churn the optimization workflow
@@ -416,25 +411,47 @@ namespace Desert::Graphic::System
                 material = shared.get();
             }
 
-            GraphicsPipelineSpecification spec;
-            spec.DebugName   = "GenericMesh_" + shaderName;
-            spec.Shader      = shader;
-            spec.Framebuffer       = targetFb;
-            spec.Layout            = meshLayout;
-            spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD
-            ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
             // NAMED ONCE PER SHADER, for the reason the domain refusal above gives: this runs per frame
             // per submesh group. The cache remembers the refusal itself, so the rebuild happens once;
             // this set is only about the log line.
-            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
-            if ( !built )
+            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial(
+                 GenericPipelineSpec( shader, targetFb, useLoadPass ) );
+            if ( built )
             {
+                TrackMaterialPipeline( shaderName, *built.GetValue() );
+            }
+            else
+            {
+                m_MaterialPipelines.OnFailed( shaderName );
                 static std::unordered_set<std::string> s_RefusedPipelines;
                 if ( s_RefusedPipelines.insert( shaderName ).second )
-                    LOG_ERROR( "[MeshRenderer] this submesh is not drawn: {}", built.GetError() );
-                continue;
+                    LOG_ERROR( "[MeshRenderer] material '{}' has no pipeline, its meshes draw the default "
+                               "surface: {}",
+                               shaderName, built.GetError() );
             }
-            const auto& pipeline = built.GetValue();
+
+            // UE's default material while a PSO compiles (AL1-12): never a stall, never a silent gap. The
+            // stand-in's own pipeline is an engine one the reveal waited for, so it is Ready by the first
+            // shown frame; before that nothing is shown, which is the only case this draw is dropped.
+            std::shared_ptr<GraphicsPipeline> pipeline;
+            const auto                        choice = m_MaterialPipelines.Choose( shaderName );
+            if ( choice.UseOwnPipeline )
+            {
+                pipeline = built.GetValue();
+            }
+            else
+            {
+                if ( choice.Announce )
+                    LOG_INFO( "[MeshRenderer] material '{}' draws the default surface until its pipeline is "
+                              "ready (pipeline {})",
+                              shaderName,
+                              MaterialPipelineStateName( *m_MaterialPipelines.StateOf( shaderName ) ) );
+                pipeline = DefaultSurfacePipeline( targetFb, useLoadPass );
+                if ( !pipeline || pipeline->GetReadiness() != PipelineReadiness::Ready )
+                    continue;
+                material = m_DefaultSurfaceMaterial.get();
+            }
+            const bool standIn = !choice.UseOwnPipeline;
 
             // ── This draw's ROW ─────────────────────────────────────────────────────────────────────
             //
@@ -447,7 +464,7 @@ namespace Desert::Graphic::System
             // the whole change: the block WAS the parameters, so the last draw to write it decided the
             // colours of every draw recorded before it, and three spheres differing only in a graph
             // parameter rendered as one (MAT_ProbeSharedBlock.desce).
-            if ( !g.SlotMaterial )
+            if ( !g.SlotMaterial && !standIn )
             {
                 material->ApplyDefaults();
                 for ( const auto& [name, value] : g.Overrides.Params )
@@ -632,13 +649,93 @@ namespace Desert::Graphic::System
         renderer.EndRenderPass();
     }
 
+    GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>&      shader,
+                                                                     const std::shared_ptr<Framebuffer>& target,
+                                                                     const bool useLoadPass ) const
+    {
+        GraphicsPipelineSpecification spec;
+        spec.DebugName         = "GenericMesh_" + shader->GetName();
+        spec.Shader            = shader;
+        spec.Framebuffer       = target;
+        spec.Layout            = VertexBufferLayout{ { Graphic::ShaderDataType::Float3, "a_Position" },
+                                                     { Graphic::ShaderDataType::Float3, "a_Normal" },
+                                                     { Graphic::ShaderDataType::Float3, "a_Tangent" },
+                                                     { Graphic::ShaderDataType::Float3, "a_Bitangent" },
+                                                     { Graphic::ShaderDataType::Float2, "a_TextureCoord" } };
+        spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD
+        ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+        return spec;
+    }
+
+    void MeshRenderer::TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline )
+    {
+        switch ( pipeline.GetReadiness() )
+        {
+            case PipelineReadiness::Compiling: m_MaterialPipelines.OnCompiling( shaderName ); break;
+            case PipelineReadiness::Ready:     m_MaterialPipelines.OnReady( shaderName ); break;
+            case PipelineReadiness::Failed:    m_MaterialPipelines.OnFailed( shaderName ); break;
+        }
+    }
+
+    // Every frame, before the queue is looked at: the stand-in is an ENGINE pipeline, requested with the first
+    // frame whatever the scene holds, so the reveal waits for it; then every material that LOADED since the
+    // last frame gets its compile handed to a worker here, before any mesh using it is drawn.
+    void MeshRenderer::PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target, const bool useLoadPass )
+    {
+        (void)DefaultSurfacePipeline( target, useLoadPass );
+        for ( const auto& name : MaterialPipelineRequests::Get().Since( m_MaterialRequestCursor ) )
+        {
+            m_MaterialPipelines.Request( name );
+            // A shader that is missing or did not compile is refused, by name, where its meshes are drawn.
+            auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( name );
+            if ( !shader || !shader->IsCompiled() )
+                continue;
+            const auto built =
+                 m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( GenericPipelineSpec( shader, target, useLoadPass ) );
+            if ( built )
+                TrackMaterialPipeline( name, *built.GetValue() );
+            else
+                m_MaterialPipelines.OnFailed( name );
+        }
+    }
+
+    std::shared_ptr<GraphicsPipeline> MeshRenderer::DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target,
+                                                                            const bool useLoadPass )
+    {
+        static constexpr const char* kDefaultSurface = "DefaultSurface";
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( kDefaultSurface );
+        if ( !shader || !shader->IsCompiled() )
+        {
+            static bool s_Warned = false;
+            if ( !std::exchange( s_Warned, true ) )
+                LOG_ERROR( "[MeshRenderer] the engine shader '{}' (Shaders/Programs/PBR/DefaultSurface.shader) is "
+                           "missing or did not compile: a material whose pipeline is not ready yet is not drawn",
+                           kDefaultSurface );
+            return nullptr;
+        }
+        const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreate( GenericPipelineSpec( shader, target, useLoadPass ) );
+        if ( !built )
+        {
+            static bool s_Refused = false;
+            if ( !std::exchange( s_Refused, true ) )
+                LOG_ERROR( "[MeshRenderer] the default surface has no pipeline: {}", built.GetError() );
+            return nullptr;
+        }
+        if ( !m_DefaultSurfaceMaterial )
+            m_DefaultSurfaceMaterial = std::make_unique<DataDrivenMaterial>( kDefaultSurface );
+        return built.GetValue();
+    }
+
     void MeshRenderer::RenderGenericManual()
     {
-        if ( m_GenericQueue.empty() )
-            return;
         const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         if ( !target || !m_SceneRenderer->GetMainCamera() )
             return;
+        if ( m_GenericQueue.empty() )
+        {
+            PrecacheRequestedMaterials( target, /*useLoadPass*/ true );
+            return;
+        }
 
         auto& renderer = Renderer::GetInstance();
 
