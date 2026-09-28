@@ -27,9 +27,11 @@
 #include <Common/Json/Json.hpp>
 #include <Editor/Core/Control/ControlProtocol.hpp>
 #include <Editor/Core/Control/ControlState.hpp>
+#include <Editor/Core/Selection/SelectionTransformProperties.hpp>
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -667,6 +669,53 @@ TEST( ControlProtocol, TheQuiescenceSectionNamesOutstandingWorkInTheSameWordsARe
 
     EXPECT_FALSE( BoolField( section, "settled", true ) );
     EXPECT_EQ( StringField( section, "outstanding" ), EditorQuiescence( snapshot.Quiescence ).Describe() );
+}
+
+// THE `selection` SUBJECT (WP16c): `--subject selection set Translation x,y,z` is how a script moves the
+// selected entity. The wire carries it like every other subject, and the write is the TransformComponent's
+// own three fields in their own units - EditorLayer applies the result and records it as one undo step.
+TEST( ControlProtocol, ASelectionSetParsesAndWritesTheNamedTransformFieldAlone )
+{
+    const Request request =
+         ParseOk( R"({"id":1,"op":"set","subject":"selection","property":"Translation","value":[2000,0,-50]})" );
+    EXPECT_EQ( request.Whose, Subject::Selection );
+
+    using namespace Desert::Editor::Core;
+    SelectionTransform before;
+    before.Translation = { 100.0f, 0.0f, 300.0f };
+    before.Rotation    = { 0.0f, 1.5f, 0.0f };
+    before.Scale       = { 2.0f, 3.0f, 4.0f };
+    const auto after   = WriteSelectionTransform( before, request.Property, request.Value );
+    ASSERT_TRUE( after ) << after.GetError();
+    EXPECT_EQ( after.GetValue().Translation, glm::vec3( 2000.0f, 0.0f, -50.0f ) );
+    EXPECT_EQ( after.GetValue().Rotation, before.Rotation );
+    EXPECT_EQ( after.GetValue().Scale, before.Scale );
+
+    const auto rotated = WriteSelectionTransform( before, kSelectionRotation, { 0.0f, 0.5f, 0.0f } );
+    ASSERT_TRUE( rotated );
+    EXPECT_EQ( rotated.GetValue().Rotation, glm::vec3( 0.0f, 0.5f, 0.0f ) );
+    EXPECT_EQ( rotated.GetValue().Translation, before.Translation );
+
+    // What `properties` answers: the three rows, by the names `set` takes, holding the current values.
+    const auto rows = DescribeSelectionTransform( before );
+    ASSERT_EQ( rows.size(), 3u );
+    EXPECT_EQ( rows[0].Name, kSelectionTranslation );
+    EXPECT_EQ( rows[2].Name, kSelectionScale );
+    EXPECT_FLOAT_EQ( rows[2].Value[1], 3.0f );
+}
+
+TEST( ControlProtocol, ASelectionWriteRefusesAnUnknownFieldAWrongCountAndANaN )
+{
+    using namespace Desert::Editor::Core;
+    const SelectionTransform before;
+
+    const auto unknown = WriteSelectionTransform( before, "Position", { 1.0f, 2.0f, 3.0f } );
+    ASSERT_FALSE( unknown );
+    EXPECT_NE( unknown.GetError().find( "Position" ), std::string::npos );
+    EXPECT_NE( unknown.GetError().find( kSelectionTranslation ), std::string::npos );
+
+    EXPECT_FALSE( WriteSelectionTransform( before, kSelectionTranslation, { 1.0f, 2.0f } ) );
+    EXPECT_FALSE( WriteSelectionTransform( before, kSelectionScale, { 1.0f, std::nanf( "" ), 1.0f } ) );
 }
 
 int main( int argc, char** argv )

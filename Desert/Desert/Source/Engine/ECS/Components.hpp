@@ -32,6 +32,7 @@
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
+#include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
@@ -230,44 +231,29 @@ namespace Desert::ECS
         std::shared_ptr<const std::vector<glm::mat4>> RuntimeInstanceSnapshot;
     };
 
-    // A FOLIAGE type (UE5-style). Sits alongside an InstancedStaticMeshComponent (the mesh + per-instance
-    // WORLD transforms, drawn instanced). The Foliage paint tool scatters instances of this type onto surfaces
-    // (raycast brush). These are the per-type scatter params.
+    // A FOLIAGE FIELD (UE: one FFoliageInfo of an AInstancedFoliageActor). Sits beside an
+    // InstancedStaticMeshComponent that holds the painted instances; WHAT is painted — the mesh and the scatter
+    // numbers — is the `.defoliage` named here (Assets::FoliageTypeAsset), shared by every field painted with
+    // the same type. Saved as {FoliageTypeGuid, FoliageTypePath}; a type the project does not have refuses the
+    // scene's load with both (ComponentRegistry.cpp) instead of painting with defaults.
     struct FoliageComponent
     {
-        float Density       = 6.0f; // instances scattered per paint dab (in the brush disk)
-        float ScaleMin      = 0.8f;
-        float ScaleMax      = 1.3f;
-        float ZOffsetMin    = 0.0f; // sink(-)/raise(+) along world up, randomized per instance
-        float ZOffsetMax    = 0.0f;
-        float MaxPitchDeg   = 0.0f; // random tilt off the up/normal axis (0 = upright)
-        float SlopeMinDeg   = 0.0f; // only paint where the surface slope is within [min,max] degrees
-        float SlopeMaxDeg   = 90.0f;
-        bool  AlignToNormal = true; // tilt instances to the surface normal
-        bool  RandomYaw     = true; // random rotation about the up axis
-    };
-
-    // A landscape surface layer's switch. Auto = weighted by the Terrain program's height/slope rules;
-    // Off = the layer is not drawn. Reflected -> combo in the editor. There is no painted mode: weight
-    // painting is the landscape's own layer work (LS-14), not a runtime-only splat nobody saves.
-    enum class LandscapeLayerMode
-    {
-        Auto,
-        Off
+        Assets::AssetHandle FoliageType;
     };
 
     // HOW A LANDSCAPE LOOKS (UE: ALandscape::LandscapeMaterial), on the root entity beside its
     // LandscapeComponent. Apart from the frame because the frame is authored as raw numbers
-    // (MakeAuthored) and this is reflected: an asset handle and three combos the Details panel builds.
+    // (MakeAuthored) and this is reflected: one asset handle the Details panel builds.
     struct LandscapeMaterialData
     {
         REFLECT()
 
         // The landscape's material, a `.demat` of domain Terrain like every other material — the surface
-        // is drawn by ONE program, and its three layers (u_GrassTex/u_RockTex/u_SnowTex) are TEXTURE
-        // PARAMETERS of that one program, blended in-shader by the layer modes below. So this is one handle
-        // and not a slot vector: a vector would promise a material per layer, and nothing downstream could
-        // consume one. Unset = the shader's own schema defaults.
+        // is drawn by ONE program whose parameters (Tint) this material sets. The ground's layers are the
+        // root's painted layer infos (LandscapeComponent::Layers), never built-in ones: where nothing is
+        // painted the first layer shows, as UE's landscape does. One handle and not a slot vector: a vector
+        // would promise a material per layer, and nothing downstream could consume one. Unset = the
+        // shader's own schema defaults.
         //
         // Read by Engine/ECS/System/LandscapeECSSystem.cpp, which resolves it through
         // Runtime::MaterialService and forwards the values as named overrides on every tile of the root.
@@ -277,15 +263,6 @@ namespace Desert::ECS
         // Editor window. Still serialized; Hidden is editor-only.
         PROPERTY( DisplayName( "Material" ), Category( "Landscape" ), Asset<MaterialAsset>, Hidden )
         Assets::AssetHandle Material;
-
-        PROPERTY( DisplayName( "Grass Layer" ), Category( "Landscape Layers" ) )
-        LandscapeLayerMode GrassMode = LandscapeLayerMode::Auto;
-
-        PROPERTY( DisplayName( "Rock Layer" ), Category( "Landscape Layers" ) )
-        LandscapeLayerMode RockMode = LandscapeLayerMode::Auto;
-
-        PROPERTY( DisplayName( "Snow Layer" ), Category( "Landscape Layers" ) )
-        LandscapeLayerMode SnowMode = LandscapeLayerMode::Auto;
     };
 
     struct LandscapeMaterialComponent
@@ -302,25 +279,15 @@ namespace Desert::ECS
     // Rotation and scale of the root entity are not part of the frame: LandscapeFrame has no rotation, as
     // the TES sampling it feeds has none. That is stated here rather than hidden behind a transform the
     // tiles would silently ignore; a landscape that must turn is a new frame field, not a gizmo.
-    // ONE PAINTABLE LAYER OF A LANDSCAPE (UE: a target layer's ULandscapeLayerInfoObject). The root owns the
-    // list because UE's target layers belong to the landscape, not to a component: every tile's weight plane
-    // is keyed by one of these names (LandscapeWeightLayer::Name), and Hardness/NoWeightBlend are what the
-    // paint stroke's normalisation reads (World/Landscape/LandscapePaint.hpp, LandscapeLayerRule).
-    // `Color` is UE's LayerUsageDebugColor: the swatch the panel shows, and what a debug view would tint by.
-    struct LandscapeLayerInfo
-    {
-        std::string Name;
-        float       Hardness      = 0.5f;
-        bool        NoWeightBlend = false;
-        glm::vec3   Color         = glm::vec3( 1.0f );
-    };
-
     struct LandscapeComponent
     {
         uint32_t QuadsPerTile = World::Landscape::kLandscapeDefaultTileQuads; // UE section size, 7..255
         float    SpacingCm    = World::Landscape::kLandscapeDefaultSpacingCm; // cm between neighbouring samples
         float    ZScale       = World::Landscape::kLandscapeDefaultZScale;    // cm per local height unit
-        std::vector<LandscapeLayerInfo> Layers;                               // UE target layers, in panel order
+        // UE target layers, in panel order: each names a `.delayerinfo` (UE: ALandscape's target layer ->
+        // ULandscapeLayerInfoObject). Every tile's weight plane is keyed by the asset's LayerName, and the
+        // paint stroke reads its Hardness/NoWeightBlend (Runtime::LandscapeLayerInfoService resolves them).
+        std::vector<Assets::AssetHandle> Layers;
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
@@ -777,6 +744,21 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Bloom Tint" ), Category( "Light Shafts" ), Color,
                   EditCondition( "LightShaftBloom" ), Tooltip( "Tint of the light-shaft streaks." ) )
         glm::vec3 BloomTint = glm::vec3( 1.0f );
+
+        // THE CASCADED SHADOW MAPS OF THIS LIGHT (UE: UDirectionalLightComponent's Cascaded Shadow Maps
+        // section). They were SceneSettings until SET1 — a level-wide switch for the shadows of the one
+        // light that has any. Graphic::ResolveViewSettings reads them from the light it elects, the same
+        // one Scene::OnUpdate shades with.
+        PROPERTY( DisplayName( "Cast Shadows" ), Category( "Cascaded Shadow Maps" ) )
+        bool CastShadows = true;
+
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 0.05f ) )
+        float ShadowBias = 0.005f;
+
+        PROPERTY( DisplayName( "Cascade Split Lambda" ), Category( "Cascaded Shadow Maps" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "0 = uniform cascade splits, 1 = logarithmic; UE's Distribution Exponent plays "
+                           "the same part." ) )
+        float CascadeSplitLambda = 0.6f;
     };
 
     struct DirectionLightComponent

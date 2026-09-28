@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/FieldProperty.hpp>
@@ -62,6 +63,10 @@ namespace Desert::Graphic
         // writes the same slot for the mesh path; Render2D, which submits an executor rather than a mesh,
         // had nowhere else to write it from.
         void SetPushMatrix( const glm::mat4& matrix );
+
+        // The instanced vertex stages' wind tail (Graphic/InstanceWind.hpp, at kInstancedWindPushOffset after
+        // the 68-byte block above). Every instanced draw writes it, a still one with zeros (FO-7).
+        void SetInstancedWind( const InstanceWindPush& wind );
 
         // Public for editor introspection (PropertyEditorBuilder reads reflected properties to build UI).
         const std::vector<IProperty*>& GetRegisteredProperties() const

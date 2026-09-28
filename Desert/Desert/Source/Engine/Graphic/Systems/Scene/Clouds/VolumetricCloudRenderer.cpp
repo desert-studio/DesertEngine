@@ -1670,8 +1670,7 @@ namespace Desert::Graphic::System
         // THE WHOLE LAYER. That was the programme's last recorded debt, and it was a dead setting: three
         // of a layer's four slots could name a volume the frame never read, silently, while the Cloud Type
         // panel's own tooltip promised the opposite. What paid for it is four descriptors instead of one —
-        // and they cost nothing in memory, because Assets::AssetPreloader uploads every `.dcnv` in the
-        // project at startup whatever any scene names.
+        // and they cost only the volumes the layer names: a `.dcnv` is read when named (AL1-2).
         //
         // THE HANDLES ARE THE SPECIES' AND NOT THE SLOTS', which matters when a layer's filled slots have
         // holes in them: ResolveSpecies has already compacted slot 3 down to species 1, and the march

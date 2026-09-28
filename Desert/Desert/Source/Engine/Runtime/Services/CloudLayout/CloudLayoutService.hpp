@@ -38,7 +38,7 @@ namespace Desert::Runtime
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
         /// THE PROJECT HAS THIS PAINTING. Records the handle and the (unread) asset; opens no file.
         ///
-        /// This is what `AssetPreloader::PreloadCloudLayouts` does now. Reading every `.dclayout` at boot
+        /// This replaced the boot stage that read every layout. Reading every `.dclayout` at boot
         /// cost a measured **689.0 ms of a 5707.0 ms boot** on this machine for ten files totalling
         /// 10.3 MiB, and every scene in this repository leaves both layout slots EMPTY — so all of it was
         /// spent on paintings nothing in the project points at.

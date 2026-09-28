@@ -161,12 +161,18 @@ group "Tests"
         -- in 24 min 02 s. Writing the runner and running it are different jobs, and the CI step is
         -- the one that owns the verdict — it is where the exit code is read and where the reports
         -- are uploaded from. (Release paid 2 min 20 s for the same duplicate.)
+        -- The runner's path INSIDE run_tests.bat is %~dp0 (the .bat's own folder, the repository root),
+        -- written as %%~dp0 so the postbuild's cmd leaves it for the .bat to expand. It was
+        -- %{_MAIN_SCRIPT_DIR}, which premake writes RELATIVE to the project file: fine for the postbuild
+        -- itself (it runs in the project folder), wrong inside a file that CI runs from the root. BLD1
+        -- moved the project files to build/Projects and every Windows test step answered "'../..\scripts
+        -- \Windows\RunTests.ps1' is not recognized" (int/3, run 36320005709).
         postbuildcommands {
             "if exist \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\" del \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
 
             "echo @echo off > \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
             "echo where /q pwsh>> \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
-            "echo if errorlevel 1 (powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%{_MAIN_SCRIPT_DIR}\\scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg}) else (pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%{_MAIN_SCRIPT_DIR}\\scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg})>> \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
+            "echo if errorlevel 1 (powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%%~dp0scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg}) else (pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%%~dp0scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg})>> \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
         }
     end
 

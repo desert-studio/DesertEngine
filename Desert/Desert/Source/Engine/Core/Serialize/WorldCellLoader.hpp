@@ -13,6 +13,7 @@
 // the main thread does not wait for it.
 
 #include <Engine/Core/Serialize/WorldCellSource.hpp>
+#include <Common/Core/DevInstruments.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
 #include <cstddef>
@@ -51,6 +52,16 @@ namespace Desert::Core
         // The records of @p unit's finished load, or null when there is none.
         [[nodiscard]] const std::vector<Assets::EntityData>* Records( std::size_t unit ) const;
 
+#if DESERT_DEV_INSTRUMENTS
+        // DEV ONLY: a read started from now on is reported no sooner than @p ticks TakeFinished calls after its
+        // Start, finished or not — streaming slowed on purpose without occupying a worker (a sleeping job would
+        // starve every other job on the pool).
+        void SetDebugDelayTicks( std::uint32_t ticks )
+        {
+            m_DebugDelayTicks = ticks;
+        }
+#endif
+
         [[nodiscard]] std::size_t InFlight() const
         {
             return m_Flights.size();
@@ -74,6 +85,7 @@ namespace Desert::Core
             std::size_t       Unit      = 0;
             std::uint64_t     Ticket    = 0;
             bool              Cancelled = false;
+            std::uint32_t     HoldTicks = 0; // DEV delay left (always 0 outside development builds)
             std::future<Read> Result;
         };
 
@@ -81,5 +93,6 @@ namespace Desert::Core
         std::vector<Flight>                                              m_Flights;
         std::unordered_map<std::size_t, std::vector<Assets::EntityData>> m_Ready;
         double                                                           m_WorkerMs = 0.0;
+        std::uint32_t                                                    m_DebugDelayTicks = 0;
     };
 } // namespace Desert::Core

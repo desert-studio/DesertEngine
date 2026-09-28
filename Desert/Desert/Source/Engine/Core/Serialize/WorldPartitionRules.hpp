@@ -58,10 +58,10 @@
 //
 // ── A COMPOSITE'S FOOTPRINT: WHAT THIS FILE CAN SEE, AND WHERE WP15 PLUGS IN ──────────────────────
 //
-// A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's are
-// not stored anywhere (see UnplacedPrefabInstances). So a footprint is the XZ rectangle around a set of
+// A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's in
+// the prefab's registry row (AL1-8a). So a footprint is the XZ rectangle around a set of
 // world-space POINTS, and `Detail::AppendFootprint` is the one place that decides which points a record
-// contributes. It knows five things, each stated where it is read, and a sixth is handled beside it
+// contributes. It knows six things, each stated where it is read, and a seventh is handled beside it
 // because it needs another record (a LANDSCAPE TILE: the rectangle its root's frame gives it, see
 // kLandscapeTileComponent — the tile's own position is read by nothing and is not a point):
 //
@@ -70,6 +70,9 @@
 //     `Geometry::PrimitiveBounds`, the same statement the factory stamps on the submesh and the
 //     ShapeGenerators suite holds to the generated vertices. Terrain and LightCube are never a mesh
 //     block's primitive and have no box, so such a record's position is its whole extent;
+//   * the eight corners of the box around the vertices of a mesh the StaticMesh block CARRIES (EditMesh,
+//     built in the editor and saved in the scene, no asset behind it), through the world matrix — UE's
+//     GetStreamingBounds: an actor whose geometry is its own component's is bounded by that geometry;
 //   * every instance of an InstancedStaticMesh, whose matrices are WORLD-space (MeshECSSystem.hpp submits
 //     the snapshot without the entity's transform) — a kilometre of grass is one record;
 //   * the eight corners of a mesh ASSET's stored bounds (StaticMesh or SkinnedMesh naming a file) — the
@@ -366,8 +369,8 @@ namespace Desert::Core::Rules
     {
         std::size_t              Anchor = kNoRecord; // first member in file order that hangs off nothing
         std::vector<std::size_t> Members;
-        // nullopt when no member has a known position — only unplaced prefab instances. Such a composite
-        // is put in the level-0 cell of the origin, which is wrong and is why they are listed.
+        // nullopt when no member has a known position — only refused prefab instances
+        // (UnplacedPrefabInstances). Such a composite is in NO cell and is not always loaded: it has no place.
         std::optional<CellBounds> Footprint;
 
         AlwaysLoadedReason Reason  = AlwaysLoadedReason::None;
@@ -392,14 +395,13 @@ namespace Desert::Core::Rules
         std::vector<ContainmentEdge>     Containment;
         std::vector<DanglingContainment> Dangling;
 
-        // RECORDS THIS FILE CANNOT PLACE, AND THEY ARE COUNTED RATHER THAN SILENTLY PUT AT THE ORIGIN.
+        // RECORDS THIS FILE CANNOT PLACE, AND THEY ARE LISTED RATHER THAN SILENTLY PUT AT THE ORIGIN.
         //
-        // A `.desce` record naming a prefab file carries NO transform: SceneSerializer strips the
-        // instance's translation, rotation and scale out of the record (SceneSerializer.cpp:112) and
-        // re-states them as override records addressed by ids that only the `.deprefab` can resolve.
-        // So the one thing a partitioner needs from such a record - where it is - is in another file,
-        // and a pure function of THIS file cannot have it. They contribute no point to any footprint
-        // and are listed here, which is what makes it a stated limitation instead of a wrong answer.
+        // Since scene v37 a `.desce` record naming a prefab file states its root's translation, rotation
+        // and scale itself (SceneSerializer, PFX1), so an instance is placed like any record: by its world
+        // matrix and the box the prefab's registry row states (AL1-8a). One that does not state them was
+        // not written by this engine; it is listed here AND named in Issues with what it lacks, contributes
+        // no point to any footprint, and the loader refuses the same record.
         std::vector<std::size_t> UnplacedPrefabInstances;
 
         // Records whose footprint is their position alone — a light, a script, a mesh whose bounds the
@@ -493,6 +495,9 @@ namespace Desert::Core::Rules
          { "UICanvas", ComponentLoading::ByField, "RenderMode", 1.0, true },
          // `Spatial` true (the default) attenuates from the entity; false is music/ambience — no place.
          { "AudioSource", ComponentLoading::ByField, "Spatial", 1.0, false },
+         // `Unbound` true (the default) is the level's base grade, applied wherever the camera is; false is a
+         // box around the entity, which grades only the cells it covers (UE's bUnbound on APostProcessVolume).
+         { "PostProcessVolume", ComponentLoading::ByField, "Unbound", 0.0, true },
          // ── Spatial ──
          { "Animation", ComponentLoading::Spatial },
          { "CharacterController", ComponentLoading::Spatial },
@@ -562,6 +567,10 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kInstancePointsField     = "InstanceTransforms";
     inline constexpr std::string_view kPrimitiveComponent      = "StaticMesh";
     inline constexpr std::string_view kPrimitiveField          = "Primitive";
+    // A mesh built in the editor lives IN the StaticMesh block (StaticMeshComponentSer::EditMesh, the
+    // saved form of SavedMeshForm.hpp): its vertex positions, xyz per vertex in the entity's own frame.
+    inline constexpr std::string_view kEditMeshField          = "EditMesh";
+    inline constexpr std::string_view kEditMeshPositionsField = "Positions";
     // A landscape tile's footprint is a RECTANGLE computed from its coordinate and its root's frame. The
     // root is not a part of the tile (see the register row): it is read, never joined.
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
@@ -797,7 +806,47 @@ namespace Desert::Core::Rules
             return guid.GetValue();
         }
 
+        // THE BOX AROUND A SCENE-HELD MESH (the StaticMesh block's EditMesh), in the record's own frame, or
+        // nullopt when the block holds none. UE's GetStreamingBounds pattern: an actor whose geometry is its
+        // own component's, not an asset's, is bounded by that geometry - so the extent is read from the
+        // vertices the block carries, needing no registry. A Positions array that is not whole xyz triples,
+        // or holds no vertex, is an Issue on its path (Entities[id=..].StaticMesh.EditMesh.Positions) and
+        // gives no box: the loader's FromSerialized refuses the same block, so the mesh is never drawn.
+        [[nodiscard]] inline std::optional<Common::Math::AABB> EditMeshBox( const Common::Json::Node& block,
+                                                                            Common::Json::Issues&     issues )
+        {
+            const auto editMesh = block.Find( kEditMeshField );
+            if ( !editMesh.has_value() || !editMesh->ExpectKind( Common::Json::Kind::Object, issues ) )
+                return std::nullopt;
+            const auto field = editMesh->Find( kEditMeshPositionsField );
+            if ( !field.has_value() )
+            {
+                editMesh->Report( issues, "an EditMesh with a Positions array" );
+                return std::nullopt;
+            }
+            const std::size_t  before = issues.size();
+            std::vector<float> positions;
+            field->ReadValue( positions, issues );
+            if ( issues.size() != before )
+                return std::nullopt;
+            if ( positions.empty() || positions.size() % 3 != 0 )
+            {
+                field->Report( issues, "a non-empty array of xyz triples" );
+                return std::nullopt;
+            }
+            Common::Math::AABB box{ glm::vec3( positions[0], positions[1], positions[2] ),
+                                    glm::vec3( positions[0], positions[1], positions[2] ) };
+            for ( std::size_t vertex = 3; vertex < positions.size(); vertex += 3 )
+            {
+                const glm::vec3 point( positions[vertex], positions[vertex + 1], positions[vertex + 2] );
+                box.Min = glm::min( box.Min, point );
+                box.Max = glm::max( box.Max, point );
+            }
+            return box;
+        }
+
         // THE BOXES ONE RECORD OCCUPIES IN ITS OWN FRAME, each handed to @p onBox: a primitive's unit box,
+        // the box around the vertices of a mesh the StaticMesh block itself carries (EditMesh, WP15c),
         // the box of each mesh asset its mesh blocks name, and - for a prefab instance - the box the prefab's
         // registry row states around its root (AL1-8a). The last two are asked of @p bounds and are skipped
         // when there is none. One rule for both askers: the partitioner flattens these to a footprint, and
@@ -821,6 +870,8 @@ namespace Desert::Core::Rules
                             onBox( box.value() );
                     }
                 }
+                if ( const auto box = EditMeshBox( *mesh, issues ); box.has_value() )
+                    onBox( box.value() );
             }
 
             if ( !bounds )
@@ -1093,8 +1144,18 @@ namespace Desert::Core::Rules
         {
             const Assets::EntityData& data = records[record];
 
-            if ( data.PrefabPath.has_value() && !data.Translation.has_value() )
+            // Placed like any record, by the transform it states (v37) and the prefab's box from the
+            // registry (ForEachLocalBox). One that states none is REFUSED by name, not put at the origin.
+            if ( const std::string missing = Assets::MissingInstanceTransform( data ); !missing.empty() )
+            {
                 plan.UnplacedPrefabInstances.push_back( record );
+                plan.Issues.push_back( Common::Json::Issue{
+                     data.id.has_value()
+                          ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *data.id ) ) + "]"
+                          : "Entities[" + std::to_string( record ) + "]",
+                     "a prefab instance stating its root transform (scene v37)",
+                     "no " + missing + " on the instance of '" + *data.PrefabPath + "'" } );
+            }
 
             if ( data.parent.has_value() && !data.parent->IsNull() )
             {
@@ -1290,8 +1351,11 @@ namespace Desert::Core::Rules
                 continue;
             }
 
-            // Unplaced prefab instances alone: the origin's level-0 cell, and they are listed.
-            const CellBounds footprint = held.Footprint.value_or( CellBounds{} );
+            // Refused prefab instances alone (UnplacedPrefabInstances): no place, so NO cell. The origin's
+            // cell would be indistinguishable from a right answer, and the loader refuses them anyway.
+            if ( !held.Footprint.has_value() )
+                continue;
+            const CellBounds footprint = *held.Footprint;
 
             bool placed = false;
             for ( int level = 0; level < plan.LevelCount; ++level )
@@ -1324,7 +1388,7 @@ namespace Desert::Core::Rules
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
             const PlannedComposite& held = plan.Composites[group];
-            if ( held.Reason == AlwaysLoadedReason::None )
+            if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
                 cells[std::make_tuple( held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
         }
         for ( auto& [key, composites] : cells )

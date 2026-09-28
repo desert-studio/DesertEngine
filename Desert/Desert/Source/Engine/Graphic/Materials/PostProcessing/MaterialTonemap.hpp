@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Core/SceneSettings.hpp>
+#include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 
 namespace Desert::Graphic

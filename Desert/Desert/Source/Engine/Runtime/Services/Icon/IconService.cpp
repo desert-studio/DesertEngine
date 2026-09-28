@@ -104,7 +104,11 @@ namespace Desert::Runtime
                 LOG_ERROR( "[IconService] '{}' has no filled shapes this importer understands", path );
                 return raw;
             }
-            Vector::StoreBakedIcon( cachePath, baked );
+            if ( auto stored = Vector::StoreBakedIcon( cachePath, baked ); !stored.IsSuccess() )
+            {
+                LOG_WARN( "[IconService] '{}' baked but not cached, the next run bakes it again: {}", path,
+                          stored.GetError() );
+            }
         }
 
         const auto bakeMs =

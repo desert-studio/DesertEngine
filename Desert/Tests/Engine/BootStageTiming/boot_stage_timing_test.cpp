@@ -128,28 +128,27 @@ TEST( BootTimelineType, AnEmptyTimelineHasAnAnswerRatherThanUndefinedBehaviour )
 
 // ── THE CENSUS: BOTH HOSTS ACTUALLY USE IT ─────────────────────────────────────────────────────────
 
-TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryPreloadInAStage )
+TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryBootContentCallInAStage )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // DERIVED FROM THE PRELOADER'S OWN HEADER, not from a list here — the same source `AssetPreloadCensus`
-    // uses, and for the same reason: a fourteenth `Preload*` must be covered by existing, not by somebody
-    // remembering this file. An unstaged preload is a phase of the player's boot that the log cannot name,
+    // DERIVED FROM BootContent.hpp, not from a list here — the same source `BootContentCensus` uses, and
+    // for the same reason: a fourth boot function must be covered by existing, not by somebody remembering
+    // this file. An unstaged preload is a phase of the player's boot that the log cannot name,
     // which is the entire defect.
     const std::string header = Desert::Tests::ConsumerText::StripComments(
-         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Assets/AssetPreloader.hpp" ) );
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Assets/BootContent.hpp" ) );
     ASSERT_FALSE( header.empty() );
 
-    static const std::regex  declaration( R"(\bvoid\s+(Preload[A-Za-z0-9_]*)\s*\()" );
+    static const std::regex  declaration( R"(\bvoid\s+(\w+)\s*\()" );
     std::vector<std::string> declared;
     for ( auto it = std::sregex_iterator( header.begin(), header.end(), declaration );
           it != std::sregex_iterator(); ++it )
     {
         declared.push_back( ( *it )[1].str() );
     }
-    ASSERT_GE( declared.size(), 4u ) << "the scan found " << declared.size()
-                                     << " Preload* declarations, which means the scan broke";
+    ASSERT_EQ( declared.size(), 3u ) << "the scan found " << declared.size() << " boot functions";
 
     const std::string layer = Desert::Tests::ConsumerText::StripComments(
          ReadAll( fs::path( root ) / "Runtime/Source/RuntimeLayer.cpp" ) );
@@ -161,7 +160,7 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryPreloadInAStage )
         // The call has to appear INSIDE an `m_Boot.Run(` argument list. Checked by looking for the call
         // and then walking back to the nearest statement boundary — crude, and conservative in the safe
         // direction: a staged call written some other way reads as unstaged and the author has to say so.
-        const std::size_t call = layer.find( name + "()" );
+        const std::size_t call = layer.find( "Assets::" + name + "(" );
         if ( call == std::string::npos )
         {
             unstaged.push_back( name + " (never called at all)" );
@@ -176,7 +175,7 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryPreloadInAStage )
     }
 
     EXPECT_TRUE( unstaged.empty() ) << Listing(
-         "these preloads are not wrapped in a timed stage in the shipping runtime:", unstaged );
+         "these boot functions are not wrapped in a timed stage in the shipping runtime:", unstaged );
 }
 
 TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )

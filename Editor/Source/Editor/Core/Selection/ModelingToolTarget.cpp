@@ -1,6 +1,7 @@
 // Ported from UE 5.8 ModelingComponents/Private/ModelingToolTargetUtil.cpp:302-335, adapted: see the header.
 #include "ModelingToolTarget.hpp"
 
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -47,10 +48,17 @@ namespace Desert::Editor
                  "the entity has no editable mesh and no static mesh asset (a primitive or an unset mesh)" );
         // Sampled before the stat, so a write that lands after it is racy by construction (IsRacyWriteTime).
         const auto      readBegan = std::filesystem::file_time_type::clock::now();
-        std::error_code ec;
-        const auto      stamp = std::filesystem::last_write_time( assetFile, ec );
+        // The file whose bytes the lift is a function of: the asset's own, or - for an import since AF4h, which
+        // has no file at the asset path (its envelope is derived from the source's bytes into the DDC) - the
+        // raw source beside it. Stating the asset path alone refused every imported mesh by name (P9b).
+        std::filesystem::path stamped = assetFile;
+        std::error_code       ec;
+        if ( !std::filesystem::exists( assetFile, ec ) )
+            if ( auto source = Common::Content::MeshSourceBeside( assetFile ) )
+                stamped = std::move( *source );
+        const auto stamp = std::filesystem::last_write_time( stamped, ec );
         if ( ec )
-            return Common::MakeFormattedError<ToolTargetMesh>( "static mesh {}: {}", assetFile.string(),
+            return Common::MakeFormattedError<ToolTargetMesh>( "static mesh {}: {}", stamped.string(),
                                                                ec.message() );
 
         // The same file lifts to the same object until its CONTENT changes: the element selection tracks by

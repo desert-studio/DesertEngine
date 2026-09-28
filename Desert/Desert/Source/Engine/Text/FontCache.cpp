@@ -128,8 +128,11 @@ namespace Desert::Text
         return false;
     }
 
-    bool StoreBakedFont( const std::filesystem::path& path, const BakedFont& font )
+    Common::BoolResultStr StoreBakedFont( const std::filesystem::path& path, const BakedFont& font )
     {
+        // No project and no absolute DerivedDataCachePath: the path is cwd-relative — refuse, never write it.
+        if ( auto writable = Common::DDC::CheckWritable( path ); !writable.IsSuccess() )
+            return writable;
         std::error_code ec;
         std::filesystem::create_directories( path.parent_path(), ec );
 
@@ -137,7 +140,6 @@ namespace Desert::Text
         // a key that claims to be valid is worse than no atlas at all.
         const std::vector<uint8_t> bytes = SerializeBakedFont( font );
         return Common::Utils::FileSystem::WriteContentToFileAtomic(
-                    path, std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) )
-             .IsSuccess();
+             path, std::string( reinterpret_cast<const char*>( bytes.data() ), bytes.size() ) );
     }
 } // namespace Desert::Text

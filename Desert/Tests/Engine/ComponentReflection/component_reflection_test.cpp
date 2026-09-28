@@ -1326,6 +1326,21 @@ TEST( VolumetricCloudReflection, DistancesAreLengthsExceptTheTwoThatCarryTheirOw
 }
 
 // ---------------------------------------------------------------------------------------------------
+// The landscape's look is its Landscape Material and nothing built in (LS-16)
+// ---------------------------------------------------------------------------------------------------
+
+TEST( LandscapeMaterialReflection, KeepsOnlyTheMaterial )
+{
+    const TypeInfo& look = Type( "LandscapeMaterialData" );
+    // UE's ALandscape::LandscapeMaterial. The ground's layers are the root's painted layer infos.
+    EXPECT_EQ( FieldNames( look ), ( std::vector<std::string>{ "Material" } ) );
+
+    // The built-in grass/rock/snow switches are deleted with their shader rules, not hidden.
+    for ( const char* gone : { "GrassMode", "RockMode", "SnowMode", "DetailTiling" } )
+        EXPECT_EQ( Find( look, gone ), nullptr ) << gone << " still lives on LandscapeMaterialData";
+}
+
+// ---------------------------------------------------------------------------------------------------
 // What moved OUT of SkyboxComponent, and the two fields the directional light gained
 // ---------------------------------------------------------------------------------------------------
 
@@ -1355,7 +1370,8 @@ TEST( DirectionalLightReflection, GainsTheAtmosphereSunFields )
     EXPECT_EQ( FieldNames( light ),
                ( std::vector<std::string>{ "Color", "Intensity", "AtmosphereSunLight", "AtmosphereSunLightIndex",
                                            "AffectedByAtmosphereTransmittance", "LightShaftBloom", "BloomScale",
-                                           "BloomThreshold", "BloomMaxBrightness", "BloomTint" } ) );
+                                           "BloomThreshold", "BloomMaxBrightness", "BloomTint", "CastShadows",
+                                           "ShadowBias", "CascadeSplitLambda" } ) );
 
     // Sky Phase 4's coupling, UE's name and UE's default: ON. The light's colour is multiplied by the
     // atmosphere's transmittance toward the sun at ground level in SkyModel::PhysicalAtmosphere, so

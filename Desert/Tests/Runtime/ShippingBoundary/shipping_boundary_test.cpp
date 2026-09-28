@@ -326,6 +326,10 @@ namespace
                "RuntimeShot.hpp",
                Gating::AtEveryCallSite,
                { "Runtime/Source/RuntimeShot.hpp" } },
+             { "the packaged game's deliberate crash (--crash-test <kind>[@early|@mounted])",
+               "RuntimeCrashTest.hpp",
+               Gating::AtEveryCallSite,
+               { "Runtime/Source/RuntimeCrashTest.hpp" } },
              { "the draw-call counter",
                "DrawCounters.hpp",
                Gating::InItsOwnHeader,
@@ -390,6 +394,64 @@ namespace
 } // namespace
 
 // ── RELATION 1 ──────────────────────────────────────────────────────────────────────────────────────
+
+// PKG1c: `--crash-test` does not exist in a Shipping Runtime. The file-level consumer check above passes
+// for Main.cpp as soon as ANY line in it names the boundary (it already gates --shot), so this one is
+// per LINE: every line of the Runtime's entry point that names the flag, its parsed request or the
+// trigger has to sit inside an open `#if DESERT_DEV_INSTRUMENTS` block.
+TEST( ShippingBoundary, TheRuntimeCrashTestFlagExistsOnlyInsideTheBoundary )
+{
+    const fs::path    root = RepoRoot();
+    const std::string text = StripComments( Read( root / "Runtime/Source/Main.cpp" ) );
+    ASSERT_FALSE( text.empty() ) << "Runtime/Source/Main.cpp was not read";
+
+    std::vector<bool> gate; // one entry per open #if: does it (still) select the development build?
+    std::string       offenders;
+    size_t            sites  = 0;
+    size_t            lineNo = 0;
+    size_t            start  = 0;
+    while ( start <= text.size() )
+    {
+        const size_t      end   = text.find( '\n', start );
+        const std::string line  = text.substr( start, end == std::string::npos ? std::string::npos : end - start );
+        const size_t      first = line.find_first_not_of( " \t" );
+        const std::string trimmed = first == std::string::npos ? std::string() : line.substr( first );
+        ++lineNo;
+        if ( trimmed.starts_with( "#if" ) )
+        {
+            const size_t token = trimmed.find( kBoundaryToken );
+            gate.push_back( token != std::string::npos && trimmed.find( '!' ) > token );
+        }
+        else if ( trimmed.starts_with( "#else" ) || trimmed.starts_with( "#elif" ) )
+        {
+            if ( !gate.empty() )
+                gate.back() = false;
+        }
+        else if ( trimmed.starts_with( "#endif" ) )
+        {
+            if ( !gate.empty() )
+                gate.pop_back();
+        }
+        else if ( line.find( "--crash-test" ) != std::string::npos ||
+                  line.find( "crashTest" ) != std::string::npos ||
+                  line.find( "TriggerTestCrash" ) != std::string::npos )
+        {
+            ++sites;
+            bool inside = false;
+            for ( const bool open : gate )
+                inside = inside || open;
+            if ( !inside )
+                offenders += "\n  Main.cpp:" + std::to_string( lineNo ) + "  " + trimmed;
+        }
+        if ( end == std::string::npos )
+            break;
+        start = end + 1;
+    }
+    // Positive control: a rename of the variable would otherwise make this pass on nothing.
+    EXPECT_GE( sites, 4u ) << "Main.cpp no longer names --crash-test / crashTest / TriggerTestCrash; update "
+                              "the tokens this census looks for";
+    EXPECT_TRUE( offenders.empty() ) << "--crash-test would exist in a Shipping Runtime:" << offenders;
+}
 
 TEST( ShippingBoundary, TheWorkspaceDeclaresTheConfigurationAndTheConfigurationDefinesTheMacro )
 {

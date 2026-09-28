@@ -20,10 +20,16 @@ project(test_name)
         -- is a claim about this file, so this file is compiled and asserted rather than described. It is
         -- pure -- its only includes are its own header and <utility>.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        -- One file per entity (WP16): the split, the join and the file layout, and the loader's parse that
+        -- refuses a header read on its own. Both are pure apart from the files they are handed.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
         -- A landscape tile is placed by its root's frame, and the partitioner computes the rectangle with
         -- the same functions the loader uses. Both files are pure and link only Common.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
+        -- FO-6: foliage filed by cell. Pure: CellOf from the rules header and glm.
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Foliage/FoliageCells.cpp",
     }
 
     includedirs {

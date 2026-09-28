@@ -11,6 +11,8 @@
 #include "CrashHandler.hpp"
 
 #include <Common/Core/Core.hpp>
+#include <Common/Core/EngineThread.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Version.hpp>
 #include <Common/Settings/EngineUserDirectory.hpp>
@@ -22,7 +24,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <future>
 #include <mutex>
+#include <thread>
 
 #if defined( DESERT_PLATFORM_WINDOWS )
 #include <Windows.h>
@@ -33,6 +37,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <spawn.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -41,6 +46,7 @@
 #include <sys/ucontext.h>
 #else
 #include <execinfo.h>
+#include <sys/syscall.h>
 #include <ucontext.h>
 #endif
 extern char** environ;
@@ -75,7 +81,10 @@ extern char** environ;
 //               function=<the faulting function, or "unknown" when no symbol resolved>
 //               fault_frame=<dec index into the [stack] frames that `function` came from>
 //   [build]     version=…  sha=…  branch=…  dirty=<0|1>
-//   [context]   machine=<host name>  scene=<path or "none">  os=…  gpu=…
+//   [context]   machine=<host name>  scene=<path or "none">  os=…  gpu=<device name or "unknown">
+//               gpu_vendor=<0x… PCI id>  gpu_device=<0x…>  gpu_driver=<vendor's own spelling>
+//               gpu_api=<major.minor.patch>   all "unknown" until the host created its device
+//               game=<the game's Name, or "unread" before the host read it>
 //   [stack]     frame=<dec index>|<0x… address>|<module>|<function>|<file:line or "">
 //               Repeated, innermost first. Unresolved parts are empty between the pipes; the field
 //               count is always five so a parser can split on '|' unconditionally.
@@ -83,9 +92,9 @@ extern char** environ;
 //   [end]       written=<complete>    ABSENT if the process died before finishing — its presence is
 //                                     how a reader tells a whole report from a truncated one.
 //
-// `function` for a real fault (synthesized=0) is frame 0, because the SEH filter runs with the
-// faulting thread's own CONTEXT. For synthesized=1 the innermost frames belong to this file and to
-// the CRT, so `function` is the innermost frame that is BOTH outside `Common::Crash::Detail` AND
+// `function` for a real fault (synthesized=0) is frame 0, because the report thread walks the
+// faulting thread's own CONTEXT, handed over by the SEH filter. For synthesized=1 the innermost frames belong to
+// this file and to the CRT, so `function` is the innermost frame that is BOTH outside `Common::Crash::Detail` AND
 // inside the main executable module. Every frame is still in [stack] either way.
 // On POSIX every report is synthesized=1: the frames are walked from inside the signal handler (frame
 // 0 is the interrupted PC from the ucontext, then the handler, the trampoline and the callers), and the
@@ -114,6 +123,11 @@ namespace Common::Crash::Detail
     char g_Machine[kSmallField] = "unknown";
     char g_Os[kPathField]       = "unknown";
     char g_Gpu[kPathField]      = "unknown";
+    char g_GpuVendor[kSmallField] = "unknown";
+    char g_GpuDevice[kSmallField] = "unknown";
+    char g_GpuDriver[kSmallField] = "unknown";
+    char g_GpuApi[kSmallField]    = "unknown";
+    char g_Game[kSmallField]      = "unread";
     char g_Scene[kPathField]    = "none";
     char g_Started[kSmallField] = "unknown";
 
@@ -514,6 +528,11 @@ namespace Common::Crash::Detail
         writer.Field( "scene", g_Scene );
         writer.Field( "os", g_Os );
         writer.Field( "gpu", g_Gpu );
+        writer.Field( "gpu_vendor", g_GpuVendor );
+        writer.Field( "gpu_device", g_GpuDevice );
+        writer.Field( "gpu_driver", g_GpuDriver );
+        writer.Field( "gpu_api", g_GpuApi );
+        writer.Field( "game", g_Game );
 
         writer.Str( "[stack]\n" );
         for ( std::size_t i = 0; i < g_FrameCount; ++i )
@@ -711,10 +730,11 @@ namespace Common::Crash::Detail
         }
     }
 
-    void WalkStack( const CONTEXT& inContext )
+    // Runs on the report thread and walks the FAULTING thread: the CONTEXT is that thread's, and
+    // `inThread` is a real handle to it (GetCurrentThread() here would name the report thread).
+    void WalkStack( const CONTEXT& inContext, HANDLE inThread )
     {
         const HANDLE process = ::GetCurrentProcess();
-        const HANDLE thread  = ::GetCurrentThread();
 
         // StackWalk64 WRITES to the context it is given, so it gets a copy: the same CONTEXT is
         // handed to MiniDumpWriteDump afterwards and a walked-over one describes the wrong thread.
@@ -731,7 +751,7 @@ namespace Common::Crash::Detail
         g_FrameCount = 0;
         while ( g_FrameCount < kMaxStackFrames )
         {
-            if ( ::StackWalk64( IMAGE_FILE_MACHINE_AMD64, process, thread, &frame, &walkContext, nullptr,
+            if ( ::StackWalk64( IMAGE_FILE_MACHINE_AMD64, process, inThread, &frame, &walkContext, nullptr,
                                 ::SymFunctionTableAccess64, ::SymGetModuleBase64, nullptr ) == 0 )
             {
                 break;
@@ -745,7 +765,7 @@ namespace Common::Crash::Detail
         }
     }
 
-    void WriteMiniDump( EXCEPTION_POINTERS* inPointers )
+    void WriteMiniDump( EXCEPTION_POINTERS* inPointers, DWORD inThreadId )
     {
         const HANDLE file = ::CreateFileW( g_CrashPaths->dmpNative, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                            FILE_ATTRIBUTE_NORMAL, nullptr );
@@ -756,7 +776,7 @@ namespace Common::Crash::Detail
         }
 
         MINIDUMP_EXCEPTION_INFORMATION information = {};
-        information.ThreadId                       = ::GetCurrentThreadId();
+        information.ThreadId                       = inThreadId;
         information.ExceptionPointers              = inPointers;
         information.ClientPointers                 = FALSE;
 
@@ -774,13 +794,48 @@ namespace Common::Crash::Detail
         ::CloseHandle( file );
     }
 
-    [[noreturn]] void HandleWindowsFault( EXCEPTION_POINTERS* inPointers, const char* inKind, bool inSynthesized,
-                                          std::uint64_t inCodeOverride, const char* inCodeNameOverride )
+    // ── The report thread ────────────────────────────────────────────────────────────────────
+    // WHY THE REPORT IS NOT WRITTEN ON THE FAULTING THREAD. A stack overflow raises
+    // EXCEPTION_STACK_OVERFLOW with only the thread's stack guarantee left to run the filter in, and
+    // SymInitialize, StackWalk64 and MiniDumpWriteDump need far more than that: an in-place handler
+    // faults a second time inside dbghelp and the process dies with no report at all. Ported from UE's
+    // FWindowsPlatformCrashContext and its crash-reporting thread: a thread created at Install(), while
+    // the process is healthy, sleeps on an event; the filter only publishes the faulting thread's
+    // EXCEPTION_POINTERS and id, wakes it and waits. The report thread walks the faulting thread's
+    // CONTEXT and writes the minidump with MINIDUMP_EXCEPTION_INFORMATION naming the faulting thread,
+    // which is the way MiniDumpWriteDump's documentation asks to be called (from another thread).
+    struct PendingFault
     {
-        if ( g_InHandler.exchange( true ) )
-        {
-            TerminateAfterReport();
-        }
+        EXCEPTION_POINTERS* pointers         = nullptr;
+        DWORD               threadId         = 0;
+        const char*         kind             = "exception";
+        bool                synthesized      = false;
+        std::uint64_t       codeOverride     = 0;
+        const char*         codeNameOverride = nullptr;
+    };
+
+    // Written by the faulting thread before SetEvent, read by the report thread after its wait returns;
+    // SetEvent and WaitForSingleObject are full barriers, so the event pair is the synchronisation.
+    PendingFault g_Pending;
+    HANDLE       g_ReportRequested = nullptr;
+    HANDLE       g_ReportFinished  = nullptr;
+    DWORD        g_ReportThreadId  = 0;
+
+    // How long a faulting thread waits for the report before terminating anyway. A report thread that
+    // hangs (a lock the faulting thread held, a stuck disk) must not leave a zombie process: the owner
+    // gets a partial report rather than a hang. A debug-build dump with its symbol load takes seconds.
+    constexpr DWORD kReportTimeoutMs = 60000;
+
+    // What the main thread keeps after EXCEPTION_STACK_OVERFLOW for the OS exception dispatch and the
+    // filter below. The default guarantee is a few pages, most of which the dispatch itself uses.
+    constexpr ULONG kStackGuaranteeBytes = 64 * 1024;
+
+    // The report thread's own stack: dbghelp's symbol loading is deep, and this thread must never be
+    // the one that overflows.
+    constexpr SIZE_T kReportThreadStackBytes = 1024 * 1024;
+
+    void WriteReport( const PendingFault& inFault )
+    {
         g_CrashPaths = g_Paths.load( std::memory_order_acquire );
 
         RawCreateDirectory();
@@ -792,20 +847,70 @@ namespace Common::Crash::Detail
         ::SymSetOptions( SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME );
         ::SymInitialize( process, nullptr, TRUE );
 
-        WalkStack( *inPointers->ContextRecord );
-        WriteMiniDump( inPointers );
+        const HANDLE thread =
+             ::OpenThread( THREAD_QUERY_INFORMATION | THREAD_GET_CONTEXT, FALSE, inFault.threadId );
+        if ( thread == nullptr )
+        {
+            WriteStderr( "[Crash] could not open the faulting thread; the stack walk may stop early\n" );
+        }
+        WalkStack( *inFault.pointers->ContextRecord, thread );
+        WriteMiniDump( inFault.pointers, inFault.threadId );
+        if ( thread != nullptr )
+        {
+            ::CloseHandle( thread );
+        }
 
+        const DWORD      sehCode = inFault.pointers->ExceptionRecord->ExceptionCode;
         FaultDescription fault;
-        fault.kind        = inKind;
-        fault.synthesized = inSynthesized;
-        fault.code = inCodeNameOverride != nullptr ? inCodeOverride : inPointers->ExceptionRecord->ExceptionCode;
-        fault.codeName = inCodeNameOverride != nullptr
-                              ? inCodeNameOverride
-                              : ExceptionCodeName( inPointers->ExceptionRecord->ExceptionCode );
-        fault.address  = reinterpret_cast<std::uint64_t>( inPointers->ExceptionRecord->ExceptionAddress );
-        WriteCrashText( fault, ::GetCurrentThreadId() );
+        fault.kind        = inFault.kind;
+        fault.synthesized = inFault.synthesized;
+        fault.code        = inFault.codeNameOverride != nullptr ? inFault.codeOverride : sehCode;
+        fault.codeName =
+             inFault.codeNameOverride != nullptr ? inFault.codeNameOverride : ExceptionCodeName( sehCode );
+        fault.address = reinterpret_cast<std::uint64_t>( inFault.pointers->ExceptionRecord->ExceptionAddress );
+        WriteCrashText( fault, inFault.threadId );
 
         LaunchReporter();
+    }
+
+    DWORD WINAPI ReportThreadMain( LPVOID )
+    {
+        ::WaitForSingleObject( g_ReportRequested, INFINITE );
+        WriteReport( g_Pending );
+        ::SetEvent( g_ReportFinished );
+        return 0;
+    }
+
+    // Runs on the FAULTING thread, possibly inside its last stack guarantee: it allocates nothing,
+    // formats nothing and calls nothing deeper than SetEvent and a wait. Everything else is the report
+    // thread's.
+    [[noreturn]] void HandleWindowsFault( EXCEPTION_POINTERS* inPointers, const char* inKind, bool inSynthesized,
+                                          std::uint64_t inCodeOverride, const char* inCodeNameOverride )
+    {
+        if ( g_InHandler.exchange( true ) )
+        {
+            // A second fault. On the report thread it is the report itself faulting: waiting would wait
+            // on itself, so die now. On any other thread the first report is still being written and
+            // terminating here would cut it off, so wait for it first.
+            if ( ::GetCurrentThreadId() != g_ReportThreadId )
+            {
+                ::WaitForSingleObject( g_ReportFinished, kReportTimeoutMs );
+            }
+            TerminateAfterReport();
+        }
+
+        g_Pending.pointers         = inPointers;
+        g_Pending.threadId         = ::GetCurrentThreadId();
+        g_Pending.kind             = inKind;
+        g_Pending.synthesized      = inSynthesized;
+        g_Pending.codeOverride     = inCodeOverride;
+        g_Pending.codeNameOverride = inCodeNameOverride;
+        ::SetEvent( g_ReportRequested );
+
+        if ( ::WaitForSingleObject( g_ReportFinished, kReportTimeoutMs ) != WAIT_OBJECT_0 )
+        {
+            WriteStderr( "[Crash] the report thread did not finish in time; the report may be incomplete\n" );
+        }
         TerminateAfterReport();
     }
 
@@ -849,9 +954,40 @@ namespace Common::Crash::Detail
         HandleSynthesizedFault( "signal", SIGABRT, "SIGABRT", _ReturnAddress() );
     }
 
-    void InstallPlatformHandlers()
+    BoolResultStr InstallPlatformHandlers()
     {
         g_MainModule = ::GetModuleHandleW( nullptr );
+
+        // Install() runs on the main thread (see the header), which is the thread whose overflow the
+        // guarantee has to survive: the editor's and the runtime's deep recursions live there.
+        ULONG guarantee = kStackGuaranteeBytes;
+        if ( ::SetThreadStackGuarantee( &guarantee ) == 0 )
+        {
+            return Common::MakeFormattedError( "Common::Crash::Install: SetThreadStackGuarantee({} bytes) failed, "
+                                               "GetLastError {}",
+                                               kStackGuaranteeBytes, ::GetLastError() );
+        }
+
+        g_ReportRequested = ::CreateEventW( nullptr, FALSE, FALSE, nullptr );
+        g_ReportFinished  = ::CreateEventW( nullptr, TRUE, FALSE, nullptr );
+        if ( g_ReportRequested == nullptr || g_ReportFinished == nullptr )
+        {
+            return Common::MakeFormattedError(
+                 "Common::Crash::Install: could not create the report thread's events, GetLastError {}",
+                 ::GetLastError() );
+        }
+        const HANDLE reportThread = ::CreateThread( nullptr, kReportThreadStackBytes, &ReportThreadMain, nullptr,
+                                                    STACK_SIZE_PARAM_IS_A_RESERVATION, &g_ReportThreadId );
+        if ( reportThread == nullptr )
+        {
+            return Common::MakeFormattedError( "Common::Crash::Install: could not start the report thread "
+                                               "({} byte stack), GetLastError {}",
+                                               kReportThreadStackBytes, ::GetLastError() );
+        }
+        // The handle is not kept: the thread is recognised by its id (the re-entry rule above) and ends
+        // with the process.
+        ::CloseHandle( reportThread );
+
         ::SetUnhandledExceptionFilter( &UnhandledFilter );
         ::_set_purecall_handler( &PureCallHandler );
         ::_set_invalid_parameter_handler( &InvalidParameterHandler );
@@ -860,6 +996,7 @@ namespace Common::Crash::Detail
         // is absent, so an editor crash produced no report at all.
         ::_set_abort_behavior( 0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT );
         std::signal( SIGABRT, &AbortSignalHandler );
+        return Common::MakeSuccess( true );
     }
 
     void FormatOsDescription()
@@ -1125,13 +1262,13 @@ namespace Common::Crash::Detail
         fault.codeName    = SignalName( inSignal );
         fault.address     = reinterpret_cast<std::uint64_t>( inInfo != nullptr ? inInfo->si_addr : nullptr );
         fault.synthesized = true;
-        WriteCrashText( fault, static_cast<std::uint64_t>( ::getpid() ) );
+        WriteCrashText( fault, CurrentThreadId() );
 
         LaunchReporter();
         TerminateAfterReport();
     }
 
-    void InstallPlatformHandlers()
+    BoolResultStr InstallPlatformHandlers()
     {
         Dl_info self = {};
         if ( ::dladdr( reinterpret_cast<const void*>( &InstallPlatformHandlers ), &self ) != 0 )
@@ -1143,7 +1280,20 @@ namespace Common::Crash::Detail
         alternate.ss_sp    = g_AltStack;
         alternate.ss_size  = kAltStackSize;
         alternate.ss_flags = 0;
-        ::sigaltstack( &alternate, nullptr );
+        // The alternate stack is per THREAD: this covers the thread that calls Install() (the main
+        // thread, see the header), which is where the recursions that overflow live.
+        if ( ::sigaltstack( &alternate, nullptr ) != 0 )
+        {
+            return Common::MakeFormattedError( "Common::Crash::Install: sigaltstack({} bytes) failed, errno {}",
+                                               kAltStackSize, errno );
+        }
+#if !defined( __APPLE__ )
+        // glibc's first backtrace() loads libgcc_s, which allocates; doing that inside the handler on
+        // a smashed stack is exactly what the alternate stack is there to avoid, so it is done here.
+        void*     primeFrames[1];
+        const int primed = ::backtrace( primeFrames, 1 );
+        (void)primed;
+#endif
 
         struct sigaction action = {};
         action.sa_sigaction     = &SignalHandler;
@@ -1155,8 +1305,13 @@ namespace Common::Crash::Detail
         const int signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
         for ( const int number : signals )
         {
-            ::sigaction( number, &action, nullptr );
+            if ( ::sigaction( number, &action, nullptr ) != 0 )
+            {
+                return Common::MakeFormattedError( "Common::Crash::Install: sigaction({}) failed, errno {}",
+                                                   SignalName( number ), errno );
+            }
         }
+        return Common::MakeSuccess( true );
     }
 
     void FormatOsDescription()
@@ -1344,6 +1499,11 @@ namespace Common::Crash
         FillSlot( g_PathSlots[0], directory, reporter );
         g_Paths.store( &g_PathSlots[0], std::memory_order_release );
 
+        if ( BoolResultStr handlers = InstallPlatformHandlers(); !handlers.IsSuccess() )
+        {
+            return handlers;
+        }
+
         // The ring sink joins the logger that LogInit() already created, so every line the host has
         // logged from this point on is in the report. Appending to the existing default logger and
         // not replacing it: the console, the file and the debugger sinks must keep working.
@@ -1352,7 +1512,6 @@ namespace Common::Crash
             logger->sinks().push_back( std::make_shared<RingSink>() );
         }
 
-        InstallPlatformHandlers();
         g_ReportRoot = root;
         g_Installed.store( true, std::memory_order_release );
 
@@ -1402,6 +1561,100 @@ namespace Common::Crash
         return Detail::g_Installed.load( std::memory_order_acquire );
     }
 
+    std::uint64_t CurrentThreadId()
+    {
+#if defined( DESERT_PLATFORM_WINDOWS )
+        return ::GetCurrentThreadId();
+#elif defined( __APPLE__ )
+        std::uint64_t id = 0;
+        (void)::pthread_threadid_np( nullptr, &id );
+        return id;
+#else
+        return static_cast<std::uint64_t>( ::syscall( SYS_gettid ) );
+#endif
+    }
+
+#if defined( DESERT_PLATFORM_WINDOWS )
+    // The report thread writes the report (CR1b), but the faulting thread still has to get from
+    // EXCEPTION_STACK_OVERFLOW through the OS dispatch into UnhandledFilter and its SetEvent + wait.
+    // With the default guarantee a worker thread has only a few pages left for that; when the
+    // dispatch overruns them the second overflow kills the process before the filter runs and no
+    // report is written. Give every engine thread the guarantee Install() gives the main thread.
+    ThreadCrashStackScope::ThreadCrashStackScope()
+    {
+        ULONG guarantee = Detail::kStackGuaranteeBytes;
+        if ( ::SetThreadStackGuarantee( &guarantee ) == 0 )
+        {
+            LOG_ERROR( "[Crash] thread {}: SetThreadStackGuarantee({} bytes) failed, GetLastError {}; a stack "
+                       "overflow on this thread may not be reported",
+                       CurrentThreadId(), Detail::kStackGuaranteeBytes, ::GetLastError() );
+        }
+    }
+    // The guarantee lives and dies with the thread; there is nothing to give back.
+    ThreadCrashStackScope::~ThreadCrashStackScope() = default;
+#else
+    namespace
+    {
+        // The handler's deepest path is backtrace() + dladdr() per frame into fixed globals; the main
+        // thread's static stack is 256 KiB and a worker's matches it. The pages are only reserved:
+        // an untouched alternate stack costs address space, not memory.
+        constexpr std::size_t kThreadAltStackSize = std::size_t{ 1 } << 18;
+    } // namespace
+
+    ThreadCrashStackScope::ThreadCrashStackScope()
+    {
+        stack_t current = {};
+        if ( ::sigaltstack( nullptr, &current ) == 0 && ( current.ss_flags & SS_DISABLE ) == 0 )
+        {
+            // Already has one (the thread Install() ran on, or a nested scope): keep it.
+            return;
+        }
+
+        const auto        page    = static_cast<std::size_t>( ::sysconf( _SC_PAGESIZE ) );
+        const std::size_t mapping = kThreadAltStackSize + page;
+        void* const       base = ::mmap( nullptr, mapping, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0 );
+        if ( base == MAP_FAILED )
+        {
+            LOG_ERROR( "[Crash] thread {}: mmap({} bytes) for the alternate signal stack failed, errno {}; "
+                       "a stack overflow on this thread will not be reported",
+                       CurrentThreadId(), mapping, errno );
+            return;
+        }
+        // The lowest page is the guard: the handler overrunning its own stack faults there instead of
+        // writing into whatever the allocator placed below.
+        (void)::mprotect( base, page, PROT_NONE );
+
+        stack_t alternate  = {};
+        alternate.ss_sp    = static_cast<char*>( base ) + page;
+        alternate.ss_size  = kThreadAltStackSize;
+        alternate.ss_flags = 0;
+        if ( ::sigaltstack( &alternate, nullptr ) != 0 )
+        {
+            LOG_ERROR( "[Crash] thread {}: sigaltstack({} bytes) failed, errno {}; a stack overflow on this "
+                       "thread will not be reported",
+                       CurrentThreadId(), kThreadAltStackSize, errno );
+            (void)::munmap( base, mapping );
+            return;
+        }
+        m_Mapping     = base;
+        m_MappingSize = mapping;
+    }
+
+    ThreadCrashStackScope::~ThreadCrashStackScope()
+    {
+        if ( m_Mapping == nullptr )
+        {
+            return;
+        }
+        // Uninstall BEFORE unmapping: a signal delivered between the two would otherwise run on freed
+        // pages.
+        stack_t disabled  = {};
+        disabled.ss_flags = SS_DISABLE;
+        (void)::sigaltstack( &disabled, nullptr );
+        (void)::munmap( m_Mapping, m_MappingSize );
+    }
+#endif
+
     const std::filesystem::path& ReportRootDirectory()
     {
         return Detail::g_ReportRoot;
@@ -1412,10 +1665,51 @@ namespace Common::Crash
         Detail::CopyIntoFixed( Detail::g_Scene, Detail::kPathField, inScenePath.empty() ? "none" : inScenePath );
     }
 
-    void SetGpuDescription( std::string_view inGpuDescription )
+    std::string DescribeDriverVersion( std::uint32_t inVendorId, std::uint32_t inPacked )
     {
-        Detail::CopyIntoFixed( Detail::g_Gpu, Detail::kPathField,
-                               inGpuDescription.empty() ? "unknown" : inGpuDescription );
+        constexpr std::uint32_t kNvidia = 0x10DE;
+        if ( inVendorId == kNvidia )
+        {
+            const std::uint32_t sub   = ( inPacked >> 6 ) & 0xFFu;
+            const std::uint32_t patch = inPacked & 0x3Fu;
+            std::string         text  = fmt::format( "{}.{:02}", inPacked >> 22, ( inPacked >> 14 ) & 0xFFu );
+            if ( sub != 0 || patch != 0 )
+            {
+                text += fmt::format( ".{}.{}", sub, patch );
+            }
+            return text;
+        }
+#if defined( DESERT_PLATFORM_WINDOWS )
+        constexpr std::uint32_t kIntel = 0x8086;
+        if ( inVendorId == kIntel )
+        {
+            return fmt::format( "{}.{}", inPacked >> 14, inPacked & 0x3FFFu );
+        }
+#endif
+        return DescribeApiVersion( inPacked );
+    }
+
+    std::string DescribeApiVersion( std::uint32_t inPacked )
+    {
+        return fmt::format( "{}.{}.{}", ( inPacked >> 22 ) & 0x7Fu, ( inPacked >> 12 ) & 0x3FFu,
+                            inPacked & 0xFFFu );
+    }
+
+    void SetGpu( const GpuIdentity& inGpu )
+    {
+        Detail::CopyIntoFixed( Detail::g_Gpu, Detail::kPathField, inGpu.name.empty() ? "unknown" : inGpu.name );
+        Detail::CopyIntoFixed( Detail::g_GpuVendor, Detail::kSmallField,
+                               fmt::format( "0x{:04X}", inGpu.vendorId ) );
+        Detail::CopyIntoFixed( Detail::g_GpuDevice, Detail::kSmallField,
+                               fmt::format( "0x{:04X}", inGpu.deviceId ) );
+        Detail::CopyIntoFixed( Detail::g_GpuDriver, Detail::kSmallField,
+                               DescribeDriverVersion( inGpu.vendorId, inGpu.driverVersion ) );
+        Detail::CopyIntoFixed( Detail::g_GpuApi, Detail::kSmallField, DescribeApiVersion( inGpu.apiVersion ) );
+    }
+
+    void SetGameName( std::string_view inGameName )
+    {
+        Detail::CopyIntoFixed( Detail::g_Game, Detail::kSmallField, inGameName.empty() ? "unread" : inGameName );
     }
 
     std::optional<TestKind> ParseTestKind( std::string_view inWord )
@@ -1432,6 +1726,18 @@ namespace Common::Crash
         {
             return TestKind::PureCall;
         }
+        if ( inWord == "stackoverflow" )
+        {
+            return TestKind::StackOverflow;
+        }
+        if ( inWord == "stackoverflow-worker" )
+        {
+            return TestKind::StackOverflowWorker;
+        }
+        if ( inWord == "stackoverflow-job" )
+        {
+            return TestKind::StackOverflowJob;
+        }
         return std::nullopt;
     }
 
@@ -1445,13 +1751,19 @@ namespace Common::Crash
                 return "abort";
             case TestKind::PureCall:
                 return "purecall";
+            case TestKind::StackOverflow:
+                return "stackoverflow";
+            case TestKind::StackOverflowWorker:
+                return "stackoverflow-worker";
+            case TestKind::StackOverflowJob:
+                return "stackoverflow-job";
         }
         return "unknown";
     }
 
     namespace
     {
-        // These three names are the contract the CR1 suite asserts on: each must appear verbatim in
+        // These names are the contract the CR1 suite asserts on: each must appear verbatim in
         // crash.txt when the matching --crash-test runs. They are deliberately outside
         // Common::Crash::Detail so the synthesized-fault skip rule keeps them.
         volatile int* g_NullTarget = nullptr;
@@ -1502,6 +1814,72 @@ namespace Common::Crash
             // clean and letting the test read a missing report as a passing one.
             std::abort();
         }
+
+        // Read at every level so the recursion has an exit the compiler cannot see through: without one
+        // MSVC (C4717) and clang (-Winfinite-recursion) diagnose it, and an optimiser may delete it.
+        volatile std::uint64_t g_StackOverflowDepthLimit = 0;
+
+#if defined( _MSC_VER )
+#define DESERT_CRASH_TEST_NOINLINE __declspec( noinline )
+#else
+#define DESERT_CRASH_TEST_NOINLINE __attribute__( ( noinline ) )
+#endif
+
+        // One real frame per level, all named the same: not inlined (the attribute), not a tail call
+        // (the result is used after the call returns) and each frame holds a live buffer, so the stack
+        // runs out after a few hundred levels and every frame of the report's [stack] names this
+        // function. The buffer stays under a page so the fault lands in this function's own stores
+        // rather than inside the compiler's __chkstk probe.
+        DESERT_CRASH_TEST_NOINLINE std::uint64_t CrashTestStackOverflowRecurse( std::uint64_t inDepth )
+        {
+            volatile char frame[1024];
+            frame[0]                   = static_cast<char>( inDepth );
+            frame[sizeof( frame ) - 1] = static_cast<char>( inDepth >> 8 );
+            if ( g_StackOverflowDepthLimit != 0 && inDepth >= g_StackOverflowDepthLimit )
+            {
+                return inDepth;
+            }
+            const std::uint64_t below = CrashTestStackOverflowRecurse( inDepth + 1 );
+            return below + static_cast<std::uint64_t>( frame[inDepth % sizeof( frame )] );
+        }
+
+#undef DESERT_CRASH_TEST_NOINLINE
+
+        [[noreturn]] void CrashTestStackOverflow()
+        {
+            const std::uint64_t depth = CrashTestStackOverflowRecurse( 0 );
+            // Reached only if the limit were set: say so rather than exit clean.
+            (void)depth;
+            std::abort();
+        }
+
+        // Each worker logs its own thread id before recursing, so the suite can check that the report's
+        // `tid=` names the thread that overflowed and not the main thread or the report thread.
+        [[noreturn]] void CrashTestStackOverflowWorker()
+        {
+            std::thread worker = StartEngineThread(
+                 []
+                 {
+                     LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
+                     CrashTestStackOverflow();
+                 } );
+            worker.join();
+            // Reached only if the worker returned: say so rather than exit clean.
+            std::abort();
+        }
+
+        [[noreturn]] void CrashTestStackOverflowJob()
+        {
+            const std::future<void> job = JobSystem::Get().Async(
+                 []
+                 {
+                     LOG_INFO( "[CrashTest] stackoverflow worker thread tid={}", CurrentThreadId() );
+                     CrashTestStackOverflow();
+                 } );
+            job.wait();
+            // Reached only if the job returned: say so rather than exit clean.
+            std::abort();
+        }
     } // namespace
 
     void TriggerTestCrash( TestKind inKind )
@@ -1514,6 +1892,12 @@ namespace Common::Crash
                 CrashTestAbort();
             case TestKind::PureCall:
                 CrashTestPureCall();
+            case TestKind::StackOverflow:
+                CrashTestStackOverflow();
+            case TestKind::StackOverflowWorker:
+                CrashTestStackOverflowWorker();
+            case TestKind::StackOverflowJob:
+                CrashTestStackOverflowJob();
         }
         std::abort();
     }

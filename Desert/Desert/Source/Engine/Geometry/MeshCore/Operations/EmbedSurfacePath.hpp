@@ -1,12 +1,9 @@
-// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Operations/EmbedSurfacePath.h:22-83,89-104,113-121,
-// 160-196, adapted: UE Core as std/glm, namespace Desert::Geometry. Only what GroupEdgeInserter's plane-cut
-// embedding (GroupEdgeInserter.cpp:1025-1028) uses is ported: MeshSurfacePoint and
-// MeshSurfacePath::EmbedSimplePath, plus IsConnected to check a path before embedding it. Left out, with reasons:
-// - AddViaPlanarWalk / ClosePath and the closed-path flag they set (WalkMeshPlanar, ~360 lines): no caller yet;
-//   GroupEdgeInserter builds its path itself (GetPlaneCutPath).
+// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Operations/EmbedSurfacePath.h:22-83,89-121,
+// 159-196, adapted: UE Core as std/glm, TFunction as std::function, namespace Desert::Geometry,
+// FEmbedSimplePathSettings lives at namespace scope as EmbedSimplePathSettings (a nested struct with default
+// member initializers cannot be a default argument inside its own enclosing class). Left out, with reasons:
+// - ClosePath and the bIsClosed flag only it sets: no caller; a closed loop is two AddViaPlanarWalk + embeds here.
 // - EmbedProjectedPath(s) and Frame3d: outside this port.
-// - FEmbedSimplePathSettings (snap-to-vertex, loop removal, tiny-edge flips): every caller here takes the default
-//   (all off), so the options would be settings nothing sets.
 // - bUpdatePath: UE never implemented it (its branch is `ensure(false)`), so the path is always consumed.
 // - The deprecated (EdgeID, FirstCoordWt) constructor: MakeEdgePoint replaces it in UE 5.8.
 // - Validate(): an IsConnected wrapper for the tool framework; callers here call IsConnected.
@@ -16,6 +13,7 @@
 #include "Engine/Geometry/MeshCore/VectorTypes.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace Desert::Geometry
@@ -72,6 +70,36 @@ namespace Desert::Geometry
     };
 
     /**
+     * Additional options for controlling simple path embedding
+     */
+    struct EmbedSimplePathSettings
+    {
+        // Whether to snap intermediate triangle/edge path points to vertices, using the SnapElementThresholdSq
+        bool bSimplifyPathBySnapping = false;
+
+        // Especially after simplification by snapping, we could create paths that revisit the same vertex multiple
+        // times -- this option will remove such loops by removing the path between the repeated vertex; i.e. Path
+        // A B C D B E becomes just A B E. Note this option should not be used if embedding curved paths, as the
+        // loop may be an intentional feature in this case
+        bool bRemovePathLoops = false;
+
+        // If an edge split would create an edge smaller than the snap threshold, allow an edge flip instead. Note
+        // this is equivalent to splitting then immediately collapsing. Flip will not be performed if it would
+        // introduce a fold-over.
+        bool bAllowEdgeFlipToCollapseTinyEdges = false;
+
+        /** @return Settings with all path simplification options enabled */
+        static EmbedSimplePathSettings WithSimplification()
+        {
+            EmbedSimplePathSettings Settings;
+            Settings.bSimplifyPathBySnapping           = true;
+            Settings.bRemovePathLoops                  = true;
+            Settings.bAllowEdgeFlipToCollapseTinyEdges = true;
+            return Settings;
+        }
+    };
+
+    /**
      * Represent a path on the surface of a mesh via barycentric coordinates and triangle references
      */
     class MeshSurfacePath
@@ -91,6 +119,30 @@ namespace Desert::Geometry
         [[nodiscard]] bool IsConnected() const;
 
         /**
+         * Replace m_Path with the shortest walk across the mesh surface from StartPt (on StartTri) to EndPt,
+         * staying on the plane through StartPt with normal WalkPlaneNormal (UE resets the path despite the name).
+         * The walk crosses edges and vertices where the plane cuts them, so the result satisfies EmbedSimplePath's
+         * input assumptions.
+         *
+         * @param StartVID if not -1, a vertex of StartTri that StartPt sits exactly on
+         * @param EndTri triangle holding EndPt, or -1 to accept any triangle within AcceptEndPtOutsideDist of it
+         * @param EndVertID if not -1, the walk ends at the first triangle touching this vertex
+         * @param VertexToPosnFn position of a vertex in the space of the walk (e.g. UV); mesh positions if empty
+         * @param bAllowBackwardsSearch if false, never step behind StartPt as seen along StartPt -> EndPt
+         * @param AcceptEndPtOutsideDist squared distance from EndPt at which a triangle counts as the end triangle
+         * @param PtOnPlaneThresholdSq |signed plane distance| under which a vertex counts as on the plane
+         * @param BackwardsTolerance how far behind StartPt a point may be and still count as forwards
+         * @return false if no walk reaches the end
+         */
+        bool AddViaPlanarWalk( int StartTri, int StartVID, glm::dvec3 StartPt, int EndTri, int EndVertID,
+                               glm::dvec3 EndPt, glm::dvec3 WalkPlaneNormal,
+                               std::function<glm::dvec3( const DynamicMesh3*, int )> VertexToPosnFn = nullptr,
+                               bool                                                  bAllowBackwardsSearch = true,
+                               double AcceptEndPtOutsideDist = ZeroTolerance<double>,
+                               double PtOnPlaneThresholdSq   = ZeroTolerance<float> * 100,
+                               double BackwardsTolerance     = ZeroTolerance<double> * 10 );
+
+        /**
          * Embed a surface path in mesh provided that the path only crosses vertices and edges except at the start
          * and end, so we can add the path easily with local edge splits and possibly two triangle pokes (rather
          * than needing general remeshing machinery). The Path is no longer valid afterwards: the elements it names
@@ -101,11 +153,14 @@ namespace Desert::Geometry
          * @param bDoNotDuplicateFirstVertexID Useful if repeatedly calling EmbedSimplePath to extend a path. If
          *        true, will not add the first path vertex if it matches the last vertex of the initial, passed-in
          *        PathVertices.
-         * @param SnapElementThresholdSq Squared distance threshold below which a relocated end point snaps to an
-         *        existing vertex or edge
+         * @param SnapElementThresholdSq Squared distance threshold below which path vertices can be snapped to
+         *        existing elements
+         * @param Settings Additional options controlling how the path is embedded (e.g. to enable more aggressive
+         *        snapping)
          * @return true if embedding succeeded.
          */
         bool EmbedSimplePath( std::vector<int>& PathVertices, bool bDoNotDuplicateFirstVertexID = true,
-                              double SnapElementThresholdSq = ZeroTolerance<float> * 100 );
+                              double                         SnapElementThresholdSq = ZeroTolerance<float> * 100,
+                              const EmbedSimplePathSettings& Settings               = EmbedSimplePathSettings() );
     };
 } // namespace Desert::Geometry

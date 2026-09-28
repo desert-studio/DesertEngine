@@ -50,6 +50,16 @@ namespace Desert::Core
                  fmt::format( "[SceneSerializer] '{0}' is not a readable scene file: {1}. Nothing was loaded.",
                               source, document.GetError() ) );
 
+        // A partitioned world's header holds ids where its records were. Parsed as it is it would be a world
+        // with no entities - a load that "succeeds" with the world missing - so it is refused here and read
+        // through ExternalEntities::ReadSceneFileText, which joins the records back in first.
+        for ( const std::string& key : document.GetValue().KeysAt() )
+            if ( key == "ExternalEntities" )
+                return Common::MakeError<LoadableScene>( fmt::format(
+                     "[SceneSerializer] '{0}' is the header of a partitioned world: its entities are in their own "
+                     "files, and it is read through ExternalEntities::ReadSceneFileText. Nothing was loaded.",
+                     source ) );
+
         auto parsed = document.GetValue().AsDocument<SceneSerialized>();
         if ( !parsed )
             return Common::MakeError<LoadableScene>(

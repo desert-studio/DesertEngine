@@ -14,4 +14,6 @@ namespace Desert::Editor::DragPayloads
     inline constexpr const char* SceneFile           = "SCENE_FILE";
     inline constexpr const char* AssetFile           = "AssetFile";
     inline constexpr const char* EntityRelationship  = "ENTITY_RELATIONSHIP";
+    // A whole collection (the payload is its collection.json path); the foliage palette turns it into types.
+    inline constexpr const char* Collection = "COLLECTION";
 } // namespace Desert::Editor::DragPayloads

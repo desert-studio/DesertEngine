@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <map>
 #include <fstream>
 #include <optional>
 
@@ -88,6 +89,9 @@ namespace Desert::WorldGen
         // that gets remembered wrongly in the second place it is written.
         constexpr float kCubeEdgeCm = 100.0f;
 
+        // Salts the seed for the corpus theme offset, so it is not the same number as any cell's first draw.
+        constexpr uint64_t kThemeSalt = 0x7E3A'5C1D'0B29'4F86ull;
+
         glm::vec3 BoxScale( int widthCm, int heightCm, int depthCm )
         {
             return { static_cast<float>( widthCm ) / kCubeEdgeCm, static_cast<float>( heightCm ) / kCubeEdgeCm,
@@ -96,8 +100,8 @@ namespace Desert::WorldGen
     } // namespace
 
     Core::SceneSerialized BuildWorld( const WorldSpec& spec, const std::vector<MaterialRef>& buildingMaterials,
-                                      const MaterialRef& groundMaterial, const Common::Content::AssetGuid& guid,
-                                      WorldStats& stats )
+                                      const MaterialRef& groundMaterial, const std::vector<PropTheme>& themes,
+                                      const Common::Content::AssetGuid& guid, WorldStats& stats )
     {
         Core::SceneSerialized scene;
         scene.SceneName = spec.Name;
@@ -214,6 +218,90 @@ namespace Desert::WorldGen
                     ++stats.GroundTiles;
                 }
 
+                if ( !themes.empty() )
+                {
+                    // The district's theme: a stripe pattern over the district's SIGNED address (so growing the
+                    // world keeps every place's theme, as for the buildings), shifted by the seed. Not a random
+                    // draw per district: two neighbouring districts drawing the same theme would hold its assets
+                    // across the loading range and the flight would show a plateau where it should show a fall.
+                    const int  district = std::max( spec.DistrictCells, 1 );
+                    const auto floorDiv = [district]( int v )
+                    { return v >= 0 ? v / district : -( ( -v + district - 1 ) / district ); };
+                    const int   themeCount = static_cast<int>( themes.size() );
+                    const int   offset     = Range( Mix( spec.Seed ^ kThemeSalt ), 0, themeCount - 1 );
+                    const int   stripe     = floorDiv( cx - half ) + floorDiv( cz - half ) + offset;
+                    const auto& theme =
+                         themes[static_cast<size_t>( ( stripe % themeCount + themeCount ) % themeCount )];
+                    for ( int i = 0; i < spec.PerCell; ++i )
+                    {
+                        const int      sx = i % slots;
+                        const int      sz = i / slots;
+                        const uint64_t d0 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 0 );
+                        const uint64_t d1 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 1 );
+                        const uint64_t d2 = CellDraw( spec.Seed, cx - half, cz - half, i * 8 + 2 );
+
+                        const PropRef& prop = theme.Props[static_cast<size_t>(
+                             Range( d0, 0, static_cast<int>( theme.Props.size() ) - 1 ) )];
+
+                        // A quarter of the slot either way: the prop stays inside its slot, so inside its tile,
+                        // whatever its footprint within half a slot.
+                        const float scale = static_cast<float>( prop.ScalePercent ) / 100.0f;
+
+                        // Up to a quarter of the slot either way, but never so far that the prop's own footprint
+                        // leaves the slot: a prop across a tile edge is promoted by the partition, and one across
+                        // an axis is always-loaded (WP14b measured both). Offsets are whole centimetres.
+                        const int  slotHalf = spacing / 2;
+                        const auto range    = [&]( float lo, float hi, uint64_t bits, int& offset ) -> bool
+                        {
+                            const int least =
+                                 std::max( -spacing / 4, static_cast<int>( std::ceil( -slotHalf - lo * scale ) ) );
+                            const int most =
+                                 std::min( spacing / 4, static_cast<int>( std::floor( slotHalf - hi * scale ) ) );
+                            if ( least > most )
+                                return false;
+                            offset = Range( bits, least, most );
+                            return true;
+                        };
+                        int dx = 0;
+                        int dz = 0;
+                        if ( !range( prop.Mesh.LoXCm, prop.Mesh.HiXCm, d1, dx ) ||
+                             !range( prop.Mesh.LoZCm, prop.Mesh.HiZCm, d2, dz ) )
+                            ++stats.PropsOverhanging;
+                        const int x = originX + sx * spacing + slotHalf + dx;
+                        const int z = originZ + sz * spacing + slotHalf + dz;
+
+                        char tag[48];
+                        std::snprintf( tag, sizeof( tag ), "%s_P%02d", cellTag, i );
+                        auto entity = MakeEntity(
+                             nextId++, tag,
+                             { static_cast<float>( x ), prop.Mesh.BaseLiftCm * scale, static_cast<float>( z ) },
+                             { 0.0f, 0.0f, 0.0f }, { scale, scale, scale } );
+
+                        if ( prop.Mesh.Skinned )
+                        {
+                            Assets::SkinnedMeshComponentSer mesh;
+                            mesh.MeshPath                    = prop.Mesh.Path;
+                            mesh.MeshGuid                    = prop.Mesh.Guid;
+                            mesh.MaterialPaths               = std::vector<std::string>{ prop.Material.Path };
+                            mesh.MaterialGuids               = std::vector<std::string>{ prop.Material.Guid };
+                            entity.Components["SkinnedMesh"] = AsBlock( mesh );
+                            ++stats.SkinnedProps;
+                        }
+                        else
+                        {
+                            Assets::StaticMeshComponentSer mesh;
+                            mesh.MeshPath                   = prop.Mesh.Path;
+                            mesh.MeshGuid                   = prop.Mesh.Guid;
+                            mesh.MaterialPaths              = std::vector<std::string>{ prop.Material.Path };
+                            mesh.MaterialGuids              = std::vector<std::string>{ prop.Material.Guid };
+                            entity.Components["StaticMesh"] = AsBlock( mesh );
+                        }
+                        scene.Entities.push_back( std::move( entity ) );
+                        ++stats.Props;
+                    }
+                    continue;
+                }
+
                 for ( int i = 0; i < spec.PerCell; ++i )
                 {
                     const int sx = i % slots;
@@ -273,6 +361,14 @@ namespace Desert::WorldGen
                 }
             }
         }
+
+        // Each record's place among its siblings, stated the way the editor's saver states it (SceneSerializer's
+        // SiblingIndexOf: roots numbered in load order, a child by its place in its parent's children, which is
+        // load order too). Left unstated, the first editor save of a generated world adds it to EVERY record, and
+        // a partitioned world's first save after moving one entity rewrites every entity file (WP16b).
+        std::map<uint64_t, uint32_t> nextUnder; // parent id -> next sibling index; 0 = the roots
+        for ( auto& record : scene.Entities )
+            record.siblingIndex = nextUnder[record.parent ? static_cast<uint64_t>( *record.parent ) : 0]++;
 
         stats.Entities = static_cast<int>( scene.Entities.size() );
         return scene;

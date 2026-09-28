@@ -4,6 +4,7 @@
 #include "PackagedContentTrees.hpp"
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Project/ProjectContext.hpp>
@@ -167,7 +168,7 @@ namespace Desert::Editor
             {
                 if ( path.extension() != ".desce" )
                     continue;
-                auto text = Common::Utils::FileSystem::ReadFileContent( path );
+                auto text = Core::ExternalEntities::ReadSceneFileText( path );
                 if ( !text )
                 {
                     error = "cooking the worlds: " + text.GetError();

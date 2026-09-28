@@ -1,3 +1,4 @@
+#include <Common/Core/EngineThread.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include "PhotogrammetryPanel.hpp"
 
@@ -388,7 +389,7 @@ namespace Desert::Editor
         if ( m_Worker.joinable() )
             m_Worker.join();
 
-        m_Worker = std::thread(
+        m_Worker = Common::StartEngineThread(
              [this, cmd]()
              {
 #if defined( DE_POSIX_PROC )
@@ -623,8 +624,7 @@ namespace Desert::Editor
 
         // No grid line here: overlays live on the RENDERER (Graphic::DebugViewState) and default to off,
         // and only the main editor loop pushes the user's flags into one.
-        auto& settings       = m_PreviewScene->GetSettings();
-        settings.EnableBloom = false;
+        // No PostProcessVolume in this scene, so the grade is Core::PostProcessSettings{} — bloom off.
 
         // `settings.AA = FXAA` used to stand here and restated the default. The mode is machine quality
         // now (К3) and this preview renderer is never pushed to, so it keeps the schema defaults.

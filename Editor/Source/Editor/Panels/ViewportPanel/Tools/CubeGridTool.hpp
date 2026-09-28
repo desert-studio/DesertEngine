@@ -52,8 +52,8 @@ namespace Desert::Editor::Tools
         // the reason logged, when the set is full (a face stores its ID in a byte).
         std::optional<uint8_t> OpMaterialId();
         // Point the entity's material slots at m_Materials in the order the bake's submeshes use them.
-        void        ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
-        void        ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
+        void ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
+        void ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
         // Reopen on the selected entity (UE: the tool takes the selected mesh as its target): its voxels become
         // the volume, the grid goes onto its last piece, and Accept / Cancel end in ONE undo step / the entity
         // as it was. Refused with a toast, by reason (BlockoutSession.hpp, ReopenBlockout).

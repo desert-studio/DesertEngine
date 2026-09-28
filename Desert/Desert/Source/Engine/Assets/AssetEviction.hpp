@@ -155,6 +155,16 @@ namespace Desert::Assets
         /// Park @p handle's runtime materials for destruction, keeping the shell.
         virtual void DropBuiltMaterial( const Common::AssetHandle& handle ) = 0;
 
+        /// Drop the built GPU texture for @p handle, keeping the shell so `Require` reads and builds it again.
+        /// Returns true when something was actually dropped. WP14b: before it existed a texture's GPU image
+        /// outlived its asset's release for the rest of the session - the payload went, the image stayed.
+        virtual bool DropBuiltTexture( const Common::AssetHandle& handle ) = 0;
+
+        /// The key of every mesh with built GPU buffers right now. The sweep walks the REGISTRY for candidates;
+        /// this is the other side of the ledger, so a built mesh the registry walk cannot reach is named instead
+        /// of staying resident in silence (FO-6).
+        [[nodiscard]] virtual std::vector<Common::AssetHandle> BuiltMeshHandles() const = 0;
+
         /// Destroy what was parked, at a point where no frame is recording.
         virtual void CollectGarbage() = 0;
     };
@@ -187,12 +197,22 @@ namespace Desert::Assets
         /// Built GPU objects dropped, by kind.
         uint32_t MeshesDropped    = 0;
         uint32_t MaterialsDropped = 0;
+        uint32_t TexturesDropped  = 0;
         /// Rows in the resource ledger before and after. The number the report quotes.
         uint32_t LedgerRowsBefore = 0;
         uint32_t LedgerRowsAfter  = 0;
 
         /// Every refusal, in full. They are the only outcome a person has to act on.
         std::vector<std::string> Refusals;
+
+        /// Every reachable TEXTURE, with the root chain that kept it (AssetRootSet::WhyKept). Textures are the
+        /// bulk of asset GPU memory, so "why is this one still resident" is the question a memory graph that
+        /// does not fall raises first (WP14b) - answered in the sweep's own line instead of by a debugger.
+        std::vector<std::string> KeptTextures;
+
+        /// Every mesh still built after the sweep, with why: reachable (and the chain that keeps it) or a key the
+        /// registry does not hold. A built mesh is GPU memory; the flight's asset_gpu_bytes cannot fall past it.
+        std::vector<std::string> BuiltMeshesLeft;
 
         [[nodiscard]] std::string Describe() const;
     };
@@ -261,10 +281,9 @@ namespace Desert::Assets
      * command buffer is open, which is also what makes it safe for the sweep itself to collect the
      * material graveyard before it reads the ledger back (see AssetEviction::Run).
      *
-     * AND IT IS DEBOUNCED BY TWO QUIET FRAMES, which is not a detail — see the constant in
-     * AssetEvictionServices.cpp for the measurement that put it there. Loading a level raises the request
-     * more than once and on different frames, and a sweep fired on the first of them sees a half-built
-     * world.
+     * AND IT RUNS TWO FRAMES AFTER THE FIRST REQUEST, which is not a detail — see EvictionDeadline.hpp for the
+     * measurement that put the delay there, and for why later requests do not move it (world streaming asks
+     * on every cell that leaves, and a re-armed countdown would never fire during a flight).
      */
     class AssetEvictionSchedule final
     {

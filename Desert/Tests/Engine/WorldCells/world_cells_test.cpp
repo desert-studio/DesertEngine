@@ -15,6 +15,7 @@
 //   6. THE TOOL. Tools/WorldCook's own RunWorldCook writes a directory, verifies it from disk, and removes what
 //      an earlier cook left.
 
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
@@ -22,6 +23,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Json/Carry.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -31,6 +33,8 @@
 #include <WorldCookMain.hpp>
 
 #include <gtest/gtest.h>
+
+#include "../../TestSupport/scratch_dir.hpp"
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -204,8 +208,9 @@ TEST( WorldCells, TwoCooksOfOneSourceAreTheSameBytes )
 {
     const auto first  = FilesOf( Cook( World() ) );
     const auto second = FilesOf( Cook( World() ) );
-    // The always-loaded file, the parent's, the shooter's, the target's, eight fillers' and the index.
-    EXPECT_EQ( first.size(), 13u );
+    // The always-loaded file, the parent's, the shooter's, the target's, eight fillers', the HLOD of the
+    // bystander's cube and the index.
+    EXPECT_EQ( first.size(), 14u );
     EXPECT_EQ( first, second );
 }
 
@@ -587,9 +592,12 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
     fs::remove_all( root );
     fs::create_directories( root / "cooked" );
     const fs::path source = root / "CookMe.desce";
+    // A partitioned world on disk is its header plus one file per entity (WP16), written by the engine's writer.
     {
-        std::ofstream file( source, std::ios::binary );
-        file << rfl::json::write( World() );
+        const auto document = Common::Json::TextDocument::Parse( rfl::json::write( World() ) );
+        ASSERT_TRUE( document ) << document.GetError();
+        const auto written = Desert::Core::ExternalEntities::WriteSceneFile( source, document.GetValue() );
+        ASSERT_TRUE( written ) << written.GetError();
     }
     // Left by an earlier cook of a bigger world: a cell this world no longer has.
     {
@@ -709,8 +717,10 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 
     std::vector<EntityData> named;
     EntityData              instance = Record( 1, "Instance", where );
-    instance.Scale                   = scale;
-    instance.PrefabPath              = prefabPath;
+    // Scene v37: an instance's record states all three parts of its root transform, as the saver writes it.
+    instance.Rotation   = glm::vec3( 0.0f );
+    instance.Scale      = scale;
+    instance.PrefabPath = prefabPath;
     named.push_back( instance );
 
     std::vector<EntityData> instantiated;
@@ -747,8 +757,9 @@ TEST( WorldCells, APrefabsRegistryBoxIsTheBoxOfItsInstantiatedBody )
 // from the file - states none either.
 TEST( WorldCells, TheCorpusPrefabStatesTheBoxItsBodyHas )
 {
-    const std::filesystem::path file = "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
-    ASSERT_TRUE( std::filesystem::exists( file ) ) << "run from the repository root";
+    const std::filesystem::path file =
+         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Prefabs/UI_Card.deprefab";
+    ASSERT_TRUE( std::filesystem::exists( file ) ) << file.string();
     std::ifstream     in( file );
     const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
     const auto        parsed = Common::Json::Read<Desert::Assets::PrefabData>( text );

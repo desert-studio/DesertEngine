@@ -279,14 +279,17 @@ TEST( MemoryDetectorCensus, TheExtensionIsEnabledOnTheDeviceAndGatesTheChainedSt
          ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" ) );
     ASSERT_FALSE( text.empty() );
 
-    // THE LINE THAT DOES IT, NOT THE MENTION OF IT. The first version of this assertion looked for the
-    // extension NAME anywhere in the file and SURVIVED a mutation that deleted the push_back — because
-    // the `IsExtensionSupported( ... )` test above it still names the same constant. A rule satisfied by
-    // a mention is satisfied by the `if` that decides nothing.
-    EXPECT_NE( text.find( "deviceExtensions.push_back( VK_EXT_MEMORY_BUDGET_EXTENSION_NAME )" ),
-               std::string::npos )
-         << "the device is created without VK_EXT_memory_budget in its extension list, so every usage "
-            "figure the driver reports is zero";
+    // THE LINE THAT DOES IT, NOT THE MENTION OF IT. The extension is a DeviceCaps row, enabled by the
+    // probe when present; the device reads its flag from DeviceCaps, i.e. from what was actually enabled.
+    const std::string table = Desert::Tests::ConsumerText::StripCommentsAndLiterals(
+         ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/DeviceCaps.cpp" ) );
+    EXPECT_NE( table.find( "C::MemoryBudget," ), std::string::npos )
+         << "VK_EXT_memory_budget is no longer a DeviceCaps row, so no device is created with it and every "
+            "usage figure the driver reports is zero";
+    EXPECT_NE(
+         text.find( "m_MemoryBudgetEnabled = m_PhysicalDevice->GetDeviceCaps().Has( Capability::MemoryBudget );" ),
+         std::string::npos )
+         << "the budget flag must come from DeviceCaps, the record of what the device was created with";
 
     // AND THE GATE. Chaining VkPhysicalDeviceMemoryBudgetPropertiesEXT into a query on a device that was
     // not created with the extension is undefined behaviour whose observed shape is a struct nobody

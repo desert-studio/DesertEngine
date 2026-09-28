@@ -7,6 +7,7 @@
 #include <Engine/ECS/System/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Render/Commands/DrawLandscapeTileCommand.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeWeightmap.hpp>
@@ -60,20 +61,21 @@ namespace Desert::ECS
             return Graphic::Image2D::Create( spec );
         }
 
-        // The tile's weight layers as one RGBA8 texel per sample (LandscapeWeightmapTexels): no neighbour
-        // ring — the surface samples it at the vertex's own sample, which every tile holds for its edges.
+        // The tile's weight layers as one RGBA8 texel per sample, its pages stacked along the height
+        // (LandscapeWeightmapAtlasTexels): no neighbour ring — the surface samples it at the vertex's own
+        // sample, which every tile holds for its edges.
         std::shared_ptr<Graphic::Image2D> CreateWeightmap( const Landscape::LandscapeTileData& tile, int32_t tileX,
                                                            int32_t tileZ, std::vector<unsigned char> texels )
         {
             Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "LandscapeWeights(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
-                 .Width      = tile.SamplesX(),
-                 .Height     = tile.SamplesZ(),
-                 .Format     = Core::Formats::ImageFormat::RGBA8F,
-                 .Mips       = 1,
-                 .Samples    = 1,
-                 .Data       = Core::Formats::EmptyPixelData{},
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                 .Tag     = "LandscapeWeights(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
+                 .Width   = tile.SamplesX(),
+                 .Height  = tile.SamplesZ() * Landscape::LandscapeWeightmapPageCount( tile.WeightLayers().size() ),
+                 .Format  = Core::Formats::ImageFormat::RGBA8F,
+                 .Mips    = 1,
+                 .Samples = 1,
+                 .Data    = Core::Formats::EmptyPixelData{},
+                 .Usage   = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::ImageProperties::Sample,
                  .MipLevels  = {},
             };
@@ -143,15 +145,19 @@ namespace Desert::ECS
         };
 
         // Each root's look, resolved once per frame and shared by all its tiles. The material is a `.demat`
-        // like every other: its values (Tint, DetailTiling and the u_GrassTex/u_RockTex/u_SnowTex layers)
-        // arrive as named overrides that TerrainRenderer applies on top of the shader's schema defaults. A
-        // root without a LandscapeMaterial draws with those defaults and every layer on Auto.
+        // like every other: its values (Tint) arrive as named overrides that TerrainRenderer applies on top
+        // of the shader's schema defaults. A root without a LandscapeMaterial draws with those defaults.
         struct Surface
         {
-            glm::vec3                  LayerModes = glm::vec3( 0.0f );
             Graphic::MaterialOverrides Overrides;
-            // The root's weight layers, which give each tile channel its colour and blend by name.
-            std::vector<LandscapeLayerInfo> Layers;
+            // The root's weight layers (their `.delayerinfo` data), which give each tile channel its colour
+            // and blend by name. Pending: a layer is still loading, so a channel that names nothing yet is
+            // not reported as unknown.
+            std::vector<Assets::Serialization::LandscapeLayerInfoData> Layers;
+            bool                                                       LayersPending = false;
+            // The root's FIRST layer's colour with a = 1 (UE shows its first layer where nothing is
+            // painted); a = 0 while the root names none or that layer is not loaded: white ground.
+            glm::vec4 Ground = glm::vec4( 0.0f );
         };
         std::map<uint64_t, Surface> surfaces;
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
@@ -161,15 +167,28 @@ namespace Desert::ECS
                 return it->second;
             const entt::entity rootEntity = FindLandscapeRootEntity( registry, rootId );
             if ( rootEntity != entt::null && registry.has<LandscapeComponent>( rootEntity ) )
-                it->second.Layers = registry.get<LandscapeComponent>( rootEntity ).Layers;
+            {
+                // The service logs a failed layer once; a failed layer is simply absent here, and the tile's
+                // channels of it are reported below as layers the landscape does not list.
+                auto& service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                const auto& handles = registry.get<LandscapeComponent>( rootEntity ).Layers;
+                for ( const Assets::AssetHandle& handle : handles )
+                {
+                    if ( const auto* info = service.Get( handle ) )
+                    {
+                        if ( handle == handles.front() )
+                            it->second.Ground = glm::vec4( info->LayerUsageDebugColor, 1.0f );
+                        it->second.Layers.push_back( *info );
+                    }
+                    else if ( service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending )
+                        it->second.LayersPending = true;
+                }
+            }
             for ( const auto entity : registry.view<LandscapeMaterialComponent, UUIDComponent>() )
             {
                 if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
                     continue;
                 const LandscapeMaterialData& look = registry.get<LandscapeMaterialComponent>( entity ).Data;
-                it->second.LayerModes =
-                     glm::vec3( static_cast<float>( look.GrassMode ), static_cast<float>( look.RockMode ),
-                                static_cast<float>( look.SnowMode ) );
                 const auto raw = static_cast<uint64_t>( look.Material );
                 if ( raw == 0 )
                     break;
@@ -236,7 +255,9 @@ namespace Desert::ECS
             gpu.NeighbourMask = mask;
 
             if ( d.WeightsDirty )
+            {
                 m_WarnedWeights.erase( d.Entity );
+            }
             UpdateWeightmap( gpu, heights, d.Entity, tileComp, d.WeightsDirty );
 
             if ( ECS::IsHidden( registry, d.Entity ) )
@@ -256,6 +277,7 @@ namespace Desert::ECS
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
             Graphic::System::LandscapeWeightDraw weights;
+            weights.Ground = surface.Ground;
             if ( gpu.Weightmap )
             {
                 const Landscape::LandscapeWeightChannels channels =
@@ -263,8 +285,9 @@ namespace Desert::ECS
                 weights.Weightmap  = gpu.Weightmap.get();
                 weights.LayerCount = channels.Count;
                 weights.Colors     = channels.Colors;
-                weights.AlphaBlend = channels.AlphaBlend;
-                if ( !channels.Unknown.empty() && m_WarnedWeights.insert( d.Entity ).second )
+                weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
+                if ( !channels.Unknown.empty() && !surface.LayersPending &&
+                     m_WarnedWeights.insert( d.Entity ).second )
                 {
                     // Not dropped silently: the tile keeps the layer's weights (renaming it back on the root
                     // restores it), it is just not drawn while the root does not name it.
@@ -276,8 +299,8 @@ namespace Desert::ECS
                               tileComp.TileX, tileComp.TileZ, names );
                 }
             }
-            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>(
-                 gpu.Heightmap.get(), draw, surface.LayerModes, surface.Overrides, weights );
+            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw,
+                                                                                    surface.Overrides, weights );
         }
 
         // Release: the entity is gone, lost its tile component, or its heights were unloaded.
@@ -304,8 +327,9 @@ namespace Desert::ECS
         }
         // In place per stroke, like the heightmap: the weightmap's address keys the tile's material too.
         const auto weightmap = RefreshLandscapeTileImage(
-             gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(), heights.SamplesZ(), weightsDirty,
-             [&] { return Landscape::LandscapeWeightmapTexels( heights ); },
+             gpu.Weightmap, gpu.WeightmapX, gpu.WeightmapZ, heights.SamplesX(),
+             heights.SamplesZ() * Landscape::LandscapeWeightmapPageCount( heights.WeightLayers().size() ),
+             weightsDirty, [&] { return Landscape::LandscapeWeightmapAtlasTexels( heights ); },
              [&]( std::vector<unsigned char> texels )
              { return CreateWeightmap( heights, tileComp.TileX, tileComp.TileZ, std::move( texels ) ); } );
         if ( weightmap.IsSuccess() )

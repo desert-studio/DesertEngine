@@ -113,6 +113,18 @@ namespace Desert::Runtime
         return &uiThemeService;
     }
 
+    LandscapeLayerInfoService* ResourceRegistry::GetLandscapeLayerInfoService()
+    {
+        static LandscapeLayerInfoService landscapeLayerInfoService;
+        return &landscapeLayerInfoService;
+    }
+
+    FoliageTypeService* ResourceRegistry::GetFoliageTypeService()
+    {
+        static FoliageTypeService foliageTypeService;
+        return &foliageTypeService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -123,6 +135,9 @@ namespace Desert::Runtime
         GetMeshService()->BindAssetManager( assets );
         GetCloudTypeService()->BindAssetManager( assets );
         GetUIThemeService()->BindAssetManager( assets );
+        GetSkyboxService()->BindAssetManager( assets );
+        GetLandscapeLayerInfoService()->BindAssetManager( assets );
+        GetFoliageTypeService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -143,6 +158,8 @@ namespace Desert::Runtime
         GetCloudModellingService()->Clear();
         GetCloudLayoutService()->Clear();
         GetUIThemeService()->Clear();
+        GetLandscapeLayerInfoService()->Clear();
+        GetFoliageTypeService()->Clear();
         GetImageService()->Clear();
     }
 

@@ -21,7 +21,11 @@ namespace Desert::Core
         // Bumped when anything about how a stage is COMPILED changes (target environment, debug info,
         // warning policy) without the source changing. Without it a compiler-option change would keep
         // serving artifacts built under the old options.
-        constexpr const char* kOptionsFingerprint = "vulkan1.1|v1";
+        // v2 (RQ1): the DSL header moved from GLSL 450 to 460, which changes the language rules every
+        // stage is compiled under. The assembled text already carries the new #version line, but a key
+        // that moves only through text would let an artifact compiled under 450 rules survive any path
+        // that hashes a stage without that header; the fingerprint names the language version outright.
+        constexpr const char* kOptionsFingerprint = "vulkan1.1|glsl460|v2";
 
         void FnvMix( uint64_t& h, std::string_view data )
         {

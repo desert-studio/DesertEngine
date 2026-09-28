@@ -23,6 +23,7 @@
 // restated here, over the generator's output, so the file cannot quietly become one the engine would
 // refuse. Sections 3 to 6 are that debt paid.
 
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "WorldGenMain.hpp"
 #include "WorldBuild.hpp"
 
@@ -30,20 +31,30 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Common/Json/Carry.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <cctype>
 #include <cstring>
+#include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -95,6 +106,14 @@ namespace
         return buffer.str();
     }
 
+    // What a load of the scene at `path` parses: a partitioned world's header joined with its entity files
+    // (WP16b - the tool writes through the engine's one scene writer), any other scene as its bytes.
+    std::string ReadWorld( const std::filesystem::path& path )
+    {
+        const auto joined = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+        return joined ? joined.GetValue() : "<" + joined.GetError() + ">";
+    }
+
     // Runs the tool exactly as the command line does, and hands back what it wrote.
     int Generate( const std::filesystem::path& out, const std::vector<std::string>& extra, std::string& bytes )
     {
@@ -105,7 +124,7 @@ namespace
         std::ostringstream refused;
         const int          status = Desert::WorldGen::RunWorldGen( args, reported, refused );
         if ( status == 0 )
-            bytes = ReadAll( out );
+            bytes = ReadWorld( out );
         else
             bytes = refused.str();
         return status;
@@ -222,8 +241,9 @@ TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
     ASSERT_EQ( GenerateSmoke( pathTwo, two, { "--seed", "2" } ), 0 ) << two;
     ASSERT_EQ( GenerateSmoke( pathOneAgain, oneAgain, { "--seed", "1" } ), 0 ) << oneAgain;
 
-    // The header is the document's first member, so the first "Guid" is the header's own.
-    const std::string guidKey = R"("Header":{"Kind":"Scene","Guid":")";
+    // The header is the document's first member, so the first "Guid" is the header's own. The file is the
+    // saver's canonical text (WP16b: the tool writes through the engine's one scene writer), one member a line.
+    const std::string guidKey = R"("Guid": ")";
     const auto        guidOf  = [&guidKey]( const std::string& json ) -> std::string
     {
         const auto at = json.find( guidKey );
@@ -269,7 +289,9 @@ TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
 
     // Cell (1,1) of a 2-cell world and cell (2,2) of a 4-cell world are the SAME cell: both are the one
     // whose origin is (0,0), because the grid is centred. Their buildings must be identical in everything
-    // but the entity id and the tag, which are positional by construction.
+    // but the entity id, the tag and the sibling index, which are positional by construction: siblingIndex
+    // is the record's place in the scene's tree order (a root's is its place among ALL roots, as the editor's
+    // saver numbers it), and a bigger world has more cells ahead of this one, so it is not content.
     const auto payloads = []( const SceneSerialized& scene, const std::string& tagPrefix )
     {
         std::vector<std::string> found;
@@ -279,6 +301,7 @@ TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
                 auto copy = entity;
                 copy.id   = std::nullopt;
                 copy.Tag  = std::nullopt;
+                copy.siblingIndex = std::nullopt;
                 found.push_back( Common::Json::Write( copy ) );
             }
         return found;
@@ -505,6 +528,119 @@ TEST( WorldSceneGenerator, TheSettingsBlockIsTheREFLECTIONTABLEAndNothingElse )
     EXPECT_EQ( stated, declared );
 }
 
+// A GENERATED WORLD IS ALREADY WHAT THE EDITOR SAVES (WP16c). Opening a generated world and pressing Ctrl+S
+// with nothing edited must move no byte: otherwise the first save of a partitioned world rewrites every entity
+// file, and the diff of the first real edit is the whole world. SceneSerializer::SaveToFile cannot be compiled
+// by a suite (it reaches the renderer through Scene.hpp), so this runs what the save RESTATES about a record
+// and a Settings block, on the loader's input, and then the saver's own composition and the one scene writer:
+//   - siblingIndex: the loader creates records in sibling order (SceneStitchRules: siblingIndex, then file
+//     order), so a parent's Children grow in that order; the saver numbers a root by the running count of
+//     roots and a child by its place in its parent's Children (SceneSerializer.cpp SiblingIndexOf);
+//   - Settings: read into SceneSettings and written back with an asset resolver, as the load and the save do;
+//     a world that names no settings asset gets the resolver's answer for handle 0 ("" for GUID and path).
+namespace
+{
+    Desert::Reflection::AssetResolver ResolverOfAWorldThatNamesNoSettingsAsset()
+    {
+        Desert::Reflection::AssetResolver resolver;
+        resolver.ToPath   = []( uint64_t, const std::string& ) { return std::string(); };
+        resolver.ToGuid   = []( uint64_t, const std::string& ) { return std::string(); };
+        resolver.FromPath = []( const std::string&, const std::string& ) { return uint64_t{ 0 }; };
+        resolver.FromGuid = []( uint64_t, const std::string& ) { return uint64_t{ 0 }; };
+        return resolver;
+    }
+
+    void RestateAsTheEditorSaves( SceneSerialized& tree )
+    {
+        std::vector<std::size_t> created( tree.Entities.size() );
+        for ( std::size_t i = 0; i < created.size(); ++i )
+            created[i] = i;
+        std::stable_sort(
+             created.begin(), created.end(),
+             [&tree]( std::size_t a, std::size_t b )
+             {
+                 return tree.Entities[a].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() ) <
+                        tree.Entities[b].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
+             } );
+        std::map<uint64_t, uint32_t> childrenSoFar;
+        uint32_t                     nextRootIndex = 0;
+        for ( const std::size_t i : created )
+        {
+            auto& record = tree.Entities[i];
+            record.siblingIndex =
+                 record.parent ? childrenSoFar[static_cast<uint64_t>( *record.parent )]++ : nextRootIndex++;
+        }
+
+        const auto* type = Desert::Reflection::ReflectionRegistry::Get().Find( "SceneSettings" );
+        ASSERT_NE( type, nullptr ) << "the reflection table this suite reads is empty";
+        ASSERT_TRUE( tree.Settings.has_value() );
+        const auto                  resolver = ResolverOfAWorldThatNamesNoSettingsAsset();
+        Desert::Core::SceneSettings values;
+        Common::Json::Issues        issues;
+        Desert::Reflection::DeserializeReflected(
+             // tree.Settings is checked by the ASSERT_TRUE above.
+             // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+             *type, &values, Common::Json::Root( *tree.Settings, Common::Json::Path().Key( "Settings" ) ), issues,
+             &resolver );
+        EXPECT_TRUE( issues.empty() );
+        tree.Settings = Common::Json::Value( Desert::Reflection::SerializeReflected( *type, &values, &resolver ) );
+    }
+
+    std::map<std::string, std::string> FilesBelow( const std::filesystem::path& dir )
+    {
+        std::map<std::string, std::string> files;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( dir ) )
+            if ( entry.is_regular_file() )
+                files[entry.path().lexically_relative( dir ).generic_string()] = ReadAll( entry.path() );
+        return files;
+    }
+} // namespace
+
+TEST( WorldSceneGenerator, OpeningAndSavingAGeneratedWorldWithNoEditChangesNoFile )
+{
+    const auto dir = Scratch() / "editor_save";
+    std::filesystem::remove_all( dir );
+    std::filesystem::create_directories( dir );
+    const auto                     out = dir / "world.desce";
+    const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
+                                         "--preset", "smoke",      "--partition" };
+    std::ostringstream             reported;
+    std::ostringstream             refused;
+    ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
+    const auto generated = FilesBelow( dir );
+    ASSERT_GT( generated.size(), 2u ) << "a partitioned world is a header plus one file per entity";
+
+    // The open: the loader's joined document, kept for the save's foreign-key merge, and its typed tree.
+    const auto text = Desert::Core::ExternalEntities::ReadSceneFileText( out );
+    ASSERT_TRUE( text ) << text.GetError();
+    auto loaded = Common::Json::TextDocument::Parse( text.GetValue() );
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    auto typed = loaded.GetValue().AsDocument<SceneSerialized>();
+    ASSERT_TRUE( typed ) << typed.GetError();
+    SceneSerialized tree = typed.ExtractValue();
+    RestateAsTheEditorSaves( tree );
+
+    // The save: this build's tree composed onto the loaded document, written by the one scene writer.
+    auto names = std::make_shared<std::set<std::string>>();
+    for ( const auto& name : Common::Json::MemberNames<Desert::Assets::EntityData>() )
+        names->insert( std::string( name ) );
+    const auto document = Desert::Core::ComposeSceneDocument(
+         tree, loaded.GetValue(), [names]( const std::string& key ) { return names->count( key ) != 0; } );
+    ASSERT_TRUE( document ) << document.GetError();
+    const auto saved = Desert::Core::ExternalEntities::WriteSceneFile( out, document.GetValue() );
+    ASSERT_TRUE( saved ) << saved.GetError();
+
+    EXPECT_EQ( saved.GetValue().Written, 0u ) << "files the first save of an unedited generated world rewrote";
+    EXPECT_EQ( saved.GetValue().Removed, 0u );
+    const auto after = FilesBelow( dir );
+    ASSERT_EQ( after.size(), generated.size() );
+    std::size_t differing = 0;
+    for ( const auto& [file, bytes] : generated )
+        if ( !after.contains( file ) || after.at( file ) != bytes )
+            ++differing;
+    EXPECT_EQ( differing, 0u );
+}
+
 // ---------------------------------------------------------------------------------------------------
 // 5. THE FILE STITCHES — the SceneStitch corpus rules
 // ---------------------------------------------------------------------------------------------------
@@ -658,7 +794,7 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = ReadScene( ReadAll( out ) );
+    const auto scene = ReadScene( ReadWorld( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
     ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
@@ -726,7 +862,7 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = ReadScene( ReadAll( out ) );
+    const auto scene = ReadScene( ReadWorld( out ) );
     ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
     for ( const auto& entity : scene->Entities )
     {
@@ -757,7 +893,7 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = ReadScene( ReadAll( out ) );
+    const auto scene = ReadScene( ReadWorld( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
     ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
@@ -799,4 +935,350 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 8. THE CORPUS PRESET (WP14) - a world furnished with REAL tracked assets, the streaming-memory instrument
+// ---------------------------------------------------------------------------------------------------
+
+namespace
+{
+    std::string ProjectRoot()
+    {
+        return RepoRoot() + "Editor";
+    }
+
+    int GenerateCorpus( const std::filesystem::path& out, std::string& bytes,
+                        const std::vector<std::string>& extra = {} )
+    {
+        std::vector<std::string> args{ "--preset", "corpus-smoke", "--project", ProjectRoot(), "--partition" };
+        args.insert( args.end(), extra.begin(), extra.end() );
+        return Generate( out, args, bytes );
+    }
+
+    // FNV-1a 64, spelled out: std::hash differs between standard libraries, and the point of the hash is to be
+    // a number two machines can compare.
+    uint64_t Fnv1a( std::string_view text )
+    {
+        uint64_t hash = 0xCBF29CE484222325ull;
+        for ( const char c : text )
+        {
+            hash ^= static_cast<unsigned char>( c );
+            hash *= 0x100000001B3ull;
+        }
+        return hash;
+    }
+
+    // What a generated world IS, minus its identity: the records as the writer spells them, and the partition
+    // index the loader would build from them - every composite's anchor, level and reason, plus the summary line.
+    struct WorldFingerprint
+    {
+        uint64_t    EntitiesHash = 0;
+        std::string Index;
+    };
+
+    WorldFingerprint Fingerprint( const std::string& bytes )
+    {
+        WorldFingerprint print;
+        const auto       scene = ReadScene( bytes );
+        if ( !scene.has_value() || !scene->WorldPartition.has_value() )
+        {
+            ADD_FAILURE() << "the corpus world did not read back with its WorldPartition block";
+            return print;
+        }
+        print.EntitiesHash = Fnv1a( Common::Json::Write( scene->Entities ) );
+
+        namespace Rules = Desert::Core::Rules;
+        const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+        print.Index     = Rules::SummarisePartition( plan, *scene->WorldPartition );
+        for ( const auto& composite : plan.Composites )
+            print.Index += "|" + std::to_string( composite.Anchor ) + ":" + std::to_string( composite.Level ) +
+                           ":" + std::to_string( static_cast<int>( composite.Reason ) );
+        return print;
+    }
+} // namespace
+
+// 8a. Same seed, two never-before-written files (so two different GUIDs): the same records and the same partition
+// index. A different seed: a different world. Without this the flight is not a repeatable measurement.
+TEST( WorldSceneGenerator, CorpusPresetIsDeterministicInItsRecordsAndItsPartitionIndex )
+{
+    std::filesystem::remove( Scratch() / "corpus_a.desce" );
+    std::filesystem::remove( Scratch() / "corpus_b.desce" );
+    std::string a;
+    std::string b;
+    std::string c;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_a.desce", a, { "--seed", "7" } ), 0 ) << a;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_b.desce", b, { "--seed", "7" } ), 0 ) << b;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_c.desce", c, { "--seed", "8" } ), 0 ) << c;
+
+    const auto fa = Fingerprint( a );
+    const auto fb = Fingerprint( b );
+    const auto fc = Fingerprint( c );
+    EXPECT_NE( fa.EntitiesHash, 0u );
+    EXPECT_EQ( fa.EntitiesHash, fb.EntitiesHash ) << "same seed, different records";
+    EXPECT_EQ( fa.Index, fb.Index ) << "same seed, different partition index";
+    EXPECT_NE( fa.EntitiesHash, fc.EntitiesHash ) << "the seed does not reach the corpus layout";
+
+    // And regenerating over the same file is the same bytes, as for the cube world.
+    std::string again;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_a.desce", again, { "--seed", "7" } ), 0 ) << again;
+    EXPECT_EQ( a, again );
+}
+
+// 8b. EVERY ASSET THE CORPUS WORLD NAMES RESOLVES BY ITS GUID: the mesh file at the stated path carries the stated
+// GUID in its header and is the stated kind; the material likewise; every texture the material binds exists and
+// carries the GUID its slot states. And the world is really made of what it claims: skinned meshes, a textured
+// material, a custom-shader material - not probe cubes.
+TEST( WorldSceneGenerator, EveryCorpusAssetResolvesByItsGuidAndTheCorpusIsReal )
+{
+    std::string bytes;
+    ASSERT_EQ( GenerateCorpus( Scratch() / "corpus_resolve.desce", bytes, { "--cells", "4" } ), 0 ) << bytes;
+    const auto parsed = Common::Json::Parse( bytes );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto entities = Common::Json::Root( parsed.GetValue() ).Get( "Entities" );
+    ASSERT_TRUE( entities.IsSuccess() ) << entities.GetError();
+
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    text = []( const Common::Json::Node& node, const char* key )
+    {
+        const auto field = node.Get( key );
+        EXPECT_TRUE( field.IsSuccess() ) << key << ": " << field.GetError();
+        if ( !field.IsSuccess() )
+            return std::string();
+        const auto value = field.GetValue().AsString();
+        return value.IsSuccess() ? value.GetValue() : std::string();
+    };
+    const auto firstOf = []( const Common::Json::Node& list )
+    {
+        std::string first;
+        list.ForEachElement(
+             [&]( std::size_t index, const Common::Json::Node& element )
+             {
+                 if ( index == 0 )
+                 {
+                     const auto value = element.AsString();
+                     first            = value.IsSuccess() ? value.GetValue() : std::string();
+                 }
+             } );
+        return first;
+    };
+
+    std::set<std::string> meshes;
+    std::set<std::string> materials;
+    std::set<std::string> textures;
+    int                   skinned      = 0;
+    int                   customShader = 0;
+    int                   props        = 0;
+    entities.GetValue().ForEachElement(
+         [&]( std::size_t, const Common::Json::Node& record )
+         {
+             const auto  skin  = record.Find( "SkinnedMesh" );
+             const auto  still = record.Find( "StaticMesh" );
+             const auto* block = skin ? &*skin : ( still ? &*still : nullptr );
+             if ( block == nullptr || !block->Find( "MeshPath" ) )
+                 return; // fixtures and ground tiles
+             ++props;
+             skinned += skin ? 1 : 0;
+
+             // The mesh, by GUID.
+             const std::string meshPath = text( *block, "MeshPath" );
+             const auto header = Common::Content::ReadAssetHeader( ProjectRoot() + "/" + meshPath, recordOnly );
+             ASSERT_TRUE( header.IsSuccess() ) << meshPath << ": " << header.GetError();
+             EXPECT_EQ( Common::Content::AssetGuidToText( header.GetValue().Guid ), text( *block, "MeshGuid" ) )
+                  << meshPath << ": MeshGuid is not the file's header GUID";
+             EXPECT_EQ( header.GetValue().Kind, skin ? Common::Content::ContentKind::SkinnedMesh
+                                                     : Common::Content::ContentKind::StaticMesh )
+                  << meshPath;
+             meshes.insert( meshPath );
+
+             // The material, by GUID, and every texture it binds, by GUID.
+             const auto paths = block->Get( "MaterialPaths" );
+             const auto guids = block->Get( "MaterialGuids" );
+             ASSERT_TRUE( paths.IsSuccess() && guids.IsSuccess() ) << meshPath << " names no material";
+             const std::string materialPath = firstOf( paths.GetValue() );
+             const auto        material =
+                  Common::Json::Parse( ReadAll( std::filesystem::path( AssetsRoot() ) / materialPath ) );
+             ASSERT_TRUE( material.IsSuccess() ) << materialPath << ": " << material.GetError();
+             const auto root   = Common::Json::Root( material.GetValue() );
+             const auto matHdr = root.Get( "Header" );
+             ASSERT_TRUE( matHdr.IsSuccess() ) << materialPath;
+             EXPECT_EQ( text( matHdr.GetValue(), "Guid" ), firstOf( guids.GetValue() ) ) << materialPath;
+             materials.insert( materialPath );
+             if ( root.Find( "Shader" ) )
+                 ++customShader;
+             if ( const auto slots = root.Find( "Textures" ) )
+             {
+                 slots->ForEachElement(
+                      [&]( std::size_t, const Common::Json::Node& slot )
+                      {
+                          const std::string path = text( slot, "Path" );
+                          if ( path.empty() && text( slot, "Guid" ).empty() )
+                              return; // an unbound slot
+                          ASSERT_TRUE( path.starts_with( "assets:" ) ) << materialPath << ": " << path;
+                          const auto file = AssetsRoot() + "/" + path.substr( 7 );
+                          const auto tex  = Common::Content::ReadAssetHeader( file, recordOnly );
+                          ASSERT_TRUE( tex.IsSuccess() ) << file << ": " << tex.GetError();
+                          EXPECT_EQ( Common::Content::AssetGuidToText( tex.GetValue().Guid ),
+                                     text( slot, "Guid" ) )
+                               << materialPath << " binds " << path << " by a GUID that is not the file's";
+                          textures.insert( path );
+                      } );
+             }
+         } );
+
+    EXPECT_EQ( props, 4 * 4 * 4 ) << "every corpus cell holds PerCell props";
+    EXPECT_GT( skinned, 0 ) << "no skinned mesh: nothing a cell departure frees past an HLOD";
+    EXPECT_GT( customShader, 0 ) << "no custom-shader material";
+    EXPECT_GE( textures.size(), 3u )
+         << "the corpus world binds fewer than three textures - no texture memory to stream";
+    EXPECT_GE( meshes.size(), 3u );
+    EXPECT_GE( materials.size(), 3u );
+}
+
+// 8c. A missing asset is a refusal that names the file, and nothing is written - never a world with a hole in it.
+TEST( WorldSceneGenerator, CorpusPresetRefusesAMissingAssetByPathAndWritesNothing )
+{
+    const auto out = Scratch() / "corpus_missing.desce";
+    std::filesystem::remove( out );
+    const std::vector<std::string> args{ "--out",    out.string(),   "--assets",  AssetsRoot(),
+                                         "--preset", "corpus-smoke", "--project", "/nonexistent-project-root" };
+    std::ostringstream             reported;
+    std::ostringstream             refused;
+    EXPECT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 3 );
+    EXPECT_NE( refused.str().find( "/nonexistent-project-root/Cooked/Meshes/SkinProbe.skmesh" ),
+               std::string::npos )
+         << refused.str();
+    EXPECT_FALSE( std::filesystem::exists( out ) );
+}
+
+// 8d. NEIGHBOURING DISTRICTS HOLD DIFFERENT ASSETS. The shipped `corpus` world, along the row the flight takes:
+// the materials of two neighbouring districts share nothing, and the row crosses every theme. This is the property
+// the flight's fall rests on - the first version drew a theme per CELL, every theme sat inside every loading
+// range, and the flight released 0 of 105 assets.
+TEST( WorldSceneGenerator, NeighbouringCorpusDistrictsHoldDisjointMaterialsAndARowCrossesEveryTheme )
+{
+    std::string bytes;
+    ASSERT_EQ( Generate( Scratch() / "corpus_districts.desce",
+                         { "--preset", "corpus", "--project", ProjectRoot() }, bytes ),
+               0 )
+         << bytes;
+    const auto parsed = Common::Json::Parse( bytes );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto entities = Common::Json::Root( parsed.GetValue() ).Get( "Entities" );
+    ASSERT_TRUE( entities.IsSuccess() ) << entities.GetError();
+
+    // District column (4 cells) of each prop on the row C??_08, and the materials it names.
+    std::map<int, std::set<std::string>> byDistrict;
+    entities.GetValue().ForEachElement(
+         [&]( std::size_t, const Common::Json::Node& record )
+         {
+             const auto tagNode = record.Get( "Tag" );
+             if ( !tagNode.IsSuccess() )
+                 return;
+             const auto        tagText = tagNode.GetValue().AsString();
+             const std::string tag     = tagText.IsSuccess() ? tagText.GetValue() : std::string();
+             if ( tag.size() < 10 || tag[0] != 'C' || tag.substr( 3, 5 ) != "_08_P" )
+                 return;
+             const int  column = std::stoi( tag.substr( 1, 2 ) ) / 4;
+             const auto skin   = record.Find( "SkinnedMesh" );
+             const auto still  = record.Find( "StaticMesh" );
+             ASSERT_TRUE( skin || still ) << tag;
+             const auto paths = ( skin ? *skin : *still ).Get( "MaterialPaths" );
+             ASSERT_TRUE( paths.IsSuccess() ) << tag;
+             paths.GetValue().ForEachElement(
+                  [&]( std::size_t, const Common::Json::Node& path )
+                  {
+                      const auto value = path.AsString();
+                      ASSERT_TRUE( value.IsSuccess() ) << tag;
+                      byDistrict[column].insert( value.GetValue() );
+                  } );
+         } );
+    ASSERT_EQ( byDistrict.size(), 4u ) << "16 cells in districts of 4";
+
+    std::set<std::string> all;
+    for ( const auto& [district, materials] : byDistrict )
+    {
+        all.insert( materials.begin(), materials.end() );
+        const auto next = byDistrict.find( district + 1 );
+        if ( next == byDistrict.end() )
+            continue;
+        for ( const auto& material : materials )
+            EXPECT_EQ( next->second.count( material ), 0u )
+                 << material << " is in districts " << district << " and " << district + 1
+                 << ": its assets would stay resident across the border";
+    }
+    EXPECT_GE( all.size(), 5u ) << "the row does not cross every theme";
+}
+
+// 8e. EVERY CORPUS PROP SITS ON LEVEL 0 AND NONE IS ALWAYS-LOADED, through the loader's own partition plan WITH
+// the meshes' real bounds. The defect this pins (WP14b): props were jittered by a quarter slot whatever their
+// footprint, two probes crossed x = 0 and became always-loaded, promoted ones reached level 4, and their themes'
+// textures stayed resident for the whole flight.
+TEST( WorldSceneGenerator, EveryCorpusPropFitsItsTileSoNothingIsPromotedOrAlwaysLoaded )
+{
+    std::string bytes;
+    ASSERT_EQ(
+         Generate( Scratch() / "corpus_fit.desce",
+                   { "--preset", "corpus", "--project", ProjectRoot(), "--partition", "--loading-range", "4000" },
+                   bytes ),
+         0 )
+         << bytes;
+    const auto scene = ReadScene( bytes );
+    ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
+
+    // The bounds the engine plans with: each mesh's header box, read here the way the tool reads it.
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    std::map<std::string, Common::Math::AABB>     boxes;
+    // The corpus meshes (kCorpusProps); a mesh the world names outside this list is planned as a point and the
+    // AlwaysLoaded / level assertions below would not see it - so the list is checked against the file too.
+    for ( const std::string path :
+          { "Cooked/Meshes/SkinProbe.skmesh", "Cooked/Meshes/TwoBoneProbe.skmesh", "Cooked/Meshes/IKProbe.skmesh",
+            "Resources/Assets/Meshes/StaticProbe.stmesh" } )
+    {
+        const std::string raw = ReadAll( ProjectRoot() + "/" + path );
+        if ( const auto cooked = Common::Content::ReadMeshHeaderBounds( raw ); cooked && cooked->Bounds )
+        {
+            boxes[path] = *cooked->Bounds;
+            continue;
+        }
+        const auto envelope = Common::Content::ReadAssetEnvelope(
+             std::as_bytes( std::span( raw.data(), raw.size() ) ), recordOnly );
+        ASSERT_TRUE( envelope.IsSuccess() ) << path << ": " << envelope.GetError();
+        for ( const auto& section : envelope.GetValue().Sections )
+            if ( section.Tag == Common::Content::EnvelopeSection::Meta )
+            {
+                const auto meta = Common::Content::DecodeEnvelopeMeta( section.Bytes );
+                ASSERT_TRUE( meta.IsSuccess() && meta.GetValue().Bounds ) << path;
+                const auto&        b = *meta.GetValue().Bounds;
+                Common::Math::AABB box;
+                box.Min     = glm::vec3( b.Lo[0], b.Lo[1], b.Lo[2] );
+                box.Max     = glm::vec3( b.Hi[0], b.Hi[1], b.Hi[2] );
+                boxes[path] = box;
+            }
+    }
+    for ( const auto& entity : scene->Entities )
+        if ( entity.Tag.value_or( "" ).find( "_P" ) != std::string::npos )
+        {
+            const std::string text = Common::Json::Write( entity );
+            const auto        at   = text.find( "\"MeshPath\"" );
+            ASSERT_NE( at, std::string::npos ) << text;
+            const auto open  = text.find( '"', text.find( ':', at ) );
+            const auto close = text.find( '"', open + 1 );
+            EXPECT_TRUE( boxes.contains( text.substr( open + 1, close - open - 1 ) ) ) << text;
+        }
+    ASSERT_GE( boxes.size(), 3u );
+
+    namespace Rules                       = Desert::Core::Rules;
+    const Rules::AssetBoundsSource bounds = [&]( const Common::Content::AssetGuid&,
+                                                 std::string_view path ) -> std::optional<Common::Math::AABB>
+    {
+        const auto it = boxes.find( std::string( path ) );
+        return it == boxes.end() ? std::nullopt : std::optional<Common::Math::AABB>( it->second );
+    };
+    const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition, bounds );
+    const auto per  = Rules::CellsPerLevel( plan );
+    EXPECT_EQ( plan.AlwaysLoaded.size(), 3u ) << Rules::SummarisePartition( plan, *scene->WorldPartition );
+    for ( std::size_t level = 1; level < per.size(); ++level )
+        EXPECT_EQ( per[level], 0u ) << "a corpus prop was promoted to level " << level << ": "
+                                    << Rules::SummarisePartition( plan, *scene->WorldPartition );
 }

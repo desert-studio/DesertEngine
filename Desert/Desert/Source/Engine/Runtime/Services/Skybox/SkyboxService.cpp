@@ -1,5 +1,7 @@
 #include "SkyboxService.hpp"
 
+#include <Engine/Assets/RegistryDiscovery.hpp>
+
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -8,6 +10,29 @@
 
 namespace Desert::Runtime
 {
+    void SkyboxService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
+    }
+
+    Assets::Asset<Assets::SkyboxAsset> SkyboxService::Require( const Assets::AssetHandle& handle )
+    {
+        if ( static_cast<uint64_t>( handle ) == 0 )
+            return nullptr;
+        auto created = Assets::CreateFromRegistryRow<Assets::SkyboxAsset>( m_Assets, handle,
+                                                                           Common::Content::ContentKind::Skybox );
+        if ( !created )
+        {
+            // Decision V3: a skybox reference that names no row is an error with the number in it, never a
+            // quiet procedural sky.
+            LOG_ERROR( "[Skybox] {}; the scene has NO environment from it (black sky, no ambient)",
+                       created.GetError() );
+            return nullptr;
+        }
+        Request( created.GetValue() );
+        return created.GetValue();
+    }
+
     void SkyboxService::Request( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset )
     {
         if ( !skyboxAsset || !skyboxAsset->GetMetadata().IsValid() )

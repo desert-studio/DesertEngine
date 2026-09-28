@@ -5,10 +5,11 @@
 //
 // Paint mode and its Target Layers section follow SLandscapeEditor's Paint tab and
 // LandscapeEditorDetailCustomization_TargetLayers (list, current target, "+", Hardness / NoWeightBlend).
-// NOT PORTED, each for a stated reason. The Manage tab: there are no manage tools (new / resize / components),
-// and an empty tab is a button that opens onto nothing (owner's decision, same as the Modeling rail). Alpha /
-// Pattern / Component brush sets: the stroke maths has only UE's circle brush, so the brush row shows the one set
-// that exists.
+// Manage mode has New Landscape and UE's heightmap Import / Export
+// (LandscapeEditorDetailCustomization_ImportExport: one file field, Import as a new landscape or into the existing
+// one, Export all or the selected tiles). NOT PORTED, each for a stated reason. The Manage tools resize /
+// components: nothing drives them yet. Alpha / Pattern / Component brush sets: the stroke maths has only UE's
+// circle brush, so the brush row shows the one set that exists.
 
 #include "LandscapePanel.hpp"
 
@@ -16,8 +17,11 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
@@ -28,6 +32,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 
 namespace Desert::Editor
@@ -143,6 +148,10 @@ namespace Desert::Editor
 
         // UE's mode row (Manage / Sculpt / Paint): the modes with tools behind them are offered.
         auto& state = Core::LandscapeSculptState::Get();
+        if ( AccentButton( ICON_MDI_PLUS_BOX_OUTLINE "  Manage", state.Mode == Core::LandscapeEdMode::Manage,
+                           ImVec2( 0.0f, 0.0f ) ) )
+            state.Mode = Core::LandscapeEdMode::Manage;
+        ImGui::SameLine();
         if ( AccentButton( ICON_MDI_TERRAIN "  Sculpt", state.Mode == Core::LandscapeEdMode::Sculpt,
                            ImVec2( 0.0f, 0.0f ) ) )
             state.Mode = Core::LandscapeEdMode::Sculpt;
@@ -152,7 +161,12 @@ namespace Desert::Editor
             state.Mode = Core::LandscapeEdMode::Paint;
         ImGui::Separator();
 
-        if ( state.Mode == Core::LandscapeEdMode::Paint )
+        if ( state.Mode == Core::LandscapeEdMode::Manage )
+        {
+            DrawNewLandscape();
+            DrawHeightmapFile();
+        }
+        else if ( state.Mode == Core::LandscapeEdMode::Paint )
         {
             DrawPaintSettings();
             DrawTargetLayers();
@@ -167,6 +181,122 @@ namespace Desert::Editor
         }
 
         ImGui::PopStyleVar( 2 );
+    }
+
+    // UE's New Landscape (Manage mode): the frame, UE's size readouts, the fill and the whole-map erosion passes.
+    void LandscapePanel::DrawNewLandscape()
+    {
+        namespace L = World::Landscape;
+        if ( !ImGuiUtilities::SectionHeader( ICON_MDI_PLUS_BOX_OUTLINE "  New Landscape", true, "" ) )
+            return;
+        auto& s = Core::LandscapeSculptState::Get().NewLandscape;
+        ImGui::DragFloat3( "Location (cm)", &s.LocationCm.x, 100.0f );
+        if ( ImGui::BeginCombo( "Section Size", ( std::to_string( s.QuadsPerTile ) + "x" +
+                                                  std::to_string( s.QuadsPerTile ) + " Quads" )
+                                                     .c_str() ) )
+        {
+            for ( const uint32_t q : L::kLandscapeTileQuadsValues )
+                if ( ImGui::Selectable( ( std::to_string( q ) + "x" + std::to_string( q ) + " Quads" ).c_str(),
+                                        q == s.QuadsPerTile ) )
+                    s.QuadsPerTile = q;
+            ImGui::EndCombo();
+        }
+        int tiles[2] = { s.TilesX, s.TilesZ };
+        if ( ImGui::DragInt2( "Number of Components", tiles, 0.25f, 1, L::kLandscapeMaxTilesPerSide ) )
+        {
+            s.TilesX = tiles[0];
+            s.TilesZ = tiles[1];
+        }
+        s.TilesX = L::ClampLandscapeTileCount( s.TilesX, s.QuadsPerTile );
+        s.TilesZ = L::ClampLandscapeTileCount( s.TilesZ, s.QuadsPerTile );
+        ImGui::DragFloat( "Scale XY (cm)", &s.SpacingCm, 1.0f, 1.0f, 10000.0f );
+        ImGui::DragFloat( "Scale Z", &s.ZScale, 1.0f, 1.0f, 10000.0f );
+        ImGui::TextDisabled( "Overall Resolution %u x %u, %d components",
+                             static_cast<unsigned>( s.TilesX ) * s.QuadsPerTile + 1u,
+                             static_cast<unsigned>( s.TilesZ ) * s.QuadsPerTile + 1u, s.TilesX * s.TilesZ );
+
+        int fill = static_cast<int>( s.Fill );
+        ImGui::Combo( "Fill", &fill, "Flat\0Noise\0" );
+        s.Fill = static_cast<L::LandscapeGenerateFill>( fill );
+        if ( s.Fill == L::LandscapeGenerateFill::Noise )
+        {
+            int seed = static_cast<int>( s.Seed );
+            if ( ImGui::InputInt( "Seed", &seed ) )
+                s.Seed = static_cast<uint32_t>( std::max( seed, 0 ) );
+            ImGui::DragFloat( "Noise Height (cm)", &s.NoiseHeightCm, 10.0f, 0.0f, 100000.0f );
+            ImGui::SliderFloat( "Noise Scale", &s.NoiseScale, L::kLandscapeMinNoiseScale,
+                                L::kLandscapeMaxNoiseScale );
+        }
+        ImGui::Checkbox( "Erosion", &s.Erosion );
+        if ( s.Erosion )
+        {
+            ImGui::SliderInt( "Threshold", &s.ErosionSettings.Threshold, 0, L::kLandscapeMaxErosionThreshold );
+            ImGui::SliderInt( "Iterations", &s.ErosionSettings.Iterations, 1, L::kLandscapeMaxErosionIterations );
+        }
+        ImGui::Checkbox( "Hydro Erosion", &s.HydroErosion );
+        if ( s.HydroErosion )
+        {
+            ImGui::SliderInt( "Rain Amount", &s.HydroSettings.RainAmount, 1, L::kLandscapeMaxRainAmount );
+            ImGui::SliderInt( "Hydro Iterations", &s.HydroSettings.Iterations, 1,
+                              L::kLandscapeMaxErosionIterations );
+        }
+        if ( s.Erosion || s.HydroErosion )
+            ImGui::SliderFloat( "Erosion Strength", &s.ErosionStrength, 0.0f, 1.0f );
+
+        // The run is on the JobSystem; the editor applies it when it finishes (EditorLayer). While it runs, Create
+        // is closed and says why, and the run can be cancelled.
+        if ( Commands::IsCreatingLandscape() )
+        {
+            const float fraction = Commands::CreateLandscapeFraction();
+            ImGui::ProgressBar(
+                 fraction, ImVec2( -FLT_MIN, 0.0f ),
+                 ( "Generating " + std::to_string( static_cast<int>( fraction * 100.0f ) ) + " %" ).c_str() );
+            ImGui::BeginDisabled();
+            ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) );
+            ImGui::EndDisabled();
+            ImGui::TextDisabled(
+                 "A landscape is being generated; Create opens when it finishes or is cancelled." );
+            if ( ImGui::Button( ICON_MDI_CLOSE "  Cancel", ImVec2( -FLT_MIN, 0.0f ) ) )
+                Commands::CancelCreateLandscape();
+        }
+        else if ( ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) ) )
+        {
+            auto started = Commands::StartCreateLandscape( m_Scene.lock(), s );
+            if ( !started.IsSuccess() )
+                ToastManager::Push( started.GetError(), ToastLevel::Error, 6.0f );
+        }
+    }
+
+    // UE's Import / Export (Manage mode): 16-bit PNG or RAW, the landscape's own size, one undo step per import.
+    void LandscapePanel::DrawHeightmapFile()
+    {
+        if ( !ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Heightmap File", true, "" ) )
+            return;
+        ImGui::SetNextItemWidth( -FLT_MIN );
+        ImGui::InputText( "##HeightmapPath", m_HeightmapPath.data(), m_HeightmapPath.size() );
+        ImGui::TextDisabled( "16-bit .png, or .r16 / .raw; relative paths are under Assets." );
+        std::filesystem::path path( m_HeightmapPath.data() );
+        if ( path.is_relative() )
+            path = Common::Constants::Path::ASSETS_PATH / path;
+        const auto scene  = m_Scene.lock();
+        const auto report = []( const Common::BoolResultStr& r )
+        {
+            if ( !r.IsSuccess() )
+                ToastManager::Push( r.GetError(), ToastLevel::Error, 6.0f );
+        };
+        if ( ImGui::Button( ICON_MDI_PLUS_BOX_OUTLINE "  Import as New Landscape", ImVec2( -FLT_MIN, 0.0f ) ) )
+        {
+            auto made = Commands::ImportLandscapeHeightmapAsNew( scene, path,
+                                                                 Core::LandscapeSculptState::Get().NewLandscape );
+            if ( !made.IsSuccess() )
+                ToastManager::Push( made.GetError(), ToastLevel::Error, 6.0f );
+        }
+        if ( ImGui::Button( ICON_MDI_FILE_IMPORT_OUTLINE "  Import into Landscape", ImVec2( -FLT_MIN, 0.0f ) ) )
+            report( Commands::ImportLandscapeHeightmap( scene, path ) );
+        if ( ImGui::Button( ICON_MDI_FILE_EXPORT_OUTLINE "  Export Landscape", ImVec2( -FLT_MIN, 0.0f ) ) )
+            report( Commands::ExportLandscapeHeightmap( scene, path, false ) );
+        if ( ImGui::Button( ICON_MDI_FILE_EXPORT_OUTLINE "  Export Selected Tiles", ImVec2( -FLT_MIN, 0.0f ) ) )
+            report( Commands::ExportLandscapeHeightmap( scene, path, true ) );
     }
 
     void LandscapePanel::DrawToolStrip()
@@ -217,9 +347,14 @@ namespace Desert::Editor
         switch ( settings.Tool )
         {
             case Core::LandscapeTool::Ramp:
-                PointRow( "Start", state.RampStart, "click the landscape" );
-                PointRow( "End", state.RampEnd, "click the landscape" );
+            {
+                const auto& ramp = state.RampPoints;
+                PointRow( "Start", ramp.NumPoints > 0 ? std::optional( ramp.Points[0] ) : std::nullopt,
+                          "click the landscape" );
+                PointRow( "End", ramp.NumPoints > 1 ? std::optional( ramp.Points[1] ) : std::nullopt,
+                          "click or drag from the start" );
                 break;
+            }
             case Core::LandscapeTool::Mirror:
                 PointRow( "Mirror Point", state.MirrorPoint, "landscape centre" );
                 break;
@@ -343,11 +478,11 @@ namespace Desert::Editor
             ImGui::TextDisabled( "the scene has no loaded landscape" );
             return;
         }
-        auto&      layers = registry.get<ECS::LandscapeComponent>( root ).Layers;
-        auto&      paint  = Core::LandscapeSculptState::Get().Paint;
-        const auto before = layers;
+        const auto layers  = registry.get<ECS::LandscapeComponent>( root ).Layers; // a copy: commands edit it
+        auto&      paint   = Core::LandscapeSculptState::Get().Paint;
+        auto&      service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
 
-        if ( ImGui::Button( ICON_MDI_PLUS "  Add layer" ) )
+        if ( ImGui::Button( ICON_MDI_PLUS "  Create Layer Info" ) )
         {
             auto added = Commands::AddLandscapeLayer( scene );
             if ( !added.IsSuccess() )
@@ -357,37 +492,77 @@ namespace Desert::Editor
             return; // the command already recorded this change
         }
         if ( layers.empty() )
-            ImGui::TextDisabled( "no target layers: add one to paint" );
+            ImGui::TextDisabled( "no target layers: create a layer info to paint" );
 
+        const auto& rows = Assets::ContentRegistry::Rows( Common::Content::ContentKind::LandscapeLayerInfo );
         for ( size_t i = 0; i < layers.size(); ++i )
         {
-            auto& layer = layers[i];
             ImGui::PushID( static_cast<int>( i ) );
-            ImGui::ColorEdit3( "##swatch", &layer.Color.x, ImGuiColorEditFlags_NoInputs );
+            const Assets::AssetHandle handle = layers[i];
+            const auto*               info   = service.Get( handle );
+
+            // The asset slot (UE: the target layer's Layer Info object picker).
+            std::string current = "(missing)";
+            for ( const auto& row : rows )
+                if ( row.Handle == handle )
+                    current = row.Path.stem().string();
+            ImGui::SetNextItemWidth( -ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x );
+            if ( ImGui::BeginCombo( "##layerInfo", current.c_str() ) )
+            {
+                for ( const auto& row : rows )
+                    if ( ImGui::Selectable( row.Path.stem().string().c_str(), row.Handle == handle ) &&
+                         row.Handle != handle )
+                        if ( auto assigned = Commands::AssignLandscapeLayer( scene, i, row.Handle ); !assigned )
+                            ToastManager::Push( assigned.GetError(), ToastLevel::Error, 6.0f );
+                ImGui::EndCombo();
+            }
             ImGui::SameLine();
-            if ( ImGui::Selectable( layer.Name.c_str(), paint.Layer == layer.Name ) )
-                paint.Layer = layer.Name;
+            if ( ImGui::Button( ICON_MDI_CLOSE ) )
+            {
+                if ( auto removed = Commands::RemoveLandscapeLayer( scene, i ); !removed )
+                    ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
+                ImGui::PopID();
+                return;
+            }
+            if ( !info )
+            {
+                const bool pending =
+                     service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending;
+                ImGui::TextDisabled( "%s", pending ? "loading..." : service.ErrorOf( handle ).c_str() );
+                ImGui::PopID();
+                continue;
+            }
+
+            // Edits go to a copy and are saved to the asset when the widget is released (FO-1's pattern); the
+            // copy lives across frames only while this layer is the one being edited.
+            Assets::Serialization::LandscapeLayerInfoData local =
+                 m_LayerEdit && m_LayerEdit->first == handle ? m_LayerEdit->second : *info;
+            auto& edit   = local;
+            bool  commit = false;
+            ImGui::ColorEdit3( "##swatch", &edit.LayerUsageDebugColor.x, ImGuiColorEditFlags_NoInputs );
+            commit = commit || ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            if ( ImGui::Selectable( info->LayerName.c_str(), paint.Layer == info->LayerName ) )
+                paint.Layer = info->LayerName;
             ImGuiUtilities::ResetPropertyRows();
             ImGuiUtilities::BeginPropertyRow( "Hardness" );
             ImGui::SetNextItemWidth( -FLT_MIN );
-            ImGui::SliderFloat( "##hardness", &layer.Hardness, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderFloat( "##hardness", &edit.Hardness, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            commit = commit || ImGui::IsItemDeactivatedAfterEdit();
             ImGuiUtilities::EndPropertyRow();
             ImGuiUtilities::BeginPropertyRow( "No Weight Blend" );
-            ImGui::Checkbox( "##noBlend", &layer.NoWeightBlend );
+            if ( ImGui::Checkbox( "##noBlend", &edit.NoWeightBlend ) )
+                commit = true;
             ImGuiUtilities::EndPropertyRow();
+            if ( !( edit == *info ) )
+                m_LayerEdit.emplace( handle, edit );
+            if ( commit && m_LayerEdit && m_LayerEdit->first == handle )
+            {
+                if ( auto saved = service.Save( handle, m_LayerEdit->second ); !saved )
+                    ToastManager::Push( saved.GetError(), ToastLevel::Error, 6.0f );
+                m_LayerEdit.reset();
+            }
             ImGui::PopID();
-        }
-
-        // One undo entry per finished edit: a slider drag changes the list every frame, so the entry is recorded
-        // when no widget is active any more, from the list as it was when the edit began.
-        if ( !m_LayersEditStart && !Commands::SameLandscapeLayers( before, layers ) )
-            m_LayersEditStart = before;
-        if ( m_LayersEditStart && !ImGui::IsAnyItemActive() )
-        {
-            if ( !Commands::SameLandscapeLayers( *m_LayersEditStart, layers ) )
-                Commands::RecordLandscapeLayersEdit( scene, *landscape, std::move( *m_LayersEditStart ), layers,
-                                                     "Edit landscape layers" );
-            m_LayersEditStart.reset();
         }
     }
 } // namespace Desert::Editor

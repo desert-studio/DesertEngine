@@ -67,7 +67,7 @@ namespace
          ContentKind::CloudType,  ContentKind::CloudLayout,      ContentKind::UITheme,
          ContentKind::ControlRig, ContentKind::Retarget,         ContentKind::CloudModellingVolume,
          ContentKind::StaticMesh, ContentKind::SkinnedMesh,      ContentKind::Material,
-         ContentKind::AnimGraph,  ContentKind::CloudNoiseVolume,
+         ContentKind::AnimGraph,  ContentKind::CloudNoiseVolume, ContentKind::LandscapeLayerInfo,
     };
 
     bool Contains( const std::vector<ContentRegistry::PickerRow>& rows, const fs::path& file )

@@ -7,6 +7,7 @@
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -217,6 +218,12 @@ namespace Desert::Core
                 {
                     return true;
                 }
+                // A foliage field's children are its prefab instances (FO-8), realized from the field's
+                // transforms on every load; saving them too would place each instance twice.
+                if ( registry->has<ECS::FoliageComponent>( current ) )
+                {
+                    return true;
+                }
             }
             return false;
         };
@@ -245,21 +252,20 @@ namespace Desert::Core
             // it, or the override does. Leaving the record's copy in place as well would be the same
             // value written twice with a reader that prefers one of them — the shape §4.2 of the contract
             // forbids, and the reason the material mirror lost its `Path` field.
+            //
+            // EXCEPT THE ROOT'S TRANSFORM, which is the instance's and never the prefab's (scene v37, PFX1):
+            // where an instance stands is what placing it in a scene means, as UE's placed actor owns its
+            // transform whatever its Blueprint's root states. It is written on the record, always, and taken
+            // out of the root's override, so it is still in one place — and that place is THIS file, which
+            // the World Partition planner (a pure function of one scene) can read. Before v37 it lived only
+            // in an override addressed by ids the `.deprefab` resolves, and every instance was unplaceable.
             if ( entity.HasComponent<ECS::PrefabComponent>() && data.PrefabPath.has_value() )
             {
                 const Serialize::PrefabInstanceCapture capture =
                      Serialize::CapturePrefabInstance( entity, *m_AssetManager );
-
-                data.Tag = std::nullopt;
-                data.Translation.reset();
-                data.Rotation.reset();
-                data.Scale.reset();
-                data.Components.clear();
-
-                if ( !capture.Overrides.empty() )
-                {
-                    data.PrefabOverrides = capture.Overrides;
-                }
+                // The record keeps the live root's transform SerializeEntity wrote; the override loses it.
+                Assets::ReduceInstanceRecord( data, capture.Overrides,
+                                              capture.RootPath.has_value() ? &*capture.RootPath : nullptr );
 
                 // The three things an override cannot express, said out loud with the instance's name and
                 // the counts. They used to be indistinguishable from "nothing was changed here".
@@ -457,13 +463,10 @@ namespace Desert::Core
 
             if ( !partition.UnplacedPrefabInstances.empty() )
             {
-                // A THIRD, DIFFERENT FACT, and it is a limitation rather than a defect in the world: a
-                // prefab instance's transform is not in this file at all, so the partitioner put it at
-                // the origin (and it widens no composite's footprint). Said out loud because "in cell (0,0)" is
-                // otherwise indistinguishable from a correct answer.
-                LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no transform of their "
-                          "own in this file, so they are partitioned AT THE ORIGIN. Placing them needs "
-                          "the prefab's own bounds, which are not stored in the asset yet.",
+                // A THIRD, DIFFERENT FACT: records that name a prefab but not where its instance stands.
+                // The load below refuses each one by name; they are in no cell.
+                LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no root transform (scene v37 "
+                          "requires one) and have no place in the partition.",
                           scene.SceneName, partition.UnplacedPrefabInstances.size() );
             }
 
@@ -575,6 +578,16 @@ namespace Desert::Core
         {
             const Assets::EntityData* entityData = &records[plannedPrefab.Record];
 
+            // A v37 instance record without its transform was not written by this engine. Placing it where
+            // the prefab's root happens to stand would be a guess that looks exactly like a right answer.
+            const auto stated = Assets::StatedInstanceTransform( *entityData );
+            if ( !stated )
+            {
+                LOG_ERROR( "SceneSerializer: record {0}: {1}. The instance was NOT loaded.", plannedPrefab.Record,
+                           stated.GetError() );
+                continue;
+            }
+
             auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( *entityData->PrefabPath );
             if ( !prefabAsset )
             {
@@ -628,6 +641,10 @@ namespace Desert::Core
                               missed, entityData->PrefabOverrides->size(), *entityData->PrefabPath );
                 }
             }
+
+            // WHERE THIS INSTANCE STANDS, which the record states itself since v37 and the overrides above
+            // no longer do. After the overrides, so nothing the prefab or an override says can move it.
+            Assets::PlaceInstanceRoot( prefabRoot.GetComponent<ECS::TransformComponent>(), stated.GetValue() );
 
             // Register in map under the original saved UUID so parent links resolve. A prefab root saved
             // without an id has nothing for a child's `parent` to name, so there is nothing to register:
@@ -705,14 +722,13 @@ namespace Desert::Core
         if ( !document )
             return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
                                                document.GetError() );
-        const auto text = Common::Json::WriteCanonical( document.GetValue() );
-        if ( !text )
-            return Common::MakeFormattedError( "could not lay out '{}' as text: {}", m_Scene->GetSceneName(),
-                                               text.GetError() );
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text.GetValue() );
-             !written )
-            return Common::MakeFormattedError( "could not write {}: {}", path.string(), written.GetError() );
-
+        // Through the one scene writer (ExternalEntities::WriteSceneFile): a partitioned world lands as its header
+        // plus one file per entity (v35, WP16), so a save after an edit to one entity rewrites that entity's file
+        // alone; any other scene lands whole. The document is the same either way, so the foreign-key carry above
+        // does not know the difference.
+        if ( const auto written = ExternalEntities::WriteSceneFile( path, document.GetValue() ); !written )
+            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
+                                               written.GetError() );
         return BOOLSUCCESS;
     }
 

@@ -69,13 +69,22 @@ namespace Desert::Migration
         }
         rfl::Generic::Object canonical = Reflection::SerializeReflected( *type, &values );
 
+        // The saver's spelling of an UNSET handle, from the saver's own writer: a resolver that names no asset
+        // is exactly what MakeAssetResolver answers for handle 0 ("" for both the GUID and the path), and
+        // WriteField lays that out in whichever form the field's asset type takes ({Guid, Path} for a texture).
+        // Spelling it here instead ("" alone) made every generated world's Settings differ from its first
+        // editor save (WP16c).
+        Reflection::AssetResolver namesNothing;
+        namesNothing.ToPath                  = []( uint64_t, const std::string& ) { return std::string(); };
+        namesNothing.ToGuid                  = []( uint64_t, const std::string& ) { return std::string(); };
+        const rfl::Generic::Object unsetForm = Reflection::SerializeReflected( *type, &values, &namesNothing );
+
         // AN ASSET HANDLE HAS TWO ON-DISK FORMS AND THIS TOOL CAN ONLY PRODUCE ONE OF THEM. The saver
         // passes an asset RESOLVER, which writes a handle as a PATH STRING; SerializeReflected without one
         // writes the raw uint64. So the raw number above is never what the file should end up carrying.
         //
         //   * the file already states the field -> keep its text verbatim, whatever form it is in;
-        //   * the file does not state it and the value is UNSET -> the empty path, which is exactly what
-        //     the resolver produces for handle 0 and what every scene that states this field carries;
+        //   * the file does not state it and the value is UNSET -> what the saver writes for handle 0 (below);
         //   * the file does not state it and the value is SET -> this tool cannot name the asset, so it
         //     refuses the whole block rather than writing a number a loader would read as a handle.
         //
@@ -100,7 +109,7 @@ namespace Desert::Migration
 
             if ( unset )
             {
-                canonical[field.Name] = std::string();
+                canonical[field.Name] = unsetForm.get( field.Name ).value();
                 continue;
             }
 

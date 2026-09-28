@@ -382,6 +382,41 @@ TEST( WorldPartitionStreamer, AFailedActivationIsAnErrorNamingTheUnit )
     EXPECT_NE( error.find( "Rock.deprefab" ), std::string::npos ) << error;
 }
 
+TEST( WorldPartitionStreamer, EveryTickThatLetsACellGoAsksForAnAssetSweep )
+{
+    // WP13: a cell's entities (and a Loaded cell's records) hold its assets; the tick that lets them go is the
+    // tick the streamer asks for an eviction sweep on. Asked for on no other tick, so standing still costs
+    // nothing.
+    const std::vector<EntityData> records = World();
+    SetWorld                      world( records.size() );
+    StreamingSource               source{ CellCentre( 0, 1 ) };
+    ResidencyExecutor             executor = Begin( records, source, world );
+
+    double      now      = 0.0;
+    std::size_t sweeps   = 0;
+    std::size_t unloaded = 0;
+    for ( float x = CellCentre( 0, 1 ).x; x <= CellCentre( kColumns - 1, 1 ).x; x += 50.0f )
+    {
+        source.Position.x              = x;
+        const std::size_t   destroyed  = world.DestroyCalls;
+        const ResidencyTick tick       = Tick( executor, source, now += kFrame, world );
+        const bool          letCellsGo = world.DestroyCalls > destroyed || tick.UnitsUnloaded > 0;
+        EXPECT_EQ( ReleasesCellAssets( tick ), letCellsGo )
+             << "at x=" << x << ": " << tick.UnitsDeactivated << " deactivated, " << tick.UnitsUnloaded
+             << " unloaded";
+        sweeps += ReleasesCellAssets( tick ) ? 1 : 0;
+        unloaded += tick.UnitsUnloaded;
+    }
+    EXPECT_GT( unloaded, 0u ) << "the flight unloaded no cell, so nothing here tested the unload count";
+    EXPECT_GT( sweeps, 0u ) << "a flight across the world never asked for a sweep";
+
+    for ( int rest = 0; rest < 8; ++rest )
+        Tick( executor, source, now += kFrame, world );
+    for ( int rest = 0; rest < 8; ++rest )
+        EXPECT_FALSE( ReleasesCellAssets( Tick( executor, source, now += kFrame, world ) ) )
+             << "a camera at rest asked for a sweep";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

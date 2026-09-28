@@ -45,7 +45,19 @@ namespace Desert::Core
     // key, drops it from the FILES, and is made compulsory by this number moving. The loader therefore
     // needs no list of dead keys and must never grow one: "retired" is a fact about a conversion that has
     // already happened, not a rule the runtime carries.
-    inline constexpr int kSceneVersion = 32;
+    //
+    // v35 (WP16): a partitioned world keeps one file per entity (Serialize/ExternalEntities.hpp). The typed
+    // tree did not change; the FILE LAYOUT did, and an older build reading the header alone would load a world
+    // with no entities in it - so the number moves and that build refuses the file by name.
+    //
+    // v36 (SET1): SceneSettings' grade and shadow fields moved to an Unbound PostProcessVolume entity and to
+    // the DirectionalLight (Tools/SceneMigrator, MigrateSceneSettingsHomesV35ToV36).
+    // v37 (PFX1): a prefab instance's record states its root's Translation/Rotation/Scale itself, and the
+    // root's override no longer does (Tools/SceneMigrator, MigrateInstanceTransformsV36ToV37).
+    // v38 (LS-16): the landscape's look is its Landscape Material and its layer infos only; the root's
+    // LandscapeMaterial block no longer states GrassMode/RockMode/SnowMode (Tools/SceneMigrator,
+    // MigrateLandscapeLayerModesV37ToV38).
+    inline constexpr int kSceneVersion = 38;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

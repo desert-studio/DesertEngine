@@ -87,7 +87,7 @@ namespace Desert::Editor::Commands
     // ---- XForm (Modeling): whole-entity mesh + transform edits as ONE undo step ----
 
     // What an entity holds after an XForm operation: its mesh (by reference, like EditMeshCommand), its LOCAL
-    // transform, and - when set - its material slots (Merge unites the parts' slots).
+    // transform, and - when set - its material slots (Merge unites the parts' slots) and its visibility.
     struct XformEntityState
     {
         Common::UUID                                    Entity;
@@ -96,6 +96,8 @@ namespace Desert::Editor::Commands
         glm::vec3                                       Rotation{ 0.0f };
         glm::vec3                                       Scale{ 1.0f };
         std::optional<std::vector<Common::AssetHandle>> MaterialSlots;
+        // Set: the entity is shown or hidden (VisibilityComponent) - a Boolean's "Hide inputs".
+        std::optional<bool> Visible;
     };
 
     // A new entity: a copy of CopyOf alone (not its children, same parent), named Name, then given State.

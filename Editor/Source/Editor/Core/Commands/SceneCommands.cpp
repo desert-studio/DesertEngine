@@ -532,10 +532,18 @@ namespace Desert::Editor::Commands
             tc.Translation = state.Translation;
             tc.Rotation    = state.Rotation;
             tc.Scale       = state.Scale;
+            if ( state.Visible )
+            {
+                if ( e->HasComponent<ECS::VisibilityComponent>() )
+                    e->GetComponent<ECS::VisibilityComponent>().Visible = *state.Visible;
+                else
+                    e->AddComponent<ECS::VisibilityComponent>().Visible = *state.Visible;
+            }
             return Common::MakeSuccess( true );
         }
 
-        std::optional<XformEntityState> CaptureXformState( const Common::UUID& id, bool withSlots )
+        std::optional<XformEntityState> CaptureXformState( const Common::UUID& id, bool withSlots,
+                                                           bool withVisibility )
         {
             auto e = FindEntity( id );
             if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() ||
@@ -543,9 +551,14 @@ namespace Desert::Editor::Commands
                 return std::nullopt;
             const auto&      smc = e->GetComponent<ECS::StaticMeshComponent>();
             const auto&      tc  = e->GetComponent<ECS::TransformComponent>();
-            XformEntityState out{ id, smc.EditableMesh, tc.Translation, tc.Rotation, tc.Scale, std::nullopt };
+            XformEntityState out{ id,       smc.EditableMesh, tc.Translation, tc.Rotation,
+                                  tc.Scale, std::nullopt,     std::nullopt };
             if ( withSlots )
                 out.MaterialSlots = smc.MaterialSlots;
+            // No component reads as shown (ECS::IsHidden), so undoing a hide leaves it shown either way.
+            if ( withVisibility )
+                out.Visible = !e->HasComponent<ECS::VisibilityComponent>() ||
+                              e->GetComponent<ECS::VisibilityComponent>().Visible;
             return out;
         }
 
@@ -1183,7 +1196,8 @@ namespace Desert::Editor::Commands
         };
         for ( const XformEntityState& after : changes )
         {
-            auto before = CaptureXformState( after.Entity, after.MaterialSlots.has_value() );
+            auto before =
+                 CaptureXformState( after.Entity, after.MaterialSlots.has_value(), after.Visible.has_value() );
             if ( !before )
                 return rollback( fmt::format( "entity {} has no mesh or no transform",
                                               static_cast<uint64_t>( after.Entity ) ) );

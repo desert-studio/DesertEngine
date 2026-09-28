@@ -3,9 +3,11 @@
 #include "../IPanel.hpp"
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
+#include <unordered_map>
 #include <atomic>
 #include <stack>
 #include <functional>
@@ -74,7 +76,12 @@ namespace Desert::Editor
         /// Its OWN type rather than sharing one: it has no producer in common with anything above (a
         /// theme is not painted from bytes the way a cloud is), and the browser's type filter has to be
         /// able to name it, which is the whole reason the cloud formats stopped being `Unknown`.
-        UITheme
+        UITheme,
+
+        /// A landscape layer info (`.delayerinfo`, UE ULandscapeLayerInfoObject): its own type so the
+        /// browser can colour it, give it an icon and filter by it; it has no producer in common with any
+        /// type above.
+        LandscapeLayerInfo
     };
 
     struct DirectoryInformation
@@ -125,6 +132,19 @@ namespace Desert::Editor
         void OnUIRender() override;
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
         void OnEvent( Common::Event& e ) override; // OS file drop -> import into the current dir
+
+        /// THE SPLASH'S UPLOAD PASS (THUMB2). The folder this panel opens on is the one it prefetched in its
+        /// constructor (ChangeDirectory), so the pictures to upload are exactly the ones it asked a worker for:
+        /// every one a worker has finished goes through ThumbnailCache::Get now — the same call the tile makes,
+        /// so the first frame after the hand-over finds it cached and draws it. Nothing is captured or
+        /// rendered. Returns how many of those pictures are still waiting for or on a worker.
+        std::size_t UploadPrefetchedThumbnails();
+
+        /// THE OPEN SCENE'S MATERIALS, WARMED ON THE SPLASH (THUMB3). @p materialPaths = ThumbnailWarmup::
+        /// SceneWarmList. A picture already on disk is decoded by the prefetch workers with the opening
+        /// folder's; one that is missing or stale is resolved (on a worker) and queued with
+        /// ThumbnailService::WarmMaterial, ahead of the folder, for the splash's scene-only capture pass.
+        void WarmSceneThumbnails( const std::vector<std::string>& materialPaths );
 
         bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
@@ -325,6 +345,23 @@ namespace Desert::Editor
         const SubjectEditorRegistry*             m_SubjectEditors = nullptr;
         std::unique_ptr<UI::UIHelper>   m_UIHelper;
         std::unique_ptr<ThumbnailCache>          m_Thumbnails;
+        // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
+        // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
+        std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
+        std::vector<ThumbnailPrefetch::Item> m_ScenePrefetchItems; // WarmSceneThumbnails' pictures, decoded too
+
+        // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
+        // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the
+        // request a material resolve, a registry lookup and two more keys. The name never changes for a
+        // path; a request, once accepted, is the service's to finish — asked again only after the picture
+        // has been seen current, so an edit that makes it stale asks again.
+        const std::string&                           ThumbnailPngFor( const std::string& assetPath );
+        std::unordered_map<std::string, std::string> m_ThumbnailPngOf;
+        std::unordered_map<std::string, ImVec4>      m_CaptureAsked; // asset path -> its placeholder swatch
+        // Height of one grid tile / list row as last drawn: an off-screen one is a Dummy of this size.
+        float m_CellHeight[2] = { 0.0f, 0.0f };
+        // The constructor's own navigations are not the user's and are not remembered.
+        bool m_RestoringFolder = true;
 
         std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
         std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam
