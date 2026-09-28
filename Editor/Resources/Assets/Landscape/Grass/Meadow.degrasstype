@@ -11,7 +11,7 @@
         {
             "GrassMesh": {
                 "Guid": "ea82694eccb954bf22f7d1805b886f0b",
-                "Path": "Assets/Meshes/Modeling/Box.stmesh"
+                "Path": "Assets/Landscape/Grass/GrassBlade.stmesh"
             },
             "GrassDensity": 200.0,
             "StartCullDistance": 3000.0,
