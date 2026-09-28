@@ -62,6 +62,7 @@
 #include <regex>
 #include <array>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -2133,7 +2134,7 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
         if ( key == Desert::Project::kPackagedDescriptorName )
             continue;
         EXPECT_TRUE( std::any_of( inputs.begin(), inputs.end(),
-                                  [&]( const std::string& prefix ) { return key.rfind( prefix, 0 ) == 0; } ) )
+                                  [&]( const std::string& prefix ) { return key.starts_with( prefix ); } ) )
              << "'" << key
              << "' reached the cooked tree from outside the project roots and the engine runtime "
                 "trees";
@@ -2147,7 +2148,7 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
         if ( fs::is_directory( marked ) && !fs::is_empty( marked ) )
             ++editorOnlySources;
         for ( const auto& [key, path] : tree )
-            EXPECT_NE( key.rfind( std::string( input.PakKey ) + "/" + input.EditorOnlySubtree + "/", 0 ), 0u )
+            EXPECT_FALSE( key.starts_with( std::string( input.PakKey ) + "/" + input.EditorOnlySubtree + "/" ) )
                  << "'" << key << "' is an editor-only resource in the cooked tree";
     }
     EXPECT_EQ( editorOnlySources, 2u ) << "the fixture has no editor-only file to keep out, so the check above "
@@ -2182,11 +2183,10 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
     {
         const auto bytes = Common::Utils::FileSystem::ReadFileContent( path );
         ASSERT_TRUE( bytes.IsSuccess() ) << bytes.GetError();
-        if ( bytes.GetValue().rfind( "DAST", 0 ) != 0 )
+        if ( !bytes.GetValue().starts_with( "DAST" ) )
             continue;
         const auto header = Common::Content::ReadEnvelopeHeader(
-             std::span<const std::byte>( reinterpret_cast<const std::byte*>( bytes.GetValue().data() ),
-                                         bytes.GetValue().size() ),
+             std::as_bytes( std::span<const char>( bytes.GetValue() ) ),
              Common::Content::AssetHeaderReadContext{ {}, /*RecordOnly=*/true } );
         ASSERT_TRUE( header.IsSuccess() ) << key << ": " << header.GetError();
         EXPECT_FALSE( header.GetValue().Find( Common::Content::EnvelopeSection::Source ) ) << key;

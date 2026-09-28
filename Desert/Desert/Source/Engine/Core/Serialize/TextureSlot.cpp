@@ -32,7 +32,7 @@ namespace Desert::Core::Serialize
             LOG_ERROR( "[Textures] Handle {0} is set on a texture slot and the cooked asset registry has "
                        "no row for it, so the slot is being written out EMPTY and the reference is lost. "
                        "Texture assets (.detex) live under '{1}'; if the file is there, the registry is stale — "
-                       "run 'AssetRegistryTool cook'.",
+                       "restart the editor (it gathers the content roots at start).",
                        handle, Common::Constants::Path::ASSETS_PATH.string() );
             return "";
         }

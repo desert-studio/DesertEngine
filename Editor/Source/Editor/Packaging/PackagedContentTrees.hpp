@@ -3,6 +3,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <string>
@@ -64,15 +65,15 @@ namespace Desert::Editor
     inline bool IsEditorOnlyResource( const std::filesystem::path& file )
     {
         const std::filesystem::path normal = file.lexically_normal();
-        for ( const PackagedTree& tree : PackagedContentTrees() )
-        {
-            if ( tree.EditorOnlySubtree == nullptr )
-                continue;
-            const std::filesystem::path rel = normal.lexically_relative( tree.Tree->lexically_normal() );
-            if ( !rel.empty() && *rel.begin() == tree.EditorOnlySubtree )
-                return true;
-        }
-        return false;
+        return std::ranges::any_of( PackagedContentTrees(),
+                                    [&]( const PackagedTree& tree )
+                                    {
+                                        if ( tree.EditorOnlySubtree == nullptr )
+                                            return false;
+                                        const std::filesystem::path rel =
+                                             normal.lexically_relative( tree.Tree->lexically_normal() );
+                                        return !rel.empty() && *rel.begin() == tree.EditorOnlySubtree;
+                                    } );
     }
 
     // THE DESCRIPTOR A PACKAGE SHIPS, derived from the project's own rather than copied verbatim: the

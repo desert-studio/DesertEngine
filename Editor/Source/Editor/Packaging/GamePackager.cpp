@@ -295,7 +295,7 @@ namespace Desert::Editor
                         return false;
                     }
                     stats.Bytes += bytes.GetValue().size();
-                    baseBlobs.emplace_back( key, std::move( bytes.GetValue() ) );
+                    baseBlobs.emplace_back( key, bytes.GetValue() );
                 }
                 else
                 {

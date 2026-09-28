@@ -670,14 +670,14 @@ namespace Common::Utils
 
         // ONE FORM IS READ: the one this build writes. An older form lacks columns (the tags, before 4) that
         // its rows would then silently serve as empty — a picker listing file stems for names the files state.
-        // A registry is derived state; the answer to an old one is the cook that rewrites it.
+        // A registry is derived state; the answer to an old one is the gather that rewrites it.
         const std::string expected = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
         if ( header != expected )
         {
             if ( header.starts_with( kMagic ) )
                 return MakeFormattedError<AssetRegistry>(
                      R"(an asset registry of another form: line 1 is "{}", this build reads only "{}" — )"
-                     "re-cook it (AssetRegistryTool cook)",
+                     "gather it again (restart the editor, or package again)",
                      std::string( header ), expected );
             return MakeFormattedError<AssetRegistry>(
                  R"(not a Desert asset registry: line 1 is "{}", expected "{}")", std::string( header ),

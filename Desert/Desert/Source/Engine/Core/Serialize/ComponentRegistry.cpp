@@ -599,7 +599,8 @@ namespace Desert::Core::Serialize
                 LOG_ERROR( "[Scene] handle {0} is set on a '{1}' slot and nothing in this project names "
                            "it — neither the cooked asset registry nor anything this session derived. "
                            "The slot is being written out EMPTY and the reference is lost. If the file "
-                           "is on disk, the registry is stale: run 'AssetRegistryTool cook'.",
+                           "is on disk, the registry is stale: restart the editor (it gathers the content roots "
+                           "at start).",
                            handle, type );
                 return "";
             }

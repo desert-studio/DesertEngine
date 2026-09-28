@@ -214,7 +214,7 @@ TEST( DerivedDataKey, OnlyTheCookNamesSavedCooked )
             EXPECT_EQ( text.find( std::string( "\"Cooked" ) + "Assets\"" ), std::string::npos )
                  << rel << " names the retired second cooked tree; the cook writes Saved/Cooked/<Platform> only";
             // The one definition of the path (DerivedDataCache.*) is where it is named, not a consumer.
-            if ( rel.rfind( "Desert/Common/Source/Common/Content/DerivedDataCache.", 0 ) == 0 )
+            if ( rel.starts_with( "Desert/Common/Source/Common/Content/DerivedDataCache." ) )
                 continue;
             const bool names = text.find( "PlatformCookedDir" ) != std::string::npos ||
                                text.find( "Saved/Cooked" ) != std::string::npos;
