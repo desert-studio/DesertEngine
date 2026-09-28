@@ -120,8 +120,7 @@ namespace Desert::Editor::ThumbnailSubject
         // the read is the loader's, below.
         auto asset = manager.FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
-            asset = manager.CreateAsset<Assets::SurfaceMaterialAsset>( assetPath,
-                                                                       false );
+            asset = manager.CreateAsset<Assets::SurfaceMaterialAsset>( assetPath, false );
         if ( !asset )
         {
             return Common::MakeFormattedError<Answer>( "'{}' is not a material the asset manager will accept",

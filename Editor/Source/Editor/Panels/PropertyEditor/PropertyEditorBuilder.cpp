@@ -932,8 +932,7 @@ namespace Desert::Editor
                                 auto& mutableManager = const_cast<Assets::AssetManager&>( *assetMgr );
                                 auto  theme          = mutableManager.FindByPath<Assets::UIThemeAsset>( path );
                                 if ( !theme )
-                                    theme = mutableManager.CreateAsset<Assets::UIThemeAsset>(
-                                         path );
+                                    theme = mutableManager.CreateAsset<Assets::UIThemeAsset>( path );
                                 if ( theme && theme->IsReadyForUse() )
                                 {
                                     // Registered on the spot: a theme dropped from outside the shipped
@@ -1219,8 +1218,7 @@ namespace Desert::Editor
                                 auto& mutableManager = const_cast<Assets::AssetManager&>( *assetMgr );
                                 auto  body = mutableManager.FindByPath<Assets::CloudModellingVolumeAsset>( path );
                                 if ( !body )
-                                    body = mutableManager.CreateAsset<Assets::CloudModellingVolumeAsset>(
-                                         path );
+                                    body = mutableManager.CreateAsset<Assets::CloudModellingVolumeAsset>( path );
                                 if ( body && body->IsReadyForUse() )
                                 {
                                     if ( const auto uploaded =

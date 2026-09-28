@@ -575,8 +575,7 @@ namespace Desert::Editor
                      ( tag + std::string( Common::Constants::Extensions::PREFAB_EXTENSION ) );
 
                 // Register in AssetManager (skip Load — we populate via CreateFromEntity)
-                auto newPrefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>(
-                    fullPath, false );
+                auto newPrefab = m_AssetManager->CreateAsset<Assets::PrefabAsset>( fullPath, false );
 
                 if ( newPrefab )
                 {

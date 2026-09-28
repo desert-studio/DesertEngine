@@ -973,9 +973,8 @@ namespace Desert::Editor
                         auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( path );
                         if ( !prefabAsset )
                         {
-                            prefabAsset =
-                                 const_cast<Assets::AssetManager&>( *m_AssetManager )
-                                      .CreateAsset<Assets::PrefabAsset>( path );
+                            prefabAsset = const_cast<Assets::AssetManager&>( *m_AssetManager )
+                                               .CreateAsset<Assets::PrefabAsset>( path );
                         }
                         if ( prefabAsset )
                         {

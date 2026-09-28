@@ -222,8 +222,7 @@ namespace Desert::Editor
             }
         }
 
-        auto asset = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-             path.generic_string() );
+        auto asset = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>( path.generic_string() );
         if ( !asset )
         {
             LOG_ERROR( "[Landscape] could not create a landscape material at '{}' — the landscape's material "
@@ -313,8 +312,7 @@ namespace Desert::Editor
                     auto dropped = assetMgr->FindByPath<::Desert::Assets::SurfaceMaterialAsset>( path );
                     if ( !dropped )
                     {
-                        dropped = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-                             path );
+                        dropped = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>( path );
                         if ( dropped && !dropped->IsReadyForUse() )
                             dropped->Load();
                     }
@@ -686,8 +684,7 @@ namespace Desert::Editor
             }
         }
 
-        auto asset = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-             path.generic_string() );
+        auto asset = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>( path.generic_string() );
         if ( !asset )
         {
             LOG_ERROR( "[Clouds] could not create a cloud material at '{}' — the layer's material slot is "
@@ -757,8 +754,7 @@ namespace Desert::Editor
                     auto dropped = assetMgr->FindByPath<::Desert::Assets::SurfaceMaterialAsset>( path );
                     if ( !dropped )
                     {
-                        dropped = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>(
-                             path );
+                        dropped = assetMgr->CreateAsset<::Desert::Assets::SurfaceMaterialAsset>( path );
                         if ( dropped && !dropped->IsReadyForUse() )
                             dropped->Load();
                     }

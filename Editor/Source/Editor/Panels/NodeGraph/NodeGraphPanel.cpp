@@ -459,8 +459,7 @@ namespace Desert::Editor
         }
 
         // First compile: register the new shader so it shows up in the material picker right away.
-        const auto asset =
-             m_AssetManager->CreateAsset<Assets::ShaderAsset>( path );
+        const auto asset = m_AssetManager->CreateAsset<Assets::ShaderAsset>( path );
         if ( !asset || !asset->IsReadyForUse() )
         {
             m_Status        = "wrote " + path.string() + " but shader failed to load (see log)";
@@ -496,8 +495,7 @@ namespace Desert::Editor
         // keep minting scratch materials. CreateAsset loads an existing .demat and produces an empty one
         // otherwise; either way the asset itself is what writes the file, through the material canon,
         // rather than this panel hand-rolling .demat JSON.
-        auto asset =
-             m_AssetManager->CreateAsset<Assets::SurfaceMaterialAsset>( path );
+        auto asset = m_AssetManager->CreateAsset<Assets::SurfaceMaterialAsset>( path );
         if ( !asset )
         {
             LOG_ERROR( "[NodeGraph] preview material '{}' could not be created", path.string() );
