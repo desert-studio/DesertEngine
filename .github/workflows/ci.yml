@@ -479,9 +479,10 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      matrix:
-        artifact: [asan]
+    # env, not a one-entry matrix: a matrix job whose name has no matrix expression gets its values
+    # appended, and this name must stay exactly the check name the unsharded job had.
+    env:
+      ARTIFACT: asan
     steps: &test-verdict-steps
       - name: The build and every shard passed
         env:
@@ -499,13 +500,13 @@ jobs:
       - name: Download the shard plan
         uses: actions/download-artifact@v4
         with:
-          name: test-plan-${{ matrix.artifact }}
+          name: test-plan-${{ env.ARTIFACT }}
           path: plan
 
       - name: Download the shard reports
         uses: actions/download-artifact@v4
         with:
-          pattern: test-reports-${{ matrix.artifact }}-shard-*
+          pattern: test-reports-${{ env.ARTIFACT }}-shard-*
           path: reports
 
       - name: Every expected suite ran exactly once
@@ -690,7 +691,7 @@ jobs:
   # build only (a `needs:` names a whole matrix). The steps are shared by a YAML anchor; the job id is
   # what JobBudget.sh reads the ceiling of, via ${{ github.job }}.
   windows-debug:
-    name: Windows Debug build
+    name: Windows ${{ matrix.config }} build
     needs: [ format ]
     # PINNED, NOT "latest". On 2026-09-14 `windows-latest` rolled forward to an image carrying Visual
     # Studio 18 Enterprise, which does NOT ship the MSVC v143 toolset. premake's vs2022 action writes
@@ -1088,7 +1089,7 @@ jobs:
         run: ./scripts/CI/JobBudget.sh "${{ github.job }}" "$JOB_START"
 
   windows-release:
-    name: Windows Release build
+    name: Windows ${{ matrix.config }} build
     needs: [ format ]
     runs-on: windows-2022
     timeout-minutes: 150
@@ -1100,7 +1101,7 @@ jobs:
     steps: *windows-build-steps
 
   windows-shipping:
-    name: Windows Shipping
+    name: Windows ${{ matrix.config }}
     needs: [ format ]
     runs-on: windows-2022
     timeout-minutes: 150
@@ -1212,9 +1213,10 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      matrix:
-        artifact: [windows-Debug]
+    # env, not a one-entry matrix: a matrix job whose name has no matrix expression gets its values
+    # appended, and this name must stay exactly the check name the unsharded job had.
+    env:
+      ARTIFACT: windows-Debug
     steps: *test-verdict-steps
 
   windows-release-verdict:
@@ -1223,7 +1225,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      matrix:
-        artifact: [windows-Release]
+    # env, not a one-entry matrix: a matrix job whose name has no matrix expression gets its values
+    # appended, and this name must stay exactly the check name the unsharded job had.
+    env:
+      ARTIFACT: windows-Release
     steps: *test-verdict-steps
