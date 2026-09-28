@@ -465,7 +465,7 @@ namespace Desert::Graphic::System
             // the whole change: the block WAS the parameters, so the last draw to write it decided the
             // colours of every draw recorded before it, and three spheres differing only in a graph
             // parameter rendered as one (MAT_ProbeSharedBlock.desce).
-            if ( !g.SlotMaterial && !standIn )
+            if ( g.SlotMaterial == nullptr && !standIn )
             {
                 material->ApplyDefaults();
                 for ( const auto& [name, value] : g.Overrides.Params )
