@@ -120,8 +120,9 @@ namespace Common::Crash
     // handler on, the kernel kills the process and no report is written. The constructor maps a stack
     // (with a guard page below it) and installs it for the calling thread; the destructor uninstalls
     // it and unmaps it. A thread that already has an alternate stack (the main thread, given one by
-    // Install()) keeps it and the scope does nothing. On Windows the report is written by the report
-    // thread, not on the faulting stack (CR1b), so the scope has nothing to do there.
+    // Install()) keeps it and the scope does nothing. On Windows the report thread writes the report
+    // (CR1b), but the overflowing thread must still reach the filter: the scope gives it the stack
+    // guarantee Install() gives the main thread.
     // Use Common::StartEngineThread (EngineThread.hpp) rather than holding one by hand; the JobSystem
     // workers hold one directly.
     class ThreadCrashStackScope

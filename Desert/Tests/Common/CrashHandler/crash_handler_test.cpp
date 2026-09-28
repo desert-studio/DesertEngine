@@ -154,7 +154,8 @@ namespace
         EXPECT_NE( code, 0 ) << "a deliberate crash must not exit successfully";
 
         const std::filesystem::path report = SoleReportDirectory( root );
-        ASSERT_FALSE( report.empty() ) << "no single report directory under " << root.string();
+        ASSERT_FALSE( report.empty() ) << "no single report directory under " << root.string()
+                                       << " (child exit code " << code << ")";
 
         const std::filesystem::path text = report / "crash.txt";
         ASSERT_TRUE( std::filesystem::exists( text ) ) << "crash.txt missing in " << report.string();

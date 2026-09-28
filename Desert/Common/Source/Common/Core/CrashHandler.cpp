@@ -1575,8 +1575,22 @@ namespace Common::Crash
     }
 
 #if defined( DESERT_PLATFORM_WINDOWS )
-    // The report thread writes every report (CR1b); the faulting thread's stack is never used.
-    ThreadCrashStackScope::ThreadCrashStackScope()  = default;
+    // The report thread writes the report (CR1b), but the faulting thread still has to get from
+    // EXCEPTION_STACK_OVERFLOW through the OS dispatch into UnhandledFilter and its SetEvent + wait.
+    // With the default guarantee a worker thread has only a few pages left for that; when the
+    // dispatch overruns them the second overflow kills the process before the filter runs and no
+    // report is written. Give every engine thread the guarantee Install() gives the main thread.
+    ThreadCrashStackScope::ThreadCrashStackScope()
+    {
+        ULONG guarantee = Detail::kStackGuaranteeBytes;
+        if ( ::SetThreadStackGuarantee( &guarantee ) == 0 )
+        {
+            LOG_ERROR( "[Crash] thread {}: SetThreadStackGuarantee({} bytes) failed, GetLastError {}; a stack "
+                       "overflow on this thread may not be reported",
+                       CurrentThreadId(), Detail::kStackGuaranteeBytes, ::GetLastError() );
+        }
+    }
+    // The guarantee lives and dies with the thread; there is nothing to give back.
     ThreadCrashStackScope::~ThreadCrashStackScope() = default;
 #else
     namespace
