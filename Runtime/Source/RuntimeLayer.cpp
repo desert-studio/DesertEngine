@@ -211,6 +211,10 @@ namespace Desert::Player
         if ( scenePath.empty() )
             scenePath = Project::ProjectContext::DefaultScenePath();
 
+        // What the streamer starts from, once Play has spawned the pawn it streams around (below).
+        std::optional<Core::CookedWorldStart> world;
+        std::string                           sceneJson;
+        bool                                  sceneLoaded = false;
         if ( !scenePath.empty() && Common::Utils::FileSystem::Exists( scenePath ) ) // VFS-aware
         {
             Core::SceneSerializer serializer( m_Scene.get(), m_AssetManager.get() );
@@ -229,8 +233,7 @@ namespace Desert::Player
                                       [&scenePath] { return Core::ReadCookedWorld( scenePath ); } );
             if ( !cooked )
                 return Common::MakeError( cooked.GetError() );
-            std::optional<Core::CookedWorldStart> world = cooked.ExtractValue();
-            std::string                           sceneJson;
+            world = cooked.ExtractValue();
             if ( world.has_value() )
                 sceneJson = std::move( world->AlwaysLoadedJson );
             else
@@ -253,20 +256,7 @@ namespace Desert::Player
                       m_Boot.Run( "Initialising the loaded scene", [this] { return m_Scene->Init(); } );
                  !init )
                 return init;
-            // A game has no Edit mode and never saves its world, so a partitioned one streams from its first
-            // frame: only the camera's neighbourhood is ever entities.
-            auto streamer =
-                 m_Boot.Run( "Starting world streaming",
-                             [&]
-                             {
-                                 return world.has_value()
-                                             ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager,
-                                                                                 std::move( *world ) )
-                                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson );
-                             } );
-            if ( !streamer )
-                return Common::MakeError( streamer.GetError() );
-            m_WorldStreamer = streamer.ExtractValue();
+            sceneLoaded = true;
             LOG_INFO( "[Runtime] Scene loaded: {}", scenePath );
         }
         else
@@ -286,6 +276,24 @@ namespace Desert::Player
         if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, m_PlayRequest ); !began )
         {
             return Common::MakeError( "Play refused for '" + scenePath + "': " + began.GetError() );
+        }
+        // A game has no Edit mode and never saves its world, so a partitioned one streams from its first
+        // frame: only its streaming sources' neighbourhood is ever entities. AFTER BeginPlay, because the pawn
+        // is the player's source (WorldStreamer.hpp, THE SOURCES) and a PlayerStart loads Global.
+        if ( sceneLoaded )
+        {
+            auto streamer =
+                 m_Boot.Run( "Starting world streaming",
+                             [&]
+                             {
+                                 return world.has_value()
+                                             ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager,
+                                                                                 std::move( *world ) )
+                                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson );
+                             } );
+            if ( !streamer )
+                return Common::MakeError( streamer.GetError() );
+            m_WorldStreamer = streamer.ExtractValue();
         }
         // AND THE WORLD IS NOW THE GATE'S SUBJECT. Nothing it wants has been asked for yet: the cloud
         // kinds are demand-driven, so the first frame is where the asking happens.
@@ -423,6 +431,12 @@ namespace Desert::Player
             LOG_ERROR( "[Runtime] Scene switch init failed: {}", init.GetError() );
             return;
         }
+        // Play first: the spawned pawn is the source the streamer begins around.
+        if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, {} ); !began )
+        {
+            LOG_ERROR( "[Runtime] Play refused for '{}': {}", path, began.GetError() );
+            return;
+        }
         auto streamer = world.has_value()
                              ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager, std::move( *world ) )
                              : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json );
@@ -432,11 +446,6 @@ namespace Desert::Player
             return;
         }
         m_WorldStreamer = streamer.ExtractValue();
-        if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, {} ); !began )
-        {
-            LOG_ERROR( "[Runtime] Play refused for '{}': {}", path, began.GetError() );
-            return;
-        }
         // THE SAME GATE AS THE BOOT'S, and this is the half that would have been forgotten. A level switch
         // is a second world handed over at run time — its clouds, its layouts, its themes are read on
         // demand exactly like the first one's — so a loading state that covered only the boot would ship
@@ -681,8 +690,8 @@ namespace Desert::Player
             }
         }
 
-        // Time also stops while streaming waits for the cell under the camera (WP12): the loader keeps reading
-        // on its workers and Tick above keeps collecting, but no script or physics step runs over a hole.
+        // Time also stops while streaming waits for the cell under a streaming source (WP12): the loader keeps
+        // reading on its workers and Tick above keeps collecting, but no script or physics step runs over a hole.
         const bool streamingWaits = m_WorldStreamer && m_WorldStreamer->BlocksPlay();
         if ( const auto frame =
                   m_Scene->OnUpdate( m_Content.Loading() || streamingWaits ? Common::Timestep( 0.0f ) : ts );

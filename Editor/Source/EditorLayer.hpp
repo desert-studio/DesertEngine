@@ -237,6 +237,10 @@ namespace Desert::Editor
         void RecordFlightFrame( bool counted );
         /// --flight, on the last frame: writes the CSV and logs the summary. False when either failed.
         [[nodiscard]] bool FinishFlight();
+        /// --flight's camera as a streaming source (UE's streaming source provider): a flight measures streaming
+        /// along its route, and in Play the camera is not a source by itself (Core::WorldStreamer). Empty without
+        /// a flight.
+        [[nodiscard]] std::vector<::Desert::Core::Rules::StreamingSource> InstrumentStreamingSources() const;
 
         // ===== Popups =====
         void DrawPopups();
@@ -502,8 +506,9 @@ namespace Desert::Editor
         // CloseSceneView, which discards a play snapshot on the strength of it.
         EditorState m_EditorState = EditorState::Paused;
         std::string m_PlaySnapshot; // serialized scene captured on Play, restored on Stop
-        // A partitioned world in Play keeps only the camera's neighbourhood in the ECS (WorldStreamer.hpp);
-        // null in Edit and for a world without a WorldPartition block. Ended before Stop restores the snapshot.
+        // A partitioned world in Play keeps only its streaming sources' neighbourhood in the ECS
+        // (WorldStreamer.hpp); null in Edit and for a world without a WorldPartition block. Ended before Stop
+        // restores the snapshot.
         std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
         double                                       m_WorldStreamClock = 0.0; // seconds of Play, for retries
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window

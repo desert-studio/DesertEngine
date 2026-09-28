@@ -426,6 +426,7 @@ namespace
     constexpr const char* kPhysicsSystem = "Desert/Desert/Source/Engine/ECS/System/PhysicsECSSystem.hpp";
     constexpr const char* kRuntimeLayer  = "Runtime/Source/RuntimeLayer.cpp";
     constexpr const char* kPlayerStart   = "Desert/Desert/Source/Engine/Core/PlayerStart.cpp";
+    constexpr const char* kWorldStreamer = "Desert/Desert/Source/Engine/Core/WorldStreamer.cpp";
 
     constexpr Row kSceneSettingsRows[] = {
          // THE GRADE AND THE SHADOW ROWS LEFT WITH THEIR FIELDS (SET1): the 35 grade fields are
@@ -781,6 +782,14 @@ namespace
          { "Tag", kPlayerStart },
     };
 
+    // What Play streams around (WP24): every field is read by Core::WorldStreamer::GatherSources.
+    constexpr Row kStreamingSourceRows[] = {
+         { "Enabled", kWorldStreamer },
+         { "OverrideLoadingRange", kWorldStreamer },
+         { "LoadingRange", kWorldStreamer },
+         { "Priority", kWorldStreamer },
+    };
+
     constexpr Row kRetargetRows[] = {
          { "Retarget", kAnimationSystem },
     };
@@ -966,6 +975,7 @@ namespace
          { "ControlRigData", "ControlRigComponent", nullptr, CENSUS_ROWS( kControlRigRows ) },
          { "RetargetData", "RetargetComponent", nullptr, CENSUS_ROWS( kRetargetRows ) },
          { "PlayerStartData", "PlayerStartComponent", nullptr, CENSUS_ROWS( kPlayerStartRows ) },
+         { "StreamingSourceData", "StreamingSourceComponent", nullptr, CENSUS_ROWS( kStreamingSourceRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
@@ -1160,7 +1170,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     //
     // -> 48 with SPAWN1's PlayerStartData: its one field, Tag, is WIRED to Core::SpawnDefaultPawn, which
     // hands every start's tag to Core::ChoosePlayerStart when Play begins.
-    EXPECT_EQ( all.size(), 48u );
+    //
+    // -> 49 with WP24's StreamingSourceData: all four fields are WIRED to Core::WorldStreamer::GatherSources,
+    // which turns every enabled source into what the residency streams around.
+    EXPECT_EQ( all.size(), 49u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

@@ -86,6 +86,9 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "R
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::AudioSourceComponent, Data, "AudioSourceData", "Audio Source" )
 // UE's APlayerStart: where Play puts the pawn (Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
+// UE's World Partition Streaming Source: the world loads around this entity in Play (Core::WorldStreamer).
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StreamingSourceComponent, Data, "StreamingSourceData",
+                                     "Streaming Source" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
 // piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
