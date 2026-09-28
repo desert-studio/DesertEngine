@@ -3,16 +3,18 @@
 // Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/LandscapeGrass.cpp:2044-2070 (SqrtMaxInstances from
 // GrassDensity and the extent), 2398-2437 (the Halton placement loop: keep a sample when its weight lies in
 // AllowedDensityRange and beats a random fraction; scale, yaw and surface alignment per kept instance) and
-// Engine/Source/Runtime/Core/Public/Math/Halton.h, Math/RandomStream.h (Halton, FRandomStream's LCG and
-// GetFraction), adapted: UE generates per landscape component in async tasks and keys the Halton base index to
-// the component; here the grid is a fixed world grid of kLandscapeGrassCellCm cells, the seed is a hash of the
-// cell's integer coordinate (so the same cell grows the same grass on every machine and every visit), Y is up
+// Engine/Source/Runtime/Core/Public/Math/Halton.h (Halton), adapted: the random fraction comes from this
+// project's PCG32 (Common/Core/Math/Pcg32.hpp) rather than FRandomStream; UE generates per landscape component in
+// async tasks and keys the Halton base index to the component; here the grid is a fixed world grid of
+// kLandscapeGrassCellCm cells, the seed is a hash of the cell's integer coordinate (so the same cell grows the
+// same grass on every machine and every visit), Y is up
 // and the landscape is sampled through a callback, so the generator knows nothing of tiles or ECS.
 //
 // UE's ALandscapeProxy::UpdateGrass (LandscapeGrass.cpp) streams components in and out around the view with
 // a per-frame task budget; GrassCellStreamer is that pattern over the fixed grid.
 
 #include <Engine/Assets/Serialization/LandscapeGrassType.hpp>
+#include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <glm/glm.hpp>
@@ -62,6 +64,9 @@ namespace Desert::World::Landscape
 
     /// UE SqrtMaxInstances: the side of the Halton candidate square for one cell of @p variety.
     uint32_t GrassCandidatesPerSide( const Assets::Serialization::GrassVariety& variety );
+
+    /// The distance fade @p variety's instances are drawn with: the foliage path (FO-5), Start to End.
+    Graphic::InstanceCullDistance GrassCullDistance( const Assets::Serialization::GrassVariety& variety );
 
     /**
      * @brief Every instance @p variety grows in @p cell, as world matrices. Deterministic: the same cell, salt,

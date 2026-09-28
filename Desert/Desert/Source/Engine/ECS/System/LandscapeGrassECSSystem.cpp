@@ -159,10 +159,14 @@ namespace Desert::ECS
                          { return Landscape::GenerateGrassCell( variety, cell, salt, surface ); } );
                     budget -= generated.Generated;
 
+                    // The cull distance takes the foliage path (FO-5): the renderer fades the instances out
+                    // between Start and End per instance, in the ISM loop that already culls by frustum. Grass
+                    // has no wind field (UE drives it from the material's WPO, which this engine lacks): still.
                     auto instances = streamer.Instances();
                     if ( !instances->empty() )
                         renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
-                             mesh, m_MaterialInstance, std::move( instances ), variety.CastDynamicShadow );
+                             mesh, m_MaterialInstance, std::move( instances ), variety.CastDynamicShadow,
+                             Landscape::GrassCullDistance( variety ), Graphic::InstanceWind{} );
                 }
             }
         }

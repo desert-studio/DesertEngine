@@ -58,6 +58,11 @@ namespace Desert::Assets::Serialization
                  v.EndCullDistance > kLandscapeGrassMaxCullDistance )
                 return Common::MakeFormattedError<bool>( "variety {}: EndCullDistance {} cm must lie in (0, {}]",
                                                          i, v.EndCullDistance, kLandscapeGrassMaxCullDistance );
+            if ( !std::isfinite( v.StartCullDistance ) || v.StartCullDistance < 0.0f ||
+                 v.StartCullDistance > v.EndCullDistance )
+                return Common::MakeFormattedError<bool>(
+                     "variety {}: StartCullDistance {} cm must lie in [0, EndCullDistance {}]", i,
+                     v.StartCullDistance, v.EndCullDistance );
             if ( auto ok = CheckInterval( i, "AllowedDensityRange", v.AllowedDensityRange, 0.0f, 1.0f ); !ok )
                 return ok;
             // A zero scale is an invisible instance; the UI clamps nothing, so the file is where it is refused.

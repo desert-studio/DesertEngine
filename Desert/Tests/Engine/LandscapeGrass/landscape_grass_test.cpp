@@ -12,6 +12,7 @@
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeGrass.hpp>
 
+#include <Common/Core/Math/Pcg32.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>
 
@@ -33,6 +34,7 @@ namespace
         GrassVariety v;
         v.GrassMesh       = { kMeshGuid, "Assets/Meshes/Blade.stmesh" };
         v.GrassDensity    = density;
+        v.StartCullDistance = 4000.0f;
         v.EndCullDistance = 5000.0f;
         v.ScaleX          = { 0.8f, 1.2f };
         return v;
@@ -80,10 +82,18 @@ TEST( LandscapeGrass, OneCellCoordinateGrowsOneSetOfInstances )
 
 TEST( LandscapeGrass, TheSeedIsPinnedSoEveryMachineGrowsTheSameGrass )
 {
-    // Integer-only hash and UE's LCG: these numbers are the same on clang and MSVC. A change to either is a
-    // change of every landscape's grass and must be made on purpose.
-    EXPECT_EQ( GrassCellSeed( { 0, 0 }, 0u ), GrassCellSeed( { 0, 0 }, 0u ) );
-    EXPECT_NE( GrassCellSeed( { 1, 0 }, 0u ), GrassCellSeed( { 0, 1 }, 0u ) );
+    // Integer-only hash and PCG32: these numbers are the same on clang and MSVC (computed independently, outside
+    // the engine). A change to either is a change of every landscape's grass and must be made on purpose. The
+    // INTEGERS are pinned, not a hash of the matrices: float maths built from them may contract into FMA
+    // differently per toolset.
+    EXPECT_EQ( GrassCellSeed( { 0, 0 }, 0u ), 0x642F30E0u );
+    EXPECT_EQ( GrassCellSeed( { 1, 0 }, 0u ), 0xF81E1F7Du );
+    EXPECT_EQ( GrassCellSeed( { 0, 1 }, 0u ), 0x9BC9A430u );
+    EXPECT_EQ( GrassCellSeed( { -3, 5 }, 7u ), 0xF5E4EF4Du );
+    Common::Math::Pcg32 random( 42u );
+    EXPECT_EQ( random.NextU32(), 0xC2F57BD6u );
+    EXPECT_EQ( random.NextU32(), 0x6B07C4A9u );
+    EXPECT_EQ( random.NextU32(), 0x72B7B29Bu );
     EXPECT_FLOAT_EQ( GrassHalton( 1u, 2u ), 0.5f );
     EXPECT_FLOAT_EQ( GrassHalton( 2u, 3u ), 2.0f / 3.0f );
     EXPECT_FLOAT_EQ( GrassHalton( 5u, 2u ), 0.625f );
@@ -171,6 +181,28 @@ TEST( LandscapeGrass, APaintStrokeTellsTheGrassConsumer )
 }
 
 // ── The streamer ───────────────────────────────────────────────────────────────────────────────────────────
+
+TEST( LandscapeGrass, TheCullDistanceIsTheFoliageFade )
+{
+    // Grass is drawn through the foliage type's fade (FO-5): all nearer than Start, none from End, a share
+    // between — the same function the ISM loop calls, on the variety's two numbers.
+    const GrassVariety                          v    = Variety();
+    const Desert::Graphic::InstanceCullDistance cull = GrassCullDistance( v );
+    EXPECT_EQ( cull.Min, v.StartCullDistance );
+    EXPECT_EQ( cull.Max, v.EndCullDistance );
+    const glm::vec3 eye( 0.0f );
+    uint32_t        near = 0, band = 0, far = 0;
+    for ( uint32_t i = 0; i < 1000u; ++i )
+    {
+        near += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 3000.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
+        band += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 4500.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
+        far += Desert::Graphic::KeepsInstanceAtDistance( cull, i, { 5000.0f, 0.0f, 0.0f }, eye ) ? 1u : 0u;
+    }
+    EXPECT_EQ( near, 1000u );
+    EXPECT_GT( band, 300u );
+    EXPECT_LT( band, 700u );
+    EXPECT_EQ( far, 0u );
+}
 
 TEST( LandscapeGrass, CellsAroundTheCameraAppearAndDisappearAsItMoves )
 {
@@ -290,6 +322,13 @@ TEST( LandscapeGrass, AGrassTypeRefusesWhatItCannotGrow )
     const auto refused  = ValidateLandscapeGrassTypeData( zero );
     ASSERT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "GrassDensity" ), std::string::npos );
+
+    LandscapeGrassTypeData fadeBeyondEnd;
+    fadeBeyondEnd.GrassVarieties                      = { Variety() };
+    fadeBeyondEnd.GrassVarieties[0].StartCullDistance = 6000.0f;
+    const auto inverted                               = ValidateLandscapeGrassTypeData( fadeBeyondEnd );
+    ASSERT_FALSE( inverted );
+    EXPECT_NE( inverted.GetError().find( "StartCullDistance" ), std::string::npos );
 
     // The header's Dependencies must be exactly the meshes.
     LandscapeGrassTypeData ok;

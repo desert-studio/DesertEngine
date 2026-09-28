@@ -112,29 +112,6 @@ namespace Desert::Editor::Tools
         }
     } // namespace
 
-    FoliageRandom::FoliageRandom( uint64_t seed )
-    {
-        // pcg32_srandom with the default stream: state 0, step, add the seed, step.
-        m_State = 0u;
-        NextU32();
-        m_State += seed;
-        NextU32();
-    }
-
-    uint32_t FoliageRandom::NextU32()
-    {
-        const uint64_t old    = m_State;
-        m_State               = old * 6364136223846793005ull + 1442695040888963407ull;
-        const auto xorshifted = static_cast<uint32_t>( ( ( old >> 18u ) ^ old ) >> 27u );
-        const auto rot        = static_cast<uint32_t>( old >> 59u );
-        return ( xorshifted >> rot ) | ( xorshifted << ( ( 32u - rot ) & 31u ) );
-    }
-
-    float FoliageRandom::Next01()
-    {
-        return static_cast<float>( NextU32() >> 8u ) * ( 1.0f / 16777216.0f );
-    }
-
     bool FoliageSurfaceFilter::AllowsHit( const FoliageTraceHit& hit ) const
     {
         if ( !Allows( hit.Surface ) )

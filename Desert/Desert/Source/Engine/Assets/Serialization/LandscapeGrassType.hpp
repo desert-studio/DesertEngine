@@ -5,8 +5,7 @@
 // UObject with UPROPERTY metadata; the mesh named by {Guid, Path} like every other reference in a text asset;
 // per-platform / per-quality numbers collapsed to one value (this engine has one quality level). Refused,
 // because nothing here could consume them (a field nothing reads is a dead setting): OverrideMaterials (the
-// ISM path draws one PBR slot and no slot list is authored for grass yet), StartCullDistance (it drives UE's
-// PerInstanceFadeAmount material node, which this engine does not have), MinLOD, bUseGrid/PlacementJitter
+// ISM path draws one PBR slot and no slot list is authored for grass yet), MinLOD, bUseGrid/PlacementJitter
 // (the Halton placement is the one sequence ported — landscape analysis A8), bWeightAttenuatesMaxScale,
 // bAlignToTriangleNormals, bUseLandscapeLightmap, bReceivesDecals, bAffectDistanceFieldLighting,
 // bCastContactShadow, bKeepInstanceBufferCPUCopy, InstanceWorldPositionOffsetDisableDistance, ExcludedLandscapes
@@ -78,7 +77,12 @@ namespace Desert::Assets::Serialization
         /// Instances per 1000 x 1000 cm at weight 1 (UE GrassDensity; UE's tooltip says "per 10 square meters",
         /// its maths — LandscapeGrass.cpp:2070 — divides the extent product by 1000 twice).
         float GrassDensity = 400.0f;
-        /// Beyond this distance from the camera, cm, a variety's cells are not generated (UE EndCullDistance).
+        /// From this distance from the camera, cm, the instances start to thin out (UE StartCullDistance). The
+        /// fade is the foliage one (FO-5, Graphic/InstanceCullDistance.hpp): the renderer drops a growing share
+        /// of the instances between Start and End, so the edge of the grass is a gradient, not a line.
+        float StartCullDistance = 8000.0f;
+        /// Beyond this distance from the camera, cm, a variety's cells are not generated and no instance is drawn
+        /// (UE EndCullDistance).
         float EndCullDistance = 10000.0f;
         /// A sample keeps an instance only when its layer weight lies in (Min, Max] (UE AllowedDensityRange).
         GrassFloatInterval AllowedDensityRange{ 0.0f, 1.0f };

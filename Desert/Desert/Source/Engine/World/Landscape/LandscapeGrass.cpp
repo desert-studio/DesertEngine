@@ -1,9 +1,10 @@
 #include <Engine/World/Landscape/LandscapeGrass.hpp>
 
+#include <Common/Core/Math/Pcg32.hpp>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 
 namespace Desert::World::Landscape
@@ -14,24 +15,10 @@ namespace Desert::World::Landscape
         using Assets::Serialization::GrassScaling;
         using Assets::Serialization::GrassVariety;
 
-        // UE FRandomStream (Math/RandomStream.h): the LCG and GetFraction's mantissa trick, bit for bit, so the
-        // stream is the same on every compiler — std::uniform_real_distribution is not.
-        class GrassRandomStream
-        {
-        public:
-            explicit GrassRandomStream( uint32_t seed ) : m_Seed( seed )
-            {
-            }
-
-            float Fraction()
-            {
-                m_Seed = m_Seed * 196314165u + 907633515u;
-                return std::bit_cast<float>( 0x3F800000u | ( m_Seed >> 9 ) ) - 1.0f;
-            }
-
-        private:
-            uint32_t m_Seed;
-        };
+        // The placement stream the foliage brush draws from too: integer PCG32, the same numbers on every
+        // compiler (UE uses FRandomStream's LCG here; the pattern — one stream per cell, drawn in a fixed order —
+        // is kept, the generator is this project's one).
+        using GrassRandomStream = Common::Math::Pcg32;
 
         float Interpolate( const GrassFloatInterval& range, float alpha )
         {
@@ -45,19 +32,19 @@ namespace Desert::World::Landscape
             switch ( v.Scaling )
             {
                 case GrassScaling::Uniform:
-                    scale = glm::vec3( Interpolate( v.ScaleX, random.Fraction() ) );
+                    scale = glm::vec3( Interpolate( v.ScaleX, random.Next01() ) );
                     break;
                 case GrassScaling::Free:
                     // UE's axes, Z up: ScaleY is this engine's Z, ScaleZ (the height) this engine's Y.
-                    scale.x = Interpolate( v.ScaleX, random.Fraction() );
-                    scale.z = Interpolate( v.ScaleY, random.Fraction() );
-                    scale.y = Interpolate( v.ScaleZ, random.Fraction() );
+                    scale.x = Interpolate( v.ScaleX, random.Next01() );
+                    scale.z = Interpolate( v.ScaleY, random.Next01() );
+                    scale.y = Interpolate( v.ScaleZ, random.Next01() );
                     break;
                 case GrassScaling::LockXY:
-                    scale.x = Interpolate( v.ScaleX, random.Fraction() );
+                    scale.x = Interpolate( v.ScaleX, random.Next01() );
                     scale.z = scale.x;
                     // Y is up here: UE's Z (the height) is this engine's Y.
-                    scale.y = Interpolate( v.ScaleZ, random.Fraction() );
+                    scale.y = Interpolate( v.ScaleZ, random.Next01() );
                     break;
             }
             return scale;
@@ -124,6 +111,11 @@ namespace Desert::World::Landscape
              std::ceil( std::sqrt( std::abs( area * variety.GrassDensity / 1000.0 / 1000.0 ) ) ) );
     }
 
+    Graphic::InstanceCullDistance GrassCullDistance( const GrassVariety& variety )
+    {
+        return { variety.StartCullDistance, variety.EndCullDistance };
+    }
+
     std::vector<glm::mat4> GenerateGrassCell( const GrassVariety& variety, GrassCellCoord cell, uint32_t salt,
                                               const GrassSurfaceSampler& surface )
     {
@@ -149,11 +141,11 @@ namespace Desert::World::Landscape
             // UE's short circuit is kept: the random fraction is drawn only for a weight inside the range, so a
             // stroke outside one sample does not reshuffle every later instance of the cell.
             const bool keep = w > variety.AllowedDensityRange.Min && w <= variety.AllowedDensityRange.Max &&
-                              w >= random.Fraction();
+                              w >= random.Next01();
             if ( !keep )
                 continue;
             const glm::vec3 scale = RandomScale( variety, random );
-            const float     yaw   = variety.RandomRotation ? random.Fraction() * 360.0f : 0.0f;
+            const float     yaw   = variety.RandomRotation ? random.Next01() * 360.0f : 0.0f;
 
             glm::mat4 m = glm::translate( glm::mat4( 1.0f ), glm::vec3( x, sample->HeightCm, z ) );
             if ( variety.AlignToSurface )
