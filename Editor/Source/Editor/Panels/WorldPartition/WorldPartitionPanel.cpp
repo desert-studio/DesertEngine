@@ -318,7 +318,11 @@ namespace Desert::Editor
         if ( streamer != nullptr )
             sources = streamer->LastSources();
         else if ( camera )
-            sources.push_back( ::Desert::Core::Rules::StreamingSource{ camera->GetPosition() } );
+        {
+            ::Desert::Core::Rules::StreamingSource source;
+            source.Position = camera->GetPosition();
+            sources.push_back( source );
+        }
         // The map follows the first: the pawn's when the level has one and nothing else is a source.
         const std::optional<glm::vec3> sourcePos =
              sources.empty() ? std::nullopt : std::optional<glm::vec3>( sources.front().Position );

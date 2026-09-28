@@ -538,10 +538,10 @@ TEST( WorldPartitionStreaming, AHigherPrioritySourcesCellsComeFirstAndTheSetDoes
     const WorldPartitionPlan       plan     = PlanOf( row );
     const WorldPartitionSerialized settings = Grid( 12800.0f, 25600.0f );
 
-    const StreamingSource near   = WithRange( 6400.0f, 6400.0f, 25600.0f, 0 );
-    const StreamingSource player = WithRange( 134400.0f, 6400.0f, 25600.0f, 1 );
+    const StreamingSource lookAhead = WithRange( 6400.0f, 6400.0f, 25600.0f, 0 );
+    const StreamingSource player    = WithRange( 134400.0f, 6400.0f, 25600.0f, 1 );
     const StreamingWish   equal  = Query( plan, settings, { At( 6400.0f, 6400.0f ), At( 134400.0f, 6400.0f ) } );
-    const StreamingWish   ranked = Query( plan, settings, { near, player } );
+    const StreamingWish   ranked = Query( plan, settings, { lookAhead, player } );
 
     ASSERT_EQ( ranked.Cells.size(), 10u );
     auto sorted = []( std::vector<std::tuple<int, int, int>> cells )

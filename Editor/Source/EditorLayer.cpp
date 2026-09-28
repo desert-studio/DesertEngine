@@ -8392,7 +8392,9 @@ namespace Desert::Editor
         const ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
         if ( !ShotOptions::Get().FlightRoute || camera == nullptr )
             return {};
-        return { ::Desert::Core::Rules::StreamingSource{ camera->GetPosition() } };
+        ::Desert::Core::Rules::StreamingSource source;
+        source.Position = camera->GetPosition();
+        return { source };
     }
 
     void EditorLayer::RecordFlightFrame( bool counted )
