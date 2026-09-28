@@ -591,8 +591,7 @@ namespace Desert::Core
             auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( *entityData->PrefabPath );
             if ( !prefabAsset )
             {
-                prefabAsset = m_AssetManager->CreateAsset<Assets::PrefabAsset>(
-                    *entityData->PrefabPath );
+                prefabAsset = m_AssetManager->CreateAsset<Assets::PrefabAsset>( *entityData->PrefabPath );
             }
 
             if ( !prefabAsset )

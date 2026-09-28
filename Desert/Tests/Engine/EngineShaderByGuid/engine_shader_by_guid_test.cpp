@@ -129,8 +129,8 @@ TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
         // takes no `AssetManager` — instead of `AssetBase::EnsureLoaded(manager)`, the one entry point
         // `AssetBase::EnsureLoaded`'s own comment says a caller must use for exactly this reason ("Load()
         // and ResolveDependencies() as two statements... the second one is what gets forgotten").
-        const auto shell = manager.CreateAsset<Desert::Assets::SurfaceMaterialAsset>(
-             materialPath, /*loadAfterCreate=*/false );
+        const auto shell =
+             manager.CreateAsset<Desert::Assets::SurfaceMaterialAsset>( materialPath, /*loadAfterCreate=*/false );
         if ( !shell )
         {
             unresolved.push_back( materialPath.string() + ": did not create as a shell" );

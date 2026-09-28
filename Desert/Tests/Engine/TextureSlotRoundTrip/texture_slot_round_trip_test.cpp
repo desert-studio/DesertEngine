@@ -233,8 +233,8 @@ TEST( TextureSlotRoundTrip, TheStoredFormCarriesNoPartOfTheMachineItWasWrittenOn
     Open( ann );
 
     AssetManager manager;
-    const auto   texture = manager.CreateAsset<TextureAsset>(
-         Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
+    const auto   texture =
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
     ASSERT_NE( texture, nullptr );
 
     const std::string stored = TextureSlotToPath( static_cast<uint64_t>( texture->GetMetadata().Handle ) );
@@ -259,13 +259,12 @@ TEST( TextureSlotRoundTrip, AContentTextureAndACookedOneTakeDifferentRootsAndBot
     Open( ann );
 
     AssetManager manager;
-    ASSERT_NE( manager.CreateAsset<TextureAsset>(
-                    Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex" ) ),
-               nullptr );
     ASSERT_NE(
-         manager.CreateAsset<TextureAsset>(
-              Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Content.tex" ) ),
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex" ) ),
          nullptr );
+    ASSERT_NE( manager.CreateAsset<TextureAsset>(
+                    Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Content.tex" ) ),
+               nullptr );
 
     EXPECT_EQ( TextureSlotToPath( kProbeHandle ), "cooked:Textures/T_Cooked.tex" );
     EXPECT_EQ( TextureSlotToPath( kOtherHandle ), "assets:Textures/T_Content.tex" );
@@ -324,9 +323,9 @@ TEST( TextureSlotRoundTrip, EverySpellingOfOneFileResolvesToOneTexture )
     Open( ann );
 
     AssetManager manager;
-    ASSERT_NE( manager.CreateAsset<TextureAsset>(
-                    Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) ),
-               nullptr );
+    ASSERT_NE(
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) ),
+         nullptr );
 
     EXPECT_EQ( TextureSlotFromPath( manager, "cooked:Textures/T_Probe.tex" ), kProbeHandle );
     EXPECT_EQ( TextureSlotFromPath( manager, ( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ).string() ),

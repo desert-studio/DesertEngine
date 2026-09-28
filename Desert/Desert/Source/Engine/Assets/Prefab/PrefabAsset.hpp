@@ -22,8 +22,7 @@ namespace Desert::Assets
             return AssetTypeID::Prefab;
         }
 
-        explicit PrefabAsset( const Common::Filepath& filepath )
-             : AssetBase( filepath, AssetTypeID::Prefab )
+        explicit PrefabAsset( const Common::Filepath& filepath ) : AssetBase( filepath, AssetTypeID::Prefab )
         {
         }
 

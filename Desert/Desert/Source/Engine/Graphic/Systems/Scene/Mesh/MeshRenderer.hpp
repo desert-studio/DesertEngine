@@ -391,7 +391,8 @@ namespace Desert::Graphic::System
 
         void DrawStaticMeshes();
         void DrawSkinnedMeshes( bool useLoadPass = false );
-        void DrawGenericMeshes( bool useLoadPass = false ); // per-object data-driven materials (v3 slots + overrides)
+        void
+        DrawGenericMeshes( bool useLoadPass = false ); // per-object data-driven materials (v3 slots + overrides)
         void RegisterSilhouettePass( RenderGraphBuilder& builder );
         void RegisterShadowPass( RenderGraphBuilder& builder );
 #if DESERT_DEV_INSTRUMENTS

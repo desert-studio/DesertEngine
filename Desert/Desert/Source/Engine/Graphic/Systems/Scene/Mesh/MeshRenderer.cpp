@@ -417,8 +417,8 @@ namespace Desert::Graphic::System
             }
 
             GraphicsPipelineSpecification spec;
-            spec.DebugName   = "GenericMesh_" + shaderName;
-            spec.Shader      = shader;
+            spec.DebugName         = "GenericMesh_" + shaderName;
+            spec.Shader            = shader;
             spec.Framebuffer       = targetFb;
             spec.Layout            = meshLayout;
             spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD

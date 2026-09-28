@@ -2,6 +2,8 @@
 
 #include "Common.hpp"
 
+#include <Common/Core/Core.hpp>
+
 #include <cstddef>
 #include <functional>
 #include <string>

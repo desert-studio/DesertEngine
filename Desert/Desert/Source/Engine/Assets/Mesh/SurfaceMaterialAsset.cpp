@@ -39,8 +39,7 @@ namespace Desert::Assets
     std::shared_ptr<SurfaceMaterialAsset>
     SurfaceMaterialAsset::CreateWorkingCopy( const SurfaceMaterialAsset& source )
     {
-        auto copy =
-             std::make_shared<SurfaceMaterialAsset>( source.m_Metadata.Filepath );
+        auto copy = std::make_shared<SurfaceMaterialAsset>( source.m_Metadata.Filepath );
 
         copy->m_Data       = source.m_Data;
         copy->m_ShaderName = source.m_ShaderName;

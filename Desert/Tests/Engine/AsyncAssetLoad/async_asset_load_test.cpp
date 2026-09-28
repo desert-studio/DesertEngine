@@ -44,8 +44,7 @@ namespace
     {
     public:
         explicit ProbeAsset( const std::string& name, const bool succeeds = true )
-             : AssetBase( Common::Filepath( name ), AssetTypeID::Unknown ),
-               m_Succeeds( succeeds )
+             : AssetBase( Common::Filepath( name ), AssetTypeID::Unknown ), m_Succeeds( succeeds )
         {
         }
 

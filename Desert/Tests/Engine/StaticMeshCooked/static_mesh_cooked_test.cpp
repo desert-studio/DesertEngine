@@ -307,11 +307,10 @@ TEST( StaticMeshCooked, TheEagerAndDeferredRoutesReachTheSameGeometry )
     const auto deferredPath = scratch.Write( "Deferred", ProbeFileContents() );
 
     AssetManager manager;
-    auto eager = manager.CreateAsset<StaticMeshAsset>( eagerPath, /*loadAfterCreate=*/true );
+    auto         eager = manager.CreateAsset<StaticMeshAsset>( eagerPath, /*loadAfterCreate=*/true );
     ASSERT_TRUE( eager );
 
-    auto deferred =
-         manager.CreateAsset<StaticMeshAsset>( deferredPath, /*loadAfterCreate=*/false );
+    auto deferred = manager.CreateAsset<StaticMeshAsset>( deferredPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( deferred );
     ASSERT_TRUE( deferred->EnsureLoaded( manager ).IsSuccess() );
 

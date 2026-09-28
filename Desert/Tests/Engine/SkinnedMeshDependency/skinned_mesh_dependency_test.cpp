@@ -218,8 +218,7 @@ TEST( SkinnedMeshDependency, TheEagerAndDeferredRoutesReachTheSameBinding )
     auto eager = manager.CreateAsset<SkinnedMeshAsset>( eagerPath, /*loadAfterCreate=*/true );
     ASSERT_TRUE( eager );
 
-    auto deferred =
-         manager.CreateAsset<SkinnedMeshAsset>( deferredPath, /*loadAfterCreate=*/false );
+    auto deferred = manager.CreateAsset<SkinnedMeshAsset>( deferredPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( deferred );
     ASSERT_TRUE( deferred->EnsureLoaded( manager ).IsSuccess() );
 
@@ -239,7 +238,7 @@ TEST( SkinnedMeshDependency, AnUnknownSignatureNeverMatchesAnUnreadSkeleton )
 
     // A skeleton record that exists but has not been read: its signature is 0, exactly like an unparsed
     // mesh shell's.
-    SkeletonAsset unreadSkeleton{ Common::Filepath( files.WriteSkeleton() ) };
+    const SkeletonAsset unreadSkeleton{ Common::Filepath( files.WriteSkeleton() ) };
     ASSERT_EQ( unreadSkeleton.GetSignature(), 0ull );
 
     auto shell = manager.CreateAsset<SkinnedMeshAsset>( files.WriteMesh( kProbeSignature ),
@@ -282,7 +281,7 @@ TEST( SkinnedMeshDependency, TheDeferredLoadIsNotRepeatedOnEveryAsk )
     ASSERT_TRUE( manager.CreateAsset<SkeletonAsset>( files.WriteSkeleton() ) );
 
     const auto meshPath = files.WriteMesh( kProbeSignature );
-    auto mesh = manager.CreateAsset<SkinnedMeshAsset>( meshPath, /*loadAfterCreate=*/false );
+    auto       mesh     = manager.CreateAsset<SkinnedMeshAsset>( meshPath, /*loadAfterCreate=*/false );
     ASSERT_TRUE( mesh );
     EXPECT_FALSE( mesh->IsReadyForUse() );
 
