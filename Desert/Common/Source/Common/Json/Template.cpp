@@ -688,66 +688,30 @@ namespace Common::Text
             // Parses blocks until one of `terminators` (a statement keyword) or the end of the template.
             // On return m_Stop holds the terminating keyword ("" at the end) and m_StopParser its remaining
             // tokens.
+            //
+            // STACK: ParseBlocks -> ParseFor/ParseIf -> ParseBlocks recurses once per nesting level, so those
+            // three functions hold nothing but the recursion; everything else a tag needs lives in ReadTag,
+            // ReadForHeader, ReadCondition and the Close* helpers, whose frames are gone before the next level
+            // starts. Folded into the recursive functions, that work cost ~3.9 KB per function per level in an
+            // MSVC Debug build (every temporary keeps its own slot there), and 100 nested if/for
+            // (TextTemplate.DeepNestingOfForAndIf) overflowed Windows' 1 MB main-thread stack with 0xC00000FD.
             BoolResultStr ParseBlocks( std::vector<Block>&                     out,
                                        std::initializer_list<std::string_view> terminators )
             {
                 while ( m_Index < m_Tags.size() )
                 {
-                    const Tag& tag = m_Tags[m_Index++];
-                    if ( tag.Kind == TagKind::Text )
-                    {
-                        Block b;
-                        b.Kind  = BlockKind::Text;
-                        b.Where = tag.Where;
-                        b.Text  = tag.Content;
-                        out.push_back( std::move( b ) );
-                        continue;
-                    }
-                    auto parser = std::make_unique<ExprParser>( tag.Content, tag.ContentWhere, m_Name );
-                    if ( auto tokens = parser->Tokenize(); !tokens.IsSuccess() )
-                        return tokens;
-                    if ( tag.Kind == TagKind::Output )
-                    {
-                        if ( parser->AtEnd() )
-                            return MakeError( Located( m_Name, tag.Where, "empty output tag" ) );
-                        auto expr = parser->ParseExpression();
-                        if ( !expr.IsSuccess() )
-                            return MakeError( expr.GetError() );
-                        if ( auto end = parser->ExpectEnd(); !end.IsSuccess() )
-                            return end;
-                        Block b;
-                        b.Kind  = BlockKind::Output;
-                        b.Where = tag.Where;
-                        b.Value = expr.ExtractValue();
-                        out.push_back( std::move( b ) );
-                        continue;
-                    }
-
-                    auto keyword = parser->ExpectIdentifier( "a statement keyword" );
-                    if ( !keyword.IsSuccess() )
-                        return MakeError( keyword.GetError() );
-                    const std::string& word = keyword.GetValue();
-                    if ( std::find( terminators.begin(), terminators.end(), word ) != terminators.end() )
-                    {
-                        m_Stop       = word;
-                        m_StopWhere  = tag.Where;
-                        m_StopParser = std::move( parser );
+                    const Tag&                  tag  = m_Tags[m_Index++];
+                    TagStep                     step = TagStep::Done;
+                    std::unique_ptr<ExprParser> parser;
+                    if ( auto read = ReadTag( tag, terminators, out, step, parser ); !read.IsSuccess() )
+                        return read;
+                    if ( step == TagStep::Stop )
                         return MakeSuccess( true );
-                    }
-                    BoolResultStr parsed;
-                    if ( word == "for" )
-                        parsed = ParseFor( *parser, tag.Where, out );
-                    else if ( word == "if" )
-                        parsed = ParseIf( *parser, tag.Where, out );
-                    else if ( word == "include" )
-                        parsed = ParseInclude( *parser, tag.Where, out );
-                    else if ( word == "endfor" || word == "endif" || word == "elif" || word == "else" )
-                        return MakeError(
-                             Located( m_Name, tag.Where, "'" + word + "' without a matching opening tag" ) );
-                    else
-                        return MakeError( Located(
-                             m_Name, tag.Where, "unknown statement '" + word + "' (known: for, if, include)" ) );
-                    if ( !parsed.IsSuccess() )
+                    if ( step == TagStep::Done )
+                        continue;
+                    if ( auto parsed = step == TagStep::For ? ParseFor( *parser, tag.Where, out )
+                                                            : ParseIf( *parser, tag.Where, out );
+                         !parsed.IsSuccess() )
                         return parsed;
                 }
                 m_Stop.clear();
@@ -760,20 +724,89 @@ namespace Common::Text
             }
 
         private:
-            BoolResultStr ExpectClosing( std::string_view expected, std::string_view opener, Position openWhere )
+            // What ReadTag left for ParseBlocks: the tag is fully handled, it ends the current block, or it opens
+            // a nested 'for' / 'if' whose body ParseBlocks must recurse into.
+            enum class TagStep
             {
-                if ( m_Stop.empty() )
-                    return MakeError( Located( m_Name, openWhere,
-                                               "'" + std::string( opener ) + "' is never closed, expected '" +
-                                                    std::string( expected ) + "'" ) );
+                Done,
+                Stop,
+                For,
+                If
+            };
+
+            // Everything one tag needs except recursing into a nested body (see STACK on ParseBlocks). On
+            // TagStep::For / TagStep::If `parser` holds the statement's remaining tokens.
+            BoolResultStr ReadTag( const Tag& tag, std::initializer_list<std::string_view> terminators,
+                                   std::vector<Block>& out, TagStep& step, std::unique_ptr<ExprParser>& parser )
+            {
+                step = TagStep::Done;
+                if ( tag.Kind == TagKind::Text )
+                {
+                    Block b;
+                    b.Kind  = BlockKind::Text;
+                    b.Where = tag.Where;
+                    b.Text  = tag.Content;
+                    out.push_back( std::move( b ) );
+                    return MakeSuccess( true );
+                }
+                parser = std::make_unique<ExprParser>( tag.Content, tag.ContentWhere, m_Name );
+                if ( auto tokens = parser->Tokenize(); !tokens.IsSuccess() )
+                    return tokens;
+                if ( tag.Kind == TagKind::Output )
+                {
+                    if ( parser->AtEnd() )
+                        return MakeError( Located( m_Name, tag.Where, "empty output tag" ) );
+                    Block b;
+                    b.Kind  = BlockKind::Output;
+                    b.Where = tag.Where;
+                    if ( auto expr = ReadCondition( *parser, b.Value ); !expr.IsSuccess() )
+                        return expr;
+                    out.push_back( std::move( b ) );
+                    return MakeSuccess( true );
+                }
+
+                auto keyword = parser->ExpectIdentifier( "a statement keyword" );
+                if ( !keyword.IsSuccess() )
+                    return MakeError( keyword.GetError() );
+                const std::string& word = keyword.GetValue();
+                if ( std::find( terminators.begin(), terminators.end(), word ) != terminators.end() )
+                {
+                    m_Stop       = word;
+                    m_StopWhere  = tag.Where;
+                    m_StopParser = std::move( parser );
+                    step         = TagStep::Stop;
+                    return MakeSuccess( true );
+                }
+                if ( word == "for" )
+                    step = TagStep::For;
+                else if ( word == "if" )
+                    step = TagStep::If;
+                else if ( word == "include" )
+                    return ParseInclude( *parser, tag.Where, out );
+                else if ( word == "endfor" || word == "endif" || word == "elif" || word == "else" )
+                    return MakeError(
+                         Located( m_Name, tag.Where, "'" + word + "' without a matching opening tag" ) );
+                else
+                    return MakeError( Located( m_Name, tag.Where,
+                                               "unknown statement '" + word + "' (known: for, if, include)" ) );
                 return MakeSuccess( true );
             }
 
-            BoolResultStr ParseFor( ExprParser& parser, Position where, std::vector<Block>& out )
+            // An expression that must be all that is left of its tag: an output, an 'if' / 'elif' condition.
+            static BoolResultStr ReadCondition( ExprParser& parser, ExprPtr& into )
             {
-                Block b;
-                b.Kind     = BlockKind::For;
-                b.Where    = where;
+                auto expr = parser.ParseExpression();
+                if ( !expr.IsSuccess() )
+                    return MakeError( expr.GetError() );
+                if ( auto end = parser.ExpectEnd(); !end.IsSuccess() )
+                    return end;
+                into = expr.ExtractValue();
+                return MakeSuccess( true );
+            }
+
+            // `for x in expr` / `for k, v in expr`, up to the end of the tag.
+            BoolResultStr ReadForHeader( ExprParser& parser, Position where, Block& b )
+            {
                 auto first = parser.ExpectIdentifier( "a loop variable" );
                 if ( !first.IsSuccess() )
                     return MakeError( first.GetError() );
@@ -793,19 +826,56 @@ namespace Common::Text
                 if ( !parser.IsIdentifier( "in" ) )
                     return MakeError( parser.ErrorAt( parser.Peek(), "expected 'in'" ) );
                 parser.Next();
-                auto iterable = parser.ParseExpression();
-                if ( !iterable.IsSuccess() )
-                    return MakeError( iterable.GetError() );
-                if ( auto end = parser.ExpectEnd(); !end.IsSuccess() )
-                    return end;
-                b.Value = iterable.ExtractValue();
+                return ReadCondition( parser, b.Value );
+            }
 
+            // The body just parsed ended on `expected` (not at the end of the template), and that tag holds
+            // nothing else.
+            BoolResultStr CloseBlock( std::string_view expected, std::string_view opener, Position openWhere )
+            {
+                if ( auto closed = ExpectClosing( expected, opener, openWhere ); !closed.IsSuccess() )
+                    return closed;
+                return m_StopParser->ExpectEnd();
+            }
+
+            // The branch just parsed ended on 'elif': its condition becomes `current`.
+            BoolResultStr ReadElif( ExprPtr& current )
+            {
+                if ( m_StopParser->AtEnd() )
+                    return MakeError( Located( m_Name, m_StopWhere, "'elif' needs a condition" ) );
+                return ReadCondition( *m_StopParser, current );
+            }
+
+            // The else-body just parsed must have ended on 'endif'.
+            BoolResultStr CloseElse( Position ifWhere )
+            {
+                if ( m_Stop.empty() )
+                    return MakeError( Located( m_Name, ifWhere, "'if' is never closed, expected 'endif'" ) );
+                if ( m_Stop != "endif" )
+                    return MakeError( Located( m_Name, m_StopWhere, "'" + m_Stop + "' after 'else'" ) );
+                return m_StopParser->ExpectEnd();
+            }
+
+            BoolResultStr ExpectClosing( std::string_view expected, std::string_view opener, Position openWhere )
+            {
+                if ( m_Stop.empty() )
+                    return MakeError( Located( m_Name, openWhere,
+                                               "'" + std::string( opener ) + "' is never closed, expected '" +
+                                                    std::string( expected ) + "'" ) );
+                return MakeSuccess( true );
+            }
+
+            BoolResultStr ParseFor( ExprParser& parser, Position where, std::vector<Block>& out )
+            {
+                Block b;
+                b.Kind  = BlockKind::For;
+                b.Where = where;
+                if ( auto header = ReadForHeader( parser, where, b ); !header.IsSuccess() )
+                    return header;
                 if ( auto body = ParseBlocks( b.Body, { "endfor" } ); !body.IsSuccess() )
                     return body;
-                if ( auto closed = ExpectClosing( "endfor", "for", where ); !closed.IsSuccess() )
+                if ( auto closed = CloseBlock( "endfor", "for", where ); !closed.IsSuccess() )
                     return closed;
-                if ( auto end = m_StopParser->ExpectEnd(); !end.IsSuccess() )
-                    return end;
                 out.push_back( std::move( b ) );
                 return MakeSuccess( true );
             }
@@ -813,14 +883,11 @@ namespace Common::Text
             BoolResultStr ParseIf( ExprParser& parser, Position where, std::vector<Block>& out )
             {
                 Block b;
-                b.Kind         = BlockKind::If;
-                b.Where        = where;
-                auto condition = parser.ParseExpression();
-                if ( !condition.IsSuccess() )
-                    return MakeError( condition.GetError() );
-                if ( auto end = parser.ExpectEnd(); !end.IsSuccess() )
-                    return end;
-                ExprPtr current = condition.ExtractValue();
+                b.Kind  = BlockKind::If;
+                b.Where = where;
+                ExprPtr current;
+                if ( auto condition = ReadCondition( parser, current ); !condition.IsSuccess() )
+                    return condition;
                 for ( ;; )
                 {
                     std::vector<Block> body;
@@ -831,14 +898,8 @@ namespace Common::Text
                     b.Branches.emplace_back( std::move( current ), std::move( body ) );
                     if ( m_Stop == "elif" )
                     {
-                        if ( m_StopParser->AtEnd() )
-                            return MakeError( Located( m_Name, m_StopWhere, "'elif' needs a condition" ) );
-                        auto next = m_StopParser->ParseExpression();
-                        if ( !next.IsSuccess() )
-                            return MakeError( next.GetError() );
-                        if ( auto end = m_StopParser->ExpectEnd(); !end.IsSuccess() )
-                            return end;
-                        current = next.ExtractValue();
+                        if ( auto next = ReadElif( current ); !next.IsSuccess() )
+                            return next;
                         continue;
                     }
                     if ( auto end = m_StopParser->ExpectEnd(); !end.IsSuccess() )
@@ -850,12 +911,8 @@ namespace Common::Text
                         if ( auto parsed = ParseBlocks( b.Else, { "elif", "else", "endif" } );
                              !parsed.IsSuccess() )
                             return parsed;
-                        if ( m_Stop.empty() )
-                            return MakeError( Located( m_Name, where, "'if' is never closed, expected 'endif'" ) );
-                        if ( m_Stop != "endif" )
-                            return MakeError( Located( m_Name, m_StopWhere, "'" + m_Stop + "' after 'else'" ) );
-                        if ( auto end = m_StopParser->ExpectEnd(); !end.IsSuccess() )
-                            return end;
+                        if ( auto closed = CloseElse( where ); !closed.IsSuccess() )
+                            return closed;
                     }
                     break;
                 }
@@ -1055,26 +1112,42 @@ namespace Common::Text
                 return MakeSuccess( true );
             }
 
-            BoolResultStr RenderFor( const Block& b, std::string& out )
+            // The iterable of a 'for', checked to be the shape its variables ask for: an array for `for x`, an
+            // object for `for k, v`. Kept out of RenderFor for the same reason as the parser's helpers (see STACK
+            // on BlockParser::ParseBlocks): RenderBlocks -> RenderFor/RenderIf -> RenderBlocks recurses per
+            // nesting level.
+            BoolResultStr ResolveIterable( const Block& b, Value& source )
             {
                 auto iterable = Evaluate( *b.Value );
                 if ( !iterable.IsSuccess() )
                     return MakeError( iterable.GetError() );
-                const Value& source = iterable.GetValue();
+                source = iterable.ExtractValue();
                 if ( source.Missing )
                     return MakeError( Error( b.Value->Where, "unknown variable '" + b.Value->PathText + "'" ) );
+                const Json::Kind kind = source.Kind();
+                if ( b.KeyVar.empty() && kind != Json::Kind::Array )
+                    return MakeError( Error(
+                         b.Value->Where,
+                         "'for " + b.ItemVar + " in' needs an array, found " + KindName( kind ) +
+                              ( kind == Json::Kind::Object ? " (iterate an object with 'for k, v in')" : "" ) ) );
+                if ( !b.KeyVar.empty() && kind != Json::Kind::Object )
+                    return MakeError( Error( b.Value->Where, "'for " + b.KeyVar + ", " + b.ItemVar +
+                                                                  " in' needs an object, found " +
+                                                                  KindName( kind ) ) );
+                return MakeSuccess( true );
+            }
+
+            BoolResultStr RenderFor( const Block& b, std::string& out )
+            {
+                Value source;
+                if ( auto resolved = ResolveIterable( b, source ); !resolved.IsSuccess() )
+                    return resolved;
                 const Json::Value& raw       = source.Get();
                 const std::size_t  scopeMark = m_Scope.size();
                 BoolResultStr      result    = MakeSuccess( true );
                 if ( b.KeyVar.empty() )
                 {
                     const auto* array = std::get_if<Json::Value::Array>( &raw.variant() );
-                    if ( array == nullptr )
-                        return MakeError( Error(
-                             b.Value->Where,
-                             "'for " + b.ItemVar + " in' needs an array, found " + KindName( source.Kind() ) +
-                                  ( source.Kind() == Json::Kind::Object ? " (iterate an object with 'for k, v in')"
-                                                                        : "" ) ) );
                     m_Loops.push_back( { 0, array->size() } );
                     m_Scope.push_back( { b.ItemVar, nullptr, {} } );
                     for ( std::size_t i = 0; i < array->size() && result.IsSuccess(); ++i )
@@ -1087,10 +1160,6 @@ namespace Common::Text
                 else
                 {
                     const auto* object = std::get_if<Json::Object>( &raw.variant() );
-                    if ( object == nullptr )
-                        return MakeError( Error( b.Value->Where, "'for " + b.KeyVar + ", " + b.ItemVar +
-                                                                      " in' needs an object, found " +
-                                                                      KindName( source.Kind() ) ) );
                     m_Loops.push_back( { 0, object->size() } );
                     m_Scope.push_back( { b.KeyVar, nullptr, {} } );
                     m_Scope.push_back( { b.ItemVar, nullptr, {} } );
