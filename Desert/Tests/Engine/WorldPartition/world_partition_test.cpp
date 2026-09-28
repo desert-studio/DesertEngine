@@ -719,8 +719,9 @@ namespace
     //     to switch off; its landscape roots and scene records go with it.
     //   * -277 / -286 with SCN1 (2318 / 2341): the 68 scenes nothing named are deleted (Scenes/ 147 -> 79), and
     //     their records go with them - each one's PostProcessVolume, lights, cloud volumes and UI entities.
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2318;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2341;
+    //   * +1 with SPAWN1 (2319 / 2342): Starter gains a PlayerStart, a record with no extent (it loads Global).
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2319;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2342;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
