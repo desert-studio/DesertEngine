@@ -7465,7 +7465,7 @@ namespace Desert::Editor
         const bool wasHolding  = m_ThumbnailsHoldReveal;
         m_ThumbnailsHoldReveal = Splash::ThumbnailsHoldReveal( pending, waitedMs ) ||
                                  Splash::SceneCapturesHoldReveal( warmPending, waitedMs );
-        if ( warmPending > 0 && !Splash::SceneCapturesHoldReveal( warmPending, waitedMs ) && wasHolding )
+        if ( warmPending > 0 && wasHolding && !m_ThumbnailsHoldReveal )
         {
             LOG_WARN( "[Thumbnails] the hand-over waited {:.0f} ms for the scene's captures and {} are left; "
                       "they are first in the queue after it",
@@ -7477,7 +7477,7 @@ namespace Desert::Editor
                       "and {} are still decoding; they arrive after it",
                       waitedMs, pending );
         }
-        else if ( pending == 0 && wasHolding )
+        else if ( pending == 0 && wasHolding && !m_ThumbnailsHoldReveal )
         {
             LOG_INFO( "[Thumbnails] the opening folder's cached thumbnails held the hand-over {:.0f} ms",
                       waitedMs );
