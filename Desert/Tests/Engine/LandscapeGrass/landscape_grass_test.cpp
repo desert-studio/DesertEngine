@@ -17,6 +17,9 @@
 #include <Common/Json/Json.hpp>
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
 #include <vector>
@@ -371,4 +374,18 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( LandscapeGrass, TheShippedGrassTypeIsReadable )
+{
+    // The one tracked `.degrasstype` (the corpus row CookedRegistryGate requires): it parses at the current
+    // version and its mesh is a file this repository tracks.
+    std::ifstream in( "Editor/Resources/Assets/Landscape/Grass/Meadow.degrasstype" );
+    ASSERT_TRUE( in ) << "run from the tree root";
+    const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    const auto        read = ParseLandscapeGrassType( text );
+    ASSERT_TRUE( read ) << read.GetError();
+    ASSERT_EQ( read.GetValue().GrassVarieties.size(), 1u );
+    EXPECT_TRUE(
+         std::filesystem::exists( "Editor/Resources/" + read.GetValue().GrassVarieties[0].GrassMesh.Path ) );
 }

@@ -35,7 +35,8 @@ namespace Desert::Assets::Serialization
      *   1 - the text asset header (Kind "LandscapeLayerInfo", the GUID that IS the layer's identity and
      *       handle, this number under `LLYI`, no Dependencies) and ULandscapeLayerInfoObject's fields (LS-12b).
      *   2 - GrassType: the `.degrasstype` the layer grows, by {Guid, Path}; its GUID is the header's one
-     *       Dependency when one is named (GR-1). No v1 file ever shipped, so v1 is refused by its number.
+     *       Dependency when one is named (GR-1). The one tracked v1 file (Landscape/Layers/Grass, INT7) was
+     *       rewritten as v2 in the same change, so v1 is refused by its number.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
