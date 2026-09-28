@@ -1244,8 +1244,8 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
     // the census `PreloadCloudLayouts` did not have: every one of these rows is a place where the chain
     // can be complete at both ends and broken in the middle, with every unit test still green.
     const std::vector<Link> links = {
-         { "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp",
-           "MakeReflected<ECS::RetargetComponent, ECS::RetargetData>",
+         { "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp",
+           "ReflectedMemberBlock<RetargetComponent, RetargetData>",
            "without this the component is not serialized and a saved scene loses its retarget" },
          { "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp", "\"RetargetAsset\"",
            "without this the handle has no path handler and the slot round-trips as zero" },

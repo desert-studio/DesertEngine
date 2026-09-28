@@ -15,6 +15,7 @@
 
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
+#include <SettingsCanonical.hpp>
 
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
@@ -28,6 +29,8 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Json/Carry.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/Crc32c.hpp>
@@ -180,4 +183,81 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THE CORPUS IS ALREADY IN THE SAVER'S TEXT (SAVE1). Opening a committed scene and saving it with no edit
+// must leave `git status` clean. Every difference such a save produced was stale corpus text, never the
+// saver: reflected blocks missing fields added since the file was written (SkyAtmosphere +25,
+// DirectionLight +8, PostProcessVolume +4 on Starter), and floats stated wider than a float
+// (`80.0000011920929`, which the saver writes `80.0`). The migrator's canonical pass (CanonicaliseScene)
+// rewrites both into the saver's bytes; this census holds every committed scene to having been through
+// it: read the scene as the loader reads it, canonicalise, write through the scene writer's canonical
+// text - and the result must BE the file. A scene that fails is named; the fix is
+// `scripts/Dev/migrate.sh --write Editor/Resources/Assets`.
+//
+// THE GAP, NAMED: the pass covers Settings and the blocks listed in
+// Engine/Core/Serialize/ReflectedComponentBlocks.hpp only. Blocks written by hand-written serializers -
+// StaticMesh, SkinnedMesh, InstancedStaticMesh, the material slots, Script, Landscape, LandscapeTile,
+// Foliage, AnimGraph, CubeGridBlockout, UIRenderTexture, Locomotion, Morph, SocketAttachment,
+// Projectile, the flag components - and prefab override records are carried through as the file states
+// them, so a stale field in one of those is NOT caught here; only an editor save of the scene shows it.
+// A partitioned header (none is committed today) is compared against its joined text, not its bytes.
+TEST( SceneMigratorWritePath, EveryCommittedSceneIsAlreadyTheSaversCanonicalText )
+{
+    fs::path assets;
+    for ( fs::path at = fs::current_path(); !at.empty(); at = at.parent_path() )
+    {
+        if ( fs::is_directory( at / "Editor/Resources/Assets" ) )
+        {
+            assets = at / "Editor/Resources/Assets";
+            break;
+        }
+        if ( at == at.parent_path() )
+            break;
+    }
+    ASSERT_FALSE( assets.empty() ) << "no Editor/Resources/Assets above " << fs::current_path();
+
+    bool sawOne = false;
+    for ( const auto& entry : fs::recursive_directory_iterator( assets ) )
+    {
+        if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
+            continue;
+        sawOne               = true;
+        const fs::path scene = entry.path();
+
+        const std::string bytes    = ReadRaw( scene );
+        const auto        document = Common::Json::TextDocument::Parse( bytes );
+        ASSERT_TRUE( document ) << scene << ": " << document.GetError();
+        const bool isHeader = Desert::Core::ExternalEntities::IsHeader( document.GetValue() );
+
+        const auto text = Desert::Core::ExternalEntities::ReadSceneFileText( scene );
+        ASSERT_TRUE( text ) << scene << ": " << text.GetError();
+        auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( text.GetValue() );
+        ASSERT_TRUE( parsed ) << scene << ": " << parsed.error().what();
+
+        const auto report = Desert::Migration::CanonicaliseScene( parsed.value() );
+        EXPECT_TRUE( report.Refused.empty() ) << scene << ": " << report.Refused;
+        EXPECT_EQ( report.BlocksRestated, 0 )
+             << scene << ": " << report.BlocksRestated << " reflected block(s) are not in the saver's text ("
+             << report.KeysAdded << " key(s) missing, " << report.ValuesRestated
+             << " value(s) spelled otherwise) - run scripts/Dev/migrate.sh --write Editor/Resources/Assets";
+
+        const auto rewritten = Common::Json::TextDocument::Parse( rfl::json::write( parsed.value() ) );
+        ASSERT_TRUE( rewritten ) << scene << ": " << rewritten.GetError();
+        const auto written = Common::Json::WriteCanonical( rewritten.GetValue() );
+        ASSERT_TRUE( written ) << scene << ": " << written.GetError();
+
+        std::string expected = bytes;
+        if ( isHeader )
+        {
+            const auto joined = Common::Json::TextDocument::Parse( text.GetValue() );
+            ASSERT_TRUE( joined ) << scene << ": " << joined.GetError();
+            const auto joinedText = Common::Json::WriteCanonical( joined.GetValue() );
+            ASSERT_TRUE( joinedText ) << scene << ": " << joinedText.GetError();
+            expected = joinedText.GetValue();
+        }
+        EXPECT_TRUE( written.GetValue() == expected )
+             << scene << ": read, canonicalised and written back, the scene is not its own file";
+    }
+    EXPECT_TRUE( sawOne ) << "no .desce below " << assets;
 }
