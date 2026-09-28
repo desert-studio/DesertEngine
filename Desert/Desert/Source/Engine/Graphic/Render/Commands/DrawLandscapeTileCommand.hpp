@@ -21,22 +21,19 @@ namespace Desert::Graphic::Render
     struct DrawLandscapeTileCommand : RenderCommand
     {
         Image2D*                  Heightmap = nullptr;
-        System::LandscapeTileDraw Tile;
-        glm::vec3                 LayerModes;
+        System::LandscapeTileDraw   Tile;
         MaterialOverrides         Overrides;
         System::LandscapeWeightDraw Weights;
 
         DrawLandscapeTileCommand( Image2D* heightmap, const System::LandscapeTileDraw& tile,
-                                  const glm::vec3& layerModes, MaterialOverrides overrides,
-                                  const System::LandscapeWeightDraw& weights )
-             : Heightmap( heightmap ), Tile( tile ), LayerModes( layerModes ), Overrides( std::move( overrides ) ),
-               Weights( weights )
+                                  MaterialOverrides overrides, const System::LandscapeWeightDraw& weights )
+             : Heightmap( heightmap ), Tile( tile ), Overrides( std::move( overrides ) ), Weights( weights )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitLandscapeTile( Heightmap, Tile, LayerModes, Overrides, Weights );
+            renderer.SubmitLandscapeTile( Heightmap, Tile, Overrides, Weights );
         }
     };
 } // namespace Desert::Graphic::Render

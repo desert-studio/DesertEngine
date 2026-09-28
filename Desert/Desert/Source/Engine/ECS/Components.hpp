@@ -241,27 +241,19 @@ namespace Desert::ECS
         Assets::AssetHandle FoliageType;
     };
 
-    // A landscape surface layer's switch. Auto = weighted by the Terrain program's height/slope rules;
-    // Off = the layer is not drawn. Reflected -> combo in the editor. There is no painted mode: weight
-    // painting is the landscape's own layer work (LS-14), not a runtime-only splat nobody saves.
-    enum class LandscapeLayerMode
-    {
-        Auto,
-        Off
-    };
-
     // HOW A LANDSCAPE LOOKS (UE: ALandscape::LandscapeMaterial), on the root entity beside its
     // LandscapeComponent. Apart from the frame because the frame is authored as raw numbers
-    // (MakeAuthored) and this is reflected: an asset handle and three combos the Details panel builds.
+    // (MakeAuthored) and this is reflected: one asset handle the Details panel builds.
     struct LandscapeMaterialData
     {
         REFLECT()
 
         // The landscape's material, a `.demat` of domain Terrain like every other material — the surface
-        // is drawn by ONE program, and its three layers (u_GrassTex/u_RockTex/u_SnowTex) are TEXTURE
-        // PARAMETERS of that one program, blended in-shader by the layer modes below. So this is one handle
-        // and not a slot vector: a vector would promise a material per layer, and nothing downstream could
-        // consume one. Unset = the shader's own schema defaults.
+        // is drawn by ONE program whose parameters (Tint) this material sets. The ground's layers are the
+        // root's painted layer infos (LandscapeComponent::Layers), never built-in ones: where nothing is
+        // painted the first layer shows, as UE's landscape does. One handle and not a slot vector: a vector
+        // would promise a material per layer, and nothing downstream could consume one. Unset = the
+        // shader's own schema defaults.
         //
         // Read by Engine/ECS/System/LandscapeECSSystem.cpp, which resolves it through
         // Runtime::MaterialService and forwards the values as named overrides on every tile of the root.
@@ -271,15 +263,6 @@ namespace Desert::ECS
         // Editor window. Still serialized; Hidden is editor-only.
         PROPERTY( DisplayName( "Material" ), Category( "Landscape" ), Asset<MaterialAsset>, Hidden )
         Assets::AssetHandle Material;
-
-        PROPERTY( DisplayName( "Grass Layer" ), Category( "Landscape Layers" ) )
-        LandscapeLayerMode GrassMode = LandscapeLayerMode::Auto;
-
-        PROPERTY( DisplayName( "Rock Layer" ), Category( "Landscape Layers" ) )
-        LandscapeLayerMode RockMode = LandscapeLayerMode::Auto;
-
-        PROPERTY( DisplayName( "Snow Layer" ), Category( "Landscape Layers" ) )
-        LandscapeLayerMode SnowMode = LandscapeLayerMode::Auto;
     };
 
     struct LandscapeMaterialComponent

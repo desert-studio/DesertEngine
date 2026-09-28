@@ -1498,12 +1498,12 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 
     // The census, so a binding added or lost anywhere in the two stages is named here first.
     const auto bindings = ShaderReflection::BuildLayoutBindings( set );
-    EXPECT_EQ( bindings.size(), 10u ) << DescribeBindings( bindings );
+    EXPECT_EQ( bindings.size(), 7u ) << DescribeBindings( bindings );
     EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB (shared)
     EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // Materials[] rows
-    EXPECT_TRUE( HasBinding( bindings, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GrassTex
-    EXPECT_TRUE( HasBinding( bindings, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_RockTex
-    EXPECT_TRUE( HasBinding( bindings, 4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_SnowTex
+    // Bindings 2-4 held the built-in grass/rock/snow layer textures until LS-16; none may come back.
+    for ( const uint32_t retired : { 2u, 3u, 4u } )
+        EXPECT_FALSE( HasBinding( bindings, retired, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << retired;
     EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
@@ -1518,7 +1518,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 // seen on screen until it had already been wrong for a while:
 //   - the G-buffer program's Properties are the forward program's, param for param: a terrain's .demat names
 //     `Terrain`, and the renderer writes the SAME param row into whichever program the render path uses —
-//     a block that drifted would read Tint where DetailTiling was written, in Deferred only;
+//     a block that drifted would read a param at another offset than it was written at, in Deferred only;
 //   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the main
 //     camera's LOD) and the heightmap — and no Materials[] row or TerrainUB it is never given.
 TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyThePatch )

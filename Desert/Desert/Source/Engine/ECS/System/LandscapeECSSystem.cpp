@@ -145,18 +145,19 @@ namespace Desert::ECS
         };
 
         // Each root's look, resolved once per frame and shared by all its tiles. The material is a `.demat`
-        // like every other: its values (Tint, DetailTiling and the u_GrassTex/u_RockTex/u_SnowTex layers)
-        // arrive as named overrides that TerrainRenderer applies on top of the shader's schema defaults. A
-        // root without a LandscapeMaterial draws with those defaults and every layer on Auto.
+        // like every other: its values (Tint) arrive as named overrides that TerrainRenderer applies on top
+        // of the shader's schema defaults. A root without a LandscapeMaterial draws with those defaults.
         struct Surface
         {
-            glm::vec3                  LayerModes = glm::vec3( 0.0f );
             Graphic::MaterialOverrides Overrides;
             // The root's weight layers (their `.delayerinfo` data), which give each tile channel its colour
             // and blend by name. Pending: a layer is still loading, so a channel that names nothing yet is
             // not reported as unknown.
             std::vector<Assets::Serialization::LandscapeLayerInfoData> Layers;
             bool                                                       LayersPending = false;
+            // The root's FIRST layer's colour with a = 1 (UE shows its first layer where nothing is
+            // painted); a = 0 while the root names none or that layer is not loaded: white ground.
+            glm::vec4 Ground = glm::vec4( 0.0f );
         };
         std::map<uint64_t, Surface> surfaces;
         const auto                  surfaceOf = [&]( const Common::UUID& rootId ) -> const Surface&
@@ -170,10 +171,15 @@ namespace Desert::ECS
                 // The service logs a failed layer once; a failed layer is simply absent here, and the tile's
                 // channels of it are reported below as layers the landscape does not list.
                 auto& service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
-                for ( const Assets::AssetHandle& handle : registry.get<LandscapeComponent>( rootEntity ).Layers )
+                const auto& handles = registry.get<LandscapeComponent>( rootEntity ).Layers;
+                for ( const Assets::AssetHandle& handle : handles )
                 {
                     if ( const auto* info = service.Get( handle ) )
+                    {
+                        if ( handle == handles.front() )
+                            it->second.Ground = glm::vec4( info->LayerUsageDebugColor, 1.0f );
                         it->second.Layers.push_back( *info );
+                    }
                     else if ( service.StateOf( handle ) == Runtime::LandscapeLayerInfoService::State::Pending )
                         it->second.LayersPending = true;
                 }
@@ -183,9 +189,6 @@ namespace Desert::ECS
                 if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
                     continue;
                 const LandscapeMaterialData& look = registry.get<LandscapeMaterialComponent>( entity ).Data;
-                it->second.LayerModes =
-                     glm::vec3( static_cast<float>( look.GrassMode ), static_cast<float>( look.RockMode ),
-                                static_cast<float>( look.SnowMode ) );
                 const auto raw = static_cast<uint64_t>( look.Material );
                 if ( raw == 0 )
                     break;
@@ -274,6 +277,7 @@ namespace Desert::ECS
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
 
             Graphic::System::LandscapeWeightDraw weights;
+            weights.Ground = surface.Ground;
             if ( gpu.Weightmap )
             {
                 const Landscape::LandscapeWeightChannels channels =
@@ -295,8 +299,8 @@ namespace Desert::ECS
                               tileComp.TileX, tileComp.TileZ, names );
                 }
             }
-            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>(
-                 gpu.Heightmap.get(), draw, surface.LayerModes, surface.Overrides, weights );
+            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw,
+                                                                                    surface.Overrides, weights );
         }
 
         // Release: the entity is gone, lost its tile component, or its heights were unloaded.

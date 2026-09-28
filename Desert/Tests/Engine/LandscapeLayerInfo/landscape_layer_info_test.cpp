@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <TestSupport/scratch_dir.hpp>
+
 #include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
@@ -13,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -110,15 +113,45 @@ TEST( LandscapeLayerInfo, RefusesAnotherKind )
     EXPECT_NE( Refusal( data ), "<accepted>" );
 }
 
+// LLYI 2 is refused by its number (LS-16: the GrassType field left and the corpus was rewritten as v3 in
+// the same change; there is no reader of the old layout), and so is a version from the future.
 TEST( LandscapeLayerInfo, RefusesAnotherVersion )
 {
-    LandscapeLayerInfoData data = StampedGrass();
-    ASSERT_FALSE( data.Header->Versions.empty() );
-    for ( auto& [tag, version] : data.Header->Versions )
-        version = 3;
-    const std::string why = Refusal( data );
-    EXPECT_NE( why, "<accepted>" );
-    EXPECT_NE( why.find( '3' ), std::string::npos ) << why;
+    for ( const uint32_t stated : { 2u, 4u } )
+    {
+        LandscapeLayerInfoData data = StampedGrass();
+        ASSERT_TRUE( data.Header.has_value() );
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        ASSERT_FALSE( data.Header->Versions.empty() );
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+        for ( auto& [tag, version] : data.Header->Versions )
+            version = stated;
+        const std::string why = Refusal( data );
+        EXPECT_NE( why, "<accepted>" );
+        EXPECT_NE( why.find( std::to_string( stated ) ), std::string::npos ) << why;
+    }
+}
+
+// The committed layer infos are all current (LLYI 3) and the ground layer every landscape scene lists first
+// is among them.
+TEST( LandscapeLayerInfo, TheCorpusLayerInfosParse )
+{
+    const std::filesystem::path dir =
+         Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Landscape" / "Layers";
+    ASSERT_TRUE( std::filesystem::is_directory( dir ) ) << std::filesystem::absolute( dir );
+    std::set<std::string> names;
+    for ( const auto& entry : std::filesystem::directory_iterator( dir ) )
+    {
+        if ( entry.path().extension() != ".delayerinfo" )
+            continue;
+        const std::ifstream in( entry.path(), std::ios::binary );
+        std::stringstream text;
+        text << in.rdbuf();
+        const auto parsed = ParseLandscapeLayerInfo( text.str() );
+        ASSERT_TRUE( parsed ) << entry.path() << ": " << parsed.GetError();
+        names.insert( parsed.GetValue().LayerName );
+    }
+    EXPECT_EQ( names, ( std::set<std::string>{ "Grass", "Ground" } ) );
 }
 
 TEST( LandscapeLayerInfo, RefusesStatedDependencies )

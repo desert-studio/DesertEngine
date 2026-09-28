@@ -185,7 +185,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionLandscapeLayerRefs, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionExternalEntities, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionSceneSettingsHomes, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionInstanceTransforms );
+    EXPECT_LT( Migration::kSceneVersionInstanceTransforms, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionNoLandscapeLayerModes );
 }
 
 namespace

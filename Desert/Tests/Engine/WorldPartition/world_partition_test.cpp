@@ -684,8 +684,10 @@ namespace
     constexpr std::size_t kCorpusMeshReferences = 36;
     // SET1 (scene v36) gave each of the 148 corpus scenes an unbound PostProcessVolume: a record with no
     // extent of its own (it grades everywhere and loads Global), so +148 on both counts.
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2599;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2631;
+    //   * -4 with LS-16 (2595 / 2627): G26_TerrainRockLayer is deleted with the built-in rock layer it existed
+    //     to switch off; its landscape roots and scene records go with it.
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2595;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2627;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.

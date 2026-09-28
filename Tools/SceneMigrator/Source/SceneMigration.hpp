@@ -135,7 +135,12 @@ namespace Desert::Migration
     //       the stamp.
     inline constexpr int kSceneVersionInstanceTransforms = 37;
 
-    static_assert( kSceneVersionInstanceTransforms == kSceneVersion,
+    //  38 - THE LANDSCAPE HAS NO BUILT-IN LAYERS (LS-16). The root's LandscapeMaterial block loses GrassMode,
+    //       RockMode and SnowMode: the ground is drawn by the Landscape Material and the painted layer infos
+    //       alone, as UE's is (MigrateLandscapeLayerModesV37ToV38). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionNoLandscapeLayerModes = 38;
+
+    static_assert( kSceneVersionNoLandscapeLayerModes == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -178,6 +183,14 @@ namespace Desert::Migration
     // with no DirectionLight are dropped - no light, no cascades to configure. The new entity's id is
     // derived from the scene's GUID, so two runs on two branches mint one entity. PURE.
     SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene );
+
+    // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
+    inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
+                                                                                   "SnowMode" };
+
+    // Takes kRetiredLandscapeLayerModeKeys out of every LandscapeMaterial block of @p entities (records and
+    // their prefab overrides). Returns how many keys went. PURE.
+    std::size_t MigrateLandscapeLayerModesV37ToV38( std::vector<Assets::EntityData>& entities );
 
     // What MigrateInstanceTransformsV36ToV37 did to one scene.
     struct InstanceTransformsReport
@@ -279,10 +292,14 @@ namespace Desert::Migration
         bool                     InstanceTransformsRaised = false; // below kSceneVersionInstanceTransforms
         InstanceTransformsReport InstanceTransforms;
 
+        bool        LandscapeLayerModesRaised  = false; // below kSceneVersionNoLandscapeLayerModes
+        std::size_t LandscapeLayerModesDropped = 0;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
-                   ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised;
+                   ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
+                   LandscapeLayerModesRaised;
         }
     };
 

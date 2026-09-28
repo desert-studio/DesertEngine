@@ -68,7 +68,6 @@ namespace Common::Content
         Retarget,
         FoliageType,
         LandscapeLayerInfo,
-        LandscapeGrassType,
         StringTable,
         WorldCell,
         WorldIndex,
@@ -142,7 +141,6 @@ namespace Common::Content
              /* Retarget             */ { "Retarget", ".retarget", &P::RETARGET_PATH, "Name" },
              /* FoliageType          */ { "FoliageType", ".defoliage", &P::FOLIAGE_TYPE_PATH },
              /* LandscapeLayerInfo   */ { "LandscapeLayerInfo", ".delayerinfo", &P::LANDSCAPE_LAYER_INFO_PATH },
-             /* LandscapeGrassType   */ { "LandscapeGrassType", ".degrasstype", &P::LANDSCAPE_GRASS_TYPE_PATH },
              /* StringTable          */ { "StringTable", ".destrings", &P::LOCALIZATION_PATH },
              // A partitioned world's cooked cells and its index (WP8, in the AF1 envelope since AF2) sit beside
              // their scene, in `Worlds/X.dwworld/` (WorldCells::CookedWorldDirectory). Derived by the cook and

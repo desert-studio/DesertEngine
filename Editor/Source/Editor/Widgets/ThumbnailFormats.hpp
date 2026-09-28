@@ -169,9 +169,6 @@ namespace Desert::Editor::ThumbnailFormats
          { "delayerinfo", Producer::None,
            "a landscape layer info is a name, two blend numbers and a debug colour; the colour alone would "
            "be a swatch indistinguishable from any other asset's tint, so the typed icon says more" },
-         { "degrasstype", Producer::None,
-           "a landscape grass type is a list of meshes and numbers; what it grows exists only around a camera "
-           "on a painted landscape, so no picture of the file alone would show it" },
 
          { "shader", Producer::None,
            "a shader is a PROGRAM, and a program has no appearance until something supplies its "

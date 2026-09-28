@@ -227,6 +227,41 @@ namespace Desert::Migration
         return report;
     }
 
+    std::size_t MigrateLandscapeLayerModesV37ToV38( std::vector<Assets::EntityData>& entities )
+    {
+        std::size_t dropped = 0;
+        const auto  strip   = [&]( rfl::ExtraFields<rfl::Generic>& components )
+        {
+            const auto payload = components.get( "LandscapeMaterial" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return;
+            rfl::Generic::Object kept;
+            for ( const auto& [key, field] : fields.value() )
+            {
+                if ( std::ranges::find_if( kRetiredLandscapeLayerModeKeys, [&]( const char* retired )
+                                           { return key == retired; } ) != kRetiredLandscapeLayerModeKeys.end() )
+                {
+                    ++dropped;
+                    continue;
+                }
+                kept[key] = field;
+            }
+            components["LandscapeMaterial"] = rfl::Generic( std::move( kept ) );
+        };
+        for ( auto& entity : entities )
+        {
+            strip( entity.Components );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                strip( override_.Components );
+        }
+        return dropped;
+    }
+
     std::vector<std::string> MigrateLandscapeLayerRefsV33ToV34( const std::vector<Assets::EntityData>& entities )
     {
         std::vector<std::string> inline_layers;
@@ -781,6 +816,13 @@ namespace Desert::Migration
                                      names + ". Nothing was written.";
                     return;
                 }
+            }
+
+            // The built-in grass/rock/snow switches leave the landscape (LS-16); nothing reads them any more.
+            if ( statedSceneVersion < kSceneVersionNoLandscapeLayerModes )
+            {
+                report.LandscapeLayerModesRaised  = true;
+                report.LandscapeLayerModesDropped = MigrateLandscapeLayerModesV37ToV38( entities );
             }
         }
 

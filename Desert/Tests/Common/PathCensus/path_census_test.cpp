@@ -105,7 +105,7 @@ TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
     // Byte-for-byte the spellings the engine shipped with before the census existed. Every asset
     // registry, cooked file and saved scene in the sandbox depends on these exact strings; a census
     // edit that shifts one is a data migration, not a refactor, and must fail here first.
-    const std::array<std::pair<const fs::path*, const char*>, 24> expected = { {
+    const std::array<std::pair<const fs::path*, const char*>, 23> expected = { {
          { &Path::ASSETS_PATH, "Resources/Assets/" },
          { &Path::MESH_PATH, "Resources/Assets/Meshes/" },
          { &Path::MATERIAL_PATH, "Resources/Assets/Materials/" },
@@ -127,7 +127,6 @@ TEST( PathCensus, TheSandboxLayoutIsTheHistoricalOne )
          { &Path::RETARGET_PATH, "Resources/Assets/Retargets/" },
          { &Path::FOLIAGE_TYPE_PATH, "Resources/Assets/Foliage/" },
          { &Path::LANDSCAPE_LAYER_INFO_PATH, "Resources/Assets/Landscape/Layers/" },
-         { &Path::LANDSCAPE_GRASS_TYPE_PATH, "Resources/Assets/Landscape/Grass/" },
          { &Path::COOKED_PATH, "Cooked/" },
          { &Path::MESH_PATH_COOKED, "Cooked/Meshes/" },
     } };

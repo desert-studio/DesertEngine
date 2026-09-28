@@ -6,7 +6,7 @@ namespace Common::Math
 {
     /**
      * @brief PCG32 (O'Neill, pcg-random.org, XSH-RR): the one random stream placement draws from — the foliage
-     * brush (FO-2) and the landscape grass generator (GR-1).
+     * brush (FO-2).
      *
      * std::uniform_real_distribution is implementation-defined, so libc++ and MSVC would scatter the same seed
      * differently; this stream is integer-only and defined bit for bit, so a seed is the same numbers on every

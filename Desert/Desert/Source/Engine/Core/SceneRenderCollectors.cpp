@@ -4,7 +4,6 @@
 
 #include <Engine/ECS/System/HeightFogECSSystem.hpp>
 #include <Engine/ECS/System/LandscapeECSSystem.hpp>
-#include <Engine/ECS/System/LandscapeGrassECSSystem.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -28,7 +27,6 @@ namespace Desert::Core
         scene.AddSystem<ECS::HeightFogECSSystem>();
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
         scene.AddSystem<ECS::LandscapeECSSystem>();
-        scene.AddSystem<ECS::LandscapeGrassECSSystem>();
         scene.AddSystem<ECS::PointLightECSSystem>();
         scene.AddSystem<ECS::SpotLightECSSystem>();
     }

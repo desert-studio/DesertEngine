@@ -39,9 +39,9 @@ namespace
 
 TEST( TerrainTextureKey, DifferentTexturesGetDifferentMaterials )
 {
-    const auto checker = TerrainTextureKey( WithTextures( { { "u_RockTex", 42 } } ), nullptr, nullptr );
+    const auto checker = TerrainTextureKey( WithTextures( { { "u_TexA", 42 } } ), nullptr, nullptr );
     const auto plain   = TerrainTextureKey( WithTextures( {} ), nullptr, nullptr );
-    const auto other   = TerrainTextureKey( WithTextures( { { "u_RockTex", 43 } } ), nullptr, nullptr );
+    const auto other   = TerrainTextureKey( WithTextures( { { "u_TexA", 43 } } ), nullptr, nullptr );
 
     EXPECT_NE( checker, plain ) << "a terrain with a texture override shared the textureless material";
     EXPECT_NE( checker, other ) << "two different textures in one sampler collapsed into one material";
@@ -49,11 +49,11 @@ TEST( TerrainTextureKey, DifferentTexturesGetDifferentMaterials )
 
 TEST( TerrainTextureKey, TheSamplerNameIsPartOfTheIdentity )
 {
-    // The same handle in a different slot is a different picture on screen: grass everywhere versus
-    // rock everywhere. A key of handles alone would batch them together.
-    const auto rock  = TerrainTextureKey( WithTextures( { { "u_RockTex", 42 } } ), nullptr, nullptr );
-    const auto grass = TerrainTextureKey( WithTextures( { { "u_GrassTex", 42 } } ), nullptr, nullptr );
-    EXPECT_NE( rock, grass );
+    // The same handle in a different slot is a different picture on screen: the texture sampled for one
+    // purpose versus another. A key of handles alone would batch them together.
+    const auto inA = TerrainTextureKey( WithTextures( { { "u_TexA", 42 } } ), nullptr, nullptr );
+    const auto inB = TerrainTextureKey( WithTextures( { { "u_TexB", 42 } } ), nullptr, nullptr );
+    EXPECT_NE( inA, inB );
 }
 
 // ---- ...and only what must not share ---------------------------------------------------------------
@@ -63,17 +63,15 @@ TEST( TerrainTextureKey, TheSameTexturesInAnotherOrderShareOneMaterial )
     // Two terrains naming the same set in a different order are the same texture set. Failing this
     // direction is quieter than the other — it only allocates a redundant material — but it is the
     // exact drift MeshRenderer's GenericTextureKey sorts against, and the two keys follow one rule.
-    const auto ab =
-         TerrainTextureKey( WithTextures( { { "u_GrassTex", 7 }, { "u_RockTex", 9 } } ), nullptr, nullptr );
-    const auto ba =
-         TerrainTextureKey( WithTextures( { { "u_RockTex", 9 }, { "u_GrassTex", 7 } } ), nullptr, nullptr );
+    const auto ab = TerrainTextureKey( WithTextures( { { "u_TexB", 7 }, { "u_TexA", 9 } } ), nullptr, nullptr );
+    const auto ba = TerrainTextureKey( WithTextures( { { "u_TexA", 9 }, { "u_TexB", 7 } } ), nullptr, nullptr );
     EXPECT_EQ( ab, ba );
 }
 
 TEST( TerrainTextureKey, AnUnsetSlotIsNoSlot )
 {
     // Handle 0 means "keep the fallback", which every terrain shares; it must not split the batch.
-    const auto explicitZero = TerrainTextureKey( WithTextures( { { "u_RockTex", 0 } } ), nullptr, nullptr );
+    const auto explicitZero = TerrainTextureKey( WithTextures( { { "u_TexA", 0 } } ), nullptr, nullptr );
     const auto absent       = TerrainTextureKey( WithTextures( {} ), nullptr, nullptr );
     EXPECT_EQ( explicitZero, absent );
 }
