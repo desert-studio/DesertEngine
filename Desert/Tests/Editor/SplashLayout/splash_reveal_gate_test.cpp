@@ -87,3 +87,22 @@ TEST( SplashRevealGate, ACachedThumbnailIsDecodedBeforeTheHandOverAndACaptureIsN
     EXPECT_TRUE( Splash::ThumbnailDiskDecodeAllowed( headless ) );
     EXPECT_TRUE( Splash::ThumbnailCaptureAllowed( headless ) );
 }
+
+// THUMB2: the opening folder's CACHED thumbnails hold the hand-over, but only within a budget, and never for a
+// capture — capture stays behind the hand-over whatever the upload pass is doing.
+TEST( SplashRevealGate, TheOpeningFolderThumbnailsHoldTheHandOverWithinABudget )
+{
+    Splash::RevealState s;
+    s.HasSplash           = true;
+    s.RealFrameDrawn      = true;
+    s.ThumbnailsUploading = true;
+    EXPECT_FALSE( Splash::MayReveal( s ) ) << "the window was shown before its folder's cached pictures were up";
+    EXPECT_FALSE( Splash::ThumbnailCaptureAllowed( s ) ) << "the upload pass opened the capture gate";
+    s.ThumbnailsUploading = false;
+    EXPECT_TRUE( Splash::MayReveal( s ) );
+
+    EXPECT_TRUE( Splash::ThumbnailsHoldReveal( 3, 0.0 ) );
+    EXPECT_FALSE( Splash::ThumbnailsHoldReveal( 3, Splash::kThumbnailUploadBudgetMs ) )
+         << "a slow disk must not hold the splash past the budget";
+    EXPECT_FALSE( Splash::ThumbnailsHoldReveal( 0, 0.0 ) ) << "nothing pending must not hold the splash";
+}
