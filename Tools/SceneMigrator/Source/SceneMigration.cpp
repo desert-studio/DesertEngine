@@ -12,6 +12,7 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 
 #include <Engine/Core/SceneSettings.hpp>
+#include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
@@ -223,6 +224,123 @@ namespace Desert::Migration
                 RaisePathOnlyMeshGuids( overrides[i].Components,
                                         tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot,
                                         report );
+        }
+        return report;
+    }
+
+    namespace
+    {
+        // The enumerator names a file may state for a light's Falloff, at the numbers the reader expects.
+        // Pinned against the enum so a reorder breaks the build here instead of renumbering a light.
+        constexpr std::array<const char*, 3> kLightFalloffNames = { "Linear", "Quadratic", "InverseSquare" };
+        static_assert( static_cast<int>( ECS::LightFalloff::Linear ) == 0 &&
+                           static_cast<int>( ECS::LightFalloff::Quadratic ) == 1 &&
+                           static_cast<int>( ECS::LightFalloff::InverseSquare ) == 2,
+                       "LightFalloff moved: kLightFalloffNames states the numbers a Falloff name becomes" );
+        constexpr int kSendEventAction = static_cast<int>( ECS::UIButtonAction::SendEvent );
+
+        // Applies @p edit to the object block @p component of @p components, if it is stated as an object.
+        template <typename Edit>
+        void EditBlock( rfl::ExtraFields<rfl::Generic>& components, const char* component, Edit&& edit )
+        {
+            const auto payload = components.get( component );
+            if ( !payload.has_value() )
+                return;
+            auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return;
+            rfl::Generic::Object block = std::move( fields.value() );
+            if ( edit( block ) )
+                components[component] = rfl::Generic( std::move( block ) );
+        }
+
+        // @p block without @p key; true when the key was there.
+        bool DropKey( rfl::Generic::Object& block, const std::string& key )
+        {
+            if ( !block.get( key ).has_value() )
+                return false;
+            rfl::Generic::Object kept;
+            for ( const auto& [name, value] : block )
+                if ( name != key )
+                    kept[name] = value;
+            block = std::move( kept );
+            return true;
+        }
+    } // namespace
+
+    UndeclaredKeysReport MigrateUndeclaredKeysV38ToV39( std::vector<Assets::EntityData>& entities )
+    {
+        UndeclaredKeysReport report;
+        const auto           settle = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "UIToggle",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const bool dropped = DropKey( block, "On" );
+                           report.TogglesOnDropped += dropped ? 1 : 0;
+                           return dropped;
+                       } );
+            EditBlock( components, "UIButton",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           bool changed = DropKey( block, "CornerRadius" );
+                           report.ButtonCornerRadiiDropped += changed ? 1 : 0;
+                           const auto action = block.get( "Action" );
+                           if ( !action.has_value() )
+                               return changed;
+                           const auto name = action.value().to_string();
+                           if ( !name.has_value() )
+                               return changed;
+                           std::string target;
+                           if ( const auto stated = block.get( "OnClickMessage" ); stated.has_value() )
+                               target = stated.value().to_string().value_or( std::string() );
+                           if ( !target.empty() && target != name.value() )
+                           {
+                               report.Refused.push_back( who + " / UIButton states Action '" + name.value() +
+                                                         "' as a message name and OnClickMessage '" + target +
+                                                         "' as another; which one the button sends is not in "
+                                                         "the file" );
+                               return changed;
+                           }
+                           block["Action"]         = rfl::Generic( kSendEventAction );
+                           block["OnClickMessage"] = rfl::Generic( name.value() );
+                           ++report.ButtonActionNamesMoved;
+                           return true;
+                       } );
+            for ( const char* light : { "PointLight", "SpotLight" } )
+                EditBlock( components, light,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const auto falloff = block.get( "Falloff" );
+                               if ( !falloff.has_value() )
+                                   return false;
+                               const auto name = falloff.value().to_string();
+                               if ( !name.has_value() )
+                                   return false;
+                               const auto it = std::ranges::find( kLightFalloffNames, name.value() );
+                               if ( it == kLightFalloffNames.end() )
+                               {
+                                   report.Refused.push_back( who + " / " + light + " states Falloff '" +
+                                                             name.value() +
+                                                             "', which is no LightFalloff enumerator (Linear, "
+                                                             "Quadratic, InverseSquare)" );
+                                   return false;
+                               }
+                               block["Falloff"] =
+                                   rfl::Generic( static_cast<int>( it - kLightFalloffNames.begin() ) );
+                               ++report.FalloffNamesNumbered;
+                               return true;
+                           } );
+        };
+        for ( std::size_t i = 0; i < entities.size(); ++i )
+        {
+            auto&             entity = entities[i];
+            const std::string who    = "entity #" + std::to_string( i ) + " '" + entity.Tag.value_or( "" ) + "'";
+            settle( entity.Components, who );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                settle( override_.Components, who + " (prefab override)" );
         }
         return report;
     }
@@ -823,6 +941,22 @@ namespace Desert::Migration
             {
                 report.LandscapeLayerModesRaised  = true;
                 report.LandscapeLayerModesDropped = MigrateLandscapeLayerModesV37ToV38( entities );
+            }
+
+            // Keys the build never declared, or stated in a type it never read (SAVE1): settled in the file so
+            // the canonical pass after the steps finds only declared keys in their declared types.
+            if ( statedSceneVersion < kSceneVersionNoUndeclaredKeys )
+            {
+                report.UndeclaredKeysRaised = true;
+                report.UndeclaredKeys       = MigrateUndeclaredKeysV38ToV39( entities );
+                if ( !report.UndeclaredKeys.Refused.empty() )
+                {
+                    std::string lines;
+                    for ( const auto& line : report.UndeclaredKeys.Refused )
+                        lines += ( lines.empty() ? "" : "; " ) + line;
+                    report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                    return;
+                }
             }
         }
 
