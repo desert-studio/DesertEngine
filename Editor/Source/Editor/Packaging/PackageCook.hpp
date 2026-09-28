@@ -33,10 +33,11 @@ namespace Desert::Editor
     // bakes the default-size ASCII atlas of every shipped .ttf, and bakes the SDF layers of every
     // shipped .svg — each into the DerivedDataCache (Common/Content/DerivedDataCache.hpp) through the
     // exact key/path/store seams the runtime reads back (ShaderSpirvCache, Text/FontCache,
-    // Vector/IconBake). The buckets a game reads — and the driver's pipeline blobs — are then COPIED into
-    // Saved/Cooked/<Platform>/, wiped first so a package never carries a previous cook's leftovers, and
-    // that directory is the census tree packed under "Cooked" (PackagedContentTrees.hpp). The DDC itself
-    // never ships and the editor never reads Saved/Cooked.
+    // Vector/IconBake). Saved/Cooked/<Platform>/ — THE ONE COOKED TREE (UE's Saved/Cooked/<Platform>) — is
+    // wiped first so a package never carries a previous cook's leftovers, and the buckets a game reads are
+    // COPIED into it under Cooked/Buckets/..., the key a packaged DDC reader falls back to. The packager
+    // then stages the rest of what ships into the same tree (GamePackager.cpp StageShippedContent) and
+    // packs that tree and nothing else. The DDC itself never ships and the editor never reads Saved/Cooked.
     //
     // AND IT COOKS THE TEXTURES — every source under `LooseTextureRoots()`, through the editor's own
     // `TextureImporter` (not a copy of it), into the DDC's Texture bucket. A texture is the one asset the runtime
@@ -57,10 +58,9 @@ namespace Desert::Editor
     CookStats CookContentCaches( bool spirvDebugInfo );
 
     // A PACKAGE CARRIES NO TEXTURE SOURCE (AM0). The editor's `.detex` holds the imported image (SRCE) and
-    // its import record (IMPT); both are the editor's alone, so the archive gets the cooked form instead
-    // (Assets::CookTextureAssetForRuntime: header + Meta + the key record), written here under the asset's
-    // relative path. CookContentCaches wipes this directory first, like Saved/Cooked/<Platform>.
-    std::filesystem::path                    CookedTextureAssetStage();
-    Common::ResultStr<std::filesystem::path> StageCookedTextureAsset( const std::filesystem::path& editorAsset,
-                                                                      const std::filesystem::path& relative );
+    // its import record (IMPT); both are the editor's alone, so the cooked tree gets the cooked form instead
+    // (Assets::CookTextureAssetForRuntime: header + Meta + the key record), written at `target` — the
+    // asset's own path inside Saved/Cooked/<Platform>.
+    Common::BoolResultStr StageCookedTextureAsset( const std::filesystem::path& editorAsset,
+                                                   const std::filesystem::path& target );
 } // namespace Desert::Editor

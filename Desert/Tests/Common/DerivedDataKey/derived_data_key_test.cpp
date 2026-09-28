@@ -189,30 +189,38 @@ namespace
                                                             "Runtime/Source" };
 } // namespace
 
-TEST( DerivedDataKey, OnlyTheCookersNameSavedCooked )
+TEST( DerivedDataKey, OnlyTheCookNamesSavedCooked )
 {
-    // Saved/Cooked/<Platform> is WRITTEN by the two cookers and read by nothing in the editor or engine:
-    // the packager (Editor/Packaging) and AssetRegistryTool's `cook`, which writes the gathered registry
-    // there for a build that packs without the editor. Tools/ is scanned too, so a third tool that starts
-    // writing (or reading) the cook output is a row added here on purpose, not a silent new consumer.
-    const std::array<const char*, 2> kCookers = { "Editor/Source/Editor/Packaging/", "Tools/AssetRegistryTool/" };
+    // Saved/Cooked/<Platform> is THE ONE COOKED TREE (AF8, UE's Saved/Cooked/<Platform>): written by the
+    // packager's cook (Editor/Packaging) and by nothing else, read by nothing in the editor or engine — the
+    // archive is packed from it and the game reads the archive. AssetRegistryTool's `cook` was a second writer
+    // of the registry there and is gone; Tools/ is scanned, so a tool that starts writing (or reading) the
+    // cook output is a row added here on purpose, not a silent new consumer. The retired second cooked tree
+    // (Saved/CookedAssets, the texture stage) must not be spelled anywhere.
+    const std::array<const char*, 1> kCookers = { "Editor/Source/Editor/Packaging/" };
     const fs::path                   repo     = RepoRoot();
     ASSERT_FALSE( repo.empty() );
     size_t                   scanned = 0;
-    std::array<size_t, 2>    seen{};
+    std::array<size_t, 1>    seen{};
     std::vector<std::string> roots( kEngineSourceRoots.begin(), kEngineSourceRoots.end() );
     roots.emplace_back( "Tools" );
+    roots.emplace_back( "Desert/Common/Source" );
     for ( const std::string& root : roots )
         for ( const fs::path& file : SourcesUnder( repo / root ) )
         {
             ++scanned;
-            const std::string text  = ReadText( file );
-            const bool        names = text.find( "PlatformCookedDir" ) != std::string::npos ||
+            const std::string text = ReadText( file );
+            const std::string rel  = file.lexically_relative( repo ).generic_string();
+            EXPECT_EQ( text.find( std::string( "\"Cooked" ) + "Assets\"" ), std::string::npos )
+                 << rel << " names the retired second cooked tree; the cook writes Saved/Cooked/<Platform> only";
+            // The one definition of the path (DerivedDataCache.*) is where it is named, not a consumer.
+            if ( rel.starts_with( "Desert/Common/Source/Common/Content/DerivedDataCache." ) )
+                continue;
+            const bool names = text.find( "PlatformCookedDir" ) != std::string::npos ||
                                text.find( "Saved/Cooked" ) != std::string::npos;
             if ( !names )
                 continue;
-            const std::string rel    = file.lexically_relative( repo ).generic_string();
-            bool              cooker = false;
+            bool cooker = false;
             for ( size_t i = 0; i < kCookers.size(); ++i )
                 if ( rel.rfind( kCookers[i], 0 ) == 0 )
                 {
@@ -220,8 +228,8 @@ TEST( DerivedDataKey, OnlyTheCookersNameSavedCooked )
                     ++seen[i];
                 }
             EXPECT_TRUE( cooker ) << rel
-                                  << " names the cook output; only the cookers write Saved/Cooked, the editor and "
-                                     "the engine never read it";
+                                  << " names the cook output; only the packager's cook writes Saved/Cooked, the "
+                                     "editor and the engine never read it";
         }
     EXPECT_GT( scanned, 500u ) << "the census read almost nothing — wrong root";
     for ( size_t i = 0; i < kCookers.size(); ++i )

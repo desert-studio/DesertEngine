@@ -1,9 +1,9 @@
 #pragma once
 
-#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <string>
@@ -26,37 +26,54 @@ namespace Desert::Editor
     {
         const std::filesystem::path* Tree;   // the live constant — follows SetProjectRoot remaps
         const char*                  PakKey; // archive key prefix the tree's files are stored under
-        // The project's asset tree: raw mesh sources are dropped and every texture asset is packed in its
+        // The project's asset tree: raw mesh sources are dropped and every texture asset is staged in its
         // cooked form (StageCookedTextureAsset) -- the editor-only sources stay on the packaging machine.
         bool                         StripRawMeshSources;
-        // Where the files are READ from when packing. Equal to *Tree for every tree but one: the packager's
-        // own cook output (Saved/Cooked/<Platform>) is packed under the key of the directory the runtime
-        // LOOKS in (COOKED_PATH), because a DDC reader's fallback is DDC::PackagedPath — COOKED_PATH/<rel>.
-        std::filesystem::path Source;
+        // A subtree the EDITOR alone reads, never staged (owner 2026-09-28: a package is built from the project
+        // and the engine's runtime content, never from editor resources). nullptr = the whole tree ships.
+        // THE marker of an editor-only resource: a file is editor-only by WHERE it lives, not by a list of
+        // names, so a new editor shader or icon is excluded by being put in the right folder.
+        const char* EditorOnlySubtree = nullptr;
     };
 
     // AssetsRoot the regenerated .deproj declares. Opening it in the packaged game remaps ASSETS_PATH
     // to <package>/Assets/, which is why that tree's PakKey is this string and not its dev-time path.
     inline constexpr const char* kPackagedAssetsRoot = "Assets";
 
-    inline std::array<PackagedTree, 6> PackagedContentTrees()
+    // Every tree is STAGED into Saved/Cooked/<Platform>/<PakKey>/ by the cook (GamePackager.cpp
+    // StageShippedContent) and the archive is packed from that one tree only — never from these sources.
+    inline std::array<PackagedTree, 5> PackagedContentTrees()
     {
         namespace P = Common::Constants::Path;
-        std::array<PackagedTree, 6> trees = { {
+        return { {
              // Project assets, raw mesh sources stripped — the runtime reads cooked meshes only.
              { &P::ASSETS_PATH, kPackagedAssetsRoot, /*StripRawMeshSources=*/true },
              { &P::COOKED_PATH, "Cooked", false },
              // Engine resources are never remapped, so their keys ARE their dev-time relative paths.
-             { &P::SHADERDIR_PATH, "Resources/Shaders", false },
+             // Shaders/Editor holds the programs only editor passes draw with (Grid: EditorGridPass) — editor
+             // only.
+             { &P::SHADERDIR_PATH, "Resources/Shaders", false, "Editor" },
              { &P::FONTS_PATH, "Resources/Fonts", false },
-             { &P::ICONS_PATH, "Resources/Icons", false },
-             // The packager's cook of the DerivedDataCache (PackageCook.cpp StageCookedEntries).
-             { &P::COOKED_PATH, "Cooked", false, Common::DDC::PlatformCookedDir() },
+             // Icons/Gizmo is the viewport's light/camera billboards (Editor/Core/GizmoIconSet.hpp) — editor only.
+             { &P::ICONS_PATH, "Resources/Icons", false, "Gizmo" },
         } };
-        for ( PackagedTree& tree : trees )
-            if ( tree.Source.empty() )
-                tree.Source = *tree.Tree;
-        return trees;
+    }
+
+    // Whether @p file lies in a census tree's editor-only subtree. Read by the stager (never copied into the
+    // cooked tree), the shader cook (never compiled for a package) and the shipped registry (no row names
+    // it) — one predicate, so the three cannot disagree about what "editor-only" means.
+    inline bool IsEditorOnlyResource( const std::filesystem::path& file )
+    {
+        const std::filesystem::path normal = file.lexically_normal();
+        return std::ranges::any_of( PackagedContentTrees(),
+                                    [&]( const PackagedTree& tree )
+                                    {
+                                        if ( tree.EditorOnlySubtree == nullptr )
+                                            return false;
+                                        const std::filesystem::path rel =
+                                             normal.lexically_relative( tree.Tree->lexically_normal() );
+                                        return !rel.empty() && *rel.begin() == tree.EditorOnlySubtree;
+                                    } );
     }
 
     // THE DESCRIPTOR A PACKAGE SHIPS, derived from the project's own rather than copied verbatim: the

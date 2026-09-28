@@ -260,8 +260,8 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
 
 // AN OLDER FORM IS REFUSED, NOT READ WITH ITS MISSING COLUMNS EMPTY. Versions 1-3 predate the tags column;
 // read as before, every row would serve "no name" and "not skinned", and the pickers would list file stems
-// and put skeletal meshes on the static list with nothing saying why. The refusal names the cook.
-TEST( CookedAssetRegistry, AnOlderVersionIsRefusedNamingTheCookThatRewritesIt )
+// and put skeletal meshes on the static list with nothing saying why. The refusal names the gather.
+TEST( CookedAssetRegistry, AnOlderVersionIsRefusedNamingTheGatherThatRewritesIt )
 {
     for ( const char* text : { "DesertAssetRegistry 1\n3536 StaticMesh - - cooked:Meshes/StaticProbe.stmesh\n",
                                "DesertAssetRegistry 2\n229 Material 0000000000000009 - - assets:M.demat\n",
@@ -269,7 +269,7 @@ TEST( CookedAssetRegistry, AnOlderVersionIsRefusedNamingTheCookThatRewritesIt )
     {
         const auto parsed = AssetRegistry::Parse( text );
         ASSERT_FALSE( parsed ) << "an older registry form was read: " << text;
-        EXPECT_NE( parsed.GetError().find( "AssetRegistryTool cook" ), std::string::npos ) << parsed.GetError();
+        EXPECT_NE( parsed.GetError().find( "gather it again" ), std::string::npos ) << parsed.GetError();
     }
 }
 
@@ -481,7 +481,7 @@ TEST( CookedAssetRegistry, AFileWithNoRowIsReportedBecauseItWouldNotReachAPackag
                           "assets:Materials/M.demat" ) );
     // The remedy has to BE in the sentence: a gate that names a problem without naming the command
     // that fixes it is a gate people learn to disable.
-    EXPECT_NE( problems.front().Detail.find( "AssetRegistryTool cook" ), std::string::npos )
+    EXPECT_NE( problems.front().Detail.find( "AssetRegistryTool list" ), std::string::npos )
          << problems.front().Detail;
 }
 

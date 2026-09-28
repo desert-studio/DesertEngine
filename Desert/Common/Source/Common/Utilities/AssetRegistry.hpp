@@ -236,7 +236,7 @@ namespace Common::Utils
         // with its own state is not shared; it is a merge conflict with a schedule.
         //
         // THE PROJECT REGISTRY: content the project carries. Committed, and the only writer is
-        // `AssetRegistryTool cook`, which takes its list from what the repository tracks. That is what
+        // the packager's cook, which takes its list from what the repository tracks. That is what
         // makes it reproducible — the same command on any clean clone produces the same bytes — and it
         // is the file `Desert/Tests/Editor/CookedRegistryGate` holds against the repository.
         [[nodiscard]] static std::filesystem::path DefaultPath();
