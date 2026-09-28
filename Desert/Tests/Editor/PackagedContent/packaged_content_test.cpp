@@ -60,6 +60,7 @@
 #include <format>
 #include <cctype>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <regex>
 #include <array>
@@ -2261,4 +2262,33 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
     EXPECT_FALSE( fs::exists( proj / "Saved" / "CookedAssets" ) );
     fs::current_path( repo );
     fs::remove_all( base );
+}
+
+// A BUNDLE WITH Contents/Resources MUST NOT MOVE THE WORKING DIRECTORY (PKG2c). The Mac package keeps the Vulkan
+// ICD manifest in Contents/Resources (asserted above), and GLFW's Cocoa backend chdir()s into exactly that folder
+// at glfwInit unless GLFW_COCOA_CHDIR_RESOURCES is switched off. The pak is mounted, and every engine path is
+// resolved, against the directory the launcher set, so the chdir left a packaged Debug runtime with ZERO engine
+// shaders ("not in a mounted pak" for files the manifest lists) and a boot assert. Every glfwInit in a binary that
+// can run inside a bundle is preceded by the hint.
+TEST( PackagedContent, NoWindowInitMovesTheWorkingDirectoryIntoTheBundleResources )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
+
+    const std::string hint = "glfwInitHint( GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE );";
+    for ( const std::string rel :
+          { "Desert/Desert/Source/Platform/MacOS/MacOSWindow.cpp", "Tools/CrashReporter/Source/Main.cpp" } )
+    {
+        std::ifstream in( root + rel );
+        ASSERT_TRUE( in ) << root + rel;
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+
+        const size_t init = text.find( "glfwInit()" );
+        ASSERT_NE( init, std::string::npos ) << rel << " no longer calls glfwInit() - update this census";
+        const size_t hinted = text.find( hint );
+        EXPECT_TRUE( hinted != std::string::npos && hinted < init )
+             << rel << ": glfwInit() runs without `" << hint
+             << "` before it, so inside a .app GLFW moves the working directory to Contents/Resources and "
+                "every relative engine path (shaders, the mounted pak) stops resolving";
+    }
 }

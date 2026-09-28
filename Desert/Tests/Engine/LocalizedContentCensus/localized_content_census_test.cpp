@@ -33,6 +33,7 @@
 #include <fstream>
 #include <map>
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <sstream>
 #include <string>
@@ -450,4 +451,62 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// A WORLD LABEL IS DRAWN AT Size x ITS TRANSFORM SCALE, IN CENTIMETRES (PKG2c). The metre -> centimetre corpus
+// migration of 2026-08-18 (f12f85ccc) multiplied BOTH the Text's Size (0.8 -> 80) and its entity Scale (1 -> 100),
+// so Starter's "Desert Engine" was 80 m tall: from any Starter camera one glyph filled the view and read as a solid
+// white quad, in the editor and in every package, while every text test was green. Nothing about the text path
+// was wrong; the SIZE was, and only the corpus can say so. The bound is generous (a 10 m tall glyph is already a
+// building-sized sign) and exists to catch the hundredfold class, not to police style.
+TEST( LocalizedContentCensus, EveryWorldLabelIsDrawnAtAHumanScale )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    constexpr double kTallestGlyphCm = 1000.0;
+
+    std::size_t labels = 0;
+    for ( const char* tree : { "Editor/Resources/Assets/Scenes", "Editor/Resources/Assets/Prefabs" } )
+    {
+        const fs::path dir = fs::path( root ) / tree;
+        ASSERT_TRUE( fs::exists( dir ) ) << dir.string();
+        for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
+        {
+            const std::string ext = entry.path().extension().string();
+            if ( !entry.is_regular_file() || ( ext != ".desce" && ext != ".deprefab" ) ||
+                 entry.path().generic_string().find( "/Autosave/" ) != std::string::npos )
+                continue;
+            const auto parsed = Common::Json::Parse( ReadFile( entry.path() ) );
+            ASSERT_TRUE( parsed ) << entry.path().string();
+            const auto entities = Common::Json::Root( parsed.GetValue() ).Find( "Entities" );
+            if ( !entities.has_value() )
+                continue;
+            entities->ForEachElement(
+                 [&]( std::size_t, const Common::Json::Node& entity )
+                 {
+                     const auto text = entity.Find( "Text" );
+                     if ( !text.has_value() || text->GetKind() != Common::Json::Kind::Object )
+                         return;
+                     const auto size = text->Find( "Size" );
+                     if ( !size.has_value() || !size->AsNumber() )
+                         return;
+                     double scale = 1.0;
+                     if ( const auto s = entity.Find( "Scale" ); s.has_value() )
+                         s->ForEachElement(
+                              [&]( std::size_t, const Common::Json::Node& axis )
+                              {
+                                  if ( const auto v = axis.AsNumber() )
+                                      scale = std::max( scale, std::abs( v.GetValue() ) );
+                              } );
+                     ++labels;
+                     const double glyphCm = size->AsNumber().GetValue() * scale;
+                     EXPECT_LE( glyphCm, kTallestGlyphCm )
+                          << entry.path().filename().string() << ": a world label is " << glyphCm / 100.0
+                          << " m tall (Size " << size->AsNumber().GetValue() << " x Scale " << scale
+                          << ") - Size is already centimetres, so the entity Scale almost certainly carries a "
+                             "second metre->centimetre factor";
+                 } );
+        }
+    }
+    EXPECT_GE( labels, 5u ) << "the corpus world labels were not found; the census reads nothing";
 }
