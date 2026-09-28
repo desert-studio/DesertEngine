@@ -6358,14 +6358,29 @@ namespace Desert::Editor
                 continue;
             commands.push_back( { "Action", "Play at Player Start '" + tag + "'", [this, tag]
                                   {
-                                      using SceneState   = ::Desert::Core::Scene::SceneState;
-                                      const bool editing = m_MainScene->GetState() == SceneState::Edit;
-                                      if ( editing )
-                                          OnScenePlay( /*fromHere=*/false, tag );
-                                      return PaletteCommandOutcome(
-                                           editing && m_MainScene->GetState() != SceneState::Edit,
-                                           "the scene is not playing; either it was already playing or Play "
-                                           "refused (the log says why)." );
+                                      // Play at a named start runs the whole Play path; whatever it throws is
+                                      // this command's failure, reported to the palette or the control channel
+                                      // rather than escaping into the caller.
+                                      try
+                                      {
+                                          using SceneState   = ::Desert::Core::Scene::SceneState;
+                                          const bool editing = m_MainScene->GetState() == SceneState::Edit;
+                                          if ( editing )
+                                              OnScenePlay( /*fromHere=*/false, tag );
+                                          return PaletteCommandOutcome(
+                                               editing && m_MainScene->GetState() != SceneState::Edit,
+                                               "the scene is not playing; either it was already playing or "
+                                               "Play refused (the log says why)." );
+                                      }
+                                      catch ( const std::exception& e )
+                                      {
+                                          return Common::BoolResultStr( Common::MakeError<bool>( e.what() ) );
+                                      }
+                                      catch ( ... )
+                                      {
+                                          return Common::BoolResultStr( Common::MakeError<bool>(
+                                               "Play at this Player Start threw a non-standard exception" ) );
+                                      }
                                   } } );
         }
         commands.push_back( { "Action", "Stop", [this]

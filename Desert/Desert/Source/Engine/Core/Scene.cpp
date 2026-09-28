@@ -386,7 +386,7 @@ namespace Desert::Core
                 continue;
             autoCams.push_back( e );
             const auto* tag = m_Registry.try_get<ECS::TagComponent>( e );
-            autoNames.push_back( tag ? tag->Tag : std::string( "<unnamed>" ) );
+            autoNames.push_back( tag != nullptr ? tag->Tag : std::string( "<unnamed>" ) );
         }
 
         const auto choice = ChooseViewTarget( { .Level               = m_SceneName,

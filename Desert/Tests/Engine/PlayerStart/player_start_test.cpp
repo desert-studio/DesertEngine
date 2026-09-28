@@ -110,11 +110,11 @@ TEST( ViewTargetRule, TwoAutoActivateCamerasAreAnErrorNamingBoth )
 
 TEST( ViewTargetRule, TheEditorCameraOnlyInPlayFromHere )
 {
-    const auto here = ChooseViewTarget( { .Level = "L", .PlayFromHere = true } );
+    const auto here = ChooseViewTarget( { .Level = "L", .AutoActivateCameras = {}, .PlayFromHere = true } );
     ASSERT_TRUE( here ) << here.GetError();
     EXPECT_EQ( here.GetValue().Kind, ViewTargetKind::EditorCamera );
 
-    const auto play = ChooseViewTarget( { .Level = "L", .PawnSpawned = true } );
+    const auto play = ChooseViewTarget( { .Level = "L", .PawnSpawned = true, .AutoActivateCameras = {} } );
     ASSERT_FALSE( play );
     EXPECT_NE( play.GetError().find( "Play from Here" ), std::string::npos ) << play.GetError();
 }
@@ -128,7 +128,7 @@ TEST( ViewTargetRule, NoPawnStillLooksThroughTheAutoActivateCamera )
     ASSERT_TRUE( r ) << r.GetError();
     EXPECT_EQ( r.GetValue().Kind, ViewTargetKind::AutoActivateCamera );
 
-    const auto none = ChooseViewTarget( { .Level = "L", .PawnSpawned = false } );
+    const auto none = ChooseViewTarget( { .Level = "L", .PawnSpawned = false, .AutoActivateCameras = {} } );
     EXPECT_FALSE( none ) << "no pawn and no camera must refuse Play, not fall back to the editor camera";
 }
 

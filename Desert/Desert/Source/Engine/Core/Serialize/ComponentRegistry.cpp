@@ -983,7 +983,7 @@ namespace Desert::Core::Serialize
         // AssetManager (assets adopt their persisted/path-derived handles on load), surviving
         // file renames that break path references. Returns 0 for unknown GUIDs so the caller
         // falls back to FromPath.
-        r.FromGuid = [&mgr]( uint64_t guid, const std::string& type ) -> uint64_t
+        r.FromGuid = [&mgr, fromPath = r.FromPath]( uint64_t guid, const std::string& type ) -> uint64_t
         {
             if ( guid == 0 )
                 return 0;
@@ -1048,8 +1048,15 @@ namespace Desert::Core::Serialize
                 const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
                 if ( key.empty() )
                     return 0;
-                auto& m = const_cast<Assets::AssetManager&>( mgr );
-                return LoadScenePrefab( m, Common::AssetHandle::PathForStableKey( key ) ) == guid ? guid : 0;
+                // Loaded through the locator half above (FromPath's PrefabAsset branch), which owns the one
+                // mutable view of the manager: FromPath resolves a relative locator against the assets root,
+                // so the row's path is handed over relative to that root and round-trips to itself.
+                const std::filesystem::path full = Common::AssetHandle::PathForStableKey( key );
+                const std::filesystem::path relative =
+                     full.lexically_relative( Common::Constants::Path::ASSETS_PATH );
+                if ( relative.empty() )
+                    return 0;
+                return fromPath( relative.generic_string(), type ) == guid ? guid : 0;
             }
             if ( type == "SkyboxAsset" )
             {

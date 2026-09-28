@@ -32,7 +32,7 @@ namespace Desert::Core
         std::string EntityName( const entt::registry& registry, entt::entity entity )
         {
             const auto* tag = registry.try_get<ECS::TagComponent>( entity );
-            return tag ? tag->Tag : std::string( "<unnamed>" );
+            return tag != nullptr ? tag->Tag : std::string( "<unnamed>" );
         }
     } // namespace
 
@@ -41,7 +41,7 @@ namespace Desert::Core
     {
         scene.SetPlayerPawn( entt::null );
         const Assets::AssetHandle pawnHandle = scene.GetSettings().DefaultPawn;
-        if ( !pawnHandle )
+        if ( pawnHandle == 0 )
             return Common::MakeSuccess( ECS::Entity{} );
 
         const std::string level = "level '" + scene.GetSceneName() + "'";
@@ -74,7 +74,9 @@ namespace Desert::Core
                                                    std::to_string( static_cast<uint64_t>( pawnHandle ) ) +
                                                    ") is not a loaded prefab" );
 
-        glm::vec3 scale, translation, skew;
+        glm::vec3 scale;
+        glm::vec3 translation;
+        glm::vec3 skew;
         glm::quat rotation;
         glm::vec4 perspective;
         glm::decompose( spawnAt, scale, rotation, translation, skew, perspective );
