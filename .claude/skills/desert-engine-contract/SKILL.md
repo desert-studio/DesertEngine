@@ -353,10 +353,17 @@ contract, for agents and for the lead alike:
 6. **Proof is proportionate**: 3–5 mutations that attack the main invariant, a frame only when the change is
    visible, the suites the change reaches plus the censuses — the full sweep only per the lead's batch rule.
 7. **Reports are short** (~40 lines): done, proven by (numbers), builds, what the brief got wrong, remainder.
-8. **Tasks are sized to ≤ 80 turns.** At turn 60 with no end in sight, stop at a step boundary, push, report;
-   the rest goes to a fresh agent. Cost grows roughly with the square of the turns (two 60-turn tasks cost
-   about half of one 120-turn task). Measured 2026-09-24: 95–180-turn tasks cost 200–310k tokens each.
-9. **Build through the shared ccache** and never rename a lane's worktree (the PCH pins absolute paths).
+8. **Tasks are sized to ≤ 60 turns — a hard cap, no extensions** (owner, 2026-09-29). Measured over 618 tasks:
+   a turn costs ~8k units in an agent under 30 turns and ~19k past 90; agents past 90 turns were 45 % of all
+   spend. From turn 45 stop at a step boundary; at 60 push a `wip:` commit and leave `REMAINDER.md` in the
+   scratch directory (file:line, what to replace with what, what is proven) — a fresh agent finishes from it.
+   Size the task so it fits: one or two steps with a file:line plan.
+9. **Never wait for CI** (owner, 2026-09-29): push, report the run id, stop. An idle agent's cache expires and
+   the whole context is written again (CI12: 1.5 of 3.2 M units). The lead watches runs from a background shell.
+10. **Every refused call is a full turn** (~2.9k refusals ≈ 7 % of spend): use the allowed forms the guard puts
+   into the context after the first call (`sym.sh`, `grep -n` + `sed -n` ranges, `suite.sh`, `wip:` push)
+   instead of trying the forbidden one first.
+11. **Build through the shared ccache** and never rename a lane's worktree (the PCH pins absolute paths).
 
 ## Related
 
