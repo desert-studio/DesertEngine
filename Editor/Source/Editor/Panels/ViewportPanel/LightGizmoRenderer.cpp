@@ -377,7 +377,7 @@ namespace Desert::Editor
             // blue whether idle, hovered or grabbed, so the side stays readable while the animator works.
             const Animation::ControlStroke stroke =
                  Animation::StrokeForControl( hierarchy.Get( shape.Control ).Color, isHovered, isSelected );
-            const ImU32 colour    = ImGui::ColorConvertFloat4ToU32(
+            const ImU32 colour = ImGui::ColorConvertFloat4ToU32(
                  ImVec4( stroke.Color.r, stroke.Color.g, stroke.Color.b, stroke.Color.a ) );
             const float thickness = stroke.Thickness;
 

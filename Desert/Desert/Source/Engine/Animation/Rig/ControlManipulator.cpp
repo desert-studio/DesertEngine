@@ -551,7 +551,8 @@ namespace Desert::Animation
         return stroke;
     }
 
-    Common::BoolResultStr RotateControlLocal( ControlHierarchy& hierarchy, uint32_t control, int axis, float degrees )
+    Common::BoolResultStr RotateControlLocal( ControlHierarchy& hierarchy, uint32_t control, int axis,
+                                              float degrees )
     {
         if ( control >= hierarchy.Size() )
         {

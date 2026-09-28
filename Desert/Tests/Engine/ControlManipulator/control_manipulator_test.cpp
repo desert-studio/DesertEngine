@@ -240,7 +240,7 @@ TEST( ControlManipulatorTest, ControlsAreColouredBySideLikeUE )
 
 TEST( ControlManipulatorTest, HoverAndSelectionLiftTheAuthoredColourWithoutReplacingIt )
 {
-    const glm::vec3     blue( 0.1F, 0.35F, 1.0F );
+    const glm::vec3                        blue( 0.1F, 0.35F, 1.0F );
     const Desert::Animation::ControlStroke idle     = Desert::Animation::StrokeForControl( blue, false, false );
     const Desert::Animation::ControlStroke hovered  = Desert::Animation::StrokeForControl( blue, true, false );
     const Desert::Animation::ControlStroke selected = Desert::Animation::StrokeForControl( blue, false, true );
@@ -256,20 +256,21 @@ TEST( ControlManipulatorTest, RotatingAControlByDegreesTurnsItAboutItsOwnAxisAnd
 {
     ControlHierarchy rig;
     ControlElement   element;
-    element.Name                 = "Elbow_CTRL";
-    element.Pose.Translation     = glm::vec3( 5.0F, 6.0F, 7.0F );
-    const auto added             = rig.Add( element );
+    element.Name             = "Elbow_CTRL";
+    element.Pose.Translation = glm::vec3( 5.0F, 6.0F, 7.0F );
+    const auto added         = rig.Add( element );
     ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
-    const uint32_t control       = added.GetValue();
+    const uint32_t control = added.GetValue();
 
     ASSERT_TRUE( Desert::Animation::RotateControlLocal( rig, control, 2, 45.0F ).IsSuccess() );
-    const BoneTransform& pose = rig.Get( control ).Pose;
+    const BoneTransform& pose   = rig.Get( control ).Pose;
     const glm::vec3      turned = pose.Rotation * glm::vec3( 1.0F, 0.0F, 0.0F );
     EXPECT_NEAR( turned.x, std::sqrt( 0.5F ), 1e-5F );
     EXPECT_NEAR( turned.y, std::sqrt( 0.5F ), 1e-5F );
     EXPECT_EQ( pose.Translation, glm::vec3( 5.0F, 6.0F, 7.0F ) ) << "a rotation must not move the control";
 
-    EXPECT_FALSE( Desert::Animation::RotateControlLocal( rig, control, 3, 45.0F ).IsSuccess() ) << "no fourth axis";
+    EXPECT_FALSE( Desert::Animation::RotateControlLocal( rig, control, 3, 45.0F ).IsSuccess() )
+         << "no fourth axis";
     EXPECT_FALSE( Desert::Animation::RotateControlLocal( rig, 99, 0, 45.0F ).IsSuccess() );
 }
 

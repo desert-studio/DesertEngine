@@ -116,8 +116,8 @@ namespace Desert::Animation
             run.Points.reserve( static_cast<size_t>( sides ) );
             for ( int i = 0; i < sides; ++i )
             {
-                const float angle =
-                     phase + ( ( 2.0F * std::numbers::pi_v<float> * static_cast<float>( i ) ) / static_cast<float>( sides ) );
+                const float angle = phase + ( ( 2.0F * std::numbers::pi_v<float> * static_cast<float>( i ) ) /
+                                              static_cast<float>( sides ) );
                 run.Points.push_back( ( axisU * std::cos( angle ) ) + ( axisV * std::sin( angle ) ) );
             }
             run.Closed = true;
@@ -132,13 +132,10 @@ namespace Desert::Animation
             const float          shaft = 0.1F;
             const float          neck  = 0.6F;
             const float          head  = 0.3F;
-            run.Points = { across * shaft,
-                           ( along * neck ) + ( across * shaft ),
-                           ( along * neck ) + ( across * head ),
-                           along,
-                           ( along * neck ) - ( across * head ),
-                           ( along * neck ) - ( across * shaft ),
-                           -across * shaft };
+            run.Points                 = {
+                 across * shaft, ( along * neck ) + ( across * shaft ), ( along * neck ) + ( across * head ),
+                 along,          ( along * neck ) - ( across * head ),  ( along * neck ) - ( across * shaft ),
+                 -across * shaft };
             run.Closed = true;
             return run;
         }

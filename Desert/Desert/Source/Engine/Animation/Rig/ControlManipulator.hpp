@@ -160,8 +160,8 @@ namespace Desert::Animation
      * about the control's axis and its translation does not change. The one write is `SetPose`, so drives
      * see it on the next evaluation exactly as they see a drag.
      */
-    [[nodiscard]] Common::BoolResultStr RotateControlLocal( ControlHierarchy& hierarchy, uint32_t control, int axis,
-                                                            float degrees );
+    [[nodiscard]] Common::BoolResultStr RotateControlLocal( ControlHierarchy& hierarchy, uint32_t control,
+                                                            int axis, float degrees );
 
     struct ManipulatorFrame
     {

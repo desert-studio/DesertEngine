@@ -15,6 +15,8 @@
 
 #include <ImGui/imgui.h>
 
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -182,13 +184,52 @@ namespace Desert::Editor
             selected = Animation::ControlHierarchy::INVALID;
         }
 
-        if ( ImGui::BeginChild( "##controls", ImVec2( 0.0f, 160.0f ), true ) )
+        if ( ImGui::BeginChild( "##controls", ImVec2( 0.0f, 220.0f ), true ) )
         {
-            for ( uint32_t i = 0; i < static_cast<uint32_t>( hierarchy.Size() ); ++i )
+            // THE RIG HIERARCHY AS A TREE (UE's Rig Hierarchy tab): a control sits under the FIRST control
+            // among its parent spaces — the space it was authored in. A control parented only to a bone or
+            // to the component is a root. Built per draw from the hierarchy, so it cannot go stale.
+            const auto treeParent = [&hierarchy]( uint32_t control )
+            {
+                for ( const Animation::ControlSpace& space : hierarchy.Get( control ).Parents )
+                {
+                    if ( space.Kind == Animation::ControlSpaceKind::Control )
+                    {
+                        return space.Index;
+                    }
+                }
+                return Animation::ControlHierarchy::INVALID;
+            };
+
+            std::function<void( uint32_t )> drawNode = [&]( uint32_t i )
             {
                 const Animation::ControlElement& control = hierarchy.Get( i );
-                const bool                       isSel   = ( i == selected );
-                if ( ImGui::Selectable( control.Name.c_str(), isSel ) )
+                bool                             leaf    = true;
+                for ( uint32_t child = 0; child < static_cast<uint32_t>( hierarchy.Size() ); ++child )
+                {
+                    if ( treeParent( child ) == i )
+                    {
+                        leaf = false;
+                        break;
+                    }
+                }
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_DefaultOpen |
+                                           ImGuiTreeNodeFlags_SpanAvailWidth;
+                if ( leaf )
+                {
+                    flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+                }
+                if ( i == selected )
+                {
+                    flags |= ImGuiTreeNodeFlags_Selected;
+                }
+                // The row wears the control's own colour, so the tree and the viewport agree on sides.
+                ImGui::PushStyleColor( ImGuiCol_Text,
+                                       ImVec4( control.Color.r, control.Color.g, control.Color.b, 1.0f ) );
+                const bool open = ImGui::TreeNodeEx( reinterpret_cast<void*>( static_cast<uintptr_t>( i ) + 1U ),
+                                                     flags, "%s", control.Name.c_str() );
+                ImGui::PopStyleColor();
+                if ( ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen() )
                 {
                     Author( entityId, "the control selection", [&]( Core::AuthoringContext& context )
                             { return authoring.SetSelectedControl( m_AuthoringOwner, context, i ); } );
@@ -196,14 +237,30 @@ namespace Desert::Editor
                 }
                 if ( ImGui::IsItemHovered() && !control.ShapeName.empty() )
                 {
-                    // THE SIZE IS SHOWN AND NOT EDITED, and that is the honest shape of it. The shape
-                    // transform is authored in the `.derig`; an in-panel drag would write a value that
-                    // lives until the next load and then vanish, which is worse than no control at all.
-                    // Shown because a control drawn too small looks exactly like a control that is not
-                    // there, and the number is the one thing that tells them apart.
+                    // THE SIZE IS SHOWN AND NOT EDITED: the shape transform is authored in the `.derig`, and a
+                    // control drawn too small looks exactly like a control that is not there.
                     const glm::vec3& size = control.ShapeTransform.Scale;
                     ImGui::SetTooltip( "Shape: %s\nShape size (cm): %.3g, %.3g, %.3g", control.ShapeName.c_str(),
                                        size.x, size.y, size.z );
+                }
+                if ( open && !leaf )
+                {
+                    for ( uint32_t child = 0; child < static_cast<uint32_t>( hierarchy.Size() ); ++child )
+                    {
+                        if ( treeParent( child ) == i )
+                        {
+                            drawNode( child );
+                        }
+                    }
+                    ImGui::TreePop();
+                }
+            };
+
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( hierarchy.Size() ); ++i )
+            {
+                if ( treeParent( i ) == Animation::ControlHierarchy::INVALID )
+                {
+                    drawNode( i );
                 }
             }
         }

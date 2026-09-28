@@ -556,7 +556,7 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
       ],
       "Drives": [ { "Control": "Hand_L_CTRL", "Bone": "Hand" }, { "Control": "Tail_CTRL", "Bone": "Tail" } ]
     })";
-    auto parsed = RigFile::ParseControlRig( text );
+    auto              parsed   = RigFile::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
     ControlRigStage stage;
     ASSERT_TRUE( RigFile::BuildControlRig( parsed.GetValue(), skeleton, stage ).IsSuccess() );

@@ -113,6 +113,7 @@
 #include <ImGui/imgui_internal.h>
 
 #include <array>
+#include <format>
 #include <ImGuizmo.h>
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Splash/SplashControls.hpp"
@@ -173,6 +174,8 @@
 #include "Editor/Core/ViewportCameraProperties.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/ControlNudgeRequest.hpp"
+#include "Editor/Core/Commands/PoseEditTransaction.hpp"
+#include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include "Editor/Core/SubjectOpenRequest.hpp"
 
 // 4. Misc
@@ -4193,6 +4196,43 @@ namespace Desert::Editor
              label );
     }
 
+    Common::BoolResultStr EditorLayer::RotateSelectedControl( int axis, float degrees )
+    {
+        const auto& host    = Core::ActiveAuthoringContext();
+        const auto  control = host.SelectedControl();
+        if ( !control.has_value() || !m_MainScene )
+        {
+            return Common::MakeError<bool>( "no control is selected; run 'Select control <name>' first" );
+        }
+        const auto found = m_MainScene->FindEntityByID( host.Entity() );
+        if ( !found || !found->get().HasComponent<ECS::AnimationComponent>() )
+        {
+            return Common::MakeError<bool>( "the authoring context's entity has no animation component" );
+        }
+        auto& animation = found->get().GetComponent<ECS::AnimationComponent>();
+        if ( !animation.Animator || animation.Animator->GetRig() == nullptr )
+        {
+            return Common::MakeError<bool>( "the authoring context's entity has no built control rig" );
+        }
+        Animation::ControlHierarchy& hierarchy = animation.Animator->GetRig()->GetHierarchy();
+        if ( *control >= hierarchy.Size() )
+        {
+            return Common::MakeFormattedError<bool>( "the selected control {} is not in a rig of {} controls",
+                                                     *control, hierarchy.Size() );
+        }
+        const Animation::BoneTransform before = hierarchy.Get( *control ).Pose;
+        if ( auto turned = Animation::RotateControlLocal( hierarchy, *control, axis, degrees ); !turned )
+        {
+            return turned;
+        }
+        if ( auto recorded = RecordControlDrag( &hierarchy, *control, before ); !recorded.IsSuccess() )
+        {
+            return Common::MakeFormattedError<bool>( "the rotation was not recorded for undo: {}",
+                                                     recorded.GetError() );
+        }
+        return Common::MakeSuccess( true );
+    }
+
     std::vector<PaletteCommand> EditorLayer::BuildPaletteCommands()
     {
         std::vector<PaletteCommand> commands;
@@ -4688,6 +4728,23 @@ namespace Desert::Editor
                 const glm::vec2 delta( nudge.X, nudge.Y );
                 commands.push_back( { "Control Rig", nudge.Label,
                                       [delta] { return Core::ControlNudgeRequests::Request( delta ); } } );
+            }
+        }
+
+        // EXACT ROTATION, THE GIZMO'S ARITHMETIC WITHOUT A MOUSE. A nudge is pixels through the arcball, so
+        // "turn the elbow 45 degrees" has no nudge spelling; this is UE's local rotate gizmo as one gesture:
+        // the pose turns about the control's own axis, drives carry it to the bone on the next evaluation,
+        // and the gesture is ONE undo entry (RecordControlDrag, the same recorder the mouse drag uses).
+        {
+            constexpr std::array<const char*, 3> kAxes = { "X", "Y", "Z" };
+            for ( int axis = 0; axis < 3; ++axis )
+            {
+                for ( const float degrees : { 45.0f, -45.0f, 90.0f, -90.0f } )
+                {
+                    const std::string label = std::format( "Rotate selected {} {:+g}", kAxes[axis], degrees );
+                    commands.push_back( { "Control Rig", label, [this, axis, degrees]
+                                          { return RotateSelectedControl( axis, degrees ); } } );
+                }
             }
         }
 
