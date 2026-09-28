@@ -1086,7 +1086,7 @@ namespace Desert::Tests::PointerCensus
           "a string literal, held by a constexpr/static table entry" },
         { "Editor/Source/Editor/Packaging/PackagedContentTrees.hpp",
           "PackagedTree", "EditorOnlySubtree", Guard::StaticStorage,
-          "a string literal (\"Editor\", \"Gizmo\") or nullptr, held by the PackagedContentTrees() table entry" },
+          "a string literal (Editor, Gizmo) or nullptr, held by the PackagedContentTrees() table entry" },
         { "Editor/Source/Editor/Panels/Animation/AnimGraphPanel.hpp",
           "AnimGraphPanel", "kComponentTypeName", Guard::StaticStorage,
           "a string literal, held by a constexpr/static table entry" },
