@@ -54,7 +54,10 @@ namespace Desert::Core
     // the DirectionalLight (Tools/SceneMigrator, MigrateSceneSettingsHomesV35ToV36).
     // v37 (PFX1): a prefab instance's record states its root's Translation/Rotation/Scale itself, and the
     // root's override no longer does (Tools/SceneMigrator, MigrateInstanceTransformsV36ToV37).
-    inline constexpr int kSceneVersion = 37;
+    // v38 (LS-16): the landscape's look is its Landscape Material and its layer infos only; the root's
+    // LandscapeMaterial block no longer states GrassMode/RockMode/SnowMode (Tools/SceneMigrator,
+    // MigrateLandscapeLayerModesV37ToV38).
+    inline constexpr int kSceneVersion = 38;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
