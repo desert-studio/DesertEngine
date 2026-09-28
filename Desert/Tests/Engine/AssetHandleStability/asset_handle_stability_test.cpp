@@ -1311,9 +1311,9 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
     {
         // Prefab is the one declared type with no catalogue entry: PrefabAsset's out-of-line members reach
         // Core::Scene and through it the whole renderer, so constructing one here would drag Vulkan into a
-        // unit test. Its handle comes from AssetBase like every other type's — the first test in this
-        // section is what proves that claim for the shared mechanism — and its END-TO-END stability is
-        // covered by the AssetReferenceRoundTrip suite, which exercises the real prefab path.
+        // unit test. Since FO-9 its constructor adopts HandleForGuid of its header GUID the way
+        // FoliageTypeAsset's does (ReadTextAssetIdentity, the rule this catalogue pins for that type), and
+        // the GUID a re-save keeps is held by PrefabInstantiationCensus (WritePrefabJson with an identity).
         if ( type == AssetTypeID::Prefab )
             continue;
 
