@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "13e76af44c8a39bbb5f8bce9d0939162",
         "Versions": {
-            "SCNE": 36,
+            "SCNE": 37,
             "UNIT": 1
         },
         "Dependencies": []
@@ -41,6 +41,9 @@
             "parent": 8000,
             "siblingIndex": 0,
             "PrefabPath": "Resources/Assets/Prefabs/UI_Card.deprefab",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PrefabOverrides": [
                 {
                     "Path": [7201],
@@ -56,6 +59,9 @@
             "parent": 8000,
             "siblingIndex": 1,
             "PrefabPath": "Resources/Assets/Prefabs/UI_Card.deprefab",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PrefabOverrides": [
                 {
                     "Path": [7201],

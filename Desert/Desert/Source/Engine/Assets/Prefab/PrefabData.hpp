@@ -4,6 +4,7 @@
 
 #include <Common/Content/TextAssetHeader.hpp>
 
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
@@ -13,6 +14,8 @@
 #include <Common/Json/Json.hpp>
 
 #include <optional>
+#include <string>
+#include <utility>
 #include <vector>
 #include <string>
 #include <array>
@@ -252,6 +255,108 @@ namespace Desert::Assets
         // and would drop it.
         std::optional<std::vector<PrefabOverrideData>> PrefabOverrides;
     };
+
+    // THE INSTANCE ROOT'S TRANSFORM, TAKEN OUT OF ITS OVERRIDES (scene v37, PFX1). A scene record states its
+    // instance's root transform itself; the root's override (the one whose Path is @p rootPath) must not state
+    // it a second time. Removes Translation, Rotation and Scale from that override, drops the override when
+    // nothing else is left in it, and returns what it held - each field unset when the override did not state
+    // it. PURE: the scene saver and the v36->v37 migrator run this one rule.
+    struct RootTransformOverride
+    {
+        std::optional<glm::vec3> Translation;
+        std::optional<glm::vec3> Rotation;
+        std::optional<glm::vec3> Scale;
+    };
+    inline RootTransformOverride TakeRootTransformOverride( std::vector<PrefabOverrideData>& overrides,
+                                                            const std::vector<Common::UUID>& rootPath )
+    {
+        RootTransformOverride taken;
+        for ( auto it = overrides.begin(); it != overrides.end(); ++it )
+        {
+            if ( it->Path != rootPath )
+                continue;
+            taken.Translation = std::exchange( it->Translation, std::nullopt );
+            taken.Rotation    = std::exchange( it->Rotation, std::nullopt );
+            taken.Scale       = std::exchange( it->Scale, std::nullopt );
+            if ( !it->Tag.has_value() && it->Components.begin() == it->Components.end() )
+                overrides.erase( it );
+            break;
+        }
+        return taken;
+    }
+
+    // What a scene's prefab-instance record lacks of the root transform scene v37 requires it to state, as
+    // "Translation, Scale"; empty when it states all three or is not an instance. The scene loader and the
+    // World Partition planner refuse such a record with this text rather than put it where the prefab's own
+    // root stands, which would look exactly like a right answer.
+    inline std::string MissingInstanceTransform( const EntityData& record )
+    {
+        std::string missing;
+        if ( !record.PrefabPath.has_value() )
+            return missing;
+        const auto note = [&missing]( bool stated, const char* name )
+        {
+            if ( stated )
+                return;
+            if ( !missing.empty() )
+                missing += ", ";
+            missing += name;
+        };
+        note( record.Translation.has_value(), "Translation" );
+        note( record.Rotation.has_value(), "Rotation" );
+        note( record.Scale.has_value(), "Scale" );
+        return missing;
+    }
+
+    // THE SAVER'S HALF (scene v37): what a scene keeps of a prefab instance. The record keeps the root's
+    // transform the entity serializer wrote on it and loses every other value of its own (tag, components);
+    // those, and everything below the root, live in @p overrides - minus the root's transform, which would
+    // otherwise be stated twice. @p rootPath is the root's override address, or null when the live instance
+    // has none (nothing to take out). PURE: SceneSerializer::Serialize calls this, the suite holds it.
+    inline void ReduceInstanceRecord( EntityData& record, std::vector<PrefabOverrideData> overrides,
+                                      const std::vector<Common::UUID>* rootPath )
+    {
+        if ( rootPath != nullptr )
+            (void)TakeRootTransformOverride( overrides, *rootPath );
+        record.Tag = std::nullopt;
+        record.Components.clear();
+        record.PrefabOverrides.reset();
+        if ( !overrides.empty() )
+            record.PrefabOverrides = std::move( overrides );
+    }
+
+    // THE LOADER'S HALF: where a scene's instance stands, read off its record. Refused - naming the prefab and
+    // what is missing - when the record does not state all three, so the loader skips the instance rather
+    // than put it where the prefab's own root happens to stand.
+    struct InstanceRootTransform
+    {
+        glm::vec3 Translation{ 0.0f };
+        glm::vec3 Rotation{ 0.0f };
+        glm::vec3 Scale{ 1.0f };
+    };
+    inline Common::ResultStr<InstanceRootTransform> StatedInstanceTransform( const EntityData& record )
+    {
+        if ( !record.PrefabPath.has_value() )
+            return Common::MakeFormattedError<InstanceRootTransform>( "{}", "the record names no prefab" );
+        if ( !record.Translation.has_value() || !record.Rotation.has_value() || !record.Scale.has_value() )
+            return Common::MakeFormattedError<InstanceRootTransform>(
+                 "the instance of prefab '{}' states no {}; scene v37 writes an instance's root transform on "
+                 "its record",
+                 *record.PrefabPath, MissingInstanceTransform( record ) );
+        return Common::MakeSuccess(
+             InstanceRootTransform{ *record.Translation, *record.Rotation, *record.Scale } );
+    }
+
+    // Puts the instance's root where its record says. The loader calls it AFTER the overrides, so nothing the
+    // prefab or an override states can move the instance. A template over the transform type so the pure
+    // suite can hold it without the ECS (ECS::TransformComponent in the engine).
+    template <typename TransformT>
+    void PlaceInstanceRoot( TransformT& root, const InstanceRootTransform& stated )
+    {
+        root.Translation = stated.Translation;
+        root.Rotation    = stated.Rotation;
+        root.Scale       = stated.Scale;
+    }
 
     // The box a prefab occupies around its root, in centimetres (Core::Rules::PrefabBounds). Read by the
     // content scan without loading the prefab (Common/Content/ContentScan.cpp, StatedPrefabBounds) - the

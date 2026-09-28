@@ -19,6 +19,7 @@
 #include <Engine/ECS/Entity.hpp>
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace Desert::Core::Serialize
@@ -26,6 +27,11 @@ namespace Desert::Core::Serialize
     struct PrefabInstanceCapture
     {
         std::vector<Assets::PrefabOverrideData> Overrides;
+
+        // The instance root's own override address, unset when the live root carries none. The saver hands
+        // it to Assets::ReduceInstanceRecord, which takes the root's transform out of that override (scene
+        // v37). Read here so the address is spelled in this one registered file and not by the saver.
+        std::optional<std::vector<Common::UUID>> RootPath;
 
         // Entities under the instance root that PrefabFactory did not create — the user added them after
         // instantiating. They carry no record address, so nothing in the file can name them.

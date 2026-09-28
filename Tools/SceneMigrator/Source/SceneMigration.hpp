@@ -128,7 +128,14 @@ namespace Desert::Migration
     //       DirectionLight (MigrateSceneSettingsHomesV35ToV36). Scene-only; a prefab only gains the stamp.
     inline constexpr int kSceneVersionSceneSettingsHomes = 36;
 
-    static_assert( kSceneVersionSceneSettingsHomes == kSceneVersion,
+    //  37 - A PREFAB INSTANCE STATES WHERE IT STANDS (PFX1). A scene record naming a prefab file carries its
+    //       root's Translation/Rotation/Scale; the root's override stops stating them. Before, the one fact
+    //       the World Partition planner needs about an instance lived only in an override addressed by ids
+    //       the `.deprefab` resolves (MigrateInstanceTransformsV36ToV37). Scene-only; a prefab only gains
+    //       the stamp.
+    inline constexpr int kSceneVersionInstanceTransforms = 37;
+
+    static_assert( kSceneVersionInstanceTransforms == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -171,6 +178,25 @@ namespace Desert::Migration
     // with no DirectionLight are dropped - no light, no cascades to configure. The new entity's id is
     // derived from the scene's GUID, so two runs on two branches mint one entity. PURE.
     SceneSettingsHomesReport MigrateSceneSettingsHomesV35ToV36( SceneSerialized& scene );
+
+    // What MigrateInstanceTransformsV36ToV37 did to one scene.
+    struct InstanceTransformsReport
+    {
+        int Stated = 0; // instance records that now state their root transform
+
+        // Instances that cannot be raised, as "Entities[id=N] > 'Prefabs/X.deprefab': why". Non-empty REFUSES
+        // the file: without the prefab's root there is nothing to take the transform from.
+        std::vector<std::string> UnknownNames;
+    };
+
+    // Every entity record naming a prefab file that does not state its root transform gains it: each of
+    // Translation, Rotation and Scale from the instance's root override when that override states it (and
+    // the override loses it, Assets::TakeRootTransformOverride), otherwise from the prefab's root record,
+    // otherwise the TransformComponent default the loader would have left (0, 0, 1). The prefab file is found
+    // the way a mesh file is: under the nearest ancestor of `assetsRoot` that holds it. PURE but for reading
+    // the prefab files.
+    InstanceTransformsReport MigrateInstanceTransformsV36ToV37( std::vector<Assets::EntityData>& entities,
+                                                                const std::filesystem::path&     assetsRoot );
 
     // The inline landscape layers a file still carries, as "Tag > Landscape.Layers[i] = 'Name'". Non-empty
     // REFUSES the file: the step would have to invent a `.delayerinfo` per layer, and it does not write assets.
@@ -250,10 +276,13 @@ namespace Desert::Migration
         bool                     SceneSettingsHomesRaised = false; // below kSceneVersionSceneSettingsHomes
         SceneSettingsHomesReport SceneSettingsHomes;
 
+        bool                     InstanceTransformsRaised = false; // below kSceneVersionInstanceTransforms
+        InstanceTransformsReport InstanceTransforms;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
-                   ExternalEntitiesRaised || SceneSettingsHomesRaised;
+                   ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised;
         }
     };
 
