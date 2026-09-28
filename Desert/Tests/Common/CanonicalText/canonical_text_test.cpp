@@ -91,9 +91,9 @@ TEST( CanonicalText, EveryCorpusFileIsCanonicalAndRoundTripsThroughTheSingleLine
     const auto corpus = TextCorpus();
     // Pinned by name, not by a floor (SCN1 deleted the 68 scenes nothing named): one scene, one material and one
     // prefab the walk must reach, so a wrong root cannot pass over zero files.
-    for ( const char* expected : { "Editor/Resources/Assets/Scenes/Starter.desce",
-                                   "Editor/Resources/Assets/Materials/CB_Glass.demat",
-                                   "Editor/Resources/Assets/Prefabs/UI_Card.deprefab" } )
+    for ( const char* expected :
+          { "Editor/Resources/Assets/Scenes/Starter.desce", "Editor/Resources/Assets/Materials/CB_Glass.demat",
+            "Editor/Resources/Assets/Prefabs/UI_Card.deprefab" } )
         ASSERT_NE( std::find( corpus.begin(), corpus.end(), fs::path( RepoRoot() ) / expected ), corpus.end() )
              << expected << " is not in the walked corpus";
     for ( const fs::path& file : corpus )
