@@ -5,6 +5,7 @@
 #include <Common/Content/AssetMove.hpp>
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ExternalEntitiesFolder.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -398,4 +399,116 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// A PARTITIONED SCENE MOVES WITH ITS ENTITY FILES (WP16b). The folder is found by the scene's path
+// (Common/Content/ExternalEntitiesFolder.hpp), so a rename that left it behind would load a world with every
+// entity file "missing", and the stale folder would be adopted by the next scene given the old name.
+namespace
+{
+    // Two entity files of the scene at `scene`, in two bucket folders, as the writer lays them out.
+    std::map<std::string, std::string> WriteEntityFiles( const fs::path& scene )
+    {
+        const fs::path                           dir = Common::Content::ExternalEntitiesDirectoryOf( scene );
+        const std::map<std::string, std::string> files{ { "e9/1001.deent", R"({"id":1001,"Tag":"A"})" },
+                                                        { "4d/77.deent", R"({"id":77,"Tag":"C"})" } };
+        for ( const auto& [relative, bytes] : files )
+        {
+            fs::create_directories( ( dir / relative ).parent_path() );
+            std::ofstream( dir / relative, std::ios::binary ) << bytes;
+        }
+        return files;
+    }
+
+    std::map<std::string, std::string> EntityFilesOf( const fs::path& scene )
+    {
+        std::map<std::string, std::string> files;
+        const fs::path                     dir = Common::Content::ExternalEntitiesDirectoryOf( scene );
+        std::error_code                    ec;
+        if ( !fs::is_directory( dir, ec ) )
+            return files;
+        for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
+            if ( entry.is_regular_file() )
+                files[entry.path().lexically_relative( dir ).generic_string()] = Bytes( entry.path() );
+        return files;
+    }
+} // namespace
+
+TEST( AssetRenameMove, ASceneRenameOrMoveCarriesItsEntityFolderAndLeavesNoneBehind )
+{
+    Corpus     c;
+    const auto files   = WriteEntityFiles( c.User );
+    const auto oldRoot = Common::Content::ExternalEntitiesDirectoryOf( c.User ).parent_path();
+
+    // Rename in place.
+    const fs::path renamed = c.Proj.In( ContentKind::Scene, "UsesRenamed" );
+    auto           moved   = Common::Content::MoveAssetLeavingRedirector( c.Registry, c.User, renamed );
+    ASSERT_TRUE( moved ) << moved.GetError();
+    EXPECT_TRUE( moved.GetValue().MovedExternalEntities );
+    EXPECT_EQ( EntityFilesOf( renamed ), files );
+    EXPECT_FALSE( fs::exists( Common::Content::ExternalEntitiesDirectoryOf( c.User ) ) )
+         << "the old entity folder was left behind";
+
+    // Undo: the folder is back under the old name, byte for byte.
+    ASSERT_TRUE( Common::Content::UndoAssetMove( c.Registry, moved.GetValue() ) );
+    EXPECT_EQ( EntityFilesOf( c.User ), files );
+    EXPECT_FALSE( fs::exists( Common::Content::ExternalEntitiesDirectoryOf( renamed ) ) );
+
+    // Move into another folder: the folder goes to the new directory, and the old __ExternalEntities__ it leaves
+    // empty goes too.
+    const fs::path elsewhere = c.Proj.In( ContentKind::Scene, "Sub/Uses" );
+    fs::create_directories( elsewhere.parent_path() );
+    auto relocated = Common::Content::MoveAssetLeavingRedirector( c.Registry, c.User, elsewhere );
+    ASSERT_TRUE( relocated ) << relocated.GetError();
+    EXPECT_EQ( EntityFilesOf( elsewhere ), files );
+    EXPECT_FALSE( fs::exists( oldRoot ) ) << "an empty " << oldRoot << " was left behind";
+
+    // A scene with no entity folder (not partitioned) moves as before and makes none.
+    const fs::path otherRenamed = c.Proj.In( ContentKind::Scene, "OtherRenamed" );
+    auto           plain        = Common::Content::MoveAssetLeavingRedirector( c.Registry, c.Other, otherRenamed );
+    ASSERT_TRUE( plain ) << plain.GetError();
+    EXPECT_FALSE( plain.GetValue().MovedExternalEntities );
+    EXPECT_FALSE( fs::exists( Common::Content::ExternalEntitiesDirectoryOf( otherRenamed ) ) );
+}
+
+TEST( AssetRenameMove, ASceneMoveOntoATakenEntityFolderIsRefusedByPathAndTouchesNothing )
+{
+    Corpus         c;
+    const auto     files       = WriteEntityFiles( c.User );
+    const fs::path destination = c.Proj.In( ContentKind::Scene, "Fresh" );
+    const fs::path taken       = Common::Content::ExternalEntitiesDirectoryOf( destination );
+    fs::create_directories( taken );
+    std::ofstream( taken / "stale.deent", std::ios::binary ) << "{}";
+    const std::string sceneBytes     = Bytes( c.User );
+    const std::string registryBefore = c.Registry.Serialize();
+
+    const auto refused = Common::Content::MoveAssetLeavingRedirector( c.Registry, c.User, destination );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( taken.string() ), std::string::npos ) << refused.GetError();
+    EXPECT_EQ( Bytes( c.User ), sceneBytes );
+    EXPECT_FALSE( fs::exists( destination ) );
+    EXPECT_EQ( EntityFilesOf( c.User ), files );
+    EXPECT_EQ( Bytes( taken / "stale.deent" ), "{}" );
+    EXPECT_EQ( c.Registry.Serialize(), registryBefore );
+}
+
+TEST( AssetRenameMove, AFolderMoveCarriesASceneAndItsEntityFolderTogether )
+{
+    Corpus         c;
+    const fs::path folder = c.Proj.In( ContentKind::Scene, "Level/World" ).parent_path();
+    fs::create_directories( folder );
+    const fs::path scene =
+         folder / ( "World" + std::string( Common::Content::KindSpec( ContentKind::Scene ).Extension ) );
+    WriteAsset( scene, ContentKind::Scene, Guid( 9 ) );
+    Scan( c.Registry, scene, ContentKind::Scene );
+    const auto files = WriteEntityFiles( scene );
+
+    const fs::path target = folder.parent_path() / "LevelMoved";
+    auto           moved  = Common::Content::MoveFolderLeavingRedirectors( c.Registry, folder, target, {} );
+    ASSERT_TRUE( moved ) << moved.GetError();
+    EXPECT_EQ( EntityFilesOf( target / scene.filename() ), files );
+    EXPECT_FALSE( fs::exists( Common::Content::ExternalEntitiesDirectoryOf( scene ).parent_path() ) );
+
+    ASSERT_TRUE( Common::Content::UndoFolderMove( c.Registry, moved.GetValue() ) );
+    EXPECT_EQ( EntityFilesOf( scene ), files );
 }

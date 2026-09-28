@@ -19,11 +19,13 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -307,4 +309,146 @@ TEST( ExternalEntities, ARecordWithoutAnIdOrWithADuplicateIdCannotBeSplit )
 {
     EXPECT_FALSE( EE::Split( Doc( R"({"Entities":[{"Tag":"no id"}]})" ), "t" ) );
     EXPECT_FALSE( EE::Split( Doc( R"({"Entities":[{"id":3},{"id":3}]})" ), "t" ) );
+}
+
+// 6. THE EDITOR'S SAVE (WP16b). SceneSerializer::SaveToFile cannot be compiled by a suite (it reaches the renderer
+// through Scene.hpp), so this runs the functions it is made of, in its order and on its inputs: the loader's read
+// (ReadSceneFileText - the one document the editor keeps from the OPEN: Scene::SetLoadedDocument is called on load
+// only, never by a save), the typed tree the ECS is written into, the saver's composition (ComposeSceneDocument,
+// entity keys judged by the writer's own member list) and the one scene writer.
+namespace
+{
+    struct EditorSession
+    {
+        std::filesystem::path         Scene;
+        TextDocument                  Loaded;
+        Desert::Core::SceneSerialized Tree;
+
+        explicit EditorSession( const std::filesystem::path& scene ) : Scene( scene ), Loaded( Doc( "{}" ) )
+        {
+            const auto text = EE::ReadSceneFileText( scene );
+            EXPECT_TRUE( text ) << text.GetError();
+            Loaded     = Doc( text ? text.GetValue() : "{}" );
+            auto typed = Loaded.AsDocument<Desert::Core::SceneSerialized>();
+            EXPECT_TRUE( typed );
+            if ( typed )
+                Tree = typed.GetValue();
+        }
+
+        [[nodiscard]] Common::ResultStr<EE::WriteOutcome> Save() const
+        {
+            auto names = std::make_shared<std::set<std::string>>();
+            for ( const auto& name : Common::Json::MemberNames<Desert::Assets::EntityData>() )
+                names->insert( std::string( name ) );
+            const auto document = Desert::Core::ComposeSceneDocument(
+                 Tree, Loaded, [names]( const std::string& key ) { return names->count( key ) != 0; } );
+            if ( !document )
+                return Common::MakeError<EE::WriteOutcome>( document.GetError() );
+            return EE::WriteSceneFile( Scene, document.GetValue() );
+        }
+    };
+
+    std::set<std::string> Changed( const std::map<std::string, std::string>& before,
+                                   const std::map<std::string, std::string>& after )
+    {
+        std::set<std::string> changed;
+        for ( const auto& [file, bytes] : after )
+            if ( before.count( file ) == 0 || before.at( file ) != bytes )
+                changed.insert( file );
+        for ( const auto& [file, bytes] : before )
+            if ( after.count( file ) == 0 )
+                changed.insert( file );
+        return changed;
+    }
+
+    std::string Relative( const TempWorld& world, const std::filesystem::path& file )
+    {
+        return file.lexically_relative( world.Dir ).generic_string();
+    }
+} // namespace
+
+TEST( ExternalEntities, AnEditorSaveAfterEditingOneEntityRewritesThatEntitysFileAlone )
+{
+    TempWorld world;
+    ASSERT_TRUE( EE::WriteSceneFile( world.Scene, Doc( World() ) ) );
+
+    // Open and save with nothing edited: not one byte moves.
+    EditorSession session( world.Scene );
+    const auto    pristine = Snapshot( world.Dir );
+    const auto    idle     = session.Save();
+    ASSERT_TRUE( idle ) << idle.GetError();
+    EXPECT_EQ( Changed( pristine, Snapshot( world.Dir ) ), std::set<std::string>{} );
+    EXPECT_EQ( idle.GetValue().Written, 0u );
+
+    // Rename one entity: its file changes; the header and the other two do not.
+    bool found = false;
+    for ( auto& entity : session.Tree.Entities )
+        if ( entity.Tag.value_or( "" ) == "B" )
+        {
+            entity.Tag = "B renamed";
+            found      = true;
+        }
+    ASSERT_TRUE( found );
+    const auto edited = session.Save();
+    ASSERT_TRUE( edited ) << edited.GetError();
+    EXPECT_EQ( Changed( pristine, Snapshot( world.Dir ) ),
+               std::set<std::string>{ Relative( world, FileOfText( world.Scene, kIdB ) ) } );
+    EXPECT_EQ( edited.GetValue().Written, 1u );
+    // The key this build does not state rode along from the loaded document.
+    const std::string fileB = ReadAll( FileOfText( world.Scene, kIdB ) );
+    EXPECT_NE( fileB.find( "\"Foreign\"" ), std::string::npos ) << fileB;
+    EXPECT_NE( fileB.find( "B renamed" ), std::string::npos ) << fileB;
+}
+
+TEST( ExternalEntities, AnEditorSaveAfterADeleteRemovesTheFileAndUndoThenSaveBringsBackEveryByte )
+{
+    TempWorld world;
+    ASSERT_TRUE( EE::WriteSceneFile( world.Scene, Doc( World() ) ) );
+    EditorSession session( world.Scene );
+    const auto    pristine = Snapshot( world.Dir );
+
+    // Delete B: the ECS no longer yields its record.
+    const auto at = std::find_if( session.Tree.Entities.begin(), session.Tree.Entities.end(),
+                                  []( const auto& e ) { return e.Tag.value_or( "" ) == "B"; } );
+    ASSERT_NE( at, session.Tree.Entities.end() );
+    const Desert::Assets::EntityData deleted = *at;
+    const auto                       index   = at - session.Tree.Entities.begin();
+    session.Tree.Entities.erase( at );
+    const auto removed = session.Save();
+    ASSERT_TRUE( removed ) << removed.GetError();
+    EXPECT_EQ( removed.GetValue().Removed, 1u );
+    EXPECT_FALSE( std::filesystem::exists( FileOfText( world.Scene, kIdB ) ) );
+    // The header's list changed (B left it); no other entity file did.
+    EXPECT_EQ( Changed( pristine, Snapshot( world.Dir ) ),
+               ( std::set<std::string>{ Relative( world, world.Scene ),
+                                        Relative( world, FileOfText( world.Scene, kIdB ) ) } ) );
+    const auto reread = EE::ReadSceneFileText( world.Scene );
+    ASSERT_TRUE( reread ) << reread.GetError();
+
+    // Undo (the entity comes back with its id) and save: every file is the byte it was before the delete.
+    session.Tree.Entities.insert( session.Tree.Entities.begin() + index, deleted );
+    const auto restored = session.Save();
+    ASSERT_TRUE( restored ) << restored.GetError();
+    EXPECT_EQ( Changed( pristine, Snapshot( world.Dir ) ), std::set<std::string>{} );
+}
+
+// 7. THE ONE WRITER ALSO WRITES A SCENE THAT IS NOT PARTITIONED (WP16b): whole and canonical - and a partition
+// that was removed takes its entity folder with it, so no piece outlives the layout that needed it.
+TEST( ExternalEntities, AnUnpartitionedSceneIsWrittenWholeAndLeavesNoEntityFolder )
+{
+    TempWorld         world;
+    const std::string partitioned = World();
+    const std::string plain       = partitioned.substr( 0, partitioned.find( R"(,"WorldPartition")" ) ) + "}";
+    ASSERT_TRUE( EE::WriteSceneFile( world.Scene, Doc( partitioned ) ) );
+    ASSERT_TRUE( std::filesystem::is_directory( EE::DirectoryOf( world.Scene ) ) );
+
+    const auto written = EE::WriteSceneFile( world.Scene, Doc( plain ) );
+    ASSERT_TRUE( written ) << written.GetError();
+    EXPECT_EQ( written.GetValue().Removed, 3u );
+    EXPECT_EQ( ReadAll( world.Scene ), Canonical( Doc( plain ) ) );
+    EXPECT_FALSE( std::filesystem::exists( EE::DirectoryOf( world.Scene ).parent_path() ) )
+         << "the __ExternalEntities__ folder outlived the partition";
+    const auto read = EE::ReadSceneFileText( world.Scene );
+    ASSERT_TRUE( read ) << read.GetError();
+    EXPECT_EQ( read.GetValue(), Canonical( Doc( plain ) ) );
 }

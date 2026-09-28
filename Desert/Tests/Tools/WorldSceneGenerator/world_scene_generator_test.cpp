@@ -23,6 +23,7 @@
 // restated here, over the generator's output, so the file cannot quietly become one the engine would
 // refuse. Sections 3 to 6 are that debt paid.
 
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include "WorldGenMain.hpp"
 #include "WorldBuild.hpp"
 
@@ -100,6 +101,14 @@ namespace
         return buffer.str();
     }
 
+    // What a load of the scene at `path` parses: a partitioned world's header joined with its entity files
+    // (WP16b - the tool writes through the engine's one scene writer), any other scene as its bytes.
+    std::string ReadWorld( const std::filesystem::path& path )
+    {
+        const auto joined = Desert::Core::ExternalEntities::ReadSceneFileText( path );
+        return joined ? joined.GetValue() : "<" + joined.GetError() + ">";
+    }
+
     // Runs the tool exactly as the command line does, and hands back what it wrote.
     int Generate( const std::filesystem::path& out, const std::vector<std::string>& extra, std::string& bytes )
     {
@@ -110,7 +119,7 @@ namespace
         std::ostringstream refused;
         const int          status = Desert::WorldGen::RunWorldGen( args, reported, refused );
         if ( status == 0 )
-            bytes = ReadAll( out );
+            bytes = ReadWorld( out );
         else
             bytes = refused.str();
         return status;
@@ -227,8 +236,9 @@ TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
     ASSERT_EQ( GenerateSmoke( pathTwo, two, { "--seed", "2" } ), 0 ) << two;
     ASSERT_EQ( GenerateSmoke( pathOneAgain, oneAgain, { "--seed", "1" } ), 0 ) << oneAgain;
 
-    // The header is the document's first member, so the first "Guid" is the header's own.
-    const std::string guidKey = R"("Header":{"Kind":"Scene","Guid":")";
+    // The header is the document's first member, so the first "Guid" is the header's own. The file is the
+    // saver's canonical text (WP16b: the tool writes through the engine's one scene writer), one member a line.
+    const std::string guidKey = R"("Guid": ")";
     const auto        guidOf  = [&guidKey]( const std::string& json ) -> std::string
     {
         const auto at = json.find( guidKey );
@@ -663,7 +673,7 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = ReadScene( ReadAll( out ) );
+    const auto scene = ReadScene( ReadWorld( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
     ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
@@ -731,7 +741,7 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = ReadScene( ReadAll( out ) );
+    const auto scene = ReadScene( ReadWorld( out ) );
     ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
     for ( const auto& entity : scene->Entities )
     {
@@ -762,7 +772,7 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = ReadScene( ReadAll( out ) );
+    const auto scene = ReadScene( ReadWorld( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
     ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)

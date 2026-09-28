@@ -87,11 +87,40 @@ namespace Desert::Core::ExternalEntities
             }
             return Common::MakeSuccess( std::move( pieces ) );
         }
+
+        // Deletes every `.deent` below DirectoryOf(scenePath) that `claimed` does not name, then the scene's
+        // folder and the `__ExternalEntities__` folder above it if that left them empty.
+        Common::BoolResultStr RemoveUnclaimed( const std::filesystem::path&           scenePath,
+                                               const std::unordered_set<std::string>& claimed,
+                                               WriteOutcome&                          outcome )
+        {
+            auto onDisk = PiecesOnDisk( scenePath );
+            if ( !onDisk )
+                return Common::MakeError( onDisk.GetError() );
+            for ( const std::filesystem::path& piece : onDisk.GetValue() )
+            {
+                if ( claimed.count( piece.lexically_normal().generic_string() ) != 0 )
+                    continue;
+                std::error_code ec;
+                if ( !std::filesystem::remove( piece, ec ) || ec )
+                    return Common::MakeFormattedError(
+                         "could not remove {}, the file of an entity the scene no longer has: {}", piece.string(),
+                         ec ? ec.message() : "not removed" );
+                ++outcome.Removed;
+                // The bucket folder, if this was its last file: an empty folder is not an entity, but it is a
+                // leftover a rename would have to carry and a reviewer would have to explain.
+                std::filesystem::remove( piece.parent_path(), ec );
+            }
+            std::error_code ec;
+            std::filesystem::remove( DirectoryOf( scenePath ), ec );               // only when empty
+            std::filesystem::remove( DirectoryOf( scenePath ).parent_path(), ec ); // only when empty
+            return BOOLSUCCESS;
+        }
     } // namespace
 
     std::filesystem::path DirectoryOf( const std::filesystem::path& scenePath )
     {
-        return scenePath.parent_path() / kFolder / scenePath.stem();
+        return Common::Content::ExternalEntitiesDirectoryOf( scenePath );
     }
 
     std::filesystem::path FileOf( const std::filesystem::path& scenePath, Common::UUID id )
@@ -186,12 +215,24 @@ namespace Desert::Core::ExternalEntities
     Common::ResultStr<WriteOutcome> WriteSceneFile( const std::filesystem::path&      scenePath,
                                                     const Common::Json::TextDocument& scene )
     {
+        WriteOutcome                    outcome;
+        std::unordered_set<std::string> claimed;
+        if ( !HasMember( scene, "WorldPartition" ) )
+        {
+            const auto text = Common::Json::WriteCanonical( scene );
+            if ( !text )
+                return Common::MakeError<WriteOutcome>(
+                     fmt::format( "could not lay out {} as text: {}", scenePath.string(), text.GetError() ) );
+            if ( const auto written = WriteIfChanged( scenePath, text.GetValue(), outcome ); !written )
+                return Common::MakeError<WriteOutcome>( written.GetError() );
+            if ( const auto removed = RemoveUnclaimed( scenePath, claimed, outcome ); !removed )
+                return Common::MakeError<WriteOutcome>( removed.GetError() );
+            return Common::MakeSuccess( outcome );
+        }
+
         auto split = Split( scene, scenePath.string() );
         if ( !split )
             return Common::MakeError<WriteOutcome>( split.GetError() );
-
-        WriteOutcome                    outcome;
-        std::unordered_set<std::string> claimed;
         for ( const auto& [id, record] : split.GetValue().Records )
         {
             const std::filesystem::path file = FileOf( scenePath, id );
@@ -216,21 +257,18 @@ namespace Desert::Core::ExternalEntities
 
         // The files of deleted entities. Left in place they would be refused on the next load (a piece the
         // list does not name), so the save that dropped the entity drops its file.
-        auto onDisk = PiecesOnDisk( scenePath );
-        if ( !onDisk )
-            return Common::MakeError<WriteOutcome>( onDisk.GetError() );
-        for ( const std::filesystem::path& piece : onDisk.GetValue() )
-        {
-            if ( claimed.count( piece.lexically_normal().generic_string() ) != 0 )
-                continue;
-            std::error_code ec;
-            if ( !std::filesystem::remove( piece, ec ) || ec )
-                return Common::MakeError<WriteOutcome>(
-                     fmt::format( "could not remove {}, the file of an entity the scene no longer has: {}",
-                                  piece.string(), ec ? ec.message() : "not removed" ) );
-            ++outcome.Removed;
-        }
+        if ( const auto removed = RemoveUnclaimed( scenePath, claimed, outcome ); !removed )
+            return Common::MakeError<WriteOutcome>( removed.GetError() );
         return Common::MakeSuccess( outcome );
+    }
+
+    Common::ResultStr<WriteOutcome> WriteSceneText( const std::filesystem::path& scenePath, std::string_view json )
+    {
+        auto document = Common::Json::TextDocument::Parse( std::string( json ) );
+        if ( !document )
+            return Common::MakeError<WriteOutcome>(
+                 fmt::format( "the text meant for {} is not JSON: {}", scenePath.string(), document.GetError() ) );
+        return WriteSceneFile( scenePath, document.GetValue() );
     }
 
     Common::ResultStr<std::string> ReadSceneFileText( const std::filesystem::path& path )

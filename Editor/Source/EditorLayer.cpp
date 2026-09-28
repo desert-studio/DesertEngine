@@ -9,7 +9,6 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Content/AssetRedirector.hpp>
-#include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/ContentChunks.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -213,6 +212,16 @@ namespace Desert::Editor
 {
     namespace
     {
+        // The recovery saves (autosave, device-lost) go through the one scene writer and only need to know
+        // whether it landed; what it counted is the editor save's business.
+        Common::BoolResultStr
+        WrittenOrError( const Common::ResultStr<Desert::Core::ExternalEntities::WriteOutcome>& r )
+        {
+            if ( !r )
+                return Common::MakeError( r.GetError() );
+            return BOOLSUCCESS;
+        }
+
         // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
         // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
         // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
@@ -1574,8 +1583,8 @@ namespace Desert::Editor
                                                   std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
                                                                               dir.string(), ec.message() )
-                                                : Common::Content::WriteCanonicalJsonFileAtomic(
-                                                       path, serializer.SerializeToJson() );
+                                                : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText(
+                                                       path, serializer.SerializeToJson() ) );
                         if ( written )
                         {
                             // The revision is marked done ONLY on a write that landed. It used to be
@@ -10023,7 +10032,7 @@ namespace Desert::Editor
                                           std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                 const auto written =
                      ec ? Common::MakeFormattedError( "could not create {}: {}", dir.string(), ec.message() )
-                        : Common::Content::WriteCanonicalJsonFileAtomic( path, text );
+                        : WrittenOrError( Desert::Core::ExternalEntities::WriteSceneText( path, text ) );
                 // BRACES ARE REQUIRED ON BOTH ARMS: the LOG_ macros are not single statements, so a
                 // braceless if/else here does not compile. The autosave block above is written the same
                 // way for the same reason.

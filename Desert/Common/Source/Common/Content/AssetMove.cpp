@@ -2,6 +2,7 @@
 
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/ExternalEntitiesFolder.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -54,6 +55,27 @@ namespace Common::Content
                                   "removed (" +
                                   removeEc.message() + ")" );
             }
+            return MakeSuccess( true );
+        }
+
+        // Renames a scene's entity folder, then removes the `__ExternalEntities__` folder it came from if that
+        // left it empty (the one it goes to is made when missing).
+        BoolResultStr MoveEntityFolder( const fs::path& fromScene, const fs::path& toScene )
+        {
+            const fs::path  from = ExternalEntitiesDirectoryOf( fromScene );
+            const fs::path  to   = ExternalEntitiesDirectoryOf( toScene );
+            std::error_code ec;
+            fs::create_directories( to.parent_path(), ec );
+            if ( ec )
+                return MakeError( "could not create '" + to.parent_path().string() + "': " + ec.message() );
+            fs::rename( from, to, ec );
+            if ( ec )
+            {
+                fs::remove( to.parent_path(), ec ); // only when this call made it and it is still empty
+                return MakeError( "could not move the entity files '" + from.string() + "' -> '" + to.string() +
+                                  "': " + ec.message() );
+            }
+            fs::remove( from.parent_path(), ec ); // only when empty
             return MakeSuccess( true );
         }
 
@@ -118,13 +140,29 @@ namespace Common::Content
         AssetMoveRecord record{
              from, to, AssetRedirector{ redirectorSelf.value_or( AssetGuid::Generate() ), *known->Guid, oldKey },
              *known };
+        record.MovedExternalEntities =
+             *kind == ContentKind::Scene && fs::is_directory( ExternalEntitiesDirectoryOf( from ), ec );
+        if ( record.MovedExternalEntities && fs::exists( ExternalEntitiesDirectoryOf( to ), ec ) )
+            return MakeError<AssetMoveRecord>( "move '" + oldKey + "': the entity folder '" +
+                                               ExternalEntitiesDirectoryOf( to ).string() +
+                                               "' already exists; refusing to overwrite it" );
 
         if ( const auto moved = MoveFileAtomic( from, to ); !moved )
             return MakeError<AssetMoveRecord>( moved.GetError() );
+        if ( record.MovedExternalEntities )
+        {
+            if ( const auto folder = MoveEntityFolder( from, to ); !folder )
+            {
+                (void)MoveFileAtomic( to, from );
+                return MakeError<AssetMoveRecord>( "move '" + oldKey + "': " + folder.GetError() );
+            }
+        }
         const auto rollbackFile = [&]
         {
             fs::remove( from, ec );
             (void)MoveFileAtomic( to, from );
+            if ( record.MovedExternalEntities )
+                (void)MoveEntityFolder( to, from );
         };
         if ( const auto written = WriteRedirectorFile( from, record.Redirector ); !written )
         {
@@ -179,6 +217,12 @@ namespace Common::Content
         {
             (void)WriteRedirectorFile( record.From, record.Redirector );
             return MakeError( "undo move: " + moved.GetError() );
+        }
+        if ( record.MovedExternalEntities )
+        {
+            if ( const auto folder = MoveEntityFolder( record.To, record.From ); !folder )
+                return MakeError( "undo move: the scene is back but its entity files are not: " +
+                                  folder.GetError() );
         }
         registry.Remove( AssetHandle::StableKeyForPath( record.To ) );
         registry.Remove( record.MovedRow.Key );
@@ -301,8 +345,24 @@ namespace Common::Content
             return MakeError<AssetFolderMoveRecord>( "move folder '" + from.string() + "': " + why +
                                                      "; nothing was moved" );
         };
+        // A scene's entity files move WITH the scene (MoveAssetLeavingRedirector), not as plain files: moved
+        // first as plain files, they would stand in the way of the scene's own move of its folder.
+        std::vector<fs::path> entityFolders;
         for ( const fs::path& file : files )
         {
+            const auto* row = registry.FindByKey( AssetHandle::StableKeyForPath( file ) );
+            if ( row != nullptr && row->Kind == KindName( ContentKind::Scene ) )
+                entityFolders.push_back( ExternalEntitiesDirectoryOf( file ) );
+        }
+        const auto movesWithItsScene = [&]( const fs::path& file )
+        {
+            return std::ranges::any_of( entityFolders,
+                                        [&]( const fs::path& folder ) { return IsInside( file, folder ); } );
+        };
+        for ( const fs::path& file : files )
+        {
+            if ( movesWithItsScene( file ) )
+                continue;
             const fs::path target = to / file.lexically_relative( from );
             if ( const auto made = MakeDirectories( target.parent_path(), record.CreatedDirectories ); !made )
                 return refuse( made.GetError() );
