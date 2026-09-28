@@ -1881,3 +1881,38 @@ int main( int argc, char** argv )
     std::filesystem::remove_all( home, ec );
     return result;
 }
+
+// THUMB3: the content browser reopens the folder it was left in (UE's last path), per project, relative to
+// the assets root, and the splash prefetches exactly that folder's thumbnails.
+TEST( PreferenceOwnership, TheBrowsersLastFolderIsRememberedPerProjectAndReopened )
+{
+    const std::filesystem::path root   = "/proj/Editor/Resources/Assets";
+    const std::string           stress = "/proj/Editor/Resources/Assets/Materials/_Stress";
+    EditorPreferences           p;
+
+    EXPECT_FALSE( EditorPreferences::BrowserFolderIn( p, "Desert", root ) ) << "never navigated";
+    EXPECT_TRUE( EditorPreferences::RememberBrowserFolderIn( p, "Desert", root, stress ) );
+    EXPECT_EQ( p.BrowserFolders.at( "Desert" ), "Materials/_Stress" ) << "stored relative, as the pins are";
+    EXPECT_EQ( EditorPreferences::BrowserFolderIn( p, "Desert", root ).value_or( "" ), stress );
+
+    EXPECT_FALSE( EditorPreferences::RememberBrowserFolderIn( p, "Desert", root, stress ) )
+         << "re-entering the remembered folder is not a change (and saves nothing)";
+    EXPECT_FALSE( EditorPreferences::RememberBrowserFolderIn( p, "Desert", root, "/elsewhere/Materials" ) );
+    EXPECT_EQ( p.BrowserFolders.at( "Desert" ), "Materials/_Stress" ) << "a folder outside the root is not stored";
+    EXPECT_FALSE( EditorPreferences::BrowserFolderIn( p, "Other", root ) ) << "another project has its own";
+
+    EXPECT_TRUE( EditorPreferences::RememberBrowserFolderIn( p, "Desert", root, root.string() ) );
+    EXPECT_EQ( EditorPreferences::BrowserFolderIn( p, "Desert", root ).value_or( "" ), root.generic_string() );
+}
+
+TEST( PreferenceOwnership, TheBrowsersLastFolderSurvivesARestart )
+{
+    FreshInstall();
+    EditorPreferences::Get().BrowserFolders["Desert"] = "Materials";
+    ASSERT_TRUE( EditorPreferences::Save() );
+
+    EditorPreferences::Get() = EditorPreferences{};
+    EditorPreferences::Load();
+    ASSERT_TRUE( EditorPreferences::Get().BrowserFolders.contains( "Desert" ) );
+    EXPECT_EQ( EditorPreferences::Get().BrowserFolders.at( "Desert" ), "Materials" );
+}

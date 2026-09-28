@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
@@ -126,7 +127,17 @@ namespace Desert::Editor
         // TickCapture — the renderer capture queue and the CPU cloud paint. Waits for the window
         //   (Splash::ThumbnailCaptureAllowed): a capture takes a renderer slot and the settle's frames.
         static void TickDiskAndDecode();
-        void        TickCapture();
+        // @p scope: Everything after the hand-over; SceneWarmOnly on the splash (THUMB3), where only what
+        // WarmMaterial queued may be dispatched and the folder's requests wait behind it for the reveal.
+        void TickCapture( ThumbnailWarmup::CaptureScope scope );
+
+        /// Queue a capture of a material the OPEN SCENE uses, ahead of everything the browser asked for
+        /// (THUMB3; UE renders what is on screen first). Already queued -> moved forward; already fresh on
+        /// disk, failed or in flight -> nothing. These are the only captures the splash may run.
+        void WarmMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
+                           ThumbnailSubject::Preview how );
+        /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
+        [[nodiscard]] std::size_t SceneWarmPending() const;
 
         // Forget a cached/failed result, e.g. after the asset was edited.
         void Invalidate( const std::string& assetPath );
@@ -193,6 +204,8 @@ namespace Desert::Editor
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
         bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
+        // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
+        std::unordered_set<std::string> m_SceneWarm;
 
         // The identity-free half of the question: is the PICTURE on disk missing or out of date? Split out
         // because dispatch asks it a second time, when the dedup sets deliberately still hold the entry.

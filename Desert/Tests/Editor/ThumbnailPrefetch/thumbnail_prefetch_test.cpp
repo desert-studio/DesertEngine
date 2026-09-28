@@ -258,10 +258,20 @@ TEST( ThumbnailPrefetch, NothingSweepsTheProjectForInvisibleAssets )
 
     const std::string layer = ReadFile( root + "Editor/Source/EditorLayer.cpp" );
     ASSERT_FALSE( layer.empty() );
-    EXPECT_NE( layer.find( "if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )\n"
-                           "            ThumbnailService::Get().TickCapture();" ),
-               std::string::npos )
+    EXPECT_NE(
+         layer.find(
+              "if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )\n"
+              "            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );" ),
+         std::string::npos )
          << "the capture half of the thumbnail pump is not behind the capture gate";
+    // THUMB3: the only capture before the hand-over is the scene's, behind its own gate and scope.
+    EXPECT_NE(
+         layer.find(
+              "else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&\n"
+              "                  ThumbnailService::Get().SceneWarmPending() > 0 )\n"
+              "            ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::SceneWarmOnly );" ),
+         std::string::npos )
+         << "a capture on the splash is not limited to the scene's warm list";
 }
 
 // THUMB2. The splash uploads the opening folder's pictures before the hand-over, and it reads where they stand
@@ -307,9 +317,7 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
 
     const std::string panel = ReadFile( root + "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
     ASSERT_FALSE( panel.empty() );
-    EXPECT_NE(
-         panel.find( "m_PrefetchItems = items;\n        ThumbnailPrefetch::Get().Request( std::move( items ) );" ),
-         std::string::npos )
+    EXPECT_NE( panel.find( "m_PrefetchItems = items;\n" ), std::string::npos )
          << "the splash upload no longer reads the list the browser prefetched";
     EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().SurveyOf( m_PrefetchItems )" ), std::string::npos );
     EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )

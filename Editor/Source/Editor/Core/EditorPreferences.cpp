@@ -727,6 +727,50 @@ namespace Desert::Editor
         Save();
     }
 
+    std::optional<std::string> EditorPreferences::BrowserFolderIn( const EditorPreferences&     p,
+                                                                   const std::string&           project,
+                                                                   const std::filesystem::path& assetsRoot )
+    {
+        if ( project.empty() )
+            return std::nullopt;
+        const auto stored = p.BrowserFolders.find( project );
+        if ( stored == p.BrowserFolders.end() || stored->second.empty() )
+            return std::nullopt;
+        const std::filesystem::path folder = stored->second == "." ? assetsRoot : assetsRoot / stored->second;
+        if ( RelativeToAssets( assetsRoot, folder ).empty() )
+            return std::nullopt; // a hand-edited "../x" names no folder the browser can walk to
+        return folder.generic_string();
+    }
+
+    bool EditorPreferences::RememberBrowserFolderIn( EditorPreferences& p, const std::string& project,
+                                                     const std::filesystem::path& assetsRoot,
+                                                     const std::string&           absoluteFolder )
+    {
+        if ( project.empty() )
+            return false;
+        const std::string rel = RelativeToAssets( assetsRoot, absoluteFolder );
+        if ( rel.empty() )
+            return false;
+        std::string& stored = p.BrowserFolders[project];
+        if ( stored == rel )
+            return false;
+        stored = rel;
+        return true;
+    }
+
+    std::optional<std::string> EditorPreferences::CurrentBrowserFolder()
+    {
+        return BrowserFolderIn( Get(), CurrentProjectKey(), Common::Constants::Path::ASSETS_PATH );
+    }
+
+    void EditorPreferences::RememberBrowserFolder( const std::string& absoluteFolder )
+    {
+        // Saved only when it moved: a navigation back into the folder already remembered writes nothing.
+        if ( RememberBrowserFolderIn( Get(), CurrentProjectKey(), Common::Constants::Path::ASSETS_PATH,
+                                      absoluteFolder ) )
+            Save();
+    }
+
     bool EditorPreferences::Save()
     {
         return PersistCurrent( {} );

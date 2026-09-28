@@ -65,4 +65,25 @@ namespace Desert::Editor::Splash
     {
         return pending > 0 && msSinceOtherwiseReady < kThumbnailUploadBudgetMs;
     }
+
+    /// THE ONE EXCEPTION TO ThumbnailCaptureAllowed (THUMB3): the materials the open scene uses may be
+    /// captured on the splash, once the start-up stages are done (the renderer is up) and the scene is loaded.
+    /// The browser's folder still waits for the hand-over — ThumbnailService::TickCapture(SceneWarmOnly)
+    /// dispatches nothing that ThumbnailService::WarmMaterial did not queue.
+    [[nodiscard]] constexpr bool SceneThumbnailCaptureAllowed( const RevealState& s )
+    {
+        return s.HasSplash && !s.Revealed && !s.StartupLoading && !s.SceneLoadPending;
+    }
+
+    /// How long the hand-over may wait for the scene's captures once everything else is ready. A capture
+    /// is ~0.3 s in a Debug build; the captures start with the settle, so on Starter they are done before
+    /// it is, and this bound is for a scene whose materials were never photographed on this machine. What
+    /// is not captured by then is captured after the reveal, first in the queue.
+    inline constexpr double kSceneCaptureBudgetMs = 2000.0;
+
+    /// Whether the scene's captures still hold the hand-over; the same shape as ThumbnailsHoldReveal.
+    [[nodiscard]] constexpr bool SceneCapturesHoldReveal( std::size_t pending, double msSinceOtherwiseReady )
+    {
+        return pending > 0 && msSinceOtherwiseReady < kSceneCaptureBudgetMs;
+    }
 } // namespace Desert::Editor::Splash

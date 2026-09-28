@@ -754,6 +754,12 @@ namespace Desert::Editor
         // them, and hold the hand-over for them within Splash::kThumbnailUploadBudgetMs.
         void UploadSplashThumbnails();
         bool m_ThumbnailsHoldReveal = false;
+        // THUMB3: the open scene's materials — their cached pictures decoded, the missing ones captured on the
+        // splash (Splash::SceneThumbnailCaptureAllowed) within Splash::kSceneCaptureBudgetMs.
+        void        WarmSplashScene();
+        bool        m_SplashWarmStarted = false;
+        std::size_t m_SplashWarmTotal   = 0; // captures queued when the warm-up started
+        std::size_t m_SplashWarmShown   = 0; // what the splash line last said was left
         // When every other reveal condition first held: the start of the thumbnails' budget.
         std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
         void StartBackgroundCook();

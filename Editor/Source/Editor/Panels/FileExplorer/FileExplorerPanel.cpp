@@ -313,11 +313,14 @@ namespace Desert::Editor
             m_BaseProjectDir = m_Directories[baseDirectoryHandle].get();
             m_CurrentDir     = m_BaseProjectDir;
 
-            if ( m_BaseProjectDir )
-            {
+            // REOPEN WHERE THE USER LEFT IT (THUMB3), as UE's browser does — and first, so the THUMB2
+            // prefetch this navigation starts decodes the folder that will actually be on screen. A folder
+            // that no longer exists is not an error: the browser opens at the root, as it always did.
+            const std::optional<std::string> remembered = EditorPreferences::CurrentBrowserFolder();
+            if ( m_BaseProjectDir != nullptr && !( remembered && NavigateToPath( *remembered ) ) )
                 ChangeDirectory( m_BaseProjectDir );
-            }
         }
+        m_RestoringFolder = false;
     }
 
     FileExplorerPanel::~FileExplorerPanel()
@@ -402,6 +405,8 @@ namespace Desert::Editor
         }
 
         PrefetchCurrentFolderThumbnails();
+        if ( !m_RestoringFolder )
+            EditorPreferences::RememberBrowserFolder( m_CurrentDir->AssetPath );
 
         // THE POLL'S BASELINE IS THE FOLDER JUST ENTERED. Left at the previous folder's signature, the first
         // poll after every navigation saw a "change" and rescanned a folder that had just been read (TH3).
@@ -443,7 +448,7 @@ namespace Desert::Editor
                 case FileType::Cloud:
                 case FileType::UITheme:
                 case FileType::Cubemap:
-                    items.push_back( { ThumbnailKey::DiskPath( entry->AssetPath ), entry->AssetPath } );
+                    items.push_back( { ThumbnailPngFor( entry->AssetPath ), entry->AssetPath } );
                     break;
                 case FileType::Model:
                 {
@@ -456,6 +461,51 @@ namespace Desert::Editor
             }
         }
         m_PrefetchItems = items;
+        // The scene's pictures stay asked for: Request replaces what is waiting, and the folder must not
+        // push the scene's pictures out of the queue (nor the other way round).
+        items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
+        ThumbnailPrefetch::Get().Request( std::move( items ) );
+    }
+
+    const std::string& FileExplorerPanel::ThumbnailPngFor( const std::string& assetPath )
+    {
+        auto it = m_ThumbnailPngOf.find( assetPath );
+        if ( it == m_ThumbnailPngOf.end() )
+            it = m_ThumbnailPngOf.emplace( assetPath, ThumbnailKey::DiskPath( assetPath ) ).first;
+        return it->second;
+    }
+
+    void FileExplorerPanel::WarmSceneThumbnails( const std::vector<std::string>& materialPaths )
+    {
+        if ( m_AssetManager == nullptr )
+            return;
+        m_ScenePrefetchItems.clear();
+        for ( const std::string& path : materialPaths )
+        {
+            const std::string& png = ThumbnailPngFor( path );
+            m_ScenePrefetchItems.push_back( { png, path } );
+            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, path ) ) !=
+                 ThumbnailFreshness::Verdict::Capture )
+                continue;
+            // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
+            const auto subject = ThumbnailSubject::ResolveMaterial(
+                 *m_AssetManager, path,
+                 []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
+                 {
+                     if ( resolved )
+                         ThumbnailService::Get().WarmMaterial( resolved.GetValue().Handle, assetPath,
+                                                               resolved.GetValue().How );
+                 } );
+            if ( !subject )
+            {
+                LOG_WARN( "[Thumbnails] the scene's '{}' cannot be warmed: {}", path, subject.GetError() );
+                continue;
+            }
+            if ( const auto& material = subject.GetValue() )
+                ThumbnailService::Get().WarmMaterial( material->Handle, path, material->How );
+        }
+        std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
+        items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
         ThumbnailPrefetch::Get().Request( std::move( items ) );
     }
 
@@ -1433,9 +1483,24 @@ namespace Desert::Editor
                         for ( size_t idx : displayOrder )
                         {
                             ImGui::TableNextColumn();
-                            const bool doubleClicked =
+                            // ONLY WHAT IS ON SCREEN IS DRAWN (THUMB3), as UE's tile view only builds the
+                            // widgets in view: a tile scrolled away is a Dummy of the last drawn tile's
+                            // height — no thumbnail lookup, no capture request, no file probe. The selected
+                            // tile is always drawn, so keyboard navigation can scroll to it.
+                            float&      cellHeight = m_CellHeight[m_IsInListView ? 1 : 0];
+                            const float cellWidth  = ImGui::GetContentRegionAvail().x;
+                            if ( cellHeight > 0.0f && !ImGui::IsRectVisible( ImVec2( cellWidth, cellHeight ) ) &&
+                                 !IsSelected( m_CurrentDir->Children[idx] ) )
+                            {
+                                ImGui::Dummy( ImVec2( cellWidth, cellHeight ) );
+                                shownIndex++;
+                                continue;
+                            }
+                            const float cellTop = ImGui::GetCursorPosY();
+                            const bool  doubleClicked =
                                  RenderFile( static_cast<int>( idx ), !m_CurrentDir->Children[idx]->IsFile,
                                              shownIndex, !m_IsInListView );
+                            cellHeight = std::max( cellHeight, ImGui::GetCursorPosY() - cellTop );
                             if ( doubleClicked )
                                 break;
                             shownIndex++;
@@ -1685,7 +1750,7 @@ namespace Desert::Editor
             return false;
 
         // Cache PNG path: <versioned thumbnail dir>/<sanitized source path>.png (persists across restarts).
-        const std::string pngPath = ThumbnailKey::DiskPath( entry->AssetPath );
+        const std::string& pngPath = ThumbnailPngFor( entry->AssetPath );
 
         // Through Editor/Widgets/ThumbnailFreshness.hpp, the same rule ThumbnailService::ShouldQueue applies:
         // Judge says whether a capture is owed, Choose says what to draw meanwhile. The PNG is drawn FIRST,
@@ -1704,7 +1769,19 @@ namespace Desert::Editor
             }
         }
         if ( drew && !owed )
+        {
+            m_CaptureAsked.erase( entry->AssetPath ); // current: a later edit that makes it stale asks again
             return true;
+        }
+        if ( const auto asked = m_CaptureAsked.find( entry->AssetPath ); asked != m_CaptureAsked.end() )
+        {
+            if ( !drew )
+                ImGui::ColorButton( "##matswatch", asked->second,
+                                    ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop |
+                                         ImGuiColorEditFlags_NoBorder,
+                                    size );
+            return true;
+        }
 
         // Resolve material -> handle (load + register so the offscreen render can use it). Through
         // Editor/Widgets/ThumbnailSubject.hpp, which is the SAME resolution the background sweep uses —
@@ -1734,14 +1811,16 @@ namespace Desert::Editor
         // Queue through the editor-wide service: it owns the one renderer, deduplicates against what other
         // panels already asked for, skips anything already on disk and never retries an asset that failed.
         ThumbnailService::Get().RequestMaterial( material->Handle, entry->AssetPath, material->How );
-        if ( drew )
-            return true;
 
         // No picture of this material exists yet: the albedo colour is the placeholder.
         const glm::vec3 albedo =
              glm::vec3( a->Data().GetParam( "AlbedoColor", glm::vec4( 0.8f, 0.8f, 0.8f, 1.0f ) ) );
+        const ImVec4 swatch( albedo.r, albedo.g, albedo.b, 1.0f );
+        m_CaptureAsked.emplace( entry->AssetPath, swatch );
+        if ( drew )
+            return true;
         ImGui::ColorButton(
-             "##matswatch", ImVec4( albedo.r, albedo.g, albedo.b, 1.0f ),
+             "##matswatch", swatch,
              ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoBorder, size );
         return true;
     }
@@ -1928,6 +2007,12 @@ namespace Desert::Editor
 
         const SortMode mode = m_SortMode;
         const bool     desc = m_SortDescending;
+        // THE SORT KEY IS MADE ONCE PER ENTRY, not twice per comparison: this runs every frame, and building a
+        // path and a lower-cased copy inside the comparator was ~n log n allocations a frame — 18 % of the
+        // editor thread in a folder of 240 materials once the tiles themselves were cheap (THUMB3, sampled).
+        std::vector<std::string> names( children.size() );
+        for ( const size_t i : order )
+            names[i] = ToLowerCopy( std::filesystem::path( children[i]->AssetPath ).filename().string() );
         std::sort( order.begin(), order.end(),
                    [&]( size_t a, size_t b )
                    {
@@ -1955,11 +2040,7 @@ namespace Desert::Editor
                        }
                        if ( cmp == 0 ) // Name mode + tiebreak: case-insensitive filename
                        {
-                           const auto na =
-                                ToLowerCopy( std::filesystem::path( ca->AssetPath ).filename().string() );
-                           const auto nb =
-                                ToLowerCopy( std::filesystem::path( cb->AssetPath ).filename().string() );
-                           cmp = na.compare( nb );
+                           cmp = names[a].compare( names[b] );
                        }
                        return desc ? cmp > 0 : cmp < 0;
                    } );
