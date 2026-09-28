@@ -77,9 +77,10 @@ namespace
     {
         std::error_code ec;
         for ( std::filesystem::path here = std::filesystem::current_path( ec ); !here.empty();
-              here = here.parent_path() )
+              here                       = here.parent_path() )
         {
-            if ( std::filesystem::exists( here / ".gitignore", ec ) && std::filesystem::exists( here / "Editor", ec ) )
+            if ( std::filesystem::exists( here / ".gitignore", ec ) &&
+                 std::filesystem::exists( here / "Editor", ec ) )
                 return here;
             if ( here == here.parent_path() )
                 break;
