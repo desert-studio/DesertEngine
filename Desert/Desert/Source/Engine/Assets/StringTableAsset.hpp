@@ -28,7 +28,7 @@ namespace Desert::Assets
     class StringTableAsset final : public AssetBase
     {
     public:
-        StringTableAsset( AssetPriority priority, const Common::Filepath& filepath );
+        StringTableAsset( const Common::Filepath& filepath );
 
         /// Reads, parses, validates and PUBLISHES the table. A file that is missing, empty, malformed, of
         /// an unknown format version, or that collides with another table is an ERROR carrying the reason

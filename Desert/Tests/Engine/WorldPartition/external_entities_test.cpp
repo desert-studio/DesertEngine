@@ -136,8 +136,9 @@ TEST( ExternalEntities, SplitThenJoinIsTheIdentityOverTheCorpus )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    std::size_t scenes   = 0;
-    std::size_t entities = 0;
+    std::size_t           scenes   = 0;
+    std::size_t           entities = 0;
+    std::set<std::string> walked;
     for ( const auto& entry :
           std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets/Scenes" ) )
     {
@@ -168,10 +169,14 @@ TEST( ExternalEntities, SplitThenJoinIsTheIdentityOverTheCorpus )
                        Common::Json::Write( after.GetValue().Entities[i] ) )
                  << entry.path() << " entity " << i;
         ++scenes;
+        walked.insert( entry.path().stem().string() );
         entities += split.GetValue().Records.size();
     }
     std::cout << "[ corpus ] " << scenes << " scenes, " << entities << " entities split and joined\n";
-    EXPECT_GT( scenes, 100u );
+    // Pinned by name, not by a floor (SCN1 deleted the 68 scenes nothing named): the walk reached the startup
+    // scene, a landscape scene with tile folders beside it, and a prefab-override witness.
+    for ( const char* expected : { "Starter", "Terrain_Grass", "G3_TwoTerrains", "UI_PrefabWitness" } )
+        EXPECT_TRUE( walked.count( expected ) ) << expected << ".desce was not split and joined";
     EXPECT_GT( entities, 1000u );
 }
 

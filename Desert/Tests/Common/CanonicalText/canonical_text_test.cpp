@@ -89,7 +89,13 @@ TEST( CanonicalText, EveryCorpusFileIsCanonicalAndRoundTripsThroughTheSingleLine
 {
     ASSERT_FALSE( RepoRoot().empty() );
     const auto corpus = TextCorpus();
-    ASSERT_GT( corpus.size(), 200u ) << "the walk found too few scenes/materials/prefabs to be the corpus";
+    // Pinned by name, not by a floor (SCN1 deleted the 68 scenes nothing named): one scene, one material and one
+    // prefab the walk must reach, so a wrong root cannot pass over zero files.
+    for ( const char* expected :
+          { "Editor/Resources/Assets/Scenes/Starter.desce", "Editor/Resources/Assets/Materials/CB_Glass.demat",
+            "Editor/Resources/Assets/Prefabs/UI_Card.deprefab" } )
+        ASSERT_NE( std::find( corpus.begin(), corpus.end(), fs::path( RepoRoot() ) / expected ), corpus.end() )
+             << expected << " is not in the walked corpus";
     for ( const fs::path& file : corpus )
     {
         const std::string text = ReadAll( file );
@@ -278,11 +284,10 @@ namespace
                         ".deproj and the projects registry" },
          NotATextAsset{ "Desert/Desert/Source/Engine/Assets/ContentRegistry.hpp", "the cooked content registry" },
          NotATextAsset{ "Editor/Source/Editor/Packaging/GamePackager.cpp",
-                        "package manifest, ICD json, launcher" },
+                        "package manifest, ICD json, launcher, the cooked registry and descriptor" },
          NotATextAsset{ "Editor/Source/Editor/Core/EditorPreferences.cpp", "editor preferences" },
          NotATextAsset{ "Editor/Source/Editor/Panels/Collections/CollectionsPanel.cpp",
                         "a collection apply record" },
-         NotATextAsset{ "Tools/AssetRegistryTool/Source/Main.cpp", "the asset registry" },
          NotATextAsset{ "Tools/PakTool/Source/Main.cpp", "pak contents and its listing" },
     };
 

@@ -41,7 +41,7 @@ namespace
 TEST( SceneLandscapeLayerModesMigration, VersionIsTheStepsGeneration )
 {
     EXPECT_EQ( Migration::kSceneVersionNoLandscapeLayerModes, 38 );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionNoLandscapeLayerModes );
+    EXPECT_EQ( Migration::kSceneVersionNoUndeclaredKeys, Migration::kSceneVersionNoLandscapeLayerModes + 1 );
 }
 
 TEST( SceneLandscapeLayerModesMigration, DropsTheThreeModesAndKeepsTheMaterial )

@@ -270,6 +270,29 @@ namespace
         const std::regex call( R"((^|[^\w>.:])Register\s*\()" );
         registrations = static_cast<std::size_t>(
              std::distance( std::sregex_iterator( source.begin(), source.end(), call ), std::sregex_iterator() ) );
+
+        // The reflected blocks are ONE `Register( MakeReflectedBlock( row ) )` call run over the rows of
+        // ReflectedComponentBlocks.hpp, so their keys are read from that header - the single list the
+        // registry and the migrator share - and that one call stands for one registration per row.
+        const std::regex blockCall( R"(\bRegister\s*\(\s*MakeReflectedBlock\s*\()" );
+        const auto       blockCalls = static_cast<std::size_t>( std::distance(
+             std::sregex_iterator( source.begin(), source.end(), blockCall ), std::sregex_iterator() ) );
+        if ( blockCalls != 0 )
+        {
+            std::string header =
+                 ReadAll( RepoRoot() + "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp" );
+            header = std::regex_replace( header, std::regex( "//[^\n]*" ), "" );
+            const std::regex row( "\\bReflected(?:Member|Whole)Block\\s*<[^>]*>\\s*\\{\\s*\"(\\w+)\"" );
+            std::size_t      rows = 0;
+            for ( auto it = std::sregex_iterator( header.begin(), header.end(), row );
+                  it != std::sregex_iterator(); ++it )
+            {
+                keys.insert( ( *it )[1].str() );
+                ++keysRead;
+                ++rows;
+            }
+            registrations = registrations - blockCalls + rows;
+        }
         return keys;
     }
 } // namespace
@@ -277,10 +300,17 @@ namespace
 // ── 1. THE FORMAT ──────────────────────────────────────────────────────────────────────────────────
 
 // 1a. The corpus is where this suite thinks it is. Without this every corpus assertion below is a
-// vacuous pass over zero files.
+// vacuous pass over zero files. Pinned by NAME, not by a floor: SCN1 deleted the 68 scenes nothing named, and a
+// count would have been satisfied by editing the number. These are scenes the corpus assertions below lean on.
 TEST( WorldPartitionFormat, TheScenesAreWhereThisSuiteThinksTheyAre )
 {
-    EXPECT_GE( RepositoryScenes().size(), 100u );
+    std::set<std::string> names;
+    for ( const auto& path : RepositoryScenes() )
+        names.insert( path.stem().string() );
+    for ( const char* expected :
+          { "Starter", "G3_TwoTerrains", "Terrain_MatProbe", "Desert_Sandbox", "M4_RampNormalMap", "UI_ListProbe",
+            "UI_PrefabWitness", "UI_PrefabWitness_NoOverride" } )
+        EXPECT_TRUE( names.count( expected ) ) << expected << ".desce is not under Editor/Resources/Assets/Scenes";
 }
 
 // 1b. A scene nobody partitioned writes no `WorldPartition` key: the field is a std::optional and
@@ -681,14 +711,17 @@ namespace
     // records stay point-only once the gathered registry answers for them.
     //   * +4 with PFX1 (2599 / 2631, 36 asked): the four UI_Card instances state their transform (scene v37),
     //     so they are placed and their prefab is asked for its box; UI_Card has no extent, so they are points.
-    constexpr std::size_t kCorpusMeshReferences = 36;
+    //   * -9 with SCN1 (27 asked): the 68 scenes nothing named are deleted; nine of their mesh-asset records go.
+    constexpr std::size_t kCorpusMeshReferences = 27;
     // SET1 (scene v36) gave each of the 148 corpus scenes an unbound PostProcessVolume: a record with no
     // extent of its own (it grades everywhere and loads Global), so +148 on both counts.
     //   * -4 with LS-16 (2595 / 2627): G26_TerrainRockLayer is deleted with the built-in rock layer it existed
     //     to switch off; its landscape roots and scene records go with it.
-    //   * +16 with RDG3 (2611): the two render-graph bench scenes, RDG_DeferredSSRGI and RDG_LandscapeParticles.
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2611;
-    constexpr std::size_t kCorpusPointOnlyBlind        = 2627;
+    //   * -277 / -286 with SCN1 (2318 / 2341): the 68 scenes nothing named are deleted (Scenes/ 147 -> 79), and
+    //     their records go with them - each one's PostProcessVolume, lights, cloud volumes and UI entities.
+    //   * +16 with RDG3 (2334): the two render-graph bench scenes, RDG_DeferredSSRGI and RDG_LandscapeParticles.
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2334;
+    constexpr std::size_t kCorpusPointOnlyBlind        = 2341;
 
     // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
     // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.

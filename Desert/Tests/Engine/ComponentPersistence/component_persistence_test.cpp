@@ -176,6 +176,37 @@ namespace
 
     constexpr const char* kRegistry = "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp";
     constexpr const char* kEntity   = "Desert/Desert/Source/Engine/Core/Serialize/EntitySerializer.cpp";
+    constexpr const char* kReflectedBlocks =
+         "Desert/Desert/Source/Engine/Core/Serialize/ReflectedComponentBlocks.hpp";
+
+    // WHAT THE REGISTRY WRITES. Most serializers name their component as `ECS::X` in ComponentRegistry.cpp,
+    // but the blocks whose file form is their reflection alone are ROWS of ReflectedComponentBlocks.hpp
+    // (`ReflectedMemberBlock<X, Data>` / `ReflectedWholeBlock<X>`), which the registry registers by walking
+    // ForEachReflectedComponentBlock. Those rows are read from the header itself — the one list both the
+    // registry and the migrator use — and only when the registry still walks it, so a registry that stopped
+    // registering them is not credited with them.
+    std::set<std::string> RegisteredComponents( const std::string& root, const std::string& registrySource )
+    {
+        std::set<std::string> registered = ComponentsNamedIn( registrySource );
+        if ( registrySource.find( "ForEachReflectedComponentBlock" ) == std::string::npos )
+            return registered;
+
+        const std::string header = WithoutLineComments( ReadFile( root + kReflectedBlocks ) );
+        for ( const std::string opener : { "ReflectedMemberBlock<", "ReflectedWholeBlock<" } )
+        {
+            for ( std::size_t at = header.find( opener ); at != std::string::npos;
+                  at             = header.find( opener, at + 1 ) )
+            {
+                std::size_t cursor = at + opener.size();
+                while ( cursor < header.size() && ( header[cursor] == ' ' || header[cursor] == '\t' ) )
+                    ++cursor;
+                const std::string name = Identifier( header, cursor );
+                if ( NamesAComponent( name ) )
+                    registered.insert( name );
+            }
+        }
+        return registered;
+    }
 
     // ── WHAT THE DETAILS PANEL CAN ADD, DERIVED FROM THE EDITOR RATHER THAN TYPED HERE ─────────────
     //
@@ -371,7 +402,7 @@ TEST( ComponentPersistence, EveryEcsComponentIsPersistedOrIsWrittenDownAsNotBein
 
     const std::string registrySource = ReadFile( root + kRegistry );
     ASSERT_FALSE( registrySource.empty() ) << "could not read " << kRegistry;
-    const std::set<std::string> registered = ComponentsNamedIn( WithoutLineComments( registrySource ) );
+    const std::set<std::string> registered = RegisteredComponents( root, WithoutLineComments( registrySource ) );
 
     const std::string entitySource = ReadFile( root + kEntity );
     ASSERT_FALSE( entitySource.empty() ) << "could not read " << kEntity;
@@ -461,7 +492,7 @@ TEST( ComponentPersistence, EveryComponentTheDetailsPanelCanAddSurvivesAReload )
 
     const std::string registrySource = ReadFile( root + kRegistry );
     ASSERT_FALSE( registrySource.empty() ) << "could not read " << kRegistry;
-    const std::set<std::string> registered = ComponentsNamedIn( WithoutLineComments( registrySource ) );
+    const std::set<std::string> registered = RegisteredComponents( root, WithoutLineComments( registrySource ) );
 
     const std::string entitySource = ReadFile( root + kEntity );
     ASSERT_FALSE( entitySource.empty() ) << "could not read " << kEntity;

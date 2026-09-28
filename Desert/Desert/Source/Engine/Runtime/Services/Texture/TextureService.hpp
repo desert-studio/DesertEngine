@@ -6,21 +6,48 @@
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Graphic/Texture.hpp>
+#include <Engine/Runtime/Services/Texture/TextureUploadQueue.hpp>
 #include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
 
 #include <memory>
+#include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 namespace Desert::Runtime
 {
+    /// How much texture data one frame may copy to the GPU (AM2). A code default like WorldPartition's
+    /// ResidencySettings, read by `TextureService::PumpUploads` every frame.
+    struct TextureUploadSettings
+    {
+        /// 8 MiB: one 1k RGBA8 texture with its mips (5.6 MB) or one 2k BC7 (5.6 MB) per frame, or a dozen
+        /// 512 BC textures. A frame always uploads at least one waiting texture, whatever its size.
+        uint64_t BytesPerFrame = 8ull * 1024ull * 1024ull;
+    };
+
+    /// What a cook worker hands the frame loop: the decoded texture, or why there is none.
+    struct TextureCookOutcome
+    {
+        std::optional<Graphic::CookedTexture2D> Cooked;
+        std::string                             Error;
+    };
+
+    using TextureUploads = TextureUploadQueue<Assets::AssetHandle, TextureCookOutcome>;
+
     /**
      * Textures ON DEMAND (AL1-4). Nothing registers every texture at boot any more: a handle nobody
      * announced is discovered from its content-registry row the first time it is asked for, its `.detex`
      * metadata is read through `AsyncAssetLoader`, and the GPU texture is built in the completion, on the
      * main thread. Until then the answer is Pending, and a material that bound a slot's default meanwhile
      * is rebuilt when the texture lands (`RebuildWhenReady`).
+     *
+     * THE COOK AND THE UPLOAD ARE NOT ON THE READ'S COMPLETION (AM2). The completion hands the platform-data
+     * read -- a DDC hit, or on a miss the cook that fills the DDC (1.2 s for a 1k noise texture in Debug) --
+     * to a JobSystem worker. The worker's decoded result waits in `TextureUploads`, and `PumpUploads` creates
+     * GPU images from it once per frame within `TextureUploadSettings::BytesPerFrame`. The texture stays
+     * Pending, drawing the slot default, until its upload runs.
      */
     class TextureService
     {
@@ -62,6 +89,13 @@ namespace Desert::Runtime
         /// Free the parked textures no frame in flight can still sample. Every frame, from the frame loop.
         std::size_t RetireEvicted();
 
+        /// Create the GPU textures whose cook finished, within the per-frame upload budget. Every frame, from
+        /// the frame loop, main thread. Returns how many results were taken (built, failed or stale).
+        std::size_t PumpUploads();
+
+        /// Cooked results still waiting for their upload (tests, diagnostics).
+        std::size_t PendingUploads() const;
+
         void Clear();
 
     private:
@@ -70,13 +104,18 @@ namespace Desert::Runtime
             std::shared_ptr<Assets::TextureAsset> Source;
             std::shared_ptr<Graphic::Texture2D>   Built;
             Assets::LoadRequest                   Request;
+            /// Which cook the entry waits for; a result carrying another ticket is stale and dropped.
+            uint64_t CookTicket = 0;
+            /// The platform data is being read or cooked on a worker, or waits for its upload.
+            bool Cooking = false;
             /// Latched so a corrupt file is not re-read every frame.
             bool Failed = false;
         };
 
         Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
         void        BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
-        static void Build( const Assets::AssetHandle& handle, Entry& entry );
+        void        BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const;
+        void        FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome );
 
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
         // of what the service answers.
@@ -87,5 +126,9 @@ namespace Desert::Runtime
         mutable TextureWaiters m_Waiters;
         /// Textures eviction dropped, alive until the frames that could sample them have retired.
         Assets::FrameRetireQueue<std::shared_ptr<Graphic::Texture2D>> m_Retiring;
+        /// Shared with the cook jobs, which may still finish after this service is cleared or destroyed.
+        std::shared_ptr<TextureUploads> m_Uploads        = std::make_shared<TextureUploads>();
+        mutable uint64_t                m_NextCookTicket = 0;
+        TextureUploadSettings           m_UploadSettings;
     };
 } // namespace Desert::Runtime

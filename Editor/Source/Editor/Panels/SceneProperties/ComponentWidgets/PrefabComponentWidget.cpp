@@ -70,7 +70,7 @@ namespace Desert::Editor
         if ( ImGui::Button( "Load" ) && !m_SelectPathBuf.empty() )
         {
             auto found = const_cast<Assets::AssetManager*>( m_AssetManager )
-                ->CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High, m_SelectPathBuf );
+                              ->CreateAsset<Assets::PrefabAsset>( m_SelectPathBuf );
             if ( found )
             {
                 found->Load();

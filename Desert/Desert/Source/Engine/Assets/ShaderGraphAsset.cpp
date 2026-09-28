@@ -9,8 +9,8 @@
 
 namespace Desert::Assets
 {
-    ShaderGraphAsset::ShaderGraphAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::ShaderGraph )
+    ShaderGraphAsset::ShaderGraphAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::ShaderGraph )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
     }

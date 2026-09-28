@@ -1,4 +1,5 @@
 #include "PackageCook.hpp"
+#include "PackagedContentTrees.hpp"
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
@@ -45,7 +46,9 @@ namespace Desert::Editor
             {
                 std::string ext = candidate.extension().string();
                 std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-                if ( ext == ".shader" )
+                // An editor-only program (PackagedContentTrees.hpp) is not in the package, so it is not cooked for
+                // it.
+                if ( ext == ".shader" && !IsEditorOnlyResource( candidate ) )
                     out.push_back( candidate );
             }
             return out;
@@ -193,6 +196,8 @@ namespace Desert::Editor
                 {
                     if ( p.extension() != ".svg" ) // IconService::EnsurePreloaded's own filter
                         continue;
+                    if ( IsEditorOnlyResource( p ) ) // not in the package, so not baked for it
+                        continue;
 
                     const auto svgRead = Common::Utils::FileSystem::ReadByteFileContent( p );
                     if ( !svgRead )
@@ -285,7 +290,9 @@ namespace Desert::Editor
             }
         }
 
-        // Copies the DDC buckets a game reads into Saved/Cooked/<Platform>/ under the same relative layout.
+        // Copies the DDC buckets a game reads into the cooked tree under the key the runtime asks for:
+        // Saved/Cooked/<Platform>/Cooked/Buckets/... is packed as "Cooked/Buckets/...", which is
+        // DDC::PackagedPath of the loose entry — the one lookup a packaged DDC reader falls back to.
         // WHOLE BUCKETS, not a list of what this pass touched: a fixture or an earlier cook's entry under a
         // key the runtime will ask for is exactly as valid (the key is its inputs). The driver pipeline blob
         // is per user and per device and lives in the player's own directory (PipelineCacheFile.hpp), so no
@@ -299,11 +306,9 @@ namespace Desert::Editor
         void StageCookedEntries( CookStats& stats )
         {
             const std::vector<std::string_view> shippedBuckets = Assets::ShippedDDCBuckets();
-            const fs::path                      cooked         = Common::DDC::PlatformCookedDir();
-            const fs::path                      ddcRoot        = Common::DDC::Root();
-            std::error_code                     ec;
-            fs::remove_all( cooked, ec );
-            fs::create_directories( cooked, ec );
+            const fs::path  cooked  = Common::DDC::PlatformCookedDir() / Common::Constants::Path::COOKED_DIR_NAME;
+            const fs::path  ddcRoot = Common::DDC::Root();
+            std::error_code ec;
 
             for ( const std::string_view bucket : shippedBuckets )
             {
@@ -331,8 +336,10 @@ namespace Desert::Editor
     CookStats CookContentCaches( bool spirvDebugInfo )
     {
         CookStats stats;
+        // THE ONE COOKED TREE starts empty: a package never carries a previous cook's leftovers, and
+        // everything the packager packs is written into it by this cook and by StageShippedContent.
         std::error_code wipe;
-        fs::remove_all( CookedTextureAssetStage(), wipe );
+        fs::remove_all( Common::DDC::PlatformCookedDir(), wipe );
         CookShaders( spirvDebugInfo, stats );
         CookFonts( stats );
         CookIcons( stats );
@@ -355,31 +362,24 @@ namespace Desert::Editor
         return stats;
     }
 
-    fs::path CookedTextureAssetStage()
-    {
-        return Common::Constants::Path::CurrentProjectRoot().ProjectDir / "Saved" / "CookedAssets" /
-               std::string( Common::DDC::CookPlatformName() );
-    }
-
-    Common::ResultStr<fs::path> StageCookedTextureAsset( const fs::path& editorAsset, const fs::path& relative )
+    Common::BoolResultStr StageCookedTextureAsset( const fs::path& editorAsset, const fs::path& target )
     {
         const auto raw = Common::Utils::FileSystem::ReadFileContent( editorAsset );
         if ( !raw.IsSuccess() )
-            return Common::MakeError<fs::path>( raw.GetError() );
+            return Common::MakeError<bool>( raw.GetError() );
         const auto cooked = Assets::CookTextureAssetForRuntime( std::span<const std::byte>(
              reinterpret_cast<const std::byte*>( raw.GetValue().data() ), raw.GetValue().size() ) );
         if ( !cooked.IsSuccess() )
-            return Common::MakeFormattedError<fs::path>( "texture asset '{}' cannot be cooked for the package: {}",
-                                                         editorAsset.string(), cooked.GetError() );
-        const fs::path  target = CookedTextureAssetStage() / relative;
+            return Common::MakeFormattedError<bool>( "texture asset '{}' cannot be cooked for the package: {}",
+                                                     editorAsset.string(), cooked.GetError() );
         std::error_code ec;
         fs::create_directories( target.parent_path(), ec );
         const auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
              target, std::span<const std::byte>( reinterpret_cast<const std::byte*>( cooked.GetValue().data() ),
                                                  cooked.GetValue().size() ) );
         if ( !written.IsSuccess() )
-            return Common::MakeFormattedError<fs::path>( "the cooked texture asset '{}' was not written: {}",
-                                                         target.string(), written.GetError() );
-        return Common::MakeSuccess( target );
+            return Common::MakeFormattedError<bool>( "the cooked texture asset '{}' was not written: {}",
+                                                     target.string(), written.GetError() );
+        return Common::MakeSuccess( true );
     }
 } // namespace Desert::Editor

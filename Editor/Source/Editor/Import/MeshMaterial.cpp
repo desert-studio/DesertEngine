@@ -41,7 +41,7 @@ namespace Desert::Editor::MeshMaterial
         const std::string matStr = matPath.generic_string();
         auto              asset  = mgr.FindByPath<Assets::SurfaceMaterialAsset>( matStr );
         if ( !asset )
-            asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, matStr, false );
+            asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( matStr, false );
         if ( !asset )
             return Common::UUID::Null();
 

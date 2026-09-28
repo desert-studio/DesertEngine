@@ -751,7 +751,7 @@ namespace Desert::ECS
             if ( !asset && !m_Unresolvable.contains( wanted ) )
             {
                 if ( const auto row = Assets::ContentRegistry::RowOf( kind, static_cast<uint64_t>( wanted ) ) )
-                    asset = m_AssetManager->CreateAsset<AssetType>( Assets::AssetPriority::Medium, row->Path,
+                    asset = m_AssetManager->CreateAsset<AssetType>( row->Path,
                                                                     /*loadAfterCreate=*/false );
                 if ( !asset )
                     m_Unresolvable.insert( wanted );

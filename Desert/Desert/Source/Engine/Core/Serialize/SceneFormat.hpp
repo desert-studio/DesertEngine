@@ -57,7 +57,10 @@ namespace Desert::Core
     // v38 (LS-16): the landscape's look is its Landscape Material and its layer infos only; the root's
     // LandscapeMaterial block no longer states GrassMode/RockMode/SnowMode (Tools/SceneMigrator,
     // MigrateLandscapeLayerModesV37ToV38).
-    inline constexpr int kSceneVersion = 38;
+    // v39 (SAVE1): every key a component block states is one the build declares, in its declared type; the
+    // corpus's four hand-authoring slips are settled in the files (Tools/SceneMigrator,
+    // MigrateUndeclaredKeysV38ToV39), and the corpus is the saver's canonical text.
+    inline constexpr int kSceneVersion = 39;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

@@ -5,7 +5,10 @@
 #include <Engine/Graphic/TextureFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
+
+#include <chrono>
 
 namespace Desert::Runtime
 {
@@ -68,17 +71,74 @@ namespace Desert::Runtime
         return &entry;
     }
 
-    void TextureService::Build( const Assets::AssetHandle& handle, Entry& entry )
+    void TextureService::BeginCook( const Assets::AssetHandle& handle, Entry& entry ) const
     {
-        entry.Built = Graphic::TextureFactory::Create2D( entry.Source );
+        // OFF THE MAIN THREAD. The worker does the DDC read and, on a miss, the cook that fills it -- the
+        // 1.2 s THUMB3 measured on the frame that first touched 1k_Dissolve_Noise_Texture. The worker only
+        // decodes; the GPU image is created by PumpUploads, under the per-frame budget.
+        entry.Cooking    = true;
+        entry.CookTicket = ++m_NextCookTicket;
+        struct CookJob
+        {
+            Assets::AssetHandle             Handle;
+            uint64_t                        Ticket = 0;
+            std::filesystem::path           Asset;
+            std::shared_ptr<TextureUploads> Uploads;
+        };
+        auto job = std::make_shared<CookJob>(
+             CookJob{ handle, entry.CookTicket, entry.Source->GetMetadata().Filepath, m_Uploads } );
+        Common::JobSystem::Get().Submit(
+             [job]
+             {
+                 TextureCookOutcome outcome;
+                 const auto         began  = std::chrono::steady_clock::now();
+                 auto               cooked = Graphic::Texture2D::ReadCooked( job->Asset );
+                 LOG_DEBUG( "[TextureService] '{}' platform data read on a worker in {:.1f} ms",
+                            job->Asset.filename().string(),
+                            std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began )
+                                 .count() );
+                 uint64_t bytes = 0;
+                 if ( cooked.IsSuccess() )
+                 {
+                     outcome.Cooked = cooked.ExtractValue();
+                     bytes          = outcome.Cooked->UploadBytes();
+                 }
+                 else
+                     outcome.Error = cooked.GetError();
+                 job->Uploads->Push( { job->Handle, job->Ticket, bytes, std::move( outcome ) } );
+             } );
+    }
+
+    void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome )
+    {
+        entry.Cooking = false;
+        if ( outcome.Cooked )
+        {
+            const auto     began = std::chrono::steady_clock::now();
+            const uint64_t bytes = outcome.Cooked->UploadBytes();
+            auto           built = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
+            if ( built.IsSuccess() )
+                entry.Built = built.ExtractValue();
+            else
+                outcome.Error = built.GetError();
+            LOG_DEBUG(
+                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes)",
+                 entry.Source->GetMetadata().Filepath.filename().string(),
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
+                 bytes );
+        }
         if ( !entry.Built )
         {
             entry.Failed = true;
-            LOG_ERROR( "[TextureService] '{}' was read but no GPU texture could be built from it",
-                       entry.Source->GetMetadata().Filepath.string() );
-            return;
+            LOG_ERROR( "[TextureService] '{}' was read but no GPU texture could be built from it: {}. Materials "
+                       "naming it sample the slot's schema default; it is not retried.",
+                       entry.Source->GetMetadata().Filepath.string(), outcome.Error );
         }
-        ClaimTextureImage( entry.Built, handle );
+        else
+            ClaimTextureImage( entry.Built, handle );
+
+        m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
+                          { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
     }
 
     void TextureService::BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const
@@ -95,16 +155,16 @@ namespace Desert::Runtime
                      return; // cleared while the read ran
                  // Released first, so nothing answers Pending for a texture whose read has settled.
                  it->second.Request.Release();
-                 if ( outcome != Assets::LoadOutcome::Loaded )
+                 if ( outcome == Assets::LoadOutcome::Loaded )
                  {
-                     it->second.Failed = true;
-                     LOG_ERROR( "[TextureService] '{}' could not be read: {}. Materials naming it sample the "
-                                "slot's schema default; it is not retried.",
-                                it->second.Source->GetMetadata().Filepath.string(), error );
+                     // Still Pending: the waiters settle when the upload runs (FinishCook).
+                     BeginCook( handle, it->second );
+                     return;
                  }
-                 else
-                     Build( handle, it->second );
-
+                 it->second.Failed = true;
+                 LOG_ERROR( "[TextureService] '{}' could not be read: {}. Materials naming it sample the "
+                            "slot's schema default; it is not retried.",
+                            it->second.Source->GetMetadata().Filepath.string(), error );
                  m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
                                    { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
              },
@@ -125,15 +185,14 @@ namespace Desert::Runtime
             return Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry->Built );
         if ( entry->Failed || !entry->Source )
             return Assets::AssetRef<Graphic::Texture2D>::Null();
-        if ( entry->Request.IsValid() )
+        if ( entry->Request.IsValid() || entry->Cooking )
             return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
 
-        // Already read (an importer handed over a loaded asset): build now, no request needed.
+        // Already read (an importer handed over a loaded asset): no request needed, straight to the cook.
         if ( entry->Source->IsReadyForUse() )
         {
-            Build( handle, *entry );
-            return entry->Built ? Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry->Built )
-                                : Assets::AssetRef<Graphic::Texture2D>::Null();
+            BeginCook( handle, *entry );
+            return Assets::AssetRef<Graphic::Texture2D>::Pending( handle );
         }
 
         BeginRead( handle, *entry );
@@ -158,7 +217,8 @@ namespace Desert::Runtime
     void TextureService::RebuildWhenReady( const Assets::AssetHandle& texture,
                                            const Assets::AssetHandle& material ) const
     {
-        if ( const auto it = m_Entries.find( texture ); it != m_Entries.end() && it->second.Request.IsValid() )
+        if ( const auto it = m_Entries.find( texture );
+             it != m_Entries.end() && ( it->second.Request.IsValid() || it->second.Cooking ) )
             m_Waiters.Add( texture, material );
     }
 
@@ -202,8 +262,30 @@ namespace Desert::Runtime
         return m_Retiring.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
     }
 
+    std::size_t TextureService::PumpUploads()
+    {
+        auto taken = m_Uploads->TakeWithinBudget( m_UploadSettings.BytesPerFrame );
+        for ( auto& item : taken )
+        {
+            const auto it = m_Entries.find( item.Handle );
+            // Stale: the entry was cleared, or a later cook replaced the one this result belongs to.
+            if ( it == m_Entries.end() || !it->second.Cooking || it->second.CookTicket != item.Ticket )
+                continue;
+            // Read before the move: argument evaluation order is unspecified (clang L->R, MSVC R->L).
+            const Assets::AssetHandle handle = item.Handle;
+            FinishCook( handle, it->second, std::move( item.Data ) );
+        }
+        return taken.size();
+    }
+
+    std::size_t TextureService::PendingUploads() const
+    {
+        return m_Uploads->Pending();
+    }
+
     void TextureService::Clear()
     {
+        m_Uploads->Clear();
         m_Retiring.Clear();
         m_Entries.clear();
         m_ReportedMissing.clear();

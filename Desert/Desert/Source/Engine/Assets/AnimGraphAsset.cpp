@@ -10,8 +10,8 @@
 
 namespace Desert::Assets
 {
-    AnimGraphAsset::AnimGraphAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::AnimGraph )
+    AnimGraphAsset::AnimGraphAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::AnimGraph )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
 

@@ -21,7 +21,7 @@ namespace Desert::Assets
     class UIThemeAsset final : public AssetBase
     {
     public:
-        UIThemeAsset( AssetPriority priority, const Common::Filepath& filepath );
+        UIThemeAsset( const Common::Filepath& filepath );
 
         /// Reads and parses the file. A file that is missing, malformed, from an unknown format version or
         /// carrying a binding the resolver cannot honour is an ERROR carrying the reason — never a quietly

@@ -179,7 +179,7 @@ namespace Desert::Editor
 
         auto asset = assets->FindByPath<Assets::TextureAsset>( path );
         if ( !asset )
-            asset = assets->CreateAsset<Assets::TextureAsset>( Assets::AssetPriority::Medium, path );
+            asset = assets->CreateAsset<Assets::TextureAsset>( path );
         if ( !asset )
         {
             LOG_ERROR( "[Assets] '{}' could not be registered as a texture — no viewer was opened.", path );

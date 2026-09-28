@@ -1,6 +1,5 @@
 // AssetRegistryTool — gathers a project's asset registry without booting an engine.
 //
-//   AssetRegistryTool cook <project.deproj>   write Saved/Cooked/<Platform>/AssetRegistry.dreg
 //   AssetRegistryTool list <project.deproj>   print every gathered row, kind first
 //
 // THE REGISTRY IS NOT A COMMITTED ARTIFACT. Every consumer gathers it where it is used: the editor and a
@@ -11,9 +10,10 @@
 // chose which tree to describe (a gather describes the content roots of the machine it runs on, the same
 // ones the editor would read). "Every tracked content file is gathered" is CookedRegistryGate's case.
 //
-// What remains is a cook with no GPU and no window: the same gather, written where the packager stages
-// its cook (`DDC::PlatformCookedDir`), for a build machine or a look at the rows. A file whose header the
-// gather refuses fails the cook — a registry without it would ship without it.
+// It does NOT cook. The one cook output is the cooked tree, and its one writer is the packager's cook
+// (Editor/Packaging: PackageCook + GamePackager StageShippedContent), which writes the registry there with the
+// rest of what ships; a second writer of the same file was a second answer to "which registry shipped" (AF8).
+// What remains is a look at the rows with no GPU and no window.
 //
 // The identity and dependency columns need the asset's own parser, which this tool does not link (it links
 // `Common` only, so it builds where an engine cannot). They come from this machine's registry cache when
@@ -27,7 +27,6 @@
 #include <ToolMain.hpp>
 
 #include <Common/Content/ContentScan.hpp>
-#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -45,7 +44,7 @@ namespace
 {
     int Usage()
     {
-        std::fprintf( stderr, "usage: AssetRegistryTool <cook|list> <project.deproj>\n" );
+        std::fprintf( stderr, "usage: AssetRegistryTool list <project.deproj>\n" );
         return 2;
     }
 
@@ -124,43 +123,6 @@ namespace
         return gathered;
     }
 
-    int Cook( const fs::path& projectPath )
-    {
-        const auto opened = OpenProject( projectPath );
-        if ( !opened )
-            return Fail( opened.GetError() );
-
-        const Common::Content::GatheredRegistry gathered = Gather();
-        for ( const std::string& refusal : gathered.Refused )
-            std::fprintf( stderr, "%s\n", refusal.c_str() );
-        if ( !gathered.Refused.empty() )
-            return Fail( std::to_string( gathered.Refused.size() ) +
-                         " content file(s) refused by the gather; nothing was written, because a registry "
-                         "without them would ship without them" );
-
-        // T2.7: a noise volume, hero-cloud body or painted layout is created from its row by GUID when a
-        // scene names it, so one reachable only by its path would ship as a reference nothing can resolve.
-        const std::vector<std::string> pathOnly = Common::Content::PathOnlyOnDemandRows( gathered.Registry );
-        for ( const std::string& problem : pathOnly )
-            std::fprintf( stderr, "%s\n", problem.c_str() );
-        if ( !pathOnly.empty() )
-            return Fail( std::to_string( pathOnly.size() ) +
-                         " on-demand content file(s) state no GUID; nothing was written" );
-
-        const fs::path  out = Common::DDC::PlatformCookedDir() / "AssetRegistry.dreg";
-        std::error_code ec;
-        fs::create_directories( out.parent_path(), ec );
-        if ( ec )
-            return Fail( "cannot create " + out.parent_path().string() + ": " + ec.message() );
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( out, gathered.Registry.Serialize() );
-             !written )
-            return Fail( written.GetError() );
-
-        std::printf( "AssetRegistryTool: %zu row(s) in %s\n", gathered.Registry.Count(), out.string().c_str() );
-        return 0;
-    }
-
     int List( const fs::path& projectPath )
     {
         const auto opened = OpenProject( projectPath );
@@ -189,8 +151,6 @@ int main( int argc, char** argv )
                                        if ( count != 3 )
                                            return Usage();
                                        const fs::path project( args[2] );
-                                       if ( std::strcmp( args[1], "cook" ) == 0 )
-                                           return Cook( project );
                                        if ( std::strcmp( args[1], "list" ) == 0 )
                                            return List( project );
                                        return Usage();

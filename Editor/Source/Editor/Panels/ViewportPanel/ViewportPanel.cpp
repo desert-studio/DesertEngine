@@ -1521,7 +1521,7 @@ namespace Desert::Editor
                 auto& mgr = const_cast<Assets::AssetManager&>( *m_AssetManager );
                 auto  prefab = mgr.FindByPath<Assets::PrefabAsset>( path );
                 if ( !prefab )
-                    prefab = mgr.CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High, path );
+                    prefab = mgr.CreateAsset<Assets::PrefabAsset>( path );
                 if ( prefab )
                 {
                     if ( !prefab->IsReadyForUse() )
@@ -2510,7 +2510,7 @@ namespace Desert::Editor
         auto& mgr   = const_cast<Assets::AssetManager&>( *m_AssetManager );
         auto  asset = mgr.FindByPath<Assets::SurfaceMaterialAsset>( materialPath );
         if ( !asset )
-            asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, materialPath );
+            asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( materialPath );
         if ( !asset )
             return;
         const auto handle = asset->GetMetadata().Handle;

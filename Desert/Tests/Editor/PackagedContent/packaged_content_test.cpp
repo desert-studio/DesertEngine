@@ -40,6 +40,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
+#include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
@@ -59,7 +60,9 @@
 #include <fstream>
 #include <map>
 #include <regex>
+#include <array>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -2045,4 +2048,153 @@ TEST( PackagedContent, EveryTextureTheShippedContentNamesIsOneThePackageCooks )
     // A census that finds nothing proves nothing: the sandbox's checker floor and its sky scenes name
     // textures, so zero here means the patterns above stopped matching the content.
     EXPECT_GE( named, 10u ) << "the census found almost no texture references — its patterns no longer match";
+}
+
+// AF8 — ONE COOKED TREE (UE's Saved/Cooked/<Platform>): the cook writes everything a package ships into
+// DDC::PlatformCookedDir() under the archive key it ships as, and the archive is built from that tree and
+// from nothing else. Four relations, each red on the layout before it (cooked textures in a second tree
+// Saved/CookedAssets, the registry/worlds/descriptor written straight into the archive, the sources packed
+// in place):
+//   1. the archive's key set IS the cooked tree's file set, byte for byte;
+//   2. every row of the shipped registry has its cooked file;
+//   3. no enveloped file in the cooked tree carries an editor-only section (IMPT/SRCE);
+//   4. there is no second cooked location beside it.
+TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
+{
+    const EnvironmentGuard guard;
+
+    const fs::path repo = fs::absolute( RepoRoot() );
+    ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
+    const fs::path shipped = repo / "Editor" / "Resources" / "Assets";
+
+    const fs::path base = fs::temp_directory_path() / "desert_pkg_cooked_tree";
+    fs::remove_all( base );
+    const fs::path proj = base / "proj";
+
+    fs::create_directories( proj / "GameAssets" / "Textures" );
+    fs::copy_file( shipped / "Textures" / "T_Checker.detex",
+                   proj / "GameAssets" / "Textures" / "T_Checker.detex" );
+    WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
+    WriteFile( proj / "GameAssets" / "Meshes" / "raw.fbx", "raw mesh source" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
+    // The engine resource trees resolve against the working directory (proj/ below), so the fixture carries one
+    // editor-only file per marked subtree — the real ones — or the editor-only check below could not fail.
+    fs::create_directories( proj / "Resources" / "Shaders" / "Editor" );
+    fs::copy_file( repo / "Editor" / "Resources" / "Shaders" / "Editor" / "Grid.shader",
+                   proj / "Resources" / "Shaders" / "Editor" / "Grid.shader" );
+    fs::create_directories( proj / "Resources" / "Icons" / "Gizmo" );
+    fs::copy_file( repo / "Editor" / "Resources" / "Icons" / "Gizmo" / "camera.svg",
+                   proj / "Resources" / "Icons" / "Gizmo" / "camera.svg" );
+
+    SetEnv( "HOME", base.string() );
+    fs::current_path( proj );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
+    ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
+
+    const auto result = Desert::Editor::BuildContentPak();
+    ASSERT_TRUE( result.Success ) << result.Message;
+
+    const fs::path cooked = Common::DDC::PlatformCookedDir();
+    EXPECT_EQ( cooked, ( proj / "Saved" / "Cooked" / Common::DDC::CookPlatformName() ).lexically_normal() );
+    std::map<std::string, fs::path> tree;
+    for ( const auto& entry : fs::recursive_directory_iterator( cooked ) )
+        if ( entry.is_regular_file() )
+            tree.emplace( entry.path().lexically_relative( cooked ).generic_string(), entry.path() );
+    ASSERT_FALSE( tree.empty() ) << "the cook wrote nothing into " << cooked.string();
+
+    // 1. The archive is the cooked tree.
+    const Common::Utils::PakReader reader( proj / "Content.dpak" );
+    ASSERT_TRUE( reader.IsOpen() ) << reader.OpenError();
+    // The chunk manifest is the one entry the archive writer derives itself (from the plan it is dividing
+    // by); every other key is a file of the cooked tree.
+    std::vector<std::string> archived = reader.KeysWithPrefix( "" );
+    std::erase( archived, std::string( Common::Content::CHUNK_MANIFEST_KEY ) );
+    for ( const std::string& key : archived )
+    {
+        const auto file = tree.find( key );
+        ASSERT_NE( file, tree.end() ) << "'" << key << "' is in the archive but not in the cooked tree";
+        const auto bytes = Common::Utils::FileSystem::ReadFileContent( file->second );
+        ASSERT_TRUE( bytes.IsSuccess() ) << bytes.GetError();
+        EXPECT_EQ( reader.Read( key ), std::optional<std::string>( bytes.GetValue() ) )
+             << "'" << key << "' was packed from somewhere other than the cooked tree";
+    }
+    for ( const auto& [key, path] : tree )
+        EXPECT_NE( std::find( archived.begin(), archived.end(), key ), archived.end() )
+             << "'" << key << "' was cooked but not packed";
+    EXPECT_EQ( tree.count( "Assets/Meshes/raw.fbx" ), 0u ) << "a raw mesh source reached the cooked tree";
+    EXPECT_EQ( tree.count( std::string( Desert::Project::kPackagedDescriptorName ) ), 1u );
+    EXPECT_EQ( tree.count( "Cooked/AssetRegistry.dreg" ), 1u );
+    // THE INPUTS: the project's own content (resolved through the .deproj — AssetsRoot "GameAssets" here,
+    // shipped as "Assets/") and the project's Cooked tree, plus the engine RUNTIME trees; nothing else.
+    const std::array<std::string, 5> inputs = { "Assets/", "Cooked/", "Resources/Shaders/", "Resources/Fonts/",
+                                                "Resources/Icons/" };
+    for ( const auto& [key, path] : tree )
+    {
+        if ( key == Desert::Project::kPackagedDescriptorName )
+            continue;
+        EXPECT_TRUE( std::any_of( inputs.begin(), inputs.end(),
+                                  [&]( const std::string& prefix ) { return key.starts_with( prefix ); } ) )
+             << "'" << key
+             << "' reached the cooked tree from outside the project roots and the engine runtime "
+                "trees";
+    }
+    std::size_t editorOnlySources = 0;
+    for ( const Desert::Editor::PackagedTree& input : Desert::Editor::PackagedContentTrees() )
+    {
+        if ( input.EditorOnlySubtree == nullptr )
+            continue;
+        const fs::path marked = *input.Tree / input.EditorOnlySubtree;
+        if ( fs::is_directory( marked ) && !fs::is_empty( marked ) )
+            ++editorOnlySources;
+        for ( const auto& [key, path] : tree )
+            EXPECT_FALSE( key.starts_with( std::string( input.PakKey ) + "/" + input.EditorOnlySubtree + "/" ) )
+                 << "'" << key << "' is an editor-only resource in the cooked tree";
+    }
+    EXPECT_EQ( editorOnlySources, 2u ) << "the fixture has no editor-only file to keep out, so the check above "
+                                          "proves nothing";
+    EXPECT_EQ( tree.count( "Assets/Textures/T_Checker.detex" ), 1u )
+         << "the project's asset was not cooked from the root its .deproj declares";
+
+    // 2. Every shipped registry row has its cooked file, and none names an editor-only resource (the dev registry
+    // has the fixture's Grid.shader row; the one the archive carries must not).
+    const auto shippedText = Common::Utils::FileSystem::ReadFileContent( tree.at( "Cooked/AssetRegistry.dreg" ) );
+    ASSERT_TRUE( shippedText.IsSuccess() ) << shippedText.GetError();
+    const auto shippedRegistry = Common::Utils::AssetRegistry::Parse( shippedText.GetValue() );
+    ASSERT_TRUE( shippedRegistry.IsSuccess() ) << shippedRegistry.GetError();
+    const Common::Utils::AssetRegistry& registry = shippedRegistry.GetValue();
+    ASSERT_GT( registry.Count(), 0u );
+    ASSERT_GT( Desert::Assets::ContentRegistry::Get().Count(), registry.Count() )
+         << "the dev registry has no editor-only row, so the shipped registry's filter is untested";
+    for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+    {
+        EXPECT_FALSE( Desert::Editor::IsEditorOnlyResource( Common::AssetHandle::PathForStableKey( row.Key ) ) )
+             << row.Key << " is an editor-only resource named by the shipped registry";
+        const auto colon = row.Key.find( ':' );
+        ASSERT_NE( colon, std::string::npos ) << row.Key;
+        ASSERT_EQ( row.Key.substr( 0, colon ), "assets" )
+             << row.Key << ": the fixture holds project assets only; map the new root";
+        EXPECT_EQ( tree.count( "Assets/" + row.Key.substr( colon + 1 ) ), 1u )
+             << row.Key << " is a registry row with no cooked file";
+    }
+
+    // 3. No editor-only envelope section in anything cooked.
+    for ( const auto& [key, path] : tree )
+    {
+        const auto bytes = Common::Utils::FileSystem::ReadFileContent( path );
+        ASSERT_TRUE( bytes.IsSuccess() ) << bytes.GetError();
+        if ( !bytes.GetValue().starts_with( "DAST" ) )
+            continue;
+        const auto header = Common::Content::ReadEnvelopeHeader(
+             std::as_bytes( std::span<const char>( bytes.GetValue() ) ),
+             Common::Content::AssetHeaderReadContext{ {}, /*RecordOnly=*/true } );
+        ASSERT_TRUE( header.IsSuccess() ) << key << ": " << header.GetError();
+        EXPECT_FALSE( header.GetValue().Find( Common::Content::EnvelopeSection::Source ) ) << key;
+        EXPECT_FALSE( header.GetValue().Find( Common::Content::EnvelopeSection::ImportInfo ) ) << key;
+    }
+
+    // 4. One cooked location: the retired texture stage stays gone.
+    EXPECT_FALSE( fs::exists( proj / "Saved" / "CookedAssets" ) );
+    fs::current_path( repo );
+    fs::remove_all( base );
 }

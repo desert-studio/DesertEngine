@@ -10,8 +10,8 @@
 
 namespace Desert::Assets
 {
-    CloudLayoutAsset::CloudLayoutAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::CloudLayout )
+    CloudLayoutAsset::CloudLayoutAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::CloudLayout )
     {
         // THE LAYOUT'S IDENTITY IS ITS ENVELOPE GUID (container 2), adopted HERE rather than in the load,
         // for the mesh's reason: the asset manager keys its handle lookup at creation. Only the envelope

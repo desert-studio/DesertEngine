@@ -9,8 +9,8 @@
 
 namespace Desert::Assets
 {
-    ControlRigAsset::ControlRigAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::ControlRig )
+    ControlRigAsset::ControlRigAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::ControlRig )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
 

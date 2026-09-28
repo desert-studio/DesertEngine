@@ -719,9 +719,8 @@ namespace Desert::Assets::Serialization
         // corrupt file and must not read like one.
         return Common::MakeFormattedError<MeshAssetData>(
              "'{}' does not carry the cooked-mesh magic, so it predates the binary container. Cooked "
-             "content is derived and is not migrated: delete it and cook again "
-             "(`cd Editor && ../build/Bin/Debug/AssetRegistryTool cook Desert.deproj`, or re-import the "
-             "source mesh).",
+             "content is derived and is not migrated: delete it and re-import the source mesh, "
+             "or package again (the packager's cook rewrites every cooked mesh).",
              std::string( whatFor ) );
     }
 } // namespace Desert::Assets::Serialization
