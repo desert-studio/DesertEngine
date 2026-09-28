@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "5f59c3f577927209875f5c8a89232890",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -91,6 +91,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,

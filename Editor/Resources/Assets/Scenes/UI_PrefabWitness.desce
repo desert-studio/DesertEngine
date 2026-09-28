@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "449124a6534e5b6bfed671446ad8fa4c",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -19,16 +19,16 @@
             "Scale": [1.0, 1.0, 1.0],
             "UICanvas": {
                 "ScaleMode": 2,
+                "RenderMode": 0,
+                "WorldScale": 400.0,
                 "ReferenceWidth": 1280.0,
                 "ReferenceHeight": 720.0,
                 "MatchWidthHeight": 0.5,
-                "Visible": true,
-                "RenderMode": 0,
-                "WorldScale": 400.0,
                 "Sprite": {
                     "Guid": "",
                     "Path": ""
                 },
+                "Visible": true,
                 "SortOrder": 0,
                 "SafeArea": [0.0, 0.0, 0.0, 0.0],
                 "Theme": "",
@@ -88,6 +88,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,

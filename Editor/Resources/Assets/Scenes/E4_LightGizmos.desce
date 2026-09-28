@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "5e2ad3f663a0567a6001699f3d26291d",
         "Versions": {
-            "SCNE": 38,
+            "SCNE": 39,
             "UNIT": 1
         },
         "Dependencies": []
@@ -72,6 +72,14 @@
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
                 "Intensity": 1.0,
+                "AtmosphereSunLight": true,
+                "AtmosphereSunLightIndex": 0,
+                "AffectedByAtmosphereTransmittance": true,
+                "LightShaftBloom": false,
+                "BloomScale": 0.20000000298023224,
+                "BloomThreshold": 0.0,
+                "BloomMaxBrightness": 100.0,
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "ShadowBias": 0.004999999888241291,
                 "CascadeSplitLambda": 0.6000000238418579
@@ -127,11 +135,12 @@
             "Rotation": [-1.5707999467849731, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SpotLight": {
-                "Color": [0.2, 1.0, 0.3],
+                "Color": [0.20000000298023224, 1.0, 0.30000001192092896],
                 "Intensity": 40.0,
                 "Range": 1500.0,
                 "InnerConeAngle": 14.0,
                 "OuterConeAngle": 26.0,
+                "Falloff": 1,
                 "ShowCone": true
             }
         },
@@ -144,6 +153,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
+                "Extent": [500.0, 500.0, 500.0],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
                 "Settings": {
                     "EnableSSAO": true,
                     "GlobalIllumination": 1,
