@@ -29,7 +29,7 @@ namespace
         block["GrassMode"] = rfl::Generic( 0 );
         block["RockMode"]  = rfl::Generic( 1 );
         block["SnowMode"]  = rfl::Generic( 1 );
-        return rfl::Generic( std::move( block ) );
+        return { std::move( block ) };
     }
 
     rfl::Generic::Object BlockOf( const rfl::ExtraFields<rfl::Generic>& components )
@@ -102,7 +102,7 @@ TEST( SceneLandscapeLayerModesMigration, CorpusLandscapesStateOnlyTheKeptFields 
     {
         if ( entry.path().extension() != ".desce" )
             continue;
-        std::ifstream     in( entry.path(), std::ios::binary );
+        const std::ifstream in( entry.path(), std::ios::binary );
         std::stringstream text;
         text << in.rdbuf();
         const auto scene = rfl::json::read<Migration::SceneSerialized>( text.str() );

@@ -120,7 +120,10 @@ TEST( LandscapeLayerInfo, RefusesAnotherVersion )
     for ( const uint32_t stated : { 2u, 4u } )
     {
         LandscapeLayerInfoData data = StampedGrass();
+        ASSERT_TRUE( data.Header.has_value() );
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         ASSERT_FALSE( data.Header->Versions.empty() );
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         for ( auto& [tag, version] : data.Header->Versions )
             version = stated;
         const std::string why = Refusal( data );
@@ -141,7 +144,7 @@ TEST( LandscapeLayerInfo, TheCorpusLayerInfosParse )
     {
         if ( entry.path().extension() != ".delayerinfo" )
             continue;
-        std::ifstream     in( entry.path(), std::ios::binary );
+        const std::ifstream in( entry.path(), std::ios::binary );
         std::stringstream text;
         text << in.rdbuf();
         const auto parsed = ParseLandscapeLayerInfo( text.str() );
