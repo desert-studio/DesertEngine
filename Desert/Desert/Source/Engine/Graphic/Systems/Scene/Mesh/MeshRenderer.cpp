@@ -326,7 +326,7 @@ namespace Desert::Graphic::System
             if ( g.SlotMaterial )
             {
                 material   = dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial );
-                if ( material )
+                if ( material != nullptr )
                     shaderName = material->GetShaderName();
             }
 
@@ -414,8 +414,9 @@ namespace Desert::Graphic::System
             // NAMED ONCE PER SHADER, for the reason the domain refusal above gives: this runs per frame
             // per submesh group. The cache remembers the refusal itself, so the rebuild happens once;
             // this set is only about the log line.
-            const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial(
-                 GenericPipelineSpec( shader, targetFb, useLoadPass ) );
+            GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, targetFb, useLoadPass );
+            spec.DebugName                     = "GenericMesh_" + shader->GetName();
+            const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
             if ( built )
             {
                 TrackMaterialPipeline( shaderName, *built.GetValue() );
@@ -651,7 +652,7 @@ namespace Desert::Graphic::System
 
     GraphicsPipelineSpecification MeshRenderer::GenericPipelineSpec( const std::shared_ptr<Shader>&      shader,
                                                                      const std::shared_ptr<Framebuffer>& target,
-                                                                     const bool useLoadPass ) const
+                                                                     const bool useLoadPass )
     {
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "GenericMesh_" + shader->GetName();
@@ -720,8 +721,9 @@ namespace Desert::Graphic::System
                            kDefaultSurface );
             return nullptr;
         }
-        const auto built =
-             m_SceneRenderer->GetPipelineCache().GetOrCreate( GenericPipelineSpec( shader, target, useLoadPass ) );
+        GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, target, useLoadPass );
+        spec.DebugName                     = "DefaultSurfaceFallback";
+        const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !built )
         {
             static bool s_Refused = false;

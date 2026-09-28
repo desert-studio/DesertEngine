@@ -107,7 +107,7 @@ namespace Desert::Graphic
             m_Rows[shaderName].State = MaterialPipelineState::Failed;
         }
 
-        std::optional<MaterialPipelineState> StateOf( const std::string& shaderName ) const
+        [[nodiscard]] std::optional<MaterialPipelineState> StateOf( const std::string& shaderName ) const
         {
             const auto it = m_Rows.find( shaderName );
             if ( it == m_Rows.end() )
@@ -136,7 +136,7 @@ namespace Desert::Graphic
             return { false, announce };
         }
 
-        size_t Count( const MaterialPipelineState state ) const
+        [[nodiscard]] size_t Count( const MaterialPipelineState state ) const
         {
             size_t n = 0;
             for ( const auto& [name, row] : m_Rows )

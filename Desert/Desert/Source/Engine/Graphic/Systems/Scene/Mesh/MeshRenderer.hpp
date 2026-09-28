@@ -397,9 +397,9 @@ namespace Desert::Graphic::System
         // Material pipelines on demand (AL1-12). The spec a data-driven material draws with in this renderer;
         // the requests made when materials LOADED, turned into worker compiles; the engine's default surface,
         // which is what a draw uses until its own pipeline is Ready.
-        GraphicsPipelineSpecification GenericPipelineSpec( const std::shared_ptr<Shader>&      shader,
-                                                           const std::shared_ptr<Framebuffer>& target,
-                                                           bool                                useLoadPass ) const;
+        [[nodiscard]] static GraphicsPipelineSpecification
+        GenericPipelineSpec( const std::shared_ptr<Shader>& shader, const std::shared_ptr<Framebuffer>& target,
+                             bool useLoadPass );
         void PrecacheRequestedMaterials( const std::shared_ptr<Framebuffer>& target, bool useLoadPass );
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline( const std::shared_ptr<Framebuffer>& target,
