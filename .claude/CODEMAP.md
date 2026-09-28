@@ -26,18 +26,18 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Assets/Shader` — 2 files, 164 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Audio` — 2 files, 278 lines: AudioEngine
-- `Core` — 40 files, 6,598 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+31)
+- `Core` — 40 files, 6,646 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+31)
 - `Core/Formats` — 9 files, 2,671 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MipLevelSpan, ShaderParam, ShaderProgramMeta, ShaderRenderState, TexelBlock
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 38 files, 10,075 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
+- `Core/Serialize` — 38 files, 10,112 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
 - `Core/ShaderCompiler` — 11 files, 1,438 lines: ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
 - `Core/ShaderCompiler/DShader` — 2 files, 1,670 lines: DShaderParseResult, DShaderParser, DShaderPass
 - `Core/ShaderCompiler/Includer` — 2 files, 244 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 138 lines: PreprocessedPass, ShaderPreprocess
 - `Core/Traits` — 1 files, 17 lines
-- `ECS` — 17 files, 4,598 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+118)
+- `ECS` — 17 files, 4,631 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
 - `ECS/System` — 23 files, 4,534 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, PhysicsECSSystem, … (+12)
-- `Generated` — 1 files, 736 lines
+- `Generated` — 1 files, 746 lines
 - `Geometry` — 71 files, 13,943 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+64)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,410 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
@@ -172,7 +172,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/PropertyEditor` — 8 files, 2,451 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder
 - `Panels/Scalability` — 2 files, 154 lines: ScalabilityPanel
 - `Panels/SceneHierarchy` — 3 files, 1,431 lines: EntityTypeInfo, SceneHierarchyPanel
-- `Panels/SceneProperties` — 5 files, 3,428 lines: ComponentEditor, ScenePropertiesPanel
+- `Panels/SceneProperties` — 5 files, 3,431 lines: ComponentEditor, ScenePropertiesPanel
 - `Panels/SceneProperties/ComponentWidgets` — 16 files, 3,046 lines: AnimationComponentWidget, IComponentWidget, MaterialComponentWidget, MaterialHost, PrefabComponentWidget, SkinnedMeshComponentWidget, SkyboxComponentWidget, SlotRow, SlotSwatch, StaticMeshComponentWidget, TransformComponentWidget
 - `Panels/SceneProperties/ComponentWidgets/Helper` — 2 files, 289 lines: Context, MeshDetailsWidget
 - `Panels/Sequencer` — 4 files, 3,491 lines: CurveViewport, SectionTarget, SequencerPanel
@@ -194,7 +194,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Widgets/UIHelper` — 4 files, 157 lines: UICacheTextureImGui, UIHelper
 
 ## Runtime — `Runtime/Source`
-- `.` — 7 files, 1,934 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
+- `.` — 7 files, 1,943 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
 - `Common` — 41 files, 6,654 lines
