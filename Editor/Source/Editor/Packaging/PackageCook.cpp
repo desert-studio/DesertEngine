@@ -1,4 +1,5 @@
 #include "PackageCook.hpp"
+#include "PackagedContentTrees.hpp"
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
@@ -45,7 +46,9 @@ namespace Desert::Editor
             {
                 std::string ext = candidate.extension().string();
                 std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-                if ( ext == ".shader" )
+                // An editor-only program (PackagedContentTrees.hpp) is not in the package, so it is not cooked for
+                // it.
+                if ( ext == ".shader" && !IsEditorOnlyResource( candidate ) )
                     out.push_back( candidate );
             }
             return out;
@@ -192,6 +195,8 @@ namespace Desert::Editor
                 for ( const auto& p : Common::Utils::FileSystem::ListFilesRecursive( *root ) )
                 {
                     if ( p.extension() != ".svg" ) // IconService::EnsurePreloaded's own filter
+                        continue;
+                    if ( IsEditorOnlyResource( p ) ) // not in the package, so not baked for it
                         continue;
 
                     const auto svgRead = Common::Utils::FileSystem::ReadByteFileContent( p );

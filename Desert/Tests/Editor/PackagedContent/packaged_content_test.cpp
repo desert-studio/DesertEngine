@@ -40,6 +40,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
+#include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
@@ -2075,6 +2076,14 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "GameAssets" / "Meshes" / "raw.fbx", "raw mesh source" );
     WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
+    // The engine resource trees resolve against the working directory (proj/ below), so the fixture carries one
+    // editor-only file per marked subtree — the real ones — or the editor-only check below could not fail.
+    fs::create_directories( proj / "Resources" / "Shaders" / "Editor" );
+    fs::copy_file( repo / "Editor" / "Resources" / "Shaders" / "Editor" / "Grid.shader",
+                   proj / "Resources" / "Shaders" / "Editor" / "Grid.shader" );
+    fs::create_directories( proj / "Resources" / "Icons" / "Gizmo" );
+    fs::copy_file( repo / "Editor" / "Resources" / "Icons" / "Gizmo" / "camera.svg",
+                   proj / "Resources" / "Icons" / "Gizmo" / "camera.svg" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -2129,19 +2138,37 @@ TEST( PackagedContent, TheArchiveIsTheCookedTreeAndNothingElse )
              << "' reached the cooked tree from outside the project roots and the engine runtime "
                 "trees";
     }
+    std::size_t editorOnlySources = 0;
     for ( const Desert::Editor::PackagedTree& input : Desert::Editor::PackagedContentTrees() )
-        if ( input.EditorOnlySubtree != nullptr )
-            for ( const auto& [key, path] : tree )
-                EXPECT_NE( key.rfind( std::string( input.PakKey ) + "/" + input.EditorOnlySubtree + "/", 0 ), 0u )
-                     << "'" << key << "' is an editor-only resource in the cooked tree";
+    {
+        if ( input.EditorOnlySubtree == nullptr )
+            continue;
+        const fs::path marked = *input.Tree / input.EditorOnlySubtree;
+        if ( fs::is_directory( marked ) && !fs::is_empty( marked ) )
+            ++editorOnlySources;
+        for ( const auto& [key, path] : tree )
+            EXPECT_NE( key.rfind( std::string( input.PakKey ) + "/" + input.EditorOnlySubtree + "/", 0 ), 0u )
+                 << "'" << key << "' is an editor-only resource in the cooked tree";
+    }
+    EXPECT_EQ( editorOnlySources, 2u ) << "the fixture has no editor-only file to keep out, so the check above "
+                                          "proves nothing";
     EXPECT_EQ( tree.count( "Assets/Textures/T_Checker.detex" ), 1u )
          << "the project's asset was not cooked from the root its .deproj declares";
 
-    // 2. Every shipped registry row has its cooked file.
-    const auto& registry = Desert::Assets::ContentRegistry::Get();
+    // 2. Every shipped registry row has its cooked file, and none names an editor-only resource (the dev registry
+    // has the fixture's Grid.shader row; the one the archive carries must not).
+    const auto shippedText = Common::Utils::FileSystem::ReadFileContent( tree.at( "Cooked/AssetRegistry.dreg" ) );
+    ASSERT_TRUE( shippedText.IsSuccess() ) << shippedText.GetError();
+    const auto shippedRegistry = Common::Utils::AssetRegistry::Parse( shippedText.GetValue() );
+    ASSERT_TRUE( shippedRegistry.IsSuccess() ) << shippedRegistry.GetError();
+    const Common::Utils::AssetRegistry& registry = shippedRegistry.GetValue();
     ASSERT_GT( registry.Count(), 0u );
+    ASSERT_GT( Desert::Assets::ContentRegistry::Get().Count(), registry.Count() )
+         << "the dev registry has no editor-only row, so the shipped registry's filter is untested";
     for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
     {
+        EXPECT_FALSE( Desert::Editor::IsEditorOnlyResource( Common::AssetHandle::PathForStableKey( row.Key ) ) )
+             << row.Key << " is an editor-only resource named by the shipped registry";
         const auto colon = row.Key.find( ':' );
         ASSERT_NE( colon, std::string::npos ) << row.Key;
         ASSERT_EQ( row.Key.substr( 0, colon ), "assets" )

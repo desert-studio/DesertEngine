@@ -21,6 +21,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/PeImports.hpp>
@@ -99,8 +100,7 @@ namespace Desert::Editor
                     error = "cannot relativize " + src.string() + ": " + ec.message();
                     return false;
                 }
-                if ( tree.EditorOnlySubtree != nullptr && rel.begin() != rel.end() &&
-                     *rel.begin() == tree.EditorOnlySubtree )
+                if ( IsEditorOnlyResource( src ) )
                     continue;
                 const std::string key = keyPrefix + "/" + rel.generic_string();
                 // A registry left on the disk from before the registry built itself (AF9) is not staged:
@@ -231,7 +231,16 @@ namespace Desert::Editor
                     return false;
 
             std::vector<std::pair<std::string, std::string>> pinned;
-            pinned.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
+            // The registry ships without the rows of editor-only resources: they are not staged, and a row
+            // naming a file the archive lacks is a load the game would attempt and fail at every start.
+            Common::Utils::AssetRegistry shipped = Assets::ContentRegistry::Get();
+            std::vector<std::string>     editorOnlyRows;
+            for ( const Common::Utils::AssetRegistryEntry& row : shipped.Entries() )
+                if ( IsEditorOnlyResource( Common::AssetHandle::PathForStableKey( row.Key ) ) )
+                    editorOnlyRows.push_back( row.Key );
+            for ( const std::string& key : editorOnlyRows )
+                shipped.Remove( key );
+            pinned.emplace_back( ShippedRegistryKey(), shipped.Serialize() );
             if ( !CollectCookedWorlds( staged, pinned, error ) )
                 return false;
             // A dev pak that carried content but no identity was an archive only the other entry point's
