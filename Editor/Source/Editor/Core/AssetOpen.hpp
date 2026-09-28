@@ -47,12 +47,12 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::CloudLayout:
             case Assets::AssetTypeID::Skybox:
             case Assets::AssetTypeID::Mesh: // static meshes; a `.skmesh` is refused by name in AssetSubjectFor
+            case Assets::AssetTypeID::Animation: // the Animation Editor (ANV1a)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
             case Assets::AssetTypeID::Shader:
             case Assets::AssetTypeID::Skeleton:
-            case Assets::AssetTypeID::Animation:
             case Assets::AssetTypeID::Prefab:
             case Assets::AssetTypeID::UITheme:
             case Assets::AssetTypeID::StringTable:
