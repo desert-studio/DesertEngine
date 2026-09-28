@@ -52,4 +52,14 @@ namespace Desert::Assets
     // together: WritePrefabJson(tree) must always satisfy ParseLoadablePrefab.
     [[nodiscard]] Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab );
 
+    // The same writer for a prefab that already HAS an identity (PrefabAsset::Serialize): @p identity is
+    // the header GUID written, whatever @p prefab carries, so re-saving a prefab never mints a new GUID and
+    // a foliage type or scene naming the old one keeps resolving. A null identity (no file has held this
+    // prefab yet) is minted by the stamp, as above.
+    [[nodiscard]] Common::ResultStr<std::string> WritePrefabJson( PrefabData                        prefab,
+                                                                  const Common::Content::AssetGuid& identity );
+
+    // The GUID a prefab's header states; null when it states none or not a readable one.
+    [[nodiscard]] Common::Content::AssetGuid PrefabStatedGuid( const PrefabData& prefab );
+
 } // namespace Desert::Assets

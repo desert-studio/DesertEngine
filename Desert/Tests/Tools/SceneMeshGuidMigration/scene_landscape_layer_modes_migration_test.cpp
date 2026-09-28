@@ -121,8 +121,13 @@ TEST( SceneLandscapeLayerModesMigration, CorpusLandscapesStateOnlyTheKeptFields 
             const auto first = layers.value().to_array().value().at( 0 ).to_object().value().get( "Path" );
             EXPECT_EQ( first.value().to_string().value(), "Landscape/Layers/Ground.delayerinfo" ) << entry.path();
             if ( const auto look = e.Components.get( "LandscapeMaterial" ) )
-                for ( const auto& [key, value] : look.value().to_object().value() )
+            {
+                // Bound first: iterating `look.value().to_object().value()` directly walks an object owned by
+                // a temporary that dies before the loop body (ASan: stack-use-after-scope).
+                const auto lookBlock = look.value().to_object().value();
+                for ( const auto& [key, value] : lookBlock )
                     EXPECT_TRUE( keptLook.contains( key ) ) << entry.path() << ": LandscapeMaterial." << key;
+            }
         }
     }
     // G3_TwoTerrains (2), Terrain_Grass, Terrain_MatProbe.

@@ -116,94 +116,107 @@ namespace Desert::Geometry::VoxelBlockout
             return a.V[i] == b.V[j] && ( a.V[i] == 0 || a.Axis == b.Axis );
         }
 
-        // Face f of `a` and the opposite face of its same-layer neighbour `b` lie in one plane, and when the
-        // offset axis runs IN that plane each is a column between two straight lines along it: a ramp's side
-        // next to a flat block, the wall of a sloped wall's neighbour. Those two faces overlap only partly, so
-        // neither is hidden nor shown whole - the bake shows each one's part the other does not cover
-        // (ColumnPieces). Returns that axis, or -1 when the all-or-nothing rule of FaceHidden applies.
-        int ColumnAxis( const Cell& a, const Cell& b, int f )
+        // A convex polygon in a face's plane coordinates: in-plane axes (n+1)%3 and (n+2)%3, cell-relative.
+        using Poly2 = std::vector<glm::vec2>;
+
+        float SignedArea( const Poly2& p )
         {
-            const bool da = !a.IsFlat();
-            const bool db = !b.IsFlat();
-            if ( ( !da && !db ) || ( da && db && a.Axis != b.Axis ) )
-                return -1;
-            const int axis = da ? a.Axis : b.Axis;
-            return axis == FaceNormalAxis( f ) ? -1 : axis;
+            float a = 0.0f;
+            for ( size_t i = 0; i < p.size(); ++i )
+            {
+                const glm::vec2& u = p[i];
+                const glm::vec2& w = p[( i + 1 ) % p.size()];
+                a += u.x * w.y - w.x * u.y;
+            }
+            return 0.5f * a;
         }
 
-        // The part of face f of `a` (at cell `c`, edge `unit`, FRAME space) that `b`'s opposite face does not
-        // cover, as quads in f's winding; `axis` is ColumnAxis. Along the plane's other axis s both faces'
-        // bottoms and tops are straight lines, so the uncovered part is at most one piece below `b` and one
-        // above it per stretch of s between the points where two of those four lines cross.
-        std::vector<std::array<glm::vec3, 4>> ColumnPieces( const glm::ivec3& c, const Cell& a, const Cell& b,
-                                                            int f, int axis, float unit )
+        // The part of convex `p` on the left of the line through e0 -> e1 (or on its right).
+        Poly2 ClipHalfPlane( const Poly2& p, const glm::vec2& e0, const glm::vec2& e1, bool keepLeft )
         {
-            const int n    = FaceNormalAxis( f );
-            const int sAx  = 3 - n - axis;
-            const int nBit = 1 << n;
-            const int side = ( kFaceCorner[f][0] & nBit ) != 0 ? nBit : 0;
-            auto      off  = []( const Cell& cell, int i )
-            { return static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen ); };
-            auto corner = [&]( int s, int t )
-            { return side | ( s != 0 ? 1 << sAx : 0 ) | ( t != 0 ? 1 << axis : 0 ); };
-            // Lines over s in [0, 1] as (value at 0, value at 1): bottom and top of a, then of b.
-            std::array<glm::vec2, 4> line;
-            for ( int t = 0; t < 2; ++t )
+            const glm::vec2 e    = e1 - e0;
+            auto            side = [&]( const glm::vec2& x )
             {
-                line[t]     = { static_cast<float>( t ) + off( a, corner( 0, t ) ),
-                                static_cast<float>( t ) + off( a, corner( 1, t ) ) };
-                line[2 + t] = { static_cast<float>( t ) + off( b, corner( 0, t ) ^ nBit ),
-                                static_cast<float>( t ) + off( b, corner( 1, t ) ^ nBit ) };
-            }
-            auto at = [&]( int l, float s ) { return glm::mix( line[l].x, line[l].y, s ); };
-
-            std::vector<float> cuts{ 0.0f, 1.0f };
-            for ( int i = 0; i < 4; ++i )
-                for ( int j = i + 1; j < 4; ++j )
-                {
-                    const float d0 = line[i].x - line[j].x;
-                    const float d1 = line[i].y - line[j].y;
-                    if ( ( d0 < 0.0f ) != ( d1 < 0.0f ) && d0 != d1 )
-                        if ( const float s = d0 / ( d0 - d1 ); s > 1e-5f && s < 1.0f - 1e-5f )
-                            cuts.push_back( s );
-                }
-            std::ranges::sort( cuts );
-
-            auto point = [&]( float s, float t )
-            {
-                glm::vec3 p( c );
-                p[n] += side != 0 ? 1.0f : 0.0f;
-                p[sAx] += s;
-                p[axis] += t;
-                return p * unit;
+                const glm::vec2 d = x - e0;
+                const float     s = e.x * d.y - e.y * d.x;
+                return keepLeft ? s : -s;
             };
-            const glm::vec3                       outward = kFace[f][0].N;
-            std::vector<std::array<glm::vec3, 4>> pieces;
-            for ( size_t k = 0; k + 1 < cuts.size(); ++k )
+            Poly2 out;
+            for ( size_t i = 0; i < p.size(); ++i )
             {
-                const float s0 = cuts[k];
-                const float s1 = cuts[k + 1];
-                if ( s1 - s0 < 1e-5f )
-                    continue;
-                const float sm = 0.5f * ( s0 + s1 );
-                // Below b: a's bottom up to the lower of a's top and b's bottom. Above b: the higher of a's bottom
-                // and b's top up to a's top. No two lines cross inside the stretch, so the line picked at its
-                // middle is the bound along all of it.
-                const int belowTop = at( 1, sm ) < at( 2, sm ) ? 1 : 2;
-                const int aboveBot = at( 0, sm ) > at( 3, sm ) ? 0 : 3;
-                for ( const auto& [lo, hi] : { std::pair{ 0, belowTop }, std::pair{ aboveBot, 1 } } )
+                const glm::vec2& a  = p[i];
+                const glm::vec2& b  = p[( i + 1 ) % p.size()];
+                const float      sa = side( a );
+                const float      sb = side( b );
+                if ( sa >= 0.0f )
+                    out.push_back( a );
+                if ( ( sa > 0.0f && sb < 0.0f ) || ( sa < 0.0f && sb > 0.0f ) )
+                    out.push_back( a + ( b - a ) * ( sa / ( sa - sb ) ) );
+            }
+            return out;
+        }
+
+        // Face f of `a` and the opposite face of its same-layer neighbour `b`, when no corner of either has moved
+        // off their common plane and at least one of them is deformed: the two faces then overlap only partly -
+        // a ramp's side next to a flat block, the wall of a sloped wall's neighbour, two slopes along different
+        // axes side by side - so neither is hidden nor shown whole, and each shows the part the other does not
+        // cover. Both faces are convex (each corner moves along one axis, a face spans two straight lines), so
+        // a's face minus b's is a's face cut by the half-planes of b's edges: one convex piece outside each edge
+        // and inside the ones before it. Returns those pieces, or nullopt when the all-or-nothing rule of
+        // FaceHidden applies (both flat, or a corner off the plane: the faces do not lie on each other).
+        std::optional<std::vector<Poly2>> UncoveredPieces( const Cell& a, const Cell& b, int f )
+        {
+            if ( a.IsFlat() && b.IsFlat() )
+                return std::nullopt;
+            const int n        = FaceNormalAxis( f );
+            const int a0       = ( n + 1 ) % 3;
+            const int a1       = ( n + 2 ) % 3;
+            const int bit      = kFaceAxisBit[f];
+            auto      facePoly = [&]( const Cell& cell, bool neighbour, Poly2& out )
+            {
+                for ( int k = 0; k < 4; ++k )
                 {
-                    if ( at( hi, sm ) - at( lo, sm ) <= 1e-5f )
-                        continue;
-                    std::array<glm::vec3, 4> q{ point( s0, at( lo, s0 ) ), point( s1, at( lo, s1 ) ),
-                                                point( s1, std::max( at( hi, s1 ), at( lo, s1 ) ) ),
-                                                point( s0, std::max( at( hi, s0 ), at( lo, s0 ) ) ) };
-                    const glm::vec3          nrm =
-                         glm::cross( q[1] - q[0], q[3] - q[0] ) + glm::cross( q[3] - q[2], q[1] - q[2] );
-                    if ( glm::dot( nrm, outward ) < 0.0f )
-                        std::swap( q[1], q[3] );
-                    pieces.push_back( q );
+                    const int   i   = neighbour ? ( kFaceCorner[f][k] ^ bit ) : kFaceCorner[f][k];
+                    const float off = static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen );
+                    if ( off != 0.0f && cell.Axis == n )
+                        return false;
+                    glm::vec2 q( static_cast<float>( ( i >> a0 ) & 1 ), static_cast<float>( ( i >> a1 ) & 1 ) );
+                    if ( off != 0.0f )
+                        q[cell.Axis == a0 ? 0 : 1] += off;
+                    if ( out.empty() || glm::length( q - out.back() ) > 1e-5f )
+                        out.push_back( q );
                 }
+                if ( out.size() > 1 && glm::length( out.back() - out.front() ) <= 1e-5f )
+                    out.pop_back();
+                if ( SignedArea( out ) < 0.0f )
+                    std::ranges::reverse( out );
+                return true;
+            };
+            Poly2 A;
+            Poly2 B;
+            if ( !facePoly( a, false, A ) || !facePoly( b, true, B ) )
+                return std::nullopt;
+
+            constexpr float    kEps = 1e-6f;
+            std::vector<Poly2> pieces;
+            if ( A.size() < 3 || SignedArea( A ) <= kEps )
+                return pieces;
+            if ( B.size() < 3 || SignedArea( B ) <= kEps )
+            {
+                pieces.push_back( A );
+                return pieces;
+            }
+            Poly2 inside = A;
+            for ( size_t i = 0; i < B.size() && inside.size() >= 3; ++i )
+            {
+                const glm::vec2& e0  = B[i];
+                const glm::vec2& e1  = B[( i + 1 ) % B.size()];
+                Poly2            out = ClipHalfPlane( inside, e0, e1, false );
+                if ( out.size() >= 3 && SignedArea( out ) > kEps )
+                    pieces.push_back( std::move( out ) );
+                inside = ClipHalfPlane( inside, e0, e1, true );
+                if ( SignedArea( inside ) <= kEps )
+                    break;
             }
             return pieces;
         }
@@ -637,11 +650,152 @@ namespace Desert::Geometry::VoxelBlockout
                 quads.push_back( q );
         };
 
-        auto columnAxis = []( const CellMap& cells, const glm::ivec3& c, const Cell& cell, int f )
+        auto uncovered = []( const CellMap& cells, const glm::ivec3& c, const Cell& cell,
+                             int f ) -> std::optional<std::vector<Poly2>>
         {
             const auto it = cells.find( Pack( c + kNeighbor[f] ) );
-            return it == cells.end() ? -1 : ColumnAxis( cell, it->second, f );
+            if ( it == cells.end() )
+                return std::nullopt;
+            return UncoveredPieces( cell, it->second, f );
         };
+        // One piece of UncoveredPieces as quads (and a last triangle) fanned from its first corner, facing out.
+        auto emitPiece =
+             [&]( const glm::ivec3& c, int f, const Poly2& piece, float lu, const GridFrame& lf, int material )
+        {
+            const int n  = FaceNormalAxis( f );
+            const int a0 = ( n + 1 ) % 3;
+            const int a1 = ( n + 2 ) % 3;
+            auto      at = [&]( const glm::vec2& q )
+            {
+                glm::vec3 p( c );
+                p[n] += ( kFaceCorner[f][0] & ( 1 << n ) ) != 0 ? 1.0f : 0.0f;
+                p[a0] += q.x;
+                p[a1] += q.y;
+                return p * lu;
+            };
+            // Counter-clockwise in (a0, a1) faces +n; a face on the low side looks along -n.
+            const bool flip = kFace[f][0].N[n] < 0.0f;
+            for ( size_t k = 1; k + 1 < piece.size(); k += 2 )
+            {
+                const size_t k2 = std::min( k + 2, piece.size() - 1 );
+                glm::vec3    p[4]{ at( piece[0] ), at( piece[k] ), at( piece[k + 1] ), at( piece[k2] ) };
+                if ( flip )
+                    std::swap( p[1], p[3] );
+                emitQuad( material, p, kFace[f][0].N, UvFrame( f ), lf, false );
+            }
+        };
+        // Mixed Block Sizes (M10c). A coarse face that a FINER layer's blocks sit against is neither hidden nor
+        // shown whole: SolidAt reads the coarser layers only, so the fine blocks' faces towards it are culled
+        // while it stayed whole underneath them - doubled where they touch, and their side walls ending on its
+        // inside with no partner edge. UE's Cube Grid keeps one grid per piece and joins pieces at commit
+        // through a mesh boolean (CubeGridBooleanOp); on our lattices that union is exact without one: the
+        // finer lattice divides the coarse one, so the coarse face is cut into fine squares and only the
+        // squares no fine flat block covers are shown. The T-junction pass below then conforms the edges.
+        struct LayerView
+        {
+            const CellMap* Cells;
+            float          Unit;
+            GridFrame      Frame;
+        };
+        std::vector<LayerView> layers;
+        layers.push_back( { &m_Cells, m_Unit, m_Frame } );
+        for ( const Layer& l : m_Frozen )
+            layers.push_back( { &l.Cells, l.Unit, l.Frame } );
+
+        // Face f of the flat cell c of a layer (edge lu, frame lf), split into R x R squares on the finest
+        // lattice that divides lu among the other layers of that frame: `covered` gets one flag per square
+        // (U fastest). Returns 0 when nothing finer touches the face, 1 when part of it is covered, 2 when all
+        // of it is. A fine DEFORMED block covers nothing - its face towards us is not culled either.
+        struct Coverage
+        {
+            int               State = 0;
+            int               R     = 1;
+            std::vector<bool> Covered;
+        };
+        auto coverage = [&]( const glm::ivec3& c, int f, float lu, const GridFrame& lf )
+        {
+            Coverage out;
+            float    finest = lu;
+            for ( const LayerView& l : layers )
+                if ( !l.Cells->empty() && l.Unit > 0.0f && l.Unit < lu * 0.999f && l.Frame.SameAs( lf ) )
+                    finest = std::min( finest, l.Unit );
+            if ( finest >= lu )
+                return out;
+            const int R = static_cast<int>( std::lround( lu / finest ) );
+            if ( std::abs( lu - static_cast<float>( R ) * finest ) > 0.001f * lu )
+                return out;
+            out.R = R;
+            out.Covered.assign( static_cast<size_t>( R ) * R, false );
+
+            const VoxelFaceAxes ax    = FaceAxes( f );
+            const glm::vec3     unitP = kFace[f][0].P + 0.5f;
+            glm::ivec3          g     = c * R;
+            g[ax.Normal]              = unitP[ax.Normal] > 0.5f ? ( c[ax.Normal] + 1 ) * R : c[ax.Normal] * R - 1;
+            int count                 = 0;
+            for ( int j = 0; j < R; ++j )
+                for ( int i = 0; i < R; ++i )
+                {
+                    glm::ivec3 q = g;
+                    q[ax.U] += i;
+                    q[ax.V] += j;
+                    for ( const LayerView& l : layers )
+                    {
+                        if ( l.Cells->empty() || l.Unit >= lu * 0.999f || !l.Frame.SameAs( lf ) )
+                            continue;
+                        const int Rl = static_cast<int>( std::lround( l.Unit / finest ) );
+                        if ( Rl < 1 || std::abs( l.Unit - static_cast<float>( Rl ) * finest ) > 0.001f * l.Unit )
+                            continue;
+                        const auto it = l.Cells->find(
+                             Pack( { FloorDiv( q.x, Rl ), FloorDiv( q.y, Rl ), FloorDiv( q.z, Rl ) } ) );
+                        if ( it != l.Cells->end() && it->second.IsFlat() )
+                        {
+                            out.Covered[static_cast<size_t>( j ) * R + i] = true;
+                            ++count;
+                            break;
+                        }
+                    }
+                }
+            if ( count == 0 )
+                out.State = 0;
+            else if ( count == R * R )
+                out.State = 2;
+            else
+                out.State = 1;
+            return out;
+        };
+        // The uncovered squares of a partly covered face, one quad per run along U in each row of V.
+        auto emitUncovered =
+             [&]( const glm::ivec3& c, int f, const Coverage& cov, float lu, const GridFrame& lf, int material )
+        {
+            const VoxelFaceAxes ax = FaceAxes( f );
+            const int           R  = cov.R;
+            for ( int j = 0; j < R; ++j )
+                for ( int i = 0; i < R; )
+                {
+                    if ( cov.Covered[static_cast<size_t>( j ) * R + i] )
+                    {
+                        ++i;
+                        continue;
+                    }
+                    int end = i;
+                    while ( end < R && !cov.Covered[static_cast<size_t>( j ) * R + end] )
+                        ++end;
+                    glm::vec3 p[4];
+                    for ( int k = 0; k < 4; ++k )
+                    {
+                        const glm::vec3 unitP = kFace[f][k].P + 0.5f;
+                        glm::vec3       gp( c );
+                        gp[ax.Normal] += unitP[ax.Normal];
+                        gp[ax.U] += ( static_cast<float>( i ) + unitP[ax.U] * static_cast<float>( end - i ) ) /
+                                    static_cast<float>( R );
+                        gp[ax.V] += ( static_cast<float>( j ) + unitP[ax.V] ) / static_cast<float>( R );
+                        p[k] = gp * lu;
+                    }
+                    emitQuad( material, p, kFace[f][0].N, UvFrame( f ), lf, false );
+                    i = end;
+                }
+        };
+
         auto emitLayer = [&]( const CellMap& cells, float lu, const GridFrame& lf )
         {
             // FLAT cells go through greedy meshing: a 20x8 blockout wall becomes ONE quad instead of 160.
@@ -659,7 +813,7 @@ namespace Desert::Geometry::VoxelBlockout
                  {
                      const auto it = cells.find( Pack( c ) );
                      return it != cells.end() && !FaceHidden( cells, c, it->second, f, lu, lf ) &&
-                            columnAxis( cells, c, it->second, f ) < 0;
+                            !uncovered( cells, c, it->second, f ) && coverage( c, f, lu, lf ).State == 0;
                  },
                  [&]( const glm::ivec3& c, int f ) -> uint64_t { return cells.at( Pack( c ) ).Mat[f]; } );
 
@@ -690,15 +844,19 @@ namespace Desert::Geometry::VoxelBlockout
                 {
                     if ( FaceHidden( cells, c, cell, f, lu, lf ) ) // only Solid/Empty borders
                         continue;
-                    if ( const int axis = columnAxis( cells, c, cell, f ); axis >= 0 )
+                    if ( const auto pieces = uncovered( cells, c, cell, f ) )
                     {
-                        const Cell& other = cells.at( Pack( c + kNeighbor[f] ) );
-                        for ( const auto& piece : ColumnPieces( c, cell, other, f, axis, lu ) )
-                            emitQuad( cell.Mat[f], piece.data(), kFace[f][0].N, UvFrame( f ), lf, false );
+                        for ( const Poly2& piece : *pieces )
+                            emitPiece( c, f, piece, lu, lf, cell.Mat[f] );
                         continue;
                     }
                     if ( cell.IsFlat() )
-                        continue; // greedy-meshed above
+                    {
+                        // Greedy-meshed above, unless finer blocks cover part of it.
+                        if ( const Coverage cov = coverage( c, f, lu, lf ); cov.State == 1 )
+                            emitUncovered( c, f, cov, lu, lf, cell.Mat[f] );
+                        continue;
+                    }
                     // Corner Mode can slant a quad, so the normal comes from the actual corners.
                     glm::vec3 p[4];
                     for ( int k = 0; k < 4; ++k )
