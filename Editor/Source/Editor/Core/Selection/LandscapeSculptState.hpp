@@ -261,6 +261,17 @@ namespace Desert::Editor::Core
         std::optional<glm::vec3>              CopyCornerB;
         World::Landscape::LandscapeCopyBuffer CopyBuffer;
 
+        /// Why a stroke cannot start in the current mode, or nothing. The palette asks BEFORE it queues a stroke:
+        /// the queued stroke runs frames later, so its own refusal reached only a toast while the control
+        /// channel had already answered ok (GR-1b: 48 "ok" strokes, no weight written).
+        [[nodiscard]] std::optional<std::string> StrokeRefusal() const
+        {
+            if ( Mode == LandscapeEdMode::Paint && Paint.Layer.empty() )
+                return std::string( "landscape paint: no target layer is selected; pick one under Target Layers "
+                                    "or run 'Landscape: Target layer: <name>'" );
+            return std::nullopt;
+        }
+
         static LandscapeSculptState& Get()
         {
             static LandscapeSculptState s_State;
