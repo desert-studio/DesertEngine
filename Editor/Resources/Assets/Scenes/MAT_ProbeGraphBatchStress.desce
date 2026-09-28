@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "b966c401a84137d2e2e40fd8c38b9f57",
         "Versions": {
-            "SCNE": 39,
+            "SCNE": 40,
             "UNIT": 1
         },
         "Dependencies": []
@@ -31,7 +31,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Camera": {
-                "IsMainCamera": true,
+                "AutoActivateForPlayer": true,
                 "FOV": 45.0,
                 "Near": 10.0,
                 "Far": 5000000.0
@@ -23783,6 +23783,10 @@
     "Settings": {
         "RenderingPath": 0,
         "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashSprite": {
             "Guid": "",
             "Path": ""
