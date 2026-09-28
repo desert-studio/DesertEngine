@@ -353,10 +353,10 @@ namespace
     {
         std::set<std::string> changed;
         for ( const auto& [file, bytes] : after )
-            if ( before.count( file ) == 0 || before.at( file ) != bytes )
+            if ( !before.contains( file ) || before.at( file ) != bytes )
                 changed.insert( file );
         for ( const auto& [file, bytes] : before )
-            if ( after.count( file ) == 0 )
+            if ( !after.contains( file ) )
                 changed.insert( file );
         return changed;
     }
@@ -369,7 +369,7 @@ namespace
 
 TEST( ExternalEntities, AnEditorSaveAfterEditingOneEntityRewritesThatEntitysFileAlone )
 {
-    TempWorld world;
+    const TempWorld world;
     ASSERT_TRUE( EE::WriteSceneFile( world.Scene, Doc( World() ) ) );
 
     // Open and save with nothing edited: not one byte moves.
@@ -402,7 +402,7 @@ TEST( ExternalEntities, AnEditorSaveAfterEditingOneEntityRewritesThatEntitysFile
 
 TEST( ExternalEntities, AnEditorSaveAfterADeleteRemovesTheFileAndUndoThenSaveBringsBackEveryByte )
 {
-    TempWorld world;
+    const TempWorld world;
     ASSERT_TRUE( EE::WriteSceneFile( world.Scene, Doc( World() ) ) );
     EditorSession session( world.Scene );
     const auto    pristine = Snapshot( world.Dir );
@@ -436,7 +436,7 @@ TEST( ExternalEntities, AnEditorSaveAfterADeleteRemovesTheFileAndUndoThenSaveBri
 // that was removed takes its entity folder with it, so no piece outlives the layout that needed it.
 TEST( ExternalEntities, AnUnpartitionedSceneIsWrittenWholeAndLeavesNoEntityFolder )
 {
-    TempWorld         world;
+    const TempWorld   world;
     const std::string partitioned = World();
     const std::string plain       = partitioned.substr( 0, partitioned.find( R"(,"WorldPartition")" ) ) + "}";
     ASSERT_TRUE( EE::WriteSceneFile( world.Scene, Doc( partitioned ) ) );

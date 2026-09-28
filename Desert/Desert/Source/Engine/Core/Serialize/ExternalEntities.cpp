@@ -99,7 +99,7 @@ namespace Desert::Core::ExternalEntities
                 return Common::MakeError( onDisk.GetError() );
             for ( const std::filesystem::path& piece : onDisk.GetValue() )
             {
-                if ( claimed.count( piece.lexically_normal().generic_string() ) != 0 )
+                if ( claimed.contains( piece.lexically_normal().generic_string() ) )
                     continue;
                 std::error_code ec;
                 if ( !std::filesystem::remove( piece, ec ) || ec )

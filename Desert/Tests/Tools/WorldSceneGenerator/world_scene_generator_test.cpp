@@ -578,6 +578,8 @@ namespace
         Desert::Core::SceneSettings values;
         Common::Json::Issues        issues;
         Desert::Reflection::DeserializeReflected(
+             // tree.Settings is checked by the ASSERT_TRUE above.
+             // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
              *type, &values, Common::Json::Root( *tree.Settings, Common::Json::Path().Key( "Settings" ) ), issues,
              &resolver );
         EXPECT_TRUE( issues.empty() );
@@ -634,7 +636,7 @@ TEST( WorldSceneGenerator, OpeningAndSavingAGeneratedWorldWithNoEditChangesNoFil
     ASSERT_EQ( after.size(), generated.size() );
     std::size_t differing = 0;
     for ( const auto& [file, bytes] : generated )
-        if ( after.count( file ) == 0 || after.at( file ) != bytes )
+        if ( !after.contains( file ) || after.at( file ) != bytes )
             ++differing;
     EXPECT_EQ( differing, 0u );
 }

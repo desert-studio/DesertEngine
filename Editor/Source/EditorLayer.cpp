@@ -2454,7 +2454,12 @@ namespace Desert::Editor
                     const auto after = Core::WriteSelectionTransform( before, request.Property, request.Value );
                     if ( !after )
                         return Control::Response::Failure( request.Id, after.GetError() );
-                    ECS::Entity entity = m_MainScene->FindEntityByID( uuid )->get();
+                    const auto ref = m_MainScene->FindEntityByID( uuid );
+                    if ( !ref )
+                        return Control::Response::Failure(
+                             request.Id, fmt::format( "the selected entity {} is not in the scene",
+                                                      static_cast<uint64_t>( uuid ) ) );
+                    const ECS::Entity entity = ref->get();
                     auto&       tc     = entity.GetComponent<ECS::TransformComponent>();
                     tc.Translation     = after.GetValue().Translation;
                     tc.Rotation        = after.GetValue().Rotation;
@@ -2562,17 +2567,18 @@ namespace Desert::Editor
     Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> EditorLayer::SelectedTransform() const
     {
         using Result = std::pair<Common::UUID, Core::SelectionTransform>;
-        if ( Core::SelectionManager::Count() != 1 || !Core::SelectionManager::GetSelected().has_value() )
+        const auto selected = Core::SelectionManager::GetSelected();
+        if ( Core::SelectionManager::Count() != 1 || !selected.has_value() )
             return Common::MakeFormattedError<Result>(
                  "the selection subject is one selected entity, and {} are selected. Select one first: 'run "
                  "Entity <tag>'.",
                  Core::SelectionManager::Count() );
-        const Common::UUID uuid = *Core::SelectionManager::GetSelected();
+        const Common::UUID uuid = *selected;
         const auto         ref  = m_MainScene ? m_MainScene->FindEntityByID( uuid ) : std::nullopt;
         if ( !ref )
             return Common::MakeFormattedError<Result>( "the selected entity {} is not in the scene",
                                                        static_cast<uint64_t>( uuid ) );
-        ECS::Entity entity = ref->get();
+        const ECS::Entity entity = ref->get();
         if ( !entity.HasComponent<ECS::TransformComponent>() )
             return Common::MakeFormattedError<Result>( "the selected entity {} has no transform",
                                                        static_cast<uint64_t>( uuid ) );
