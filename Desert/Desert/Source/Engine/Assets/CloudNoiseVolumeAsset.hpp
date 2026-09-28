@@ -24,7 +24,7 @@ namespace Desert::Assets
     class CloudNoiseVolumeAsset final : public AssetBase
     {
     public:
-        CloudNoiseVolumeAsset( AssetPriority priority, const Common::Filepath& filepath );
+        CloudNoiseVolumeAsset( const Common::Filepath& filepath );
 
         /// Reads and decodes the container. A file that is missing, truncated, corrupt or from an unknown
         /// version is an ERROR carrying the reason and the numbers — never a quietly empty volume, because

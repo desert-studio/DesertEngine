@@ -15,8 +15,8 @@
 
 namespace Desert::Assets
 {
-    StringTableAsset::StringTableAsset( const AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::StringTable )
+    StringTableAsset::StringTableAsset( const Common::Filepath& filepath )
+         : AssetBase( filepath, AssetTypeID::StringTable )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
 

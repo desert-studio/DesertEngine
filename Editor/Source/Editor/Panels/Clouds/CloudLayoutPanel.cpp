@@ -1729,7 +1729,7 @@ namespace Desert::Editor
         if ( painting )
             painting->Load(); // overwritten in place: re-read so the cached bytes are new
         else
-            painting = m_Assets->CreateAsset<Assets::CloudLayoutAsset>( Assets::AssetPriority::Medium, target );
+            painting = m_Assets->CreateAsset<Assets::CloudLayoutAsset>( target );
 
         if ( !painting )
             return true;

@@ -8,8 +8,7 @@
 
 namespace Desert::Assets
 {
-    TextureAsset::TextureAsset( AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::Texture2D )
+    TextureAsset::TextureAsset( const Common::Filepath& filepath ) : AssetBase( filepath, AssetTypeID::Texture2D )
     {
         // THE TEXTURE'S IDENTITY IS ITS HEADER GUID, adopted HERE and not in the load (as the mesh does,
         // MeshAsset.hpp): the asset manager keys its handle lookup at creation, so a handle adopted by Load

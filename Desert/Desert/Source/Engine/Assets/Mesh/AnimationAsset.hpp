@@ -11,7 +11,7 @@ namespace Desert::Assets
     class AnimationAsset : public AssetBase
     {
     public:
-        AnimationAsset( const AssetPriority priority, const Common::Filepath& filepath );
+        AnimationAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

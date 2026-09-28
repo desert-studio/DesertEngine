@@ -136,8 +136,7 @@ namespace Desert::Runtime::Factory
             auto nested = assetManager.FindByPath<Assets::PrefabAsset>( *data.PrefabPath );
             if ( !nested )
             {
-                nested = mutableAssets.CreateAsset<Assets::PrefabAsset>( Assets::AssetPriority::High,
-                                                                         *data.PrefabPath );
+                nested = mutableAssets.CreateAsset<Assets::PrefabAsset>( *data.PrefabPath );
             }
             if ( !nested )
             {

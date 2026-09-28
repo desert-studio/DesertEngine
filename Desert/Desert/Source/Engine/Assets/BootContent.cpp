@@ -45,7 +45,7 @@ namespace Desert::Assets
             ReportItem( progress, path.filename().string(), count, rows.size() );
 
             const auto created = std::chrono::steady_clock::now();
-            auto       shader  = manager->CreateAsset<ShaderAsset>( AssetPriority::Medium, path );
+            auto       shader  = manager->CreateAsset<ShaderAsset>( path );
             assetMs +=
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - created ).count();
             // NULL IS A REACHABLE ANSWER: CreateAsset returns nullptr when the parse fails (it logs why), and one

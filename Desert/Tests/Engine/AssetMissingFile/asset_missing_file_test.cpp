@@ -72,7 +72,7 @@ TEST( AssetMissingFile, SurfaceMaterialLoadsCanonicalDefaults )
     const fs::path path = MissingPath( "brand_new.demat" );
     ASSERT_FALSE( fs::exists( path ) );
 
-    Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SurfaceMaterialAsset material( path );
     const auto                           result = material.Load();
 
     // The branch's own comment: a missing .demat is a NEW material — usable, editable, re-savable.
@@ -88,7 +88,7 @@ TEST( AssetMissingFile, CloudTypeLoadRefusesWithTheReason )
     const fs::path path = MissingPath( "gone.decloudtype" );
     ASSERT_FALSE( fs::exists( path ) );
 
-    Desert::Assets::CloudTypeAsset type( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::CloudTypeAsset type( path );
     const auto                     result = type.Load();
 
     // The header's contract: missing is an ERROR carrying the reason — never a quiet default type.
@@ -106,7 +106,7 @@ TEST( AssetMissingFile, AnUnparseableMaterialLoadsUsableAndRefusesToSaveOverItsF
 {
     const fs::path path = PathWith( "corrupt.demat", "{ this is not json" );
 
-    Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SurfaceMaterialAsset material( path );
     const auto                           result = material.Load();
 
     // Deliberately still a success and still usable: AssetManager::CreateAsset drops an asset whose
@@ -130,7 +130,7 @@ TEST( AssetMissingFile, AnUnparseableMaterialLoadsUsableAndRefusesToSaveOverItsF
 TEST( AssetMissingFile, AMaterialWithoutAShaderResolvesToTheStandardSurface )
 {
     const fs::path                       path = MissingPath( "no_shader.demat" );
-    Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SurfaceMaterialAsset material( path );
     ASSERT_TRUE( material.Load().IsSuccess() );
 
     EXPECT_FALSE( material.Data().Shader.has_value() );
@@ -146,7 +146,7 @@ TEST( AssetMissingFile, AParsedMaterialSavesNormally )
          "fine.demat",
          R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
-    Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SurfaceMaterialAsset material( path );
     ASSERT_TRUE( material.Load().IsSuccess() );
 
     const auto saved = material.Save();
@@ -177,7 +177,7 @@ TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParame
     for ( const float bad : { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
                               -std::numeric_limits<float>::infinity() } )
     {
-        Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+        Desert::Assets::SurfaceMaterialAsset material( path );
         ASSERT_TRUE( material.Load().IsSuccess() );
 
         material.Data().SetParam( "Coverage", glm::vec4( bad, 0.0f, 0.0f, 0.0f ) );
@@ -194,7 +194,7 @@ TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParame
     // zero here, which is what the editor writes — the point of the control is that an ORDINARY material
     // still saves after the guard exists.
     {
-        Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+        Desert::Assets::SurfaceMaterialAsset material( path );
         ASSERT_TRUE( material.Load().IsSuccess() );
         material.Data().SetParam( "Coverage", glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
         const auto saved = material.Save();
@@ -211,7 +211,7 @@ TEST( AssetMissingFile, ABrandNewMaterialSavesNormally )
 {
     const fs::path path = MissingPath( "brand_new_saves.demat" );
 
-    Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SurfaceMaterialAsset material( path );
     ASSERT_TRUE( material.Load().IsSuccess() );
 
     EXPECT_TRUE( material.Save().IsSuccess() );
@@ -228,7 +228,7 @@ TEST( AssetMissingFile, SkyboxLoadRefusesAPanoramaThatIsNotThere )
     const fs::path path = MissingPath( "gone.hdr" );
     ASSERT_FALSE( fs::exists( path ) );
 
-    Desert::Assets::SkyboxAsset skybox( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SkyboxAsset skybox( path );
     const auto                  result = skybox.Load();
 
     ASSERT_FALSE( result.IsSuccess() );
@@ -242,7 +242,7 @@ TEST( AssetMissingFile, SkyboxLoadAcceptsAPanoramaThatIsThere )
 {
     const fs::path path = PathWith( "present.hdr", "not really an HDR, and Load does not read it" );
 
-    Desert::Assets::SkyboxAsset skybox( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SkyboxAsset skybox( path );
     EXPECT_TRUE( skybox.Load().IsSuccess() );
     EXPECT_TRUE( skybox.IsReadyForUse() );
 
@@ -256,7 +256,7 @@ TEST( AssetMissingFile, SkyboxStagingNamesTheFileThatIsNoPanorama )
 {
     const fs::path path = PathWith( "junk.detex", "not a cooked texture container" );
 
-    Desert::Assets::SkyboxAsset skybox( Desert::Assets::AssetPriority::Medium, path );
+    Desert::Assets::SkyboxAsset skybox( path );
     ASSERT_TRUE( skybox.Load().IsSuccess() );
     const auto staged = skybox.Staged();
     ASSERT_NE( staged, nullptr ) << "Load ran on the worker and staged nothing";

@@ -17,8 +17,7 @@
 
 namespace Desert::Assets
 {
-    PrefabAsset::PrefabAsset( const AssetPriority priority, const Common::Filepath& filepath )
-         : AssetBase( priority, filepath, AssetTypeID::Prefab )
+    PrefabAsset::PrefabAsset( const Common::Filepath& filepath ) : AssetBase( filepath, AssetTypeID::Prefab )
     {
         if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
              !identity.Guid.IsNull() )
@@ -148,14 +147,14 @@ namespace Desert::Assets
         // survives; a new path is captured into a draft that only exists to be written.
         Asset<PrefabAsset>         registered = assetManager.FindByPath<PrefabAsset>( file );
         std::optional<PrefabAsset> draft;
-        PrefabAsset&               target = registered ? *registered : draft.emplace( AssetPriority::High, file );
+        PrefabAsset&               target = registered ? *registered : draft.emplace( file );
         target.CreateFromEntity( root, assetManager );
         if ( const auto written = target.SaveTo( file ); !written )
             return Common::MakeError<Asset<PrefabAsset>>( written.GetError() );
         if ( registered )
             return Common::MakeSuccess( std::move( registered ) );
 
-        Asset<PrefabAsset> created = assetManager.CreateAsset<PrefabAsset>( AssetPriority::High, file );
+        Asset<PrefabAsset> created = assetManager.CreateAsset<PrefabAsset>( file );
         if ( !created )
             return Common::MakeFormattedError<Asset<PrefabAsset>>(
                  "prefab '{}' was written but does not load back; see the load error above", file.string() );

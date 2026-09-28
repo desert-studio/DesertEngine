@@ -26,7 +26,7 @@ namespace Desert::Assets
     class ControlRigAsset final : public AssetBase
     {
     public:
-        ControlRigAsset( AssetPriority priority, const Common::Filepath& filepath );
+        ControlRigAsset( const Common::Filepath& filepath );
 
         /// Reads and parses the file. A file that is missing, malformed, from an unknown format version or
         /// describing a rig the loader cannot honour is an ERROR carrying the reason — never a quietly

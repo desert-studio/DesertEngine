@@ -367,8 +367,7 @@ namespace Desert::Editor
                 if ( at == cooked.end() )
                     continue;
                 const std::filesystem::path dematPath = collectionDir / std::filesystem::path( step.Key );
-                auto asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High,
-                                                                            dematPath.generic_string(), false );
+                auto asset = mgr.CreateAsset<Assets::SurfaceMaterialAsset>( dematPath.generic_string(), false );
                 if ( !asset )
                 {
                     LOG_WARN( "[Collections] Could not create material asset {}", dematPath.string() );

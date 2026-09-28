@@ -15,7 +15,7 @@ namespace Desert::Assets
     class SurfaceMaterialAsset final : public MaterialAsset
     {
     public:
-        SurfaceMaterialAsset( AssetPriority priority, const Common::Filepath& filepath );
+        SurfaceMaterialAsset( const Common::Filepath& filepath );
 
         Common::BoolResultStr LoadFromFile() override;
         Common::BoolResultStr Unload() override;

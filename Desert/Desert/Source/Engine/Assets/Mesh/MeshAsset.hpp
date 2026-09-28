@@ -31,8 +31,7 @@ namespace Desert::Assets
         // cook) keeps the path-derived handle and a null Guid(); a malformed header does too, and the load
         // refuses it by name, so no mesh is ever READY under that handle. RecordOnly: identity is all this
         // needs, and the load judges the subsystem versions.
-        MeshAsset( const AssetPriority priority, const Common::Filepath& filepath, const AssetTypeID type )
-             : AssetBase( priority, filepath, type )
+        MeshAsset( const Common::Filepath& filepath, const AssetTypeID type ) : AssetBase( filepath, type )
         {
             // AN IMPORT SINCE AF4h HAS NO FILE AT THIS PATH (its envelope is in the DDC): its identity is the
             // import record beside the source (FIX8, Common/Content/ImportRecord.hpp) - the file the content

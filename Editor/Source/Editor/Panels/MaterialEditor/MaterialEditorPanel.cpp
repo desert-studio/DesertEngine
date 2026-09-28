@@ -1939,8 +1939,7 @@ namespace Desert::Editor
                     {
                         auto type = m_AssetManager->FindByPath<Assets::CloudTypeAsset>( path );
                         if ( !type )
-                            type = m_AssetManager->CreateAsset<Assets::CloudTypeAsset>(
-                                 Assets::AssetPriority::Medium, path );
+                            type = m_AssetManager->CreateAsset<Assets::CloudTypeAsset>( path );
                         if ( type && type->IsReadyForUse() && !type->Guid().IsNull() )
                         {
                             if ( const auto registered =
@@ -1958,8 +1957,7 @@ namespace Desert::Editor
                     {
                         auto painting = m_AssetManager->FindByPath<Assets::CloudLayoutAsset>( path );
                         if ( !painting )
-                            painting = m_AssetManager->CreateAsset<Assets::CloudLayoutAsset>(
-                                 Assets::AssetPriority::Medium, path );
+                            painting = m_AssetManager->CreateAsset<Assets::CloudLayoutAsset>( path );
                         if ( painting && painting->IsReadyForUse() && !painting->Guid().IsNull() )
                         {
                             if ( const auto registered =
