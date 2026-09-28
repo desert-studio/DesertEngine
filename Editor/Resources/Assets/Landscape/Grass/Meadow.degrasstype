@@ -3,9 +3,9 @@
         "Kind": "LandscapeGrassType",
         "Guid": "5e1a0c3b9d7f4e28a6b2c4d8f0e1a3b5",
         "Versions": {
-            "LGRT": 1
+            "LGRT": 2
         },
-        "Dependencies": ["ea82694eccb954bf22f7d1805b886f0b"]
+        "Dependencies": ["ea82694eccb954bf22f7d1805b886f0b", "cf22580eeea94b6cbe89928251ea42e1"]
     },
     "GrassVarieties": [
         {
@@ -13,14 +13,24 @@
                 "Guid": "ea82694eccb954bf22f7d1805b886f0b",
                 "Path": "Assets/Landscape/Grass/GrassBlade.stmesh"
             },
-            "GrassDensity": 200.0,
-            "StartCullDistance": 3000.0,
-            "EndCullDistance": 4000.0,
+            "Material": {
+                "Guid": "cf22580eeea94b6cbe89928251ea42e1",
+                "Path": "Assets/Materials/M_GrassBlade.demat"
+            },
+            "Wind": {
+                "Strength": 6.0,
+                "Speed": 0.6000000238418579,
+                "Height": 40.0,
+                "DirectionDegrees": 30.0
+            },
+            "GrassDensity": 600.0,
+            "StartCullDistance": 2500.0,
+            "EndCullDistance": 3500.0,
             "AllowedDensityRange": { "Min": 0.0, "Max": 1.0 },
-            "Scaling": "LockXY",
-            "ScaleX": { "Min": 0.03, "Max": 0.05 },
+            "Scaling": "Uniform",
+            "ScaleX": { "Min": 0.7, "Max": 1.2 },
             "ScaleY": { "Min": 1.0, "Max": 1.0 },
-            "ScaleZ": { "Min": 0.15, "Max": 0.4 },
+            "ScaleZ": { "Min": 1.0, "Max": 1.0 },
             "RandomRotation": true,
             "AlignToSurface": true,
             "CastDynamicShadow": false

@@ -354,6 +354,50 @@ TEST( LandscapeGrass, AGrassTypeRefusesWhatItCannotGrow )
     EXPECT_FALSE( ParseLandscapeGrassType( Common::Json::Write( stamped ) ) );
 }
 
+TEST( LandscapeGrass, AVarietyNamesItsMaterialAndWindAndTheHeaderStatesTheMaterial )
+{
+    constexpr const char*  kMaterialGuid = "99990000aaaabbbbccccddddeeeeffff";
+    LandscapeGrassTypeData data;
+    data.GrassVarieties                  = { Variety() };
+    data.GrassVarieties[0].Material      = { kMaterialGuid, "Assets/Materials/M_Blade.demat" };
+    data.GrassVarieties[0].Wind.Strength = 6.0f;
+    data.GrassVarieties[0].Wind.Speed    = 0.6f;
+    data.GrassVarieties[0].Wind.Height   = 40.0f;
+    const auto read                      = ParseLandscapeGrassType( WriteLandscapeGrassType( data ) );
+    ASSERT_TRUE( read ) << read.GetError();
+    EXPECT_EQ( read.GetValue().GrassVarieties, data.GrassVarieties );
+    const auto& header = read.GetValue().Header;
+    ASSERT_TRUE( header.has_value() );
+    // The meshes first, then the materials: the registry cooks the material with the type.
+    EXPECT_EQ(
+         header->Dependencies,
+         ( std::vector<std::string>{ kMeshGuid, kMaterialGuid } ) ); // NOLINT(bugprone-unchecked-optional-access)
+
+    LandscapeGrassTypeData halfMaterial = data;
+    halfMaterial.GrassVarieties[0].Material.Path.clear();
+    EXPECT_FALSE( ValidateLandscapeGrassTypeData( halfMaterial ) );
+
+    LandscapeGrassTypeData badWind        = data;
+    badWind.GrassVarieties[0].Wind.Height = 0.0f;
+    const auto refused                    = ValidateLandscapeGrassTypeData( badWind );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "Wind.Height" ), std::string::npos );
+}
+
+TEST( LandscapeGrass, AGrassTypeOfTheFirstGenerationIsRefusedByNumber )
+{
+    LandscapeGrassTypeData data;
+    data.GrassVarieties = { Variety() };
+    auto parsed         = ParseLandscapeGrassType( WriteLandscapeGrassType( data ) );
+    auto stamped        = parsed.ExtractValue();
+    ASSERT_TRUE( stamped.Header.has_value() );
+    for ( auto& [tag, version] : stamped.Header->Versions ) // NOLINT(bugprone-unchecked-optional-access)
+        version = 1u;
+    const auto refused = ParseLandscapeGrassType( Common::Json::Write( stamped ) );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( '1' ), std::string::npos );
+}
+
 TEST( LandscapeGrass, ALayerInfoNamesItsGrassAsItsOneDependency )
 {
     LandscapeLayerInfoData layer;
@@ -404,6 +448,10 @@ TEST( LandscapeGrass, TheShippedGrassTypeIsReadable )
     const auto        read = ParseLandscapeGrassType( text );
     ASSERT_TRUE( read ) << read.GetError();
     ASSERT_EQ( read.GetValue().GrassVarieties.size(), 1u );
-    EXPECT_TRUE(
-         std::filesystem::exists( root / "Editor/Resources" / read.GetValue().GrassVarieties[0].GrassMesh.Path ) );
+    const GrassVariety& meadow = read.GetValue().GrassVarieties[0];
+    EXPECT_TRUE( std::filesystem::exists( root / "Editor/Resources" / meadow.GrassMesh.Path ) );
+    // GR-2: the meadow draws its own material and sways.
+    EXPECT_TRUE( std::filesystem::exists( root / "Editor/Resources" / meadow.Material.Path ) )
+         << meadow.Material.Path;
+    EXPECT_GT( meadow.Wind.Strength, 0.0f );
 }

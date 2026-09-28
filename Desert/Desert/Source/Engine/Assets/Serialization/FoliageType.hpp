@@ -183,6 +183,9 @@ namespace Desert::Assets::Serialization
     std::optional<uint32_t> StatedFoliageTypeGeneration( const std::string& text );
 
     /// Rejects numbers the brush cannot honour, naming the field and the values.
+    /// Rejects a wind the sway cannot honour (negative or non-finite numbers), naming the field. Shared by every
+    /// asset that carries a FoliageWind (the foliage type, the landscape grass variety).
+    Common::BoolResultStr ValidateFoliageWind( const FoliageWind& wind );
     Common::BoolResultStr ValidateFoliageTypeData( const FoliageTypeData& data );
 
     /// Parses a `.defoliage`. A file without a header, of another version, of another kind, with a

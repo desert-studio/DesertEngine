@@ -4,14 +4,16 @@
 // FGrassVariety, ULandscapeGrassType::GrassVarieties), adapted: a plain struct read by reflect-cpp instead of a
 // UObject with UPROPERTY metadata; the mesh named by {Guid, Path} like every other reference in a text asset;
 // per-platform / per-quality numbers collapsed to one value (this engine has one quality level). Refused,
-// because nothing here could consume them (a field nothing reads is a dead setting): OverrideMaterials (the
-// ISM path draws one PBR slot and no slot list is authored for grass yet), MinLOD, bUseGrid/PlacementJitter
+// because nothing here could consume them (a field nothing reads is a dead setting): OverrideMaterials as a LIST
+// (the ISM path draws one PBR slot, so it is the single `Material`), MinLOD, bUseGrid/PlacementJitter
 // (the Halton placement is the one sequence ported — landscape analysis A8), bWeightAttenuatesMaxScale,
 // bAlignToTriangleNormals, bUseLandscapeLightmap, bReceivesDecals, bAffectDistanceFieldLighting,
 // bCastContactShadow, bKeepInstanceBufferCPUCopy, InstanceWorldPositionOffsetDisableDistance, ExcludedLandscapes
-// and bEnableDensityScaling.
+// and bEnableDensityScaling. Added (GR-2): the variety's wind, because UE's is the grass material's
+// SimpleGrassWind WPO and this engine's WPO parameters live with the instanced type (FO-7's FoliageWind).
 
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -35,6 +37,8 @@ namespace Desert::Assets::Serialization
      *
      *   1 - the text asset header (Kind "LandscapeGrassType", the GUID that IS the type's identity and handle,
      *       this number under `LGRT`, one Dependency per named mesh) and FGrassVariety's fields (GR-1).
+     *   2 - each variety names its `Material` (UE OverrideMaterials[0]) and its `Wind` (FO-7's FoliageWind);
+     *       the header's Dependencies state the materials after the meshes (GR-2). Version 1 is refused.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -74,6 +78,11 @@ namespace Desert::Assets::Serialization
     {
         /// The static mesh every instance draws (UE GrassMesh). Required: a variety without one is refused.
         AssetGuidRef GrassMesh;
+        /// The PBR material the instances draw with (UE OverrideMaterials[0]; the ISM path draws one slot). Empty
+        /// {Guid, Path}: the engine's default PBR surface, the same one an instanced mesh without slots draws.
+        AssetGuidRef Material;
+        /// How the blades sway: FO-7's world-position offset, drawn by the same instanced vertex stages.
+        FoliageWind Wind;
         /// Instances per 1000 x 1000 cm at weight 1 (UE GrassDensity; UE's tooltip says "per 10 square meters",
         /// its maths — LandscapeGrass.cpp:2070 — divides the extent product by 1000 twice).
         float GrassDensity = 400.0f;
