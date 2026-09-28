@@ -90,7 +90,7 @@
 #include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
-#include "Engine/World/Landscape/LandscapeHeightmapIO.hpp"
+#include <Editor/Import/LandscapeHeightmapIO.hpp>
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -7981,9 +7981,9 @@ namespace Desert::Editor
         ToolbarSeparator();
 
         // ---- Editor modes -----------------------------------------------------------------------
-        // Exactly the three EditorMode values the engine HAS. The mock also drew Landscape and Paint;
-        // those modes do not exist, and a button that switches to nothing is a dead setting whichever
-        // picture it came from.
+        // One button per EditorMode the editor HAS. Landscape joined when the Landscape mode landed
+        // (L1-L8, LS-10..15); the stale "three modes" comment hid it from the rail while the mode was
+        // reachable only through the palette. Paint is not a mode (it is the Landscape Paint tab).
         const EMode mode = Mode::Get();
         if ( ToolbarButton( ICON_MDI_CURSOR_DEFAULT_OUTLINE, "Select", mode == EMode::Select,
                             "Selection and transform tools" ) )
@@ -7995,6 +7995,10 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ToolbarButton( ICON_MDI_GRASS, "Foliage", mode == EMode::Foliage, "Paint instanced vegetation" ) )
             Mode::Set( EMode::Foliage );
+        ImGui::SameLine();
+        if ( ToolbarButton( ICON_MDI_TERRAIN, "Landscape", mode == EMode::Landscape,
+                            "Create, sculpt and paint landscapes" ) )
+            Mode::Set( EMode::Landscape );
         ToolbarSeparator();
 
         // ---- Transform tools --------------------------------------------------------------------

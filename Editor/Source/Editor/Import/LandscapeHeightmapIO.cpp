@@ -3,7 +3,7 @@
 // writer over stb's deflate (stb_image_write writes 8-bit PNG only); UE's warnings for 8-bit and colour PNGs are
 // refusals; the RAW .json sidecar is not ported; UE's FLandscapeImportData becomes ResultStr.
 
-#include <Engine/World/Landscape/LandscapeHeightmapIO.hpp>
+#include <Editor/Import/LandscapeHeightmapIO.hpp>
 
 #include <Engine/Assets/ContainerBytes.hpp>
 

@@ -20,6 +20,7 @@
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
@@ -237,7 +238,14 @@ namespace
         out = WalkContentTree();
         std::set<std::string> found;
         for ( const fs::path& file : out )
+        {
             found.insert( Common::AssetHandle::StableKeyForPath( file ) );
+            // An import record (FIX8) is the file that stands for an imported static mesh which has no file
+            // of its own: the gathered row is the mesh's `.stmesh` key, described from the record beside it.
+            if ( Common::Content::IsImportRecord( file ) )
+                found.insert(
+                     Common::AssetHandle::StableKeyForPath( Common::Content::MeshAssetOfImportRecord( file ) ) );
+        }
 
         for ( const AssetRegistryEntry& row : registry.Entries() )
             ASSERT_EQ( found.count( row.Key ), 1u )

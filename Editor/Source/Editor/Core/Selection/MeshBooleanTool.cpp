@@ -16,7 +16,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMeshXformOperations.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/MeshBooleanOperation.hpp>
 
 #include <Common/Core/Logger.hpp>

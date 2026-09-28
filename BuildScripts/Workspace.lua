@@ -111,6 +111,15 @@ workspace "Desert"
         preferredtoolarchitecture "x86_64"
     filter {}
 
+    -- /BIGOBJ FOR EVERY PROJECT, NOT PER PROJECT. MSVC caps an object file at 65279 sections (C1128) and a
+    -- template-heavy engine source crosses it wherever it is compiled: Desert and Editor had the flag, but
+    -- WorldCells.cpp (grown by FO-6) is also compiled straight into GamePackager, WorldCook and the
+    -- WorldCells / PackagedContent suites, and all four failed on dev (run 36349834210). Per-project flags
+    -- miss every new project that compiles an engine .cpp directly; the flag costs nothing at runtime.
+    filter "system:windows"
+        buildoptions { "/bigobj" }
+    filter {}
+
     -- Vendored code is not ours to fix, and its warnings would drown ours the moment they appeared.
     -- A path rule rather than `warnings "Off"` in each of the eleven ThirdParty project scripts,
     -- because the eleven do not cover it: `vk_mem_alloc.cpp`, `stb_image.cpp`, `stb_truetype.cpp`,
