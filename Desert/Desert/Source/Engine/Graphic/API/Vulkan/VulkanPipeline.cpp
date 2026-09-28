@@ -170,8 +170,9 @@ namespace Desert::Graphic::API::Vulkan
         Build( CompileOn::CallingThread );
     }
 
-    void VulkanPipeline::InvalidateAsync()
+    void VulkanPipeline::InvalidateAsync( const PipelineRole role )
     {
+        m_Role = role;
         Build( CompileOn::Worker );
     }
 
@@ -518,12 +519,12 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
         m_State.store( BuildState::Compiling, std::memory_order_release );
-        PipelineBuilds::Get().OnStarted();
+        PipelineBuilds::Get().OnStarted( m_Role );
         m_Compile = Common::JobSystem::Get().Async(
-             [this, device, pipelineCache]
+             [this, device, pipelineCache, role = m_Role]
              {
                  Compile( device, pipelineCache );
-                 PipelineBuilds::Get().OnFinished();
+                 PipelineBuilds::Get().OnFinished( role );
              } );
     }
 

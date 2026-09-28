@@ -192,6 +192,12 @@ TEST( LandscapeGenerator, RefusesWhatItCannotHonour )
 // multiplies it shows.
 TEST( LandscapeGenerator, TypicalMapTime )
 {
+#if !defined( NDEBUG )
+    // A wall-clock bound means something only in an optimized build. In Debug the same map took 60.2 s on the
+    // Windows CI runner (run #900) against the 60 s bound: the test measured the runner, not the generator,
+    // and cost a minute of every Debug job. Release and Shipping still hold the bound.
+    GTEST_SKIP() << "timing is held in optimized builds only";
+#endif
     LandscapeGenerateSettings s;
     s.Fill          = LandscapeGenerateFill::Noise;
     s.Erosion       = true;

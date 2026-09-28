@@ -7664,10 +7664,16 @@ namespace Desert::Editor
         // PSO1: the content pipelines went to workers; what they still cost the frame is this line.
         const auto& pipelines = Graphic::PipelineBuilds::Get();
         const auto  blocked   = pipelines.CallerBlocked();
-        LOG_INFO( "[Content] pipelines: {} compiled on workers; the frame was blocked {:.1f} ms in total, "
-                  "{:.2f} ms at most for one",
-                  pipelines.Started(), std::chrono::duration<double, std::milli>( blocked.Total ).count(),
-                  std::chrono::duration<double, std::milli>( blocked.Max ).count() );
+        // AL1-12: the gate waited for the engine's; material ones may still be compiling behind the default
+        // surface.
+        LOG_INFO(
+             "[Content] pipelines: {} engine compiled on workers before the reveal, {} material requested "
+             "on demand ({} still compiling); the frame was blocked {:.1f} ms in total, {:.2f} ms at most for one",
+             pipelines.Started( Graphic::PipelineRole::Engine ),
+             pipelines.Started( Graphic::PipelineRole::Material ),
+             pipelines.Pending( Graphic::PipelineRole::Material ),
+             std::chrono::duration<double, std::milli>( blocked.Total ).count(),
+             std::chrono::duration<double, std::milli>( blocked.Max ).count() );
     }
 
     // THE ONLY PLACE THE OS STILL SHOWS THIS WINDOW'S NAME. With the system frame gone the title is no

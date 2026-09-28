@@ -20,7 +20,8 @@ namespace Desert::Graphic::API::Vulkan
         virtual void Invalidate() override;
         // Everything but the driver compile on the calling thread; vkCreateGraphicsPipelines on the
         // JobSystem (PSO1). Until it lands, GetVkPipeline() is null and GetBuildState() is Compiling.
-        void         InvalidateAsync();
+        // @p role decides whether the reveal waits for it (PipelineBuilds): engine passes yes, materials no.
+        void         InvalidateAsync( PipelineRole role );
         virtual void Release() override;
 
         enum class BuildState : uint8_t
@@ -33,6 +34,22 @@ namespace Desert::Graphic::API::Vulkan
         BuildState GetBuildState() const
         {
             return m_State.load( std::memory_order_acquire );
+        }
+
+        // Unbuilt counts as Failed: a pipeline handed out unbuilt was refused, and its reason is logged.
+        [[nodiscard]] PipelineReadiness GetReadiness() const override
+        {
+            switch ( GetBuildState() )
+            {
+                case BuildState::Compiling:
+                    return PipelineReadiness::Compiling;
+                case BuildState::Built:
+                    return PipelineReadiness::Ready;
+                case BuildState::Unbuilt:
+                case BuildState::Failed:
+                    return PipelineReadiness::Failed;
+            }
+            return PipelineReadiness::Failed;
         }
 
         [[nodiscard]] virtual PipelineType GetType() const override { return PipelineType::Graphics; }
@@ -112,6 +129,7 @@ namespace Desert::Graphic::API::Vulkan
         // is built against; compatible with every render pass the graph builds for those formats.
         VkRenderPass                          m_CompatibleRenderPass = VK_NULL_HANDLE;
         std::atomic<BuildState>               m_State{ BuildState::Unbuilt };
+        PipelineRole                          m_Role = PipelineRole::Engine;
         std::future<void>                     m_Compile;
     };
 } // namespace Desert::Graphic::API::Vulkan

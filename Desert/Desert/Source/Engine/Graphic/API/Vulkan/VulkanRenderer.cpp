@@ -301,8 +301,9 @@ namespace Desert::Graphic::API::Vulkan
                                vulkanPipeline->GetVkPipeline() );
             return true;
         }
-        // Still in the driver (PSO1): not an error, and not drawn. PipelineBuilds counts it and the
-        // content gate waits for it, so no gated frame is shown with this draw missing.
+        // Still in the driver (PSO1): not an error, and not drawn. An ENGINE pipeline is counted by
+        // PipelineBuilds and the content gate waits for it, so no gated frame is shown with this draw missing;
+        // a MATERIAL draw never gets here compiling — MeshRenderer draws the default surface instead (AL1-12).
         if ( vulkanPipeline->GetBuildState() == VulkanPipeline::BuildState::Compiling )
             return false;
 
