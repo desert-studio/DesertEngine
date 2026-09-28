@@ -105,7 +105,7 @@ namespace
                R"("Versions":{"SCNE":31,"UNIT":1},"Dependencies":[]},"SceneName":"S","Entities":[
         {"id":1,"Tag":"Probe","StaticMesh":{"MeshPath":")" +
                meshPath + R"("}},
-        {"id":2,"Tag":"Inst","PrefabPath":"p.deprefab","PrefabOverrides":[{"Path":[],
+        {"id":2,"Tag":"Inst","PrefabPath":"p.deprefab","Translation":[0,0,0],"Rotation":[0,0,0],"Scale":[1,1,1],"PrefabOverrides":[{"Path":[],
           "SkinnedMesh":{"MeshPath":")" +
                meshPath + R"(","MeshGuid":""}}]},
         {"id":3,"Tag":"Named","InstancedStaticMesh":{"MeshPath":")" +
@@ -184,7 +184,8 @@ TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration
     EXPECT_LT( Migration::kSceneVersionFoliageTypes, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionLandscapeLayerRefs, Desert::Core::kSceneVersion );
     EXPECT_LT( Migration::kSceneVersionExternalEntities, Desert::Core::kSceneVersion );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionSceneSettingsHomes );
+    EXPECT_LT( Migration::kSceneVersionSceneSettingsHomes, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionInstanceTransforms );
 }
 
 namespace

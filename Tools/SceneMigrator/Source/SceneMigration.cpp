@@ -987,6 +987,65 @@ namespace Desert::Migration
         return report;
     }
 
+    InstanceTransformsReport MigrateInstanceTransformsV36ToV37( std::vector<Assets::EntityData>& entities,
+                                                                const std::filesystem::path&     assetsRoot )
+    {
+        InstanceTransformsReport report;
+        for ( Assets::EntityData& record : entities )
+        {
+            if ( Assets::MissingInstanceTransform( record ).empty() )
+                continue; // not an instance, or already states all three
+
+            const std::string site = ( record.id.has_value()
+                                            ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *record.id ) ) +
+                                                   "]"
+                                            : std::string( "Entities[?]" ) ) +
+                                     " > '" + *record.PrefabPath + "'";
+
+            const auto located = LocateMeshFile( *record.PrefabPath, assetsRoot );
+            if ( !located )
+            {
+                report.UnknownNames.push_back( site + ": " + located.GetError() );
+                continue;
+            }
+            std::ifstream      in( located.GetValue().File, std::ios::binary );
+            std::ostringstream text;
+            text << in.rdbuf();
+            const auto prefab = rfl::json::read<Assets::PrefabData>( text.str() );
+            if ( !prefab )
+            {
+                report.UnknownNames.push_back( site + ": the prefab file does not read: " + prefab.error().what() );
+                continue;
+            }
+            const auto root = std::find_if( prefab->Entities.begin(), prefab->Entities.end(),
+                                            [&]( const Assets::EntityData& e ) { return e.id == prefab->Root; } );
+            if ( root == prefab->Entities.end() )
+            {
+                report.UnknownNames.push_back( site + ": the prefab states no record for its Root " +
+                                               std::to_string( static_cast<uint64_t>( prefab->Root ) ) );
+                continue;
+            }
+
+            Assets::RootTransformOverride taken;
+            if ( record.PrefabOverrides.has_value() )
+            {
+                taken = Assets::TakeRootTransformOverride( *record.PrefabOverrides, { prefab->Root } );
+                if ( record.PrefabOverrides->empty() )
+                    record.PrefabOverrides.reset();
+            }
+            // The order the loader resolved it in before v37: the override over the prefab's root over the
+            // component's own default (TransformComponent: no offset, no turn, unit scale).
+            if ( !record.Translation.has_value() )
+                record.Translation = taken.Translation.value_or( root->Translation.value_or( glm::vec3( 0.0f ) ) );
+            if ( !record.Rotation.has_value() )
+                record.Rotation = taken.Rotation.value_or( root->Rotation.value_or( glm::vec3( 0.0f ) ) );
+            if ( !record.Scale.has_value() )
+                record.Scale = taken.Scale.value_or( root->Scale.value_or( glm::vec3( 1.0f ) ) );
+            ++report.Stated;
+        }
+        return report;
+    }
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -1028,6 +1087,22 @@ namespace Desert::Migration
         {
             report.SceneSettingsHomesRaised = true;
             report.SceneSettingsHomes       = MigrateSceneSettingsHomesV35ToV36( scene );
+        }
+
+        // Scene-only as well: a `.deprefab`'s nested instance keeps its root transform in its override, which
+        // its own file resolves; only a scene is read by a planner that sees one file.
+        if ( statedSceneVersion < kSceneVersionInstanceTransforms )
+        {
+            report.InstanceTransformsRaised = true;
+            report.InstanceTransforms       = MigrateInstanceTransformsV36ToV37( scene.Entities, assetsRoot );
+            if ( !report.InstanceTransforms.UnknownNames.empty() )
+            {
+                report.Refused = "'" + scene.SceneName + "': " +
+                                 std::to_string( report.InstanceTransforms.UnknownNames.size() ) +
+                                 " prefab instance(s) whose root transform cannot be stated: " +
+                                 report.InstanceTransforms.UnknownNames.front();
+                return report; // unstamped, as every refusal
+            }
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

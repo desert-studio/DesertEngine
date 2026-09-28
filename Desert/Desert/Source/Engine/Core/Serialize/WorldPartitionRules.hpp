@@ -58,8 +58,8 @@
 //
 // ── A COMPOSITE'S FOOTPRINT: WHAT THIS FILE CAN SEE, AND WHERE WP15 PLUGS IN ──────────────────────
 //
-// A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's are
-// not stored anywhere (see UnplacedPrefabInstances). So a footprint is the XZ rectangle around a set of
+// A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's in
+// the prefab's registry row (AL1-8a). So a footprint is the XZ rectangle around a set of
 // world-space POINTS, and `Detail::AppendFootprint` is the one place that decides which points a record
 // contributes. It knows six things, each stated where it is read, and a seventh is handled beside it
 // because it needs another record (a LANDSCAPE TILE: the rectangle its root's frame gives it, see
@@ -369,8 +369,8 @@ namespace Desert::Core::Rules
     {
         std::size_t              Anchor = kNoRecord; // first member in file order that hangs off nothing
         std::vector<std::size_t> Members;
-        // nullopt when no member has a known position — only unplaced prefab instances. Such a composite
-        // is put in the level-0 cell of the origin, which is wrong and is why they are listed.
+        // nullopt when no member has a known position — only refused prefab instances
+        // (UnplacedPrefabInstances). Such a composite is in NO cell and is not always loaded: it has no place.
         std::optional<CellBounds> Footprint;
 
         AlwaysLoadedReason Reason  = AlwaysLoadedReason::None;
@@ -395,14 +395,13 @@ namespace Desert::Core::Rules
         std::vector<ContainmentEdge>     Containment;
         std::vector<DanglingContainment> Dangling;
 
-        // RECORDS THIS FILE CANNOT PLACE, AND THEY ARE COUNTED RATHER THAN SILENTLY PUT AT THE ORIGIN.
+        // RECORDS THIS FILE CANNOT PLACE, AND THEY ARE LISTED RATHER THAN SILENTLY PUT AT THE ORIGIN.
         //
-        // A `.desce` record naming a prefab file carries NO transform: SceneSerializer strips the
-        // instance's translation, rotation and scale out of the record (SceneSerializer.cpp:112) and
-        // re-states them as override records addressed by ids that only the `.deprefab` can resolve.
-        // So the one thing a partitioner needs from such a record - where it is - is in another file,
-        // and a pure function of THIS file cannot have it. They contribute no point to any footprint
-        // and are listed here, which is what makes it a stated limitation instead of a wrong answer.
+        // Since scene v37 a `.desce` record naming a prefab file states its root's translation, rotation
+        // and scale itself (SceneSerializer, PFX1), so an instance is placed like any record: by its world
+        // matrix and the box the prefab's registry row states (AL1-8a). One that does not state them was
+        // not written by this engine; it is listed here AND named in Issues with what it lacks, contributes
+        // no point to any footprint, and the loader refuses the same record.
         std::vector<std::size_t> UnplacedPrefabInstances;
 
         // Records whose footprint is their position alone — a light, a script, a mesh whose bounds the
@@ -1145,8 +1144,17 @@ namespace Desert::Core::Rules
         {
             const Assets::EntityData& data = records[record];
 
-            if ( data.PrefabPath.has_value() && !data.Translation.has_value() )
+            // Placed like any record, by the transform it states (v37) and the prefab's box from the
+            // registry (ForEachLocalBox). One that states none is REFUSED by name, not put at the origin.
+            if ( const std::string missing = Assets::MissingInstanceTransform( data ); !missing.empty() )
+            {
                 plan.UnplacedPrefabInstances.push_back( record );
+                plan.Issues.push_back( Common::Json::Issue{
+                     data.id.has_value() ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *data.id ) ) + "]"
+                                         : "Entities[" + std::to_string( record ) + "]",
+                     "a prefab instance stating its root transform (scene v37)",
+                     "no " + missing + " on the instance of '" + *data.PrefabPath + "'" } );
+            }
 
             if ( data.parent.has_value() && !data.parent->IsNull() )
             {
@@ -1342,8 +1350,11 @@ namespace Desert::Core::Rules
                 continue;
             }
 
-            // Unplaced prefab instances alone: the origin's level-0 cell, and they are listed.
-            const CellBounds footprint = held.Footprint.value_or( CellBounds{} );
+            // Refused prefab instances alone (UnplacedPrefabInstances): no place, so NO cell. The origin's
+            // cell would be indistinguishable from a right answer, and the loader refuses them anyway.
+            if ( !held.Footprint.has_value() )
+                continue;
+            const CellBounds footprint = *held.Footprint;
 
             bool placed = false;
             for ( int level = 0; level < plan.LevelCount; ++level )
@@ -1376,7 +1387,7 @@ namespace Desert::Core::Rules
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
             const PlannedComposite& held = plan.Composites[group];
-            if ( held.Reason == AlwaysLoadedReason::None )
+            if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
                 cells[std::make_tuple( held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
         }
         for ( auto& [key, composites] : cells )

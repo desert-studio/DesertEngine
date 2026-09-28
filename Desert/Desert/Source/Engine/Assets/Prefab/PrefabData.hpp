@@ -13,6 +13,8 @@
 #include <Common/Json/Json.hpp>
 
 #include <optional>
+#include <string>
+#include <utility>
 #include <vector>
 #include <string>
 #include <array>
@@ -252,6 +254,58 @@ namespace Desert::Assets
         // and would drop it.
         std::optional<std::vector<PrefabOverrideData>> PrefabOverrides;
     };
+
+    // THE INSTANCE ROOT'S TRANSFORM, TAKEN OUT OF ITS OVERRIDES (scene v37, PFX1). A scene record states its
+    // instance's root transform itself; the root's override (the one whose Path is @p rootPath) must not state
+    // it a second time. Removes Translation, Rotation and Scale from that override, drops the override when
+    // nothing else is left in it, and returns what it held - each field unset when the override did not state
+    // it. PURE: the scene saver and the v36->v37 migrator run this one rule.
+    struct RootTransformOverride
+    {
+        std::optional<glm::vec3> Translation;
+        std::optional<glm::vec3> Rotation;
+        std::optional<glm::vec3> Scale;
+    };
+    inline RootTransformOverride TakeRootTransformOverride( std::vector<PrefabOverrideData>& overrides,
+                                                            const std::vector<Common::UUID>& rootPath )
+    {
+        RootTransformOverride taken;
+        for ( auto it = overrides.begin(); it != overrides.end(); ++it )
+        {
+            if ( it->Path != rootPath )
+                continue;
+            taken.Translation = std::exchange( it->Translation, std::nullopt );
+            taken.Rotation    = std::exchange( it->Rotation, std::nullopt );
+            taken.Scale       = std::exchange( it->Scale, std::nullopt );
+            if ( !it->Tag.has_value() && it->Components.begin() == it->Components.end() )
+                overrides.erase( it );
+            break;
+        }
+        return taken;
+    }
+
+    // What a scene's prefab-instance record lacks of the root transform scene v37 requires it to state, as
+    // "Translation, Scale"; empty when it states all three or is not an instance. The scene loader and the
+    // World Partition planner refuse such a record with this text rather than put it where the prefab's own
+    // root stands, which would look exactly like a right answer.
+    inline std::string MissingInstanceTransform( const EntityData& record )
+    {
+        std::string missing;
+        if ( !record.PrefabPath.has_value() )
+            return missing;
+        const auto note = [&missing]( bool stated, const char* name )
+        {
+            if ( stated )
+                return;
+            if ( !missing.empty() )
+                missing += ", ";
+            missing += name;
+        };
+        note( record.Translation.has_value(), "Translation" );
+        note( record.Rotation.has_value(), "Rotation" );
+        note( record.Scale.has_value(), "Scale" );
+        return missing;
+    }
 
     // The box a prefab occupies around its root, in centimetres (Core::Rules::PrefabBounds). Read by the
     // content scan without loading the prefab (Common/Content/ContentScan.cpp, StatedPrefabBounds) - the

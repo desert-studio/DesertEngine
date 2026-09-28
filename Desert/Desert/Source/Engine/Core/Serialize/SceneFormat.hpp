@@ -52,7 +52,9 @@ namespace Desert::Core
     //
     // v36 (SET1): SceneSettings' grade and shadow fields moved to an Unbound PostProcessVolume entity and to
     // the DirectionalLight (Tools/SceneMigrator, MigrateSceneSettingsHomesV35ToV36).
-    inline constexpr int kSceneVersion = 36;
+    // v37 (PFX1): a prefab instance's record states its root's Translation/Rotation/Scale itself, and the
+    // root's override no longer does (Tools/SceneMigrator, MigrateInstanceTransformsV36ToV37).
+    inline constexpr int kSceneVersion = 37;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

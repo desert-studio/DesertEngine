@@ -252,15 +252,23 @@ namespace Desert::Core
             // it, or the override does. Leaving the record's copy in place as well would be the same
             // value written twice with a reader that prefers one of them — the shape §4.2 of the contract
             // forbids, and the reason the material mirror lost its `Path` field.
+            //
+            // EXCEPT THE ROOT'S TRANSFORM, which is the instance's and never the prefab's (scene v37, PFX1):
+            // where an instance stands is what placing it in a scene means, as UE's placed actor owns its
+            // transform whatever its Blueprint's root states. It is written on the record, always, and taken
+            // out of the root's override, so it is still in one place — and that place is THIS file, which
+            // the World Partition planner (a pure function of one scene) can read. Before v37 it lived only
+            // in an override addressed by ids the `.deprefab` resolves, and every instance was unplaceable.
             if ( entity.HasComponent<ECS::PrefabComponent>() && data.PrefabPath.has_value() )
             {
-                const Serialize::PrefabInstanceCapture capture =
+                Serialize::PrefabInstanceCapture capture =
                      Serialize::CapturePrefabInstance( entity, *m_AssetManager );
+                // The record keeps the live root's transform SerializeEntity wrote; the override loses it.
+                if ( entity.HasComponent<ECS::PrefabInstanceComponent>() )
+                    (void)Assets::TakeRootTransformOverride(
+                         capture.Overrides, entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath );
 
                 data.Tag = std::nullopt;
-                data.Translation.reset();
-                data.Rotation.reset();
-                data.Scale.reset();
                 data.Components.clear();
 
                 if ( !capture.Overrides.empty() )
@@ -464,13 +472,10 @@ namespace Desert::Core
 
             if ( !partition.UnplacedPrefabInstances.empty() )
             {
-                // A THIRD, DIFFERENT FACT, and it is a limitation rather than a defect in the world: a
-                // prefab instance's transform is not in this file at all, so the partitioner put it at
-                // the origin (and it widens no composite's footprint). Said out loud because "in cell (0,0)" is
-                // otherwise indistinguishable from a correct answer.
-                LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no transform of their "
-                          "own in this file, so they are partitioned AT THE ORIGIN. Placing them needs "
-                          "the prefab's own bounds, which are not stored in the asset yet.",
+                // A THIRD, DIFFERENT FACT: records that name a prefab but not where its instance stands.
+                // The load below refuses each one by name; they are in no cell.
+                LOG_WARN( "[WorldPartition] '{0}': {1} prefab instance(s) state no root transform (scene v37 "
+                          "requires one) and have no place in the partition.",
                           scene.SceneName, partition.UnplacedPrefabInstances.size() );
             }
 
@@ -582,6 +587,16 @@ namespace Desert::Core
         {
             const Assets::EntityData* entityData = &records[plannedPrefab.Record];
 
+            // A v37 instance record without its transform was not written by this engine. Placing it where
+            // the prefab's root happens to stand would be a guess that looks exactly like a right answer.
+            if ( const auto missing = Assets::MissingInstanceTransform( *entityData ); !missing.empty() )
+            {
+                LOG_ERROR( "SceneSerializer: the instance of prefab '{0}' (record {1}) states no {2}; scene v37 "
+                           "writes an instance's root transform on its record. The instance was NOT loaded.",
+                           *entityData->PrefabPath, plannedPrefab.Record, missing );
+                continue;
+            }
+
             auto prefabAsset = m_AssetManager->FindByPath<Assets::PrefabAsset>( *entityData->PrefabPath );
             if ( !prefabAsset )
             {
@@ -635,6 +650,13 @@ namespace Desert::Core
                               missed, entityData->PrefabOverrides->size(), *entityData->PrefabPath );
                 }
             }
+
+            // WHERE THIS INSTANCE STANDS, which the record states itself since v37 and the overrides above
+            // no longer do. After the overrides, so nothing the prefab or an override says can move it.
+            auto& rootTransform       = prefabRoot.GetComponent<ECS::TransformComponent>();
+            rootTransform.Translation = *entityData->Translation;
+            rootTransform.Rotation    = *entityData->Rotation;
+            rootTransform.Scale       = *entityData->Scale;
 
             // Register in map under the original saved UUID so parent links resolve. A prefab root saved
             // without an id has nothing for a child's `parent` to name, so there is nothing to register:

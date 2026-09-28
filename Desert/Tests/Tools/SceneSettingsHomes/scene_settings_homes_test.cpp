@@ -335,10 +335,10 @@ TEST( PostProcessVolume, AHiddenVolumeAndAHiddenLightAreSkipped )
     EXPECT_TRUE( r.Shadows.Enabled );
 }
 
-TEST( PostProcessVolume, TheSceneSchemaIsTheOneThisStepStamps )
+TEST( PostProcessVolume, TheSceneSchemaIsPastThisStep )
 {
-    EXPECT_EQ( Core::kSceneVersion, 36 );
-    EXPECT_EQ( Migration::kSceneVersionSceneSettingsHomes, Core::kSceneVersion );
+    EXPECT_EQ( Migration::kSceneVersionSceneSettingsHomes, 36 );
+    EXPECT_LT( Migration::kSceneVersionSceneSettingsHomes, Core::kSceneVersion );
 }
 
 int main( int argc, char** argv )
