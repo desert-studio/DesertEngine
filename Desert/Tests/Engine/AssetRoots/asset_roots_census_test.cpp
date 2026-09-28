@@ -203,7 +203,7 @@ TEST( AssetRootsCensus, TheHandleSpeltAsAPlainIntegerIsVisitedToo )
 
 TEST( AssetRootsCensus, TheSceneSettingsFieldThatNamesAnAssetIsVisitedToo )
 {
-    // The other root source: the scene's own settings. One field today (`SplashSprite`), and the same
+    // The other root source: the scene's own settings. Two fields today (`SplashSprite`, `DefaultPawn`), and the same
     // omission risk — it is not a component, so the component loop above cannot see it.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -217,10 +217,12 @@ TEST( AssetRootsCensus, TheSceneSettingsFieldThatNamesAnAssetIsVisitedToo )
     ASSERT_FALSE( declared.empty() ) << "SceneSettings declares no asset handle at all; either the scan "
                                         "broke or the field moved, and both need reading";
 
+    // The READ, not the name: the walk's comment about DefaultPawn names Core::SpawnDefaultPawn, and a bare
+    // name search passed with the Mark line deleted (SPAWN1 mutation) - Play then found a released prefab.
     for ( const std::string& field : declared )
     {
-        EXPECT_NE( walk.find( field ), std::string::npos )
-             << "SceneSettings::" << field << " names an asset and the eviction root walk never mentions it";
+        EXPECT_NE( walk.find( "GetSettings()." + field ), std::string::npos )
+             << "SceneSettings::" << field << " names an asset and the eviction root walk never reads it";
     }
 }
 
