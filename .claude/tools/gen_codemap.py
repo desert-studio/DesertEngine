@@ -23,7 +23,7 @@ ROOTS = [
     ("Tools", "Tools"),
 ]
 CLASS = re.compile(r"^\s*(?:class|struct)\s+(?:DESERT_API\s+)?([A-Z]\w+)\s*(?:final\s*)?[:{]", re.M)
-SRC_IN_PREMAKE = re.compile(r'"%\{wks\.location\}/([^"]+\.(?:cpp|c|mm))"')
+SRC_IN_PREMAKE = re.compile(r'"%\{(?:wks\.location|_MAIN_SCRIPT_DIR)\}/([^"]+\.(?:cpp|c|mm))"')
 
 
 def tracked():

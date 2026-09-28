@@ -12,315 +12,355 @@ compile each engine source -- run exactly those after touching it, and add a new
 <!-- /NOTES -->
 
 ## Engine — `Desert/Desert/Source/Engine`
-- `.` — 2 files, 168 lines
-- `Animation` — 27 files, 5,933 lines: AnimationClip, AnimationLayer, AnimationLibrary, AnimationNotify, Animator, BoneControl, BoneInfo, BoneOverride, BoneRef, BoneTrack, BoneTransform, ClipPlayback, … (+20)
-- `Animation/Graph` — 5 files, 914 lines: AnimGraph, ClipSet, Condition, Evaluator, GraphWarning, Parameter, Result, State, Transition
+- `.` — 2 files, 212 lines
+- `Animation` — 27 files, 6,030 lines: AnimationClip, AnimationLayer, AnimationLibrary, AnimationNotify, Animator, BoneControl, BoneInfo, BoneOverride, BoneRef, BoneTrack, BoneTransform, ClipPlayback, … (+21)
+- `Animation/Graph` — 5 files, 954 lines: AnimGraph, ClipSet, Condition, Evaluator, GraphWarning, Parameter, Result, State, Transition
+- `Animation/Modular` — 1 files, 112 lines: ClothInstanceId, FollowerMeshId, IModularCharacter, LeaderPose, SocketAttachmentDesc, SocketAttachmentId
 - `Animation/Retarget` — 8 files, 1,505 lines: BonePairing, ModelPose, ResolvedChain, RetargetChain, RetargetPose, RetargetSetup, RetargetSource, Retargeter
 - `Animation/Rig` — 12 files, 4,143 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, ControlSpace, … (+14)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
-- `Assets` — 65 files, 16,041 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetKey, AssetManager, AssetMetadata, AssetPreloader, AssetRef, AssetRootSet, AssetsEventSystem, … (+56)
-- `Assets/Mesh` — 13 files, 1,359 lines: AnimationAsset, MeshAsset, PBRSurfaceParams, SkeletonAsset, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
-- `Assets/Prefab` — 9 files, 1,176 lines: AnimationComponentSer, EntityData, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabData, PrefabDiffReport, PrefabOverrideData, PrefabPlacementVerdict, SkinnedMeshComponentSer, … (+5)
-- `Assets/Serialization` — 20 files, 6,063 lines: AnimationAssetData, AnimationMigrationReport, ChannelData, ControlDriveData, ControlElementData, ControlRigData, ControlSpaceData, Document, FrameRateData, IndexData, KeyPosition, KeyRotation, … (+32)
-- `Assets/Shader` — 2 files, 72 lines: ShaderAsset
-- `Assets/Skybox` — 2 files, 75 lines: SkyboxAsset
+- `Assets` — 90 files, 20,209 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootSet, … (+84)
+- `Assets/Mesh` — 14 files, 1,516 lines: AnimationAsset, MeshAsset, PBRSurfaceParams, SkeletonAsset, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
+- `Assets/Prefab` — 9 files, 1,345 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+8)
+- `Assets/Serialization` — 28 files, 7,517 lines: AnimationAssetData, AnimationMigrationReport, Box, ChannelData, ControlDriveData, ControlElementData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageTypeData, … (+41)
+- `Assets/Shader` — 2 files, 165 lines: ShaderAsset
+- `Assets/Skybox` — 2 files, 124 lines: SkyboxAsset
 - `Audio` — 2 files, 278 lines: AudioEngine
-- `Core` — 37 files, 5,729 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, EditorCamera, … (+23)
-- `Core/Formats` — 9 files, 2,621 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MipLevelSpan, ShaderParam, ShaderProgramMeta, ShaderRenderState, TexelBlock
+- `Core` — 37 files, 6,159 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+27)
+- `Core/Formats` — 9 files, 2,671 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MipLevelSpan, ShaderParam, ShaderProgramMeta, ShaderRenderState, TexelBlock
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 31 files, 8,017 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+41)
-- `Core/ShaderCompiler` — 9 files, 795 lines: ShaderCompiler, ShaderVariant, ShaderVirtualSource
-- `Core/ShaderCompiler/DShader` — 2 files, 1,624 lines: DShaderParseResult, DShaderParser, DShaderPass
+- `Core/Serialize` — 37 files, 9,953 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+54)
+- `Core/ShaderCompiler` — 11 files, 1,438 lines: ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
+- `Core/ShaderCompiler/DShader` — 2 files, 1,670 lines: DShaderParseResult, DShaderParser, DShaderPass
 - `Core/ShaderCompiler/Includer` — 2 files, 244 lines: ShaderIncluder
-- `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 109 lines: ShaderPreprocess
+- `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 138 lines: PreprocessedPass, ShaderPreprocess
 - `Core/Traits` — 1 files, 17 lines
-- `ECS` — 12 files, 4,228 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+112)
-- `ECS/System` — 22 files, 4,225 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, PhysicsECSSystem, … (+12)
-- `Generated` — 1 files, 708 lines
-- `Geometry` — 51 files, 10,134 lines: Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, EditMeshOverlay, EditMeshOverlaySer, … (+45)
+- `ECS` — 16 files, 4,539 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+116)
+- `ECS/System` — 23 files, 4,534 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, PhysicsECSSystem, … (+12)
+- `Generated` — 1 files, 728 lines
+- `Geometry` — 71 files, 13,785 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+64)
 - `Geometry/Errors` — 1 files, 20 lines
-- `Graphic` — 72 files, 10,698 lines: AtmosphereEnv, CascadeFit, CascadeSetup, ComputeImages, ComputeImagesSpecification, ComputePipeline, ComputePipelineSpecification, DebugViewState, DefaultTextures, DeviceLost, DrawCounter, DrawCounters, … (+68)
-- `Graphic/API/Vulkan` — 41 files, 10,753 lines: AllocatedData, BufferDeletionEntry, CommandBufferAllocator, DescriptorSetInfo, ExternalAttachmentInfo, FallbackImageBinding, FrameSlotState, FrameWriteRecord, FramebufferDeletionEntry, IVulkanImage, ImageDeletionEntry, OutputBinding, … (+30)
-- `Graphic/API/Vulkan/VulkanUtils` — 4 files, 548 lines: DescriptorSetBuilder
-- `Graphic/API/Vulkan/VulkanUtils/lightweightvk` — 7 files, 11,799 lines: AccelStructBuildRange, AccelStructDesc, AccelStructInstance, AccelerationStructure, AttachmentDesc, BufferDesc, ColorAttachment, CommandBuffer, CommandBufferWrapper, ComponentMapping, ComputePipelineDesc, ComputePipelineState, … (+45)
-- `Graphic/Clouds` — 11 files, 3,365 lines: CloudAuthoredInstanceGpu, CloudAuthoredPackResult, CloudAuthoredPayload, CloudBakeBinding, CloudBakeLayerInputs, CloudEnvelopeKm, CloudEnvironmentBake, CloudGpuPayload, CloudMaterialValues, CloudMediumValues, CloudNearFadeKm, CloudNoiseResolution, … (+13)
-- `Graphic/Environment` — 5 files, 1,030 lines: CookedPanorama, Environment, EnvironmentManager, SampledCube, SkyLook, SkyLookGPU
+- `Geometry/MeshCore` — 26 files, 6,410 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
+- `Geometry/MeshCore/CompGeom` — 2 files, 204 lines
+- `Geometry/MeshCore/Distance` — 2 files, 339 lines: DistLine3Line3, DistPoint3Triangle3
+- `Geometry/MeshCore/DynamicMesh` — 19 files, 13,721 lines: AppendInfo, ChangeStamp, CollapseEdgeOptions, Corner, DynamicAttributeBase, DynamicAttributeSetBase, DynamicMesh3, DynamicMeshAttributeSet, DynamicMeshOverlay, DynamicMeshScalarTriangleAttribute, DynamicMeshSingleTriangleAttribute, DynamicMeshTriangleAttribute, … (+22)
+- `Geometry/MeshCore/DynamicMesh/Operations` — 27 files, 7,407 lines: ArcSplineCurve, BevelEdge, BevelLoop, BevelVertex, BevelVertex_InteriorVertex, EdgeLoopInsertionParams, GroupEdgeInserter, GroupEdgeInserterOptionalOutputParams, GroupEdgeInsertionParams, GroupEdgeSplitPoint, IHoleFiller, InsetInfo, … (+13)
+- `Geometry/MeshCore/DynamicMesh/Parameterization` — 2 files, 390 lines: DynamicMeshUVEditor, UVEditResult
+- `Geometry/MeshCore/Intersection` — 1 files, 393 lines: IntrTriangle3Triangle3
+- `Geometry/MeshCore/Operations` — 6 files, 2,357 lines: CustomInsideMeshTest, CustomInsideTestContext, EmbedSimplePathSettings, MeshBoolean, MeshMeshCut, MeshSurfacePath, MeshSurfacePoint
+- `Geometry/MeshCore/Parameterization` — 2 files, 342 lines: GraphNode, MeshDijkstra, MeshLocalParam, SeedPoint
+- `Geometry/MeshCore/Polygroups` — 2 files, 345 lines: PolygroupLayer, PolygroupSet
+- `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
+- `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
+- `Geometry/MeshCore/Spatial` — 3 files, 1,101 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
+- `Graphic` — 90 files, 13,434 lines: ActiveViewScope, AllocationLedger, AtmosphereEnv, CallerCost, CascadeFit, CascadeSetup, ComputeImages, ComputeImagesSpecification, ComputePipeline, ComputePipelineSpecification, DebugViewState, Decision, … (+105)
+- `Graphic/API/Vulkan` — 49 files, 12,516 lines: AllocatedData, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CommandBufferAllocator, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, ExternalAttachmentInfo, FallbackImageBinding, FrameQueries, FramebufferDeletionEntry, … (+38)
+- `Graphic/API/Vulkan/VulkanUtils` — 4 files, 556 lines: DescriptorSetBuilder
+- `Graphic/Clouds` — 11 files, 3,371 lines: CloudAuthoredInstanceGpu, CloudAuthoredPackResult, CloudAuthoredPayload, CloudBakeBinding, CloudBakeLayerInputs, CloudEnvelopeKm, CloudEnvironmentBake, CloudGpuPayload, CloudMaterialValues, CloudMediumValues, CloudNearFadeKm, CloudNoiseResolution, … (+13)
+- `Graphic/Environment` — 6 files, 1,111 lines: Environment, EnvironmentCacheEntry, EnvironmentCacheWriter, EnvironmentManager, OwnedEnvironment, SampledCube, SkyLook, SkyLookGPU, Write
 - `Graphic/Fog` — 1 files, 189 lines: FogGpuPayload, FogPush
-- `Graphic/Materials` — 14 files, 2,129 lines: DataDrivenMaterial, Material, MaterialBackend, MaterialExecutor, MaterialFactory, MaterialInstance, MaterialOverrides, MaterialProperty, MaterialPropertySet, MaterialSlotBinding
+- `Graphic/Materials` — 14 files, 2,155 lines: DataDrivenMaterial, Material, MaterialBackend, MaterialExecutor, MaterialFactory, MaterialInstance, MaterialOverrides, MaterialProperty, MaterialPropertySet, MaterialSlotBinding
 - `Graphic/Materials/Clouds` — 2 files, 65 lines: MaterialCloudComposite
-- `Graphic/Materials/Debug` — 5 files, 222 lines: CubemapSphereUB, GridUB, LineVertex, MaterialCubemapSphere, MaterialDebugLine, MaterialGrid, MaterialOverdraw, MaterialOverdrawResolve
-- `Graphic/Materials/Deferred` — 5 files, 494 lines: DeferredEnvironmentInput, DeferredShadowInput, GIResolveUBData, MaterialCopy, MaterialDeferredLighting, MaterialGIResolve, MaterialSSAO, MaterialSSR, MaterialSSRComposite, MaterialSSRResolve, SSAOUBData, SSRResolveUBData, … (+2)
+- `Graphic/Materials/Debug` — 5 files, 223 lines: CubemapSphereUB, GridUB, LineVertex, MaterialCubemapSphere, MaterialDebugLine, MaterialGrid, MaterialOverdraw, MaterialOverdrawResolve
+- `Graphic/Materials/Deferred` — 5 files, 475 lines: DeferredEnvironmentInput, DeferredShadowInput, GIResolveUBData, MaterialCopy, MaterialDeferredLighting, MaterialGIResolve, MaterialSSAO, MaterialSSRComposite, MaterialSSRResolve, SSAOUBData, SSRResolveUBData, ShadowUBData
 - `Graphic/Materials/Fog` — 2 files, 44 lines: MaterialHeightFog
 - `Graphic/Materials/Mesh` — 7 files, 560 lines: MaterialShadow, MaterialShadowInstanced, MaterialShadowSkinned, MaterialSilhouette, MaterialSilhouetteSkinned
 - `Graphic/Materials/Mesh/PBR` — 7 files, 440 lines: MaterialPBR, MaterialPBRBase, PBRGpuMaterial, PBRSceneFrame, ShadowUBData
 - `Graphic/Materials/Particles` — 1 files, 48 lines: MaterialParticleBillboard
 - `Graphic/Materials/PostProcessing` — 10 files, 371 lines: MaterialFXAA, MaterialJFAComposite, MaterialJFAInit, MaterialJFAStep, MaterialSMAABlend, MaterialSMAAEdges, MaterialSMAAWeights, MaterialTonemap, Params
-- `Graphic/Materials/Properties` — 8 files, 855 lines: FieldProperty, IProperty, IPropertyOwner, MaterialProperty, StorageBufferProperty, TProperty, Texture2DProperty, TextureCubeProperty, UniformBufferProperty
+- `Graphic/Materials/Properties` — 8 files, 790 lines: FieldProperty, IProperty, IPropertyOwner, MaterialProperty, StorageBufferProperty, TProperty, Texture2DProperty, TextureCubeProperty, UniformBufferProperty
 - `Graphic/Materials/Reflection` — 2 files, 179 lines: UBFieldDescriptor, UBReflectionCache
-- `Graphic/Materials/Skybox` — 3 files, 164 lines: MaterialProceduralSky, MaterialSkybox, UpdateMaterialSkyboxInfo
+- `Graphic/Materials/Skybox` — 3 files, 180 lines: MaterialProceduralSky, MaterialSkybox, UpdateMaterialSkyboxInfo
 - `Graphic/PostProcessing` — 3 files, 142 lines: AutoExposureWindow, SunScreen
 - `Graphic/Render` — 2 files, 147 lines: Page, RenderCommand, RenderCommandBuffer
-- `Graphic/Render/Commands` — 11 files, 468 lines: DrawGenericMeshCommand, DrawInstancedStaticMeshCommand, DrawLandscapeTileCommand, DrawSkinnedMeshCommand, DrawSlotMaterialMeshCommand, DrawStaticMeshCommand, HeightFogCommand, PointLightCommand, ProceduralSkyCommand, SkyboxCommand, SpotLightCommand, VolumetricCloudCommand
-- `Graphic/Render2D` — 11 files, 2,503 lines: CachedExecutor, Capture, ClipRegion2D, Demand, DrawCommand, DrawList2D, Entry, Render2D, UIMaterialCache, UIRenderTextureCache, Vertex2D
+- `Graphic/Render/Commands` — 11 files, 470 lines: DrawGenericMeshCommand, DrawInstancedStaticMeshCommand, DrawLandscapeTileCommand, DrawSkinnedMeshCommand, DrawSlotMaterialMeshCommand, DrawStaticMeshCommand, HeightFogCommand, PointLightCommand, ProceduralSkyCommand, SkyboxCommand, SpotLightCommand, VolumetricCloudCommand
+- `Graphic/Render2D` — 12 files, 2,567 lines: CachedExecutor, Capture, ClipRegion2D, Demand, DrawCommand, DrawList2D, Entry, Render2D, UIMaterialCache, UIRenderTextureCache, UIRenderTextureViewRequest, Vertex2D
 - `Graphic/ShaderProtocols` — 6 files, 142 lines: Camera, DirectionLight, DirectionLightPayload, LightsMetadata, PointLight, PointLightPayload, SkinnedUB, SpotLight, SpotLightPayload
 - `Graphic/Systems` — 1 files, 40 lines: RenderSystem
 - `Graphic/Systems/Scene` — 1 files, 28 lines: IShadowCaster
-- `Graphic/Systems/Scene/Clouds` — 2 files, 2,883 lines: ModellingBakeSignal, VolumetricCloudRenderer
-- `Graphic/Systems/Scene/Deferred` — 5 files, 691 lines: CopyRenderer, DeferredLightingRenderer, GIResolveRenderer, SSAORenderer, SSRRenderer
+- `Graphic/Systems/Scene/Clouds` — 2 files, 2,908 lines: ModellingBakeSignal, VolumetricCloudRenderer
+- `Graphic/Systems/Scene/Deferred` — 5 files, 748 lines: CopyRenderer, DeferredLightingRenderer, GIResolveRenderer, SSAORenderer, SSRRenderer, TracePush
 - `Graphic/Systems/Scene/Fog` — 2 files, 411 lines: HeightFogRenderer
-- `Graphic/Systems/Scene/Mesh` — 2 files, 3,519 lines: Desert, GenericDraw, GenericMeshRenderData, Graphic, InstancedBatchSet, InstancedDraw, InstancedMeshRenderData, MaterialRows, MeshRenderData, MeshRenderer, ObjDraw, ShadowBatch, … (+2)
+- `Graphic/Systems/Scene/Mesh` — 2 files, 3,532 lines: Desert, GenericDraw, GenericMeshRenderData, Graphic, InstancedBatchSet, InstancedDraw, InstancedMeshRenderData, MaterialRows, MeshRenderData, MeshRenderer, ObjDraw, ShadowBatch, … (+2)
 - `Graphic/Systems/Scene/Particles` — 3 files, 466 lines: EmitterGpu, FrameEmitter, ParticleRenderer, SimPush
-- `Graphic/Systems/Scene/PostProcessing` — 19 files, 17,232 lines: AutoExposureRenderer, BackdropBlurRenderer, BloomRenderer, DownsamplePush, FXAARenderer, JumpFloodOutlineRenderer, LensFlareRenderer, LightShaftRenderer, Params, SMAARenderer, TonemapRenderer
-- `Graphic/Systems/Scene/Skybox` — 2 files, 1,156 lines: AtmosphereLutFingerprint, SkyboxRenderer
-- `Graphic/Systems/Scene/Terrain` — 3 files, 611 lines: FrameDraw, FrameGroup, LandscapeTileDraw, ProgramMaterials, TerrainDrawData, TerrainInstance, TerrainRenderer
-- `Localization` — 10 files, 1,867 lines: CalendarDate, CurrencyRow, FormatArguments, FormattedText, LocaleRow, Localization, LocalizedEntry, PluralOperands, Resolved, Row, StringTableData
+- `Graphic/Systems/Scene/PostProcessing` — 19 files, 17,245 lines: AutoExposureRenderer, BackdropBlurRenderer, BloomRenderer, DownsamplePush, FXAARenderer, JumpFloodOutlineRenderer, LensFlareRenderer, LightShaftRenderer, Params, SMAARenderer, TonemapRenderer
+- `Graphic/Systems/Scene/Skybox` — 2 files, 1,167 lines: AtmosphereLutFingerprint, SkyboxRenderer
+- `Graphic/Systems/Scene/Terrain` — 3 files, 818 lines: FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeTileDraw, LandscapeTileLod, LandscapeWeightDraw, ProgramMaterials, TerrainDrawData, TerrainInstance, TerrainRenderer
+- `Hair` — 2 files, 175 lines: GroomAsset, GroomBinding, GroomStepContext, HairCurves, HairGroup, HairGuideInterpolation, HairRenderFrame, HairRenderGroup, HairRootAttachment, IGroomRenderDataSource, IGroomSimulation, IGroomSimulationFactory
+- `Localization` — 10 files, 2,010 lines: CalendarDate, CurrencyRow, FormatArguments, FormattedText, LocaleRow, Localization, LocalizedEntry, PluralOperands, Resolved, Row, StringTableData, StringTableEntry
 - `Physics` — 2 files, 719 lines: BodyDesc, CharacterDesc, HeightFieldDesc, PhysicsWorld, RayHit
-- `Project` — 6 files, 782 lines: EngineRootLookup, ProjectContext, ResourceRootLookup
-- `Reflection` — 7 files, 643 lines: AssetResolver, EnumValue, FieldInfo, PropertyMetadata, ReflectionRegistry, TypeBuilder, TypeInfo
-- `Runtime` — 6 files, 825 lines: AssetHotReload, ImageHandle, ResourceRegistry, SelectionContext
-- `Runtime/Factory` — 2 files, 384 lines: PrefabFactory
-- `Runtime/Services` — 3 files, 265 lines
+- `Physics/Cloth` — 2 files, 259 lines: ClothCapsuleCollider, ClothConfig, ClothMeshBinding, ClothPhysicalMesh, ClothSimulationOutput, ClothSphereCollider, ClothStepContext, ClothVertexMaps, ClothingAsset, ClothingSimulationFactoryRegistry, IClothingSimulation, IClothingSimulationFactory
+- `Project` — 6 files, 806 lines: EngineRootLookup, ProjectContext, ResourceRootLookup
+- `Reflection` — 7 files, 841 lines: AssetResolver, EnumValue, FieldInfo, PropertyMetadata, ReflectionRegistry, TypeBuilder, TypeInfo
+- `Runtime` — 6 files, 899 lines: AssetHotReload, ImageHandle, ResourceRegistry, SelectionContext
+- `Runtime/Factory` — 2 files, 391 lines: PrefabFactory
+- `Runtime/Services` — 3 files, 512 lines: ClosureResidency
 - `Runtime/Services/AnimatedImage` — 2 files, 148 lines: Anim, AnimatedImageService
-- `Runtime/Services/CloudLayout` — 2 files, 303 lines: CloudLayoutService, Entry
-- `Runtime/Services/CloudModelling` — 2 files, 433 lines: CloudModellingAtlasBinding, CloudModellingService, Entry
-- `Runtime/Services/CloudNoise` — 2 files, 385 lines: CloudNoiseService, Entry
-- `Runtime/Services/CloudType` — 2 files, 141 lines: CloudTypeService, Entry
-- `Runtime/Services/Font` — 2 files, 331 lines: Font, FontService
-- `Runtime/Services/Icon` — 2 files, 387 lines: Icon, IconLayer, IconService, LayerBitmap
+- `Runtime/Services/CloudLayout` — 2 files, 337 lines: CloudLayoutService, Entry
+- `Runtime/Services/CloudModelling` — 2 files, 468 lines: CloudModellingAtlasBinding, CloudModellingService, Entry
+- `Runtime/Services/CloudNoise` — 2 files, 440 lines: CloudNoiseService, Entry
+- `Runtime/Services/CloudType` — 2 files, 218 lines: CloudTypeService, Entry
+- `Runtime/Services/Foliage` — 2 files, 199 lines: FoliageTypeService
+- `Runtime/Services/Font` — 2 files, 335 lines: Font, FontService
+- `Runtime/Services/Icon` — 2 files, 391 lines: Icon, IconLayer, IconService, LayerBitmap
 - `Runtime/Services/Image` — 2 files, 132 lines: ImageService
-- `Runtime/Services/Material` — 3 files, 751 lines: MaterialService
-- `Runtime/Services/Mesh` — 2 files, 333 lines: MeshService
-- `Runtime/Services/Shader` — 2 files, 464 lines: MediumEntry, ShaderService, VariantEntry
-- `Runtime/Services/Skybox` — 2 files, 43 lines: SkyboxService
-- `Runtime/Services/Texture` — 2 files, 106 lines: TextureService
-- `Runtime/Services/UITheme` — 2 files, 192 lines: Entry, UIThemeService
+- `Runtime/Services/Landscape` — 2 files, 185 lines: LandscapeLayerInfoService
+- `Runtime/Services/Material` — 3 files, 878 lines: MaterialService
+- `Runtime/Services/Mesh` — 4 files, 674 lines: Entry, IMeshUploader, MeshService
+- `Runtime/Services/Shader` — 2 files, 465 lines: MediumEntry, ShaderService, VariantEntry
+- `Runtime/Services/Skybox` — 2 files, 161 lines: SkyboxService
+- `Runtime/Services/Texture` — 3 files, 351 lines: Entry, TextureService, TextureWaiters
+- `Runtime/Services/UITheme` — 2 files, 247 lines: Entry, UIThemeService
 - `Runtime/Services/Video` — 2 files, 245 lines: VideoPlayback, VideoService
-- `Scripting` — 15 files, 1,548 lines: ScriptEngine, ScriptProperty
+- `Scripting` — 15 files, 1,652 lines: ScriptEngine, ScriptProperty
 - `Scripting/Internal` — 1 files, 515 lines: PendingTimer, ScriptEngine, ScriptEntity
-- `ShaderResources` — 15 files, 951 lines: BaseBuffer, FillClaim, Image2DData, Image2DSampler, Image3DSampler, ImageCubeData, ImageCubeSampler, PushConstantRange, ShaderFieldLayout, ShaderResourcesManager, SrorageBuffersData, StorageBuffer, … (+4)
-- `ShaderResources/API/Vulkan` — 8 files, 825 lines: VulkanStorageBuffer, VulkanUniformBuffer, VulkanUniformImage2D, VulkanUniformImageCube
-- `Text` — 8 files, 2,003 lines: BakedFont, Contour, EdgeSegment, Glyph, Shape, Vec2
-- `UI` — 16 files, 6,734 lines: CanvasStyle, ElementStyle, IUIMaterialSource, IUIRenderTextureSource, LayoutGroupParams, ListWindow, Rect, Request, StyleSlotInfo, ToastItem, UIBatchInfo, UICanvasContext, … (+13)
-- `Vector` — 4 files, 1,103 lines: BakedIcon, BakedIconLayer, Shape, Vec2, VectorImage
-- `World/Landscape` — 8 files, 1,399 lines: LandscapeFrame, LandscapeRayHit, LandscapeRayTile, LandscapeRect, LandscapeRoot, LandscapeTileData, LandscapeTileNeighbours, LandscapeTileRect
+- `ShaderResources` — 15 files, 1,193 lines: AccelerationStructure, BaseBuffer, DescriptorCopyRecord, FillClaim, HandOver, IBlockCopy, Image2DData, Image2DSampler, Image3DSampler, ImageCubeData, ImageCubeSampler, PushConstantRange, … (+10)
+- `ShaderResources/API/Vulkan` — 10 files, 731 lines: MappedBufferCopy, ViewCopyBinding, VulkanStorageBuffer, VulkanUniformBuffer, VulkanUniformImage2D, VulkanUniformImageCube
+- `Text` — 8 files, 2,002 lines: BakedFont, Contour, EdgeSegment, Glyph, Shape, Vec2
+- `UI` — 19 files, 7,293 lines: CanvasStyle, Change, ElementStyle, Entry, IUIMaterialSource, IUIRenderTextureSource, LayoutGroupParams, ListBindingSeen, ListWindow, Rect, Request, StyleSlotInfo, … (+17)
+- `Vector` — 4 files, 1,108 lines: BakedIcon, BakedIconLayer, Shape, Vec2, VectorImage
+- `World/Foliage` — 5 files, 430 lines: FoliageCellField, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan
+- `World/Landscape` — 20 files, 5,780 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeErosionField, LandscapeErosionSettings, LandscapeFlattenSettings, LandscapeFrame, LandscapeGenerateJob, LandscapeGenerateProgress, … (+33)
 
 ## Common — `Desert/Common/Source/Common`
-- `Content` — 5 files, 1,107 lines: ChunkPlan, ChunkRule, ChunkScheme, ChunkedWriteStats, ContentFile, ContentKindSpec, RegistryDisagreement
-- `Core` — 41 files, 3,840 lines: AssetHandle, AutoRegistry, ContentDirSpec, Entry, Error, EventHandler, FieldDescriptor, FieldMeta, GpuScopedTimer, Handle, HandlePool, IGpuProfilerSink, … (+17)
+- `Content` — 26 files, 5,152 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+18)
+- `Core` — 46 files, 6,416 lines: AssetHandle, AutoRegistry, ContentDirSpec, Entry, Error, EventHandler, FieldDescriptor, FieldMeta, GpuIdentity, GpuScopedTimer, Handle, HandlePool, … (+20)
 - `Core/Algorithms` — 1 files, 55 lines: ScopeExit, ScopeExitTag
 - `Core/Events` — 4 files, 287 lines: Event, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, KeyPressedEvent, KeyTypedEvent, MouseButtonEvent, MouseButtonPressedEvent, MouseMovedEvent, MouseScrolledEvent
-- `Core/Math` — 5 files, 285 lines: AABB, Ray
+- `Core/Math` — 6 files, 330 lines: AABB, Pcg32, Ray
 - `Core/Memory` — 3 files, 253 lines: Buffer, CommandBuffer
 - `Core/Serialization` — 2 files, 244 lines: ReflType, SerializationProvider
+- `Json` — 9 files, 3,194 lines: CarryRule, FormatInfo, HasNoRawPointerMember, Issue, Node, ObjectBuilder, Path, Segment, Template, TemplateSet, TextDocument
 - `Platform/MacOS` — 2 files, 41 lines: MacOSFileSystem
 - `Platform/Windows` — 2 files, 96 lines: WindowsFileSystem
 - `Project` — 2 files, 23 lines
-- `Settings` — 2 files, 478 lines: MachineSettings
-- `Utilities` — 24 files, 4,825 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, PakReader, … (+8)
+- `Settings` — 5 files, 589 lines: MachineSettings
+- `Utilities` — 28 files, 5,624 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, PakReader, … (+10)
 
 ## Editor — `Editor/Source/Editor`
 - `Builtin` — 2 files, 136 lines: BuiltinMeshRegistry
-- `Core` — 63 files, 16,473 lines: AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, DocumentEditorCensus, DocumentIdentityCensus, … (+46)
-- `Core/Commands` — 8 files, 3,056 lines: BoneDelta, ClipPoseCommand, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, PoseEditTransaction, ScopedPoseEdit, ScopedUIClipEdit, SectionEdit, TrackDelta, TransformSnapshot, … (+3)
-- `Core/Control` — 7 files, 2,125 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, OpSpec, PanelSnapshot, … (+5)
+- `Core` — 72 files, 17,681 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+55)
+- `Core/Commands` — 11 files, 4,093 lines: AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, ClipPoseCommand, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, PoseEditTransaction, ScopedPoseEdit, ScopedUIClipEdit, SectionEdit, … (+7)
+- `Core/Control` — 7 files, 2,141 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, OpSpec, PanelSnapshot, … (+5)
 - `Core/GraphCanvas` — 4 files, 620 lines: CanvasPlan, DeferredFrameAll, ElementIdMap, ElementLedger, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 281 lines: Bone, RigBuilder
-- `Core/Selection` — 11 files, 1,662 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, FoliagePaint, MeshElementSelection, MeshOperationArgs, ModelingState, OutputSettings, SelectionManager, ShapeSettings, UIPreview, ViewportMode
-- `ImGuiIntegration` — 5 files, 329 lines: ImGuiLayer, VulkanImGui
-- `Import` — 20 files, 2,607 lines: AsyncMeshLoader, Done, IAssetImporter, ImportManager, ImportResult, ImportedMaterial, LooseTextureCookStats, ResolvedMesh, TextureCookResult, TextureImporter, TextureIntentFileData, TextureIntentRead
-- `Import/Assimp` — 2 files, 898 lines: AssimpImporter
+- `Core/Selection` — 21 files, 4,083 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, FoliagePaint, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+10)
+- `ImGuiIntegration` — 5 files, 332 lines: ImGuiLayer, VulkanImGui
+- `Import` — 30 files, 4,006 lines: AsyncMeshLoader, BackgroundCookQueue, Completed, Done, IAssetImporter, ImportManager, ImportResult, ImportedMaterial, ImportedMeshSource, LandscapeHeightmap, LandscapeHeightmapSize, ResolvedMesh, … (+5)
+- `Import/Assimp` — 2 files, 1,002 lines: AssimpImporter
 - `Import/Blend` — 2 files, 223 lines: BlendImporter
-- `Packaging` — 6 files, 1,476 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
-- `Panels` — 2 files, 463 lines: DocumentAction, IPanel, ISubjectDocument
+- `Packaging` — 8 files, 1,800 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
+- `Panels` — 2 files, 493 lines: DocumentAction, IPanel, ISubjectDocument
 - `Panels/Animation` — 8 files, 2,241 lines: AnimGraphCanvas, AnimGraphPanel, AnimLayersPanel, ControlRigPanel, StatePosition, TransitionRef, WarningTarget
-- `Panels/AssetReferences` — 2 files, 246 lines: AssetReferencesPanel
-- `Panels/Build` — 2 files, 366 lines: BuildSettingsPanel
-- `Panels/Clouds` — 13 files, 6,988 lines: CloudChain, CloudHeroBody, CloudLayoutPanel, CloudModellingVolumePanel, CloudNoiseVolumePanel, CloudStageAssetTypes, CloudStageCensus, CloudTypePanel, CloudsPanel, LayerContext, SpeciesSlot
-- `Panels/Collections` — 2 files, 734 lines: CollectionItem, CollectionsPanel, LoadedCollection
+- `Panels/AssetReferences` — 2 files, 250 lines: AssetReferencesPanel
+- `Panels/Build` — 4 files, 645 lines: BuildSettingsPanel, ContentChunksPanel
+- `Panels/Clouds` — 13 files, 6,995 lines: CloudChain, CloudHeroBody, CloudLayoutPanel, CloudModellingVolumePanel, CloudNoiseVolumePanel, CloudStageAssetTypes, CloudStageCensus, CloudTypePanel, CloudsPanel, LayerContext, SpeciesSlot
+- `Panels/Collections` — 5 files, 973 lines: CollectionFoliageTypes, CollectionItem, CollectionManifest, CollectionManifestAssetRef, CollectionManifestItem, CollectionManifestMaterial, CollectionsPanel, LoadedCollection
 - `Panels/Debug` — 4 files, 855 lines: ShaderLibraryPanel, UIDebuggerPanel
-- `Panels/FileExplorer` — 4 files, 3,112 lines: DirectoryInformation, FileExplorerPanel
+- `Panels/FileExplorer` — 5 files, 3,438 lines: DirectoryInformation, FileExplorerPanel, Rect
+- `Panels/Foliage` — 3 files, 902 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
 - `Panels/History` — 2 files, 103 lines: HistoryPanel
+- `Panels/Landscape` — 2 files, 628 lines: LandscapePanel
 - `Panels/Localization` — 2 files, 184 lines: LocalizationPanel
 - `Panels/Logs` — 2 files, 454 lines: LogEntry, LogsPanel
 - `Panels/LuaConsole` — 2 files, 234 lines: Line, LuaConsolePanel
-- `Panels/MaterialEditor` — 5 files, 3,933 lines: DirtyState, DropRefusal, MaterialEditorPanel, MaterialShaderRebuild, ParameterGroup, PushedIdentity
-- `Panels/Modeling` — 2 files, 644 lines: ModelingPanel
-- `Panels/NodeGraph` — 8 files, 2,901 lines: Loaded, NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
+- `Panels/MaterialEditor` — 5 files, 4,154 lines: DirtyState, DropRefusal, MaterialEditorPanel, MaterialShaderRebuild, ParameterGroup, PushedIdentity
+- `Panels/Modeling` — 2 files, 1,145 lines: ModelingPanel
+- `Panels/NodeGraph` — 8 files, 2,909 lines: Loaded, NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Particles` — 2 files, 372 lines: ParticleEditorPanel
-- `Panels/Photogrammetry` — 2 files, 1,261 lines: PhotogrammetryPanel
-- `Panels/PropertyEditor` — 8 files, 2,358 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder
-- `Panels/SceneHierarchy` — 3 files, 1,442 lines: EntityTypeInfo, SceneHierarchyPanel
-- `Panels/SceneProperties` — 5 files, 3,449 lines: ComponentEditor, ScenePropertiesPanel
-- `Panels/SceneProperties/ComponentWidgets` — 16 files, 3,076 lines: AnimationComponentWidget, IComponentWidget, MaterialComponentWidget, MaterialHost, PrefabComponentWidget, SkinnedMeshComponentWidget, SkyboxComponentWidget, SlotRow, SlotSwatch, StaticMeshComponentWidget, TransformComponentWidget
+- `Panels/Photogrammetry` — 2 files, 1,263 lines: PhotogrammetryPanel
+- `Panels/PropertyEditor` — 8 files, 2,393 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder
+- `Panels/Scalability` — 2 files, 154 lines: ScalabilityPanel
+- `Panels/SceneHierarchy` — 3 files, 1,441 lines: EntityTypeInfo, SceneHierarchyPanel
+- `Panels/SceneProperties` — 5 files, 3,444 lines: ComponentEditor, ScenePropertiesPanel
+- `Panels/SceneProperties/ComponentWidgets` — 16 files, 3,048 lines: AnimationComponentWidget, IComponentWidget, MaterialComponentWidget, MaterialHost, PrefabComponentWidget, SkinnedMeshComponentWidget, SkyboxComponentWidget, SlotRow, SlotSwatch, StaticMeshComponentWidget, TransformComponentWidget
 - `Panels/SceneProperties/ComponentWidgets/Helper` — 2 files, 289 lines: Context, MeshDetailsWidget
-- `Panels/SceneSettings` — 2 files, 379 lines: SceneSettingsPanel
 - `Panels/Sequencer` — 4 files, 3,486 lines: CurveViewport, SectionTarget, SequencerPanel
+- `Panels/SkyboxViewer` — 4 files, 608 lines: Level, SkyboxViewerBase, SkyboxViewerDocument, ViewAction, ViewState
+- `Panels/StaticMeshViewer` — 4 files, 510 lines: StaticMeshStats, StaticMeshViewerBase, StaticMeshViewerDocument
+- `Panels/TextureViewer` — 2 files, 300 lines: TextureViewerDocument
 - `Panels/UI` — 5 files, 1,108 lines: UIEditorPanel, UIElementEntry
-- `Panels/Validation` — 2 files, 154 lines: Issue, SceneValidationPanel
-- `Panels/ViewportPanel` — 11 files, 5,277 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportData, ViewportPanel
-- `Panels/ViewportPanel/Tools` — 16 files, 3,122 lines: CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FoliagePaintTool, GizmoController, LocalTRS, PickingController, PolyEditTool
+- `Panels/Validation` — 2 files, 156 lines: Issue, SceneValidationPanel
+- `Panels/ViewportPanel` — 11 files, 5,487 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportData, ViewportPanel
+- `Panels/ViewportPanel/Tools` — 25 files, 7,099 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, FoliageReapplyResult, … (+12)
+- `Panels/WorldPartition` — 4 files, 938 lines: LegendRow, View, WorldPartitionPanel
+- `Panels/WorldSettings` — 2 files, 133 lines: WorldSettingsPanel
 - `RenderSystems` — 2 files, 86 lines: RenderRegistry
-- `RenderSystems/Passes` — 8 files, 689 lines: EditorColliderPass, EditorCubemapPreviewPass, EditorGridPass, EditorUIPass
-- `Splash` — 4 files, 344 lines: Layout, Rect, SplashContent, SplashPixels, SplashScreen
-- `Splash/Windows` — 1 files, 424 lines
-- `Widgets` — 24 files, 6,242 lines: AssetThumbnailRenderer, FaceTracker, Format, Frame, Material, Mesh, Observation, PaintRequest, Placement, PreviewViewport, Request, SceneSetup, … (+6)
+- `RenderSystems/Passes` — 8 files, 715 lines: EditorColliderPass, EditorCubemapPreviewPass, EditorGridPass, EditorUIPass
+- `Splash` — 7 files, 809 lines: ButtonTracker, DesignPoint, Layout, ProgressModel, ProgressSnapshot, Rect, RevealState, SplashContent, SplashPixels, SplashScreen, Stage, StageTiming
+- `Splash/Windows` — 1 files, 551 lines
+- `Widgets` — 37 files, 8,159 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, EquirectMap, FaceTracker, Format, Frame, FramedSubject, … (+28)
 - `Widgets/Controls` — 2 files, 241 lines: Widgets
 - `Widgets/UIHelper` — 4 files, 157 lines: UICacheTextureImGui, UIHelper
 
 ## Runtime — `Runtime/Source`
-- `.` — 6 files, 1,763 lines: ContentMountResult, RuntimeLayer, RuntimeShot
+- `.` — 7 files, 1,907 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 34 files, 6,244 lines
+- `Common` — 41 files, 6,654 lines
 - `Generated` — 1 files, 70 lines
 - `Mesh` — 8 files, 680 lines
-- `Programs/AutoExposure` — 3 files, 164 lines
-- `Programs/Bloom` — 2 files, 152 lines
-- `Programs/Clouds` — 5 files, 1,705 lines
-- `Programs/Composite` — 2 files, 195 lines
-- `Programs/Compute` — 5 files, 940 lines
-- `Programs/Debug` — 3 files, 130 lines
-- `Programs/Deferred` — 7 files, 979 lines
-- `Programs/FXAA` — 1 files, 76 lines
-- `Programs/Fog` — 2 files, 226 lines
-- `Programs/Graph` — 5 files, 193 lines
-- `Programs/Grid` — 1 files, 148 lines
-- `Programs/JFA` — 4 files, 212 lines
-- `Programs/LensFlare` — 2 files, 248 lines
-- `Programs/LightShafts` — 2 files, 105 lines
-- `Programs/PBR` — 6 files, 1,658 lines
-- `Programs/Particles` — 2 files, 206 lines
-- `Programs/Preview` — 1 files, 114 lines
-- `Programs/ProceduralSky` — 1 files, 178 lines
-- `Programs/SMAA` — 3 files, 116 lines
-- `Programs/Shadow` — 3 files, 150 lines
-- `Programs/Silhouette` — 2 files, 92 lines
-- `Programs/Sky` — 5 files, 685 lines
-- `Programs/Skybox` — 1 files, 77 lines
-- `Programs/Terrain` — 7 files, 628 lines
-- `Programs/Text` — 1 files, 73 lines
-- `Programs/UI` — 5 files, 315 lines
-- `Programs/Unlit` — 1 files, 73 lines
+- `Programs/AutoExposure` — 3 files, 167 lines
+- `Programs/Bloom` — 2 files, 154 lines
+- `Programs/Clouds` — 5 files, 1,710 lines
+- `Programs/Composite` — 2 files, 159 lines
+- `Programs/Compute` — 5 files, 945 lines
+- `Programs/Debug` — 3 files, 133 lines
+- `Programs/Deferred` — 8 files, 1,021 lines
+- `Programs/FXAA` — 1 files, 77 lines
+- `Programs/Fog` — 2 files, 228 lines
+- `Programs/Graph` — 5 files, 198 lines
+- `Programs/Grid` — 1 files, 149 lines
+- `Programs/JFA` — 4 files, 216 lines
+- `Programs/LensFlare` — 2 files, 250 lines
+- `Programs/LightShafts` — 2 files, 107 lines
+- `Programs/PBR` — 6 files, 1,676 lines
+- `Programs/Particles` — 2 files, 208 lines
+- `Programs/Preview` — 1 files, 142 lines
+- `Programs/ProceduralSky` — 1 files, 179 lines
+- `Programs/SMAA` — 3 files, 119 lines
+- `Programs/Shadow` — 3 files, 167 lines
+- `Programs/Silhouette` — 2 files, 94 lines
+- `Programs/Sky` — 5 files, 690 lines
+- `Programs/Skybox` — 1 files, 78 lines
+- `Programs/Terrain` — 5 files, 384 lines
+- `Programs/Text` — 1 files, 74 lines
+- `Programs/UI` — 5 files, 320 lines
+- `Programs/Unlit` — 1 files, 74 lines
 
 ## Tools — `Tools`
 - `AssetClosure` — 1 files, 53 lines
 - `AssetClosure/Source` — 1 files, 159 lines
 - `AssetRegistryTool` — 1 files, 53 lines
-- `AssetRegistryTool/Source` — 1 files, 332 lines
-- `CloudLayoutBaker` — 1 files, 69 lines
-- `CloudLayoutBaker/Source` — 1 files, 568 lines
-- `CloudVolumeBaker` — 1 files, 60 lines
-- `CloudVolumeBaker/Source` — 1 files, 211 lines
+- `AssetRegistryTool/Source` — 1 files, 198 lines
+- `CloudLayoutBaker` — 1 files, 71 lines
+- `CloudLayoutBaker/Source` — 1 files, 594 lines
+- `CloudVolumeBaker` — 1 files, 62 lines
+- `CloudVolumeBaker/Source` — 1 files, 235 lines
+- `CrashReporter` — 1 files, 95 lines
+- `CrashReporter/Resources/Icon` — 1 files, 706 lines
+- `CrashReporter/Source` — 5 files, 1,692 lines: CaptionLayout, Report, StackFrame
 - `DShaderTool` — 1 files, 42 lines
 - `DShaderTool/Source` — 1 files, 118 lines
-- `DesertCtl` — 1 files, 47 lines
+- `DesertCtl` — 1 files, 63 lines
 - `DesertCtl/Source` — 1 files, 471 lines
 - `DesertCtl/mcp` — 1 files, 340 lines
-- `DesertHeaderTool` — 2 files, 996 lines
+- `DesertHeaderTool` — 2 files, 984 lines
 - `DomeSheet` — 1 files, 36 lines
 - `DomeSheet/Source` — 2 files, 698 lines: DomeSample, Image, SheetGeometry
-- `FbxMeshSplitter` — 4 files, 628 lines: FbxSplitResult
-- `GamePackager` — 1 files, 117 lines
-- `GamePackager/Source` — 1 files, 209 lines
+- `FbxMeshSplitter` — 4 files, 687 lines: FbxSplitResult
+- `GamePackager` — 1 files, 121 lines
+- `GamePackager/Source` — 1 files, 220 lines
 - `ImageDiff` — 1 files, 37 lines
 - `ImageDiff/Source` — 2 files, 306 lines: DiffResult
 - `ImageStat` — 1 files, 36 lines
 - `ImageStat/Source` — 1 files, 98 lines
-- `LatticePeak` — 1 files, 76 lines
+- `LatticePeak` — 1 files, 82 lines
 - `LatticePeak/Source` — 2 files, 1,376 lines: ChordCensus, Peak
 - `LineJump` — 1 files, 38 lines
 - `LineJump/Source` — 1 files, 161 lines
 - `PakTool` — 1 files, 40 lines
 - `PakTool/Source` — 1 files, 297 lines
-- `SceneMigrator` — 1 files, 101 lines
-- `SceneMigrator/Source` — 7 files, 6,308 lines: AnimGraphFile, AnimGraphMigrationReport, CloudMaterialAlbedoReport, CloudMaterialFile, CloudMaterialLayoutReport, CloudMaterialMigrationReport, CloudNoiseMigrationReport, CloudSetMigrationReport, CloudSpeciesMigrationReport, CloudTypeMigrationReport, DebugViewMigrationReport, EditMeshMigrationReport, … (+20)
+- `SceneMigrator` — 1 files, 110 lines
+- `SceneMigrator/Source` — 7 files, 3,043 lines: FileMigrationReport, FoliageTypesMigrationReport, InstanceTransformsReport, MeshGuidsMigrationReport, PrefabData, PrefabMigrationOutcome, ScanExclusion, SceneSerialized, SceneSettingsHomesReport, SettingsCanonicalisationReport
 - `Shared` — 1 files, 49 lines
-- `TextureCook` — 1 files, 79 lines
-- `TextureCook/Source` — 1 files, 113 lines
-- `WorldCook` — 1 files, 62 lines
-- `WorldCook/Source` — 3 files, 277 lines
-- `WorldGen` — 1 files, 71 lines
-- `WorldGen/Source` — 5 files, 793 lines: MaterialRef, WorldSpec, WorldStats
+- `TextureCook` — 1 files, 80 lines
+- `TextureCook/Source` — 1 files, 141 lines
+- `WorldCook` — 1 files, 65 lines
+- `WorldCook/Source` — 3 files, 287 lines
+- `WorldGen` — 1 files, 73 lines
+- `WorldGen/Source` — 5 files, 1,256 lines: MaterialRef, MeshRef, PropRef, PropTheme, WorldSpec, WorldStats
 
 ## Source → suites/projects that compile it (only sources compiled outside their own library)
-- `Desert/Desert/Source/Engine/Graphic/RDG/RDGBuilder.cpp` — 1: RenderGraphCompile
-- `Desert/Desert/Source/Engine/Graphic/RDG/RDGCompile.cpp` — 1: RenderGraphCompile
-- `Desert/Desert/Source/Engine/Graphic/RDG/RDGResources.cpp` — 1: RenderGraphCompile
-- `Desert/Common/Source/Common/Core/Timestep.cpp` — 3: AnimatorBlending, BoneControlContract, IKProbeRig
-- `Desert/Common/Source/Common/Core/UUID.cpp` — 2: LODFold, MemoryDetector
+- `Desert/Common/Source/Common/Core/Timestep.cpp` — 2: AnimatorBlending, BoneControlContract
+- `Desert/Common/Source/Common/Core/UUID.cpp` — 1: MemoryDetector
+- `Desert/Common/Source/Common/Json/Json.cpp` — 3: DesertCtl, FbxMeshSplitter, PreviewEnvironment
+- `Desert/Common/Source/Common/Settings/ProductName.cpp` — 2: PipelineCacheFile, ProductName
 - `Desert/Common/Source/Common/Utilities/ProcessMemory.cpp` — 1: MemoryDetector
 - `Desert/Desert/Source/Engine/Animation/AnimationClip.cpp` — 1: AnimatorClipRebind
+- `Desert/Desert/Source/Engine/Animation/AnimationLibrary.cpp` — 1: AnimationLibraryOnDemand
 - `Desert/Desert/Source/Engine/Animation/Animator.cpp` — 11: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/BoneControl.cpp` — 12: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/BoneControl.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
 - `Desert/Desert/Source/Engine/Animation/ClipSection.cpp` — 13: AnimationClipFormat, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ClipSections, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp` — 4: AnimationClipCorpus, ClipSkeletonMatch, IKProbeRig, TwoBoneWitness
+- `Desert/Desert/Source/Engine/Animation/ClipSkeletonMatch.cpp` — 5: AnimationClipCorpus, AnimationLibraryOnDemand, ClipSkeletonMatch, IKProbeRig, TwoBoneWitness
 - `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp` — 4: AnimGraph, AnimGraphAsset, AnimGraphScript, AnimGraphValidation
-- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp` — 29: AnimGraphAsset, AssetHandleStability, GraphCanvasIdentity, PrefabMigration, SceneAnimGraphMigration, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorEndToEnd, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SceneUnitMigration
+- `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp` — 9: AnimGraphAsset, AssetHandleStability, EngineShaderByGuid, FoliageTypeMigration, GraphCanvasIdentity, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes
 - `Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp` — 4: AnimGraph, AnimGraphAsset, AnimGraphScript, AnimGraphValidation
 - `Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp` — 22: AnimationClipCorpus, AnimationClipFormat, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlKeying, ControlRigAsset, ControlRigStage, CurveViewTransform, IKProbeRig, KeyInterpolation, KeyInterpolationWitness, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/Pose.cpp` — 24: AnimationClipCorpus, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkinnedMeshDependency, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp` — 14: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph
-- `Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp` — 14: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Pose.cpp` — 28: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, MaterialDocumentOpen, MeshServiceResidency, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkinnedMeshDependency, TwoBoneWitness
+- `Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp` — 16: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp` — 16: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph
 - `Desert/Desert/Source/Engine/Animation/Retarget/RetargetSource.cpp` — 11: AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp` — 14: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph
-- `Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp` — 15: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Retarget/Retargeter.cpp` — 16: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Rig/ControlHierarchy.cpp` — 16: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
 - `Desert/Desert/Source/Engine/Animation/Rig/ControlKeyer.cpp` — 2: ClipEditUndo, ControlKeying
 - `Desert/Desert/Source/Engine/Animation/Rig/ControlManipulator.cpp` — 1: ControlManipulator
-- `Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp` — 12: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Rig/ControlRigStage.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
 - `Desert/Desert/Source/Engine/Animation/Rig/ControlShape.cpp` — 1: ControlManipulator
-- `Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp` — 12: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
-- `Desert/Desert/Source/Engine/Animation/Skeleton.cpp` — 24: AnimationClipCorpus, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkinnedMeshDependency, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp` — 15: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, TwoBoneIKSolver
-- `Desert/Desert/Source/Engine/Animation/TimeModel.cpp` — 25: AnimationClipCorpus, AnimationClipFormat, AnimationTimeModel, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlKeying, ControlRigAsset, ControlRigStage, CurveViewTransform, IKProbeRig, KeyInterpolation, KeyInterpolationWitness, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SceneMigrator, SceneMigratorWritePath, SkeletonMapperFit, TwoBoneWitness
+- `Desert/Desert/Source/Engine/Animation/Rig/RigGraph.cpp` — 13: AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RigGraph
+- `Desert/Desert/Source/Engine/Animation/Skeleton.cpp` — 28: AnimationClipCorpus, AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, AssetMissingFile, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlHierarchy, ControlKeying, ControlManipulator, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, MaterialDocumentOpen, MeshServiceResidency, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, SkinnedMeshDependency, TwoBoneWitness
+- `Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp` — 17: AnimationLibraryOnDemand, AnimatorBlending, AnimatorClipRebind, AnimatorPose, AssetEviction, AssetHandleStability, BoneControlContract, ClipEditUndo, ControlRigAsset, ControlRigStage, EngineShaderByGuid, IKProbeRig, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, TwoBoneIKSolver
+- `Desert/Desert/Source/Engine/Animation/TimeModel.cpp` — 23: AnimationClipCorpus, AnimationClipFormat, AnimationTimeModel, AnimatorBlending, AnimatorClipRebind, AnimatorPose, BoneControlContract, ClipEditUndo, ClipSections, ClipSkeletonMatch, ControlKeying, ControlRigAsset, ControlRigStage, CurveViewTransform, IKProbeRig, KeyInterpolation, KeyInterpolationWitness, PoseSubstrate, RetargetAsset, RetargetPipeline, RigGraph, SkeletonMapperFit, TwoBoneWitness
 - `Desert/Desert/Source/Engine/Animation/TrackEditing.cpp` — 3: ClipEditUndo, ControlKeying, KeyInterpolationWitness
 - `Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp` — 3: BoneControlContract, ControlRigStage, IKProbeRig
-- `Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp` — 2: AnimGraphAsset, AssetHandleStability
-- `Desert/Desert/Source/Engine/Assets/AssetEviction.cpp` — 1: AssetEviction
-- `Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp` — 2: AssetEviction, AsyncAssetLoad
-- `Desert/Desert/Source/Engine/Assets/CloudLayout.cpp` — 15: AssetEviction, AssetHandleStability, AssetMissingFile, CloudAuthored, CloudField, CloudLayoutBaker, CloudLayoutTextures, CloudMaterialTiming, CloudPlacementSpectrum, CloudProceduralField, CloudType, LatticePeak, NewCloudAsset, SceneCloudLayoutDefault, ThumbnailFormats
-- `Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp` — 4: AssetEviction, AssetHandleStability, AssetMissingFile, NewCloudAsset
+- `Desert/Desert/Source/Engine/Assets/AnimGraphAsset.cpp` — 3: AnimGraphAsset, AssetHandleStability, EngineShaderByGuid
+- `Desert/Desert/Source/Engine/Assets/AssetEviction.cpp` — 2: AnimationLibraryOnDemand, AssetEviction
+- `Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp` — 7: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, SceneAssetGuidRoundTrip
+- `Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp` — 5: AnimationLibraryOnDemand, AssetEviction, AssetMissingFile, AsyncAssetLoad, MeshServiceResidency
+- `Desert/Desert/Source/Engine/Assets/CloudLayout.cpp` — 18: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, CloudAuthored, CloudField, CloudLayoutBaker, CloudLayoutTextures, CloudMaterialTiming, CloudPlacementSpectrum, CloudProceduralField, CloudType, EngineShaderByGuid, LatticePeak, MaterialDocumentOpen, NewCloudAsset, SceneCloudLayoutDefault, ThumbnailFormats
+- `Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp` — 7: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, NewCloudAsset
 - `Desert/Desert/Source/Engine/Assets/CloudModellingCatalogue.cpp` — 3: CloudAuthored, CloudCatalogue, CloudVolumeBaker
-- `Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp` — 17: AssetEviction, AssetHandleStability, AssetMissingFile, CloudAuthored, CloudCatalogue, CloudField, CloudLayoutTextures, CloudMaterialTiming, CloudModellingRecipe, CloudPlacementSpectrum, CloudProceduralField, CloudType, CloudVolumeBaker, LatticePeak, NewCloudAsset, SceneCloudLayoutDefault, ThumbnailFormats
-- `Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp` — 4: AssetEviction, AssetHandleStability, AssetMissingFile, NewCloudAsset
-- `Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp` — 9: AssetEviction, AssetHandleStability, AssetMissingFile, CloudNoiseSheet, CloudNoiseVolume, CloudNoiseVolumeHandle, CloudType, NewCloudAsset, ThumbnailFormats
-- `Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp` — 5: AssetEviction, AssetHandleStability, AssetMissingFile, CloudNoiseVolumeHandle, NewCloudAsset
+- `Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp` — 22: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, CloudAuthored, CloudCatalogue, CloudField, CloudLayoutTextures, CloudMaterialTiming, CloudModellingRecipe, CloudPlacementSpectrum, CloudProceduralField, CloudType, CloudVolumeBaker, EngineShaderByGuid, LatticePeak, MaterialDocumentOpen, NewCloudAsset, SceneCloudLayoutDefault, SceneMigrator, SceneMigratorWritePath, ThumbnailFormats
+- `Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp` — 7: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, NewCloudAsset
+- `Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp` — 14: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, CloudNoiseSheet, CloudNoiseVolume, CloudNoiseVolumeHandle, CloudType, EngineShaderByGuid, MaterialDocumentOpen, NewCloudAsset, SceneMigrator, SceneMigratorWritePath, ThumbnailFormats
+- `Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp` — 8: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, CloudNoiseVolumeHandle, EngineShaderByGuid, MaterialDocumentOpen, NewCloudAsset
 - `Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeGenerator.cpp` — 2: CloudNoiseVolume, NewCloudAsset
 - `Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeSheet.cpp` — 1: CloudNoiseSheet
 - `Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp` — 9: CloudAuthored, CloudField, CloudLayoutTextures, CloudMaterialTiming, CloudPlacementSpectrum, CloudProceduralField, CloudType, LatticePeak, SceneCloudLayoutDefault
-- `Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp` — 4: AssetEviction, AssetHandleStability, AssetMissingFile, NewCloudAsset
-- `Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp` — 11: AssetEviction, AssetHandleStability, AssetMissingFile, CloudAuthored, CloudField, CloudType, ComponentReflection, LatticePeak, NewCloudAsset, SceneCloudNoiseMigration, ThumbnailFormats
-- `Desert/Desert/Source/Engine/Assets/ContentGate.cpp` — 1: ContentGate
-- `Desert/Desert/Source/Engine/Assets/ControlRigAsset.cpp` — 1: AssetHandleStability
-- `Desert/Desert/Source/Engine/Assets/Mesh/AnimationAsset.cpp` — 3: AssetEviction, AssetHandleStability, AssetMissingFile
-- `Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp` — 4: AssetEviction, AssetHandleStability, AssetMissingFile, SkinnedMeshDependency
-- `Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp` — 4: AssetEviction, AssetHandleStability, AssetMissingFile, SkinnedMeshDependency
-- `Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp` — 5: AssetEviction, AssetHandleStability, AssetMissingFile, MeshBinaryFormat, StaticMeshCooked
-- `Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp` — 3: AssetEviction, AssetHandleStability, AssetMissingFile
-- `Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp` — 5: PrefabInstantiationCensus, PrefabMigration, PrefabVersionGate, SceneMigrator, SceneMigratorWritePath
+- `Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp` — 7: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, NewCloudAsset
+- `Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp` — 13: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, CloudAuthored, CloudField, CloudType, ComponentReflection, EngineShaderByGuid, LatticePeak, MaterialDocumentOpen, NewCloudAsset, ThumbnailFormats
+- `Desert/Desert/Source/Engine/Assets/ContentGate.cpp` — 2: ContentGate, PipelineCacheFile
+- `Desert/Desert/Source/Engine/Assets/ControlRigAsset.cpp` — 2: AssetHandleStability, EngineShaderByGuid
+- `Desert/Desert/Source/Engine/Assets/FoliageTypeAsset.cpp` — 1: AssetHandleStability
+- `Desert/Desert/Source/Engine/Assets/LandscapeLayerInfoAsset.cpp` — 1: AssetHandleStability
+- `Desert/Desert/Source/Engine/Assets/Mesh/AnimationAsset.cpp` — 6: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen
+- `Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp` — 8: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, MeshServiceResidency, SkinnedMeshDependency
+- `Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp` — 8: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, MeshServiceResidency, SkinnedMeshDependency
+- `Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp` — 9: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, MeshBinaryFormat, MeshServiceResidency, StaticMeshCooked
+- `Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp` — 6: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen
+- `Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp` — 11: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, MeshBinaryFormat, MeshDerivedData, MeshServiceResidency, ModelingToolTarget, StaticMeshCooked
+- `Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp` — 16: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, AssetReferenceCensus, EngineShaderByGuid, MaterialDocumentOpen, MeshBinaryFormat, MeshDerivedData, MeshServiceResidency, MeshSourceAsset, ModelingToolTarget, SceneMigrator, SceneMigratorWritePath, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp` — 4: PrefabInstantiationCensus, PrefabVersionGate, SceneMigrator, SceneMigratorWritePath
 - `Desert/Desert/Source/Engine/Assets/Prefab/PrefabOverrides.cpp` — 1: PrefabOverrides
 - `Desert/Desert/Source/Engine/Assets/Prefab/PrefabPlacement.cpp` — 2: PrefabInstantiationCensus, PrefabPlacement
-- `Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp` — 2: AssetEviction, AssetHandleStability
-- `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp` — 11: AnimationClipCorpus, AnimationClipFormat, AssetEviction, AssetHandleStability, AssetMissingFile, IKProbeRig, KeyInterpolationWitness, RetargetAsset, RetargetPipeline, SkeletonMapperFit, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp` — 3: AnimationClipFormat, SceneMigrator, SceneMigratorWritePath
+- `Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp` — 4: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, EngineShaderByGuid
+- `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp` — 14: AnimationClipCorpus, AnimationClipFormat, AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, IKProbeRig, KeyInterpolationWitness, MaterialDocumentOpen, RetargetAsset, RetargetPipeline, SkeletonMapperFit, TwoBoneWitness
+- `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp` — 1: AnimationClipFormat
 - `Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp` — 1: AnimationClipFormat
-- `Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp` — 3: AssetHandleStability, ControlRigAsset, RigGraph
-- `Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp` — 9: AssetEviction, AssetHandleStability, AssetMissingFile, IKProbeRig, MeshBinaryFormat, SkinnedMeshDependency, StaticMeshCooked, StaticMeshOutput, TwoBoneWitness
-- `Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp` — 3: AssetEviction, AssetHandleStability, RetargetAsset
-- `Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp` — 3: AssetHandleStability, GraphCanvasIdentity, ShaderGraphCompiler
-- `Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp` — 10: AssetEviction, AssetHandleStability, AssetMissingFile, GamePackager, PackagedContent, SplashLayout, TextureBinaryFormat, TextureCook, TextureImport, TextureSlotRoundTrip
-- `Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp` — 3: AssetEviction, AssetHandleStability, AssetMissingFile
-- `Desert/Desert/Source/Engine/Assets/ShaderGraphAsset.cpp` — 1: AssetHandleStability
-- `Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp` — 3: AssetEviction, AssetHandleStability, AssetMissingFile
-- `Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp` — 1: AssetHandleStability
-- `Desert/Desert/Source/Engine/Assets/TextureAsset.cpp` — 5: AssetEviction, AssetHandleStability, AssetMissingFile, TextureImport, TextureSlotRoundTrip
-- `Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp` — 1: AssetHandleStability
-- `Desert/Desert/Source/Engine/Assets/UIThemeData.cpp` — 3: AssetHandleStability, ThumbnailFormats, UIStyle
+- `Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp` — 4: AssetHandleStability, ControlRigAsset, EngineShaderByGuid, RigGraph
+- `Desert/Desert/Source/Engine/Assets/Serialization/EnvironmentStaging.cpp` — 6: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen
+- `Desert/Desert/Source/Engine/Assets/Serialization/FoliageType.cpp` — 15: AssetHandleStability, FoliageBrush, FoliagePalette, FoliageTypeAsset, FoliageTypeDnD, FoliageTypeMigration, GamePackager, PackagedContent, PrefabFoliage, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, WorldCells, WorldCook
+- `Desert/Desert/Source/Engine/Assets/Serialization/ImportRecord.cpp` — 1: MeshDerivedData
+- `Desert/Desert/Source/Engine/Assets/Serialization/LandscapeLayerInfo.cpp` — 2: AssetHandleStability, LandscapeLayerInfo
+- `Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp` — 16: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, DynamicMeshAsset, EngineShaderByGuid, IKProbeRig, MaterialDocumentOpen, MeshBinaryFormat, MeshDerivedData, MeshServiceResidency, ModelingToolTarget, SkinnedMeshDependency, StaticMeshCooked, StaticMeshOutput, TwoBoneWitness
+- `Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp` — 5: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, EngineShaderByGuid, RetargetAsset
+- `Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp` — 4: AssetHandleStability, EngineShaderByGuid, GraphCanvasIdentity, ShaderGraphCompiler
+- `Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp` — 13: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, GamePackager, MaterialDocumentOpen, PackagedContent, SplashLayout, TextureBinaryFormat, TextureCook, TextureImport, TextureSlotRoundTrip
+- `Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp` — 6: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen
+- `Desert/Desert/Source/Engine/Assets/ShaderGraphAsset.cpp` — 2: AssetHandleStability, EngineShaderByGuid
+- `Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp` — 6: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen
+- `Desert/Desert/Source/Engine/Assets/StringTableAsset.cpp` — 2: AssetHandleStability, EngineShaderByGuid
+- `Desert/Desert/Source/Engine/Assets/TextureAsset.cpp` — 8: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, EngineShaderByGuid, MaterialDocumentOpen, TextureImport, TextureSlotRoundTrip
+- `Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp` — 14: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, AssetReferenceCensus, BlockCompression, EngineShaderByGuid, GamePackager, MaterialDocumentOpen, PackagedContent, TextureBinaryFormat, TextureCook, TextureImport, TextureSlotRoundTrip
+- `Desert/Desert/Source/Engine/Assets/UIThemeAsset.cpp` — 2: AssetHandleStability, EngineShaderByGuid
+- `Desert/Desert/Source/Engine/Assets/UIThemeData.cpp` — 4: AssetHandleStability, EngineShaderByGuid, ThumbnailFormats, UIStyle
 - `Desert/Desert/Source/Engine/Core/BootTimeline.cpp` — 1: BootStageTiming
-- `Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp` — 11: AssetEviction, AssetHandleStability, AssetMissingFile, BlockCompression, GamePackager, PackagedContent, SplashLayout, TextureBinaryFormat, TextureCook, TextureImport, TextureSlotRoundTrip
+- `Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp` — 14: AnimationLibraryOnDemand, AssetEviction, AssetHandleStability, AssetMissingFile, BlockCompression, EngineShaderByGuid, GamePackager, MaterialDocumentOpen, PackagedContent, SplashLayout, TextureBinaryFormat, TextureCook, TextureImport, TextureSlotRoundTrip
 - `Desert/Desert/Source/Engine/Core/Frustum.cpp` — 2: DepthConvention, FrustumCulling
 - `Desert/Desert/Source/Engine/Core/SceneEntityIndex.cpp` — 1: EntityDestroy
-- `Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp` — 3: SceneForeignKeys, WorldPartition, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp` — 6: GamePackager, PackagedContent, SceneVersionGate, WorldCells, WorldCook, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp` — 9: GamePackager, PackagedContent, SceneMigrator, SceneMigratorWritePath, WorldCells, WorldCook, WorldGen, WorldPartition, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp` — 8: GamePackager, PackagedContent, SceneForeignKeys, SceneVersionGate, WorldCells, WorldCook, WorldPartition, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp` — 8: GamePackager, PackagedContent, SceneForeignKeys, SceneVersionGate, WorldCells, WorldCook, WorldPartition, WorldSceneGenerator
 - `Desert/Desert/Source/Engine/Core/Serialize/SceneLoadPhases.cpp` — 1: BootStageTiming
 - `Desert/Desert/Source/Engine/Core/Serialize/StoredAssetForm.cpp` — 2: AssetResolverCensus, StoredAssetForm
 - `Desert/Desert/Source/Engine/Core/Serialize/TextureSlot.cpp` — 1: TextureSlotRoundTrip
@@ -330,58 +370,119 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp` — 3: GamePackager, PackagedContent, ShaderIncluderOwnership
 - `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp` — 5: GamePackager, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey
 - `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp` — 2: GamePackager, PackagedContent
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp` — 2: GamePackager, PackagedContent
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapCache.cpp` — 1: ShaderCacheKey
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp` — 3: GamePackager, PackagedContent, ShaderCacheKey
 - `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderSpirvCache.cpp` — 2: GamePackager, PackagedContent
 - `Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp` — 1: LandscapeRaycast
 - `Desert/Desert/Source/Engine/ECS/System/PhysicsBodyLifetime.cpp` — 1: EntityDestroy
-- `Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp` — 40: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, PrefabMigration, SceneAnimGraphMigration, SceneCloudLayoutDefault, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugFields, SceneDebugViewMigration, SceneEditMeshMigration, SceneForeignKeys, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp` — 21: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
 - `Desert/Desert/Source/Engine/Geometry/AutoRig.cpp` — 1: AutoRig
-- `Desert/Desert/Source/Engine/Geometry/EditMesh.cpp` — 32: EditMesh, EditMeshOperations, EditMeshSaved, EditMeshSelection, PrefabMigration, SceneAnimGraphMigration, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorEndToEnd, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SceneUnitMigration, ShapeGenerators, StaticMeshOutput
-- `Desert/Desert/Source/Engine/Geometry/EditMeshAsset.cpp` — 1: StaticMeshOutput
-- `Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp` — 32: EditMesh, EditMeshOperations, EditMeshSaved, EditMeshSelection, PrefabMigration, SceneAnimGraphMigration, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorEndToEnd, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SceneUnitMigration, ShapeGenerators, StaticMeshOutput
-- `Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp` — 32: EditMesh, EditMeshOperations, EditMeshSaved, EditMeshSelection, PrefabMigration, SceneAnimGraphMigration, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorEndToEnd, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SceneUnitMigration, ShapeGenerators, StaticMeshOutput
-- `Desert/Desert/Source/Engine/Geometry/EditMeshModelOperations.cpp` — 1: EditMeshOperations
-- `Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp` — 4: EditMesh, EditMeshOperations, EditMeshSelection, ShapeGenerators
+- `Desert/Desert/Source/Engine/Geometry/DynamicMeshAsset.cpp` — 4: DynamicMeshAsset, MeshDerivedData, ModelingToolTarget, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/DynamicMeshRenderConversion.cpp` — 7: DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/DynamicMeshSelection.cpp` — 2: GroupTopology, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/DynamicMeshSerialization.cpp` — 5: DynamicMeshAsset, DynamicMeshSerialization, MeshDerivedData, ModelingToolTarget, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/EditMesh.cpp` — 19: DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, EditMesh, EditMeshOperations, EditMeshSaved, EditMeshSelection, FoliageTypeMigration, GroupTopology, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, ShapeGenerators, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/EditMeshAsset.cpp` — 5: DynamicMeshAsset, MeshDerivedData, ModelingToolTarget, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp` — 19: DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, EditMesh, EditMeshOperations, EditMeshSaved, EditMeshSelection, FoliageTypeMigration, GroupTopology, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, ShapeGenerators, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp` — 19: DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, EditMesh, EditMeshOperations, EditMeshSaved, EditMeshSelection, FoliageTypeMigration, GroupTopology, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, ShapeGenerators, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp` — 10: DynamicMesh3Render, EditMesh, EditMeshOperations, EditMeshSelection, GroupTopology, MeshDerivedData, OffsetInsetRegion, ShapeGenerators, StaticMeshCooked, StaticMeshOutput
 - `Desert/Desert/Source/Engine/Geometry/EditMeshOperations.cpp` — 1: EditMeshOperations
-- `Desert/Desert/Source/Engine/Geometry/EditMeshPolyGroups.cpp` — 4: EditMesh, EditMeshOperations, EditMeshSelection, ShapeGenerators
-- `Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp` — 2: EditMeshOperations, EditMeshSelection
-- `Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp` — 27: EditMeshSaved, PrefabMigration, SceneAnimGraphMigration, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorEndToEnd, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SceneUnitMigration
+- `Desert/Desert/Source/Engine/Geometry/EditMeshPolyGroups.cpp` — 7: DynamicMesh3Render, EditMesh, EditMeshOperations, EditMeshSelection, GroupTopology, OffsetInsetRegion, ShapeGenerators
+- `Desert/Desert/Source/Engine/Geometry/EditMeshSelection.cpp` — 4: EditMeshOperations, EditMeshSelection, GroupTopology, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp` — 12: DynamicMeshAsset, DynamicMeshSerialization, EditMeshSaved, FoliageTypeMigration, MeshDerivedData, ModelingToolTarget, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, StaticMeshCooked, StaticMeshOutput
 - `Desert/Desert/Source/Engine/Geometry/EditMeshTopologyOperations.cpp` — 1: EditMeshOperations
-- `Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp` — 1: MeshLOD
-- `Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp` — 2: MeshLOD, MeshSimplifier
-- `Desert/Desert/Source/Engine/Geometry/VoxelBlockout.cpp` — 1: VoxelBlockout
+- `Desert/Desert/Source/Engine/Geometry/EditMeshXformOperations.cpp` — 4: EditMeshOperations, MeshDerivedData, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshAssetArrays.cpp` — 5: DynamicMeshAsset, MeshDerivedData, ModelingToolTarget, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshBooleanOperation.cpp` — 1: MeshBoolean
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/CompGeom/PolygonTriangulation.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.cpp` — 12: DynamicMesh3Attributes, DynamicMesh3Core, DynamicMesh3Edits, DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, GroupTopology, MeshBoolean, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3_Edits.cpp` — 12: DynamicMesh3Attributes, DynamicMesh3Core, DynamicMesh3Edits, DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, GroupTopology, MeshBoolean, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3_Queries.cpp` — 12: DynamicMesh3Attributes, DynamicMesh3Core, DynamicMesh3Edits, DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, GroupTopology, MeshBoolean, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.cpp` — 12: DynamicMesh3Attributes, DynamicMesh3Core, DynamicMesh3Edits, DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, GroupTopology, MeshBoolean, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshOverlay.cpp` — 12: DynamicMesh3Attributes, DynamicMesh3Core, DynamicMesh3Edits, DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, GroupTopology, MeshBoolean, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.cpp` — 2: GroupTopology, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/MeshIndexUtil.cpp` — 2: MeshBoolean, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.cpp` — 3: DynamicMesh3Render, MeshBoolean, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/GroupEdgeInserter.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/InsetMeshRegion.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/MergeCoincidentMeshEdges.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshBevel.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshMirror.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshPlaneCut.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/OffsetMeshRegion.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/PlanarHoleFiller.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/PolyEditingEdgeUtil.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/PolyEditingUVUtil.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/SimpleHoleFiller.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/SplitAttributeWelder.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Operations/SubdividePoly.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMesh/Parameterization/DynamicMeshUVEditor.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/DynamicMeshEditor.cpp` — 2: MeshBoolean, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/MeshBoundaryLoops.cpp` — 2: MeshBoolean, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.cpp` — 3: GroupTopology, MeshBoolean, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/EmbedSurfacePath.cpp` — 2: MeshBoolean, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshBoolean.cpp` — 1: MeshBoolean
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/Operations/MeshMeshCut.cpp` — 1: MeshBoolean
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/Polygroups/PolygroupSet.cpp` — 7: DynamicMesh3Attributes, DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, MeshDerivedData, ModelingToolTarget, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/Selections/MeshConnectedComponents.cpp` — 2: MeshBoolean, OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/Selections/QuadGridPatch.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/SmallListSet.cpp` — 13: DynamicMesh3Attributes, DynamicMesh3Core, DynamicMesh3Edits, DynamicMesh3Render, DynamicMeshAsset, DynamicMeshSerialization, GroupTopology, MeshBoolean, MeshCoreContainers, MeshDerivedData, ModelingToolTarget, OffsetInsetRegion, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshCore/Solvers/MeshUVSolver.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp` — 4: MeshDerivedData, MeshLOD, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/MeshPlaneOperation.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshRegionOperation.cpp` — 1: OffsetInsetRegion
+- `Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp` — 5: MeshDerivedData, MeshLOD, MeshSimplifier, StaticMeshCooked, StaticMeshOutput
+- `Desert/Desert/Source/Engine/Geometry/VoxelBlockout.cpp` — 2: StaticMeshOutput, VoxelBlockout
+- `Desert/Desert/Source/Engine/Graphic/API/Vulkan/DeviceCaps.cpp` — 1: DeviceCaps
 - `Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanShaderReflection.cpp` — 5: DescriptorFallbacks, MeshVertexPath, PBRSceneFrame, ShaderCacheKey, ShaderReflection
 - `Desert/Desert/Source/Engine/Graphic/DeviceLost.cpp` — 1: DeviceLostGate
 - `Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.cpp` — 2: InstancedRecorder, MeshVertexPath
 - `Desert/Desert/Source/Engine/Graphic/MemoryReadout.cpp` — 1: MemoryDetector
-- `Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.cpp` — 8: Render2D, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Graphic/PipelineCacheFile.cpp` — 1: PipelineCacheFile
+- `Desert/Desert/Source/Engine/Graphic/Render2D/DrawList2D.cpp` — 9: Render2D, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections
 - `Desert/Desert/Source/Engine/Graphic/SkyGroundTransmittance.cpp` — 1: SkyMedium
-- `Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp` — 14: AssetHandleStability, CommandLine, FlightRules, LocaleFormat, LocalizedContentCensus, LocalizedText, SceneTextKeySigilMigration, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
-- `Desert/Desert/Source/Engine/Localization/LocalizationService.cpp` — 9: AssetHandleStability, LocalizedText, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
-- `Desert/Desert/Source/Engine/Localization/LocalizedText.cpp` — 11: AssetHandleStability, LocalizedContentCensus, LocalizedText, SceneTextKeySigilMigration, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
-- `Desert/Desert/Source/Engine/Localization/PluralRules.cpp` — 15: AssetHandleStability, CommandLine, FlightRules, LocaleFormat, LocalizedContentCensus, LocalizedText, PluralRules, SceneTextKeySigilMigration, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
-- `Desert/Desert/Source/Engine/Localization/StringTable.cpp` — 11: AssetHandleStability, LocalizedContentCensus, LocalizedText, SceneTextKeySigilMigration, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Graphic/Texture.cpp` — 1: TextureOwnership
+- `Desert/Desert/Source/Engine/Graphic/ViewResources.cpp` — 5: BufferFillKind, DocumentOwnership, MaterialParamUpload, ViewLifetime, ViewResources
+- `Desert/Desert/Source/Engine/Graphic/ViewSettings.cpp` — 1: SceneSettingsHomes
+- `Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp` — 14: AssetHandleStability, CommandLine, EngineShaderByGuid, FlightRules, LocaleFormat, LocalizedContentCensus, LocalizedText, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Localization/LocalizationService.cpp` — 10: AssetHandleStability, EngineShaderByGuid, LocalizedText, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Localization/LocalizedText.cpp` — 11: AssetHandleStability, EngineShaderByGuid, LocalizedContentCensus, LocalizedText, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Localization/PluralRules.cpp` — 15: AssetHandleStability, CommandLine, EngineShaderByGuid, FlightRules, LocaleFormat, LocalizedContentCensus, LocalizedText, PluralRules, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Localization/StringTable.cpp` — 11: AssetHandleStability, EngineShaderByGuid, LocalizedContentCensus, LocalizedText, UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
 - `Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp` — 2: EntityDestroy, LandscapeRaycast
 - `Desert/Desert/Source/Engine/Project/EngineRegistration.cpp` — 1: ProjectFormat
 - `Desert/Desert/Source/Engine/Project/ProjectContext.cpp` — 5: GamePackager, PackagedContent, PreferenceOwnership, ProjectFormat, TextureCook
 - `Desert/Desert/Source/Engine/Project/StartupLayout.cpp` — 1: StartupLayout
-- `Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp` — 40: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, PrefabMigration, SceneAnimGraphMigration, SceneCloudLayoutDefault, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugFields, SceneDebugViewMigration, SceneEditMeshMigration, SceneForeignKeys, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp` — 36: CloudProtocolScene, ComponentReflection, ConfigOwnership, PrefabMigration, ReflectionSerializer, SceneAnimGraphMigration, SceneCloudLayoutDefault, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneForeignKeys, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/Runtime/Services/Image/ImageService.cpp` — 1: ProceduralEnvironmentCube
+- `Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp` — 21: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp` — 17: CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, ReflectionSerializer, SceneCloudLayoutDefault, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/Runtime/Services/CloudType/CloudTypeService.cpp` — 1: AssetMissingFile
+- `Desert/Desert/Source/Engine/Runtime/Services/Image/ImageService.cpp` — 2: ProceduralEnvironmentCube, TextureOwnership
+- `Desert/Desert/Source/Engine/Runtime/Services/Mesh/MeshService.cpp` — 1: MeshServiceResidency
+- `Desert/Desert/Source/Engine/Scripting/UIBindings.cpp` — 1: UIScriptCollections
 - `Desert/Desert/Source/Engine/Text/FontBaker.cpp` — 3: FontBaker, GamePackager, PackagedContent
 - `Desert/Desert/Source/Engine/Text/FontCache.cpp` — 2: GamePackager, PackagedContent
 - `Desert/Desert/Source/Engine/Text/Msdf.cpp` — 3: FontBaker, GamePackager, PackagedContent
-- `Desert/Desert/Source/Engine/Text/Utf8.cpp` — 8: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, Utf8
-- `Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp` — 7: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/Text/Utf8.cpp` — 9: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections, Utf8
+- `Desert/Desert/Source/Engine/UI/UICanvasLayout.cpp` — 8: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections
 - `Desert/Desert/Source/Engine/UI/UICanvasRenderer2D.cpp` — 7: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
-- `Desert/Desert/Source/Engine/UI/UIDataStore.cpp` — 7: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/UI/UICollectionClone.cpp` — 8: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections
+- `Desert/Desert/Source/Engine/UI/UIDataStore.cpp` — 8: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections
 - `Desert/Desert/Source/Engine/UI/UIIntrospection.cpp` — 3: UICanvasOverScene, UIIntrospection, UIListView
-- `Desert/Desert/Source/Engine/UI/UIOverlay.cpp` — 7: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture
+- `Desert/Desert/Source/Engine/UI/UIOverlay.cpp` — 8: UICanvasContext, UICanvasOverScene, UIEventRouting, UIIntrospection, UIListView, UIOverlays, UIRenderTexture, UIScriptCollections
 - `Desert/Desert/Source/Engine/Vector/IconBake.cpp` — 2: GamePackager, PackagedContent
 - `Desert/Desert/Source/Engine/Vector/VectorImage.cpp` — 4: GamePackager, GizmoIconSet, PackagedContent, VectorImage
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp` — 38: GamePackager, LandscapeData, LandscapeRaycast, LandscapeScene, PackagedContent, PrefabMigration, SceneAnimGraphMigration, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigrator, SceneMigratorEndToEnd, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SceneUnitMigration, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp` — 12: GamePackager, LandscapeRaycast, LandscapeScene, PackagedContent, SceneProceduralTerrainMigration, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapeRaycast.cpp` — 1: LandscapeRaycast
+- `Desert/Desert/Source/Engine/World/Foliage/FoliageCells.cpp` — 2: PrefabFoliage, WorldPartition
+- `Desert/Desert/Source/Engine/World/Foliage/FoliagePrefabs.cpp` — 1: PrefabFoliage
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeBrush.cpp` — 5: LandscapeBrush, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeSculpt
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeComponentTools.cpp` — 3: LandscapeGenerator, LandscapeHeightmapIO, LandscapeSculpt
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp` — 26: FoliageBrush, FoliageTypeMigration, GamePackager, LandscapeBrush, LandscapeData, LandscapeEditCache, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeRaycast, LandscapeScene, LandscapeSculpt, PackagedContent, PrefabFoliage, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionMap, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeEditCache.cpp` — 4: LandscapeEditCache, LandscapeGenerator, LandscapeHeightmapIO, LandscapeSculpt
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeGenerator.cpp` — 2: LandscapeGenerator, LandscapeHeightmapIO
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp` — 21: FoliageTypeMigration, GamePackager, LandscapeBrush, LandscapeEditCache, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeRaycast, LandscapeScene, LandscapeSculpt, PackagedContent, SceneMeshGuidMigration, SceneSettingsHomes, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionMap, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapePaint.cpp` — 1: LandscapePaint
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeRaycast.cpp` — 3: FoliageBrush, LandscapeRaycast, PrefabFoliage
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeSculpt.cpp` — 3: LandscapeGenerator, LandscapeHeightmapIO, LandscapeSculpt
 - `Desert/Desert/Source/Engine/World/Landscape/LandscapeTileFiles.cpp` — 1: LandscapeScene
 - `Editor/Source/Editor/Core/AssetFileOps.cpp` — 1: AssetFileOps
 - `Editor/Source/Editor/Core/AssetReferences.cpp` — 3: AssetClosure, AssetReferences, BuildScriptContract
@@ -396,33 +497,51 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Editor/Source/Editor/Core/GraphCanvas/GraphCanvas.cpp` — 2: AnimGraphValidation, GraphCanvasIdentity
 - `Editor/Source/Editor/Core/LogView.cpp` — 1: LogView
 - `Editor/Source/Editor/Core/MultiEdit.cpp` — 2: MultiEdit, PropertyReset
-- `Editor/Source/Editor/Core/SubjectEditorRegistry.cpp` — 2: CloudStages, DocumentOwnership
+- `Editor/Source/Editor/Core/Selection/ModelingToolTarget.cpp` — 2: MeshDerivedData, ModelingToolTarget
+- `Editor/Source/Editor/Core/SubjectEditorRegistry.cpp` — 4: AssetOpenRoute, CloudStages, DocumentOwnership, MaterialDocumentOpen
+- `Editor/Source/Editor/Core/ThemeManager.cpp` — 1: ThemePalette
 - `Editor/Source/Editor/Core/ViewportModes.cpp` — 1: PreferenceOwnership
-- `Editor/Source/Editor/Import/LODFold.cpp` — 1: LODFold
+- `Editor/Source/Editor/Import/EditedMeshAsset.cpp` — 1: MeshDerivedData
+- `Editor/Source/Editor/Import/ImportUnits.cpp` — 2: AssimpLibraryPin, MeshImportUnits
+- `Editor/Source/Editor/Import/ImportedMeshAsset.cpp` — 1: MeshDerivedData
+- `Editor/Source/Editor/Import/LandscapeHeightmapIO.cpp` — 1: LandscapeHeightmapIO
+- `Editor/Source/Editor/Import/MeshDeriver.cpp` — 3: MeshDerivedData, StaticMeshCooked, StaticMeshOutput
 - `Editor/Source/Editor/Import/TextureImporter.cpp` — 4: GamePackager, PackagedContent, TextureCook, TextureImport
 - `Editor/Source/Editor/Packaging/GamePackager.cpp` — 2: GamePackager, PackagedContent
 - `Editor/Source/Editor/Packaging/PackageCook.cpp` — 2: GamePackager, PackagedContent
 - `Editor/Source/Editor/Panels/Animation/AnimGraphCanvasPlan.cpp` — 2: AnimGraphValidation, GraphCanvasIdentity
+- `Editor/Source/Editor/Panels/Collections/CollectionFoliageTypes.cpp` — 2: FoliagePalette, FoliageTypeDnD
 - `Editor/Source/Editor/Panels/FileExplorer/NewCloudAsset.cpp` — 1: NewCloudAsset
+- `Editor/Source/Editor/Panels/Foliage/FoliagePalette.cpp` — 1: FoliagePalette
 - `Editor/Source/Editor/Panels/NodeGraph/ShaderGraph.cpp` — 1: ShaderGraphCompiler
 - `Editor/Source/Editor/Panels/NodeGraph/ShaderGraphCanvasPlan.cpp` — 1: GraphCanvasIdentity
 - `Editor/Source/Editor/Panels/PropertyEditor/PropertyReset.cpp` — 1: PropertyReset
 - `Editor/Source/Editor/Panels/Sequencer/CurveView.cpp` — 1: CurveViewTransform
+- `Editor/Source/Editor/Panels/ViewportPanel/Tools/FoliageBrush.cpp` — 3: FoliageBrush, FoliagePalette, PrefabFoliage
+- `Editor/Source/Editor/Panels/WorldPartition/WorldPartitionMap.cpp` — 1: WorldPartitionMap
 - `Editor/Source/Editor/Splash/SplashImage.cpp` — 1: SplashLayout
 - `Editor/Source/Editor/Widgets/CloudThumbnail.cpp` — 1: ThumbnailFormats
-- `Editor/Source/Editor/Widgets/ThumbnailScan.cpp` — 1: ThumbnailSweep
+- `Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp` — 1: ThumbnailFormats
+- `Editor/Source/Editor/Widgets/ThumbnailEncode.cpp` — 1: ThumbnailPrefetch
+- `Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp` — 1: ThumbnailPrefetch
 - `Runtime/Source/PackagedContent.cpp` — 2: PackagedContent, PackagedMount
+- `ThirdParty/ImGui/imgui.cpp` — 1: ThemePalette
+- `ThirdParty/ImGui/imgui_draw.cpp` — 1: ThemePalette
+- `ThirdParty/ImGui/imgui_tables.cpp` — 1: ThemePalette
+- `ThirdParty/ImGui/imgui_widgets.cpp` — 1: ThemePalette
 - `ThirdParty/VulkanAllocator/vk_mem_alloc.cpp` — 1: Desert
 - `ThirdParty/desert-shared/Source/EngineRegistry.cpp` — 1: Common
 - `ThirdParty/desert-shared/Source/ProjectFormat.cpp` — 1: Common
 - `ThirdParty/desert-shared/Tests/project_format_test.cpp` — 1: ProjectFormat
 - `ThirdParty/miniaudio/miniaudio.cpp` — 1: Desert
 - `ThirdParty/pl_mpeg/pl_mpeg.cpp` — 1: Desert
-- `ThirdParty/stb/stb_image.cpp` — 9: BlockCompression, CloudLayoutBaker, Desert, GamePackager, PackagedContent, TextureBinaryFormat, TextureCook, TextureImport, ThumbnailFormats
+- `ThirdParty/stb/stb_image.cpp` — 11: BlockCompression, CloudLayoutBaker, Desert, GamePackager, LandscapeHeightmapIO, PackagedContent, TextureBinaryFormat, TextureCook, TextureImport, ThumbnailFormats, ThumbnailPrefetch
 - `ThirdParty/stb/stb_truetype.cpp` — 4: Desert, FontBaker, GamePackager, PackagedContent
+- `ThirdParty/vk-bootstrap/VkBootstrap.cpp` — 1: Desert
+- `Tools/CrashReporter/Source/CrashReport.cpp` — 1: CrashReportParse
 - `Tools/SceneMigrator/Source/MigratorMain.cpp` — 2: Editor, SceneMigratorWritePath
-- `Tools/SceneMigrator/Source/SceneMigration.cpp` — 26: Editor, PrefabMigration, SceneAnimGraphMigration, SceneCloudMaterialMigration, SceneCloudNoiseMigration, SceneCloudSetMigration, SceneCloudSpeciesMigration, SceneCloudTypeMigration, SceneDebugViewMigration, SceneEditMeshMigration, SceneGrassGenerationMigration, SceneGravityUnitsMigration, SceneMaterialPathMigration, SceneMigratorEndToEnd, SceneMigratorWritePath, SceneProceduralTerrainMigration, SceneRetiredKeysMigration, SceneSSRUnitsMigration, SceneScriptRootMigration, SceneServiceAssetRootMigration, SceneSkyMigration, SceneTerrainMaterialMigration, SceneTextKeySigilMigration, SceneTonemapMigration, SceneUIVisibilityMigration, SceneUnitMigration
-- `Tools/SceneMigrator/Source/SettingsCanonical.cpp` — 5: Editor, SceneMigratorWritePath, SceneRetiredKeysMigration, WorldGen, WorldSceneGenerator
+- `Tools/SceneMigrator/Source/SceneMigration.cpp` — 5: Editor, FoliageTypeMigration, SceneMeshGuidMigration, SceneMigratorWritePath, SceneSettingsHomes
+- `Tools/SceneMigrator/Source/SettingsCanonical.cpp` — 4: Editor, SceneMigratorWritePath, WorldGen, WorldSceneGenerator
 - `Tools/WorldCook/Source/WorldCookMain.cpp` — 1: WorldCells
 - `Tools/WorldGen/Source/WorldBuild.cpp` — 1: WorldSceneGenerator
 - `Tools/WorldGen/Source/WorldGenMain.cpp` — 1: WorldSceneGenerator
