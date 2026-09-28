@@ -1,6 +1,8 @@
 #include "WorldSettingsPanel.hpp"
 
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneSettings.hpp>
@@ -44,6 +46,21 @@ namespace Desert::Editor
             int         cur     = static_cast<int>( s.RenderingPath );
             if ( ImGui::Combo( "Render Path (scene)", &cur, paths, IM_ARRAYSIZE( paths ) ) )
                 s.RenderingPath = static_cast<::Desert::Core::RenderPath>( cur );
+        }
+
+        // UE's World Settings -> GameMode override: which prefab Play spawns at the PlayerStart. The field
+        // is drawn through the reflection, so the picker, its states and its drop target are the one every
+        // other prefab slot uses.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Game Mode" ) )
+        {
+            if ( const auto* type = ::Desert::Reflection::ReflectionRegistry::Get().Find( "SceneSettings" ) )
+            {
+                for ( const auto& field : type->Fields )
+                {
+                    if ( field.Name == "DefaultPawn" )
+                        PropertyEditorBuilder::DrawPinnedRow( &s, *type, field, nullptr, m_UIHelper.get() );
+                }
+            }
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Physics" ) )

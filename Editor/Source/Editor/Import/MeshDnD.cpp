@@ -34,29 +34,31 @@ namespace Desert::Editor::MeshDnD
             return CookPaths::MeshAsset( sourcePath );
         }
 
-        // Same, for a rigged source that cooks to a skinned mesh (Cooked/Meshes/foo.skmesh).
+        // Same, for a rigged source that imports to a skinned mesh beside it (Resources/Assets/Meshes/foo.skmesh).
         std::filesystem::path CookedSkinnedMeshPath( const std::string& sourcePath )
         {
-            return CookPaths::CookedSkinned( sourcePath, ".skmesh" );
+            return CookPaths::SkinnedAsset( sourcePath, ".skmesh" );
         }
 
-        // The cook's own suffix for a rig, spelled here because Common::Constants::Extensions has no entry
-        // for it.
-        constexpr const char* kSkeletonExtension = ".skeleton";
-
-        // A FRESH COOK IS IN NOBODY'S REGISTRY YET, and MeshService names a skinned mesh's rig by the
-        // registry's Rig tag (AL1-5). So the new .skmesh and the cooked rigs beside it are noted now — their
-        // headers are read by the registry, no asset is loaded.
+        // A FRESH IMPORT IS IN NOBODY'S REGISTRY YET, and MeshService names a skinned mesh's rig by the
+        // registry's Rig tag (AL1-5). So the new .skmesh and the rig and clips written beside it
+        // (CookPaths::SkinnedAsset: <stem>.skeleton, <stem>_<clip>.anim) are noted now — their headers are
+        // read by the registry, no asset is loaded. Only this import's siblings: the folder is authored
+        // content, and a stranger's file in it is not this import's business.
         void NoteFreshSkinnedCook( const std::filesystem::path& skinned )
         {
             namespace fs = std::filesystem;
             Assets::ContentRegistry::Update( skinned );
-            std::error_code ec;
-            for ( const auto& f :
-                  fs::recursive_directory_iterator( Common::Constants::Path::MESH_PATH_COOKED, ec ) )
+            const std::string stem = skinned.stem().string();
+            std::error_code   ec;
+            for ( const auto& f : fs::directory_iterator( skinned.parent_path(), ec ) )
             {
-                if ( f.is_regular_file( ec ) && f.path().extension() == kSkeletonExtension )
-                    Assets::ContentRegistry::Update( f.path() );
+                const fs::path&   file = f.path();
+                const std::string name = file.stem().string();
+                const bool        rig  = file.extension() == ".skeleton" && name == stem;
+                const bool        clip = file.extension() == ".anim" && name.starts_with( stem + "_" );
+                if ( f.is_regular_file( ec ) && ( rig || clip ) )
+                    Assets::ContentRegistry::Update( file );
             }
         }
 

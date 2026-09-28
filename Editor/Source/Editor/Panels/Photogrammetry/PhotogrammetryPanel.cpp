@@ -632,7 +632,7 @@ namespace Desert::Editor
         m_PreviewRenderer->SetOutlineSettings( glm::vec3( 0.0f ), 0.0f, 0.0f, false );
 
         auto cam                                                   = m_PreviewScene->CreateNewEntity( "PrevCam" );
-        cam.AddComponent<ECS::CameraComponent>().Data.IsMainCamera = true;
+        cam.AddComponent<ECS::CameraComponent>().Data.AutoActivateForPlayer = true;
 
         auto  light           = m_PreviewScene->CreateNewEntity( "PrevLight" );
         auto& lightC          = light.AddComponent<ECS::DirectionLightComponent>();

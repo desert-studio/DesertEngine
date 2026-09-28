@@ -29,7 +29,14 @@
 
 #include <gtest/gtest.h>
 
+#ifdef _WIN32
+#define popen _popen
+#define pclose _pclose
+#endif
+
 #include <algorithm>
+#include <array>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -54,6 +61,26 @@ namespace
             prefix += "../";
         }
         return {};
+    }
+
+    // Repository-relative paths of every tracked file; empty when git cannot be run.
+    std::vector<std::string> TrackedFiles( const std::string& root )
+    {
+        std::vector<std::string> files;
+        const std::string        command = "git -C \"" + root + "\" ls-files";
+        FILE*                    pipe    = popen( command.c_str(), "r" );
+        if ( pipe == nullptr )
+            return files;
+        std::array<char, 4096> line{};
+        while ( fgets( line.data(), static_cast<int>( line.size() ), pipe ) != nullptr )
+        {
+            std::string rel( line.data() );
+            while ( !rel.empty() && ( rel.back() == '\n' || rel.back() == '\r' ) )
+                rel.pop_back();
+            files.push_back( std::move( rel ) );
+        }
+        pclose( pipe );
+        return files;
     }
 
     std::string ReadAll( const fs::path& path )
@@ -209,26 +236,16 @@ TEST( PrefabInstantiationCensus, EveryPrefabOnDiskIsLoadableAndItsOverridesAddre
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    std::error_code       ec;
+    // THE CORPUS IS WHAT GIT TRACKS, not what the disk holds. A disk walk graded every .deprefab under the
+    // root, and a package the editor once wrote to the gitignored Editor/Saved/Cooked/<Project> carries
+    // prefab copies cooked by whatever tree built it: an old local package turned this suite red on a
+    // tree whose own prefabs were all fine. `git ls-files` names exactly the files a clone has.
     std::vector<fs::path> prefabs;
-    for ( auto it = fs::recursive_directory_iterator( fs::path( root ), ec );
-          !ec && it != fs::recursive_directory_iterator(); ++it )
-    {
-        const fs::path&   p = it->path();
-        const std::string s = p.generic_string();
-        // Agent worktrees and third-party checkouts live under the same root in this repository; a
-        // sweep that walked them would be grading somebody else's tree.
-        if ( s.find( "/ThirdParty/" ) != std::string::npos || s.find( "/.claude/" ) != std::string::npos ||
-             s.find( "/build/" ) != std::string::npos )
-        {
-            it.disable_recursion_pending();
-            continue;
-        }
-        if ( p.extension() == ".deprefab" )
-        {
-            prefabs.push_back( p );
-        }
-    }
+    for ( const std::string& rel : TrackedFiles( root ) )
+        if ( fs::path( rel ).extension() == ".deprefab" )
+            prefabs.push_back( fs::path( root ) / rel );
+    ASSERT_FALSE( prefabs.empty() ) << "git ls-files under " << root
+                                    << " named no .deprefab: the listing failed, not the corpus";
 
     for ( const fs::path& p : prefabs )
     {

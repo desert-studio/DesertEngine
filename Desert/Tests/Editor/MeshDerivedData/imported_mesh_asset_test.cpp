@@ -142,7 +142,7 @@ TEST( ImportedMeshAsset, ReimportOfTheSameBytesKeepsGuidKeyAndWritesNoFile )
                Assets::MeshAssetDerivedDataKey( asset.GetValue() ) );
 
     // Nothing of a static import lands under Cooked/ either.
-    EXPECT_FALSE( fs::exists( Common::Constants::Path::MESH_PATH_COOKED / "Grid.stmesh", ec ) );
+    EXPECT_FALSE( fs::exists( Common::Constants::Path::COOKED_PATH / "Meshes" / "Grid.stmesh", ec ) );
 }
 
 TEST( ImportedMeshAsset, FreshnessIsTheSourceHashNotItsTime )

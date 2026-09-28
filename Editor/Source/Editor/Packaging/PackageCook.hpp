@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -54,8 +55,14 @@ namespace Desert::Editor
     //
     // `spirvDebugInfo` is the TARGET runtime's profile (Core::SpirvDebugInfoForConfigName), not this
     // editor's: a Debug editor packaging a Release game must cook Release keys, or the shipped cache
-    // is dead on arrival.
-    CookStats CookContentCaches( bool spirvDebugInfo );
+    // is dead on arrival. `developerInstruments` is the target runtime's DESERT_DEV_INSTRUMENTS
+    // (Common::ConfigHasDeveloperInstruments): a Shipping target cooks no developer-only shader.
+    CookStats CookContentCaches( bool spirvDebugInfo, bool developerInstruments );
+
+    // The .shader programs a package carries and its cook compiles: every program under the live shader root
+    // but the ones IsLeftOutOfPackage names for that runtime (editor-only; developer-only when the target has
+    // no DESERT_DEV_INSTRUMENTS). Public so the configuration census can read the set the cook reads.
+    std::vector<std::filesystem::path> PackagedShaderPrograms( bool developerInstruments );
 
     // A PACKAGE CARRIES NO TEXTURE SOURCE (AM0). The editor's `.detex` holds the imported image (SRCE) and
     // its import record (IMPT); both are the editor's alone, so the cooked tree gets the cooked form instead

@@ -31,6 +31,9 @@ namespace Desert::Core
 
         // ── THE SCENE'S OWN SETTINGS ──────────────────────────────────────────────────────────────────
         roots.Mark( scene.GetSettings().SplashSprite, "the scene's splash sprite" );
+        // Play instantiates it when the button is pressed (Core::SpawnDefaultPawn), long after the scene-load
+        // sweep: unrooted, the sweep released it and Play found a prefab with no entities.
+        roots.Mark( scene.GetSettings().DefaultPawn, "the scene's Default Pawn" );
 
         // ── GEOMETRY ──────────────────────────────────────────────────────────────────────────────────
         //

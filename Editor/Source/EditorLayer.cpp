@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
@@ -470,8 +471,8 @@ namespace Desert::Editor
 
         m_ImportManager = std::make_unique<ImportManager>();
         // Cook only what's missing/stale (skips the expensive Assimp re-parse on every launch). Collections
-        // hold packs (a character + its animation FBXs), so they're cooked too — their outputs land under
-        // Cooked/Meshes/Collections/... where the content registry gathers them (see CookPaths::CookedSkinned).
+        // hold packs (a character + its animation FBXs), so they're imported too — their skinned assets land
+        // beside each source, where the content registry gathers them (see CookPaths::SkinnedAsset).
         //
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
@@ -6362,6 +6363,47 @@ namespace Desert::Editor
                                                                 "already playing or Play refused (the log "
                                                                 "says why)." );
                               } } );
+        commands.push_back( { "Action", "Play from Here", [this]
+                              {
+                                  using SceneState   = ::Desert::Core::Scene::SceneState;
+                                  const bool editing = m_MainScene->GetState() == SceneState::Edit;
+                                  if ( editing )
+                                      OnScenePlay( /*fromHere=*/true );
+                                  return PaletteCommandOutcome( editing &&
+                                                                     m_MainScene->GetState() != SceneState::Edit,
+                                                                "the scene is not playing; either it was "
+                                                                "already playing or Play refused (the log "
+                                                                "says why)." );
+                              } } );
+        // Play at one TAGGED start - the control channel's spelling of `--player-start <tag>`: a command's
+        // label carries its argument (as "Select asset <path>" does), one entry per tag the level states, so
+        // `desertctl run Action "Play at Player Start 'Red'"` names a start the scene really has.
+        auto& registry = m_MainScene->GetRegistry();
+        for ( const auto entity : registry.view<ECS::PlayerStartComponent>() )
+        {
+            const std::string tag = registry.get<ECS::PlayerStartComponent>( entity ).Data.Tag;
+            if ( tag.empty() )
+                continue;
+            commands.push_back(
+                 { "Action", "Play at Player Start '" + tag + "'", [this, entity]
+                   {
+                       // The start is captured by ENTITY, not by a copy of its tag: the tag is
+                       // read when the command runs, so an entry outliving the start refuses.
+                       auto&       reg = m_MainScene->GetRegistry();
+                       const auto* start =
+                            reg.valid( entity ) ? reg.try_get<ECS::PlayerStartComponent>( entity ) : nullptr;
+                       if ( start == nullptr )
+                           return PaletteCommandOutcome( false, "that Player Start no longer exists." );
+                       using SceneState   = ::Desert::Core::Scene::SceneState;
+                       const bool editing = m_MainScene->GetState() == SceneState::Edit;
+                       if ( editing )
+                           OnScenePlay( /*fromHere=*/false, std::string( start->Data.Tag ) );
+                       return PaletteCommandOutcome(
+                            editing && m_MainScene->GetState() != SceneState::Edit,
+                            "the scene is not playing; either it was already playing or Play "
+                            "refused (the log says why)." );
+                   } } );
+        }
         commands.push_back( { "Action", "Stop", [this]
                               {
                                   using SceneState   = ::Desert::Core::Scene::SceneState;
@@ -9639,7 +9681,23 @@ namespace Desert::Editor
                 OnScenePlay();
         }
         if ( ImGui::IsItemHovered() )
-            ImGui::SetTooltip( playing ? "Stop" : "Play" );
+            ImGui::SetTooltip( playing ? "Stop" : "Play (the pawn spawns at the PlayerStart)" );
+
+        // UE's Play dropdown, reduced to the one choice that changes WHERE the player begins.
+        if ( !playing )
+        {
+            ImGui::SameLine( 0.0f, 0.0f );
+            if ( ImGui::Button( ICON_MDI_CHEVRON_DOWN "##PlayModes", ImVec2( size.y * 0.6f, size.y ) ) )
+                ImGui::OpenPopup( "PlayModes" );
+            if ( ImGui::BeginPopup( "PlayModes" ) )
+            {
+                if ( ImGui::MenuItem( ICON_MDI_PLAY " Play", nullptr, false ) )
+                    OnScenePlay();
+                if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
+                    OnScenePlay( /*fromHere=*/true );
+                ImGui::EndPopup();
+            }
+        }
 
         if ( playing )
             ImGui::PopStyleColor();
@@ -9805,7 +9863,7 @@ namespace Desert::Editor
         {
             auto& cam            = m_MainScene->CreateNewEntity( "PlayerCamera" );
             auto& cd             = cam.AddComponent<ECS::CameraComponent>();
-            cd.Data.IsMainCamera = true;
+            cd.Data.AutoActivateForPlayer = true;
             auto& ct             = cam.GetComponent<ECS::TransformComponent>();
             ct.Translation       = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 7.0f ); // 3rd person
             ct.Rotation          = { glm::radians( -10.0f ), 0.0f, 0.0f }; // look slightly down at the player
@@ -9817,7 +9875,7 @@ namespace Desert::Editor
         LOG_INFO( "[Demo] Character demo scene built — press Play, then WASD to move + Space to jump." );
     }
 
-    void EditorLayer::OnScenePlay()
+    void EditorLayer::OnScenePlay( bool fromHere, const std::string& playerStartTag )
     {
         using SceneState = ::Desert::Core::Scene::SceneState;
         if ( m_MainScene->GetState() != SceneState::Edit )
@@ -9832,6 +9890,28 @@ namespace Desert::Editor
         // AFTER the snapshot: streaming destroys every cell outside the camera's neighbourhood, and Stop
         // restores what the snapshot holds. A world that cannot stream does not play half-loaded - it does not
         // play, and says why.
+        // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
+        // streamer, which may unload the cell the PlayerStart stands in.
+        Desert::Core::PlayRequest request;
+        request.PlayerStartTag = playerStartTag;
+        if ( fromHere && m_MainScene->GetActiveCamera() )
+        {
+            // Stand where the editor camera is, facing where it faces - yaw only: a pawn tilted by the
+            // camera's pitch would stand on its capsule's side.
+            const glm::mat4 camWorld = glm::inverse( m_MainScene->GetActiveCamera()->GetViewMatrix() );
+            const glm::vec3 forward  = -glm::vec3( camWorld[2] );
+            const float     yaw      = std::atan2( -forward.x, -forward.z );
+            request.SpawnAt          = glm::translate( glm::mat4( 1.0f ), glm::vec3( camWorld[3] ) ) *
+                              glm::rotate( glm::mat4( 1.0f ), yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        }
+        if ( const auto began = Desert::Core::BeginPlay( *m_MainScene, *m_AssetManager, request ); !began )
+        {
+            LOG_ERROR( "[Scene] Play refused: {0}", began.GetError() );
+            Editor::ToastManager::Push( "Play refused: " + began.GetError(), Editor::ToastLevel::Error );
+            m_PlaySnapshot.clear();
+            return;
+        }
+        phases.Lap( "spawn the player's pawn", m_MainScene->GetAllEntities().size() );
         auto streamer = Desert::Core::WorldStreamer::Begin( *m_MainScene, *m_AssetManager, m_PlaySnapshot );
         phases.Lap( "begin the world streamer", m_MainScene->GetAllEntities().size() );
         phases.LogSummary();
@@ -9840,6 +9920,12 @@ namespace Desert::Editor
             LOG_ERROR( "[Scene] Play refused: {0}", streamer.GetError() );
             Editor::ToastManager::Push( "Play refused: the world could not stream — see the log",
                                         Editor::ToastLevel::Error );
+            // BeginPlay already spawned and entered Play; the refusal takes both back.
+            if ( const entt::entity pawn = m_MainScene->GetPlayerPawn(); pawn != entt::null )
+                m_MainScene->DestroyEntity( ECS::Entity( pawn, m_MainScene->GetRegistry() ) );
+            m_MainScene->SetPlayerPawn( entt::null );
+            m_MainScene->SetPlayFromHere( false );
+            m_MainScene->SetState( SceneState::Edit );
             m_PlaySnapshot.clear();
             return;
         }
@@ -9856,7 +9942,6 @@ namespace Desert::Editor
         // Play-time changes are discarded on Stop anyway, and the Stop restore recreates every entity —
         // an undo stack recorded against the authored scene must not fire into either state.
         CommandHistory::Get().Clear();
-        m_MainScene->SetState( SceneState::Play );
         m_EditorState = EditorState::Play;
     }
 

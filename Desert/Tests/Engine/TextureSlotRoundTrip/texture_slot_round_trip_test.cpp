@@ -183,12 +183,12 @@ TEST( TextureSlotRoundTrip, AHandleStoredOnOneMachineNamesTheSameTextureOnAnothe
 
     // --- the machine that saves the scene --------------------------------------------------------
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
+    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ann );
 
     AssetManager annsManager;
     const auto   annsTexture = annsManager.CreateAsset<TextureAsset>(
-         Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
+         Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Probe.tex" ) );
     ASSERT_NE( annsTexture, nullptr );
     const uint64_t saved = static_cast<uint64_t>( annsTexture->GetMetadata().Handle );
     ASSERT_EQ( saved, kProbeHandle ) << "a texture's identity comes from its own file; the fixture is wrong";
@@ -197,11 +197,11 @@ TEST( TextureSlotRoundTrip, AHandleStoredOnOneMachineNamesTheSameTextureOnAnothe
 
     // What actually goes into the file. Asserted as a VALUE and not merely as "not absolute", because
     // "not absolute" is also true of the empty string this branch used to produce for an unknown type.
-    EXPECT_EQ( stored, "cooked:Textures/T_Probe.tex" );
+    EXPECT_EQ( stored, "assets:Textures/T_Probe.tex" );
 
     // --- the machine that opens it ----------------------------------------------------------------
     const Checkout ci = MakeCheckout( "ci", "Assets" );
-    WriteCookedTexture( ci.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
+    WriteCookedTexture( ci.Dir / "Assets" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ci );
 
     AssetManager   cisManager;
@@ -216,7 +216,7 @@ TEST( TextureSlotRoundTrip, AHandleStoredOnOneMachineNamesTheSameTextureOnAnothe
     const auto resolved = cisManager.FindByHandle<TextureAsset>( Common::AssetHandle( loaded ) );
     ASSERT_NE( resolved, nullptr );
     EXPECT_EQ( resolved->GetMetadata().Filepath.lexically_normal(),
-               ( ci.Dir / "Cooked" / "Textures" / "T_Probe.tex" ).lexically_normal() );
+               ( ci.Dir / "Assets" / "Textures" / "T_Probe.tex" ).lexically_normal() );
 
     std::filesystem::remove_all( ScratchRoot() );
 }
@@ -229,12 +229,12 @@ TEST( TextureSlotRoundTrip, TheStoredFormCarriesNoPartOfTheMachineItWasWrittenOn
     std::filesystem::remove_all( ScratchRoot() );
 
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
+    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ann );
 
     AssetManager manager;
     const auto   texture =
-         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) );
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Probe.tex" ) );
     ASSERT_NE( texture, nullptr );
 
     const std::string stored = TextureSlotToPath( static_cast<uint64_t>( texture->GetMetadata().Handle ) );
@@ -242,37 +242,6 @@ TEST( TextureSlotRoundTrip, TheStoredFormCarriesNoPartOfTheMachineItWasWrittenOn
     EXPECT_EQ( stored.find( ann.Dir.generic_string() ), std::string::npos )
          << "the stored reference '" << stored << "' contains the checkout directory";
     EXPECT_FALSE( std::filesystem::path( stored ).is_absolute() ) << stored;
-
-    std::filesystem::remove_all( ScratchRoot() );
-}
-
-TEST( TextureSlotRoundTrip, AContentTextureAndACookedOneTakeDifferentRootsAndBothComeBack )
-{
-    // Both roots, because the whole reason the stored form is TAGGED is that a texture can sit under
-    // either and the two are siblings. A form relative to the assets root can only spell one of them.
-    ProjectRootGuard guard;
-    std::filesystem::remove_all( ScratchRoot() );
-
-    const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex", kProbeGuid );
-    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "T_Content.tex", kOtherGuid );
-    Open( ann );
-
-    AssetManager manager;
-    ASSERT_NE(
-         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex" ) ),
-         nullptr );
-    ASSERT_NE( manager.CreateAsset<TextureAsset>(
-                    Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Content.tex" ) ),
-               nullptr );
-
-    EXPECT_EQ( TextureSlotToPath( kProbeHandle ), "cooked:Textures/T_Cooked.tex" );
-    EXPECT_EQ( TextureSlotToPath( kOtherHandle ), "assets:Textures/T_Content.tex" );
-
-    // And back, in a manager that knows nothing, which is what a cold start is.
-    AssetManager fresh;
-    EXPECT_EQ( TextureSlotFromPath( fresh, "cooked:Textures/T_Cooked.tex" ), kProbeHandle );
-    EXPECT_EQ( TextureSlotFromPath( fresh, "assets:Textures/T_Content.tex" ), kOtherHandle );
 
     std::filesystem::remove_all( ScratchRoot() );
 }
@@ -285,14 +254,14 @@ TEST( TextureSlotRoundTrip, TwoTexturesDoNotCollapseOntoOneReference )
     std::filesystem::remove_all( ScratchRoot() );
 
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "A.tex", kProbeGuid );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "B.tex", kOtherGuid );
+    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "A.tex", kProbeGuid );
+    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "B.tex", kOtherGuid );
     Open( ann );
 
     AssetManager manager;
-    ASSERT_NE( manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "A.tex" ) ),
+    ASSERT_NE( manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Content" / "Textures" / "A.tex" ) ),
                nullptr );
-    ASSERT_NE( manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "B.tex" ) ),
+    ASSERT_NE( manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Content" / "Textures" / "B.tex" ) ),
                nullptr );
 
     const std::string a = TextureSlotToPath( kProbeHandle );
@@ -319,20 +288,20 @@ TEST( TextureSlotRoundTrip, EverySpellingOfOneFileResolvesToOneTexture )
     std::filesystem::remove_all( ScratchRoot() );
 
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
+    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ann );
 
     AssetManager manager;
     ASSERT_NE(
-         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ) ),
+         manager.CreateAsset<TextureAsset>( Common::Filepath( ann.Dir / "Content" / "Textures" / "T_Probe.tex" ) ),
          nullptr );
 
-    EXPECT_EQ( TextureSlotFromPath( manager, "cooked:Textures/T_Probe.tex" ), kProbeHandle );
-    EXPECT_EQ( TextureSlotFromPath( manager, ( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex" ).string() ),
+    EXPECT_EQ( TextureSlotFromPath( manager, "assets:Textures/T_Probe.tex" ), kProbeHandle );
+    EXPECT_EQ( TextureSlotFromPath( manager, ( ann.Dir / "Content" / "Textures" / "T_Probe.tex" ).string() ),
                kProbeHandle )
          << "the absolute spelling — what every file written before the tagged form carries — no longer "
             "resolves";
-    EXPECT_EQ( TextureSlotFromPath( manager, "cooked:Textures/../Textures/T_Probe.tex" ), kProbeHandle );
+    EXPECT_EQ( TextureSlotFromPath( manager, "assets:Textures/../Textures/T_Probe.tex" ), kProbeHandle );
 
     // One record, not four: the reader must not manufacture a second asset per spelling.
     EXPECT_EQ( manager.FindAllByType<TextureAsset>().size(), 1u );
@@ -372,12 +341,12 @@ TEST( TextureSlotRoundTrip, ANameThatResolvesToNothingSaysSoWithTheNameAndTheRoo
     uint64_t    resolved = 1;
     {
         LogCapture log;
-        resolved = TextureSlotFromPath( manager, "cooked:Textures/NotThere.tex" );
+        resolved = TextureSlotFromPath( manager, "assets:Textures/NotThere.tex" );
         text     = log.Text();
     }
 
     EXPECT_EQ( resolved, 0u );
-    EXPECT_NE( text.find( "cooked:Textures/NotThere.tex" ), std::string::npos )
+    EXPECT_NE( text.find( "assets:Textures/NotThere.tex" ), std::string::npos )
          << "the failure did not name the reference that failed. Three spellings of a real texture were "
             "reported as not resolving and none of them said why, because this branch returned 0 in "
             "silence; a bare 0 is indistinguishable from an empty slot.\nlogged: "

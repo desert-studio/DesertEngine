@@ -425,6 +425,7 @@ namespace
     constexpr const char* kSceneRenderer = "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp";
     constexpr const char* kPhysicsSystem = "Desert/Desert/Source/Engine/ECS/System/PhysicsECSSystem.hpp";
     constexpr const char* kRuntimeLayer  = "Runtime/Source/RuntimeLayer.cpp";
+    constexpr const char* kPlayerStart   = "Desert/Desert/Source/Engine/Core/PlayerStart.cpp";
 
     constexpr Row kSceneSettingsRows[] = {
          // THE GRADE AND THE SHADOW ROWS LEFT WITH THEIR FIELDS (SET1): the 35 grade fields are
@@ -460,6 +461,9 @@ namespace
          { "SplashSprite", kRuntimeLayer },
          { "SplashDuration", kRuntimeLayer },
          { "SplashFade", kRuntimeLayer },
+
+         // Play instantiates it at the chosen PlayerStart (SPAWN1, UE's GameMode DefaultPawnClass).
+         { "DefaultPawn", kPlayerStart },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -482,7 +486,7 @@ namespace
     constexpr const char* kAudioSystem = "Desert/Desert/Source/Engine/ECS/System/AudioECSSystem.hpp";
 
     constexpr Row kCameraRows[] = {
-         { "IsMainCamera", kScene }, // which camera the scene renders through
+         { "AutoActivateForPlayer", kScene }, // which camera the scene renders through
          { "FOV", kScene },
          { "Near", kScene },
          { "Far", kScene },
@@ -772,6 +776,11 @@ namespace
     // The retarget slot is ONE authored value, and the consumer is the per-frame sync that turns the
     // handle into the Animator's source rig. Deliberately no source-rig handle beside it: the pair lives
     // in the file, so there is no second value here that could disagree with it.
+    // The start Play picks by (Core::ChoosePlayerStart, fed from Core::SpawnDefaultPawn).
+    constexpr Row kPlayerStartRows[] = {
+         { "Tag", kPlayerStart },
+    };
+
     constexpr Row kRetargetRows[] = {
          { "Retarget", kAnimationSystem },
     };
@@ -956,6 +965,7 @@ namespace
          { "TwoBoneIKData", "TwoBoneIKComponent", nullptr, CENSUS_ROWS( kTwoBoneIKRows ) },
          { "ControlRigData", "ControlRigComponent", nullptr, CENSUS_ROWS( kControlRigRows ) },
          { "RetargetData", "RetargetComponent", nullptr, CENSUS_ROWS( kRetargetRows ) },
+         { "PlayerStartData", "PlayerStartComponent", nullptr, CENSUS_ROWS( kPlayerStartRows ) },
          { "UIProgressBarData", "UIProgressBarComponent", nullptr, CENSUS_ROWS( kProgressBarRows ) },
          { "UIToggleData", "UIToggleComponent", nullptr, CENSUS_ROWS( kToggleRows ) },
          { "UISliderData", "UISliderComponent", nullptr, CENSUS_ROWS( kSliderRows ) },
@@ -1147,7 +1157,10 @@ TEST( SettingConsumers, EveryReflectedTypeIsUnderThisCensus )
     //
     // -> 47 with SET1's PostProcessVolumeData and PostProcessSettings: the grade left SceneSettings for a
     // volume component, and the renderer reads it from the one resolved copy (Graphic::ResolveViewSettings).
-    EXPECT_EQ( all.size(), 47u );
+    //
+    // -> 48 with SPAWN1's PlayerStartData: its one field, Tag, is WIRED to Core::SpawnDefaultPawn, which
+    // hands every start's tag to Core::ChoosePlayerStart when Play begins.
+    EXPECT_EQ( all.size(), 48u );
 }
 
 TEST( SettingConsumers, EveryFieldNamesItsConsumer )

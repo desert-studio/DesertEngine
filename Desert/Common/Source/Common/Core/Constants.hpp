@@ -70,8 +70,8 @@ namespace Common::Constants
             Retarget,
             FoliageType,
             LandscapeLayerInfo,
+            Animation,
             Cooked,
-            MeshCooked,
             COUNT
         };
 
@@ -151,8 +151,14 @@ namespace Common::Constants
              // Landscape layer infos (`.delayerinfo`) get their own folder because UE keeps them beside the
              // landscape, and the panel's layer slot offers only what is scanned from here.
              /* LandscapeLayerInfo */ { "Landscape/Layers/", DirRoot::Assets },
+             // Clips authored in the editor (the Sequencer's Save) land here. An IMPORTED clip stays beside its
+             // source instead (CookPaths::SkinnedAsset); both are gathered from the assets root, so the folder
+             // is where new work goes, not the only place a clip may be.
+             /* Animation     */ { "Animations/", DirRoot::Assets },
+             // The Cooked root is the ONLY row under DirRoot::Cooked: generated intermediates (font/icon caches,
+             // the local registry) live there, and no content kind is rooted in it (AF8b moved the authored
+             // skinned meshes, rigs and clips into the assets tree; PathCensus pins the relation).
              /* Cooked        */ { "", DirRoot::Cooked },
-             /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
         } };
 
         // --- Compile-time guards over the census (relations, not values — the Д27 pattern) ---
@@ -205,9 +211,20 @@ namespace Common::Constants
                        .Rel.starts_with( Detail::Spec( ContentDir::CloudNoise ).Rel ),
              "cloud types, sculpted volumes and painted layouts are one body of content and must "
              "stay inside the cloud noise volumes' folder" );
-        static_assert( Detail::Spec( ContentDir::MeshCooked ).Root == DirRoot::Cooked,
-                       "cooked twins are generated intermediates and must stay under the Cooked root, or a "
-                       "content scan will offer them as authorable assets" );
+
+        // AUTHORED CONTENT NEVER LIVES UNDER COOKED (AF8b, UE: content is under Content/, a cook is an output):
+        // the Cooked root names itself and nothing else, so no directory a content kind can be rooted at, or
+        // an importer can write to, hangs off it. A MeshCooked-style row stops compiling here.
+        static_assert(
+             []
+             {
+                 std::size_t underCooked = 0;
+                 for ( const auto& spec : CONTENT_DIRS )
+                     underCooked += spec.Root == DirRoot::Cooked ? 1u : 0u;
+                 return underCooked == 1;
+             }(),
+             "the Cooked root is for generated intermediates only: no census row other than the root itself may "
+             "hang off it" );
 
         // --- The stored state and the derivation ---
 
@@ -372,8 +389,8 @@ namespace Common::Constants
         inline const std::filesystem::path& RETARGET_PATH       = Dir( ContentDir::Retarget );
         inline const std::filesystem::path& FOLIAGE_TYPE_PATH         = Dir( ContentDir::FoliageType );
         inline const std::filesystem::path& LANDSCAPE_LAYER_INFO_PATH = Dir( ContentDir::LandscapeLayerInfo );
-        inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
-        inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
+        inline const std::filesystem::path& ANIMATION_PATH            = Dir( ContentDir::Animation );
+        inline const std::filesystem::path& COOKED_PATH               = Dir( ContentDir::Cooked );
     } // namespace Path
 
     namespace Extensions

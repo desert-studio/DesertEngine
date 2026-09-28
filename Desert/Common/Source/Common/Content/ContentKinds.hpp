@@ -113,9 +113,11 @@ namespace Common::Content
         namespace E = Constants::Extensions;
         return { {
              /* StaticMesh           */ { "StaticMesh", E::STATIC_MESH, &P::ASSETS_PATH },
-             /* SkinnedMesh          */ { "SkinnedMesh", E::SKINNED_MESH, &P::MESH_PATH_COOKED },
-             /* Skeleton             */ { "Skeleton", ".skeleton", &P::MESH_PATH_COOKED },
-             /* Animation            */ { "Animation", ".anim", &P::MESH_PATH_COOKED, "Name" },
+             // Skinned meshes, rigs and clips are authored content (the importer writes them beside their
+             // source, the Sequencer into the assets tree), rooted where every other kind is (AF8b).
+             /* SkinnedMesh          */ { "SkinnedMesh", E::SKINNED_MESH, &P::ASSETS_PATH },
+             /* Skeleton             */ { "Skeleton", ".skeleton", &P::ASSETS_PATH },
+             /* Animation            */ { "Animation", ".anim", &P::ASSETS_PATH, "Name" },
              // Texture assets (.detex, AF3) sit anywhere under the assets root -- loose, beside a mesh, in a
              // pack -- and the Skybox root nests inside it: the two kinds share an extension and are told
              // apart by the longest root that contains the file (ContentScan's KindOfContentFile).

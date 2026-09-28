@@ -33,10 +33,10 @@ namespace
     }
 } // namespace
 
-TEST( SceneUndeclaredKeysMigration, VersionIsTheHeadGeneration )
+TEST( SceneUndeclaredKeysMigration, VersionIsTheGenerationBeforeHead )
 {
     EXPECT_EQ( Migration::kSceneVersionNoUndeclaredKeys, 39 );
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionNoUndeclaredKeys );
+    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionNoUndeclaredKeys + 1 );
 }
 
 TEST( SceneUndeclaredKeysMigration, ToggleOnGoesAndValueStays )

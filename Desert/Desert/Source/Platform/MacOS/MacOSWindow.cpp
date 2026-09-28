@@ -24,6 +24,12 @@ namespace Desert::Platform::MacOS
         if ( !s_GLFWInitialized )
         {
             // TODO: glfwTerminate on system shutdown
+            // GLFW's Cocoa backend chdir()s into <bundle>/Contents/Resources at init whenever that folder
+            // exists (GLFW_COCOA_CHDIR_RESOURCES defaults to true). A packaged game keeps Contents/Resources
+            // for the Vulkan ICD manifest, and every engine path is relative to the working directory the
+            // launcher set (Contents/MacOS, where the pak is mounted) - so the chdir made every pak lookup
+            // after window creation miss and the runtime died with no shaders (PKG2c).
+            glfwInitHint( GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE );
             int success = glfwInit();
             if ( !success )
             {

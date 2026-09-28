@@ -62,12 +62,15 @@
 // COMMENTS ARE STRIPPED BEFORE ANYTHING IS SEARCHED FOR — this file's own prose names every token it
 // looks for, and a census that shoots at prose gets switched off, twice here already.
 
+#include <Common/Core/DeveloperOnlyShaders.hpp>
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -505,6 +508,69 @@ namespace
         return rows;
     }
 
+    // WHICH SHADER PROGRAMS THE PLAYER'S SOURCE SET LOADS BY NAME, and whether any load of each one sits
+    // outside `#if DESERT_DEV_INSTRUMENTS`. Read from the same comment-stripped text as Sites(), over the
+    // whole file rather than line by line: a `GetByName(` whose literal is on the next line is a load.
+    struct ShaderLoads
+    {
+        bool Ungated = false; ///< at least one load a Shipping build compiles
+        bool Gated   = false; ///< at least one load only a developer's build compiles
+    };
+
+    const std::map<std::string, ShaderLoads>& ShaderLoadsByName()
+    {
+        static const std::map<std::string, ShaderLoads> loads = []
+        {
+            std::map<std::string, ShaderLoads> out;
+            const fs::path                     root = RepoRoot();
+            if ( root.empty() )
+                return out;
+            const std::regex fetch( R"(GetByName\(\s*"([A-Za-z0-9_]+)\")" );
+            for ( const std::string& sub : PlayerSourceRoots() )
+            {
+                const fs::path dir = root / sub;
+                if ( !fs::exists( dir ) )
+                    continue;
+                for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
+                {
+                    const std::string ext = entry.path().extension().string();
+                    if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                        continue;
+                    const std::string              text  = StripComments( Read( entry.path() ) );
+                    const std::vector<std::string> lines = Lines( text );
+                    std::vector<bool>              gatedLine( lines.size() + 1, false );
+                    std::vector<bool>              gate;
+                    for ( size_t i = 0; i < lines.size(); ++i )
+                    {
+                        const std::string trimmed = Trim( lines[i] );
+                        if ( trimmed.starts_with( "#if" ) )
+                        {
+                            const size_t token = trimmed.find( "DESERT_DEV_INSTRUMENTS" );
+                            const bool   negated =
+                                 trimmed.find( '!' ) != std::string::npos && trimmed.find( '!' ) < token;
+                            gate.push_back( token != std::string::npos && !negated );
+                        }
+                        else if ( trimmed.starts_with( "#else" ) && !gate.empty() )
+                            gate.back() = !gate.back();
+                        else if ( trimmed.starts_with( "#endif" ) && !gate.empty() )
+                            gate.pop_back();
+                        gatedLine[i] = std::find( gate.begin(), gate.end(), true ) != gate.end();
+                    }
+                    for ( auto it = std::sregex_iterator( text.begin(), text.end(), fetch );
+                          it != std::sregex_iterator(); ++it )
+                    {
+                        const auto line = static_cast<size_t>(
+                             std::count( text.begin(), text.begin() + it->position( 0 ), '\n' ) );
+                        ShaderLoads& load                               = out[( *it )[1].str()];
+                        ( gatedLine[line] ? load.Gated : load.Ungated ) = true;
+                    }
+                }
+            }
+            return out;
+        }();
+        return loads;
+    }
+
     std::string Key( const std::string& file, const std::string& name )
     {
         return file + "  ->  " + name;
@@ -723,6 +789,40 @@ TEST( ShippingPipelines, TheOutlineCompositeRunsOnEveryFrame )
          << "the JFA_Final composite is no longer the LAST thing Execute does. It used to run "
             "unconditionally, after the m_OutlineActive check that skips only the propagation steps — "
             "which is why the outline pipelines are part of the product and not a developer's tool.";
+}
+
+// THE PACKAGE'S SHADER SET FOLLOWS THE BOUNDARY (owner decision, PKG2b). A Shipping package leaves out the
+// programs in Common/Core/DeveloperOnlyShaders.hpp; that list has to be EXACTLY the set of programs the player's
+// source set loads only behind `#if DESERT_DEV_INSTRUMENTS`. Two ways to be red, both real: a program loaded
+// outside the boundary but listed (a Shipping package without a shader its runtime asks for — the expensive
+// one), and a program loaded only by developer pipelines but not listed (content a player's build cannot use).
+TEST( ShippingPipelines, TheDeveloperOnlyShaderListIsWhatOnlyTheBoundaryLoads )
+{
+    const auto& loads = ShaderLoadsByName();
+    ASSERT_GT( loads.size(), 10u ) << "the scanner found " << loads.size()
+                                   << " shader programs loaded by name; the renderer loads dozens, so the scanner "
+                                      "stopped working";
+
+    std::set<std::string> gatedOnly;
+    for ( const auto& [name, load] : loads )
+        if ( load.Gated && !load.Ungated )
+            gatedOnly.insert( name );
+
+    for ( const std::string_view listed : Common::kDeveloperOnlyShaderPrograms )
+    {
+        const auto found = loads.find( std::string( listed ) );
+        ASSERT_NE( found, loads.end() ) << listed
+                                        << " is listed as a developer-only shader, and nothing in the player's "
+                                           "source set loads it by name: delete the entry with the last load";
+        EXPECT_FALSE( found->second.Ungated )
+             << listed << " is listed as a developer-only shader, but a load outside #if DESERT_DEV_INSTRUMENTS "
+             << "asks for it, so a Shipping package would lack a program its runtime needs";
+    }
+    for ( const std::string& name : gatedOnly )
+        EXPECT_TRUE( Common::IsDeveloperOnlyShaderProgram( name ) )
+             << name << " is loaded only behind #if DESERT_DEV_INSTRUMENTS and is not in "
+             << "Common/Core/DeveloperOnlyShaders.hpp, so a Shipping package carries a program its runtime "
+                "cannot load";
 }
 
 int main( int argc, char** argv )

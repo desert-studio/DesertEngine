@@ -117,7 +117,8 @@ namespace
         auto& records        = scene.Entities;
 
         EntityData camera           = Record( kCamera, "Camera", { 50.0f, 0.0f, 50.0f } );
-        camera.Components["Camera"] = rfl::json::read<rfl::Generic>( R"({"IsMainCamera": true})" ).value();
+        camera.Components["Camera"] =
+             rfl::json::read<rfl::Generic>( R"({"AutoActivateForPlayer": true})" ).value();
         records.push_back( camera );
 
         EntityData parent = Record( kParent, "Parent", CellCentre( 1, 1 ) );

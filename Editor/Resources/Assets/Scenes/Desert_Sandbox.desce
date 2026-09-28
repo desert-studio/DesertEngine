@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "d1866666b352131a53d8c117532fd739",
         "Versions": {
-            "SCNE": 39,
+            "SCNE": 40,
             "UNIT": 1
         },
         "Dependencies": []
@@ -16,7 +16,7 @@
             "Tag": "Text",
             "Translation": [-220.0, 340.0, -300.0],
             "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [100.0, 100.0, 100.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Text": {
                 "Text": "Desert Engine",
                 "Font": "engine:Fonts/Roboto-Regular.ttf",
@@ -269,7 +269,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [100.0, 100.0, 100.0],
             "Camera": {
-                "IsMainCamera": true,
+                "AutoActivateForPlayer": true,
                 "FOV": 45.0,
                 "Near": 10.0,
                 "Far": 5000000.0
@@ -451,6 +451,10 @@
     "Settings": {
         "RenderingPath": 1,
         "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashSprite": {
             "Guid": "",
             "Path": ""

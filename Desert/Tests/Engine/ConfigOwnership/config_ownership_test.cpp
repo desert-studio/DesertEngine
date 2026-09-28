@@ -477,6 +477,10 @@ namespace
          { "SplashSprite", Owner::Level },
          { "SplashDuration", Owner::Level },
          { "SplashFade", Owner::Level },
+
+         // What Play spawns at this level's PlayerStart (SPAWN1): a property of the level, as UE's
+         // per-level GameMode override is.
+         { "DefaultPawn", Owner::Level },
     };
 
     constexpr FileCensus kFiles[] = {

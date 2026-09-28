@@ -306,6 +306,38 @@ namespace Desert::Core
             return m_PreviewRealtime;
         }
 
+        // THE PLAYER'S PAWN AND VIEW TARGET (UE: the PlayerController's possessed pawn and
+        // APlayerCameraManager's view target). Core::BeginPlay sets both; Clear() forgets them, which is
+        // what makes the editor's Stop (clear + restore the pre-Play snapshot) leave nothing behind.
+        void SetPlayerPawn( entt::entity pawn )
+        {
+            m_PlayerPawn = pawn;
+        }
+        [[nodiscard]] entt::entity GetPlayerPawn() const
+        {
+            return m_PlayerPawn;
+        }
+        // Play from Here: the editor camera is an allowed last-resort view target (and ONLY then).
+        void SetPlayFromHere( bool fromHere )
+        {
+            m_PlayFromHere = fromHere;
+        }
+        [[nodiscard]] bool IsPlayFromHere() const
+        {
+            return m_PlayFromHere;
+        }
+
+        // Resolves and records the Play view target, UE's order: (1) a camera on the player's pawn (its
+        // root or any descendant); (2) the one scene camera with AutoActivateForPlayer; (3) the editor
+        // camera, only in Play from Here. Returns the camera entity (entt::null = the editor camera, or a
+        // camera pinned from outside). Two AutoActivateForPlayer cameras, or no target at all outside
+        // Play from Here, is an error naming the cameras — Play never picks one by entity order.
+        [[nodiscard]] Common::ResultStr<entt::entity> ResolveViewTarget();
+        [[nodiscard]] entt::entity                    GetViewTarget() const
+        {
+            return m_ViewTarget;
+        }
+
         [[nodiscard]] SceneSettings& GetSettings()
         {
             return m_Settings;
@@ -486,6 +518,9 @@ namespace Desert::Core
         SceneState                    m_State = SceneState::Edit;
         WorldTime                     m_WorldTime;
         bool                          m_PreviewRealtime = true;
+        entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
+        entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
+        bool                          m_PlayFromHere   = false;
 
         // One command buffer PER system (index-matched to m_Systems): parallel systems record without
         // sharing the arena; buffers are executed in registration order, so the frame's draw order is

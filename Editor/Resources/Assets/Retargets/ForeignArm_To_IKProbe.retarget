@@ -10,7 +10,7 @@
     "Name": "ForeignArm to IKProbe",
     "SourceSkeleton": {
         "Guid": "6e7625493009a5445f91e22e58561d44",
-        "Path": "ForeignArm.skeleton"
+        "Path": "Meshes/Skinned/ForeignArm.skeleton"
     },
     "SourcePelvisBone": "IK_Shoulder",
     "TargetPelvisBone": "IK_Shoulder",

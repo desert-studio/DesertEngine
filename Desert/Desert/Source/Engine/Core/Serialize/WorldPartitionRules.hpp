@@ -489,6 +489,9 @@ namespace Desert::Core::Rules
          { "LandscapeMaterial", ComponentLoading::Global },
          // The author's override, and the only authored input to partitioning besides the grid.
          { "AlwaysLoaded", ComponentLoading::Global },
+         // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a
+         // start in an unloaded cell would silently change which one wins, or make a tag unresolvable.
+         { "PlayerStart", ComponentLoading::Global },
          // ── By field ──
          // RenderMode 1 = WorldSpace (a nameplate, a floating panel): it lives at its entity. 0 =
          // ScreenSpace (HUD, menus), the default: it has no place in the world at all.

@@ -89,7 +89,7 @@ namespace
         camera.id          = Common::UUID( 1 );
         camera.Tag         = "Camera";
         camera.Translation = { 50.0f, 0.0f, 50.0f };
-        auto block         = Common::Json::Parse( R"({"IsMainCamera": true})" );
+        auto block         = Common::Json::Parse( R"({"AutoActivateForPlayer": true})" );
         EXPECT_TRUE( block.IsSuccess() );
         camera.Components["Camera"] = block.ExtractValue();
         records.push_back( camera );

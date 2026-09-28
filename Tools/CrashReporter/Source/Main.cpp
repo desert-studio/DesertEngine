@@ -741,6 +741,9 @@ int main( int inArgc, char** inArgv )
          !hostExecutable.empty() && std::filesystem::exists( hostExecutable, hostExistsError ) && !hostExistsError;
 
     glfwSetErrorCallback( &GlfwErrorCallback );
+    // Keep the working directory the host gave us: inside a bundle GLFW's Cocoa backend would otherwise chdir
+    // into Contents/Resources (see MacOSWindow::Init).
+    glfwInitHint( GLFW_COCOA_CHDIR_RESOURCES, GLFW_FALSE );
     if ( glfwInit() != GLFW_TRUE )
     {
         std::fprintf( stderr, "[CrashReporter] glfwInit failed; the report is at %s\n",

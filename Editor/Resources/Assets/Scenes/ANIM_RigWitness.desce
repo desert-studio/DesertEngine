@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "75b35ecab36c19324d017b93676ddf43",
         "Versions": {
-            "SCNE": 39,
+            "SCNE": 40,
             "UNIT": 1
         },
         "Dependencies": []
@@ -107,7 +107,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
-                "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
+                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
@@ -191,6 +191,10 @@
     "Settings": {
         "RenderingPath": 1,
         "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashSprite": {
             "Guid": "",
             "Path": ""

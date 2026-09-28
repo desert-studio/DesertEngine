@@ -10,6 +10,7 @@
 #include "MaterialAdoption.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
@@ -29,11 +30,12 @@
 namespace Desert::Editor
 {
 
-    static std::filesystem::path BuildCookedPath( const std::filesystem::path& sourcePath,
-                                                  const std::string&           extension )
+    static std::filesystem::path SkinnedAssetPath( const std::filesystem::path& sourcePath,
+                                                   const std::string&           suffix )
     {
-        // Path formula is shared (CookPaths::CookedSkinned); this wrapper also ensures the dir exists for writing.
-        const auto result = Editor::CookPaths::CookedSkinned( sourcePath, extension );
+        // Path formula is shared (CookPaths::SkinnedAsset, beside the source); this wrapper also ensures the
+        // dir exists for writing.
+        const auto result = Editor::CookPaths::SkinnedAsset( sourcePath, suffix );
         std::filesystem::create_directories( result.parent_path() );
         return result;
     }
@@ -51,19 +53,30 @@ namespace Desert::Editor
 
     namespace
     {
-        // A cooked file counts as up-to-date if it exists and isn't older than its source.
-        bool CookedFresh( const std::filesystem::path& source, const std::filesystem::path& cooked )
+        // A skinned import is current when its mesh exists and its rig states the hash of the source's CURRENT
+        // bytes (AF8b, the texture IMPT rule of AF7). Bytes, not times: the skinned assets are authored content
+        // committed beside their source, and a fresh checkout writes both in no particular order - an mtime
+        // test re-imported them at the first editor start and left the tree dirty.
+        bool SkinnedImportIsFresh( const std::filesystem::path& source )
         {
             std::error_code ec;
-            if ( !std::filesystem::exists( cooked, ec ) )
+            if ( !std::filesystem::exists( CookPaths::SkinnedAsset( source, ".skmesh" ), ec ) )
                 return false;
-            const auto cookedT = std::filesystem::last_write_time( cooked, ec );
-            if ( ec )
+            const auto text = Common::Utils::FileSystem::ReadFileContentIfExists(
+                 CookPaths::SkinnedAsset( source, ".skeleton" ) );
+            if ( !text )
                 return false;
-            const auto srcT = std::filesystem::last_write_time( source, ec );
-            if ( ec )
+            const auto& content = text.GetValue();
+            if ( !content.has_value() )
                 return false;
-            return cookedT >= srcT;
+            const auto rig = Assets::Serialization::ReadSkeletonJson( content.value() );
+            if ( !rig )
+                return false;
+            const auto& import = rig.GetValue().Import;
+            if ( !import.has_value() )
+                return false;
+            const auto hash = Assets::HashMeshSourceFile( source );
+            return hash && import.value().SourceHash == hash.GetValue();
         }
     } // namespace
 
@@ -77,14 +90,14 @@ namespace Desert::Editor
 
         // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when the mesh output is
         // current. A source produces either a static mesh envelope in the DDC (fresh by its IMPT content
-        // hash - AF4h moved that envelope out from beside the source) or a skinned cook under Cooked/
-        // (fresh by mtime until AF4f moves it), so accept either. `force` (Rebuild Cooked Assets)
-        // bypasses this. A mesh EDITED in the editor (P9b) is up to date whatever its source's bytes say: only
-        // an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
+        // hash - AF4h moved that envelope out from beside the source) or skinned assets beside the
+        // source (fresh by the source hash their rig states, AF8b), so accept either. `force` (Rebuild Cooked
+        // Assets) bypasses this. A mesh EDITED in the editor (P9b) is up to date whatever its source's bytes say:
+        // only an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
         // re-imported behind the user's back), and that re-import says so (RemoveBesideSourceFile).
         if ( !force &&
              ( ImportedMeshAssetIsFresh( path ) || Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) ||
-               CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
+               SkinnedImportIsFresh( path ) ) )
             return CookVerdict::UpToDate;
 
         auto result = m_Importers[ext]->Import( path, *this );
@@ -227,7 +240,7 @@ namespace Desert::Editor
                  "'{}': SerializeMeshAsset writes only skinned meshes; a static mesh is a MeshSourceAsset",
                  sourcePath.string() );
         Desert::Assets::Serialization::MeshAssetData data       = dataIn;
-        const std::filesystem::path                  cookedPath = BuildCookedPath( sourcePath, ".skmesh" );
+        const std::filesystem::path                  cookedPath = SkinnedAssetPath( sourcePath, ".skmesh" );
 
         // THE ONE PLACE A COOKED MESH IS WRITTEN, and since B11 it writes the binary container rather
         // than JSON. The sibling cooked kinds beside this one (.skeleton, .anim, .demat, .tex metadata)
@@ -236,11 +249,16 @@ namespace Desert::Editor
         // A RE-IMPORT KEEPS THE MESH'S IDENTITY (UE keeps a package's GUID on reimport): scenes name the
         // mesh by this GUID, so minting a new one would orphan every reference to the file being replaced.
         data.Guid = Common::Content::AssetGuid::Generate();
-        if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefix(
+        // First import: no file yet, so absence is an answer here, not an error.
+        if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
                   cookedPath, Common::Content::kMeshBinaryPrefixV3 ) )
-            if ( const auto kept = Common::Content::ReadMeshHeaderGuid( prefix.GetValue() );
-                 kept && !kept->IsNull() )
-                data.Guid = *kept;
+        {
+            const auto& previous = prefix.GetValue();
+            if ( previous.has_value() )
+                if ( const auto kept = Common::Content::ReadMeshHeaderGuid( previous.value() );
+                     kept.has_value() && !kept.value().IsNull() )
+                    data.Guid = kept.value();
+        }
         return WriteCookedBytes( Desert::Assets::Serialization::EncodeMeshBinary( data ), cookedPath,
                                  Desert::Assets::Serialization::MeshDataBounds( data ) );
     }
@@ -249,12 +267,18 @@ namespace Desert::Editor
     ImportManager::SerializeSkeletonAsset( const Desert::Assets::Serialization::SkeletonAssetData& data,
                                            const std::filesystem::path&                            sourcePath )
     {
-        auto cookedPath = BuildCookedPath( sourcePath, ".skeleton" );
+        auto cookedPath = SkinnedAssetPath( sourcePath, ".skeleton" );
         // A RE-IMPORT KEEPS THE RIG'S IDENTITY (T7e, SKEL 1): the GUID of the file being replaced, minted only
         // for a new one - retargets and meshes name the rig, and a fresh GUID would orphan them.
         auto stamped   = data;
         stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Skeleton,
                                                         Assets::Serialization::SkeletonTextSubsystems() );
+        // The rig carries the import's source hash: SkinnedImportIsFresh reads it back.
+        const auto hash = Assets::HashMeshSourceFile( sourcePath );
+        if ( !hash )
+            return Common::MakeError<bool>( hash.GetError() );
+        stamped.Import =
+             Assets::Serialization::SkeletonImportInfo{ sourcePath.filename().generic_string(), hash.GetValue() };
         return WriteCookedJson( stamped, cookedPath );
     }
 
@@ -262,7 +286,7 @@ namespace Desert::Editor
     ImportManager::SerializeAnimationAsset( const Desert::Assets::Serialization::AnimationAssetData& data,
                                             const std::filesystem::path&                             sourcePath )
     {
-        auto cookedPath = BuildCookedPath( sourcePath, "_" + data.Name + ".anim" );
+        auto cookedPath = SkinnedAssetPath( sourcePath, "_" + data.Name + ".anim" );
         // A RE-IMPORT KEEPS THE CLIP'S IDENTITY (T7e, ANIM 4), as the rig's above: sequencer tracks and anim
         // graphs name the clip, and a fresh GUID would orphan them.
         auto stamped   = data;
