@@ -549,6 +549,29 @@ namespace Desert::Core::Serialize
     {
         std::string GuidTextOrRegistry( uint64_t handle, const std::optional<Common::Content::AssetGuid>& loaded,
                                         const char* kind );
+
+        // The level's Default Pawn (SceneSettings), LOADED HERE, not at Play: Play instantiates it on the
+        // frame the button is pressed, and a prefab still reading from disk then would be a refused Play for
+        // a level that names a perfectly good pawn. One loader for both spellings the resolver meets — the
+        // GUID's registry row and the locator path — so a prefab is loaded one way whichever resolved it.
+        uint64_t LoadScenePrefab( Assets::AssetManager& m, const std::filesystem::path& full )
+        {
+            auto a = m.FindByPath<Assets::PrefabAsset>( full );
+            if ( !a )
+                a = m.CreateAsset<Assets::PrefabAsset>( full, /*loadAfterCreate=*/false );
+            if ( !a )
+                return 0;
+            if ( !a->IsReadyForUse() )
+            {
+                if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
+                {
+                    LOG_ERROR( "[Scene] Prefab '{}' named by the scene could not be loaded: {}", full.string(),
+                               loaded.GetError() );
+                    return 0;
+                }
+            }
+            return static_cast<uint64_t>( a->GetMetadata().Handle );
+        }
     } // namespace
 
     Reflection::AssetResolver MakeAssetResolver( const Assets::AssetManager& mgr )
@@ -632,6 +655,11 @@ namespace Desert::Core::Serialize
             else if ( type == "TextureAsset" )
             {
                 if ( const auto a = mgr.FindByHandle<Assets::TextureAsset>( id ) )
+                    loaded = a->Guid();
+            }
+            else if ( type == "PrefabAsset" )
+            {
+                if ( const auto a = mgr.FindByHandle<Assets::PrefabAsset>( id ) )
                     loaded = a->Guid();
             }
             else if ( type == "MaterialAsset" )
@@ -835,29 +863,12 @@ namespace Desert::Core::Serialize
             }
             if ( type == "PrefabAsset" )
             {
-                // The level's Default Pawn (SceneSettings). LOADED HERE, not at Play: Play instantiates it
-                // on the frame the button is pressed, and a prefab still reading from disk then would be a
-                // refused Play for a level that names a perfectly good pawn.
+                // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
+                // the GUID's registry row did not, and checks the file found here IS that prefab.
                 const std::filesystem::path named( path );
-                const std::filesystem::path full =
-                     named.is_absolute() ? named
-                                         : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal();
-
-                auto a = mgr.FindByPath<Assets::PrefabAsset>( full );
-                if ( !a )
-                    a = m.CreateAsset<Assets::PrefabAsset>( full, /*loadAfterCreate=*/false );
-                if ( !a )
-                    return 0;
-                if ( !a->IsReadyForUse() )
-                {
-                    if ( const auto loaded = Assets::LoadThroughLoader( m, a ); !loaded )
-                    {
-                        LOG_ERROR( "[Scene] Prefab '{}' named by the scene could not be loaded: {}", full.string(),
-                                   loaded.GetError() );
-                        return 0;
-                    }
-                }
-                return static_cast<uint64_t>( a->GetMetadata().Handle );
+                return LoadScenePrefab( m, named.is_absolute()
+                                                ? named
+                                                : ( Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
             }
             if ( type == "AnimGraphAsset" )
             {
@@ -1026,6 +1037,18 @@ namespace Desert::Core::Serialize
                     return guid;
                 }
                 return Runtime::DiscoverMesh( handle ) ? guid : 0;
+            }
+            if ( type == "PrefabAsset" )
+            {
+                // BY GUID through the content registry: a prefab's handle IS HandleForGuid of its header GUID
+                // (FO-9), so the row under that handle is the prefab, wherever it has since moved.
+                if ( mgr.FindByHandle<Assets::PrefabAsset>( handle ) )
+                    return guid;
+                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
+                if ( key.empty() )
+                    return 0;
+                auto& m = const_cast<Assets::AssetManager&>( mgr );
+                return LoadScenePrefab( m, Common::AssetHandle::PathForStableKey( key ) ) == guid ? guid : 0;
             }
             if ( type == "SkyboxAsset" )
             {

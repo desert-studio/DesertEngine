@@ -348,6 +348,45 @@ namespace Desert::Migration
         return report;
     }
 
+    PlayerViewFlagReport MigratePlayerViewFlagV39ToV40( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr const char* kOld = "IsMainCamera";
+        constexpr const char* kNew = "AutoActivateForPlayer";
+        PlayerViewFlagReport  report;
+        for ( const auto& entity : entities )
+            if ( const auto camera = entity.Components.get( "Camera" );
+                 camera.has_value() && camera.value().to_object().has_value() )
+                ++report.Cameras;
+        report.KeptOne = report.Cameras == 1;
+
+        for ( auto& entity : entities )
+        {
+            EditBlock( entity.Components, "Camera",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           // A missing key was the old default, true: the one camera of a scene that never
+                           // stated the flag is the view it has always played from.
+                           bool stated = true;
+                           if ( const auto old = block.get( kOld ); old.has_value() )
+                               stated = old.value().to_bool().value_or( true );
+                           DropKey( block, kOld );
+                           block[kNew] = rfl::Generic( report.KeptOne && stated );
+                           return true;
+                       } );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                EditBlock( override_.Components, "Camera",
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const bool dropped = DropKey( block, kOld );
+                               report.OverridesDropped += dropped ? 1 : 0;
+                               return dropped;
+                           } );
+        }
+        return report;
+    }
+
     std::size_t MigrateLandscapeLayerModesV37ToV38( std::vector<Assets::EntityData>& entities )
     {
         std::size_t dropped = 0;
@@ -960,6 +999,13 @@ namespace Desert::Migration
                     report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
                     return;
                 }
+            }
+
+            // The player's view is chosen, not defaulted (SPAWN1): IsMainCamera becomes AutoActivateForPlayer.
+            if ( statedSceneVersion < kSceneVersionPlayerViewFlag )
+            {
+                report.PlayerViewFlagRaised = true;
+                report.PlayerViewFlag       = MigratePlayerViewFlagV39ToV40( entities );
             }
         }
 

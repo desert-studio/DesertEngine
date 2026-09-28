@@ -60,7 +60,9 @@ namespace Desert::Core
     // v39 (SAVE1): every key a component block states is one the build declares, in its declared type; the
     // corpus's four hand-authoring slips are settled in the files (Tools/SceneMigrator,
     // MigrateUndeclaredKeysV38ToV39), and the corpus is the saver's canonical text.
-    inline constexpr int kSceneVersion = 39;
+    // v40 (SPAWN1): Camera.IsMainCamera is Camera.AutoActivateForPlayer, default false; only a scene's sole
+    // camera keeps it set (Tools/SceneMigrator, MigratePlayerViewFlagV39ToV40).
+    inline constexpr int kSceneVersion = 40;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

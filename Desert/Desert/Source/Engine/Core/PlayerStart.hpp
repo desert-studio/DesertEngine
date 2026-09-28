@@ -81,6 +81,12 @@ namespace Desert::Core
         std::optional<glm::mat4> SpawnAt;
     };
 
+    // The packaged game's `--player-start <tag>` (UE's "?StartSpot=" travel option) read from its command
+    // line: every other argument is someone else's and is skipped. A flag with no tag after it, or an
+    // empty tag, is refused by name - a launch that asked for a start must not silently get the default
+    // one. Stated twice, it is refused too. PURE (suite PlayerStart).
+    [[nodiscard]] Common::ResultStr<PlayRequest> PlayRequestFromArgs( std::span<const std::string> args );
+
     // Spawns the level's DefaultPawn for @p request and records it on the scene as the player's pawn.
     // Returns the pawn root, or a null entity when the level names no pawn (a level without a player —
     // a cinematic, a benchmark — is legal). Every refusal names the level, the rule and the entities.

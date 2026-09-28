@@ -58,7 +58,7 @@ namespace Desert::Editor
                 for ( const auto& field : type->Fields )
                 {
                     if ( field.Name == "DefaultPawn" )
-                        PropertyEditorBuilder::DrawField( &s, field, nullptr, m_UIHelper.get() );
+                        PropertyEditorBuilder::DrawPinnedRow( &s, *type, field, nullptr, m_UIHelper.get() );
                 }
             }
         }

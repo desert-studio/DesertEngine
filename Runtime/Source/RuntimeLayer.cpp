@@ -127,9 +127,10 @@ namespace
 
 namespace Desert::Player
 {
-    RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Engine::Application* application )
+    RuntimeLayer::RuntimeLayer( std::string scenePathOverride, Core::PlayRequest play,
+                                Engine::Application* application )
          : Common::Layer( "RuntimeLayer" ), m_ScenePathOverride( std::move( scenePathOverride ) ),
-           m_Application( application )
+           m_PlayRequest( std::move( play ) ), m_Application( application )
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
         // Filled by the "Indexing animation clips" stage of the boot, the same call the editor makes. This
@@ -282,7 +283,7 @@ namespace Desert::Player
         // is TIME, not the render — see the zero timestep in OnUpdate.
         // Through Core::BeginPlay, the editor's Play: the level's DefaultPawn at its PlayerStart, then the
         // view target. A packaged game that cannot place its player says so and does not run.
-        if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, {} ); !began )
+        if ( const auto began = Core::BeginPlay( *m_Scene, *m_AssetManager, m_PlayRequest ); !began )
         {
             return Common::MakeError( "Play refused for '" + scenePath + "': " + began.GetError() );
         }

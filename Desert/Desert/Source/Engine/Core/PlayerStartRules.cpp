@@ -95,4 +95,23 @@ namespace Desert::Core
              "camera, or use Play from Here to look through the editor camera" );
     }
 
+    Common::ResultStr<PlayRequest> PlayRequestFromArgs( std::span<const std::string> args )
+    {
+        constexpr std::string_view kFlag = "--player-start";
+        PlayRequest                request;
+        bool                       stated = false;
+        for ( std::size_t i = 0; i < args.size(); ++i )
+        {
+            if ( args[i] != kFlag )
+                continue;
+            if ( stated )
+                return Common::MakeError<PlayRequest>( "--player-start is stated twice; name one start" );
+            if ( i + 1 >= args.size() || args[i + 1].empty() || args[i + 1].starts_with( "--" ) )
+                return Common::MakeError<PlayRequest>(
+                     "--player-start needs the tag of a PlayerStart after it (its Player Start Tag)" );
+            request.PlayerStartTag = args[++i];
+            stated                 = true;
+        }
+        return Common::MakeSuccess( std::move( request ) );
+    }
 } // namespace Desert::Core

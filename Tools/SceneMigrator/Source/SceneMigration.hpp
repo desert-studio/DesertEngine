@@ -151,7 +151,17 @@ namespace Desert::Migration
     //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionNoUndeclaredKeys = 39;
 
-    static_assert( kSceneVersionNoUndeclaredKeys == kSceneVersion,
+    //  40 - THE PLAYER'S VIEW IS CHOSEN, NOT DEFAULTED (SPAWN1). Camera.IsMainCamera defaulted to true on
+    //       every camera, so a scene with two cameras had two "main" ones and the first in registry order
+    //       won. It becomes Camera.AutoActivateForPlayer (UE's bAutoActivate for the player), default false
+    //       (MigratePlayerViewFlagV39ToV40): a scene with exactly ONE camera keeps that camera's stated
+    //       value (a missing key was the old default, true); in a scene with any other count every camera
+    //       states false, and the level names its view through a Default Pawn or by setting one camera.
+    //       A prefab override's IsMainCamera goes: the flag belongs to the level's own cameras. Scenes and
+    //       prefabs alike.
+    inline constexpr int kSceneVersionPlayerViewFlag = 40;
+
+    static_assert( kSceneVersionPlayerViewFlag == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -225,6 +235,18 @@ namespace Desert::Migration
     // their prefab overrides). A UIButton whose Action is a name while its OnClickMessage already states a
     // DIFFERENT non-empty target, and a Falloff name that is no LightFalloff enumerator, are refused. PURE.
     UndeclaredKeysReport MigrateUndeclaredKeysV38ToV39( std::vector<Assets::EntityData>& entities );
+
+    // What MigratePlayerViewFlagV39ToV40 did to one file.
+    struct PlayerViewFlagReport
+    {
+        std::size_t Cameras           = 0;     // Camera blocks on the file's own records
+        bool        KeptOne           = false; // exactly one camera: its stated (or defaulted) value kept
+        std::size_t OverridesDropped  = 0;     // IsMainCamera keys taken out of prefab overrides
+    };
+
+    // Renames Camera.IsMainCamera -> AutoActivateForPlayer on every record of @p entities under the rule
+    // kSceneVersionPlayerViewFlag states, and drops the key from prefab overrides. PURE.
+    PlayerViewFlagReport MigratePlayerViewFlagV39ToV40( std::vector<Assets::EntityData>& entities );
 
     // What MigrateInstanceTransformsV36ToV37 did to one scene.
     struct InstanceTransformsReport
@@ -332,11 +354,14 @@ namespace Desert::Migration
         bool                 UndeclaredKeysRaised = false; // below kSceneVersionNoUndeclaredKeys
         UndeclaredKeysReport UndeclaredKeys;
 
+        bool                 PlayerViewFlagRaised = false; // below kSceneVersionPlayerViewFlag
+        PlayerViewFlagReport PlayerViewFlag;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
-                   LandscapeLayerModesRaised || UndeclaredKeysRaised;
+                   LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised;
         }
     };
 

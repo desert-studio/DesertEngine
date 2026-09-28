@@ -121,3 +121,33 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+TEST( PlayRequestArgs, NoFlagIsTheDefaultStart )
+{
+    const std::vector<std::string> args{ "--scene", "Scenes/Starter.desce" };
+    const auto                     request = Desert::Core::PlayRequestFromArgs( args );
+    ASSERT_TRUE( request ) << request.GetError();
+    EXPECT_TRUE( request.GetValue().PlayerStartTag.empty() );
+}
+
+TEST( PlayRequestArgs, TheFlagNamesTheTag )
+{
+    const std::vector<std::string> args{ "--scene", "Scenes/Arena.desce", "--player-start", "Red" };
+    const auto                     request = Desert::Core::PlayRequestFromArgs( args );
+    ASSERT_TRUE( request ) << request.GetError();
+    EXPECT_EQ( request.GetValue().PlayerStartTag, "Red" );
+    EXPECT_FALSE( request.GetValue().SpawnAt.has_value() );
+}
+
+TEST( PlayRequestArgs, AFlagWithoutATagIsRefused )
+{
+    for ( const std::vector<std::string>& args :
+          { std::vector<std::string>{ "--player-start" }, std::vector<std::string>{ "--player-start", "" },
+            std::vector<std::string>{ "--player-start", "--scene", "S.desce" },
+            std::vector<std::string>{ "--player-start", "A", "--player-start", "B" } } )
+    {
+        const auto request = Desert::Core::PlayRequestFromArgs( args );
+        ASSERT_FALSE( request ) << "accepted " << args.size() << " args";
+        EXPECT_NE( request.GetError().find( "--player-start" ), std::string::npos ) << request.GetError();
+    }
+}

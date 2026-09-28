@@ -6347,6 +6347,27 @@ namespace Desert::Editor
                                                                 "already playing or Play refused (the log "
                                                                 "says why)." );
                               } } );
+        // Play at one TAGGED start - the control channel's spelling of `--player-start <tag>`: a command's
+        // label carries its argument (as "Select asset <path>" does), one entry per tag the level states, so
+        // `desertctl run Action "Play at Player Start 'Red'"` names a start the scene really has.
+        auto& registry = m_MainScene->GetRegistry();
+        for ( const auto entity : registry.view<ECS::PlayerStartComponent>() )
+        {
+            const std::string tag = registry.get<ECS::PlayerStartComponent>( entity ).Data.Tag;
+            if ( tag.empty() )
+                continue;
+            commands.push_back( { "Action", "Play at Player Start '" + tag + "'", [this, tag]
+                                  {
+                                      using SceneState   = ::Desert::Core::Scene::SceneState;
+                                      const bool editing = m_MainScene->GetState() == SceneState::Edit;
+                                      if ( editing )
+                                          OnScenePlay( /*fromHere=*/false, tag );
+                                      return PaletteCommandOutcome(
+                                           editing && m_MainScene->GetState() != SceneState::Edit,
+                                           "the scene is not playing; either it was already playing or Play "
+                                           "refused (the log says why)." );
+                                  } } );
+        }
         commands.push_back( { "Action", "Stop", [this]
                               {
                                   using SceneState   = ::Desert::Core::Scene::SceneState;
@@ -9784,7 +9805,7 @@ namespace Desert::Editor
         LOG_INFO( "[Demo] Character demo scene built — press Play, then WASD to move + Space to jump." );
     }
 
-    void EditorLayer::OnScenePlay( bool fromHere )
+    void EditorLayer::OnScenePlay( bool fromHere, const std::string& playerStartTag )
     {
         using SceneState = ::Desert::Core::Scene::SceneState;
         if ( m_MainScene->GetState() != SceneState::Edit )
@@ -9802,6 +9823,7 @@ namespace Desert::Editor
         // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
         // streamer, which may unload the cell the PlayerStart stands in.
         Desert::Core::PlayRequest request;
+        request.PlayerStartTag = playerStartTag;
         if ( fromHere && m_MainScene->GetActiveCamera() )
         {
             // Stand where the editor camera is, facing where it faces - yaw only: a pawn tilted by the

@@ -16,10 +16,11 @@ namespace Desert::Reflection
     namespace
     {
         // The asset types a reflected field stores as {"Guid", "Path"}: skyboxes since SCNE 29, textures
-        // (the UI sprites and the splash) since SCNE 30. Every other type still stores its key alone.
+        // (the UI sprites and the splash) since SCNE 30, the level's Default Pawn prefab since SCNE 40. Every
+        // other type still stores its key alone.
         bool IsStoredByGuid( const std::string& assetType )
         {
-            return assetType == "SkyboxAsset" || assetType == "TextureAsset";
+            return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset";
         }
 
         void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )
