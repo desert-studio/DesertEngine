@@ -73,6 +73,7 @@ namespace
              { "MainMenu", "DesertRP - build v0.9.1", "a product name and a build number" },
              { "Desert_Sandbox", "Desert Engine", "the engine's own name, in world text" },
              { "Starter", "Desert Engine", "the engine's own name, in world text" },
+             { "RDG_DeferredSSRGI", "Desert Engine", "the engine's own name, in world text (RDG3 bench scene)" },
 
              // --- R3: test fixtures. ------------------------------------------------------------------
              // These scenes exist to be photographed and compared. Their labels are the NEGATIVE CONTROL

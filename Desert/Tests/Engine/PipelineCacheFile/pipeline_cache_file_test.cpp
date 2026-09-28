@@ -244,7 +244,7 @@ TEST( MaterialPipelines, NoStartupStageCompilesAMaterialPipeline )
         EXPECT_EQ( text.find( "CreateAsync" ), std::string::npos ) << file;
     }
     const std::string mesh =
-         ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
+         ReadSource( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp" );
     EXPECT_NE( mesh.find( "GetOrCreateMaterial" ), std::string::npos )
          << "the material draw lost its on-demand path";
     const std::string factory = ReadSource( "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp" );
