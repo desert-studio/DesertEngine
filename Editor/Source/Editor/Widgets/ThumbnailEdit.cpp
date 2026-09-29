@@ -124,7 +124,63 @@ namespace Desert::Editor::ThumbnailEdit
             yaw += 360.0f;
         next.Yaw   = yaw;
         next.Pitch = std::clamp( from.Pitch + dy * kDegreesPerPixel, -89.0f, 89.0f );
-        next.Zoom  = std::max( from.Zoom + wheel * kZoomPerNotch, -0.9f );
+        // Zoom is a fraction of the fitted distance: forward (positive) notches bring the camera in.
+        next.Zoom = std::max( from.Zoom - wheel * kZoomPerNotch, -0.9f );
         return next;
+    }
+
+    std::string_view OrbitStepName( OrbitStep step )
+    {
+        switch ( step )
+        {
+            case OrbitStep::YawPlus:
+                return "yaw +45";
+            case OrbitStep::YawMinus:
+                return "yaw -45";
+            case OrbitStep::PitchPlus:
+                return "pitch +15";
+            case OrbitStep::PitchMinus:
+                return "pitch -15";
+            case OrbitStep::ZoomOut:
+                return "zoom +0.25";
+            case OrbitStep::ZoomIn:
+                return "zoom -0.25";
+            case OrbitStep::Reset:
+                return "reset";
+        }
+        return "unknown step";
+    }
+
+    Assets::ThumbnailOrbit Stepped( const Assets::ThumbnailOrbit& from, OrbitStep step )
+    {
+        // Degrees and notches through Orbited, so a step obeys exactly the wrap and clamps a drag obeys.
+        constexpr float kPixelsPerDegree = 1.0f / kDegreesPerPixel;
+        constexpr float kNotchesPerZoom  = 1.0f / kZoomPerNotch;
+        switch ( step )
+        {
+            case OrbitStep::YawPlus:
+                return Orbited( from, 45.0f * kPixelsPerDegree, 0.0f, 0.0f );
+            case OrbitStep::YawMinus:
+                return Orbited( from, -45.0f * kPixelsPerDegree, 0.0f, 0.0f );
+            case OrbitStep::PitchPlus:
+                return Orbited( from, 0.0f, 15.0f * kPixelsPerDegree, 0.0f );
+            case OrbitStep::PitchMinus:
+                return Orbited( from, 0.0f, -15.0f * kPixelsPerDegree, 0.0f );
+            case OrbitStep::ZoomOut:
+                return Orbited( from, 0.0f, 0.0f, -0.25f * kNotchesPerZoom );
+            case OrbitStep::ZoomIn:
+                return Orbited( from, 0.0f, 0.0f, 0.25f * kNotchesPerZoom );
+            case OrbitStep::Reset:
+                return Assets::ThumbnailOrbit{};
+        }
+        return from;
+    }
+
+    Common::BoolResultStr EditOrbitStep( const std::filesystem::path& asset, OrbitStep step )
+    {
+        const auto stated = ReadOrbit( asset );
+        if ( !stated )
+            return Common::MakeError<bool>( std::format( "Edit Thumbnail: {}", stated.GetError() ) );
+        return EditOrbit( asset, Stepped( stated.GetValue(), step ) );
     }
 } // namespace Desert::Editor::ThumbnailEdit

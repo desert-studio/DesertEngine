@@ -2234,9 +2234,10 @@ namespace Desert::Editor
                 if ( changed && Assets::IsValidThumbnailOrbit( info.Orbit ) )
                     data.SetThumbnail( info );
             }
-            const std::string label = data.ThumbnailOrDefault().PreviewMesh const std::string label =
-                 data.ThumbnailOrDefault().PreviewMesh ? data.ThumbnailOrDefault().PreviewMesh->Path
-                                                       : std::string( "<sphere>" );
+            const Assets::ThumbnailInfo shown = data.ThumbnailOrDefault();
+            const std::string           label =
+                 shown.PreviewMesh ? shown.PreviewMesh->Path
+                                             : std::format( "<{}>", Assets::ThumbnailPrimitiveName( shown.Primitive ) );
             ImGui::Button( ( label + "##thumbnail_mesh" ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Drop an imported static mesh: the material's thumbnail is taken on it." );
@@ -2264,7 +2265,7 @@ namespace Desert::Editor
                 ImGui::EndDragDropTarget();
             }
             ImGui::BeginDisabled( !data.ThumbnailOrDefault().PreviewMesh.has_value() );
-            if ( ImGui::Button( "Back to the sphere##thumbnail_mesh_clear" ) )
+            if ( ImGui::Button( "Back to the primitive##thumbnail_mesh_clear" ) )
             {
                 Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
                 info.PreviewMesh.reset();
