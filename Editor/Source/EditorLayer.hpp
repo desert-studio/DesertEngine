@@ -144,6 +144,8 @@ namespace Desert::Editor
         // content root. See DrawCommandPalette for what makes rebuilding on OPEN correct rather than a
         // snapshot going stale.
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
+        /// Turns the authoring context's selected control about its own @p axis and records one undo entry.
+        [[nodiscard]] Common::BoolResultStr RotateSelectedControl( int axis, float degrees );
 
         // Runs one action a document published (ISubjectDocument::Actions), addressed by subject + label.
         // Named rather than a lambda in the list above — see the definition for both reasons.

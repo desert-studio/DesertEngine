@@ -25,13 +25,16 @@
 #include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
+#include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -952,4 +955,368 @@ TEST( ControlDragUndo, TheEntryIsVolatileAndNamesAControlThatMustStillExist )
     EXPECT_FALSE( Desert::Editor::RecordControlDrag( nullptr, control, before ).IsSuccess() );
     EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
     CommandHistory::Get().Clear();
+}
+
+// ── THE PALETTE'S TURN REACHES THE BONE, AND THE GIZMO'S GESTURE IS ONE STEP (ANV2a) ────────────────────
+//
+// "Rotate selected Z +45" is only worth anything if the BONE turns: a control that rotates on screen while
+// the skeleton ignores it is the "silently does nothing" shape. So the assertion is on the bone the drive
+// names, read out of ControlRigStage::Evaluate, and the undo is asserted on that same bone.
+
+namespace
+{
+    namespace DA = Desert::Animation;
+
+    // 1 unit = 1 cm. Root -> Arm, both binds rotated so the bone's local space differs from component space.
+    DA::Skeleton MakeTwoBoneArm()
+    {
+        std::vector<DA::BoneInfo> bones( 2 );
+        bones[0].Name = "Root";
+        bones[0].LocalBindTransform =
+             glm::translate( glm::mat4( 1.0F ), glm::vec3( 0.0F, 100.0F, 0.0F ) ) *
+             glm::rotate( glm::mat4( 1.0F ), glm::radians( 20.0F ), glm::vec3( 0, 0, 1 ) );
+        bones[1].Name         = "Arm";
+        bones[1].ParentBoneID = 0U;
+        bones[1].LocalBindTransform =
+             glm::translate( glm::mat4( 1.0F ), glm::vec3( 30.0F, 0.0F, 0.0F ) ) *
+             glm::rotate( glm::mat4( 1.0F ), glm::radians( -10.0F ), glm::vec3( 1, 0, 0 ) );
+        DA::Skeleton skeleton( std::move( bones ) );
+        skeleton.RecomputeOffsetMatrices();
+        return skeleton;
+    }
+
+    // The Arm bone's local rotation after one evaluation of the stage over the bind pose.
+    glm::quat ArmAfterRig( DA::ControlRigStage& stage, const DA::Skeleton& skeleton )
+    {
+        auto bind = DA::LocalPose::FromBindPose( skeleton );
+        EXPECT_TRUE( bind.IsSuccess() );
+        DA::LocalPose     pose = std::move( bind.GetValue() );
+        DA::ComponentPose component( skeleton, pose );
+        const auto        evaluated = stage.Evaluate( skeleton, pose, component );
+        EXPECT_TRUE( evaluated.IsSuccess() ) << evaluated.GetError();
+        return pose[1].Rotation;
+    }
+} // namespace
+
+TEST( ControlRotateUndo, RotatingTheSelectedControlTurnsItsDrivenBoneAndOneUndoTurnsItBack )
+{
+    CommandHistory::Get().Clear();
+    const DA::Skeleton skeleton = MakeTwoBoneArm();
+
+    DA::ControlRigStage stage;
+    DA::ControlElement  elbow;
+    elbow.Name             = "Elbow_CTRL";
+    elbow.ShapeName        = "CircleXY";
+    elbow.Pose.Translation = glm::vec3( 25.0F, 110.0F, 4.0F );
+    elbow.Pose.Rotation    = glm::quat( glm::vec3( 0.2F, 0.0F, 0.3F ) );
+    elbow.Parents.push_back( DA::ControlSpace{ DA::ControlSpaceKind::Component, 0, 1.0F } );
+    const auto added = stage.GetHierarchy().Add( elbow );
+    ASSERT_TRUE( added.IsSuccess() ) << added.GetError();
+    const uint32_t control = added.GetValue();
+    const auto     drives  = stage.SetDrives( skeleton, { DA::ControlBoneDrive{ control, 1U } } );
+    ASSERT_TRUE( drives.IsSuccess() ) << drives.GetError();
+
+    const glm::quat before = ArmAfterRig( stage, skeleton );
+
+    const auto turned = Desert::Editor::RotateControlRecorded( &stage.GetHierarchy(), control, 2, 45.0F );
+    ASSERT_TRUE( turned.IsSuccess() ) << turned.GetError();
+    EXPECT_EQ( turned.GetValue(), 1U );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "one turn must be exactly one undo step";
+
+    // THE BONE turned, by the stated 45 degrees: the control is in component space and the bone's local is
+    // parent^-1 * control, so before^-1 * after is the control's own local Z turn whatever the parent is.
+    const glm::quat after = ArmAfterRig( stage, skeleton );
+    EXPECT_NEAR( glm::degrees( glm::angle( glm::inverse( before ) * after ) ), 45.0F, 0.05F );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    const glm::quat undone = ArmAfterRig( stage, skeleton );
+    EXPECT_LT( glm::degrees( glm::angle( glm::inverse( before ) * undone ) ), 0.05F )
+         << "undo must put the BONE back, not only the control";
+
+    EXPECT_FALSE( Desert::Editor::RotateControlRecorded( &stage.GetHierarchy(), 7U, 2, 45.0F ).IsSuccess() );
+    EXPECT_FALSE( Desert::Editor::RotateControlRecorded( nullptr, control, 2, 45.0F ).IsSuccess() );
+    CommandHistory::Get().Clear();
+}
+
+TEST( ControlGizmoGestureUndo, APressDragReleaseIsOneEntryHoweverManyFramesItMoved )
+{
+    CommandHistory::Get().Clear();
+    uint32_t control = 0;
+    auto     rig     = MakeRig( control );
+    ASSERT_NE( control, DA::ControlHierarchy::INVALID );
+    const BoneTransform grabbed = rig.Get( control ).Pose;
+
+    Desert::Editor::ControlGizmoGesture gesture;
+    // Forty held frames, each writing the control the way ImGuizmo's Manipulate does.
+    for ( int frame = 0; frame < 40; ++frame )
+    {
+        const auto step = gesture.Step( &rig, control, true );
+        ASSERT_TRUE( step.IsSuccess() ) << step.GetError();
+        EXPECT_EQ( step.GetValue(), 0U );
+        BoneTransform moved = rig.Get( control ).Pose;
+        moved.Translation += glm::vec3( 0.5F, 0.0F, 0.0F );
+        ASSERT_TRUE( rig.SetPose( control, moved ).IsSuccess() );
+    }
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U ) << "nothing is recorded while the gizmo is held";
+
+    const auto released = gesture.Step( &rig, control, false );
+    ASSERT_TRUE( released.IsSuccess() ) << released.GetError();
+    EXPECT_EQ( released.GetValue(), 1U );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+    EXPECT_FALSE( gesture.Active() );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameStoredValue( grabbed, rig.Get( control ).Pose ) ) << "one undo returns the whole gesture";
+
+    // A press and release that moved nothing is not an undo step.
+    CommandHistory::Get().Clear();
+    ASSERT_TRUE( gesture.Step( &rig, control, true ).IsSuccess() );
+    const auto still = gesture.Step( &rig, control, false );
+    ASSERT_TRUE( still.IsSuccess() );
+    EXPECT_EQ( still.GetValue(), 0U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+    CommandHistory::Get().Clear();
+}
+
+TEST( ControlGizmoGestureUndo, AGestureWhoseControlChangedBeforeTheReleaseIsAbandonedNotRecorded )
+{
+    CommandHistory::Get().Clear();
+    uint32_t control = 0;
+    auto     rig     = MakeRig( control );
+    ASSERT_NE( control, DA::ControlHierarchy::INVALID );
+
+    Desert::Editor::ControlGizmoGesture gesture;
+    ASSERT_TRUE( gesture.Step( &rig, control, true ).IsSuccess() );
+    ASSERT_TRUE( rig.SetPose( control, Displaced() ).IsSuccess() );
+    EXPECT_FALSE( gesture.Step( &rig, control + 1U, false ).IsSuccess() );
+    EXPECT_FALSE( gesture.Active() );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
+    CommandHistory::Get().Clear();
+}
+
+// ── ANV2b: the Sequencer's control rows (Key (S), auto-key, scrub, key drag/delete) ─────────────────────
+
+namespace
+{
+    size_t PositionKeysOf( const AnimationClip& clip, const char* name )
+    {
+        for ( const BoneTrack& track : clip.Tracks )
+        {
+            if ( track.BoneName == name )
+            {
+                return track.PositionKeys.size();
+            }
+        }
+        return 0;
+    }
+
+    BoneTransform At( float x )
+    {
+        BoneTransform pose;
+        pose.Translation = glm::vec3( x, 0.0F, 0.0F );
+        return pose;
+    }
+} // namespace
+
+TEST_F( ClipEditUndo, KeyingTwoTicksThenScrubbingPutsTheControlBetweenThemAndEachKeyIsOneUndo )
+{
+    Rig      rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    uint32_t control   = 0;
+    auto     hierarchy = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+    const std::array<uint32_t, 1> selected = { control };
+
+    ASSERT_TRUE( hierarchy.SetPose( control, At( 0.0F ) ).IsSuccess() );
+    rig.SetTick( 0 );
+    ControlKeyTarget target = rig.Target();
+    target.Hierarchy        = &hierarchy;
+    auto first =
+         Desert::Editor::KeyControlsRecorded( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, selected );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    EXPECT_EQ( first.GetValue(), 1U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "one Key press is one undo entry";
+
+    ASSERT_TRUE( hierarchy.SetPose( control, At( 20.0F ) ).IsSuccess() );
+    rig.SetTick( kDisplayFrameTicks * 20 );
+    target           = rig.Target();
+    target.Hierarchy = &hierarchy;
+    auto second =
+         Desert::Editor::KeyControlsRecorded( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, selected );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 2U );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 2U );
+
+    // Scrub to the middle: the control is interpolated, not left where the pointer put it.
+    ASSERT_TRUE( hierarchy.SetPose( control, At( -77.0F ) ).IsSuccess() );
+    rig.SetTick( kDisplayFrameTicks * 10 );
+    target           = rig.Target();
+    target.Hierarchy = &hierarchy;
+    ControlKeyer playback;
+    const auto   applied = Desert::Animation::ApplyClipToControls( target, playback );
+    ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
+    EXPECT_EQ( applied.GetValue(), 1U );
+    EXPECT_NEAR( hierarchy.Get( control ).Pose.Translation.x, 10.0F, 0.01F );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 2U ) << "playback must key nothing";
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 1U ) << "undo removes the second key only";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 0U );
+
+    const std::vector<uint32_t> none;
+    EXPECT_FALSE(
+         Desert::Editor::KeyControlsRecorded( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, none )
+              .IsSuccess() );
+}
+
+TEST_F( ClipEditUndo, AutoKeyWritesExactlyOneKeyAndOneEntryPerControlGesture )
+{
+    Rig      rig( MakeClipWithEndpoints(), AutoChangeMode::All );
+    uint32_t control   = 0;
+    auto     hierarchy = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+    ControlKeyTarget target = rig.Target();
+    target.Hierarchy        = &hierarchy;
+
+    Desert::Editor::ControlAutoKey autoKey;
+    uint32_t                       entries = 0;
+    const auto                     step    = [&]( bool held )
+    {
+        const auto stepped =
+             autoKey.Step( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, control, held );
+        EXPECT_TRUE( stepped.IsSuccess() ) << ( stepped.IsSuccess() ? "" : stepped.GetError() );
+        entries += stepped.IsSuccess() ? stepped.GetValue() : 0U;
+    };
+
+    step( false );
+    for ( int frame = 1; frame <= 30; ++frame )
+    {
+        ASSERT_TRUE( hierarchy.SetPose( control, At( static_cast<float>( frame ) ) ).IsSuccess() );
+        step( true );
+        EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "nothing is keyed while the gesture is held";
+    }
+    step( false );
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 1U ) << "thirty moved frames are ONE key";
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+
+    // A press that moves nothing keys nothing.
+    for ( int frame = 0; frame < 10; ++frame )
+    {
+        step( true );
+    }
+    step( false );
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 0U );
+}
+
+namespace
+{
+    size_t RotationKeysOf( const AnimationClip& clip, const char* name )
+    {
+        for ( const BoneTrack& track : clip.Tracks )
+        {
+            if ( track.BoneName == name )
+            {
+                return track.RotationKeys.size();
+            }
+        }
+        return 0;
+    }
+} // namespace
+
+// THE ONE ENTRY POINT: a command that changes a control without the gizmo bit (the palette's rotate, a
+// nudge, the Control Rig panel's pose field) records through RecordControlDrag, and that alone makes the
+// auto-keyer key it — one key, and ONE undo entry for the edit and its key together.
+TEST_F( ClipEditUndo, AutoKeyKeysACommandEditWithoutTheGizmoAndOneUndoTakesBackPoseAndKey )
+{
+    Rig      rig( MakeClipWithEndpoints(), AutoChangeMode::All );
+    uint32_t control   = 0;
+    auto     hierarchy = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+    ControlKeyTarget target = rig.Target();
+    target.Hierarchy        = &hierarchy;
+
+    Desert::Editor::ControlAutoKey autoKey;
+    uint32_t                       entries = 0;
+    const auto                     step    = [&]()
+    {
+        const auto stepped =
+             autoKey.Step( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, control, false );
+        EXPECT_TRUE( stepped.IsSuccess() ) << ( stepped.IsSuccess() ? "" : stepped.GetError() );
+        entries += stepped.IsSuccess() ? stepped.GetValue() : 0U;
+    };
+
+    // An edit recorded BEFORE this keyer existed is not a new one.
+    const Desert::Animation::BoneTransform original = hierarchy.Get( control ).Pose;
+    ASSERT_TRUE( Desert::Editor::RotateControlRecorded( &hierarchy, control, 2, 45.0F ).IsSuccess() );
+    CommandHistory::Get().Clear();
+    step();
+    step();
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "an old edit must not key a new Sequencer";
+
+    // A pose change that no gesture made (the playhead writing the clip back) keys nothing.
+    ASSERT_TRUE( hierarchy.SetPose( control, original ).IsSuccess() );
+    step();
+    step();
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "a change outside a gesture is not a key";
+    EXPECT_EQ( entries, 0U );
+
+    const Desert::Animation::BoneTransform before = hierarchy.Get( control ).Pose;
+    const auto turned = Desert::Editor::RotateControlRecorded( &hierarchy, control, 2, 45.0F );
+    ASSERT_TRUE( turned.IsSuccess() ) << turned.GetError();
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+    step(); // the edit is seen: the gesture is held for this frame
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U );
+    step(); // and released on the next: the key
+    step();
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 1U ) << "the rotate command is one key";
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "the edit and its key are ONE undo entry";
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "undo removes the key";
+    EXPECT_TRUE( Desert::Editor::SameStoredValue( hierarchy.Get( control ).Pose, before ) )
+         << "and the same undo puts the control back";
+    ASSERT_TRUE( CommandHistory::Get().Redo() );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 1U );
+
+    // Auto Key off: the command still records its pose entry, and keys nothing.
+    rig.m_Keyer.SetModes( Desert::Animation::KeyingModes{} );
+    ASSERT_TRUE( Desert::Editor::RotateControlRecorded( &hierarchy, control, 2, 45.0F ).IsSuccess() );
+    step();
+    step();
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 1U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 2U );
+}
+
+TEST_F( ClipEditUndo, AControlRowKeyMovesAndDeletesAllThreeChannelsTogether )
+{
+    BoneTrack track;
+    track.BoneName = "hand_ctrl";
+    ASSERT_TRUE( Desert::Animation::SetTransformKey( track, FrameNumber{ 0 }, At( 0.0F ), PROJECT_TICK_RATE ) );
+    ASSERT_TRUE( Desert::Animation::SetTransformKey( track, FrameNumber{ kDisplayFrameTicks * 20 }, At( 20.0F ),
+                                                     PROJECT_TICK_RATE ) );
+
+    const auto blocked = Desert::Editor::MoveKeysAtTick(
+         track, FrameNumber{ 0 }, FrameNumber{ kDisplayFrameTicks * 20 }, PROJECT_TICK_RATE );
+    EXPECT_FALSE( blocked.IsSuccess() ) << "landing on a key would merge two keys into one";
+    EXPECT_EQ( track.PositionKeys.size(), 2U );
+
+    const auto moved = Desert::Editor::MoveKeysAtTick( track, FrameNumber{ 0 },
+                                                       FrameNumber{ kDisplayFrameTicks * 5 }, PROJECT_TICK_RATE );
+    ASSERT_TRUE( moved.IsSuccess() ) << moved.GetError();
+    EXPECT_EQ( moved.GetValue(), 3U );
+    EXPECT_EQ( track.PositionKeys.front().Tick.Value, kDisplayFrameTicks * 5 );
+    EXPECT_EQ( track.RotationKeys.front().Tick.Value, kDisplayFrameTicks * 5 );
+    EXPECT_EQ( track.ScaleKeys.front().Tick.Value, kDisplayFrameTicks * 5 );
+
+    EXPECT_EQ( Desert::Editor::DeleteKeysAtTick( track, FrameNumber{ kDisplayFrameTicks * 5 }, PROJECT_TICK_RATE ),
+               3U );
+    EXPECT_EQ( track.PositionKeys.size(), 1U );
+    EXPECT_EQ( Desert::Editor::DeleteKeysAtTick( track, FrameNumber{ 1 }, PROJECT_TICK_RATE ), 0U );
 }

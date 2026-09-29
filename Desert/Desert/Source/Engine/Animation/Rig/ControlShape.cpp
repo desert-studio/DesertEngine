@@ -105,6 +105,40 @@ namespace Desert::Animation
 
             return { xy, xz, yz };
         }
+
+        /// A closed regular polygon of circumradius one in the plane of @p axisU / @p axisV, first vertex on
+        /// @p axisU rotated by @p phase. Square and hexagon are the same loop with a different count, so they
+        /// share it rather than being two point lists to keep in step.
+        [[nodiscard]] ControlShapePolyline UnitPolygon( const glm::vec3& axisU, const glm::vec3& axisV, int sides,
+                                                        float phase )
+        {
+            ControlShapePolyline run;
+            run.Points.reserve( static_cast<size_t>( sides ) );
+            for ( int i = 0; i < sides; ++i )
+            {
+                const float angle = phase + ( ( 2.0F * std::numbers::pi_v<float> * static_cast<float>( i ) ) /
+                                              static_cast<float>( sides ) );
+                run.Points.push_back( ( axisU * std::cos( angle ) ) + ( axisV * std::sin( angle ) ) );
+            }
+            run.Closed = true;
+            return run;
+        }
+
+        /// One flat arrow outline in the XY plane, tail at the origin, tip at +X one unit out. Seven points,
+        /// closed: the shaft is a fifth of a unit wide and the head takes the outer 40 %, UE's proportions.
+        [[nodiscard]] ControlShapePolyline UnitArrow( const glm::vec3& along, const glm::vec3& across )
+        {
+            ControlShapePolyline run;
+            const float          shaft = 0.1F;
+            const float          neck  = 0.6F;
+            const float          head  = 0.3F;
+            run.Points                 = {
+                 across * shaft, ( along * neck ) + ( across * shaft ), ( along * neck ) + ( across * head ),
+                 along,          ( along * neck ) - ( across * head ),  ( along * neck ) - ( across * shaft ),
+                 -across * shaft };
+            run.Closed = true;
+            return run;
+        }
     } // namespace
 
     Common::BoolResultStr ControlShapeLibrary::Add( std::string name, ControlShape shape )
@@ -206,17 +240,44 @@ namespace Desert::Animation
         ControlShape diamond;
         diamond.Polylines = UnitOctahedron();
 
+        // UE's flat control family (ControlRig "Default" shapes): Square, Hexagon, Arrow, Arrow4, and the
+        // thick circle. Flat shapes lie in XY like CircleXY; a rigger turns them through ShapeTransform.
+        ControlShape square;
+        square.Polylines = { UnitPolygon( x, y, 4, std::numbers::pi_v<float> * 0.25F ) };
+
+        ControlShape hexagon;
+        hexagon.Polylines = { UnitPolygon( x, y, 6, 0.0F ) };
+
+        ControlShape arrow;
+        arrow.Polylines = { UnitArrow( x, y ) };
+
+        ControlShape arrow4;
+        arrow4.Polylines = { UnitArrow( x, y ), UnitArrow( y, -x ), UnitArrow( -x, -y ), UnitArrow( -y, x ) };
+
+        // A BAND, NOT A ONE-PIXEL RING: UE's Circle_Thick is a flat annulus, and the two edges of that
+        // annulus are what reads on screen as a thick control an animator can actually grab.
+        ControlShapePolyline inner = UnitCircle( x * 0.9F, y * 0.9F );
+        ControlShapePolyline outer = UnitCircle( x * 1.1F, y * 1.1F );
+        ControlShape         circleThick;
+        circleThick.Polylines = { inner, outer };
+
         ControlShapeLibrary library;
         // `std::array` AND NOT A C ARRAY: the contract's rule, and the reason is that a table which can
         // reach zero rows has no legal C spelling — clang takes a zero-length array as a GNU extension
         // and MSVC rejects it outright (C2466). This one cannot reach zero today, and the type should not
         // be the thing that decides that.
-        const std::array<std::pair<const char*, const ControlShape*>, 6> table = { { { "CircleXY", &circleXY },
-                                                                                     { "CircleXZ", &circleXZ },
-                                                                                     { "CircleYZ", &circleYZ },
-                                                                                     { "Sphere", &sphere },
-                                                                                     { "Box", &box },
-                                                                                     { "Diamond", &diamond } } };
+        const std::array<std::pair<const char*, const ControlShape*>, 11> table = {
+             { { "CircleXY", &circleXY },
+               { "CircleXZ", &circleXZ },
+               { "CircleYZ", &circleYZ },
+               { "Sphere", &sphere },
+               { "Box", &box },
+               { "Diamond", &diamond },
+               { "Square", &square },
+               { "Hexagon", &hexagon },
+               { "Arrow", &arrow },
+               { "Arrow4", &arrow4 },
+               { "CircleThick", &circleThick } } };
         for ( const auto& entry : table )
         {
             auto added = library.Add( entry.first, *entry.second );

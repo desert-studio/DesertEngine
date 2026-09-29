@@ -304,6 +304,14 @@ namespace Desert::Editor
         {
         }
 
+        // Is this document a TIMELINE of the level (the Sequencer)? A timeline edits what the level viewport
+        // shows, so it opens in the drawer UNDER that viewport, as UE's Sequencer does, instead of as a tab
+        // that covers it (DocumentPlacement::ResolveTimeline).
+        [[nodiscard]] virtual bool IsLevelTimeline() const
+        {
+            return false;
+        }
+
         // Does this document show a 3D PREVIEW that can be put at a named viewpoint?
         //
         // Asked by the command palette, which offers "Preview: Front", "Preview: Back" and the rest for

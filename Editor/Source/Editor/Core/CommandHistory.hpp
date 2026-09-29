@@ -4,6 +4,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor
@@ -80,6 +81,26 @@ namespace Desert::Editor
             ++m_Revision;
         }
 
+        /// The last two entries become ONE, undone newest-first and redone oldest-first. For a single
+        /// user action whose two halves are recorded by two owners a frame apart: an auto-keyed control
+        /// edit is the control's pose entry (RecordControlDrag) and the Sequencer's key entry, and one
+        /// Ctrl+Z has to take back both, as UE's one transaction does. False (and nothing changes) when
+        /// fewer than two entries exist.
+        bool JoinLastTwo()
+        {
+            if ( m_Undo.size() < 2 )
+            {
+                return false;
+            }
+            std::unique_ptr<ICommand> second = std::move( m_Undo.back() );
+            m_Undo.pop_back();
+            std::unique_ptr<ICommand> first = std::move( m_Undo.back() );
+            m_Undo.pop_back();
+            m_Undo.push_back( std::make_unique<JoinedCommand>( std::move( first ), std::move( second ) ) );
+            ++m_Revision;
+            return true;
+        }
+
         bool Undo()
         {
             // Stale entries (target entity gone) report failure — discard them and keep walking down.
@@ -148,6 +169,43 @@ namespace Desert::Editor
         }
 
     private:
+        class JoinedCommand final : public ICommand
+        {
+        public:
+            JoinedCommand( std::unique_ptr<ICommand> first, std::unique_ptr<ICommand> second )
+                 : m_First( std::move( first ) ), m_Second( std::move( second ) )
+            {
+            }
+
+            bool Undo() override
+            {
+                const bool second = m_Second->Undo();
+                const bool first  = m_First->Undo();
+                return first || second;
+            }
+
+            bool Redo() override
+            {
+                const bool first  = m_First->Redo();
+                const bool second = m_Second->Redo();
+                return first || second;
+            }
+
+            bool IsVolatile() const override
+            {
+                return m_First->IsVolatile() || m_Second->IsVolatile();
+            }
+
+            std::string GetLabel() const override
+            {
+                return m_First->GetLabel() + " + " + m_Second->GetLabel();
+            }
+
+        private:
+            std::unique_ptr<ICommand> m_First;
+            std::unique_ptr<ICommand> m_Second;
+        };
+
         class ByteCommand final : public ICommand
         {
         public:

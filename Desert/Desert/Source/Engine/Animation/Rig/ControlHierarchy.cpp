@@ -1,5 +1,7 @@
 #include "ControlHierarchy.hpp"
 
+#include <cctype>
+
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <algorithm>
@@ -7,6 +9,39 @@
 
 namespace Desert::Animation
 {
+    glm::vec3 ControlSideColor( std::string_view controlName )
+    {
+        std::string lower( controlName );
+        for ( char& c : lower )
+        {
+            c = static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) );
+        }
+        const auto sideIs = [&lower]( char side )
+        {
+            const std::string suffixUnderscore = std::string( "_" ) + side;
+            const std::string prefixUnderscore = std::string( 1, side ) + "_";
+            if ( lower.size() > 2 && lower.ends_with( suffixUnderscore ) )
+            {
+                return true;
+            }
+            if ( lower.size() > 2 && lower.starts_with( prefixUnderscore ) )
+            {
+                return true;
+            }
+            // `Hand_L_CTRL`: the side token sits before a trailing role word, which is how rigs name controls.
+            return lower.find( suffixUnderscore + "_" ) != std::string::npos;
+        };
+        if ( sideIs( 'l' ) )
+        {
+            return glm::vec3( 0.1F, 0.35F, 1.0F );
+        }
+        if ( sideIs( 'r' ) )
+        {
+            return glm::vec3( 1.0F, 0.1F, 0.1F );
+        }
+        return glm::vec3( 1.0F, 0.85F, 0.1F );
+    }
+
     namespace
     {
         [[nodiscard]] bool Finite( const glm::vec3& v )

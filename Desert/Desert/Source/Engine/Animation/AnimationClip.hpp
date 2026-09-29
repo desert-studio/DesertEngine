@@ -283,7 +283,23 @@ namespace Desert::Animation
     {
         std::string Name;
         FrameNumber Tick;
+        // The notify track (row) it is drawn on in the Animation Editor, UE's Notify Tracks. Authoring-only:
+        // playback fires by tick, whatever the row.
+        int32_t Track = 0;
     };
+
+    /**
+     * @brief Whether playback that moved from tick @p before to tick @p after crossed a notify at @p at.
+     *
+     * The covered interval is (before, after]; on a loop wrap it is (before, duration) then [0, after]. One
+     * frame is assumed not to skip a whole loop. ONE RULE, TWO CONSUMERS: the Animator fires by it and the
+     * Animation Editor lights a notify by it, so the marker that flashes is the one a script heard.
+     */
+    [[nodiscard]] inline bool NotifyCrossed( const double at, const double before, const double after,
+                                             const bool looped )
+    {
+        return looped ? ( at > before || at <= after ) : ( at > before && at <= after );
+    }
 
     class AnimationClip
     {
