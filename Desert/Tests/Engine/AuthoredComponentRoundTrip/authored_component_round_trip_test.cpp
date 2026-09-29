@@ -510,6 +510,27 @@ TEST( AuthoredComponentRoundTrip, AnInvalidEditLayerStackIsRefusedWithItsPath )
     EXPECT_EQ( current.EditLayers.Layers[0].Name, "Kept" );
 }
 
+// A landscape has at least its Base layer: an empty list is refused at `EditLayers` and the current stack stays,
+// and a block with no `EditLayers` over an empty stack is refused at the same path - never a silently made Base.
+TEST( AuthoredComponentRoundTrip, AnEmptyEditLayerStackIsRefusedWithItsPath )
+{
+    ECS::LandscapeComponent written; // no layers: WriteComponent states `EditLayers: []`
+    ECS::LandscapeComponent current;
+    current.EditLayers.Layers            = { { Common::UUID( 9u ), "Kept", true, false, 1.0f, 1.0f } };
+    const Common::Json::Issues emptyList = ReadAt( ThroughJsonText( WriteComponent( written ) ), current );
+    ASSERT_EQ( emptyList.size(), 1u );
+    EXPECT_NE( emptyList[0].Path.find( "EditLayers" ), std::string::npos ) << emptyList[0].Path;
+    ASSERT_EQ( current.EditLayers.Layers.size(), 1u );
+    EXPECT_EQ( current.EditLayers.Layers[0].Name, "Kept" );
+
+    ECS::LandscapeComponent    fresh;
+    const Common::Json::Issues absent =
+         ReadAt( ThroughJsonText( Common::Json::ObjectBuilder().Set( "QuadsPerTile", 63u ).Build() ), fresh );
+    ASSERT_EQ( absent.size(), 1u );
+    EXPECT_NE( absent[0].Path.find( "EditLayers" ), std::string::npos ) << absent[0].Path;
+    EXPECT_TRUE( fresh.EditLayers.Layers.empty() );
+}
+
 // The hand-mapped block does not own the layer list (kNotWritten above says who does): a "Layers" key in
 // the block must neither be written by it nor read by it, or two readers would disagree about one list.
 TEST( AuthoredComponentRoundTrip, TheLandscapeBlockLeavesLayersToTheRegistry )

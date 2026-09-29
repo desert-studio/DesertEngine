@@ -35,6 +35,7 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/Crc32c.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <gtest/gtest.h>
@@ -150,6 +151,10 @@ TEST( SceneMigratorWritePath, AVersionOneLandscapeTileFailsByPathAndNumberAndIsL
     ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
     LS::LandscapeTileData tile = std::move( created.GetValue() );
     tile.SetSample( 1, 1, 40000u );
+    // Every tile carries at least the Base edit layer; a layerless one fails (L10b3).
+    const auto based =
+         tile.SetEditLayer( { Common::UUID( LS::kLandscapeBaseEditLayerGuid ), tile.Samples(), {} } );
+    ASSERT_TRUE( based.IsSuccess() ) << based.GetError();
     std::vector<unsigned char> blob = LS::EncodeLandscapeTile( tile );
     const fs::path             v2   = dir / "current.dlht";
     std::ofstream( v2, std::ios::binary )

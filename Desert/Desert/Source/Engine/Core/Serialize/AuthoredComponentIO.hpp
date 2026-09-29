@@ -244,9 +244,17 @@ namespace Desert::Core::Serialize
         // The stack is read whole or not at all: a layer with an unreadable field, or a stack that
         // ValidateLandscapeEditLayerStack refuses (a null or repeated Guid, an alpha out of range), is an issue
         // at the list's path and the current stack stays — never a stack with the bad layer dropped or clamped.
+        // A landscape has at least its Base layer (UE: every landscape has one edit layer), so a read that
+        // leaves the stack empty - the key absent over an empty stack, or an empty list - is an issue at
+        // `EditLayers`, never a silently made Base.
         const auto value = from.Find( "EditLayers" );
         if ( !value )
+        {
+            if ( c.EditLayers.Layers.empty() )
+                issues.push_back( { from.Where().Key( "EditLayers" ).ToString(),
+                                    "the edit layer stack (at least the Base layer)", "absent" } );
             return; // absent: the stack stays as it is (rule 1)
+        }
         if ( value->GetKind() != Common::Json::Kind::Array )
         {
             issues.push_back( { value->Where().ToString(), "an array of edit layers", "not an array" } );
@@ -270,6 +278,12 @@ namespace Desert::Core::Serialize
              } );
         if ( issues.size() != before )
             return;
+        if ( read.Layers.empty() )
+        {
+            issues.push_back(
+                 { value->Where().ToString(), "at least one edit layer (the Base layer)", "an empty list" } );
+            return;
+        }
         if ( auto valid = World::Landscape::ValidateLandscapeEditLayerStack( read ); !valid )
         {
             issues.push_back( { value->Where().ToString(), "a valid edit layer stack", valid.GetError() } );

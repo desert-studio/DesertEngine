@@ -22,6 +22,7 @@
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include <Common/Utilities/Crc32c.hpp>
@@ -82,6 +83,16 @@ namespace
         std::vector<TileEntity> Tiles;
     };
 
+    // Every tile carries at least the Base edit layer (a layerless tile file is refused): its plane is the
+    // tile's samples and its paint the tile's weights, so the merge is the tile itself.
+    void GiveBase( LandscapeTileData& tile )
+    {
+        const Common::UUID base( kLandscapeBaseEditLayerGuid );
+        tile.RemoveEditLayer( base );
+        const auto set = tile.SetEditLayer( { base, tile.Samples(), tile.WeightLayers() } );
+        EXPECT_TRUE( set.IsSuccess() ) << set.GetError();
+    }
+
     // A tile of distinct, non-flat terrain: the value depends on the tile AND the sample, so a tile file
     // swapped with its neighbour, or rows transposed, cannot come back equal.
     LandscapeTileData Terrain( uint32_t samples, int32_t tileX, int32_t tileZ )
@@ -93,7 +104,9 @@ namespace
                      static_cast<uint16_t>( 30000 + 97 * x + 13 * z + 1000 * tileX + 2000 * tileZ );
         auto tile = LandscapeTileData::FromSamples( samples, samples, std::move( values ) );
         EXPECT_TRUE( tile.IsSuccess() );
-        return tile.ExtractValue();
+        LandscapeTileData data = tile.ExtractValue();
+        GiveBase( data );
+        return data;
     }
 
     LandscapeScene TwoByTwo()
@@ -102,6 +115,7 @@ namespace
         scene.Root.QuadsPerTile = 31u;
         scene.Root.SpacingCm    = 50.0f;
         scene.Root.ZScale       = 200.0f;
+        scene.Root.EditLayers.Layers.push_back( { Common::UUID( kLandscapeBaseEditLayerGuid ), "Base" } );
 
         const uint32_t samples = scene.Root.QuadsPerTile + 1u;
         uint64_t       id      = kRootId + 1;
@@ -229,8 +243,10 @@ TEST( LandscapeScene, SaveLoadSaveIsByteIdenticalForTheSceneAndEveryTileFile )
         EXPECT_EQ( fs::path( entity.Tile.HeightFile ).parent_path(), dir / "Hills_Landscape" );
         EXPECT_EQ( fs::path( entity.Tile.HeightFile ).extension(), ".dlht" );
         firstTiles.push_back( ReadText( entity.Tile.HeightFile ) );
-        EXPECT_EQ( firstTiles.back().size(), kLandscapeTileHeaderSize + std::size_t{ 2 } * 32u * 32u +
-                                                  4u /* v2 weight count */ + kLandscapeTileTrailerSize );
+        EXPECT_EQ( firstTiles.back().size(),
+                   kLandscapeTileHeaderSize + std::size_t{ 2 } * 32u * 32u + 4u /* v2 weight count */ +
+                        ( 8u + 4u + std::size_t{ 2 } * 32u * 32u + 4u ) /* the Base record */ +
+                        kLandscapeTileTrailerSize );
     }
     EXPECT_LT( firstScene.size(), 4096u ) << "the samples must not be in the scene text";
 
@@ -272,7 +288,10 @@ TEST( LandscapeScene, SavingUnderANewNameWritesNewFilesAndLeavesTheOldSceneAlone
     const fs::path    aPath = scene.Tiles[0].Tile.HeightFile;
 
     // Edit, then Save As: the edit must land in B's file only.
-    scene.Tiles[0].Tile.Heights.value().SetSample( 3, 4, 12345 ); // NOLINT(bugprone-unchecked-optional-access)
+    auto& edited = scene.Tiles[0].Tile.Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
+    edited.RemoveEditLayer( Common::UUID( kLandscapeBaseEditLayerGuid ) ); // a layered tile is its merge
+    edited.SetSample( 3, 4, 12345 );
+    GiveBase( edited );
     Save( scene, dir / "B.desce" );
 
     EXPECT_EQ( fs::path( scene.Tiles[0].Tile.HeightFile ).parent_path(), dir / "B_Landscape" );
@@ -370,7 +389,11 @@ TEST( LandscapeScene, NeighbouringTilesAnswerTheSameHeightOnTheirSharedSeam )
     auto west = Terrain( samples, 0, 0 );
     auto east = Terrain( samples, 1, 0 );
     for ( uint32_t z = 0; z < samples; ++z )
+    {
+        east.RemoveEditLayer( Common::UUID( kLandscapeBaseEditLayerGuid ) ); // a layered tile is its merge
         east.SetSample( 0, z, west.Sample( samples - 1, z ) );
+        GiveBase( east );
+    }
 
     const LandscapeFrame westFrame = LandscapeTileFrame( root, 0, 0 );
     const LandscapeFrame eastFrame = LandscapeTileFrame( root, 1, 0 );
@@ -422,9 +445,11 @@ TEST( LandscapeScene, PaintedWeightLayersSurviveSaveAndLoadExactly )
                      static_cast<uint8_t>( ( sample * 7u + layer * 31u + index * 101u ) & 0xFFu );
             layers.push_back( std::move( painted ) );
         }
-        auto& heights  = original.Tiles[index].Tile.Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
+        auto& heights = original.Tiles[index].Tile.Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
+        heights.RemoveEditLayer( Common::UUID( kLandscapeBaseEditLayerGuid ) ); // a layered tile refuses paint
         const auto set = heights.SetWeightLayers( std::move( layers ) );
         ASSERT_TRUE( set.IsSuccess() ) << set.GetError();
+        GiveBase( heights );
     }
     Save( original, scenePath );
     std::vector<std::string> firstTiles;
@@ -457,4 +482,21 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// Every landscape tile carries at least the Base edit layer: a layerless tile file is refused by its path, never
+// read as its samples (the corpus was given the layer by the migrator's L10b3 step, which is deleted).
+TEST( LandscapeScene, ATileFileWithNoEditLayersIsRefusedByPath )
+{
+    const fs::path dir     = Workspace( "layerless" );
+    const fs::path file    = dir / "bare.dlht";
+    const auto     created = LandscapeTileData::Create( 3, 3 );
+    ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
+    const std::vector<unsigned char> blob = EncodeLandscapeTile( created.GetValue() );
+    std::ofstream( file, std::ios::binary )
+         .write( reinterpret_cast<const char*>( blob.data() ), static_cast<std::streamsize>( blob.size() ) );
+    const auto read = ReadLandscapeTileFile( file );
+    ASSERT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( file.generic_string() ), std::string::npos ) << read.GetError();
+    EXPECT_NE( read.GetError().find( "no edit layers" ), std::string::npos ) << read.GetError();
 }
