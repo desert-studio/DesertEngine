@@ -290,7 +290,7 @@ namespace Desert::World::Landscape
                                                                          "stroke",
                                                                          state.TileX, state.TileZ );
             record.Tiles.push_back( { state.TileX, state.TileZ, state.Original,
-                                      m_Layer ? state.Layer->WeightLayers() : slot.Data->WeightLayers() } );
+                                      state.Layer ? state.Layer->WeightLayers() : slot.Data->WeightLayers() } );
         }
         return Common::MakeSuccess( std::move( record ) );
     }
@@ -310,7 +310,7 @@ namespace Desert::World::Landscape
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr ApplyLandscapePaintRecord( LandscapeTileLookup         lookup,
+    Common::BoolResultStr ApplyLandscapePaintRecord( const LandscapeTileLookup&  lookup,
                                                      const LandscapePaintRecord& record, bool before,
                                                      const LandscapeEditLayerTarget& layer )
     {

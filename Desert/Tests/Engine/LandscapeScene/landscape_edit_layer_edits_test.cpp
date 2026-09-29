@@ -38,8 +38,9 @@ namespace
             body.QuadsPerTile                                 = kSamples - 1u;
             body.EditLayers.Layers.push_back( { base, "Base" } );
 
-            auto made = LandscapeTileData::FromSamples( kSamples, kSamples,
-                                                        std::vector<uint16_t>( kSamples * kSamples, kGround ) );
+            auto made = LandscapeTileData::FromSamples(
+                 kSamples, kSamples,
+                 std::vector<uint16_t>( static_cast<size_t>( kSamples ) * kSamples, kGround ) );
             EXPECT_TRUE( made.IsSuccess() );
             LandscapeTileData data = made.ExtractValue();
             EXPECT_TRUE( data.SetEditLayer( { base, data.Samples(), {} } ).IsSuccess() );
@@ -56,7 +57,8 @@ namespace
         }
         LandscapeTileData& Tile()
         {
-            return *registry.get<ECS::LandscapeTileComponent>( tile ).Heights;
+            return registry.get<ECS::LandscapeTileComponent>( tile )
+                 .Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
         }
         uint16_t Height()
         {
@@ -76,7 +78,7 @@ namespace
             EXPECT_TRUE( Tile()
                               .SetEditLayer( { upper,
                                                std::vector<uint16_t>(
-                                                    kSamples * kSamples,
+                                                    static_cast<size_t>( kSamples ) * kSamples,
                                                     static_cast<uint16_t>( kLandscapeMidSample + kRaise ) ),
                                                {} } )
                               .IsSuccess() );

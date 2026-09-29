@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <regex>
@@ -37,9 +38,9 @@ namespace
         { "\"New Landscape: Cancel\"", 1, "New Landscape form: Cancel" },
         { "\"Import heightmap as a new landscape: \" + rel", 1, "Manage: import a heightmap file as a new landscape" },
         { "\"Import heightmap into the landscape: \" + rel", 1, "Manage: import a heightmap file into the landscape" },
-        { "( selected ? \"Export heightmap of the selected tiles: \" : \"Export heightmap: \" ) + rel", 1,
+        { R"(( selected ? "Export heightmap of the selected tiles: " : "Export heightmap: " ) + rel)", 1,
           "Manage: export the whole landscape / the selected tiles" },
-        { "label", 1, "\"Paint mode\" and \"Tool: Paint\": the Paint tab and its one tool" },
+        { "label", 1, R"("Paint mode" and "Tool: Paint": the Paint tab and its one tool)" },
         { "\"Create Layer Info\"", 1, "Paint: the \"+\" of the Target Layers list" },
         // Edit Layers (LandscapePanel::DrawEditLayers): the row buttons act on the EDITING layer.
         { "\"Create Edit Layer\"", 1, "Edit Layers: Create Layer" },
@@ -52,7 +53,7 @@ namespace
         { "\"Target layer: Visibility (holes)\"", 1, "Paint: the Visibility target layer" },
         { "\"Target layer: \" + info->LayerName", 1, "Paint: a target layer row" },
         { "control.Label", 2, "every Core::LandscapeToolControls() row: a stroke request, or a settings step" },
-        { "lower ? \"Stroke at the viewport centre, lowering\" : \"Stroke at the viewport centre\"", 1,
+        { R"(lower ? "Stroke at the viewport centre, lowering" : "Stroke at the viewport centre")", 1,
           "a brush stroke at the viewport centre (the viewport click)" },
     };
     // clang-format on
@@ -64,7 +65,8 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Desert/Source/Engine/ECS/Components.hpp" );
+            const std::ifstream probe( std::filesystem::path( prefix ) /
+                                       "Desert/Desert/Source/Engine/ECS/Components.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -74,7 +76,7 @@ namespace
 
     std::string ReadFile( const std::string& path )
     {
-        std::ifstream in( path );
+        const std::ifstream in( path );
         if ( !in )
             return {};
         std::ostringstream ss;
@@ -111,7 +113,7 @@ namespace
         for ( auto it = std::sregex_iterator( source.begin(), source.end(), kEntry ); it != std::sregex_iterator();
               ++it )
         {
-            std::size_t i        = static_cast<std::size_t>( it->position() + it->length() );
+            auto        i        = static_cast<std::size_t>( it->position() + it->length() );
             int         depth    = 0;
             bool        inString = false;
             std::string label;
@@ -131,7 +133,8 @@ namespace
                     break;
                 if ( c == '"' )
                     inString = true;
-                depth += ( c == '(' || c == '[' || c == '{' ) - ( c == ')' || c == ']' || c == '}' );
+                depth += static_cast<int>( c == '(' || c == '[' || c == '{' ) -
+                         static_cast<int>( c == ')' || c == ']' || c == '}' );
                 label += c;
             }
             ++labels[Collapse( label )];

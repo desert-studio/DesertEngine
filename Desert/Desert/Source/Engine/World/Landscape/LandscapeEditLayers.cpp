@@ -249,7 +249,8 @@ namespace Desert::World::Landscape
         if ( data.Heights.empty() )
             data.Heights.assign( static_cast<size_t>( tile.SamplesX() ) * tile.SamplesZ(), kLandscapeMidSample );
         for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
-            std::copy_n( values.begin() + static_cast<std::ptrdiff_t>( ( z - rect.Z0 ) * rect.Width() ),
+            std::copy_n( values.begin() + static_cast<std::ptrdiff_t>( z - rect.Z0 ) *
+                                               static_cast<std::ptrdiff_t>( rect.Width() ),
                          rect.Width(),
                          data.Heights.begin() + static_cast<std::ptrdiff_t>(
                                                      static_cast<size_t>( z ) * tile.SamplesX() + rect.X0 ) );

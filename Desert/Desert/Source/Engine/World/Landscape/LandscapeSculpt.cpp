@@ -509,7 +509,7 @@ namespace Desert::World::Landscape
     {
     }
 
-    LandscapeHeightStroke::LandscapeHeightStroke( const LandscapeRoot& root, LandscapeTileLookup lookup,
+    LandscapeHeightStroke::LandscapeHeightStroke( const LandscapeRoot& root, const LandscapeTileLookup& lookup,
                                                   LandscapeSampleBounds           bounds,
                                                   const LandscapeEditLayerTarget& layer )
          : m_Root( root ), m_Bounds( bounds ), m_Cache( root, lookup, layer ), m_Original( root, lookup, layer )

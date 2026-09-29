@@ -434,7 +434,7 @@ TEST( LandscapeEditLayers, UndoingASculptStrokeGivesTheLayerBackByteForByte )
     ASSERT_TRUE( stroke.CacheData( 2, 2, 4, 4 ) );
     const auto read = stroke.GetCachedData( 2, 2, 4, 4 ); // the record's Before: layer data
     ASSERT_TRUE( read ) << read.GetError();
-    const auto before = read.GetValue();
+    const auto& before = read.GetValue();
     ASSERT_TRUE( Raise( stroke, 400 ) );
     ASSERT_NE( tile.FindEditLayer( UUID( kTopGuid ) )->Heights, top );
 

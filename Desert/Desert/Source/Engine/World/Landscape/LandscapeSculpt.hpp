@@ -371,8 +371,8 @@ namespace Desert::World::Landscape
                                LandscapeSampleBounds bounds );
         /// A stroke on edit layer @p layer.Layer: every step reads and writes that layer's heights, and the
         /// undo record holds the layer's heights, not the merge (LandscapeHeightCache's layer constructor).
-        LandscapeHeightStroke( const LandscapeRoot& root, LandscapeTileLookup lookup, LandscapeSampleBounds bounds,
-                               const LandscapeEditLayerTarget& layer );
+        LandscapeHeightStroke( const LandscapeRoot& root, const LandscapeTileLookup& lookup,
+                               LandscapeSampleBounds bounds, const LandscapeEditLayerTarget& layer );
 
         /// FLandscapeToolStrokeSculpt::Apply (non-clay).
         Common::BoolResultStr ApplySculpt( const LandscapeBrushWeights&  weights,

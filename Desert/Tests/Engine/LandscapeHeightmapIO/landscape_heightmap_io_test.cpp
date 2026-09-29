@@ -81,7 +81,7 @@ namespace
         LandscapeEditLayerStack Stack{ { { Common::UUID( kLandscapeBaseEditLayerGuid ), "Base" } } };
 
         /// What the import writes: layer @p guid of Stack (the Base by default).
-        LandscapeEditLayerTarget Editing( uint64_t guid = kLandscapeBaseEditLayerGuid ) const
+        [[nodiscard]] LandscapeEditLayerTarget Editing( uint64_t guid = kLandscapeBaseEditLayerGuid ) const
         {
             return { Stack, {}, Common::UUID( guid ) };
         }

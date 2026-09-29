@@ -514,8 +514,8 @@ TEST( AuthoredComponentRoundTrip, AnInvalidEditLayerStackIsRefusedWithItsPath )
 // and a block with no `EditLayers` over an empty stack is refused at the same path - never a silently made Base.
 TEST( AuthoredComponentRoundTrip, AnEmptyEditLayerStackIsRefusedWithItsPath )
 {
-    ECS::LandscapeComponent written; // no layers: WriteComponent states `EditLayers: []`
-    ECS::LandscapeComponent current;
+    const ECS::LandscapeComponent written; // no layers: WriteComponent states `EditLayers: []`
+    ECS::LandscapeComponent       current;
     current.EditLayers.Layers            = { { Common::UUID( 9u ), "Kept", true, false, 1.0f, 1.0f } };
     const Common::Json::Issues emptyList = ReadAt( ThroughJsonText( WriteComponent( written ) ), current );
     ASSERT_EQ( emptyList.size(), 1u );

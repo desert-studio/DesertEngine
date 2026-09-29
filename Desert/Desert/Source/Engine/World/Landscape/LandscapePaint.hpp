@@ -121,7 +121,7 @@ namespace Desert::World::Landscape
                                                      const LandscapePaintRecord& record, bool before );
     /// The same for a record of an edit-layer stroke: the layers go back into edit layer @p layer.Layer's data
     /// on each tile, which is then re-merged whole.
-    Common::BoolResultStr ApplyLandscapePaintRecord( LandscapeTileLookup         lookup,
+    Common::BoolResultStr ApplyLandscapePaintRecord( const LandscapeTileLookup&  lookup,
                                                      const LandscapePaintRecord& record, bool before,
                                                      const LandscapeEditLayerTarget& layer );
 } // namespace Desert::World::Landscape
