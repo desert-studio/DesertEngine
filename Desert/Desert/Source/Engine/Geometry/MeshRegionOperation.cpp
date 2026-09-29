@@ -419,15 +419,24 @@ namespace Desert::Geometry
                  "Mesh Simplify: the mesh already has {} {} (target {})", byVertices ? vertices : triangles,
                  byVertices ? "vertices" : "triangles", target );
 
-        auto                    mesh = std::make_shared<DynamicMesh3>( before );
+        auto mesh = std::make_shared<DynamicMesh3>( before );
+        // UE's Simplify defaults (SimplifyMeshTool.cpp:248-249, SimplifyMeshOp.cpp:67-75): Preserve Sharp Edges
+        // off, so seams collapse along their line; the flip test then compares unit normals at 1e-5 and bowties on
+        // the seams are split first.
         BoundaryConstraintFlags flags;
         flags.GroupBoundary =
              settings.PreserveGroupBoundaries ? EdgeRefineFlags::FullyConstrained : EdgeRefineFlags::NoConstraint;
+        flags.AllowSeamCollapse = true;
+        if ( mesh->HasAttributes() )
+            mesh->Attributes()->SplitAllBowties();
         MeshConstraints constraints;
         ConstrainAllBoundariesAndSeams( constraints, *mesh, flags );
         const size_t      constrained = constraints.EdgeConstraintCount();
         QemSimplification simplifier( *mesh );
         simplifier.Boundaries = flags;
+        simplifier.SetEdgeFlipTolerance( 1e-5 );
+        // bPreventTinyTriangles on: unit normals at 1e-5 alone let a collapse leave a sliver of no area.
+        simplifier.PreventTinyTriangles = true;
         simplifier.SetExternalConstraints( std::move( constraints ) );
         if ( byVertices )
             simplifier.SimplifyToVertexCount( target );

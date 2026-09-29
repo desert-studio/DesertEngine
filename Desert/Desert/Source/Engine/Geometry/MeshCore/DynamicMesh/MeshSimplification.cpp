@@ -109,10 +109,24 @@ namespace Desert::Geometry
             apply( flags.GroupBoundary );
         if ( isSeam )
         {
-            // bAllowSeamSplits = true, bAllowSeamCollapse = false, bAllowSeamSmoothing = false.
-            current.CannotDelete = true;
-            current.CanMove      = false;
-            edgeFlags            = edgeFlags | EdgeRefineFlags::NoFlip | EdgeRefineFlags::NoCollapse;
+            // bAllowSeamSplits = true, bAllowSeamSmoothing = bAllowSeamCollapse.
+            const bool collapse  = flags.AllowSeamCollapse;
+            current.CannotDelete = current.CannotDelete || !collapse;
+            current.CanMove      = current.CanMove && collapse;
+            edgeFlags            = edgeFlags | EdgeRefineFlags::NoFlip;
+            if ( !collapse )
+                edgeFlags = edgeFlags | EdgeRefineFlags::NoCollapse;
+            else
+            {
+                // A seam's first and last edge keep the seam's ends where they are (UV and normal layers only).
+                bool seamEnd = false;
+                for ( int i = 0; !seamEnd && i < attributes->NumUVLayers(); ++i )
+                    seamEnd = attributes->GetUVLayer( i )->IsSeamEndEdge( edge );
+                for ( int i = 0; !seamEnd && i < attributes->NumNormalLayers(); ++i )
+                    seamEnd = attributes->GetNormalLayer( i )->IsSeamEndEdge( edge );
+                if ( seamEnd )
+                    edgeFlags = edgeFlags | EdgeRefineFlags::NoCollapse;
+            }
         }
         if ( edgeFlags == EdgeRefineFlags::NoConstraint && current.IsUnconstrained() )
             return false;
@@ -192,6 +206,45 @@ namespace Desert::Geometry
                 m_VertQuadrics[vertex].Add( m_TriAreas[tri], m_TriQuadrics[tri] );
     }
 
+    // CreateSeamQuadric (QuadricError.h:831-870) for both faces of @p edge, scaled by SeamEdgeWeight
+    // (MeshSimplification.cpp:286-305): the plane through the edge perpendicular to each face, so a vertex that
+    // leaves the seam's line pays for it.
+    QuadricErrord QemSimplification::SeamQuadric( int edge ) const
+    {
+        constexpr double         kSeamEdgeWeight = 256.0;
+        const DynamicMesh3::Edge e               = m_Mesh.GetEdge( edge );
+        const glm::dvec3         p0              = m_Mesh.GetVertex( e.Vert.A );
+        const glm::dvec3         p1              = m_Mesh.GetVertex( e.Vert.B );
+        const auto               side            = [&]( int tri )
+        {
+            const glm::dvec3 normal   = m_Mesh.GetTriNormal( tri );
+            const double     lengthSq = glm::dot( normal, normal );
+            const double     edgeSq   = glm::dot( p1 - p0, p1 - p0 );
+            QuadricErrord    q;
+            if ( std::abs( lengthSq - 1.0 ) > 1e5 * 2.220446049250313e-16 || edgeSq < 1e3 * 2.220446049250313e-16 )
+                return q;
+            const double length = std::sqrt( edgeSq );
+            q.Add( length, QuadricErrord( glm::cross( ( p1 - p0 ) / length, normal ), p0 ) );
+            return q;
+        };
+        QuadricErrord seam;
+        seam.Add( kSeamEdgeWeight, side( e.Tri.A ) );
+        if ( e.Tri.B != DynamicMesh3::InvalidID )
+            seam.Add( kSeamEdgeWeight, side( e.Tri.B ) );
+        return seam;
+    }
+
+    // InitializeSeamQuadrics with constraints: every constrained edge (seam, mesh or group boundary) carries one.
+    void QemSimplification::InitializeSeamQuadrics()
+    {
+        m_SeamQuadrics.clear();
+        if ( !Boundaries.AllowSeamCollapse || !m_Constraints )
+            return;
+        for ( const auto& [edge, constraint] : m_Constraints->GetEdgeConstraints() )
+            if ( m_Mesh.IsEdge( edge ) )
+                m_SeamQuadrics.emplace( edge, SeamQuadric( edge ) );
+    }
+
     // bRetainQuadricMemory = false: the edge's own triangles are counted once in each end's quadric; the sum
     // counts them twice, so one copy is removed.
     QuadricErrord QemSimplification::AssembleEdgeQuadric( const DynamicMesh3::Edge& edge ) const
@@ -202,6 +255,12 @@ namespace Desert::Geometry
             q.Add( -m_TriAreas[edge.Tri.A], m_TriQuadrics[edge.Tri.A] );
         if ( edge.Tri.B != DynamicMesh3::InvalidID )
             q.Add( -m_TriAreas[edge.Tri.B], m_TriQuadrics[edge.Tri.B] );
+        // AddSeamQuadricsToEdge over both ends (an edge that is itself a seam is counted from each end, as in UE).
+        if ( !m_SeamQuadrics.empty() )
+            for ( const int vertex : { edge.Vert.A, edge.Vert.B } )
+                for ( const int around : m_Mesh.VtxEdgesItr( vertex ) )
+                    if ( const auto found = m_SeamQuadrics.find( around ); found != m_SeamQuadrics.end() )
+                        q.Add( 1.0, found->second );
         return q;
     }
 
@@ -304,7 +363,8 @@ namespace Desert::Geometry
         return false;
     }
 
-    // FMeshRefinerBase::CanCollapseEdge: an end touching a constrained side edge of either triangle is kept.
+    // TMeshSimplification::CanCollapseEdge (MeshSimplification.cpp:1735-1760): an end touching a side edge that
+    // may not merge topology (NoTopologyMerge) is kept; a seam or a free mesh border only forbids flips.
     bool QemSimplification::CanCollapseEdge( int a, int b, int c, int d, int tc, int td, int& collapseTo ) const
     {
         collapseTo = -1;
@@ -317,16 +377,16 @@ namespace Desert::Geometry
         if ( c != DynamicMesh3::InvalidID )
         {
             retainA = retainA ||
-                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( a, c, tc ) ).IsUnconstrained();
+                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( a, c, tc ) ).CanMergeTopology();
             retainB = retainB ||
-                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( b, c, tc ) ).IsUnconstrained();
+                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( b, c, tc ) ).CanMergeTopology();
         }
         if ( d != DynamicMesh3::InvalidID )
         {
             retainA = retainA ||
-                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( a, d, td ) ).IsUnconstrained();
+                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( a, d, td ) ).CanMergeTopology();
             retainB = retainB ||
-                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( b, d, td ) ).IsUnconstrained();
+                      !m_Constraints->GetEdgeConstraint( m_Mesh.FindEdgeFromTri( b, d, td ) ).CanMergeTopology();
         }
         if ( retainA && retainB )
             return false;
@@ -341,8 +401,9 @@ namespace Desert::Geometry
         return !( ( collapseTo == a && retainB ) || ( collapseTo == b && retainA ) );
     }
 
-    // FMeshRefinerBase::CheckIfCollapseCreatesFlipOrInvalid with EdgeFlipTolerance 0 (UE's default: the raw
-    // cross products are compared, a non-positive dot is a flip).
+    // FMeshRefinerBase::CheckIfCollapseCreatesFlipOrInvalid with ComputeEdgeFlipMetric
+    // (MeshRefinerBase.h:157-166): tolerance 0 compares the raw cross products, any other tolerance the unit
+    // normals.
     bool QemSimplification::CreatesFlipOrInvalid( int vertex, int other, const glm::dvec3& newPosition, int tc,
                                                   int td ) const
     {
@@ -365,7 +426,37 @@ namespace Desert::Geometry
                 moved = glm::cross( newPosition - va, vc - va );
             else
                 moved = glm::cross( vb - va, newPosition - va );
-            if ( glm::dot( current, moved ) <= 0.0 )
+            const double metric = m_EdgeFlipTolerance == 0.0
+                                       ? glm::dot( current, moved )
+                                       : glm::dot( glm::normalize( current ), glm::normalize( moved ) );
+            if ( !( metric > m_EdgeFlipTolerance ) )
+                return true;
+        }
+        return false;
+    }
+
+    // FMeshRefinerBase::CheckIfCollapseCreatesTinyTriangle (MeshRefinerBase.cpp:61-95): a moved triangle whose
+    // squared doubled area drops below TinyTriangleThreshold (SMALL_NUMBER) refuses the collapse, unless it was
+    // already tiny.
+    bool QemSimplification::CreatesTinyTriangle( int vertex, int other, const glm::dvec3& newPosition, int tc,
+                                                 int td ) const
+    {
+        constexpr double kTinyTriangleThreshold = 1e-8;
+        for ( const int tri : m_Mesh.VtxTrianglesItr( vertex ) )
+        {
+            if ( tri == tc || tri == td )
+                continue;
+            const Index3i t = m_Mesh.GetTriangle( tri );
+            if ( t.A == other || t.B == other || t.C == other )
+                return true;
+            glm::dvec3 v[3];
+            m_Mesh.GetTriVertices( tri, v[0], v[1], v[2] );
+            const glm::dvec3 current = glm::cross( v[1] - v[0], v[2] - v[0] );
+            if ( glm::dot( current, current ) < kTinyTriangleThreshold )
+                continue;
+            v[t.A == vertex ? 0 : ( t.B == vertex ? 1 : 2 )] = newPosition;
+            const glm::dvec3 moved                           = glm::cross( v[1] - v[0], v[2] - v[0] );
+            if ( glm::dot( moved, moved ) < kTinyTriangleThreshold )
                 return true;
         }
         return false;
@@ -443,6 +534,9 @@ namespace Desert::Geometry
         if ( CreatesFlipOrInvalid( a, b, newPosition, t0, t1 ) ||
              CreatesFlipOrInvalid( b, a, newPosition, t0, t1 ) )
             return CollapseResult::Ignored;
+        if ( PreventTinyTriangles && ( CreatesTinyTriangle( a, b, newPosition, t0, t1 ) ||
+                                       CreatesTinyTriangle( b, a, newPosition, t0, t1 ) ) )
+            return CollapseResult::Ignored;
 
         if ( m_Mesh.CollapseEdge( keep, removed, t, info ) != MeshResult::Ok )
             return CollapseResult::Failed;
@@ -466,7 +560,28 @@ namespace Desert::Geometry
 
     void QemSimplification::UpdateNeighborhood( const DynamicMeshInfo::EdgeCollapseInfo& info )
     {
-        const int  kept = info.KeptVertex;
+        const int kept = info.KeptVertex;
+        // MeshSimplification.cpp:786-870: the kept edges carry a seam quadric exactly when they are constrained,
+        // the removed edges drop theirs, and every seam quadric around the kept vertex is rebuilt.
+        if ( Boundaries.AllowSeamCollapse && m_Constraints )
+        {
+            for ( int side = 0; side < 2; ++side )
+            {
+                const int keptEdge = info.KeptEdges[side];
+                if ( keptEdge == DynamicMesh3::InvalidID )
+                    continue;
+                if ( m_Constraints->HasEdgeConstraint( keptEdge ) )
+                    m_SeamQuadrics[keptEdge] = QuadricErrord{};
+                else
+                    m_SeamQuadrics.erase( keptEdge );
+            }
+            for ( int side = 0; side < 2; ++side )
+                if ( info.RemovedEdges[side] != DynamicMesh3::InvalidID )
+                    m_SeamQuadrics.erase( info.RemovedEdges[side] );
+            for ( const int around : m_Mesh.VtxEdgesItr( kept ) )
+                if ( const auto found = m_SeamQuadrics.find( around ); found != m_SeamQuadrics.end() )
+                    found->second = SeamQuadric( around );
+        }
         glm::dvec3 normal( 0.0 );
         glm::dvec3 centroid( 0.0 );
         for ( const int tri : m_Mesh.VtxTrianglesItr( kept ) )
@@ -535,6 +650,7 @@ namespace Desert::Geometry
         Precompute();
         InitializeTriQuadrics();
         InitializeVertexQuadrics();
+        InitializeSeamQuadrics();
         InitializeQueue();
         while ( m_Queue.GetCount() > 0 )
         {

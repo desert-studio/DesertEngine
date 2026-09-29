@@ -8,9 +8,9 @@
 // only what the editor's Simplify uses - the triangle-count and vertex-count targets, collapse mode
 // MinimalQuadricPositionError, bPreserveBoundaryShape, bRetainQuadricMemory = false (UE's default: face quadrics
 // are recomputed around every collapse). Not ported: the edge-length / max-error / minimal-planar targets,
-// reprojection and the geometric-error tolerance (no projection target), attribute-aware quadrics, seam quadrics
-// (seams never collapse here, see MeshConstraints.hpp), regularization and the custom scale functions (UE's
-// defaults leave them off), RemoveIsolatedTriangle, the change tracker and cancellation.
+// reprojection and the geometric-error tolerance (no projection target), attribute-aware quadrics, regularization
+// and the custom scale functions (UE's defaults leave them off), RemoveIsolatedTriangle, the change tracker and
+// cancellation.
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshConstraints.hpp"
@@ -18,7 +18,9 @@
 
 #include <glm/vec3.hpp>
 
+#include <algorithm>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Geometry
@@ -58,6 +60,15 @@ namespace Desert::Geometry
             m_Constraints = std::move( constraints );
         }
 
+        // FMeshRefinerBase::SetEdgeFlipTolerance: a collapse is refused when the dot of a moved triangle's old and
+        // new normals is at most @p tolerance (clamped to [-1, 1]). 0 compares the raw cross products (only the
+        // sign counts); any other value compares unit normals.
+        void SetEdgeFlipTolerance( double tolerance )
+        {
+            m_EdgeFlipTolerance = std::clamp( tolerance, -1.0, 1.0 );
+        }
+        // bPreventTinyTriangles: refuse a collapse that shrinks a triangle to (almost) no area.
+        bool PreventTinyTriangles = false;
         // Collapse the cheapest edges until the mesh has at most @p count triangles (UE clamps it to >= 1) or
         // no edge may collapse.
         void SimplifyToTriangleCount( int count );
@@ -91,6 +102,8 @@ namespace Desert::Geometry
         void                         Precompute();
         void                         InitializeTriQuadrics();
         void                         InitializeVertexQuadrics();
+        void                         InitializeSeamQuadrics();
+        [[nodiscard]] QuadricErrord  SeamQuadric( int edge ) const;
         void                         InitializeQueue();
         [[nodiscard]] QuadricErrord  AssembleEdgeQuadric( const DynamicMesh3::Edge& edge ) const;
         [[nodiscard]] glm::dvec3     OptimalPoint( int edge, const QuadricErrord& q, int a, int b ) const;
@@ -100,6 +113,8 @@ namespace Desert::Geometry
         [[nodiscard]] bool CanCollapseEdge( int a, int b, int c, int d, int tc, int td, int& collapseTo ) const;
         [[nodiscard]] bool CreatesFlipOrInvalid( int vertex, int other, const glm::dvec3& newPosition, int tc,
                                                  int td ) const;
+        [[nodiscard]] bool CreatesTinyTriangle( int vertex, int other, const glm::dvec3& newPosition, int tc,
+                                                int td ) const;
         void               UpdateNeighborhood( const DynamicMeshInfo::EdgeCollapseInfo& info );
         void               UpdateConstraintsAround( int edge );
 
@@ -114,6 +129,10 @@ namespace Desert::Geometry
         std::vector<double>            m_TriAreas;
         std::vector<QuadricErrord>     m_VertQuadrics;
         std::vector<QEdge>             m_EdgeQuadrics;
+        // TMeshSimplification::seamQuadrics: one quadric per constrained edge while seams may collapse, holding a
+        // vertex near the edge's line (SeamEdgeWeight 256).
+        std::unordered_map<int, QuadricErrord> m_SeamQuadrics;
+        double                                 m_EdgeFlipTolerance = 0.0;
         IndexPriorityQueue             m_Queue;
     };
 } // namespace Desert::Geometry

@@ -3,9 +3,9 @@
 // Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/MeshConstraints.h:18-436
 // and MeshConstraintsUtil.h:166 / Private/MeshConstraintsUtil.cpp:43-100,178-260, adapted: std::unordered_map
 // instead of TMap, no projection targets (FVertexConstraint::Target, FEdgeConstraint::Target) and no FixedSetID -
-// the simplifier here never reprojects - and ConstrainAllBoundariesAndSeams runs serially. Not ported: the seam
-// END edge rule (it only applies when seams may collapse; here a seam never collapses, see below), the
-// ROI / selection helpers.
+// the simplifier here never reprojects - and ConstrainAllBoundariesAndSeams runs serially, seam splits are always
+// allowed and seam smoothing follows seam collapse (SimplifyMeshTool.cpp:248-249 sets both from one property).
+// Not ported: the ROI / selection helpers.
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 
@@ -42,6 +42,12 @@ namespace Desert::Geometry
         [[nodiscard]] static constexpr bool CanCollapse( EdgeRefineFlags flags )
         {
             return ( static_cast<uint8_t>( flags ) & static_cast<uint8_t>( EdgeRefineFlags::NoCollapse ) ) == 0;
+        }
+        // Disconnected constrained edges may be joined by an adjacent collapse (no NoTopologyMerge).
+        [[nodiscard]] bool CanMergeTopology() const
+        {
+            return ( static_cast<uint8_t>( Flags ) & static_cast<uint8_t>( EdgeRefineFlags::NoTopologyMerge ) ) ==
+                   0;
         }
         [[nodiscard]] bool CanFlip() const
         {
@@ -124,6 +130,10 @@ namespace Desert::Geometry
         {
             return m_Edges.size();
         }
+        [[nodiscard]] const std::unordered_map<int, EdgeConstraint>& GetEdgeConstraints() const
+        {
+            return m_Edges;
+        }
 
     private:
         std::unordered_map<int, EdgeConstraint>   m_Edges;
@@ -132,13 +142,15 @@ namespace Desert::Geometry
 
     // The boundary kinds a simplification respects, one flag set per kind (UE's MeshBoundaryConstraint /
     // GroupBoundaryConstraint; MaterialBoundaryConstraint is not ported - the editor's meshes carry one material
-    // id layer only through their polygroups). Seams (UV / normal / colour splits) never collapse and never move:
-    // UE's Simplify with Preserve Sharp Edges on (SimplifyMeshTool.cpp:248-249 -> bAllowSeamCollapse = false,
-    // bAllowSeamSmoothing = false).
+    // id layer only through their polygroups). Seams (UV / normal / colour splits) never flip. With
+    // AllowSeamCollapse (UE's Simplify default: Preserve Sharp Edges off, SimplifyMeshTool.cpp:248-249) a seam
+    // edge may collapse and its vertices may move, except the first and last edge of a seam
+    // (MeshConstraintsUtil.cpp:244-263); without it a seam never collapses and its vertices never move.
     struct BoundaryConstraintFlags
     {
         EdgeRefineFlags MeshBoundary  = EdgeRefineFlags::NoFlip;
         EdgeRefineFlags GroupBoundary = EdgeRefineFlags::NoConstraint;
+        bool            AllowSeamCollapse = true;
     };
 
     // FMeshConstraintsUtil::ConstrainEdgeBoundariesAndSeams: the constraint of edge @p edge and of its two
