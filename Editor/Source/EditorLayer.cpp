@@ -8160,7 +8160,7 @@ namespace Desert::Editor
              { return Common::AssetPathIndex::PathFor( static_cast<uint64_t>( handle ) ); } );
         const auto meshes = static_cast<std::size_t>(
              std::count_if( scene.begin(), scene.end(), []( const ThumbnailWarmup::WarmItem& item )
-                            { return item.Kind == ThumbnailWarmup::WarmKind::Mesh; } ) );
+                            { return item.Kind != ThumbnailWarmup::WarmKind::Material; } ) );
         const std::size_t warmed = m_FileExplorerPanel->WarmSceneThumbnails( scene );
         m_SplashWarmTotal = ThumbnailService::Get().SceneWarmPending() + m_FileExplorerPanel->TickWarmMeshes();
         LOG_INFO( "[Thumbnails] the scene uses {} material(s) and {} mesh(es) of {} root(s), the opening folder "

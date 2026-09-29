@@ -28,6 +28,7 @@
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailFoliage.hpp>
+#include <Editor/Widgets/ThumbnailPose.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
@@ -434,6 +435,7 @@ namespace Desert::Editor
                     items.push_back( { entry->AssetPath, {} } );
                     break;
                 case Producer::RenderedMaterial:
+                case Producer::RenderedPose: // a .skmesh is its own cooked form and freshness source
                 case Producer::Painted:
                     items.push_back( { ThumbnailPngFor( entry->AssetPath ), entry->AssetPath } );
                     break;
@@ -477,9 +479,11 @@ namespace Desert::Editor
         // filed under the .stmesh and its freshness source is MeshFreshnessSource of it.
         const auto verdictOf = [this]( const WarmItem& item )
         {
-            if ( item.Kind == WarmKind::Mesh )
+            if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
             {
-                const std::string cooked = CookPaths::MeshAsset( item.Path ).generic_string();
+                const std::string cooked = item.Kind == WarmKind::Mesh
+                                                ? CookPaths::MeshAsset( item.Path ).generic_string()
+                                                : item.Path; // a .skmesh is its own cooked form
                 return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
                      ThumbnailKey::DiskPath( cooked ), ThumbnailFreshness::MeshFreshnessSource( cooked ) ) );
             }
@@ -501,6 +505,8 @@ namespace Desert::Editor
                     if ( std::optional<std::string> source = MeshSourceFor( *entry ) )
                         folder.push_back( { std::move( *source ), WarmKind::Mesh } );
                 }
+                else if ( producer == ThumbnailProducers::Producer::RenderedPose )
+                    folder.push_back( { entry->AssetPath, WarmKind::Pose } );
             }
         }
         const std::vector<WarmItem> warm = ThumbnailWarmup::SplashWarmList(
@@ -511,12 +517,13 @@ namespace Desert::Editor
         m_WarmMeshesPending.clear();
         for ( const WarmItem& item : warm )
         {
-            if ( item.Kind == WarmKind::Mesh )
+            if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
             {
-                const std::string cooked = CookPaths::MeshAsset( item.Path ).generic_string();
+                const std::string cooked =
+                     item.Kind == WarmKind::Mesh ? CookPaths::MeshAsset( item.Path ).generic_string() : item.Path;
                 m_ScenePrefetchItems.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
                 if ( verdictOf( item ) == ThumbnailFreshness::Verdict::Capture )
-                    m_WarmMeshesPending.push_back( item.Path );
+                    m_WarmMeshesPending.push_back( item );
                 continue;
             }
             const std::string& png = ThumbnailPngFor( item.Path );
@@ -551,9 +558,12 @@ namespace Desert::Editor
         if ( m_AssetManager == nullptr || m_WarmMeshesPending.empty() )
             return 0;
         std::erase_if( m_WarmMeshesPending,
-                       [this]( const std::string& path )
+                       [this]( const ThumbnailWarmup::WarmItem& item )
                        {
-                           const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, path );
+                           const bool         pose = item.Kind == ThumbnailWarmup::WarmKind::Pose;
+                           const std::string& path = item.Path;
+                           const auto subject = pose ? ThumbnailPose::ResolveSkinnedMesh( *m_AssetManager, path )
+                                                     : ThumbnailSubject::ResolveMesh( *m_AssetManager, path );
                            if ( !subject )
                            {
                                // The same refusal the tile would log and blacklist; once, here, instead.
@@ -563,7 +573,10 @@ namespace Desert::Editor
                            }
                            if ( subject.GetValue().Pending )
                                return false; // read in flight: asked again next frame
-                           ThumbnailService::Get().WarmMesh( subject.GetValue() );
+                           if ( pose )
+                               ThumbnailService::Get().WarmPose( subject.GetValue() );
+                           else
+                               ThumbnailService::Get().WarmMesh( subject.GetValue() );
                            return true;
                        } );
         return m_WarmMeshesPending.size();
@@ -1812,6 +1825,8 @@ namespace Desert::Editor
                 return DrawRenderedMaterialThumbnail( entry, size );
             case Producer::RenderedMesh:
                 return DrawRenderedMeshThumbnail( entry, size );
+            case Producer::RenderedPose:
+                return DrawRenderedPoseThumbnail( entry, size );
             case Producer::Painted:
                 return DrawPaintedThumbnail( entry, size );
             case Producer::NotYetProduced:
@@ -1985,6 +2000,39 @@ namespace Desert::Editor
                                              subject.GetValue().Material );
 
         // No swatch for meshes — fall back to the type icon until the PNG is ready.
+        return false;
+    }
+
+    bool FileExplorerPanel::DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size )
+    {
+        if ( !m_UIHelper || !m_Thumbnails || !m_AssetManager )
+            return false;
+        if ( m_FailedThumbs.count( entry->AssetPath ) ) // refused before -> icon, no per-frame retry
+            return false;
+
+        // The mesh tile's rule, with the .skmesh as its own cooked form: one key, one freshness source.
+        const std::string& pngPath   = ThumbnailPngFor( entry->AssetPath );
+        const bool         haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                                    pngPath, ThumbnailFreshness::MeshFreshnessSource( entry->AssetPath ) ) ) ==
+                               ThumbnailFreshness::Verdict::Show;
+        if ( !haveFresh )
+            m_Thumbnails->Invalidate( pngPath );
+        else if ( auto img = m_Thumbnails->Get( pngPath ) )
+        {
+            m_UIHelper->ImageButton( "##thumb", img, size );
+            return true;
+        }
+
+        const auto subject = ThumbnailPose::ResolveSkinnedMesh( *m_AssetManager, entry->AssetPath );
+        if ( !subject )
+        {
+            LOG_WARN( "[Thumbnail] '{}': {}", entry->AssetPath, subject.GetError() );
+            m_FailedThumbs.insert( entry->AssetPath );
+            return false;
+        }
+        if ( subject.GetValue().Pending )
+            return false; // read in flight: asked again next frame
+        ThumbnailService::Get().RequestPose( subject.GetValue().Handle, subject.GetValue().CookedPath );
         return false;
     }
 

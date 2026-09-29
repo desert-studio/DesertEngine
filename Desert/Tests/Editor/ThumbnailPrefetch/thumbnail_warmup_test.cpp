@@ -171,3 +171,10 @@ TEST( ThumbnailWarmup, OnTheSplashOnlyTheScenesCapturesStart )
     const std::vector<int> all = { 10, 11, 20, 21 };
     EXPECT_EQ( sim.Dispatched, all );
 }
+
+// A skinned mesh a scene uses is warmed as a POSE (THM1n-6): its bind pose, not a static capture.
+TEST( ThumbnailWarmup, ASkinnedMeshIsWarmedAsAPose )
+{
+    EXPECT_EQ( Desert::Editor::ThumbnailWarmup::WarmKindOf( "Assets/Hero/Hero.skmesh" ),
+               Desert::Editor::ThumbnailWarmup::WarmKind::Pose );
+}

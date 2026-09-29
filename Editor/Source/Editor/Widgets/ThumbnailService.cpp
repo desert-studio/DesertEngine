@@ -145,9 +145,26 @@ namespace Desert::Editor
     {
         // Keyed and judged exactly as RequestMesh keys and judges it, so the browser tile and the splash
         // ask for ONE picture of the cooked mesh, never two.
-        Warm( { Kind::Mesh, mesh.Handle, mesh.Material, ThumbnailKey::Identity( mesh.CookedPath ),
-                ThumbnailFreshness::MeshFreshnessSource( mesh.CookedPath ).generic_string(),
-                ThumbnailKey::DiskPath( mesh.CookedPath ), ThumbnailSubject::Preview::Sphere } );
+        Warm( MeshRequestOf( Kind::Mesh, mesh.Handle, mesh.CookedPath, mesh.Material ) );
+    }
+
+    void ThumbnailService::WarmPose( const ThumbnailSubject::Mesh& mesh )
+    {
+        Warm( MeshRequestOf( Kind::Pose, mesh.Handle, mesh.CookedPath,
+                             Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) ) );
+    }
+
+    ThumbnailService::Request ThumbnailService::MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh,
+                                                               const std::string&         cookedPath,
+                                                               const Assets::AssetHandle& material )
+    {
+        return { kind,
+                 mesh,
+                 material,
+                 ThumbnailKey::Identity( cookedPath ),
+                 ThumbnailFreshness::MeshFreshnessSource( cookedPath ).generic_string(),
+                 ThumbnailKey::DiskPath( cookedPath ),
+                 ThumbnailSubject::Preview::Sphere };
     }
 
     void ThumbnailService::Warm( Request req )
@@ -200,14 +217,22 @@ namespace Desert::Editor
     std::string ThumbnailService::RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
                                                const Assets::AssetHandle& material )
     {
-        const std::string identity = ThumbnailKey::Identity( assetPath );
-        const std::string png      = ThumbnailKey::DiskPath( assetPath );
-        const std::string source   = ThumbnailFreshness::MeshFreshnessSource( assetPath ).generic_string();
-        if ( ShouldQueue( identity, png, source ) )
+        return EnqueueMeshLike( MeshRequestOf( Kind::Mesh, mesh, assetPath, material ) );
+    }
+
+    std::string ThumbnailService::RequestPose( const Assets::AssetHandle& mesh, const std::string& assetPath )
+    {
+        return EnqueueMeshLike(
+             MeshRequestOf( Kind::Pose, mesh, assetPath, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) ) );
+    }
+
+    std::string ThumbnailService::EnqueueMeshLike( Request req )
+    {
+        std::string png = req.Png;
+        if ( ShouldQueue( req.Identity, req.Png, req.Source ) )
         {
-            m_Queue.push_back(
-                 { Kind::Mesh, mesh, material, identity, source, png, ThumbnailSubject::Preview::Sphere } );
-            m_Queued.insert( identity );
+            m_Queued.insert( req.Identity );
+            m_Queue.push_back( std::move( req ) );
             HoldSubjects();
         }
         return png;
@@ -541,6 +566,8 @@ namespace Desert::Editor
         {
             if ( req.Type == Kind::Mesh )
                 return m_Renderer->RequestMesh( req.Handle, req.Png, req.Material );
+            if ( req.Type == Kind::Pose )
+                return m_Renderer->RequestPose( req.Handle, nullptr, req.Png ); // the bind pose
             if ( req.How != ThumbnailSubject::Preview::Mesh )
                 return m_Renderer->RequestMaterial( req.Handle, req.Png, req.How );
             if ( static_cast<uint64_t>( req.PreviewMesh ) == 0 )

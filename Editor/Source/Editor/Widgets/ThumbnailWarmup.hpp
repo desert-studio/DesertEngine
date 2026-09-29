@@ -30,6 +30,7 @@ namespace Desert::Editor::ThumbnailWarmup
     {
         Material, // a surface material, photographed on its preview (ThumbnailSubject::ResolveMaterial)
         Mesh,     // a static mesh, photographed from its cooked form (ThumbnailSubject::ResolveMesh)
+        Pose,     // a skinned mesh in its bind pose (ThumbnailPose::ResolveSkinnedMesh)
     };
 
     /// One picture to warm: the file the browser tile or scene root names, and how it is photographed.
@@ -50,6 +51,8 @@ namespace Desert::Editor::ThumbnailWarmup
             return WarmKind::Material;
         if ( path.extension() == ".stmesh" )
             return WarmKind::Mesh;
+        if ( path.extension() == ".skmesh" )
+            return WarmKind::Pose;
         return std::nullopt;
     }
 

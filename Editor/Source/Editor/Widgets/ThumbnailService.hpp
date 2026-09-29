@@ -110,6 +110,9 @@ namespace Desert::Editor
         std::string
         RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
                      const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        // Queue a skinned mesh in its bind pose (THM1n-6), keyed and judged like RequestMesh: @p assetPath is
+        // the .skmesh, its own cooked form. The same enqueue as RequestMesh, so deduplication is one code.
+        std::string RequestPose( const Assets::AssetHandle& mesh, const std::string& assetPath );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -152,6 +155,8 @@ namespace Desert::Editor
         /// The same for a mesh (THM1m): the open scene's meshes and the opening folder's uncaptured mesh tiles
         /// are photographed on the splash too, keyed on the cooked form as RequestMesh keys them.
         void WarmMesh( const ThumbnailSubject::Mesh& mesh );
+        /// The same for a skinned mesh's pose (ThumbnailPose::ResolveSkinnedMesh's answer).
+        void WarmPose( const ThumbnailSubject::Mesh& mesh );
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
 
@@ -200,7 +205,8 @@ namespace Desert::Editor
         enum class Kind
         {
             Material,
-            Mesh
+            Mesh,
+            Pose // a skinned mesh posed (AssetThumbnailRenderer::RequestPose)
         };
         struct Request
         {
@@ -222,6 +228,12 @@ namespace Desert::Editor
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
         bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
+        // THE ONE REQUEST SHAPE of a mesh-like capture (Mesh, Pose): keyed and judged on the cooked file, so the
+        // browser tile, the splash and every kind ask for one picture of one file.
+        static Request MeshRequestOf( Kind kind, const Assets::AssetHandle& mesh, const std::string& cookedPath,
+                                      const Assets::AssetHandle& material );
+        // RequestMesh and RequestPose: one enqueue, one deduplication.
+        std::string EnqueueMeshLike( Request req );
         // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
         std::unordered_set<std::string> m_SceneWarm;
 

@@ -15,6 +15,11 @@
 #include <memory>
 #include <string>
 
+namespace Desert::Assets
+{
+    class AnimationAsset;
+}
+
 namespace Desert::Editor
 {
     // Renders small offscreen previews of assets (a material on a sphere) and writes them to PNG files on
@@ -75,6 +80,14 @@ namespace Desert::Editor
         RequestMesh( const Assets::AssetHandle& meshHandle, const std::string& outPng,
                      const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
 
+        /// A SKINNED mesh posed (THM1n-6; UE: USkeletalMesh's thumbnail is the reference pose, UAnimSequence's
+        /// the clip on its preview mesh). No @p clip -> the bind pose; a clip -> its middle frame. The same
+        /// refusals as RequestMesh, plus one: a mesh that is not skinned has no skeleton to pose. The pose is
+        /// built at staging as PreviewViewport builds it (SkinnedMeshComponent + AnimationComponent + Animator).
+        [[nodiscard]] Common::BoolResultStr RequestPose( const Assets::AssetHandle&            meshHandle,
+                                                         Assets::Asset<Assets::AnimationAsset> clip,
+                                                         const std::string&                    outPng );
+
         // Is a capture in flight? Gates requests to one at a time.
         // Pending until the picture is ON DISK: the GPU copy and the worker's encode are part of the capture.
         [[nodiscard]] bool HasPending() const
@@ -96,6 +109,7 @@ namespace Desert::Editor
         /// under the dome camera — and take the other one down. Called every tick of a capture, because
         /// the scene is shared between the three pictures and only one of them may be standing.
         void StageSubject();
+        void StagePose(); // StageSubject's Subject::Pose branch
 
         /// True while the dome must keep rendering without counting a warm-up frame: the modelling volume
         /// bakes on a worker and the march accumulates over frames, so an early readback photographs the
@@ -135,9 +149,11 @@ namespace Desert::Editor
         enum class Subject
         {
             Material,
-            Mesh
+            Mesh,
+            Pose // a skinned mesh posed: m_PendingHandle + m_PendingClip (null = the bind pose)
         };
-        Subject m_PendingSubject = Subject::Material;
+        Subject                               m_PendingSubject = Subject::Material;
+        Assets::Asset<Assets::AnimationAsset> m_PendingClip;
         // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
         ThumbnailSubject::Preview m_PendingPreview = ThumbnailSubject::Preview::Sphere;
         int                 m_Phase = 0; // 0 = idle, else = remaining render frames (capture on the last)

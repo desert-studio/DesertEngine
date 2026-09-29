@@ -45,8 +45,10 @@ TEST( ThumbnailProducers, ThePicturedKindsKeepTheirProducers )
     EXPECT_EQ( ThumbnailProducers::ProducerOf( FileType::UITheme ), Producer::Painted );
     // A foliage type is photographed as its mesh (THM1n-6): the same producer as a model.
     EXPECT_EQ( ThumbnailProducers::ProducerOfPath( "Assets/Foliage/Grass.defoliage" ), Producer::RenderedMesh );
+    // A skinned mesh is posed and photographed (THM1n-6): its bind pose.
+    EXPECT_EQ( ThumbnailProducers::ProducerOfPath( "Assets/Hero/Hero.skmesh" ), Producer::RenderedPose );
     // Typed (THM1n-4) and still owed a picture: pinned through the whole chain from the extension.
-    for ( const char* path : { "Assets/Hero/Hero.skmesh", "Assets/Hero/Hero.skeleton", "Assets/Hero/Run.anim" } )
+    for ( const char* path : { "Assets/Hero/Hero.skeleton", "Assets/Hero/Run.anim" } )
         EXPECT_EQ( ThumbnailProducers::ProducerOfPath( path ), Producer::NotYetProduced ) << path;
 }
 

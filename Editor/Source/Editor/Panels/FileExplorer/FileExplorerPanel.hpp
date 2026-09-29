@@ -317,7 +317,8 @@ namespace Desert::Editor
         // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
         std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
         std::vector<ThumbnailPrefetch::Item> m_ScenePrefetchItems; // WarmSceneThumbnails' pictures, decoded too
-        std::vector<std::string>             m_WarmMeshesPending; // TickWarmMeshes: cold meshes still being read
+        std::vector<ThumbnailWarmup::WarmItem>
+             m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
 
         // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
         // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the
@@ -367,6 +368,8 @@ namespace Desert::Editor
         bool DrawRenderedMaterialThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Same, for a mesh entry (the mesh auto-framed by its bounds).
         bool DrawRenderedMeshThumbnail( DirectoryInformation* entry, const ImVec2& size );
+        // Same, for a skinned mesh in its bind pose (ThumbnailPose; the .skmesh is its own cooked form).
+        bool DrawRenderedPoseThumbnail( DirectoryInformation* entry, const ImVec2& size );
         // Same, for a file whose picture is PAINTED from its own bytes rather than rendered — the four
         // cloud formats. It asks for no handle and no renderer; see Editor/Widgets/CloudThumbnail.hpp.
         bool DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size );

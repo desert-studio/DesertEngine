@@ -23,6 +23,8 @@ namespace Desert::Editor::ThumbnailProducers
     enum class Producer
     {
         RenderedMesh,     // the cooked mesh photographed (ThumbnailSubject::ResolveMesh, ThumbnailService)
+        RenderedPose,     // a skinned mesh posed and photographed (ThumbnailPose::ResolveSkinnedMesh,
+                          // ThumbnailService::RequestPose): the bind pose, or a clip's middle frame
         RenderedMaterial, // the material on its preview (sphere / mesh / volume;
                           // ThumbnailSubject::ResolveMaterial)
         Decoded,          // the file IS a picture: decoded from disk (ThumbnailCache)
@@ -59,7 +61,7 @@ namespace Desert::Editor::ThumbnailProducers
          Row{ FileType::UITheme, Producer::Painted, "its palette painted" },
          Row{ FileType::LandscapeLayerInfo, Producer::TypeIcon, "a layer's settings; UE draws its colour swatch" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
-         Row{ FileType::SkinnedMesh, Producer::NotYetProduced, "UE (USkeletalMesh): the mesh in its bind pose" },
+         Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::NotYetProduced,
               "UE (USkeleton): its PreviewSkeletalMesh in the bind pose" },
          Row{ FileType::Animation, Producer::NotYetProduced,
@@ -77,8 +79,8 @@ namespace Desert::Editor::ThumbnailProducers
 
     /// The kinds UE photographs that this editor still draws as an icon. Pinned by name so closing one is
     /// an edit here and in the table, and opening a new one is not free.
-    inline constexpr std::array kNotYetProduced = { FileType::Scene,       FileType::Prefab,   FileType::Audio,
-                                                    FileType::SkinnedMesh, FileType::Skeleton, FileType::Animation };
+    inline constexpr std::array kNotYetProduced = { FileType::Scene, FileType::Prefab, FileType::Audio,
+                                                    FileType::Skeleton, FileType::Animation };
 
     /// The row's producer, or nullopt for a kind with no row — a census failure, never a default.
     [[nodiscard]] constexpr std::optional<Producer> ProducerOf( FileType type )

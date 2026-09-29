@@ -3,7 +3,10 @@
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFraming.hpp>
 
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -379,6 +382,7 @@ namespace Desert::Editor
         m_PendingMaterial = material;
         m_PendingPng      = outPng;
         m_PendingSubject  = Subject::Mesh;
+        m_PendingClip     = nullptr;
         m_Phase           = kRenderFrames;
         m_CaptureMainMs   = 0.0;
         m_CaptureTicks    = 0;
@@ -387,8 +391,84 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AssetThumbnailRenderer::RequestPose( const Assets::AssetHandle&            meshHandle,
+                                                               Assets::Asset<Assets::AnimationAsset> clip,
+                                                               const std::string&                    outPng )
+    {
+        // Refused BEFORE the shared checks queue anything: a static mesh posed would stage a skinned
+        // component on geometry with no skeleton and photograph nothing.
+        if ( static_cast<uint64_t>( meshHandle ) != 0 )
+        {
+            const auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( meshHandle );
+            if ( mesh != nullptr && !mesh->IsSkinned() )
+                return Common::MakeFormattedError(
+                     "mesh {} is not skinned, so there is no pose to photograph for '{}'",
+                     static_cast<uint64_t>( meshHandle ), outPng );
+        }
+        auto queued = RequestMesh( meshHandle, outPng );
+        if ( !queued.IsSuccess() )
+            return queued;
+        m_PendingSubject = Subject::Pose;
+        m_PendingClip    = std::move( clip );
+        return queued;
+    }
+
+    void AssetThumbnailRenderer::StagePose()
+    {
+        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        smc.Primitive.reset();
+        smc.MaterialSlots.clear();
+        smc.RuntimeMaterialInstances.clear();
+        ECS::ClearEditableMesh( smc );
+
+        // As PreviewViewport::SetSkinnedMesh + ApplyAnimationTime stage it: this scene runs no
+        // AnimationECSSystem either, so the animator is built here and evaluated once.
+        auto& skinned         = m_Target.AddComponent<ECS::SkinnedMeshComponent>();
+        skinned.MeshHandle    = m_PendingHandle;
+        skinned.MaterialSlots = MeshOwnSlots( m_PendingHandle );
+        auto& anim            = m_Target.AddComponent<ECS::AnimationComponent>();
+        anim.CurrentClip      = m_PendingClip ? m_PendingClip->GetClip().AnimationName : std::string();
+        anim.Playing          = false;
+        anim.Loop             = true;
+
+        glm::vec3 center( 0.0f );
+        float     extent = 1.0f;
+        if ( auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle );
+             mesh != nullptr && mesh->IsSkinned() )
+        {
+            // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            const auto* skinnedMesh = static_cast<Desert::SkinnedMesh*>( mesh );
+            anim.Animator           = std::make_unique<Animation::Animator>( skinnedMesh->GetSkeleton() );
+            if ( m_PendingClip )
+            {
+                const auto& clip = m_PendingClip->GetClip();
+                anim.Animator->Play( clip, true );
+                anim.Animator->SetTick(
+                     Animation::FrameTime{ Animation::FrameNumber{ clip.DurationTicks.Value / 2 } } );
+            }
+            else
+            {
+                anim.Animator->Update( Common::Timestep( 0.0f ) ); // the bind pose into the skinning matrices
+            }
+            if ( const auto frame = ThumbnailFraming::MeasureSubmeshes( mesh->GetSubmeshes() ); frame.Valid )
+            {
+                center = frame.Center;
+                extent = frame.Extent;
+            }
+        }
+        FitTarget( center, extent );
+    }
+
     void AssetThumbnailRenderer::StageSubject()
     {
+        // A pose capture leaves its two components behind; every other subject is one static mesh component.
+        if ( m_Target.HasComponent<ECS::AnimationComponent>() )
+            m_Target.RemoveComponent<ECS::AnimationComponent>();
+        if ( m_Target.HasComponent<ECS::SkinnedMeshComponent>() )
+            m_Target.RemoveComponent<ECS::SkinnedMeshComponent>();
+
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
 
         // ── THE DOME: A MEDIUM, NOT A SURFACE ─────────────────────────────────────────────────────────
@@ -457,7 +537,11 @@ namespace Desert::Editor
             m_Scene->SetActiveCamera( m_ObjectCamera );
         }
 
-        if ( m_PendingSubject == Subject::Mesh )
+        if ( m_PendingSubject == Subject::Pose )
+        {
+            StagePose();
+        }
+        else if ( m_PendingSubject == Subject::Mesh )
         {
             // Asset mesh, auto-framed by its bounds. Apply the mesh's linked (sidecar) material to every slot
             // if one was provided, so the preview shows the real look instead of a flat default gray.
