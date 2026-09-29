@@ -1,6 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -303,12 +304,22 @@ namespace Desert::Graphic::API::Vulkan
         subpass.pColorAttachments       = colourRefs.data();
         subpass.pDepthStencilAttachment = key.Depth ? &depthRef : nullptr;
 
+        // The engine's own dependencies, so a pipeline built against a framebuffer's render pass (or against
+        // RdgCompatibleRenderPassKey) is compatible with this one: render-pass compatibility compares them.
+        const bool hasColour =
+             std::any_of( colourRefs.begin(), colourRefs.end(), []( const VkAttachmentReference& reference )
+                          { return reference.attachment != VK_ATTACHMENT_UNUSED; } );
+        const std::vector<VkSubpassDependency> dependencies =
+             SinglePassDependencies( hasColour, key.Depth.has_value(), false );
+
         VkRenderPassCreateInfo info{};
         info.sType                = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         info.attachmentCount      = static_cast<uint32_t>( attachments.size() );
         info.pAttachments         = attachments.data();
         info.subpassCount         = 1;
         info.pSubpasses           = &subpass;
+        info.dependencyCount      = static_cast<uint32_t>( dependencies.size() );
+        info.pDependencies        = dependencies.data();
         VkRenderPass   renderPass = VK_NULL_HANDLE;
         const VkResult result     = vkCreateRenderPass( device, &info, nullptr, &renderPass );
         if ( result != VK_SUCCESS )

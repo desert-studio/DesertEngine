@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 #include <Engine/Core/GlfwVulkan.hpp> // glfwCreateWindowSurface: called here, so named here
 
 #include <Common/Core/DevInstruments.hpp>
@@ -746,9 +747,15 @@ namespace Desert::Graphic::API::Vulkan
         VkAttachmentDescription attachment = { .format = m_ColorFormat, .samples = VK_SAMPLE_COUNT_1_BIT, .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .storeOp = VK_ATTACHMENT_STORE_OP_STORE, .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
         VkAttachmentReference colorRef = { .attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
         VkSubpassDescription subpass = { .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS, .colorAttachmentCount = 1, .pColorAttachments = &colorRef };
-        VkSubpassDependency dependency = { .srcSubpass = VK_SUBPASS_EXTERNAL, .dstSubpass = 0, .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, .srcAccessMask = 0, .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT };
+        const std::vector<VkSubpassDependency> dependencies = SinglePassDependencies( true, false, true );
 
-        VkRenderPassCreateInfo rpInfo = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, .attachmentCount = 1, .pAttachments = &attachment, .subpassCount = 1, .pSubpasses = &subpass, .dependencyCount = 1, .pDependencies = &dependency };
+        VkRenderPassCreateInfo rpInfo = { .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+                                          .attachmentCount = 1,
+                                          .pAttachments    = &attachment,
+                                          .subpassCount    = 1,
+                                          .pSubpasses      = &subpass,
+                                          .dependencyCount = static_cast<uint32_t>( dependencies.size() ),
+                                          .pDependencies   = dependencies.data() };
         VK_RETURN_RESULT( vkCreateRenderPass( vkLogicalDevice->GetVulkanLogicalDevice(), &rpInfo, nullptr, &m_VkRenderPass ) );
     }
 

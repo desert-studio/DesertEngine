@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
@@ -127,55 +128,10 @@ namespace Desert::Graphic::API::Vulkan
              resolveAttachmentReferences.empty() ? nullptr : resolveAttachmentReferences.data();
         subpassDescription.pDepthStencilAttachment = hasDepth ? &depthAttachmentReference : nullptr;
 
-        std::vector<VkSubpassDependency> dependencies;
-        if ( !colorAttachmentReferences.empty() )
-        {
-            // srcStageMask covers both previous color-attachment writes AND previous
-            // fragment-shader reads of this image (e.g. Tonemap sampling JFA_Output from
-            // the prior frame).  Without FRAGMENT_SHADER_BIT the render pass only waits
-            // for COLOR_ATTACHMENT_OUTPUT to finish, which is a Write-After-Read hazard:
-            // the new frame's JFA_Final can start overwriting the image while the previous
-            // frame's Tonemap is still sampling it, causing every-other-frame flickering.
-            // srcAccessMask flushes prior writes so they are coherent on re-use.
-            // dstAccessMask includes COLOR_ATTACHMENT_READ so this render pass is also correct when begun with
-            // LOAD_OP_LOAD (the load reads the existing content): m_RenderPassLoad reuses these exact
-            // dependencies for render-pass COMPATIBILITY (VUID-00904), so they must satisfy BOTH the clear and
-            // load cases. READ here is a superset for the clear case (harmless) and required for the load case
-            // (without it, LOAD-based accumulate passes read stale/uninitialised content — e.g. the sky colour
-            // bleeding through what should be shadowed forward geometry).
-            VkSubpassDependency& dependency = dependencies.emplace_back();
-            dependency.srcSubpass           = VK_SUBPASS_EXTERNAL;
-            dependency.dstSubpass           = 0;
-            if ( m_FramebufferSpecification.PresentTarget )
-            {
-                // Match the swapchain's present render pass EXACTLY (see VulkanSwapChain) so pipelines built
-                // against this wrapper are render-pass-compatible with BeginSwapChainRenderPass's pass.
-                dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-                dependency.srcAccessMask = 0;
-                dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-                dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            }
-            else
-            {
-                dependency.srcStageMask =
-                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-                dependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-                dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-                dependency.dstAccessMask =
-                     VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            }
-        }
-
-        if ( hasDepth )
-        {
-            VkSubpassDependency& dependency = dependencies.emplace_back();
-            dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
-            dependency.dstSubpass    = 0;
-            dependency.srcStageMask  = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-            dependency.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            dependency.dstStageMask  = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-            dependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        }
+        // The dependencies every engine render pass shares, so pipelines built against this one also draw in
+        // the render graph's passes on the same attachments (see VulkanRenderPassDependencies.hpp).
+        const std::vector<VkSubpassDependency> dependencies = SinglePassDependencies(
+             !colorAttachmentReferences.empty(), hasDepth, m_FramebufferSpecification.PresentTarget );
 
         VkRenderPassCreateInfo renderPassInfo = {};
         renderPassInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
