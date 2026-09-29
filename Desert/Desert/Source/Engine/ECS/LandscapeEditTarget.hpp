@@ -7,6 +7,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <algorithm>
+#include <format>
 #include <map>
 #include <string>
 #include <utility>
@@ -104,15 +105,14 @@ namespace Desert::ECS
         const auto  root = FindLandscapeRootEntity( registry, landscape );
         const auto* body = root == entt::null ? nullptr : registry.try_get<LandscapeComponent>( root );
         if ( body == nullptr )
-            return Common::MakeError<Result>( "landscape edit: entity " +
-                                              std::to_string( static_cast<uint64_t>( landscape ) ) +
-                                              " is not a loaded landscape" );
+            return Common::MakeError<Result>( std::format( "landscape edit: entity {} is not a loaded landscape",
+                                                           static_cast<uint64_t>( landscape ) ) );
         if ( body->EditLayers.Layers.empty() )
             return Common::MakeError<Result>( "landscape edit: the landscape has no edit layers" );
         Result target{ body->EditLayers, std::move( rules ),
                        layer.IsNull() ? body->EditLayers.Layers.front().Guid : layer };
         if ( auto ok = World::Landscape::CheckLandscapeEditLayerTarget( target ); !ok )
-            return Common::MakeError<Result>( "landscape edit: " + ok.GetError() );
+            return Common::MakeError<Result>( std::format( "landscape edit: {}", ok.GetError() ) );
         return Common::MakeSuccess( std::move( target ) );
     }
 

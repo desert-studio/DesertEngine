@@ -48,7 +48,7 @@ namespace Desert::Editor::Commands
             {
                 return Write( m_After );
             }
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_Label;
             }
@@ -343,7 +343,7 @@ namespace Desert::Editor::Commands
             {
                 return Write( m_Record.After );
             }
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_Label;
             }
@@ -430,7 +430,7 @@ namespace Desert::Editor::Commands
             return Common::MakeFormattedError<bool>( "{}: {}", path.generic_string(), record.GetError() );
         CommandHistory::Get().PushCommand( std::make_unique<LandscapeHeightsCommand>(
              scene, t.Landscape, record.ExtractValue(), layer.ExtractValue(),
-             "Import heightmap " + path.filename().string() ) );
+             std::format( "Import heightmap {}", path.filename().string() ) ) );
         return Common::MakeSuccess( true );
     }
 
@@ -568,7 +568,7 @@ namespace Desert::Editor::Commands
             {
                 return Write( m_After, {} );
             }
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_Label;
             }

@@ -88,6 +88,9 @@ namespace Desert::Editor::Commands
         for ( const auto entity : tiles.GetValue() )
         {
             const auto& tile = registry.get<ECS::LandscapeTileComponent>( entity );
+            if ( !tile.Heights )
+                return Common::MakeFormattedError<Result>( "landscape edit layers: tile {}_{} lost its samples",
+                                                           tile.TileX, tile.TileZ );
             if ( const auto* held = tile.Heights->FindEditLayer( layer ) )
                 data.push_back( { tile.TileX, tile.TileZ, *held } );
         }
@@ -111,7 +114,10 @@ namespace Desert::Editor::Commands
         registry.get<ECS::LandscapeComponent>( root ).EditLayers = stack;
         for ( const auto entity : tiles.GetValue() )
         {
-            auto&                     tile = registry.get<ECS::LandscapeTileComponent>( entity );
+            auto& tile = registry.get<ECS::LandscapeTileComponent>( entity );
+            if ( !tile.Heights )
+                return Common::MakeFormattedError<bool>( "landscape edit layers: tile {}_{} lost its samples",
+                                                         tile.TileX, tile.TileZ );
             auto&                     data = *tile.Heights;
             std::vector<Common::UUID> stale;
             for ( const auto& held : data.EditLayers() )

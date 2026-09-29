@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <cmath>
 #include <complex>
 #include <optional>
@@ -1377,7 +1378,7 @@ namespace Desert::World::Landscape
                                                  const std::vector<uint16_t>& values )
     {
         if ( rect.Empty() )
-            return Common::MakeError( "landscape heights: empty rectangle " + RectName( rect ) );
+            return Common::MakeError( std::format( "landscape heights: empty rectangle {}", RectName( rect ) ) );
         LandscapeHeightCache cache( root, std::move( lookup ) );
         auto                 cached = cache.CacheData( rect.X1, rect.Z1, rect.X2, rect.Z2 );
         if ( !cached.IsSuccess() )
@@ -1391,7 +1392,7 @@ namespace Desert::World::Landscape
                                                  const LandscapeEditLayerTarget& layer )
     {
         if ( rect.Empty() )
-            return Common::MakeError( "landscape heights: empty rectangle " + RectName( rect ) );
+            return Common::MakeError( std::format( "landscape heights: empty rectangle {}", RectName( rect ) ) );
         LandscapeHeightCache cache( root, std::move( lookup ), layer );
         auto                 cached = cache.CacheData( rect.X1, rect.Z1, rect.X2, rect.Z2 );
         if ( !cached.IsSuccess() )

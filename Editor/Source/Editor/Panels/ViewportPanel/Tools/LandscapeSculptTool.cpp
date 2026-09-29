@@ -15,6 +15,7 @@
 #include <ImGui/imgui.h>
 
 #include <array>
+#include <format>
 #include <memory>
 #include <string>
 #include <utility>
@@ -154,7 +155,7 @@ namespace Desert::Editor::Tools
         auto rules = ECS::LandscapeLayerRulesOf( scene.GetRegistry().get<ECS::LandscapeComponent>( rootEntity ),
                                                  *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
         if ( !rules )
-            return Common::MakeError( "landscape sculpt: " + rules.GetError() );
+            return Common::MakeError( std::format( "landscape sculpt: {}", rules.GetError() ) );
         auto layer = ECS::FindLandscapeEditLayerTarget( scene.GetRegistry(), *landscape, rules.ExtractValue(),
                                                         Core::LandscapeSculptState::Get().EditingLayer );
         if ( !layer )
@@ -212,9 +213,13 @@ namespace Desert::Editor::Tools
             auto record = m_Stroke->Finish();
             if ( !record.IsSuccess() )
                 ToastManager::Push( record.GetError(), ToastLevel::Error, 6.0f );
+            else if ( !m_Target || !m_Layer )
+                ToastManager::Push(
+                     "landscape sculpt: the stroke finished without a target landscape or edit layer",
+                     ToastLevel::Error, 6.0f );
             else if ( record.GetValue().Before != record.GetValue().After )
             {
-                const std::string label = std::string( "Landscape " ) + m_ToolName;
+                const std::string label = std::format( "Landscape {}", m_ToolName );
                 CommandHistory::Get().PushCommand( std::make_unique<LandscapeStrokeCommand>(
                      scene, m_Target->Landscape, record.GetValue(), label, *m_Layer ) );
             }

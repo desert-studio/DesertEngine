@@ -366,8 +366,8 @@ TEST( LandscapeScene, AVersionOneTileFileIsRefusedByPathAndNumber )
     const uint32_t crc = Common::Utils::Crc32c( blob.data(), blob.size() );
     for ( int i = 0; i < 4; ++i )
         blob.push_back( static_cast<unsigned char>( ( crc >> ( 8 * i ) ) & 0xFFu ) );
-    std::ofstream( file, std::ios::binary )
-         .write( reinterpret_cast<const char*>( blob.data() ), static_cast<std::streamsize>( blob.size() ) );
+    const std::string bytes( blob.begin(), blob.end() );
+    std::ofstream( file, std::ios::binary ).write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
 
     const auto refused = ReadLandscapeTileFile( file );
     ASSERT_FALSE( refused.IsSuccess() );
@@ -493,8 +493,8 @@ TEST( LandscapeScene, ATileFileWithNoEditLayersIsRefusedByPath )
     const auto     created = LandscapeTileData::Create( 3, 3 );
     ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
     const std::vector<unsigned char> blob = EncodeLandscapeTile( created.GetValue() );
-    std::ofstream( file, std::ios::binary )
-         .write( reinterpret_cast<const char*>( blob.data() ), static_cast<std::streamsize>( blob.size() ) );
+    const std::string                bytes( blob.begin(), blob.end() );
+    std::ofstream( file, std::ios::binary ).write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
     const auto read = ReadLandscapeTileFile( file );
     ASSERT_FALSE( read.IsSuccess() );
     EXPECT_NE( read.GetError().find( file.generic_string() ), std::string::npos ) << read.GetError();

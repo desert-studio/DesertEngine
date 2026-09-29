@@ -114,7 +114,7 @@ namespace Desert::Editor::Tools
         auto layer = ECS::FindLandscapeEditLayerTarget( registry, *landscape, rules.ExtractValue(),
                                                         Core::LandscapeSculptState::Get().EditingLayer );
         if ( !layer )
-            return Common::MakeError( "landscape paint: " + layer.GetError() );
+            return Common::MakeError( std::format( "landscape paint: {}", layer.GetError() ) );
         m_Layer  = layer.ExtractValue();
         m_Target = target.GetValue();
         m_Stroke.emplace( m_Target->Root, m_Target->Lookup, *m_Layer );
@@ -143,6 +143,10 @@ namespace Desert::Editor::Tools
             auto record = m_Stroke->Finish();
             if ( !record.IsSuccess() )
                 ToastManager::Push( record.GetError(), ToastLevel::Error, 6.0f );
+            else if ( !m_Target || !m_Layer )
+                ToastManager::Push(
+                     "landscape paint: the stroke finished without a target landscape or edit layer",
+                     ToastLevel::Error, 6.0f );
             else
             {
                 const std::string& layer = Core::LandscapeSculptState::Get().Paint.Layer;
