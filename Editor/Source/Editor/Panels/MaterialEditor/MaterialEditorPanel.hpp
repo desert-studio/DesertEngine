@@ -9,6 +9,7 @@
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/AssetRootPin.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
@@ -356,6 +357,12 @@ namespace Desert::Editor
         [[nodiscard]] std::string DrawnShaderName() const;
 
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
+
+        // THE SUBJECT IS A SWEEP ROOT WHILE THIS WINDOW IS OPEN (UE: an asset editor holds its object). The
+        // subject is in no scene, so the eviction sweep released it mid-edit: its MaterialData emptied, Apply
+        // copied the edits onto a header-less shell and Save minted the file a NEW GUID (THM1l-c7 live:
+        // CB_Glass b7de7b6d -> 7c8ad8f8). Held from construction to destruction, like the Animation Editor's.
+        Assets::AssetRootPin m_SubjectPin;
 
         // ── The three states ───────────────────────────────────────────────────────────────────────────
         //
