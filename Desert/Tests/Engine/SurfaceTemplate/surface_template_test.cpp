@@ -270,11 +270,26 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
     const std::string                             text = StandardSurfaceText();
     ASSERT_FALSE( text.empty() ) << "StandardSurface.shader is missing";
 
-    // The shadow-depth cells still have a program they will replace; every other cell has none left.
-    const std::map<std::string, const char*> shadow = {
-         { "Static.ShadowDepth", "Shadow/Shadow.shader" },
-         { "Instanced.ShadowDepth", "Shadow/Shadow_Instanced.shader" },
-         { "Skinned.ShadowDepth", "Shadow/Shadow_Skinned.shader" },
+    // The shadow-depth cells ARE the casters now (MeshShaderFor's ShadowDepth column); the three Shadow*
+    // programs they replaced are gone, so their layout is pinned here instead of read from them. It is what
+    // MaterialShadow* and MeshRenderer's cascade pipelines bind against: the light's CameraUB at 0, the
+    // skinned path's Bones at 1 and the instanced path's InstanceTransforms at 17, the transform push block
+    // (plus BoneOffset for skinned, plus the wind for instanced), no varyings and one R32F-bound output.
+    // Type 6 = uniform buffer, 7 = storage buffer; stages 0x1 = vertex.
+    const std::map<std::string, std::vector<std::string>> shadow = {
+         { "Static.ShadowDepth",
+           { "fragment out location 0", "push 64 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x1",
+             "vertex in location 0", "vertex in location 1", "vertex in location 2", "vertex in location 3",
+             "vertex in location 4" } },
+         { "Instanced.ShadowDepth",
+           { "fragment out location 0", "push 112 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x1",
+             "set 0 binding 17 type 7 count 1 stages 0x1", "vertex in location 0", "vertex in location 1",
+             "vertex in location 2", "vertex in location 3", "vertex in location 4" } },
+         { "Skinned.ShadowDepth",
+           { "fragment out location 0", "push 68 bytes, stages 0x1", "set 0 binding 0 type 6 count 1 stages 0x1",
+             "set 0 binding 1 type 7 count 1 stages 0x1", "vertex in location 0", "vertex in location 1",
+             "vertex in location 2", "vertex in location 3", "vertex in location 4", "vertex in location 5",
+             "vertex in location 6" } },
     };
     for ( const std::string& cell : ExpectedCells() )
     {
@@ -289,18 +304,11 @@ TEST_F( SurfaceTemplateFixture, EveryStandardSurfaceCellLoadsAndTheDepthCellsBin
         for ( const auto& error : reconciled.Errors )
             ADD_FAILURE() << error;
 
-        const auto shipped = shadow.find( cell );
-        if ( shipped == shadow.end() )
+        const auto pinned = shadow.find( cell );
+        if ( pinned == shadow.end() )
             continue;
-        const std::filesystem::path path = std::filesystem::path( "Resources/Shaders/Programs" ) / shipped->second;
-        std::ifstream               in( path, std::ios::binary );
-        const std::string source( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
-        ASSERT_FALSE( source.empty() ) << path;
-        const auto builtShipped = Desert::Core::BuildShaderMap( { source, path, "", {}, shipped->second } );
-        ASSERT_TRUE( builtShipped.IsSuccess() ) << shipped->second << ": " << builtShipped.GetError();
-        EXPECT_EQ( DescribeProgramLayout( builtCell.GetValue().Stages ),
-                   DescribeProgramLayout( builtShipped.GetValue().Stages ) )
-             << "cell " << cell << " would not bind where " << shipped->second << " bound";
+        EXPECT_EQ( DescribeProgramLayout( builtCell.GetValue().Stages ), pinned->second )
+             << "cell " << cell << " no longer binds where the shadow casters bind";
     }
 }
 
