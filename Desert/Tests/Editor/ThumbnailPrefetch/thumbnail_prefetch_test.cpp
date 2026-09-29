@@ -321,7 +321,11 @@ TEST( ThumbnailPrefetch, TheSplashUploadsTheFolderTheBrowserOpensOn )
     ASSERT_FALSE( panel.empty() );
     EXPECT_NE( panel.find( "m_PrefetchItems = items;\n" ), std::string::npos )
          << "the splash upload no longer reads the list the browser prefetched";
-    EXPECT_NE( panel.find( "ThumbnailPrefetch::Get().SurveyOf( m_PrefetchItems )" ), std::string::npos );
+    // THM1n-13: the folder's list AND the project's — every picture of the project is uploaded on the splash.
+    EXPECT_NE( panel.find( "items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );\n"
+                           "        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( items );" ),
+               std::string::npos )
+         << "the splash upload no longer reads the project's pictures with the folder's";
     EXPECT_NE( panel.find( "(void)m_Thumbnails->Get( picture );" ), std::string::npos )
          << "the splash upload does not go through the cache the tiles draw from";
 
@@ -404,4 +408,49 @@ TEST( ThumbnailPrefetch, ATextureAssetIsDecodedFromTheSourceItCarries )
     // blank square passed off as the texture.
     EXPECT_FALSE( ThumbnailPixels::Decode( WriteTextureAsset( dir, false ).string() ).has_value() );
     fs::remove_all( dir );
+}
+
+// THM1n-13: the splash made every picture of the project resident, so entering a folder after the hand-over
+// hands the workers NOTHING — Unresident drops what the browser's ThumbnailCache already holds (Holds), and the
+// panel requests only what is left. Zero decodes on a folder change; a picture not yet held is still decoded.
+TEST( ThumbnailPrefetch, AFolderOfResidentPicturesDecodesNothingWhenEntered )
+{
+    const Fixture f;
+    f.WriteFreshPng();
+    const std::vector<ThumbnailPrefetch::Item> folder = { { f.Png.string(), f.Source.string() } };
+
+    // The splash: decoded and taken (uploaded) — the cache now holds it.
+    ThumbnailPrefetch::Get().Request( folder );
+    ThumbnailPrefetch::Get().Drain();
+    ASSERT_TRUE( ThumbnailPrefetch::Get().Take( f.Png.string(), fs::last_write_time( f.Png ) ).has_value() );
+    const auto resident = [&]( const std::string& picture ) { return picture == f.Png.string(); };
+
+    // The folder is entered: nothing to decode.
+    ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident( folder, resident ) );
+    EXPECT_FALSE( ThumbnailPrefetch::Get().Pending( f.Png.string() ) ) << "a resident picture was queued again";
+    ThumbnailPrefetch::Get().Drain();
+    EXPECT_EQ( ThumbnailPrefetch::Get().ReadyCount(), 0u ) << "entering a folder decoded a resident picture";
+
+    // Nothing resident yet: the same folder is decoded.
+    EXPECT_EQ( ThumbnailPrefetch::Unresident( folder, []( const std::string& ) { return false; } ).size(), 1u );
+
+    // The panel filters every request it makes through the cache, and the cache has no size cap that would drop
+    // a resident picture (read from the source: both need a device).
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string panel = ReadFile( root + "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" );
+    std::size_t       requests = 0;
+    std::size_t       filtered = 0;
+    for ( std::size_t at = panel.find( "ThumbnailPrefetch::Get().Request(" ); at != std::string::npos;
+          at             = panel.find( "ThumbnailPrefetch::Get().Request(", at + 1 ) )
+    {
+        ++requests;
+        filtered += panel.compare( at, 64, "ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(" ) == 0;
+    }
+    EXPECT_GT( requests, 0u );
+    EXPECT_EQ( requests, filtered ) << "the browser hands a resident picture to the workers again";
+    const std::string cache = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
+    EXPECT_EQ( cache.find( "kMaxEntries" ), std::string::npos ) << "the thumbnail cache is capped again";
+    EXPECT_EQ( panel.find( "m_Thumbnails->Clear()" ), std::string::npos )
+         << "the browser wipes its resident pictures again (a rescan)";
 }

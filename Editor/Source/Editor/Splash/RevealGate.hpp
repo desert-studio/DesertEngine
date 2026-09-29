@@ -60,9 +60,9 @@ namespace Desert::Editor::Splash
         return pending > 0;
     }
 
-    /// THE ONE EXCEPTION TO ThumbnailCaptureAllowed (THUMB3, THM1m): the materials and meshes the open scene
-    /// uses, and the opening folder's material and mesh tiles with no fresh picture, may be captured on the
-    /// splash, once the start-up stages are done (the renderer is up) and the scene is loaded. Anything else
+    /// THE ONE EXCEPTION TO ThumbnailCaptureAllowed (THUMB3, THM1m, THM1n-13): the subjects the open scene uses,
+    /// and every picture of the project with no fresh one on disk (ThumbnailWarmup::ProjectWarmList), may be
+    /// captured or painted on the splash, once the start-up stages are done (the renderer is up) and the scene is loaded. Anything else
     /// the browser asks for waits for the hand-over — ThumbnailService::TickCapture(SceneWarmOnly)
     /// dispatches nothing that ThumbnailService::WarmMaterial / WarmMesh did not queue.
     [[nodiscard]] constexpr bool SceneThumbnailCaptureAllowed( const RevealState& s )
@@ -71,7 +71,7 @@ namespace Desert::Editor::Splash
     }
 
     /// Whether the splash's captures still hold the hand-over. NO TIME BOUND (owner, THM1m): the window is
-    /// handed over when every picture the scene and the opening folder show is ready — a capture that fails
+    /// handed over when every picture of the scene and the project is ready — a capture that fails
     /// leaves the pending count (ThumbnailService settles it as failed), so this cannot wait on nothing.
     [[nodiscard]] constexpr bool SceneCapturesHoldReveal( std::size_t pending )
     {

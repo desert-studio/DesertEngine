@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <deque>
 #include <map>
 
@@ -177,4 +178,61 @@ TEST( ThumbnailWarmup, ASkinnedMeshIsWarmedAsAPose )
 {
     EXPECT_EQ( Desert::Editor::ThumbnailWarmup::WarmKindOf( "Assets/Hero/Hero.skmesh" ),
                Desert::Editor::ThumbnailWarmup::WarmKind::Pose );
+}
+
+// THM1n-13 (owner 09-29 "all assets on the splash"): the splash warms EVERY picture of the project, read from the
+// content registry — one row of each kind here. A kind whose rows the list stops reading (a skipped kind, a
+// producer that no longer maps) drops its row and this goes red; a kind with no picture never appears.
+TEST( ThumbnailWarmup, TheProjectListIsEveryRegistryRowWithAPictureProducer )
+{
+    using ::Common::Content::ContentKind;
+    using Warmup::WarmItem;
+    using Warmup::WarmKind;
+    const std::map<ContentKind, std::vector<std::filesystem::path>> rows = {
+         { ContentKind::StaticMesh, { "/p/Assets/Meshes/Rock.stmesh" } },
+         { ContentKind::SkinnedMesh, { "/p/Assets/Meshes/Fox.skmesh" } },
+         { ContentKind::Skeleton, { "/p/Assets/Meshes/Fox.skeleton" } },
+         { ContentKind::Animation, { "/p/Assets/Meshes/Fox_Walk.anim" } },
+         { ContentKind::Texture, { "/p/Assets/Textures/Bark.detex" } },
+         { ContentKind::Material, { "/p/Assets/Materials/Bark.demat" } },
+         { ContentKind::Skybox, { "/p/Assets/Skybox/Dusk.detex" } },
+         { ContentKind::Shader, { "/p/Shaders/Lit.glsl" } },
+         { ContentKind::CloudNoiseVolume, { "/p/Assets/Clouds/N.dcnv" } },
+         { ContentKind::CloudType, { "/p/Assets/Clouds/Cumulus.decloudtype" } },
+         { ContentKind::CloudModellingVolume, { "/p/Assets/Clouds/V.dcmv" } },
+         { ContentKind::CloudLayout, { "/p/Assets/Clouds/L.dclayout" } },
+         { ContentKind::UITheme, { "/p/Assets/UI/Dark.detheme" } },
+         { ContentKind::FoliageType, { "/p/Assets/Foliage/Fern.defoliage" } },
+         { ContentKind::Scene, { "/p/Scenes/Main.desce" } },
+         { ContentKind::Redirector, { "/p/Assets/Materials/Old.demat" } },
+    };
+    const auto filesOf = [&]( ContentKind kind )
+    {
+        const auto it = rows.find( kind );
+        return it == rows.end() ? std::vector<std::filesystem::path>{} : it->second;
+    };
+
+    const std::vector<WarmItem> expected = {
+         { "/p/Assets/Clouds/Cumulus.decloudtype", WarmKind::Painted },
+         { "/p/Assets/Clouds/L.dclayout", WarmKind::Painted },
+         { "/p/Assets/Clouds/N.dcnv", WarmKind::Painted },
+         { "/p/Assets/Clouds/V.dcmv", WarmKind::Painted },
+         { "/p/Assets/Foliage/Fern.defoliage", WarmKind::Mesh },
+         { "/p/Assets/Materials/Bark.demat", WarmKind::Material },
+         { "/p/Assets/Meshes/Fox.skmesh", WarmKind::Pose },
+         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
+         { "/p/Assets/Skybox/Dusk.detex", WarmKind::Decoded },
+         { "/p/Assets/Textures/Bark.detex", WarmKind::Decoded },
+         { "/p/Assets/UI/Dark.detheme", WarmKind::Painted },
+    };
+    EXPECT_EQ( Warmup::ProjectWarmList( filesOf ), expected )
+         << "every registry row whose type has a picture, sorted by path; skeletons, clips, shaders, scenes "
+            "and redirector stubs have none";
+
+    // A texture is its own picture: in the project list, never a capture.
+    const std::vector<WarmItem> captures =
+         Warmup::SplashWarmList( {}, expected, []( const WarmItem& ) { return true; } );
+    EXPECT_EQ( captures.size(), expected.size() - 2 );
+    EXPECT_TRUE( std::none_of( captures.begin(), captures.end(),
+                               []( const WarmItem& item ) { return item.Kind == WarmKind::Decoded; } ) );
 }

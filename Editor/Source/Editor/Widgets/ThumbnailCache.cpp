@@ -56,15 +56,14 @@ namespace Desert::Editor
         }
     }
 
+    std::size_t ThumbnailCache::ResidentCount() const
+    {
+        return static_cast<std::size_t>( std::count_if( m_Cache.begin(), m_Cache.end(),
+                                                        []( const auto& entry ) { return entry.second != nullptr; } ) );
+    }
+
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )
     {
-        if ( m_Cache.size() >= kMaxEntries && !m_Cache.contains( sourcePath ) )
-        {
-            m_Cache.clear(); // simple bound; thumbnails re-decode lazily
-            m_Watch.Clear();
-            m_Outdated.clear();
-        }
-
         // Observed BEFORE the decode reads the file, so a write that lands between the two makes the next Get()
         // decode again rather than keep the older picture. A same-size rewrite inside one tick of the file
         // system's clock is a change too: the watch hashes the content while the stamp is racy (FIX2's class).

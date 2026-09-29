@@ -808,6 +808,7 @@ namespace Desert::Editor
         bool        m_SplashWarmStarted = false;
         std::size_t m_SplashWarmTotal   = 0; // captures queued when the warm-up started
         std::size_t m_SplashWarmShown   = 0; // what the splash line last said was left
+        bool m_SplashPicturesReasked = false; // the captures landed and their PNGs were asked for (THM1n-13)
         // When every other reveal condition first held: the start of the thumbnails' budget.
         std::optional<std::chrono::steady_clock::time_point> m_RevealOtherwiseReadySince;
         void StartBackgroundCook();

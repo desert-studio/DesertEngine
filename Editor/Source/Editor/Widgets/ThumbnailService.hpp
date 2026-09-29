@@ -162,6 +162,10 @@ namespace Desert::Editor
         void WarmMesh( const ThumbnailSubject::Mesh& mesh );
         /// The same for a skinned mesh's pose (ThumbnailPose::ResolveSkinnedMesh's answer).
         void WarmPose( const ThumbnailSubject::Mesh& mesh );
+        /// THM1n-13: a painted picture of the project warmed on the splash — RequestPainted, counted in
+        /// SceneWarmPending until it lands, and painted before the hand-over (TickCapture(SceneWarmOnly) runs the
+        /// paint queue while its front is a warm one).
+        void WarmPainted( const std::string& assetPath );
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
 

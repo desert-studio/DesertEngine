@@ -454,10 +454,12 @@ namespace Desert::Editor
             }
         }
         m_PrefetchItems = items;
-        // The scene's pictures stay asked for: Request replaces what is waiting, and the folder must not
-        // push the scene's pictures out of the queue (nor the other way round).
-        items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
-        ThumbnailPrefetch::Get().Request( std::move( items ) );
+        // The project's pictures stay asked for: Request replaces what is waiting, and the folder must not
+        // push them out of the queue (nor the other way round). What the cache already holds is not handed
+        // over at all (THM1n-13): the splash made the project resident, so entering a folder decodes nothing.
+        items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
+        ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(
+             std::move( items ), [this]( const std::string& picture ) { return m_Thumbnails->Holds( picture ); } ) );
     }
 
     const std::string& FileExplorerPanel::ThumbnailPngFor( const std::string& assetPath )
@@ -468,89 +470,123 @@ namespace Desert::Editor
         return it->second;
     }
 
-    std::size_t FileExplorerPanel::WarmSceneThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene )
+    std::size_t FileExplorerPanel::WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
+                                                         const std::vector<ThumbnailWarmup::WarmItem>& project )
     {
         using ThumbnailWarmup::WarmItem;
         using ThumbnailWarmup::WarmKind;
         if ( m_AssetManager == nullptr )
             return 0;
 
-        // A mesh is judged by its COOKED form, as its tile judges it (DrawMeshThumbnail): the picture is
-        // filed under the .stmesh and its freshness source is MeshFreshnessSource of it.
-        const auto verdictOf = [this]( const WarmItem& item )
+        // A mesh is judged and filed by its COOKED form, as its tile does (DrawRenderedMeshThumbnail): the
+        // picture is under the .stmesh and its freshness source is MeshFreshnessSource of it. A foliage type
+        // is its mesh's picture (MeshSourceFor); a .skmesh is its own cooked form.
+        const auto cookedOf = [this]( const WarmItem& item ) -> std::optional<std::string>
         {
+            if ( item.Kind == WarmKind::Pose )
+                return item.Path;
+            const std::optional<std::string> source =
+                 MeshSourceFor( item.Path, ThumbnailWarmup::FileTypeOfPath( item.Path ) );
+            if ( !source )
+                return std::nullopt;
+            return CookPaths::MeshAsset( *source ).generic_string();
+        };
+        const auto verdictOf = [&]( const WarmItem& item )
+        {
+            if ( item.Kind == WarmKind::Decoded )
+                return ThumbnailFreshness::Verdict::Show; // the file is its own picture
             if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
             {
-                const std::string cooked = item.Kind == WarmKind::Mesh
-                                                ? CookPaths::MeshAsset( item.Path ).generic_string()
-                                                : item.Path; // a .skmesh is its own cooked form
+                const std::optional<std::string> cooked = cookedOf( item );
+                if ( !cooked )
+                    return ThumbnailFreshness::Verdict::Show; // refused and named by MeshSourceFor: no capture
                 return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
-                     ThumbnailKey::DiskPath( cooked ), ThumbnailFreshness::MeshFreshnessSource( cooked ) ) );
+                     ThumbnailKey::DiskPath( *cooked ), ThumbnailFreshness::MeshFreshnessSource( *cooked ) ) );
             }
             return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
         };
+        const auto needsCapture = [&]( const WarmItem& item )
+        { return !m_FailedThumbs.count( item.Path ) && verdictOf( item ) == ThumbnailFreshness::Verdict::Capture; };
 
-        std::vector<WarmItem> folder;
-        if ( m_CurrentDir != nullptr )
+        // EVERY PICTURE OF THE PROJECT IS ASKED FOR — the one the disk has goes to a worker decode now, the one
+        // a capture below writes is asked for again when the captures have landed (RequestProjectPictures).
+        m_ProjectPrefetchItems.clear();
+        for ( const std::vector<WarmItem>* list : { &scene, &project } )
         {
-            for ( const DirectoryInformation* entry : m_CurrentDir->Children )
+            for ( const WarmItem& item : *list )
             {
-                if ( entry == nullptr || !entry->IsFile || entry->Hidden || m_FailedThumbs.count( entry->AssetPath ) )
-                    continue;
-                const auto producer = ThumbnailProducers::ProducerOf( entry->Type );
-                if ( producer == ThumbnailProducers::Producer::RenderedMaterial )
-                    folder.push_back( { entry->AssetPath, WarmKind::Material } );
-                else if ( producer == ThumbnailProducers::Producer::RenderedMesh )
+                if ( item.Kind == WarmKind::Decoded )
+                    m_ProjectPrefetchItems.push_back( { item.Path, {} } );
+                else if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
                 {
-                    if ( std::optional<std::string> source = MeshSourceFor( *entry ) )
-                        folder.push_back( { std::move( *source ), WarmKind::Mesh } );
+                    if ( const std::optional<std::string> cooked = cookedOf( item ) )
+                        m_ProjectPrefetchItems.push_back( { ThumbnailKey::DiskPath( *cooked ), *cooked } );
                 }
-                else if ( producer == ThumbnailProducers::Producer::RenderedPose )
-                    folder.push_back( { entry->AssetPath, WarmKind::Pose } );
+                else
+                    m_ProjectPrefetchItems.push_back( { ThumbnailPngFor( item.Path ), item.Path } );
             }
         }
-        const std::vector<WarmItem> warm = ThumbnailWarmup::SplashWarmList(
-             scene, folder,
-             [&]( const WarmItem& item ) { return verdictOf( item ) == ThumbnailFreshness::Verdict::Capture; } );
 
-        m_ScenePrefetchItems.clear();
+        const std::vector<WarmItem> warm = ThumbnailWarmup::SplashWarmList( scene, project, needsCapture );
         m_WarmMeshesPending.clear();
         for ( const WarmItem& item : warm )
         {
-            if ( item.Kind == WarmKind::Mesh || item.Kind == WarmKind::Pose )
+            if ( !needsCapture( item ) )
+                continue; // a fresh scene subject: its picture is decoded with the rest
+            switch ( item.Kind )
             {
-                const std::string cooked =
-                     item.Kind == WarmKind::Mesh ? CookPaths::MeshAsset( item.Path ).generic_string() : item.Path;
-                m_ScenePrefetchItems.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
-                if ( verdictOf( item ) == ThumbnailFreshness::Verdict::Capture )
-                    m_WarmMeshesPending.push_back( item );
-                continue;
+                case WarmKind::Mesh:
+                case WarmKind::Pose:
+                {
+                    // Resolved by TickWarmMeshes by the path it reads: the cooked one.
+                    if ( const std::optional<std::string> cooked = cookedOf( item ) )
+                        m_WarmMeshesPending.push_back( { *cooked, item.Kind } );
+                    break;
+                }
+                case WarmKind::Painted:
+                    ThumbnailService::Get().WarmPainted( item.Path );
+                    break;
+                case WarmKind::Material:
+                {
+                    // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
+                    const auto subject = ThumbnailSubject::ResolveMaterial(
+                         *m_AssetManager, item.Path,
+                         []( const std::string&                                      assetPath,
+                             const Common::ResultStr<ThumbnailSubject::Material>& resolved )
+                         {
+                             if ( resolved )
+                                 ThumbnailService::Get().WarmMaterial( resolved.GetValue(), assetPath );
+                         } );
+                    if ( !subject )
+                    {
+                        LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", item.Path, subject.GetError() );
+                        m_FailedThumbs.insert( item.Path );
+                        break;
+                    }
+                    if ( const auto& material = subject.GetValue() )
+                        ThumbnailService::Get().WarmMaterial( *material, item.Path );
+                    break;
+                }
+                case WarmKind::Decoded:
+                    break;
             }
-            const std::string& png = ThumbnailPngFor( item.Path );
-            m_ScenePrefetchItems.push_back( { png, item.Path } );
-            if ( verdictOf( item ) != ThumbnailFreshness::Verdict::Capture )
-                continue;
-            // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
-            const auto subject = ThumbnailSubject::ResolveMaterial(
-                 *m_AssetManager, item.Path,
-                 []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
-                 {
-                     if ( resolved )
-                         ThumbnailService::Get().WarmMaterial( resolved.GetValue(), assetPath );
-                 } );
-            if ( !subject )
-            {
-                LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", item.Path, subject.GetError() );
-                continue;
-            }
-            if ( const auto& material = subject.GetValue() )
-                ThumbnailService::Get().WarmMaterial( *material, item.Path );
         }
         (void)TickWarmMeshes();
+        RequestProjectPictures();
+        return ThumbnailService::Get().SceneWarmPending() + m_WarmMeshesPending.size();
+    }
+
+    void FileExplorerPanel::RequestProjectPictures()
+    {
         std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
-        items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
-        ThumbnailPrefetch::Get().Request( std::move( items ) );
-        return warm.size();
+        items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
+        ThumbnailPrefetch::Get().Request( ThumbnailPrefetch::Unresident(
+             std::move( items ), [this]( const std::string& picture ) { return m_Thumbnails->Holds( picture ); } ) );
+    }
+
+    std::size_t FileExplorerPanel::ResidentThumbnails() const
+    {
+        return m_Thumbnails ? m_Thumbnails->ResidentCount() : 0;
     }
 
     std::size_t FileExplorerPanel::TickWarmMeshes()
@@ -584,7 +620,9 @@ namespace Desert::Editor
 
     std::size_t FileExplorerPanel::UploadPrefetchedThumbnails()
     {
-        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( m_PrefetchItems );
+        std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
+        items.insert( items.end(), m_ProjectPrefetchItems.begin(), m_ProjectPrefetchItems.end() );
+        const ThumbnailPrefetch::Survey survey = ThumbnailPrefetch::Get().SurveyOf( items );
         for ( const std::string& picture : survey.Ready )
             (void)m_Thumbnails->Get( picture );
         return survey.Pending;
@@ -2046,26 +2084,31 @@ namespace Desert::Editor
 
     std::optional<std::string> FileExplorerPanel::MeshSourceFor( const DirectoryInformation& entry )
     {
-        if ( entry.Type != FileType::FoliageType )
-            return entry.AssetPath;
-        if ( m_FailedThumbs.count( entry.AssetPath ) )
+        return MeshSourceFor( entry.AssetPath, entry.Type );
+    }
+
+    std::optional<std::string> FileExplorerPanel::MeshSourceFor( const std::string& assetPath, const FileType type )
+    {
+        if ( type != FileType::FoliageType )
+            return assetPath;
+        if ( m_FailedThumbs.count( assetPath ) )
             return std::nullopt;
         std::error_code                       ec;
-        const std::filesystem::file_time_type written = std::filesystem::last_write_time( entry.AssetPath, ec );
-        if ( const auto it = m_MeshSourceOf.find( entry.AssetPath );
+        const std::filesystem::file_time_type written = std::filesystem::last_write_time( assetPath, ec );
+        if ( const auto it = m_MeshSourceOf.find( assetPath );
              it != m_MeshSourceOf.end() && !ec && it->second.Written == written )
             return it->second.Source;
         const auto source =
-             ThumbnailFoliage::ReadMeshSource( entry.AssetPath, Common::Constants::Path::ASSETS_PATH );
+             ThumbnailFoliage::ReadMeshSource( assetPath, Common::Constants::Path::ASSETS_PATH );
         if ( !source )
         {
-            LOG_WARN( "[Thumbnail] '{}': {}", entry.AssetPath, source.GetError() );
-            m_FailedThumbs.insert( entry.AssetPath );
-            m_MeshSourceOf.erase( entry.AssetPath );
+            LOG_WARN( "[Thumbnail] '{}': {}", assetPath, source.GetError() );
+            m_FailedThumbs.insert( assetPath );
+            m_MeshSourceOf.erase( assetPath );
             return std::nullopt;
         }
         std::string mesh                = source.GetValue().generic_string();
-        m_MeshSourceOf[entry.AssetPath] = { written, mesh };
+        m_MeshSourceOf[assetPath] = { written, mesh };
         return mesh;
     }
 
@@ -2814,8 +2857,9 @@ namespace Desert::Editor
 
     void FileExplorerPanel::Refresh()
     {
-        if ( m_Thumbnails )
-            m_Thumbnails->Clear();
+        // The thumbnail cache is NOT cleared (THM1n-13): it holds the project's pictures from the splash on, and
+        // a rescan changes none of them — a picture whose file was rewritten is decoded again by ThumbnailCache's
+        // own WriteWatch, which is the one rule for "this picture is out of date".
 
         std::string currentPath = m_CurrentDir->AssetPath;
 

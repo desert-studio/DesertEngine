@@ -94,22 +94,31 @@ namespace Desert::Editor
         void OnPreUpdate() override; // polls the current dir for external changes -> auto-refresh
         void OnEvent( Common::Event& e ) override; // OS file drop -> import into the current dir
 
-        /// THE SPLASH'S UPLOAD PASS (THUMB2). The folder this panel opens on is the one it prefetched in its
-        /// constructor (ChangeDirectory), so the pictures to upload are exactly the ones it asked a worker for:
-        /// every one a worker has finished goes through ThumbnailCache::Get now — the same call the tile makes,
-        /// so the first frame after the hand-over finds it cached and draws it. Nothing is captured or
-        /// rendered. Returns how many of those pictures are still waiting for or on a worker.
+        /// THE SPLASH'S UPLOAD PASS (THUMB2, THM1n-13). Every picture this panel asked a worker for — the
+        /// opening folder's and the whole project's (WarmProjectThumbnails) — that a worker has finished goes
+        /// through ThumbnailCache::Get now, the same call the tile makes, so after the hand-over every tile of
+        /// every folder finds its picture resident. Nothing is captured or rendered. Returns how many of those
+        /// pictures are still waiting for or on a worker.
         std::size_t UploadPrefetchedThumbnails();
 
-        /// WHAT THE SPLASH PHOTOGRAPHS (THUMB3, THM1m). @p scene = ThumbnailWarmup::SceneWarmList — the open
-        /// scene's materials AND meshes; the opening folder's material and mesh tiles with no fresh picture on
-        /// disk are added behind them (ThumbnailWarmup::SplashWarmList). A picture already on disk is decoded
-        /// by the prefetch workers with the opening folder's; one that is missing or stale is resolved (on a
-        /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh, ahead of everything else, for
-        /// the splash's scene-only capture pass. Returns how many pictures it set out to warm.
-        std::size_t WarmSceneThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene );
+        /// WHAT THE SPLASH MAKES RESIDENT (THUMB3, THM1m, THM1n-13). @p scene = ThumbnailWarmup::SceneWarmList,
+        /// the open scene's materials and meshes; @p project = ThumbnailWarmup::ProjectWarmList, every picture
+        /// of the project from the content registry. Every picture on disk is handed to the prefetch workers
+        /// (and uploaded by UploadPrefetchedThumbnails); every one missing or stale is resolved (a mesh on a
+        /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh / WarmPose / WarmPainted, scene
+        /// first, for the splash's warm-only capture pass (ThumbnailWarmup::SplashWarmList). Returns how many
+        /// captures it queued or is still resolving.
+        std::size_t WarmProjectThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene,
+                                           const std::vector<ThumbnailWarmup::WarmItem>& project );
 
-        /// Meshes WarmSceneThumbnails found cold (read in flight on a worker): asked again each frame until
+        /// The splash's captures have landed: hand the project's pictures that are not resident yet — the PNGs
+        /// those captures just wrote — to the workers again, so they are uploaded before the hand-over too.
+        void RequestProjectPictures();
+
+        /// How many pictures the browser holds on the GPU (ThumbnailCache::ResidentCount).
+        [[nodiscard]] std::size_t ResidentThumbnails() const;
+
+        /// Meshes WarmProjectThumbnails found cold (read in flight on a worker): asked again each frame until
         /// each is resident and queued, or refused. Returns how many are still being read — they hold the
         /// hand-over like a queued capture does, within the same budget.
         std::size_t TickWarmMeshes();
@@ -316,7 +325,7 @@ namespace Desert::Editor
         // What PrefetchCurrentFolderThumbnails last handed to the workers: the one list the splash's upload
         // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
         std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
-        std::vector<ThumbnailPrefetch::Item> m_ScenePrefetchItems; // WarmSceneThumbnails' pictures, decoded too
+        std::vector<ThumbnailPrefetch::Item> m_ProjectPrefetchItems; // WarmProjectThumbnails' pictures, decoded too
         std::vector<ThumbnailWarmup::WarmItem>
              m_WarmMeshesPending; // TickWarmMeshes: cold meshes/poses still being read
 
@@ -341,6 +350,8 @@ namespace Desert::Editor
         // its mesh's), so a type and its mesh share one key, one freshness source and one capture. The foliage
         // read is cached per path and file time; a refusal is logged once and blacklisted in m_FailedThumbs.
         std::optional<std::string> MeshSourceFor( const DirectoryInformation& entry );
+        // The same answer by path and type — for a registry row, which has no DirectoryInformation.
+        std::optional<std::string> MeshSourceFor( const std::string& assetPath, FileType type );
         struct MeshSourceRead
         {
             std::filesystem::file_time_type Written;

@@ -260,6 +260,14 @@ namespace Desert::Editor
         return png;
     }
 
+    void ThumbnailService::WarmPainted( const std::string& assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        (void)RequestPainted( assetPath );
+        if ( m_Queued.contains( identity ) )
+            m_SceneWarm.insert( identity );
+    }
+
     void ThumbnailService::Invalidate( const std::string& assetPath )
     {
         // Through the same identity the Request* entry points inserted under, so a caller holding any
@@ -436,8 +444,10 @@ namespace Desert::Editor
         // The slot-free half runs FIRST and unconditionally: every early return below is a statement
         // about a renderer, and a paint has no renderer to be blocked by. Putting it after them is how a
         // cloud thumbnail would come to depend on whether a mesh was being photographed.
-        // The splash runs the scene's captures only; a cloud paint is folder work and waits for the reveal.
-        if ( scope == ThumbnailWarmup::CaptureScope::Everything )
+        // The splash paints only what it warmed (WarmPainted, THM1n-13); a paint the browser asked for waits for
+        // the reveal. A paint in flight is always collected, so a warm one that landed settles its count.
+        if ( scope == ThumbnailWarmup::CaptureScope::Everything || m_PaintInFlight.valid() ||
+             ( !m_PaintQueue.empty() && m_SceneWarm.contains( m_PaintQueue.front().Identity ) ) )
             TickPainted();
 
         // WHAT THIS RUN DID, ONCE, ON THE FRAME EVERYTHING IS DONE — and asked of BOTH queues, which is
