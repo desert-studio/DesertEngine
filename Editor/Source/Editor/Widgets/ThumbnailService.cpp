@@ -94,8 +94,24 @@ namespace Desert::Editor
         return png;
     }
 
-    void ThumbnailService::WarmMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
-                                         ThumbnailSubject::Preview how )
+    std::string ThumbnailService::RequestMaterial( const ThumbnailSubject::Material& material,
+                                                   const std::string&                assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        const std::string png      = ThumbnailKey::DiskPath( assetPath );
+        if ( ShouldQueue( identity, png, assetPath ) )
+        {
+            Request req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                         identity,       assetPath,       png,
+                         material.How };
+            req.PreviewMesh = material.PreviewMesh;
+            m_Queue.push_back( req );
+            m_Queued.insert( identity );
+        }
+        return png;
+    }
+
+    void ThumbnailService::WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath )
     {
         const std::string identity  = ThumbnailKey::Identity( assetPath );
         const auto        firstCold = std::find_if( m_Queue.begin(), m_Queue.end(), [this]( const Request& r )
@@ -114,8 +130,11 @@ namespace Desert::Editor
         const std::string png = ThumbnailKey::DiskPath( assetPath );
         if ( !ShouldQueue( identity, png, assetPath ) )
             return;
-        m_Queue.insert( firstCold, { Kind::Material, material, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                                     identity, assetPath, png, how } );
+        Request req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                     identity,       assetPath,       png,
+                     material.How };
+        req.PreviewMesh = material.PreviewMesh;
+        m_Queue.insert( firstCold, req );
         m_Queued.insert( identity );
         m_SceneWarm.insert( identity );
     }
@@ -480,9 +499,20 @@ namespace Desert::Editor
         // "never completed" — with no idea why. The renderer knows why at the moment it says no, and the
         // most common reason is one no amount of waiting fixes: a mesh whose geometry is not built, whose
         // capture would have written a photograph of empty sky and called it the asset.
-        const auto queued = req.Type == Kind::Material
-                                 ? m_Renderer->RequestMaterial( req.Handle, req.Png, req.How )
-                                 : m_Renderer->RequestMesh( req.Handle, req.Png, req.Material );
+        // A MATERIAL ON ITS PREVIEW MESH IS A MESH CAPTURE WEARING THAT MATERIAL: the mesh branch already
+        // frames by the mesh's bounds and puts one material on every slot, which is the whole picture.
+        const auto queued = [&]() -> Common::BoolResultStr
+        {
+            if ( req.Type == Kind::Mesh )
+                return m_Renderer->RequestMesh( req.Handle, req.Png, req.Material );
+            if ( req.How != ThumbnailSubject::Preview::Mesh )
+                return m_Renderer->RequestMaterial( req.Handle, req.Png, req.How );
+            if ( static_cast<uint64_t>( req.PreviewMesh ) == 0 )
+                return Common::MakeError<bool>( "the material names a PreviewMesh, and this request came through "
+                                                "the form that cannot carry it — ask RequestMaterial with the "
+                                                "resolved ThumbnailSubject::Material" );
+            return m_Renderer->RequestMesh( req.PreviewMesh, req.Png, req.Handle );
+        }();
         if ( !queued.IsSuccess() )
         {
             // A REFUSAL IS PERMANENT ONLY IF IT IS ABOUT THE ASSET. The renderer says no for two kinds of

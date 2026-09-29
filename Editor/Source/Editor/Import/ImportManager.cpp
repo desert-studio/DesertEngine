@@ -200,9 +200,6 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
-        for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath ) );
-
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
             record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
         else if ( resolved.Mesh )
@@ -217,6 +214,21 @@ namespace Desert::Editor
                  !written )
                 record( Common::MakeError<bool>( written.GetError() ) );
         }
+
+        // THE MATERIALS AFTER THE MESH: a static mesh's import record (its GUID) exists only once the mesh is
+        // written, and each material names that mesh as its PreviewMesh - the tuft a grass atlas was authored
+        // for, which its thumbnail then draws (ThumbnailSubject::Preview::Mesh). A skinned mesh is not drawn
+        // by the mesh path, so its materials name none and keep the sphere.
+        std::optional<Assets::AssetGuidRef> previewMesh;
+        if ( resolved.Mesh && !resolved.Mesh->IsSkinned )
+        {
+            if ( auto ref = PreviewMeshRefFor( sourcePath ) )
+                previewMesh = ref.GetValue();
+            else
+                record( Common::MakeError<bool>( ref.GetError() ) );
+        }
+        for ( const auto& material : resolved.Materials )
+            record( SerializeMaterialAsset( material, sourcePath, previewMesh ) );
 
         if ( resolved.Skeleton )
             record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
@@ -295,8 +307,10 @@ namespace Desert::Editor
         return WriteCookedJson( stamped, cookedPath );
     }
 
-    Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
-                                                                 const std::filesystem::path& sourcePath )
+    Common::BoolResultStr
+    ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
+                                           const std::filesystem::path&               sourcePath,
+                                           const std::optional<Assets::AssetGuidRef>& previewMesh )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -320,6 +334,7 @@ namespace Desert::Editor
         // derived, so the file states the identity the mesh's submeshes already reference.
         auto data       = material.Data.ToMaterialData();
         data.Textures   = material.Textures;
+        data.PreviewMesh = previewMesh;
         data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
                                                            Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );

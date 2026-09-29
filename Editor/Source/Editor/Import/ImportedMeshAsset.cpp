@@ -260,4 +260,15 @@ namespace Desert::Editor
                                                                source.string(), put.GetError() );
         return Common::MakeSuccess( MeshAssetWrite::Written );
     }
+
+    Common::ResultStr<Assets::AssetGuidRef> PreviewMeshRefFor( const std::filesystem::path& source )
+    {
+        const auto guid = Assets::Serialization::ReadImportRecordGuid( source );
+        if ( !guid )
+            return Common::MakeError<Assets::AssetGuidRef>( guid.GetError() );
+        std::error_code ec;
+        const auto      located = std::filesystem::proximate( source, ec );
+        return Common::MakeSuccess( Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ),
+                                                          ( ec ? source : located ).generic_string() } );
+    }
 } // namespace Desert::Editor

@@ -627,3 +627,14 @@ TEST( ThumbnailFormats, AnImportedMeshPictureIsJudgedAgainstItsSourceAndStaysFre
     EXPECT_EQ( TF::MeshFreshnessSource( cooked ), cooked );
     fs::remove_all( dir, ec );
 }
+
+// THM1e: A SURFACE MATERIAL NAMING A PREVIEW MESH IS PHOTOGRAPHED ON IT (UE's ThumbnailInfo); without one, the
+// sphere; a Volume material stays the sky whatever it names - the mesh path would refuse it.
+TEST( ThumbnailSubject, APreviewMeshRoutesASurfaceMaterialToTheMeshAndNothingElse )
+{
+    namespace TS = Desert::Editor::ThumbnailSubject;
+    namespace F  = Desert::Core::Formats;
+    EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, true ), TS::Preview::Mesh );
+    EXPECT_EQ( TS::PreviewForMaterial( F::kMeshPathDomain, false ), TS::Preview::Sphere );
+    EXPECT_EQ( TS::PreviewForMaterial( F::kVolumePathDomain, true ), TS::Preview::SkyDome );
+}

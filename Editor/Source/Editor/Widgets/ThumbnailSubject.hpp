@@ -60,6 +60,11 @@ namespace Desert::Editor::ThumbnailSubject
         /// blades cut out of the ball with the backdrop between them — the picture UE's editor draws.
         Sphere,
 
+        /// The material on the mesh it names as its PreviewMesh (UE: UMaterial's ThumbnailInfo). A grass
+        /// atlas imported with its tuft is photographed AS the tuft — the picture polyhaven shows — framed
+        /// by that mesh's own bounds. Surface domain only: the mesh path is what draws it.
+        Mesh,
+
         /// The SKY this material authors, seen from the ground — Volume domain. A cloud material describes
         /// a medium, not a surface: its weather cells are kilometres across and its profile is base and
         /// top in kilometres, none of which means anything on a one-metre ball.
@@ -93,12 +98,31 @@ namespace Desert::Editor::ThumbnailSubject
         return std::nullopt;
     }
 
+    /**
+     * @brief The picture a MATERIAL gets from its domain and whether it names a preview mesh. PURE, for the
+     *        same reason PreviewForDomain is: the suite asserts the rule without a device.
+     *
+     * A preview mesh counts only where the mesh path draws the material; a Volume material naming one is
+     * still photographed as its sky (the mesh path would refuse it by name).
+     */
+    [[nodiscard]] constexpr std::optional<Preview>
+    PreviewForMaterial( ::Desert::Core::Formats::ShaderDomain domain, bool namesPreviewMesh )
+    {
+        const auto how = PreviewForDomain( domain );
+        if ( how == Preview::Sphere && namesPreviewMesh )
+            return Preview::Mesh;
+        return how;
+    }
+
     /// A material ready to be captured.
     struct Material
     {
         Common::AssetHandle Handle{ static_cast<uint64_t>( 0 ) };
 
         Preview How = Preview::Sphere;
+
+        /// How == Mesh only: the preview mesh, registered and drawable (ResolveMesh). Zero otherwise.
+        Common::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
     };
 
     /**

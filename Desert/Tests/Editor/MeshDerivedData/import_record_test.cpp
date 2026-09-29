@@ -230,3 +230,18 @@ TEST( ImportRecord, AFreshEnvelopeIsNotCurrentWhileAMaterialItNamesHasNoFile )
     project.Write( "rock v2" );
     EXPECT_FALSE( Editor::ImportedMeshAssetIsCurrent( project.Source ) );
 }
+
+// THM1e: AN IMPORTED MATERIAL NAMES THE MESH IT CAME WITH as its PreviewMesh, by the GUID the mesh's record
+// states - so its thumbnail draws the tuft, not a sphere. No record, no reference: never a GUID from the path.
+TEST( ImportRecord, ThePreviewMeshAnImportedMaterialNamesIsTheRecordsGuid )
+{
+    const Project project( "preview" );
+    ASSERT_FALSE( Editor::PreviewMeshRefFor( project.Source ) ) << "a reference with no record behind it";
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *Ser::MeshDataBounds( Quad() ) ) );
+    const auto guid = Ser::ReadImportRecordGuid( project.Source );
+    ASSERT_TRUE( guid );
+    const auto ref = Editor::PreviewMeshRefFor( project.Source );
+    ASSERT_TRUE( ref ) << ref.GetError();
+    EXPECT_EQ( ref.GetValue().Guid, Common::Content::AssetGuidToText( guid.GetValue() ) );
+    EXPECT_EQ( fs::weakly_canonical( ref.GetValue().Path ), fs::weakly_canonical( project.Source ) );
+}
