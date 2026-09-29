@@ -331,7 +331,7 @@ namespace Desert::Assets
                     r.Path = std::move( where );
                     return;
                 }
-            refs.push_back( { std::string( name ), std::move( text ), std::move( where ) } );
+            refs.push_back( { std::string( name ), std::move( text ), std::move( where ), std::nullopt } );
         }
     };
 } // namespace Desert::Assets
