@@ -165,6 +165,13 @@ namespace Desert::Editor
             return true;
         }
 
+        /// The clip it writes through. An Animation Editor that closes calls `DropFor` on its clip; without
+        /// this a "+ Key" record would outlive the window and write into a payload the manager may evict.
+        [[nodiscard]] const void* EditedObject() const override
+        {
+            return m_Clip;
+        }
+
         std::string GetLabel() const override;
 
         /// For the suite: how much this entry is actually carrying. A transaction that pushed an entry
@@ -416,6 +423,22 @@ namespace Desert::Editor
         PoseEditTransaction& m_Transaction;
         bool                 m_Opened = false;
     };
+    /**
+     * @brief THE PERSONA "+ Key" BUTTON: one bone of the authoring pose, keyed into the clip, as ONE undo step.
+     *
+     * The bone's WHOLE transform (location, rotation, scale) is upserted into the track named after the
+     * skeleton bone at `tick`, creating the track when the clip has none for it. It goes through the same
+     * transaction as a drag so that Ctrl+Z puts back the clip AND the pose by value, neighbours' auto
+     * tangents included (`SetTransformKey` refreshes the whole track).
+     *
+     * @return undo entries pushed (1, or 0 when the clip already held exactly this key). Refuses a null
+     *         animator or clip, a bone outside the skeleton, a non-finite pose and a transaction already open.
+     */
+    [[nodiscard]] Common::ResultStr<uint32_t> KeyBonePose( PoseEditTransaction&      transaction,
+                                                           Animation::Animator*      animator,
+                                                           Animation::AnimationClip* clip, uint32_t bone,
+                                                           Animation::FrameNumber tick );
+
     /**
      * @brief The Sequencer's "Key (S)": key every control in @p controls at `target.Tick`, as ONE undo entry.
      *

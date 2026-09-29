@@ -7,6 +7,7 @@
 #include <Engine/Animation/TrackEditing.hpp>
 
 #include <algorithm>
+#include <format>
 #include <utility>
 
 namespace Desert::Editor
@@ -755,5 +756,64 @@ namespace Desert::Editor
             Animation::RefreshTangents( track, tickRate );
         }
         return removed;
+    }
+
+    Common::ResultStr<uint32_t> KeyBonePose( PoseEditTransaction& transaction, Animation::Animator* animator,
+                                             Animation::AnimationClip* clip, uint32_t bone,
+                                             Animation::FrameNumber tick )
+    {
+        if ( animator == nullptr || clip == nullptr )
+        {
+            return Common::MakeError<uint32_t>( "Key Bone: no animator or no clip to key into" );
+        }
+        const auto& bones = animator->GetSkeleton().GetBones();
+        if ( bone >= bones.size() || bone >= animator->GetAuthoringPose().Size() )
+        {
+            return Common::MakeError<uint32_t>(
+                 std::format( "Key Bone: bone {} is outside the skeleton ({} bones)", bone, bones.size() ) );
+        }
+        if ( transaction.Open() )
+        {
+            // A key pressed mid-drag belongs to the drag; a second opener would split one interaction in two.
+            return Common::MakeError<uint32_t>( "Key Bone: a pose edit is already open; release it first" );
+        }
+        if ( const auto began = transaction.Begin( animator, clip ); !began.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( began.GetError() );
+        }
+
+        const std::string&    name  = bones[bone].Name;
+        Animation::BoneTrack* track = nullptr;
+        for ( auto& candidate : clip->Tracks )
+        {
+            if ( candidate.BoneName == name )
+            {
+                track = &candidate;
+                break;
+            }
+        }
+        const bool created = ( track == nullptr );
+        if ( created )
+        {
+            // An append changes Tracks.size(), which is what Animator::ResolveTrack rebinds on (the same
+            // reason ControlKeyer's TrackFor bumps no TrackRevision).
+            Animation::BoneTrack fresh;
+            fresh.BoneName = name;
+            clip->Tracks.push_back( std::move( fresh ) );
+            track = &clip->Tracks.back();
+        }
+
+        const Animation::BoneTransform pose = animator->GetAuthoringPose()[bone];
+        if ( !Animation::SetTransformKey( *track, tick, pose, clip->TickRate ) )
+        {
+            if ( created )
+            {
+                clip->Tracks.pop_back(); // Cancel pushes nothing, so it must also leave nothing behind
+            }
+            transaction.Cancel();
+            return Common::MakeError<uint32_t>(
+                 std::format( "Key Bone: the pose of '{}' is not finite; nothing was keyed", name ) );
+        }
+        return transaction.End();
     }
 } // namespace Desert::Editor

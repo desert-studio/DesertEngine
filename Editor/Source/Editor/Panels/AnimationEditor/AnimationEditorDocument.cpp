@@ -121,6 +121,7 @@ namespace Desert::Editor
         auto& clip    = m_ClipAsset->GetClipForAuthoring();
         clip.Notifies = m_OnDisk->Notifies;
         clip.Curves   = m_OnDisk->Curves;
+        clip.Tracks   = m_OnDisk->Tracks;
         CommandHistory::Get().DropFor( &clip );
         return true;
     }

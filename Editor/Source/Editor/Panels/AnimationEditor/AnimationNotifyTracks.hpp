@@ -1,4 +1,5 @@
 #pragma once
+#include <Editor/Core/Commands/PoseEditTransaction.hpp> // SameStoredValue( BoneTrack )
 
 #include <Editor/Core/CommandHistory.hpp>
 
@@ -200,7 +201,15 @@ namespace Desert::Editor
     [[nodiscard]] inline bool ClipDiffersFromFile( const Animation::AnimationClip& inMemory,
                                                    const Animation::AnimationClip& onDisk )
     {
-        return !SameNotifies( inMemory.Notifies, onDisk.Notifies ) || !SameCurves( inMemory.Curves, onDisk.Curves );
+        if ( !SameNotifies( inMemory.Notifies, onDisk.Notifies ) || !SameCurves( inMemory.Curves, onDisk.Curves ) )
+            return true;
+        // Bone keys ("+ Key" in the Animation Editor) are authored here too, so they count for Save*.
+        if ( inMemory.Tracks.size() != onDisk.Tracks.size() )
+            return true;
+        for ( size_t i = 0; i < inMemory.Tracks.size(); ++i )
+            if ( !SameStoredValue( inMemory.Tracks[i], onDisk.Tracks[i] ) )
+                return true;
+        return false;
     }
 
     /// Which edge of a Notify State's bar a drag holds.
