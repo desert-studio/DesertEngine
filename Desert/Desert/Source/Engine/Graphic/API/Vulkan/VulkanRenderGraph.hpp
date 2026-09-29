@@ -51,6 +51,9 @@ namespace Desert::Graphic::API::Vulkan
     VkPipelineStageFlags RdgVulkanStages( RDG::PipelineStageFlags stages );
     VkAccessFlags        RdgVulkanAccess( RDG::MemoryAccessFlags access );
     VkImageLayout        RdgVulkanLayout( RDG::ImageLayout layout );
+    // The inverse of RdgVulkanLayout, for an image imported from its own layout record. A layout the graph
+    // has no name for is refused rather than mapped to a near neighbour.
+    std::optional<RDG::ImageLayout> RdgLayoutFromVulkan( VkImageLayout layout );
 
     // One attachment of a render pass as the graph declared it. Format UNDEFINED marks an unused colour slot.
     struct RdgAttachmentKey

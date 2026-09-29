@@ -35,6 +35,8 @@ namespace Desert::Graphic::API::Vulkan
         virtual void EndDebugLabel() override;
         Common::BoolResultStr                  ExecuteGraph( RDG::Builder& graph ) override;
         std::shared_ptr<RDG::IPhysicalTexture> WrapLegacyImage( Image2D& image ) override;
+        Common::BoolResultStr                  ImportImage( const std::shared_ptr<Image2D>& image,
+                                                            RDG::ExternalTexture&           into ) override;
 
         virtual void RenderMesh( const GraphicsPipeline* pipeline, const Mesh* mesh, const glm::mat4 transform,
                                  const MaterialExecutor* materialExecutor, uint32_t instanceCount = 1,

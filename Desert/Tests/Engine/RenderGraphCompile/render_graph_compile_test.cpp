@@ -1287,3 +1287,194 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     };
     EXPECT_EQ( added, legacyOrder );
 }
+
+// ── Imported framebuffers and render-pass merging (RDG-LEG1-L0) ───────────────────────────────────
+
+namespace
+{
+    // An engine image as ImportImage hands it over: one layout recorded, nothing known of who used it last.
+    ExternalTexture Recorded( ImageFormat format, ImageLayout layout, std::vector<ImageLayout>* writtenBack )
+    {
+        ExternalTexture texture;
+        texture.Desc              = Tex2D( 64, 64, format );
+        texture.SubresourceStates = { RecordedLayoutState( layout ) };
+        if ( writtenBack )
+        {
+            texture.RecordFinalStates = [writtenBack]( const std::vector<AccessState>& states )
+            {
+                for ( const AccessState& state : states )
+                    writtenBack->push_back( state.Layout );
+                return Common::BoolResultStr( Common::MakeSuccess( true ) );
+            };
+        }
+        return texture;
+    }
+
+    size_t CountCalls( const std::vector<std::string>& calls, std::string_view call )
+    {
+        return static_cast<size_t>( std::count( calls.begin(), calls.end(), call ) );
+    }
+} // namespace
+
+TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWritesTheFinalOnesBack )
+{
+    std::vector<ImageLayout> colorBack;
+    std::vector<ImageLayout> depthBack;
+    ExternalTexture          color = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, &colorBack );
+    ExternalTexture depth = Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, &depthBack );
+    Builder         graph( "import" );
+    ExternalTexture* const    colors[] = { &color };
+    const ImportedFramebuffer target   = graph.ImportFramebuffer( colors, &depth, "Target" );
+    ASSERT_EQ( target.Colors.size(), 1u );
+    ASSERT_TRUE( target.Depth.IsValid() );
+    graph.AddPass(
+         "Draw", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, target.Colors[0], LoadOp::Load() );
+             pass.DepthTarget( target.Depth, LoadOp::Load(), false );
+         },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    ASSERT_EQ( result.Passes.size(), 1u );
+    // The first barrier leaves the RECORDED layout, waiting on everything that may have left it there.
+    const std::vector<Barrier> onColor = BarriersOn( &result.Passes[0], target.Colors[0].Index );
+    ASSERT_EQ( onColor.size(), 1u );
+    EXPECT_EQ( onColor[0].Before, RecordedLayoutState( ImageLayout::ShaderReadOnly ) );
+    EXPECT_EQ( onColor[0].After, GetAccessState( Access::ColorTarget ) );
+    EXPECT_FALSE( onColor[0].DiscardContents );
+    const std::vector<Barrier> onDepth = BarriersOn( &result.Passes[0], target.Depth.Index );
+    ASSERT_EQ( onDepth.size(), 1u );
+    EXPECT_EQ( onDepth[0].Before.Layout, ImageLayout::DepthStencilAttachment );
+    EXPECT_EQ( onDepth[0].After, GetAccessState( Access::DepthRead ) );
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    // Written back into the image's own record, once per subresource, and into the external.
+    EXPECT_EQ( colorBack, std::vector<ImageLayout>{ ImageLayout::ColorAttachment } );
+    EXPECT_EQ( depthBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilReadOnly } );
+    EXPECT_EQ( color.SubresourceStates[0], GetAccessState( Access::ColorTarget ) );
+}
+
+TEST( RenderGraphCompile, AFailedLayoutWriteBackFailsExecuteNamingTheTexture )
+{
+    ExternalTexture color   = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
+    color.RecordFinalStates = []( const std::vector<AccessState>& )
+    { return Common::BoolResultStr( Common::MakeError( "record gone" ) ); };
+    Builder                   graph( "import" );
+    ExternalTexture* const    colors[] = { &color };
+    const ImportedFramebuffer target   = graph.ImportFramebuffer( colors, nullptr, "Target" );
+    EXPECT_FALSE( target.Depth.IsValid() );
+    graph.AddPass(
+         "Draw", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, target.Colors[0], LoadOp::Load() ); }, Ok );
+    RecordingBackend            backend;
+    const Common::BoolResultStr executed = graph.Execute( backend );
+    ASSERT_FALSE( executed.IsSuccess() );
+    EXPECT_NE( executed.GetError().find( "Target.Color0" ), std::string::npos ) << executed.GetError();
+    EXPECT_NE( executed.GetError().find( "record gone" ), std::string::npos ) << executed.GetError();
+}
+
+TEST( RenderGraphCompile, ConsecutiveRasterPassesOnOneFramebufferShareOneRenderPass )
+{
+    ExternalTexture        color = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
+    ExternalTexture        depth = Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, nullptr );
+    ExternalTexture        other = Recorded( ImageFormat::RGBA8F, ImageLayout::ShaderReadOnly, nullptr );
+    Builder                graph( "merge" );
+    ExternalTexture* const colors[]      = { &color };
+    ExternalTexture* const otherColors[] = { &other };
+    const ImportedFramebuffer main       = graph.ImportFramebuffer( colors, &depth, "Main" );
+    const ImportedFramebuffer side       = graph.ImportFramebuffer( otherColors, nullptr, "Side" );
+    auto                      onMain     = [&]( const LoadOp& colorLoad, const LoadOp& depthLoad )
+    {
+        return [&main, colorLoad, depthLoad]( PassBuilder& pass )
+        {
+            pass.ColorTarget( 0, main.Colors[0], colorLoad );
+            pass.DepthTarget( main.Depth, depthLoad );
+        };
+    };
+    // Opaque opens the run with CLEAR; Sky and Overlay LOAD the same targets: one begin, one end.
+    graph.AddPass( "Opaque", PassFlags::Raster,
+                   onMain( LoadOp::ClearColor( 0, 0, 0, 1 ), LoadOp::ClearDepth( 0 ) ), Ok );
+    graph.AddPass( "Sky", PassFlags::Raster, onMain( LoadOp::Load(), LoadOp::Load() ), Ok );
+    graph.AddPass( "Overlay", PassFlags::Raster, onMain( LoadOp::Load(), LoadOp::Load() ), Ok );
+    // Another framebuffer splits the run.
+    graph.AddPass(
+         "Side", PassFlags::Raster,
+         [&]( PassBuilder& pass ) { pass.ColorTarget( 0, side.Colors[0], LoadOp::Load() ); }, Ok );
+    // Back on Main, loading: a new render pass (the previous one was Side's).
+    graph.AddPass( "Main again", PassFlags::Raster, onMain( LoadOp::Load(), LoadOp::Load() ), Ok );
+    // Same targets and LOAD, but it samples what Side drew: that barrier cannot sit inside a render pass.
+    graph.AddPass(
+         "Samples side", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.Read( side.Colors[0], Access::SampledGraphics );
+             pass.ColorTarget( 0, main.Colors[0], LoadOp::Load() );
+             pass.DepthTarget( main.Depth, LoadOp::Load() );
+         },
+         Ok );
+    // Same targets but CLEAR: an incompatible load splits it.
+    graph.AddPass( "Clears again", PassFlags::Raster, onMain( LoadOp::ClearColor( 1, 1, 1, 1 ), LoadOp::Load() ),
+                   Ok );
+
+    const CompileResult result = CompileOrFail( graph );
+    ASSERT_EQ( result.Passes.size(), 7u );
+    const std::vector<bool> continues = { false, true, true, false, false, false, false };
+    const std::vector<bool> keepsOpen = { true, true, false, false, false, false, false };
+    for ( size_t i = 0; i < result.Passes.size(); ++i )
+    {
+        EXPECT_EQ( result.Passes[i].ContinuesRenderPass, continues[i] ) << result.Passes[i].Name;
+        EXPECT_EQ( result.Passes[i].KeepsRenderPassOpen, keepsOpen[i] ) << result.Passes[i].Name;
+    }
+    // No barrier between the merged passes; the opener keeps its CLEAR.
+    EXPECT_TRUE( result.Passes[1].Barriers.empty() );
+    EXPECT_TRUE( result.Passes[2].Barriers.empty() );
+    EXPECT_EQ( result.Passes[0].Attachments[0].Load, LoadAction::Clear );
+    EXPECT_FALSE( result.Passes[5].Barriers.empty() );
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    EXPECT_EQ( CountCalls( backend.Calls, "BeginRenderPass 2" ),
+               4u ); // Opaque, Main again, Samples side, Clears again
+    EXPECT_EQ( CountCalls( backend.Calls, "BeginRenderPass 1" ), 1u ); // Side
+    EXPECT_EQ( CountCalls( backend.Calls, "EndRenderPass" ), 5u );
+    // The one render pass of the run opens in Opaque and closes in Overlay.
+    const auto at = [&]( std::string_view call )
+    { return std::find( backend.Calls.begin(), backend.Calls.end(), call ) - backend.Calls.begin(); };
+    const auto firstEnd = at( "EndRenderPass" );
+    EXPECT_GT( firstEnd, at( std::format( kBeginPassFormat, "Overlay" ) ) );
+    EXPECT_LT( firstEnd, at( std::format( kEndPassFormat, "Overlay" ) ) );
+}
+
+TEST( RenderGraphCompile, DepthTargetOnAnImportedDepthIsTransitionedIntoAttachmentBeforeIt )
+{
+    // The target depth after the fog sampled it: SHADER_READ_ONLY in its record.
+    std::vector<ImageLayout>  depthBack;
+    ExternalTexture           depth = Recorded( ImageFormat::DEPTH32F, ImageLayout::ShaderReadOnly, &depthBack );
+    ExternalTexture           color = Recorded( ImageFormat::RGBA8F, ImageLayout::ColorAttachment, nullptr );
+    Builder                   graph( "depth" );
+    ExternalTexture* const    colors[] = { &color };
+    const ImportedFramebuffer target   = graph.ImportFramebuffer( colors, &depth, "Target" );
+    graph.AddPass(
+         "Grid", PassFlags::Raster,
+         [&]( PassBuilder& pass )
+         {
+             pass.ColorTarget( 0, target.Colors[0], LoadOp::Load() );
+             pass.DepthTarget( target.Depth, LoadOp::Load() );
+         },
+         Ok );
+    const CompileResult        result  = CompileOrFail( graph );
+    const std::vector<Barrier> onDepth = BarriersOn( &result.Passes[0], target.Depth.Index );
+    ASSERT_EQ( onDepth.size(), 1u );
+    EXPECT_EQ( onDepth[0].Before, RecordedLayoutState( ImageLayout::ShaderReadOnly ) );
+    EXPECT_EQ( onDepth[0].After, GetAccessState( Access::DepthWrite ) );
+    EXPECT_EQ( onDepth[0].Range, ( SubresourceRange{ 0, 1, 0, 1 } ) );
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    // The barrier batch comes before the render pass that uses the depth.
+    const auto at = [&]( std::string_view call )
+    { return std::find( backend.Calls.begin(), backend.Calls.end(), call ) - backend.Calls.begin(); };
+    EXPECT_LT( at( std::format( kBarriersFormat, result.Passes[0].Barriers.size() ) ), at( "BeginRenderPass 2" ) );
+    EXPECT_EQ( depthBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilAttachment } );
+}

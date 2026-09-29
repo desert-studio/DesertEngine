@@ -14,6 +14,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <format>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/WriteDescriptorSetBuilder.hpp>
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
@@ -764,6 +765,56 @@ namespace Desert::Graphic::API::Vulkan
         const VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
         return VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image2D>& image,
+                                                          RDG::ExternalTexture&           into )
+    {
+        const auto vulkanImage = std::dynamic_pointer_cast<VulkanImage2D>( image );
+        if ( !vulkanImage )
+            return Common::MakeError( "ImportImage: not a Vulkan 2D image" );
+        const VulkanImageResource& resource = vulkanImage->GetResource();
+        if ( resource.Image == VK_NULL_HANDLE )
+            return Common::MakeError( std::format( "ImportImage: the {}x{} image has no VkImage",
+                                                   image->GetWidth(), image->GetHeight() ) );
+        const std::optional<RDG::ImageLayout> layout = RdgLayoutFromVulkan( resource.Layout );
+        if ( !layout )
+            return Common::MakeError( std::format( "ImportImage: image layout {} has no render-graph layout",
+                                                   static_cast<int>( resource.Layout ) ) );
+
+        RDG::TextureDesc desc;
+        desc.Size   = { image->GetWidth(), image->GetHeight(), 1 };
+        desc.Format = image->GetImageSpecification().Format;
+        desc.Mips   = resource.MipLevels;
+        desc.Layers = resource.LayerCount;
+        if ( !vulkanImage->GetGraphTexture() )
+        {
+            const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                         ->GetVulkanLogicalDevice();
+            vulkanImage->SetGraphTexture(
+                 VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc ) );
+        }
+        into.Desc = desc;
+        into.SubresourceStates.assign( desc.SubresourceCount(), RDG::RecordedLayoutState( *layout ) );
+        into.Physical                           = vulkanImage->GetGraphTexture();
+        const std::weak_ptr<VulkanImage2D> weak = vulkanImage;
+        into.RecordFinalStates = [weak]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
+        {
+            const std::shared_ptr<VulkanImage2D> target = weak.lock();
+            if ( !target )
+                return Common::MakeError( "the imported image was destroyed before its graph finished" );
+            for ( const RDG::AccessState& state : states )
+            {
+                if ( state.Layout != states.front().Layout )
+                    return Common::MakeError( std::format(
+                         "its subresources end in different layouts ({} and {}), the image records one",
+                         static_cast<int>( states.front().Layout ), static_cast<int>( state.Layout ) ) );
+            }
+            if ( !states.empty() )
+                target->RecordLayout( RdgVulkanLayout( states.front().Layout ) );
+            return Common::MakeSuccess( true );
+        };
+        return Common::MakeSuccess( true );
     }
 
     void VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )

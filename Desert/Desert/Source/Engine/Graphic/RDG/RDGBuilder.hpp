@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -90,9 +91,11 @@ namespace Desert::Graphic::RDG
         // @p layer = kAllRemaining binds every layer (layered rendering); a single layer renders one
         // cascade of a layered shadow map.
         void ColorTarget( uint32_t slot, TextureRef texture, const LoadOp& load, uint32_t mip = 0,
-                          uint32_t layer = kAllRemaining );
+                          uint32_t layer = kAllRemaining, StoreAction store = StoreAction::Store );
+        // @p store = DontCare discards the contents after the render pass (Compile also discards what nothing
+        // after the pass reads); Store keeps them when anything later or outside the graph needs them.
         void DepthTarget( TextureRef texture, const LoadOp& load, bool write = true,
-                          uint32_t layer = kAllRemaining );
+                          uint32_t layer = kAllRemaining, StoreAction store = StoreAction::Store );
 
     private:
         friend class Builder;
@@ -104,7 +107,7 @@ namespace Desert::Graphic::RDG
                              std::string_view call );
         void DeclareBuffer( BufferRef buffer, Access access, bool asWrite, std::string_view call );
         void DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access, const LoadOp& load,
-                                uint32_t mip, uint32_t layer );
+                                uint32_t mip, uint32_t layer, StoreAction store );
 
         Builder& m_Builder;
         uint32_t m_Pass;
@@ -128,6 +131,12 @@ namespace Desert::Graphic::RDG
         // graph does not take a second copy of it as an argument.
         TextureRef RegisterExternal( ExternalTexture& texture, std::string_view name );
         BufferRef  RegisterExternal( ExternalBuffer& buffer, std::string_view name );
+
+        // Registers the attachments of an engine framebuffer, each carrying the state the engine recorded
+        // for it (colour i as "<name>.Color<i>", depth as "<name>.Depth"). @p depth may be null. Execute
+        // writes the final states back through each texture's RecordFinalStates.
+        ImportedFramebuffer ImportFramebuffer( std::span<ExternalTexture* const> colors, ExternalTexture* depth,
+                                               std::string_view name );
 
         // A transient extracted into @p into survives the graph: it is a culling root, is never aliased,
         // and @p into receives its description and final states on Execute. For an external resource
@@ -203,6 +212,7 @@ namespace Desert::Graphic::RDG
             uint32_t Mip        = 0;
             uint32_t BaseLayer  = 0;
             uint32_t LayerCount = 1;
+            StoreAction Store      = StoreAction::Store; // declared; Compile may still discard
         };
 
         struct PassRecord

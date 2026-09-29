@@ -231,6 +231,12 @@ namespace Desert::Graphic
         return s_RendererAPI->ExecuteGraph( graph );
     }
 
+    Common::BoolResultStr Renderer::ImportImage( const std::shared_ptr<Image2D>& image,
+                                                 RDG::ExternalTexture&           into )
+    {
+        return s_RendererAPI->ImportImage( image, into );
+    }
+
     std::shared_ptr<RDG::IPhysicalTexture> Renderer::WrapLegacyImage( Image2D& image )
     {
         return s_RendererAPI->WrapLegacyImage( image );

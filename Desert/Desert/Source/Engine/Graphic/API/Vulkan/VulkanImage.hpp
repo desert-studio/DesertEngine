@@ -6,6 +6,11 @@
 
 #include <vulkan/vulkan.h>
 #include <memory>
+namespace Desert::Graphic::RDG
+{
+    class IPhysicalTexture;
+}
+#include <memory>
 #include <vector>
 
 namespace Desert::Graphic::API::Vulkan
@@ -109,6 +114,23 @@ namespace Desert::Graphic::API::Vulkan
         // --- Vulkan Specific ---
         NO_DISCARD Common::BoolResultStr RT_Invalidate();
 
+        // The render graph's write-back: after a graph that imported this image, the layout it left the image
+        // in, so TransitionLayout and descriptor binds outside the graph start from the truth.
+        void RecordLayout( VkImageLayout layout )
+        {
+            m_Resource.Layout = layout;
+        }
+        // The graph's handle on this image, kept for the image's lifetime so the views and framebuffers the
+        // graph builds on it are made once, not every frame. Dropped with the VkImage (Release).
+        const std::shared_ptr<RDG::IPhysicalTexture>& GetGraphTexture() const
+        {
+            return m_GraphTexture;
+        }
+        void SetGraphTexture( std::shared_ptr<RDG::IPhysicalTexture> texture )
+        {
+            m_GraphTexture = std::move( texture );
+        }
+
     private:
         Common::BoolResultStr CreateResource();
         void UploadData( VkCommandBuffer cmdBuffer, VkBuffer stagingBuffer );
@@ -121,6 +143,7 @@ namespace Desert::Graphic::API::Vulkan
         VulkanImageResource                 m_Resource;
         std::vector<VkImageView>            m_MipViews;
         bool                                m_IsLoaded = false;
+        std::shared_ptr<RDG::IPhysicalTexture> m_GraphTexture;
     };
 
     /**

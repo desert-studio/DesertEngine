@@ -1,10 +1,12 @@
 #pragma once
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -148,6 +150,10 @@ namespace Desert::Graphic::RDG
         // The image itself. Set by whoever owns the texture before registering it; for an extraction
         // target, Execute sets it to the transient's image.
         std::shared_ptr<IPhysicalTexture> Physical;
+        // Set when the texture is imported from an engine image that records its own layout: Execute hands
+        // it the final states, so code outside the graph and the next frame see the layout the graph left.
+        // An error it returns fails Execute.
+        std::function<Common::BoolResultStr( const std::vector<AccessState>& )> RecordFinalStates;
 
         ExternalTexture() = default;
         ExternalTexture( const TextureDesc& desc, Access initial )
@@ -166,6 +172,15 @@ namespace Desert::Graphic::RDG
         ExternalBuffer( const BufferDesc& desc, Access initial ) : Desc( desc ), State( GetAccessState( initial ) )
         {
         }
+    };
+
+    // The attachments of an engine framebuffer imported into one graph (Builder::ImportFramebuffer).
+    // Raster passes declare them with ColorTarget/DepthTarget; consecutive raster passes on the same
+    // attachments that LOAD them share one render pass.
+    struct ImportedFramebuffer
+    {
+        std::vector<TextureRef> Colors; // by colour slot
+        TextureRef              Depth;  // invalid when the framebuffer has no depth attachment
     };
 
     struct ClearValue

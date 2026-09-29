@@ -67,6 +67,7 @@ namespace Desert::Graphic
         class Builder;
     }
     class LegacyFrameTextures;
+    struct LegacyFrameValues;
 
     class SceneRenderer final
     {
@@ -523,6 +524,64 @@ namespace Desert::Graphic
         // depends on nothing the frame produces — no scene depth, no G-buffer, no atmosphere LUT — so
         // nothing forces it later, and its consumer forces it earlier.
         void ExecuteCloudShadowMap();
+
+        // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
+        void AddFrameGBuffer( RDG::Builder& graph, const std::vector<RDG::TextureRef>& gbuffer,
+                              System::MeshRenderer* meshRenderer );
+        void AddFrameTerrainGBuffer( RDG::Builder& graph, const std::vector<RDG::TextureRef>& gbuffer );
+        void AddFrameRSM( RDG::Builder& graph, const std::vector<RDG::TextureRef>& rsm,
+                          System::MeshRenderer* meshRenderer, const glm::vec3& sunDir );
+        void AddFrameGeneric( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+                              System::MeshRenderer* meshRenderer );
+        void AddFrameSkinned( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+                              System::MeshRenderer* meshRenderer );
+        void AddFrameGlass( RDG::Builder& graph, const std::vector<RDG::TextureRef>& copyReads,
+                            const std::vector<RDG::TextureRef>& sceneColor, System::MeshRenderer* meshRenderer,
+                            const std::shared_ptr<LegacyFrameValues>& values );
+#if DESERT_DEV_INSTRUMENTS
+        void AddFrameOverdraw( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+#endif // DESERT_DEV_INSTRUMENTS
+        void AddFrameClearMainFramebuffer( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameDepthResolve( RDG::Builder& graph );
+        void AddFrameSSAO( RDG::Builder& graph, LegacyFrameTextures& textures,
+                           const std::vector<RDG::TextureRef>& gbuffer, const glm::mat4& viewProj,
+                           const glm::vec4& cameraPos, const std::shared_ptr<LegacyFrameValues>& values,
+                           std::vector<RDG::TextureRef>& compositeReads );
+        void AddFrameGIResolve( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                const std::vector<RDG::TextureRef>& gbuffer,
+                                const std::vector<RDG::TextureRef>& rsm, System::MeshRenderer* meshRenderer,
+                                const glm::mat4& viewProj, const glm::vec4& lightColor,
+                                const std::shared_ptr<LegacyFrameValues>& values,
+                                std::vector<RDG::TextureRef>&             compositeReads );
+        void AddFrameComposite( RDG::Builder& graph, const std::vector<RDG::TextureRef>& compositeReads,
+                                const std::vector<RDG::TextureRef>& sceneColor, System::MeshRenderer* meshRenderer,
+                                const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+                                const std::shared_ptr<LegacyFrameValues>& values );
+        void AddFrameSceneCopy( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                const std::vector<RDG::TextureRef>& sceneColor, System::CopyRenderer* copy,
+                                const std::shared_ptr<LegacyFrameValues>& values,
+                                std::vector<RDG::TextureRef>&             copyReads );
+        void AddFrameSSR( RDG::Builder& graph, const std::vector<RDG::TextureRef>& gbuffer,
+                          const std::vector<RDG::TextureRef>& copyReads,
+                          const std::vector<RDG::TextureRef>& sceneColor, const glm::mat4& viewProj,
+                          const glm::vec4& cameraPos, const std::shared_ptr<LegacyFrameValues>& values );
+        void AddFrameParticlesSimulate( RDG::Builder& graph, const UpdateInfo& sceneRenderInfo );
+        void AddFrameCloudShadowMap( RDG::Builder& graph );
+        void AddFrameSkyAtmosphereLuts( RDG::Builder& graph );
+        void AddFrameAtmosphericFog( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameVolumetricClouds( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameJumpFlood( RDG::Builder& graph );
+        void AddFrameAutoExposure( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameBloom( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameLightShafts( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+                                  const std::shared_ptr<LegacyFrameValues>& values );
+        void AddFrameLensFlare( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+                                const std::shared_ptr<LegacyFrameValues>& values );
+        void AddFrameTonemap( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameFXAA( RDG::Builder& graph );
+        void AddFrameSMAA( RDG::Builder& graph );
+        void AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                   const std::vector<RDG::TextureRef>& sceneColor );
 
     private:
         struct

@@ -56,6 +56,10 @@ namespace Desert::Graphic::RDG
         // ALL transitions this pass needs, recorded as one batch (one vkCmdPipelineBarrier in the Vulkan backend).
         std::vector<Barrier>            Barriers;
         std::vector<AttachmentDecision> Attachments;
+        // Render-pass merging. A raster pass on exactly the attachments of the executed pass before it, loading
+        // every one of them and needing no barrier, records inside the render pass that pass opened.
+        bool ContinuesRenderPass = false; // no BeginRenderPass: the previous pass's render pass is still open
+        bool KeepsRenderPassOpen = false; // no EndRenderPass: the next pass continues this render pass
     };
 
     enum class DependencyKind : uint8_t

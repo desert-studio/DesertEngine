@@ -5,6 +5,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <format>
 
 namespace Desert::Graphic::RDG
 {
@@ -55,6 +56,26 @@ namespace Desert::Graphic::RDG
     } // namespace
 
     // ── Builder: resources ─────────────────────────────────────────────────────────────────────────────
+
+    ImportedFramebuffer Builder::ImportFramebuffer( std::span<ExternalTexture* const> colors,
+                                                    ExternalTexture* depth, std::string_view name )
+    {
+        ImportedFramebuffer imported;
+        for ( size_t i = 0; i < colors.size(); ++i )
+        {
+            if ( colors[i] == nullptr )
+            {
+                RecordError(
+                     std::format( "graph '{}': ImportFramebuffer('{}') colour {} is null", m_Name, name, i ) );
+                imported.Colors.push_back( {} );
+                continue;
+            }
+            imported.Colors.push_back( RegisterExternal( *colors[i], std::format( "{}.Color{}", name, i ) ) );
+        }
+        if ( depth != nullptr )
+            imported.Depth = RegisterExternal( *depth, std::format( "{}.Depth", name ) );
+        return imported;
+    }
 
     TextureRef Builder::CreateTexture( const TextureDesc& desc, std::string_view name )
     {
@@ -223,14 +244,16 @@ namespace Desert::Graphic::RDG
     }
 
     void PassBuilder::ColorTarget( uint32_t slot, TextureRef texture, const LoadOp& load, uint32_t mip,
-                                   uint32_t layer )
+                                   uint32_t layer, StoreAction store )
     {
-        DeclareAttachment( slot, false, texture, Access::ColorTarget, load, mip, layer );
+        DeclareAttachment( slot, false, texture, Access::ColorTarget, load, mip, layer, store );
     }
 
-    void PassBuilder::DepthTarget( TextureRef texture, const LoadOp& load, bool write, uint32_t layer )
+    void PassBuilder::DepthTarget( TextureRef texture, const LoadOp& load, bool write, uint32_t layer,
+                                   StoreAction store )
     {
-        DeclareAttachment( 0, true, texture, write ? Access::DepthWrite : Access::DepthRead, load, 0, layer );
+        DeclareAttachment( 0, true, texture, write ? Access::DepthWrite : Access::DepthRead, load, 0, layer,
+                           store );
     }
 
     void PassBuilder::DeclareTexture( TextureRef texture, Access access, SubresourceRange range, bool asWrite,
@@ -321,7 +344,7 @@ namespace Desert::Graphic::RDG
     }
 
     void PassBuilder::DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access,
-                                         const LoadOp& load, uint32_t mip, uint32_t layer )
+                                         const LoadOp& load, uint32_t mip, uint32_t layer, StoreAction store )
     {
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
         const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
@@ -363,6 +386,7 @@ namespace Desert::Graphic::RDG
         attachment.Mip        = mip;
         attachment.BaseLayer  = baseLayer;
         attachment.LayerCount = layerCount;
+        attachment.Store      = store;
         pass.Attachments.push_back( attachment );
         pass.Uses.push_back( { texture.Index, access, SubresourceRange{ mip, 1, baseLayer, layerCount },
                                static_cast<int32_t>( pass.Attachments.size() - 1 ) } );
@@ -495,7 +519,7 @@ namespace Desert::Graphic::RDG
                 backend.RecordBarriers( compiledPass.Barriers );
             const bool rendering =
                  HasFlag( compiledPass.Flags, PassFlags::Raster ) && !compiledPass.Attachments.empty();
-            if ( rendering )
+            if ( rendering && !compiledPass.ContinuesRenderPass )
             {
                 Common::BoolResultStr started = backend.BeginRenderPass( compiledPass );
                 if ( !started )
@@ -513,7 +537,7 @@ namespace Desert::Graphic::RDG
                 return Common::MakeFormattedError( "graph '{}' pass '{}' failed: {}", m_Name, compiledPass.Name,
                                                    outcome.GetError() );
             }
-            if ( rendering )
+            if ( rendering && !compiledPass.KeepsRenderPassOpen )
                 backend.EndRenderPass();
             backend.EndPass( compiledPass );
         }
@@ -536,6 +560,7 @@ namespace Desert::Graphic::RDG
         if ( !ended )
             return Common::MakeFormattedError( "graph '{}': {}", m_Name, ended.GetError() );
 
+        std::string recordError; // the first failed layout write-back; every other one still runs
         for ( const ExternalFinalState& final : result.ExternalFinalStates )
         {
             const ResourceRecord& record = m_Resources[final.Resource];
@@ -544,6 +569,13 @@ namespace Desert::Graphic::RDG
                 ExternalTexture* target   = record.ExternalTex ? record.ExternalTex : record.ExtractTex;
                 target->Desc              = record.Texture;
                 target->SubresourceStates = final.SubresourceStates;
+                if ( target->RecordFinalStates )
+                {
+                    Common::BoolResultStr recorded = target->RecordFinalStates( target->SubresourceStates );
+                    if ( !recorded && recordError.empty() )
+                        recordError = std::format( "graph '{}' texture '{}': {}", m_Name, record.Name,
+                                                   recorded.GetError() );
+                }
                 if ( !record.IsExternal() )
                     target->Physical = std::move( extractedTextures[final.Resource] );
             }
@@ -556,6 +588,8 @@ namespace Desert::Graphic::RDG
                     target->Physical = std::move( extractedBuffers[final.Resource] );
             }
         }
+        if ( !recordError.empty() )
+            return Common::MakeError( recordError );
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::RDG

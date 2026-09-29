@@ -287,4 +287,19 @@ namespace Desert::Graphic::RDG
         return current.IsReadOnly() && next.IsReadOnly() && current.Layout == next.Layout &&
                ( next.Stages & ~current.Stages ) == 0 && ( next.Memory & ~current.Memory ) == 0;
     }
+
+    // The state an image is taken to be in when the graph imports it from a record that knows only its
+    // LAYOUT (VulkanImage2D keeps the layout, not who used it last). Whatever left it there may have run
+    // in any stage and written through any path, so the first barrier waits on all of them and makes every
+    // such write available. An Undefined layout has nothing to wait for.
+    constexpr AccessState RecordedLayoutState( ImageLayout layout )
+    {
+        if ( layout == ImageLayout::Undefined )
+            return GetAccessState( Access::None );
+        return AccessState{ kAllShaderStages | PipelineStage_ColorAttachmentOutput | kDepthTestStages |
+                                 PipelineStage_Copy,
+                            MemoryAccess_ShaderStorageWrite | MemoryAccess_ColorAttachmentWrite |
+                                 MemoryAccess_DepthStencilWrite | MemoryAccess_TransferWrite,
+                            layout };
+    }
 } // namespace Desert::Graphic::RDG

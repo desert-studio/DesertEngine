@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -189,6 +190,33 @@ namespace Desert::Graphic::API::Vulkan
                 out |= vk;
         }
         return out;
+    }
+
+    std::optional<RDG::ImageLayout> RdgLayoutFromVulkan( VkImageLayout layout )
+    {
+        switch ( layout )
+        {
+            case VK_IMAGE_LAYOUT_UNDEFINED:
+                return RDG::ImageLayout::Undefined;
+            case VK_IMAGE_LAYOUT_GENERAL:
+                return RDG::ImageLayout::General;
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                return RDG::ImageLayout::ColorAttachment;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                return RDG::ImageLayout::DepthStencilAttachment;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                return RDG::ImageLayout::DepthStencilReadOnly;
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                return RDG::ImageLayout::ShaderReadOnly;
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                return RDG::ImageLayout::TransferSrc;
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                return RDG::ImageLayout::TransferDst;
+            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                return RDG::ImageLayout::Present;
+            default:
+                return std::nullopt;
+        }
     }
 
     VkImageLayout RdgVulkanLayout( RDG::ImageLayout layout )

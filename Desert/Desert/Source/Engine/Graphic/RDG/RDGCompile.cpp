@@ -577,7 +577,10 @@ namespace Desert::Graphic::RDG
                           ++layer )
                         needed = needed || neededLater[subBase[decision.Resource] +
                                                        record.Texture.SubresourceIndex( decision.Mip, layer )];
-                    decision.Store = needed ? StoreAction::Store : StoreAction::DontCare;
+                    const AttachmentRecord& declared = m_Passes[p].Attachments[static_cast<size_t>(
+                         &decision - result.Passes[position].Attachments.data() )];
+                    decision.Store = needed && declared.Store == StoreAction::Store ? StoreAction::Store
+                                                                                    : StoreAction::DontCare;
                 }
                 for ( const RdgSubUse& use : passUses[p] )
                 {
@@ -585,6 +588,78 @@ namespace Desert::Graphic::RDG
                         neededLater[use.Sub] = true;
                     else if ( use.Writes )
                         neededLater[use.Sub] = false;
+                }
+            }
+        }
+
+        // ── Render-pass merging ─────────────────────────────────────────────────────────────────────────
+        // A raster pass whose attachments are exactly those of the executed pass before it (same resources,
+        // slots, subresources and attachment usage) and which LOADS every one of them continues the render
+        // pass that pass opened: one begin/end for the run. Attachment writes inside one subpass are ordered
+        // by rasterisation order, so the attachment-to-same-state transition planned between them is dropped;
+        // any OTHER transition (a texture the pass samples, a layout change) cannot be recorded inside a
+        // render pass and splits the run, as does a Clear or DontCare load.
+        {
+            auto sameAttachment = []( const AttachmentDecision& a, const AttachmentDecision& b )
+            {
+                return a.IsDepth == b.IsDepth && a.Slot == b.Slot && a.Usage == b.Usage &&
+                       a.Resource == b.Resource && a.Mip == b.Mip && a.BaseLayer == b.BaseLayer &&
+                       a.LayerCount == b.LayerCount;
+            };
+            auto sameAttachments = [&]( const CompiledPass& a, const CompiledPass& b )
+            {
+                if ( a.Attachments.size() != b.Attachments.size() )
+                    return false;
+                for ( const AttachmentDecision& x : a.Attachments )
+                {
+                    if ( std::none_of( b.Attachments.begin(), b.Attachments.end(),
+                                       [&]( const AttachmentDecision& y ) { return sameAttachment( x, y ); } ) )
+                        return false;
+                }
+                return true;
+            };
+            auto isOwnAttachment = [&]( const CompiledPass& pass, const RdgRawTransition& raw )
+            {
+                const TextureDesc& desc  = m_Resources[raw.Resource].Texture;
+                const uint32_t     local = raw.Sub - subBase[raw.Resource];
+                const uint32_t     mip   = local % desc.Mips;
+                const uint32_t     layer = local / desc.Mips;
+                for ( const AttachmentDecision& attachment : pass.Attachments )
+                {
+                    if ( attachment.Resource == raw.Resource && attachment.Mip == mip &&
+                         layer >= attachment.BaseLayer && layer < attachment.BaseLayer + attachment.LayerCount )
+                        return true;
+                }
+                return false;
+            };
+            uint32_t opener = 0;
+            for ( uint32_t position = 1; position < executedCount; ++position )
+            {
+                CompiledPass& previous = result.Passes[position - 1];
+                CompiledPass& current  = result.Passes[position];
+                bool          merge    = HasFlag( previous.Flags, PassFlags::Raster ) &&
+                             HasFlag( current.Flags, PassFlags::Raster ) && !current.Attachments.empty() &&
+                             sameAttachments( previous, current );
+                for ( const AttachmentDecision& attachment : current.Attachments )
+                    merge = merge && attachment.Load == LoadAction::Load;
+                for ( const RdgRawTransition& raw : raws[position] )
+                    merge = merge && raw.Before == raw.After && isOwnAttachment( current, raw );
+                if ( !merge )
+                {
+                    opener = position;
+                    continue;
+                }
+                raws[position].clear();
+                previous.KeepsRenderPassOpen = true;
+                current.ContinuesRenderPass  = true;
+                // The render pass the opener began stores what the LAST pass of the run leaves.
+                for ( AttachmentDecision& opened : result.Passes[opener].Attachments )
+                {
+                    for ( const AttachmentDecision& attachment : current.Attachments )
+                    {
+                        if ( sameAttachment( opened, attachment ) )
+                            opened.Store = attachment.Store;
+                    }
                 }
             }
         }
