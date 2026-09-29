@@ -5,6 +5,7 @@
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 #include <Engine/Assets/AssetMetadata.hpp>
+#include <Engine/Assets/AssetRootPin.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
 
@@ -109,6 +110,8 @@ namespace Desert::Editor
         AnimationTransport               m_Transport;
         std::unique_ptr<glm::vec2>       m_PendingOrbitDegrees;
 
+        // The clip is a sweep root while this window is open: unsaved notify edits live only in its payload.
+        Assets::AssetRootPin                    m_ClipPin;
         std::shared_ptr<Assets::AnimationAsset> m_ClipAsset;
         std::filesystem::path                   m_ClipPath;
         bool                                    m_Tracked = false; // m_OnDiskNotifies is what the file holds

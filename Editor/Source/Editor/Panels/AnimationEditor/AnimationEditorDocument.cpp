@@ -53,7 +53,8 @@ namespace Desert::Editor
 
     AnimationEditorDocument::AnimationEditorDocument( const Assets::AssetHandle& clip,
                                                       Assets::AssetManager*      assets )
-         : AnimationEditorBase( AssetSubjectTitle( clip, assets, "Animation" ), clip ), m_Assets( assets )
+         : AnimationEditorBase( AssetSubjectTitle( clip, assets, "Animation" ), clip ), m_Assets( assets ),
+           m_ClipPin( clip, "open in the Animation Editor" )
     {
     }
 
@@ -242,10 +243,8 @@ namespace Desert::Editor
     {
         if ( m_Assets == nullptr )
             return nullptr;
-        // THE EVICTION SWEEP RELEASES THIS CLIP while the window is open (AssetEviction: an open document's
-        // subject is not a root). The first ANV1b2 frame drew every notify at tick 0 and a ruler of one frame,
-        // because the payload had been Unload()ed to DurationTicks 0. Read it back from the file; an unsaved
-        // notify edit does not survive that - REMAINDER: an open document's subject has to be a root.
+        // The sweep keeps this clip while the window is open (m_ClipPin). The reload below is for a clip some
+        // other path unloaded (a reimport); it re-reads the file.
         if ( m_ClipAsset )
         {
             if ( !m_ClipAsset->IsReadyForUse() && !m_ClipAsset->EnsureLoaded( *m_Assets ) )
