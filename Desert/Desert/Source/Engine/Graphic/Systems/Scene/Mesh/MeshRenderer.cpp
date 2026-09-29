@@ -562,7 +562,10 @@ namespace Desert::Graphic::System
         {
             const auto& g = *d.Data;
             d.Material->SetMaterialIndex( d.Row );
-            Renderer::GetInstance().RenderMesh( d.Pipeline.get(), g.Mesh, g.Transform,
+            auto* pipeline = CullPermutation( d.Pipeline.get(), d.Material->IsTwoSided() );
+            if ( pipeline == nullptr )
+                continue;
+            Renderer::GetInstance().RenderMesh( pipeline, g.Mesh, g.Transform,
                                                 d.Material->GetMaterialExecutor(), 1, 0, ~g.VisibleSubmeshMask,
                                                 ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) );
         }
@@ -667,6 +670,24 @@ namespace Desert::Graphic::System
         spec.UseLoadRenderPass = useLoadPass; // deferred manual pass begins with LOAD
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
         return spec;
+    }
+
+    GraphicsPipeline* MeshRenderer::CullPermutation( GraphicsPipeline* pipeline, const bool twoSided )
+    {
+        if ( !twoSided || pipeline == nullptr || pipeline->GetSpecification().CullMode == CullMode::None )
+            return pipeline;
+        if ( const auto it = m_TwoSidedPipelines.find( pipeline ); it != m_TwoSidedPipelines.end() )
+            return it->second.get();
+        GraphicsPipelineSpecification spec = pipeline->GetSpecification();
+        spec.CullMode                      = CullMode::None;
+        spec.DebugName += "_TwoSided";
+        const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !built )
+            LOG_ERROR( "[MeshRenderer] two-sided materials on '{}' will not draw: {}",
+                       pipeline->GetSpecification().DebugName, built.GetError() );
+        auto& slot = m_TwoSidedPipelines[pipeline];
+        slot       = built ? built.GetValue() : nullptr;
+        return slot.get();
     }
 
     void MeshRenderer::TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline )
@@ -1327,6 +1348,9 @@ namespace Desert::Graphic::System
                     auto*          pipeline = ( m_DeferredGeometry && m_StaticGBufferPipeline )
                                                    ? m_StaticGBufferPipeline.get()
                                                    : WireframePipelineOr( m_StaticPipeline.get() );
+                    pipeline = CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
+                    if ( pipeline == nullptr )
+                        continue;
                     const uint32_t lod = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias );
                     renderer.RenderMesh( pipeline, obj->Mesh, obj->Transform, drawMat->GetMaterialExecutor(), 1, 0,
                                          obj->HiddenSubmeshes, lod );
@@ -1457,7 +1481,11 @@ namespace Desert::Graphic::System
                     set.Mat->SetMaterialIndex( d.MaterialIndex );
                     set.Mat->SetInstancedWind( d.Wind );
                     set.Mat->Bind( set.Inst );
-                    renderer.RenderMesh( instancedPipeline, d.Mesh, unusedModelTransform,
+                    auto* twin = CullPermutation(
+                         instancedPipeline, set.Inst != nullptr ? set.Inst->IsTwoSided() : set.Mat->IsTwoSided() );
+                    if ( twin == nullptr )
+                        continue;
+                    renderer.RenderMesh( twin, d.Mesh, unusedModelTransform,
                                          set.Mat->GetMaterialExecutor(), d.InstanceCount, d.FirstInstance,
                                          /*hiddenSubmeshMask*/ 0, d.LodLevel );
                 }
@@ -1566,7 +1594,11 @@ namespace Desert::Graphic::System
                 mat->SetSkinnedBoneOffset( boneOffsets[i] );
                 mat->Bind( obj->Instance );
 
-                renderer.RenderMesh( pipeline, obj->Mesh, obj->Transform, mat->GetMaterialExecutor() );
+                auto* twin = CullPermutation(
+                     pipeline, obj->Instance != nullptr ? obj->Instance->IsTwoSided() : mat->IsTwoSided() );
+                if ( twin == nullptr )
+                    continue;
+                renderer.RenderMesh( twin, obj->Mesh, obj->Transform, mat->GetMaterialExecutor() );
             }
         }
     }

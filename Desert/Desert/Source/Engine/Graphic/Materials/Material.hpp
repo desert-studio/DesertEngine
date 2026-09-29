@@ -37,6 +37,17 @@ namespace Desert::Graphic
         // Those methods are now `BindInputs`; a new material that binds attachments spells it that way.
         virtual void Bind( const MaterialInstance* instance );
 
+        // The asset's TwoSided (MaterialData::TwoSided): the renderer draws this material through the Cull None
+        // permutation of the pass's pipeline (MeshRenderer::CullPermutation). An instance may override it.
+        void SetTwoSided( const bool twoSided )
+        {
+            m_TwoSided = twoSided;
+        }
+        [[nodiscard]] bool IsTwoSided() const
+        {
+            return m_TwoSided;
+        }
+
         // Name the row of the shared `Materials[]` storage buffer that the NEXT recorded draw reads.
         //
         // ON `Material` AND NOT ON ITS SUBCLASSES BECAUSE THERE IS ONE TRANSPORT. A PBR surface, a shader
@@ -194,5 +205,6 @@ namespace Desert::Graphic
 
     private:
         ResourceOwnership m_Accounting;
+        bool              m_TwoSided = false;
     };
 } // namespace Desert::Graphic

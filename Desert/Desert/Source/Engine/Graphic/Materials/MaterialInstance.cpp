@@ -272,4 +272,12 @@ namespace Desert::Graphic
             child->MarkNeedsApply();
         }
     }
+    bool MaterialInstance::IsTwoSided() const
+    {
+        if ( m_TwoSidedOverride.has_value() )
+            return *m_TwoSidedOverride;
+        if ( const auto parent = m_ParentInstance.lock() )
+            return parent->IsTwoSided();
+        return m_ParentMaterial != nullptr && m_ParentMaterial->IsTwoSided();
+    }
 } // namespace Desert::Graphic

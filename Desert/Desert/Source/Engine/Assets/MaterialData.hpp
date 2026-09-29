@@ -91,6 +91,12 @@ namespace Desert::Assets
         // handle is that GUID through the one fold (Handle()). MATL v1 carried a u64 MaterialId beside the
         // GUID - two statements of one identity - and Tools/SceneMigrator removes it (MATL 1 -> 2).
         std::optional<std::string> Parent;
+        // THE MATERIAL IS TWO-SIDED (UE UMaterial::TwoSided, glTF `doubleSided`): its draws rasterize with no
+        // face culling. A property of the MATERIAL and a pipeline permutation (Cull None) — never a shader
+        // parameter, a shader cannot un-cull a face. On a base material an absent value is one-sided; on an
+        // instance an absent value INHERITS the parent's and a present one overrides it (UE's
+        // bOverride_TwoSided), which is why it is optional and not a bool with a default.
+        std::optional<bool> TwoSided;
 
         bool IsInstance() const
         {
