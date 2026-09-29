@@ -32,12 +32,23 @@ namespace Desert::Physics
         ConvexHull,
     };
 
+    // The body-local axis a capsule's cylinder runs along. Jolt's capsule is built along Y; any other axis is
+    // Jolt's capsule rotated onto it.
+    enum class CapsuleAxis
+    {
+        X,
+        Y,
+        Z,
+    };
+
     struct BodyDesc
     {
         ShapeType Shape       = ShapeType::Box;
         glm::vec3 HalfExtents = { 0.5f, 0.5f, 0.5f }; // Box
         float     Radius      = 0.5f;                 // Sphere / Capsule
         float     HalfHeight  = 0.5f;                 // Capsule (cylinder half-height, excl. caps)
+        CapsuleAxis Axis        = CapsuleAxis::Y;       // Capsule
+        glm::vec3   Center      = { 0.0f, 0.0f, 0.0f }; // Box / Sphere / Capsule: body-local offset of the shape
         // Mesh / ConvexHull: body-local points, scale already applied. Mesh also takes MeshIndices, three per
         // triangle; ConvexHull ignores them. Read during CreateBody only — the world keeps its own cooked copy.
         std::span<const glm::vec3> MeshPoints;

@@ -2501,6 +2501,14 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Half Height" ), Category( "Collider" ), Range( 1.0f, 5000.0f ), Length )
         float HalfHeight = 50.0f; // Capsule
+
+        PROPERTY( DisplayName( "Capsule Axis" ), Category( "Collider" ) )
+        Physics::CapsuleAxis Axis =
+             Physics::CapsuleAxis::Y; // Capsule: the body-local axis its cylinder runs along
+
+        PROPERTY( DisplayName( "Center" ), Category( "Collider" ), Length )
+        glm::vec3 Center = { 0.0f, 0.0f,
+                             0.0f }; // Box / Sphere / Capsule: body-local offset (UE FKShapeElem Center)
     };
 
     struct ColliderComponent

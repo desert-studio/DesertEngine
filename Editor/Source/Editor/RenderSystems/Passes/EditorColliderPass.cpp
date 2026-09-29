@@ -136,7 +136,7 @@ namespace Desert::Editor::Render
             const glm::vec3 axisX  = R[0];
             const glm::vec3 axisY  = R[1];
             const glm::vec3 axisZ  = R[2];
-            const glm::vec3 center = transform.Translation;
+            const glm::vec3 center = transform.Translation + R * collider.Center;
 
             switch ( collider.Shape )
             {
@@ -175,24 +175,30 @@ namespace Desert::Editor::Render
                 {
                     // Jolt capsule: axis along local Y; HalfHeight is the CYLINDER half-length,
                     // hemispherical caps of Radius extend beyond it.
-                    const float     r    = collider.Radius;
-                    const glm::vec3 top  = center + axisY * collider.HalfHeight;
-                    const glm::vec3 bot  = center - axisY * collider.HalfHeight;
+                    // Axis picks which body axis plays Jolt's Y; the other two span the rings.
+                    const glm::vec3 up  = collider.Axis == Physics::CapsuleAxis::X   ? axisX
+                                          : collider.Axis == Physics::CapsuleAxis::Z ? axisZ
+                                                                                     : axisY;
+                    const glm::vec3 u   = collider.Axis == Physics::CapsuleAxis::X ? axisY : axisX;
+                    const glm::vec3 w   = collider.Axis == Physics::CapsuleAxis::Z ? axisY : axisZ;
+                    const float     r   = collider.Radius;
+                    const glm::vec3 top = center + up * collider.HalfHeight;
+                    const glm::vec3 bot = center - up * collider.HalfHeight;
 
-                    AddCircle( outLines, top, axisX, axisZ, r );
-                    AddCircle( outLines, bot, axisX, axisZ, r );
+                    AddCircle( outLines, top, u, w, r );
+                    AddCircle( outLines, bot, u, w, r );
 
                     // Four cylinder side lines.
-                    AddLine( outLines, top + axisX * r, bot + axisX * r );
-                    AddLine( outLines, top - axisX * r, bot - axisX * r );
-                    AddLine( outLines, top + axisZ * r, bot + axisZ * r );
-                    AddLine( outLines, top - axisZ * r, bot - axisZ * r );
+                    AddLine( outLines, top + u * r, bot + u * r );
+                    AddLine( outLines, top - u * r, bot - u * r );
+                    AddLine( outLines, top + w * r, bot + w * r );
+                    AddLine( outLines, top - w * r, bot - w * r );
 
                     // Cap arcs: two orthogonal half-circles per cap.
-                    AddArc( outLines, top, axisX, axisY, r );
-                    AddArc( outLines, top, axisZ, axisY, r );
-                    AddArc( outLines, bot, axisX, -axisY, r );
-                    AddArc( outLines, bot, axisZ, -axisY, r );
+                    AddArc( outLines, top, u, up, r );
+                    AddArc( outLines, top, w, up, r );
+                    AddArc( outLines, bot, u, -up, r );
+                    AddArc( outLines, bot, w, -up, r );
                     break;
                 }
             }

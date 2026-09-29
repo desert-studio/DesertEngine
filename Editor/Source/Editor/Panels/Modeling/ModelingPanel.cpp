@@ -1,6 +1,8 @@
 #include "ModelingPanel.hpp"
 
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/ColliderFit.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
@@ -13,6 +15,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Common/Core/Units.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Common/Core/Logger.hpp>
 #include <ImGui/imgui.h>
 
@@ -83,20 +86,35 @@ namespace Desert::Editor
             PolyModel,
             TriModel,
             Transform,
+            Collision,
         };
         struct PaletteEntry
         {
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 6> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 7> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                               { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                               { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                               { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                               { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
-                                                              { ICON_MDI_ARROW_ALL, "Transform" } } };
-        static_assert( kPalettes.size() == static_cast<size_t>( Palette::Transform ) + 1,
+                                                              { ICON_MDI_ARROW_ALL, "Transform" },
+                                                              { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
+        static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
                        "one rail entry per palette" );
+
+        // UE SetCollisionGeometryTool's simple types we have a shape for (Aligned Boxes, Minimal Spheres,
+        // Capsules, Convex Hulls), one element per mesh.
+        struct CollisionShapeEntry
+        {
+            const char*        Name;
+            Physics::ShapeType Shape;
+        };
+        constexpr std::array<CollisionShapeEntry, 4> kCollisionShapes = {
+             { { "Box", Physics::ShapeType::Box },
+               { "Sphere", Physics::ShapeType::Sphere },
+               { "Capsule", Physics::ShapeType::Capsule },
+               { "Convex Hull", Physics::ShapeType::ConvexHull } } };
     } // namespace
 
     ModelingPanel::ModelingPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
@@ -179,6 +197,9 @@ namespace Desert::Editor
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::Collision:
+                DrawCollisionPalette();
                 break;
         }
         ImGui::EndChild();
@@ -525,6 +546,53 @@ namespace Desert::Editor
         if ( ImGui::Checkbox( "Split by polygroups", &byGroups ) )
             ms.XformSplit =
                  byGroups ? Geometry::SplitMethod::PolyGroups : Geometry::SplitMethod::ConnectedComponents;
+    }
+
+    void ModelingPanel::DrawCollisionPalette()
+    {
+        std::array<const char*, kCollisionShapes.size()> names{};
+        for ( size_t i = 0; i < kCollisionShapes.size(); ++i )
+            names[i] = kCollisionShapes[i].Name;
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::Combo( "##CollisionShape", &m_CollisionShape, names.data(), static_cast<int>( names.size() ) );
+        if ( ImGui::Button( "Mesh To Collision", ImVec2( -1.0f, 0.0f ) ) )
+            MeshToCollision();
+    }
+
+    void ModelingPanel::MeshToCollision()
+    {
+        const auto& shape = kCollisionShapes.at( static_cast<size_t>( m_CollisionShape ) );
+        const auto& ids   = Core::SelectionManager::GetSelection();
+        if ( !m_Scene || ids.size() != 1 )
+        {
+            LOG_WARN( "Mesh To Collision: select one entity with a static mesh" );
+            return;
+        }
+        const Common::UUID id  = ids.front();
+        auto               ref = m_Scene->FindEntityByID( id );
+        if ( !ref )
+        {
+            LOG_WARN( "Mesh To Collision: entity {} is not in the scene", static_cast<uint64_t>( id ) );
+            return;
+        }
+        ECS::Entity entity = ref->get();
+
+        auto fit = Core::FitEntityCollider( entity, shape.Shape );
+        if ( !fit.IsSuccess() )
+        {
+            LOG_WARN( "Mesh To Collision on entity {}: {}", static_cast<uint64_t>( id ), fit.GetError() );
+            return;
+        }
+        const ECS::ColliderData collider = fit.GetValue();
+        Commands::MutateEntityUndoable( id,
+                                        [&]
+                                        {
+                                            auto live = m_Scene->FindEntityByID( id );
+                                            if ( live )
+                                                live->get().AddComponent<ECS::ColliderComponent>(
+                                                     ECS::ColliderComponent{ collider } );
+                                        } );
+        LOG_INFO( "[Modeling] Mesh To Collision on entity {}: {}", static_cast<uint64_t>( id ), shape.Name );
     }
 
     void ModelingPanel::DrawCubeGrid()

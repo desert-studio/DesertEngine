@@ -53,6 +53,9 @@ namespace Desert::Editor
         void DrawPolyModelPalette();
         void DrawTriModelPalette();
         void DrawTransformPalette();
+        void DrawCollisionPalette();
+        // UE's Mesh To Collision on the selected entity: fits m_CollisionShape to its mesh; one undo step.
+        void MeshToCollision();
         void DrawCubeGrid();
         // A mesh / XForm operation on one click; a refusal is logged with its reason.
         void Operate( Core::MeshOperation op );
@@ -64,5 +67,6 @@ namespace Desert::Editor
         std::shared_ptr<Desert::Core::Scene> m_Scene;
         int                                  m_Category  = 0; // index into the rail (Palette in the .cpp)
         int                                  m_ShownTool = 0; // the ModelingState::Tool the rail last followed
+        int m_CollisionShape = 0; // Mesh To Collision's type: index into kCollisionShapes in the .cpp
     };
 } // namespace Desert::Editor

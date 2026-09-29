@@ -2,72 +2,61 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/Mesh.hpp>
-#include <Engine/Geometry/PrimitiveMeshFactory.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/ECS/System/ColliderFit.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
 
 #include <glm/glm.hpp>
 
-#include <limits>
-#include <optional>
-
 namespace Desert::Editor::Core
 {
-    // Fitting a collider to the mesh an entity actually draws. Shared because TWO places must agree on
-    // it: the Collision menu in the toolbar and the Collider section in Details (whose "off the mesh
-    // bounds by N%" warning is computed from the same measurement, so the warning and the button that
-    // silences it can never disagree).
+    // Fitting a collider to the mesh an entity actually draws, for every editor place that does it: the
+    // Collider section in Details (Add, "Fit to Mesh Bounds", and its "off the mesh" warning) and Modeling's Mesh
+    // To Collision. All of them fit ECS::FitCollider to the points PhysicsECSSystem cooks a hull from — the same
+    // source precedence and the same world scale as the body — so the warning, the button that silences it and
+    // the body the simulation builds can never disagree.
 
-    // The mesh this entity really draws — the same precedence the renderer uses.
-    inline const ::Desert::Mesh* ColliderSourceMesh( const ECS::Entity& entity )
+    // @p shape fit to the entity's mesh. An error names why there is nothing to fit (no mesh, a skinned one, the
+    // asset still loading, or a Mesh shape, which is the render triangles themselves).
+    inline Common::ResultStr<ECS::ColliderData> FitEntityCollider( const ECS::Entity& entity,
+                                                                   Physics::ShapeType shape )
     {
-        if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
-            return nullptr;
-
-        const auto& smc = entity.GetComponent<ECS::StaticMeshComponent>();
-        if ( smc.MeshHandle )
-            return Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
-        if ( smc.RuntimeMesh )
-            return smc.RuntimeMesh.get();
-        if ( smc.Primitive.has_value() )
-            return Geometry::PrimitiveMeshFactory::GetShared( smc.Primitive.value() );
-        return nullptr;
+        const glm::mat3 world( entity.GetWorldTransform() );
+        const glm::vec3 scale( glm::length( world[0] ), glm::length( world[1] ), glm::length( world[2] ) );
+        auto            gathered =
+             ECS::PhysicsECSSystem::GatherColliderMesh( *entity.GetRegistry(), entity.GetHandle(), scale );
+        if ( !gathered.IsSuccess() )
+            return Common::MakeError<ECS::ColliderData>( gathered.GetError() );
+        if ( !gathered.GetValue().has_value() )
+            return Common::MakeError<ECS::ColliderData>( "the entity's mesh is still loading" );
+        return ECS::FitCollider( shape, gathered.GetValue()->Points );
     }
 
-    // World-space half-extents of that mesh (its local bounds times the entity's scale), or nothing when
-    // there is no mesh to measure.
-    inline std::optional<glm::vec3> MeshHalfExtents( const ECS::Entity& entity )
+    // The collider's half-span along the body axes: what the Details warning compares against the fit.
+    inline glm::vec3 ColliderHalfSpan( const ECS::ColliderData& col )
     {
-        const ::Desert::Mesh* mesh = ColliderSourceMesh( entity );
-        if ( !mesh )
-            return std::nullopt;
-
-        glm::vec3 mn( std::numeric_limits<float>::max() );
-        glm::vec3 mx( std::numeric_limits<float>::lowest() );
-        for ( const auto& sm : mesh->GetSubmeshes() )
+        switch ( col.Shape )
         {
-            mn = glm::min( mn, sm.BoundingBox.Min );
-            mx = glm::max( mx, sm.BoundingBox.Max );
+            case Physics::ShapeType::Box:
+                return col.HalfExtents;
+            case Physics::ShapeType::Capsule:
+            {
+                glm::vec3 span( col.Radius );
+                span[static_cast<int>( col.Axis )] = col.HalfHeight + col.Radius;
+                return span;
+            }
+            default:
+                return glm::vec3( col.Radius );
         }
-        if ( mn.x > mx.x )
-            return std::nullopt; // no submeshes / empty mesh
-
-        const glm::vec3 scale = entity.GetComponent<ECS::TransformComponent>().Scale;
-        return glm::abs( ( mx - mn ) * 0.5f * scale );
     }
 
-    // Sizes @p col to wrap the entity's mesh. Leaves the shape alone — box, sphere and capsule are all
-    // sized from the same half-extents, so switching shape afterwards keeps the fit.
-    inline void FitColliderToMesh( const ECS::Entity& entity, ECS::ColliderData& col )
+    // Sizes @p col to wrap the entity's mesh, keeping its shape. Returns false (and leaves @p col alone) when
+    // there is nothing to fit to.
+    inline bool FitColliderToMesh( const ECS::Entity& entity, ECS::ColliderData& col )
     {
-        const auto half = MeshHalfExtents( entity );
-        if ( !half )
-            return;
-
-        col.HalfExtents = *half;
-        col.Radius      = glm::max( half->x, glm::max( half->y, half->z ) );
-        // Capsule cylinder half-height = total half-height minus the two hemispherical caps (radius).
-        col.HalfHeight = glm::max( 0.01f, half->y - col.Radius );
+        auto fit = FitEntityCollider( entity, col.Shape );
+        if ( !fit.IsSuccess() )
+            return false;
+        col = fit.GetValue();
+        return true;
     }
 } // namespace Desert::Editor::Core
