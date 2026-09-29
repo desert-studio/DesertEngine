@@ -1,13 +1,16 @@
 // Surface cell pass: the G-buffer write of ShadingModel Unlit (UE's MSM_Unlit in the base pass) — emission only.
-// The attachments are Pass_GBuffer's; no albedo and no metalness, so the deferred lighting has nothing to reflect
-// and the resolve adds the emission. (The G-buffer has no shading-model channel yet, so the lighting still runs
-// over the texel: the fully-rough non-metal black keeps its contribution at the dielectric floor.)
+// The attachments are Pass_GBuffer's. The texel carries SHADING_MODEL_ID_UNLIT (Mesh/Surface/ShadingModels.glslh),
+// and the deferred composite branches on it: an Unlit texel is its emission and nothing else — no BRDF, no
+// ambient, no occlusion — as UE's lighting skips MSM_Unlit. Albedo and metalness are written black so the
+// debug views and the screen-space bounce (which reads albedo) see no reflector here either.
+#include <Mesh/Surface/ShadingModels.glslh>
+
 DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oGBufferA;        // BaseColor.rgb, Metallic.a
 layout( location = 1 ) out vec4 oGBufferB;        // world Normal.rgb, Roughness.a
-layout( location = 2 ) out vec4 oGBufferC;        // WorldPosition.xyz, sampled-texture count.w
-layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the deferred resolve adds it)
+layout( location = 2 ) out vec4 oGBufferC;        // WorldPosition.xyz, ShadingModelID | texture count.w
+layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the deferred resolve adds it), AO.a
 
 void main()
 {
@@ -17,6 +20,6 @@ void main()
     DESERT_SURFACE_CLIP( s );
     oGBufferA        = vec4( vec3( 0.0 ), 0.0 );
     oGBufferB        = vec4( i.Normal, 1.0 );
-    oGBufferC        = vec4( i.WorldPosition, s.SampledTextureCount );
+    oGBufferC        = vec4( i.WorldPosition, DesertPackShadingWord( SHADING_MODEL_ID_UNLIT, s.SampledTextureCount ) );
     oGBufferEmissive = vec4( s.Emissive, 1.0 );
 }

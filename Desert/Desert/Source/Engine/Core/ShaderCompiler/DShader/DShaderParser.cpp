@@ -1423,9 +1423,9 @@ namespace Desert::Core::Preprocess
         std::vector<std::string> includes{ std::string( kSurfaceTypesInclude ) };
         for ( const std::string_view path : kSurfaceVertexPaths )
             includes.push_back( SurfaceVertexInclude( path ) );
-        for ( const SurfaceShadingModel model : { SurfaceShadingModel::DefaultLit, SurfaceShadingModel::Unlit } )
+        for ( const SurfaceShadingModelRow& row : kSurfaceShadingModels )
             for ( const std::string_view pass : kSurfaceCellPasses )
-                if ( std::string header = SurfacePassInclude( pass, model );
+                if ( std::string header = SurfacePassInclude( pass, row.Model );
                      std::find( includes.begin(), includes.end(), header ) == includes.end() )
                     includes.push_back( std::move( header ) );
         return includes;
