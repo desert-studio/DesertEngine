@@ -444,9 +444,7 @@ namespace Desert::Animation
             const double after  = playback.Time.AsTicks();
             for ( const auto& notify : playback.Clip->Notifies )
             {
-                const auto at   = static_cast<double>( notify.Tick.Value );
-                const bool fire = looped ? ( at > before || at <= after ) : ( at > before && at <= after );
-                if ( fire )
+                if ( NotifyCrossed( static_cast<double>( notify.Tick.Value ), before, after, looped ) )
                 {
                     m_FiredNotifies.push_back( notify.Name );
                 }

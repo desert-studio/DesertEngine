@@ -113,7 +113,8 @@ namespace Desert::Assets::Serialization
     struct NotifyData
     {
         std::string Name;
-        int32_t     Tick = 0;
+        int32_t     Tick  = 0;
+        int32_t     Track = 0; // the Animation Editor row (UE Notify Track); playback ignores it
     };
 
     // An exact rational rate, mirroring Animation::FrameRate. A SEPARATE STRUCT and not that type because

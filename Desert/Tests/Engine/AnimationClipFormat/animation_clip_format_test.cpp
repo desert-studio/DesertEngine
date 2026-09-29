@@ -105,7 +105,8 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
                ( std::vector<std::string>{ "Channels", "DisplayRate", "DurationTicks", "Header", "Name",
                                            "Notifies", "Sections", "SkeletonSignature", "TickRate" } ) );
-    EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Tick" } ) );
+    // ANV1b: a notify states the Animation Editor row it is drawn on (UE's Notify Tracks).
+    EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Tick", "Track" } ) );
     EXPECT_EQ( FieldNames<Ser::FrameRateData>(), ( std::vector<std::string>{ "Denominator", "Numerator" } ) );
     EXPECT_EQ( FieldNames<Ser::SectionData>(),
                ( std::vector<std::string>{ "Blend", "EndTick", "Name", "StartTick", "Tracks", "Weight" } ) );
@@ -190,6 +191,39 @@ TEST( AnimationClipFormat, NotifiesComeOutSortedByTick )
     ASSERT_EQ( built.GetValue().Notifies.size(), 3u );
     EXPECT_EQ( built.GetValue().Notifies[0].Name, "early" );
     EXPECT_EQ( built.GetValue().Notifies[2].Name, "late" );
+}
+
+// ANV1b: the row a notify is drawn on survives the file and the build — a notify moved to track 2 and saved
+// is on track 2 when the clip is opened again, not on the first row.
+TEST( AnimationClipFormat, ANotifysTrackSurvivesTheFileAndTheBuild )
+{
+    const Ser::NotifyData written{ "FootSync", 12000, 2 };
+    const auto            read = rfl::json::read<Ser::NotifyData>( rfl::json::write( written ) );
+    ASSERT_TRUE( read ) << read.error().what();
+    EXPECT_EQ( read.value().Track, 2 );
+
+    Ser::AnimationAssetData data;
+    data.Name     = "Tracked";
+    data.Notifies = { { "b", 4800, 1 }, { "a", 2400, 2 } };
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    ASSERT_TRUE( built ) << built.GetError();
+    ASSERT_EQ( built.GetValue().Notifies.size(), 2u );
+    EXPECT_EQ( built.GetValue().Notifies[0].Track, 2 );
+    EXPECT_EQ( built.GetValue().Notifies[1].Track, 1 );
+
+    const auto back = Desert::Assets::Serialization::BuildAssetDataFromClip( built.GetValue() );
+    ASSERT_EQ( back.Notifies.size(), 2u );
+    EXPECT_EQ( back.Notifies[0].Track, 2 );
+}
+
+TEST( AnimationClipFormat, ANegativeNotifyTrackIsRefusedByName )
+{
+    Ser::AnimationAssetData data;
+    data.Name     = "Negative";
+    data.Notifies = { { "Hit", 2400, -1 } };
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    ASSERT_FALSE( built );
+    EXPECT_NE( built.GetError().find( "Hit" ), std::string::npos ) << built.GetError();
 }
 
 // ============================================================================

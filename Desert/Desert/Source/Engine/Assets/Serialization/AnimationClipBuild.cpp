@@ -171,7 +171,15 @@ namespace Desert::Assets::Serialization
         // Notifies sorted by time so the Animator's crossing test is a simple ordered scan.
         clip.Notifies.reserve( data.Notifies.size() );
         for ( const auto& n : data.Notifies )
-            clip.Notifies.push_back( Animation::AnimationNotify{ n.Name, Animation::FrameNumber{ n.Tick } } );
+        {
+            if ( n.Track < 0 )
+            {
+                return Common::MakeFormattedError<Animation::AnimationClip>(
+                     "notify '{}' at tick {} states track {}; a notify track is a row index, 0 or more", n.Name,
+                     n.Tick, n.Track );
+            }
+            clip.Notifies.push_back( Animation::AnimationNotify{ n.Name, Animation::FrameNumber{ n.Tick }, n.Track } );
+        }
         std::sort( clip.Notifies.begin(), clip.Notifies.end(),
                    []( const Animation::AnimationNotify& a, const Animation::AnimationNotify& b )
                    { return a.Tick < b.Tick; } );
