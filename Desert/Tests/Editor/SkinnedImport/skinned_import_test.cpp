@@ -14,6 +14,7 @@
 //    CreateAssetsFromImport, by the registry's write journal), and the record states Kind = SkinnedMesh.
 
 #include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/MaterialImportContract.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -140,6 +141,24 @@ namespace
     class SkinnedImport : public ::testing::Test
     {
     protected:
+        // The mock's material needs a template to go to, as in the editor after its shaders load: the shipped
+        // PBR and Unlit shaders, read by the importer's own reader and published through the same seam the
+        // registry uses (run from the tree root, before the sandbox moves the process).
+        static void SetUpTestSuite()
+        {
+            std::vector<Editor::ImportTemplate> shipped;
+            for ( const char* file : { "Editor/Resources/Shaders/Programs/PBR/StaticMeshPBR.shader",
+                                       "Editor/Resources/Shaders/Programs/Unlit/Unlit.shader" } )
+            {
+                const auto text = Common::Utils::FileSystem::ReadFileContent( file );
+                ASSERT_TRUE( text.IsSuccess() ) << file << " (run from the tree root)";
+                auto read = Editor::ReadImportTemplate( text.GetValue(), file );
+                ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+                shipped.push_back( std::move( read.GetValue() ) );
+            }
+            ASSERT_EQ( Editor::ImportManager::PublishImportTemplates( std::move( shipped ) ), 2u );
+        }
+
         void SetUp() override
         {
             Assets::ContentRegistry::ResetForTest();

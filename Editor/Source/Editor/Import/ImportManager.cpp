@@ -426,7 +426,7 @@ namespace Desert::Editor
     {
         const std::filesystem::path resources =
              std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ).parent_path().parent_path();
-        auto templates = std::make_shared<std::vector<ImportTemplate>>();
+        std::vector<ImportTemplate> templates;
         for ( const auto& [handle, shader] : manager.FindAllByType<Assets::ShaderAsset>() )
         {
             if ( !shader->IsReadyForUse() )
@@ -441,11 +441,17 @@ namespace Desert::Editor
                 LOG_ERROR( "[Import] {}", read.GetError() );
             }
             else if ( read.GetValue().Manifest.DeclaresImport )
-                templates->push_back( std::move( read.GetValue() ) );
+                templates.push_back( std::move( read.GetValue() ) );
         }
-        const std::size_t count = templates->size();
+        return PublishImportTemplates( std::move( templates ) );
+    }
+
+    std::size_t ImportManager::PublishImportTemplates( std::vector<ImportTemplate> templates )
+    {
+        auto published          = std::make_shared<const std::vector<ImportTemplate>>( std::move( templates ) );
+        const std::size_t count = published->size();
         std::scoped_lock  lock( s_TemplatesMutex );
-        s_Templates = std::move( templates );
+        s_Templates = std::move( published );
         return count;
     }
 

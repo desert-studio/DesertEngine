@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include "BackgroundCook.hpp"
 #include "IAssetImporter.hpp"
+#include "MaterialImportContract.hpp"
 #include "ImportResult.hpp"
 #include "TextureImporter.hpp"
 
@@ -59,6 +60,10 @@ namespace Desert::Editor
         // whose manifest declares an Import block (the registry, not a directory scan). Call after the shaders
         // load; a material import before it is refused. Returns how many templates were published.
         static std::size_t PublishImportTemplates( const Assets::AssetManager& manager );
+        // Publishes @p templates as they are: the registry overload above reads them from the loaded shaders and
+        // lands here, and a caller without a renderer (the import suites) reads the shipped shader files with
+        // ReadImportTemplate and hands them over. Replaces whatever was published; returns the count.
+        static std::size_t PublishImportTemplates( std::vector<ImportTemplate> templates );
 
         /// Imports every loose image under `LooseTextureRoots()` that has no `.detex` yet; returns the count.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.
