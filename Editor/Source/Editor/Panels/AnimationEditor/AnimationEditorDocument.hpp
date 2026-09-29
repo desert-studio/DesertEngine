@@ -110,13 +110,13 @@ namespace Desert::Editor
         void                      BuildLayout( unsigned int dockId ) const;
         void                      DrawViewportPanel();
         void                      DrawSkeletonTree();
-        void                      DrawBoneDetails();
-        void                      DrawBoneGizmo( const glm::vec2& origin, const glm::vec2& size );
+        void                                 DrawBoneDetails();
+        void                                 DrawBoneGizmo( const glm::vec2& origin, const glm::vec2& size );
         [[nodiscard]] Animation::FrameNumber KeyTick() const;
         Animation::Animator*                 BeginPosing();
         void                                 EndPosing();
-        bool PoseSelectedBone( const Animation::BoneTransform& pose, bool undoable );
-        bool KeySelectedBone();
+        bool                      PoseSelectedBone( const Animation::BoneTransform& pose, bool undoable );
+        bool                      KeySelectedBone();
         void                      DrawAssetDetails();
         void                      DrawPreviewSceneSettings();
         void                      DrawAssetBrowser();

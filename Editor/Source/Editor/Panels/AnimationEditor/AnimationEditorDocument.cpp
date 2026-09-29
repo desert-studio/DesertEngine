@@ -348,8 +348,8 @@ namespace Desert::Editor
                                      return;
                                  }
                                  Animation::BoneTransform pose = animator->GetAuthoringPose()[*m_SelectedBone];
-                                 pose.Rotation =
-                                      pose.Rotation * glm::angleAxis( glm::radians( 30.0f ), glm::vec3( 0, 0, 1 ) );
+                                 pose.Rotation                 = pose.Rotation *
+                                                 glm::angleAxis( glm::radians( 30.0f ), glm::vec3( 0, 0, 1 ) );
                                  (void)PoseSelectedBone( pose, true );
                              } } );
         actions.push_back( { "Key Bone", [this]() { (void)KeySelectedBone(); } } );
@@ -391,8 +391,7 @@ namespace Desert::Editor
         }
         // An unkeyed pose belongs to the frame it was made on (UE drops it the same way): play or another frame
         // shows the clip again. Never mid-gesture - the transaction still holds its "before".
-        if ( m_Posed && !m_PoseEdit.Open() &&
-             ( m_Transport.Playing || m_Transport.FrameIndex() != m_PosedFrame ) )
+        if ( m_Posed && !m_PoseEdit.Open() && ( m_Transport.Playing || m_Transport.FrameIndex() != m_PosedFrame ) )
             EndPosing();
         m_Preview->SetAnimationTime( m_Transport.Time );
         PreviewEnvironment::ApplyTo( *m_Preview, m_Assets );
@@ -657,7 +656,8 @@ namespace Desert::Editor
                 ImGui::TextDisabled( "Starting the preview..." );
             else
                 (void)m_Preview->Draw( *m_UIHelper, view,
-                                       m_GizmoHovered ? PreviewInteraction::Static : PreviewInteraction::Interactive );
+                                       m_GizmoHovered ? PreviewInteraction::Static
+                                                      : PreviewInteraction::Interactive );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             DrawOverlay( glm::vec2( origin.x, origin.y ) );
@@ -811,7 +811,8 @@ namespace Desert::Editor
         // authoring buffer alone is the bind pose until something poses it - it is not the frame.)
         const Animation::BoneTransform& shown =
              m_Posed ? animator->GetAuthoringPose()[index] : animator->GetLocalPose()[index];
-        BoneTransformRows posed{ shown.Translation, glm::degrees( glm::eulerAngles( shown.Rotation ) ), shown.Scale };
+        BoneTransformRows posed{ shown.Translation, glm::degrees( glm::eulerAngles( shown.Rotation ) ),
+                                 shown.Scale };
         if ( section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(), posed, true ) )
             (void)PoseSelectedBone( Animation::BoneTransform{ posed.Location,
                                                               glm::quat( glm::radians( posed.RotationDegrees ) ),
@@ -865,7 +866,8 @@ namespace Desert::Editor
             return false;
         if ( undoable )
         {
-            if ( const auto begun = m_PoseEdit.Begin( animator, &asset->GetClipForAuthoring() ); !begun.IsSuccess() )
+            if ( const auto begun = m_PoseEdit.Begin( animator, &asset->GetClipForAuthoring() );
+                 !begun.IsSuccess() )
             {
                 LOG_ERROR( "Animation Editor: pose edit refused: {}", begun.GetError() );
                 return false;
@@ -964,8 +966,8 @@ namespace Desert::Editor
             const uint32_t parent = animator->GetSkeleton().ResolveParent( bone );
             if ( parent < animator->GetSkeleton().GetBones().size() )
                 parentModel = animator->GetBoneModelMatrix( parent );
-            const auto local =
-                 Animation::BoneTransform::FromMatrix( glm::inverse( parentModel ) * glm::inverse( target ) * world );
+            const auto local = Animation::BoneTransform::FromMatrix( glm::inverse( parentModel ) *
+                                                                     glm::inverse( target ) * world );
             if ( local.IsSuccess() )
                 (void)PoseSelectedBone( local.GetValue(), false );
             else
