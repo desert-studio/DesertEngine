@@ -30,6 +30,7 @@ Shader "SkinnedMeshPBR"
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
+        Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
@@ -43,6 +44,8 @@ Shader "SkinnedMeshPBR"
         // slot and a wrong normal.
         Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
         Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
+        // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
+        Texture2D   u_ORMTexture ("ORM Map", Category("Textures"))
         Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
         Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
         Texture2D   u_AOTexture ("AO Map", Category("Textures"))
@@ -208,6 +211,8 @@ Shader "SkinnedMeshPBR"
         Uniform(11) sampler2D u_AlbedoTexture;
         Uniform(12) sampler2D u_NormalTexture;
         Uniform(18) sampler2D u_OpacityTexture; // alpha-cutout mask (foliage); unused when cutoff == 0 (16/17 = light SSBOs)
+        Uniform(23) sampler2D u_ORMTexture;      // R = occlusion, G = roughness, B = metallic (data, linear)
+        Uniform(24) sampler2D u_EmissiveTexture; // sRGB colour, linearised below like the albedo
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD — the sun's SECOND occluder, at the same slots as in
         // StaticMeshPBR / StaticMeshPBR_Instanced / StaticMeshGlass / StaticMeshGBuffer. It matters most
@@ -308,8 +313,9 @@ Shader "SkinnedMeshPBR"
         		return;
         	}
 
-        	// No ORM texture is bound: its white texel passes the factors through, occlusion strength at glTF's 1.
-        	const vec3  orm       = PBRResolveORM(vec3(1.0), 1.0, u_Material.RoughnessFactor, u_Material.MetallicFactor);
+        	// The ORM map against its factors (an empty slot is white, so the factors pass through unchanged).
+        	const vec3  orm       = PBRResolveORM(texture(u_ORMTexture, uv).rgb, u_Material.OcclusionStrength, u_Material.RoughnessFactor, u_Material.MetallicFactor);
+        	const vec3  emissiveTexel = pow(texture(u_EmissiveTexture, uv).rgb, vec3(2.2));
         	const float metalness = orm.z;
         	// Clamp to a minimum roughness so the GGX NDF stays finite even for mirror-smooth materials.
         	const float roughness = max(orm.y, 0.04);
@@ -397,8 +403,7 @@ Shader "SkinnedMeshPBR"
             }
 
             // Ambient occlusion attenuates only the ambient (IBL) term; emission is added unlit.
-            // No emissive texture is bound: its texel is white.
-            vec3 emission = PBREmission(vec3(1.0), u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity);
+            vec3 emission = PBREmission(emissiveTexel, u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity);
 
             // The ambient, assembled by the shared header — the SAME call the deferred composite makes,
             // so the two paths cannot floor, occlude or albedo-weight it differently. The forward path

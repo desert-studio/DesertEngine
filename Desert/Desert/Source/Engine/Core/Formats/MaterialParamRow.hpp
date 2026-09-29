@@ -127,4 +127,20 @@ namespace Desert::Core::Formats
             SetMaterialParam( meta, row, v.Name, v.Value );
         return row;
     }
+
+    // The 2D texture slots a material asset fills, BY THE MANIFEST: every `Texture2D` the schema declares,
+    // each with the handle the asset names for it (`handleOf(name)`; 0 when it names none, which the caller
+    // binds as the slot's schema default). A cube slot (bound from the environment) and a non-texture asset
+    // reference (its own service reads it) are not this walk's. The ONE walk behind DataDrivenMaterial and
+    // MaterialPBR alike, so a slot a shader adds is bound without anybody adding a line for it.
+    template <class HandleOf, class Bind>
+    void ForEachMaterialTextureSlot( const ShaderProgramMeta& meta, HandleOf&& handleOf, Bind&& bind )
+    {
+        for ( const auto& p : meta.Params )
+        {
+            if ( !p.IsTexture || p.IsCubeTexture || p.IsAssetRef() )
+                continue;
+            bind( p, static_cast<uint64_t>( handleOf( p.Name ) ) );
+        }
+    }
 } // namespace Desert::Core::Formats

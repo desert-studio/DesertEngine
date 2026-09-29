@@ -980,16 +980,18 @@ TEST_F( ShaderRootFixture, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActually
     const auto gbuffer = GraphicsSetZero( ShaderPath( "PBR/StaticMeshGBuffer.shader" ) );
     ASSERT_FALSE( gbuffer.empty() );
 
-    EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 5u )
+    EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 7u )
          << "StaticMeshGBuffer's set 0 is " << DescribeBindings( gbuffer )
-         << " — a G-buffer write reads the camera, the material rows and the surface's three maps, and a "
-            "sixth descriptor is either a lighting slot that came back or a surface input nobody fills";
+         << " — a G-buffer write reads the camera, the material rows and the surface's five maps, and an "
+            "eighth descriptor is either a lighting slot that came back or a surface input nobody fills";
 
     EXPECT_TRUE( HasBinding( gbuffer, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // CameraUB (vertex)
     EXPECT_TRUE( HasBinding( gbuffer, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // Materials[]
     EXPECT_TRUE( HasBinding( gbuffer, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_AlbedoTexture
     EXPECT_TRUE( HasBinding( gbuffer, 12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_NormalTexture
     EXPECT_TRUE( HasBinding( gbuffer, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_OpacityTexture
+    EXPECT_TRUE( HasBinding( gbuffer, 23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ORMTexture
+    EXPECT_TRUE( HasBinding( gbuffer, 24, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_EmissiveTexture
 
     // And the two the deferred composite owns, named individually because they are the ones a reader is
     // most likely to put back "so the G-buffer can shade the ambient". It cannot: it writes attributes and

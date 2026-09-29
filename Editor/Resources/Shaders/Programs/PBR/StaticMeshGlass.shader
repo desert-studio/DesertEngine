@@ -26,6 +26,7 @@ Shader "StaticMeshGlass"
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
+        Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
@@ -40,7 +41,6 @@ Shader "StaticMeshGlass"
         Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
         Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
         Texture2D   u_AOTexture ("AO Map", Category("Textures"))
-        Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
     }
 
     Vertex

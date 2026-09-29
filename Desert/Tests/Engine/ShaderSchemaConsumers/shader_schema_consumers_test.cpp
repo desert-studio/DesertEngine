@@ -333,7 +333,7 @@ namespace
          { "ShaderParam", "Widget", kMatEdit, nullptr },
          { "ShaderParam", "IsTexture", kParamRow, nullptr },
          { "ShaderParam", "AssetKind", kMatEdit, nullptr },
-         { "ShaderParam", "IsCubeTexture", kFactory, nullptr },
+         { "ShaderParam", "IsCubeTexture", kParamRow, nullptr },
          { "ShaderParam", "Min", kMatEdit, nullptr },
          { "ShaderParam", "Max", kMatEdit, nullptr },
          { "ShaderParam", "Default", kParamRow, nullptr },
@@ -854,13 +854,11 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // The known drift, with the reason and the owner. StaticMeshPBR's schema offers seven texture slots
-    // and the shader samples three; the four below are persisted by `PBRSurfaceParams` (the mesh importer
-    // fills them from FBX/glTF) and read by no stage of any PBR shader. Deleting them throws away import
-    // data the engine may want; wiring them is a shading-model change. Either way it is not a tidy-up,
-    // and М9 found it rather than owning it.
-    static const std::set<std::string> knownUnsampled = { "u_MetallicTexture", "u_RoughnessTexture", "u_AOTexture",
-                                                          "u_EmissiveTexture" };
+    // The known drift, with the reason and the owner. The PBR passes sample the packed u_ORMTexture and
+    // u_EmissiveTexture (MAT1a-T2); the three separate maps below are still what the mesh importer and the
+    // Collections panel write, and packing them into the ORM slot at import is MAT1b's, which deletes them.
+    static const std::set<std::string> knownUnsampled = { "u_MetallicTexture", "u_RoughnessTexture",
+                                                          "u_AOTexture" };
     std::set<std::string>              seenUnsampled;
 
     const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";

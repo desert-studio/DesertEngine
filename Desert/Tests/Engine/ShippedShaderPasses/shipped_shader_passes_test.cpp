@@ -781,3 +781,55 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
     EXPECT_EQ( floatAt( "NormalScale", 0 ), 1.0f );
     EXPECT_EQ( floatAt( "ReceiveSunShadows", 0 ), 1.0f );
 }
+
+TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOneTakesTheSchemaDefault )
+{
+    // MaterialFactory binds a PBR material's maps through ForEachMaterialTextureSlot: the slot names come
+    // from the template's manifest, the handles from the .demat. There used to be three hand-written binds
+    // (albedo, normal, opacity), so an ORM or emissive map persisted in the file never reached a sampler.
+    constexpr uint64_t                    kORMHandle = 0x0123456789ABCDEFull;
+    const std::map<std::string, uint64_t> demat = { { "u_ORMTexture", kORMHandle } }; // the file names one map
+
+    for ( const char* name : { "StaticMeshPBR", "StaticMeshGBuffer" } )
+    {
+        const auto* parsed = ShippedByName( name );
+        ASSERT_NE( parsed, nullptr ) << name;
+        const auto& meta = parsed->Meta;
+
+        std::map<std::string, uint64_t>                                  bound;
+        std::map<std::string, Desert::Core::Formats::DefaultTextureKind> defaults;
+        Desert::Core::Formats::ForEachMaterialTextureSlot(
+             meta,
+             [&demat]( const std::string& slot ) -> uint64_t
+             {
+                 const auto it = demat.find( slot );
+                 return it == demat.end() ? 0 : it->second;
+             },
+             [&]( const auto& param, uint64_t handle )
+             {
+                 EXPECT_TRUE( bound.emplace( param.Name, handle ).second )
+                      << name << ": " << param.Name << " twice";
+                 defaults[param.Name] = param.DefaultTexture;
+             } );
+
+        // Every 2D slot the manifest declares is visited — none skipped, whichever the file mentions.
+        size_t declared = 0;
+        for ( const auto& p : meta.Params )
+            declared += p.IsTexture && !p.IsCubeTexture && !p.IsAssetRef();
+        EXPECT_EQ( bound.size(), declared ) << name;
+
+        ASSERT_EQ( bound.count( "u_ORMTexture" ), 1u ) << name << " declares no ORM slot";
+        EXPECT_EQ( bound["u_ORMTexture"], kORMHandle ) << name;
+        for ( const char* empty :
+              { "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture", "u_EmissiveTexture" } )
+        {
+            ASSERT_EQ( bound.count( empty ), 1u ) << name << ": " << empty << " was not visited";
+            EXPECT_EQ( bound[empty], 0u ) << name << ": " << empty; // → the slot's schema default
+        }
+        // An empty ORM slot must pass the factors through, and the emissive texel MULTIPLIES EmissiveColor:
+        // both are white, not black and not garbage.
+        EXPECT_EQ( defaults["u_ORMTexture"], Desert::Core::Formats::DefaultTextureKind::White ) << name;
+        EXPECT_EQ( defaults["u_EmissiveTexture"], Desert::Core::Formats::DefaultTextureKind::White ) << name;
+        EXPECT_EQ( defaults["u_NormalTexture"], Desert::Core::Formats::DefaultTextureKind::FlatNormal ) << name;
+    }
+}
