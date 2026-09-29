@@ -2,7 +2,8 @@
 
 // The ONE ordered list of texture source formats the import pipeline recognizes.
 //
-// Two hand-written copies of this priority used to exist — AssimpImporter's extension fallback and
+// Two hand-written copies of this priority used to exist — AssimpImporter's extension fallback (now in
+// Import/Assimp/SourceTexturePath.cpp) and
 // FbxMeshSplitter's FormatRank — and they had already drifted: the importer ranked `.jpg` ABOVE `.tga`,
 // so a lossy JPEG sitting next to a model beat the lossless TGA of the same stem, silently baking
 // compression artifacts into normal maps and masks. The splitter disagreed and preferred the TGA. Both

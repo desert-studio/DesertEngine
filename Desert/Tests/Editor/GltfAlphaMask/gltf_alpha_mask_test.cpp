@@ -11,6 +11,7 @@
 #include <assimp/scene.h>
 
 #include <Editor/Import/Assimp/SourceAlphaMode.hpp>
+#include <Editor/Import/Assimp/SourceTexturePath.hpp>
 
 #include <array>
 #include <cstdint>
@@ -199,6 +200,29 @@ TEST( GltfAlphaMask, ACutOutOverABaseColourWithoutAlphaIsImportedOpaqueAndSaysSo
         EXPECT_NE( alpha.Warning.find( "'card.png'" ), std::string::npos ) << alpha.Warning;
         EXPECT_NE( alpha.Warning.find( "no alpha channel" ), std::string::npos ) << alpha.Warning;
     }
+}
+
+// Poly Haven's FBX states its textures Windows-style ("..\\..\\textures\\x.jpg"); on POSIX that was ONE
+// filename, so all three textures of the grass went NOT FOUND and the card imported without albedo or mask.
+TEST( GltfAlphaMask, AWindowsSeparatedTextureReferenceFindsTheFile )
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "GltfAlphaMask_TexRef";
+    fs::remove_all( root );
+    fs::create_directories( root / "a" / "b" / "mesh" );
+    fs::create_directories( root / "a" / "textures" );
+    std::ofstream( root / "a" / "textures" / "x.jpg" ) << "x";
+
+    const fs::path base  = root / "a" / "b" / "mesh";
+    const fs::path found = Desert::Editor::FindSourceTexture( base, "..\\..\\textures\\x.jpg" );
+    EXPECT_EQ( found.lexically_normal(), ( root / "a" / "textures" / "x.jpg" ).lexically_normal() );
+    fs::remove_all( root );
+}
+
+TEST( GltfAlphaMask, AGenericTextureReferenceIsNotChanged )
+{
+    EXPECT_EQ( Desert::Editor::NormalizeTextureReference( "a/b.png" ), std::filesystem::path( "a/b.png" ) );
+    EXPECT_EQ( Desert::Editor::NormalizeTextureReference( "..\\t\\x.jpg" ), std::filesystem::path( "../t/x.jpg" ) );
 }
 
 int main( int argc, char** argv )

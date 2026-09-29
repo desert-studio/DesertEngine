@@ -1,6 +1,7 @@
 #include "AssimpImporter.hpp"
 #include "../TextureImporter.hpp"
 #include "SourceAlphaMode.hpp"
+#include "SourceTexturePath.hpp"
 
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
@@ -33,7 +34,6 @@
 #include <Editor/Import/ImportManager.hpp>
 #include <Editor/Import/ImportUnits.hpp>
 #include <Editor/Import/ImportResult.hpp>
-#include <Editor/Import/TextureSourceFormats.hpp>
 
 struct aiNode;
 struct aiAnimation;
@@ -291,43 +291,9 @@ namespace Desert::Editor
             // for what the stem-only key merged and why the repository is one same-named file away from it.
             out.Guid = StableMaterialGuid( CookPaths::MaterialKey( sourcePath, out.Name, i ) );
 
-            // Locate a material's texture FILE on disk. FBX/glTF often store an unusable path (the author's
-            // absolute build path, relativized to a long "../../.../mnt/prod/.../foo.jpg" that escapes the
-            // project), so we can't trust the stored path. Strategy: try it literally, then fall back to the
-            // FILENAME next to the source file + in a sibling "textures/" folder, with EXTENSION fallback
-            // (the gothic FBX asks for "..._nor_gl_4k.exr" but only the .jpg ships). Returns {} if not found.
-            // A Windows-authored reference ("..\..\textures\foo.jpg", Poly Haven's FBX) is ONE filename to a
-            // POSIX path, so its separators are made generic before anything is taken from it.
-            auto findTextureFile = [&]( std::string refText ) -> std::filesystem::path
-            {
-                namespace fs = std::filesystem;
-                std::error_code ec;
-                std::replace( refText.begin(), refText.end(), '\\', '/' );
-                const fs::path ref( refText );
-
-                const fs::path literal =
-                     ref.is_absolute() ? ref : ( basePath / ref ).lexically_normal();
-                if ( fs::exists( literal, ec ) )
-                    return literal;
-
-                const std::string stem   = ref.stem().string();
-                const std::string name   = ref.filename().string();
-                const fs::path    dirs[] = { basePath, basePath / "textures" };
-                for ( const auto& d : dirs )
-                {
-                    if ( fs::exists( d / name, ec ) ) // exact filename
-                        return d / name;
-                    // Same stem, different extension — tried in the shared priority order (lossless
-                    // first; see TextureSourceFormats.hpp for why, and for who else reads this list).
-                    for ( const char* e : kTextureSourceExtensions )
-                    {
-                        const fs::path cand = d / ( stem + e );
-                        if ( fs::exists( cand, ec ) )
-                            return cand;
-                    }
-                }
-                return {};
-            };
+            // Locate a material's texture FILE on disk. Where the texture a reference names lives: SourceTexturePath.hpp.
+            auto findTextureFile = [&]( const std::string& refText ) -> std::filesystem::path
+            { return FindSourceTexture( basePath, refText ); };
 
             // Imports the source's texture of `type` and states it in the `sampler` slot by the imported
             // asset's header GUID (MATL 3), with the asset's path as the locator.
