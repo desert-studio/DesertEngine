@@ -771,3 +771,17 @@ TEST( CookedAssetRegistry, AClipRowCarriesTheRigItsFileStates )
          << "a clip stating no rig lists under none";
     fs::remove_all( dir );
 }
+
+// ANV1d3: A VERSION-6 CACHE IS REFUSED - it predates the clip's rig tag, so every unchanged .anim row it holds
+// says rig 0 and the Asset Browser would list no clip. Same body as this build's cache, only the magic older,
+// so the refusal can be nothing but the version.
+TEST( CookedAssetRegistry, AVersionSixCacheIsRefusedBecauseItsClipRowsHaveNoRig )
+{
+    const std::string current = Common::Content::SerializeRegistryCache( {} );
+    ASSERT_TRUE( Common::Content::ParseRegistryCache( current ) ) << "this build's own cache is read";
+
+    const std::string older = "DesertAssetRegistryCache 6" + current.substr( current.find( '\n' ) );
+    const auto        old   = Common::Content::ParseRegistryCache( older );
+    ASSERT_FALSE( old ) << "a version-6 registry cache was read";
+    EXPECT_NE( old.GetError().find( "DesertAssetRegistryCache 6" ), std::string::npos ) << old.GetError();
+}

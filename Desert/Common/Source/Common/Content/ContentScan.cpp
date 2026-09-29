@@ -467,7 +467,10 @@ namespace Common::Content
         //    both empty for as long as their files' size and stamp hold, so it is refused and rebuilt once.
         // 6: prefab rows carry the box their file states (AL1-8a). A version-5 cache holds every prefab row
         //    without one for as long as its file's size and stamp hold, so it is refused and rebuilt once.
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 6";
+        // 7: clip rows carry the rig their file states (ANV1d2). A version-6 cache holds every .anim row with
+        //    rig 0 for as long as its file's size and stamp hold, and the Animation Editor's Asset Browser
+        //    would list no clip for any skeleton, so it is refused and rebuilt once.
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 7";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()

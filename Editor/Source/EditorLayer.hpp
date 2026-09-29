@@ -30,6 +30,7 @@
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
+#include "Editor/Core/UnsavedClose.hpp"
 
 #include <Engine/Assets/ItemProgress.hpp>
 
@@ -327,6 +328,19 @@ namespace Desert::Editor
         // different causes — the user dismissed it, Close All, or its subject stopped existing — and a log
         // line that could not tell them apart would make "my window vanished" unanswerable.
         void RequestDocumentClose( const SubjectId& subject, std::string reason );
+        // A close THE PERSON asked for. A dirty document is not queued: it gets the Save / Don't Save / Cancel
+        // question (Editor/Core/UnsavedClose.hpp) and closes only on the answer. Every user gesture that
+        // closes a document goes through here; RequestDocumentClose stays for closes the editor makes on its
+        // own (the subject is gone, view memory is short), which have nobody to ask.
+        void AskDocumentClose( const SubjectId& subject, std::string reason );
+        // The answer to a pending close question for @p subject. Returns whether the document is now queued
+        // for closing; false for Cancel, for a Save that wrote nothing, and when no question was pending.
+        bool AnswerCloseQuestion( const SubjectId& subject, UnsavedCloseChoice choice );
+        // Leaving the editor from its own frame's x or File > Exit: every dirty document asks first, and the
+        // editor closes once the last one is answered. Cancel on any of them keeps the editor open. The
+        // control channel's `quit` does not come here — an unattended run has nobody to answer.
+        void RequestEditorExit();
+        void DrawCloseQuestionPopup();
         // Every open document, queued for closing. One implementation behind Window ▸ Close All Documents
         // and behind the palette entry of the same name — the menu item used to carry the loop itself, and
         // a second copy of it in the palette would be two answers to "what does Close All close".
@@ -612,6 +626,11 @@ namespace Desert::Editor
             std::string Reason;
         };
         std::vector<PendingDocumentClose> m_DocumentsToClose;
+        // Close questions waiting for an answer, the front one shown as a modal. Same shape as the queue
+        // above because an answer that closes moves the entry there unchanged.
+        std::vector<PendingDocumentClose> m_CloseQuestions;
+        // RequestEditorExit raised the questions: close the editor once the last one is answered.
+        bool m_ExitAfterCloseQuestions = false;
 
         // How long a document must go UNDRAWN BY EVERY VIEW before it gives its renderer slot back. A
         // document behind another one's tab is open and invisible, and it was holding one of the six
