@@ -233,14 +233,14 @@ namespace Desert::Editor
             }
             m_Mesh = std::move( mesh );
         }
-        m_MeshIndex      = candidate;
-        m_MeshName       = m_MeshCandidates[candidate].filename().string();
-        m_BrowserListed  = false; // the rig the browser lists for may have changed
+        m_MeshIndex     = candidate;
+        m_MeshName      = m_MeshCandidates[candidate].filename().string();
+        m_BrowserListed = false; // the rig the browser lists for may have changed
         // The preview rebuilds its animator for the new mesh: the posing and every pose record that writes
         // into the old one go first (DropPoseRecordsFor), the clip's other records stay.
         EndPosing();
         (void)DropPoseRecordsFor( m_Preview->GetAnimator() );
-        const auto& mesh = m_Mesh;
+        const auto& mesh  = m_Mesh;
         const auto& slots = mesh->GetMaterialHandles();
         m_Preview->SetSkinnedMesh( mesh->GetMetadata().Handle,
                                    std::vector<Assets::AssetHandle>( slots.begin(), slots.end() ), m_ClipAsset );

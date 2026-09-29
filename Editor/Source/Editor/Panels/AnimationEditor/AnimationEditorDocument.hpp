@@ -105,11 +105,11 @@ namespace Desert::Editor
         void DestroyPreview() override;
 
     private:
-        void                      EnsurePreview();
-        void                      DrawOverlay( const glm::vec2& origin ) const;
-        void                      BuildLayout( unsigned int dockId ) const;
-        void                      DrawViewportPanel();
-        void                      DrawSkeletonTree();
+        void                                 EnsurePreview();
+        void                                 DrawOverlay( const glm::vec2& origin ) const;
+        void                                 BuildLayout( unsigned int dockId ) const;
+        void                                 DrawViewportPanel();
+        void                                 DrawSkeletonTree();
         void                                 DrawBoneDetails();
         void                                 DrawBoneGizmo( const glm::vec2& origin, const glm::vec2& size );
         [[nodiscard]] Animation::FrameNumber KeyTick() const;
@@ -183,14 +183,14 @@ namespace Desert::Editor
         float           m_PopupKeyValue = 0.0f;
         bool            m_PopupAddState = false;
         // Asset Browser: the clips of the preview's rig, listed once per mesh.
-        std::array<char, 64>                                                           m_BrowserFilter{};
-        std::vector<std::pair<std::string, Assets::AssetHandle>>                       m_BrowserClips;
-        bool                                                                           m_BrowserListed = false;
-        size_t                                                                         m_MeshIndex = 0;
-        std::optional<uint32_t>                                                        m_SelectedBone;
-        std::vector<bool>                                                              m_CollapsedBones;
-        std::array<char, 64>                                                           m_BoneFilter{};
-        bool                                                                           m_ShowBones = false;
+        std::array<char, 64>                                     m_BrowserFilter{};
+        std::vector<std::pair<std::string, Assets::AssetHandle>> m_BrowserClips;
+        bool                                                     m_BrowserListed = false;
+        size_t                                                   m_MeshIndex     = 0;
+        std::optional<uint32_t>                                  m_SelectedBone;
+        std::vector<bool>                                        m_CollapsedBones;
+        std::array<char, 64>                                     m_BoneFilter{};
+        bool                                                     m_ShowBones = false;
 
         // POSING (UE Persona's bone gizmo and "+ Key"). While m_Posed the preview shows the animator's
         // authoring pose instead of the clip's; it is dropped, unkeyed, when the frame changes or play starts.
