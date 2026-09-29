@@ -291,7 +291,8 @@ namespace Desert::Editor
             // for what the stem-only key merged and why the repository is one same-named file away from it.
             out.Guid = StableMaterialGuid( CookPaths::MaterialKey( sourcePath, out.Name, i ) );
 
-            // Locate a material's texture FILE on disk. Where the texture a reference names lives: SourceTexturePath.hpp.
+            // Locate a material's texture FILE on disk. Where the texture a reference names lives:
+            // SourceTexturePath.hpp.
             auto findTextureFile = [&]( const std::string& refText ) -> std::filesystem::path
             { return FindSourceTexture( basePath, refText ); };
 

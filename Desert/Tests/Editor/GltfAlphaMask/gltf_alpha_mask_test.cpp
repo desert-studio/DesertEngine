@@ -206,7 +206,7 @@ TEST( GltfAlphaMask, ACutOutOverABaseColourWithoutAlphaIsImportedOpaqueAndSaysSo
 // filename, so all three textures of the grass went NOT FOUND and the card imported without albedo or mask.
 TEST( GltfAlphaMask, AWindowsSeparatedTextureReferenceFindsTheFile )
 {
-    namespace fs = std::filesystem;
+    namespace fs        = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "GltfAlphaMask_TexRef";
     fs::remove_all( root );
     fs::create_directories( root / "a" / "b" / "mesh" );
@@ -222,7 +222,8 @@ TEST( GltfAlphaMask, AWindowsSeparatedTextureReferenceFindsTheFile )
 TEST( GltfAlphaMask, AGenericTextureReferenceIsNotChanged )
 {
     EXPECT_EQ( Desert::Editor::NormalizeTextureReference( "a/b.png" ), std::filesystem::path( "a/b.png" ) );
-    EXPECT_EQ( Desert::Editor::NormalizeTextureReference( "..\\t\\x.jpg" ), std::filesystem::path( "../t/x.jpg" ) );
+    EXPECT_EQ( Desert::Editor::NormalizeTextureReference( "..\\t\\x.jpg" ),
+               std::filesystem::path( "../t/x.jpg" ) );
 }
 
 int main( int argc, char** argv )
