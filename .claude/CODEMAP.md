@@ -139,7 +139,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Editor — `Editor/Source/Editor`
 - `Builtin` — 2 files, 136 lines: BuiltinMeshRegistry
-- `Core` — 75 files, 17,962 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+59)
+- `Core` — 75 files, 17,984 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+59)
 - `Core/Commands` — 11 files, 4,600 lines: AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, ClipPoseCommand, ControlAutoKey, ControlEdit, ControlGizmoGesture, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, PoseEditTransaction, … (+10)
 - `Core/Control` — 7 files, 2,141 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, OpSpec, PanelSnapshot, … (+5)
 - `Core/GraphCanvas` — 4 files, 620 lines: CanvasPlan, DeferredFrameAll, ElementIdMap, ElementLedger, PlannedLink, PlannedNode, Resolved
@@ -152,7 +152,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Packaging` — 8 files, 2,099 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 2 files, 509 lines: DocumentAction, IPanel, ISubjectDocument
 - `Panels/Animation` — 8 files, 2,333 lines: AnimGraphCanvas, AnimGraphPanel, AnimLayersPanel, ControlRigPanel, PoseFieldEdit, StatePosition, TransitionRef, WarningTarget
-- `Panels/AnimationEditor` — 6 files, 2,443 lines: AnimationEditorBase, AnimationEditorDocument, AnimationTransport, BoneTransformRows, CurveEditCommand, NotifyEditCommand, SkeletonTreeRow
+- `Panels/AnimationEditor` — 6 files, 2,784 lines: AnimationEditorBase, AnimationEditorDocument, AnimationTransport, BoneTransformRows, CurveEditCommand, NotifyEditCommand, SkeletonTreeRow
 - `Panels/AssetReferences` — 2 files, 250 lines: AssetReferencesPanel
 - `Panels/Build` — 4 files, 645 lines: BuildSettingsPanel, ContentChunksPanel
 - `Panels/Clouds` — 13 files, 6,994 lines: CloudChain, CloudHeroBody, CloudLayoutPanel, CloudModellingVolumePanel, CloudNoiseVolumePanel, CloudStageAssetTypes, CloudStageCensus, CloudTypePanel, CloudsPanel, LayerContext, SpeciesSlot
@@ -190,7 +190,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `RenderSystems/Passes` — 8 files, 715 lines: EditorColliderPass, EditorCubemapPreviewPass, EditorGridPass, EditorUIPass
 - `Splash` — 7 files, 809 lines: ButtonTracker, DesignPoint, Layout, ProgressModel, ProgressSnapshot, Rect, RevealState, SplashContent, SplashPixels, SplashScreen, Stage, StageTiming
 - `Splash/Windows` — 1 files, 551 lines
-- `Widgets` — 37 files, 8,360 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, EquirectMap, FaceTracker, Format, Frame, FramedSubject, … (+28)
+- `Widgets` — 37 files, 8,375 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, EquirectMap, FaceTracker, Format, Frame, FramedSubject, … (+28)
 - `Widgets/Controls` — 2 files, 241 lines: Widgets
 - `Widgets/UIHelper` — 4 files, 157 lines: UICacheTextureImGui, UIHelper
 
