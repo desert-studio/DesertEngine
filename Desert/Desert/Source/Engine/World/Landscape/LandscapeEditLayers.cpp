@@ -165,4 +165,106 @@ namespace Desert::World::Landscape
         }
         return Common::MakeSuccess( true );
     }
+
+    Common::BoolResultStr CheckLandscapeEditLayerTarget( const LandscapeEditLayerTarget& target )
+    {
+        if ( auto valid = ValidateLandscapeEditLayerStack( target.Stack ); !valid )
+            return valid;
+        const LandscapeEditLayer* layer = target.Stack.Find( target.Layer );
+        if ( layer == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "Landscape edit layer {} is not one of the landscape's {} edit "
+                 "layers",
+                 static_cast<uint64_t>( target.Layer ), target.Stack.Layers.size() );
+        if ( layer->Locked )
+            return Common::MakeFormattedError<bool>( "Landscape edit layer '{}' is locked", layer->Name );
+        return Common::MakeSuccess( true );
+    }
+
+    uint16_t LandscapeEditLayerHeight( const LandscapeTileData& tile, const Common::UUID& layer, uint32_t x,
+                                       uint32_t z )
+    {
+        const LandscapeEditLayerTileData* data = tile.FindEditLayer( layer );
+        if ( data == nullptr || data->Heights.empty() )
+            return kLandscapeMidSample;
+        return data->Heights[static_cast<size_t>( z ) * tile.SamplesX() + x];
+    }
+
+    namespace
+    {
+        /// The shared head of both brush writes: refuses what they both refuse and hands back the layer's
+        /// current data on the tile (a fresh, empty one where the layer never touched it).
+        Common::ResultStr<LandscapeEditLayerTileData> LayerDataFor( const LandscapeEditLayerTarget& target,
+                                                                    const LandscapeRect&            rect,
+                                                                    const LandscapeTileData&        tile )
+        {
+            if ( auto ok = CheckLandscapeEditLayerTarget( target ); !ok )
+                return Common::MakeError<LandscapeEditLayerTileData>( ok.GetError() );
+            if ( tile.EditLayers().empty() )
+                return Common::MakeFormattedError<LandscapeEditLayerTileData>(
+                     "Landscape brush: the tile carries no edit layers, so its heights are no merge to edit" );
+            if ( rect.Empty() || rect.X1 > tile.SamplesX() || rect.Z1 > tile.SamplesZ() )
+                return Common::MakeFormattedError<LandscapeEditLayerTileData>(
+                     "Landscape brush: rectangle {}..{} x {}..{} is outside the {}x{} tile", rect.X0, rect.X1,
+                     rect.Z0, rect.Z1, tile.SamplesX(), tile.SamplesZ() );
+            if ( const LandscapeEditLayerTileData* existing = tile.FindEditLayer( target.Layer ) )
+                return Common::MakeSuccess( *existing );
+            LandscapeEditLayerTileData fresh;
+            fresh.Layer = target.Layer;
+            return Common::MakeSuccess( std::move( fresh ) );
+        }
+
+        /// Stores @p data and merges @p rect; a refused merge puts the layer's previous data back.
+        Common::BoolResultStr StoreAndMerge( const LandscapeEditLayerTarget& target, const LandscapeRect& rect,
+                                             LandscapeEditLayerTileData data, LandscapeTileData& tile )
+        {
+            std::optional<LandscapeEditLayerTileData> previous;
+            if ( const LandscapeEditLayerTileData* existing = tile.FindEditLayer( target.Layer ) )
+                previous = *existing;
+            if ( auto set = tile.SetEditLayer( std::move( data ) ); !set )
+                return set;
+            auto merged = MergeLandscapeEditLayers( target.Stack, target.Rules, rect, tile );
+            if ( merged )
+                return merged;
+            if ( previous )
+                (void)tile.SetEditLayer( std::move( *previous ) );
+            else
+                (void)tile.RemoveEditLayer( target.Layer );
+            return merged;
+        }
+    } // namespace
+
+    Common::BoolResultStr WriteLandscapeEditLayerHeights( const LandscapeEditLayerTarget& target,
+                                                          const LandscapeRect&            rect,
+                                                          std::span<const uint16_t>       values,
+                                                          LandscapeTileData&              tile )
+    {
+        auto layer = LayerDataFor( target, rect, tile );
+        if ( !layer )
+            return Common::MakeError<bool>( layer.GetError() );
+        if ( values.size() != rect.Area() )
+            return Common::MakeFormattedError<bool>( "Landscape brush: {} heights for a rectangle of {} samples",
+                                                     values.size(), rect.Area() );
+        LandscapeEditLayerTileData data = layer.ExtractValue();
+        if ( data.Heights.empty() )
+            data.Heights.assign( static_cast<size_t>( tile.SamplesX() ) * tile.SamplesZ(), kLandscapeMidSample );
+        for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
+            std::copy_n( values.begin() + static_cast<std::ptrdiff_t>( ( z - rect.Z0 ) * rect.Width() ),
+                         rect.Width(),
+                         data.Heights.begin() + static_cast<std::ptrdiff_t>(
+                                                     static_cast<size_t>( z ) * tile.SamplesX() + rect.X0 ) );
+        return StoreAndMerge( target, rect, std::move( data ), tile );
+    }
+
+    Common::BoolResultStr WriteLandscapeEditLayerWeights( const LandscapeEditLayerTarget&   target,
+                                                          std::vector<LandscapeWeightLayer> weights,
+                                                          const LandscapeRect& rect, LandscapeTileData& tile )
+    {
+        auto layer = LayerDataFor( target, rect, tile );
+        if ( !layer )
+            return Common::MakeError<bool>( layer.GetError() );
+        LandscapeEditLayerTileData data = layer.ExtractValue();
+        data.Weights                    = std::move( weights );
+        return StoreAndMerge( target, rect, std::move( data ), tile );
+    }
 } // namespace Desert::World::Landscape

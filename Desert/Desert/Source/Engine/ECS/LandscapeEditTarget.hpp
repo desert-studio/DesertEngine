@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -9,6 +10,7 @@
 #include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Desert::ECS
 {
@@ -82,6 +84,35 @@ namespace Desert::ECS
                 return { World::Landscape::LandscapeTileState::Unloaded, nullptr };
             return { World::Landscape::LandscapeTileState::Present, &*component->Heights };
         };
+        return Common::MakeSuccess( std::move( target ) );
+    }
+
+    /**
+     * @brief The edit layer a brush on @p landscape writes (UE: ALandscape::GetEditingLayer): the root's stack,
+     *        @p rules, and @p layer — the stack's bottom layer when @p layer is null, as UE edits layer 0 of a
+     *        landscape nobody picked a layer on.
+     *
+     * Refuses a landscape whose root is not loaded or carries no edit layers, a layer the stack does not name
+     * and a Locked layer (CheckLandscapeEditLayerTarget) — naming it.
+     */
+    inline Common::ResultStr<World::Landscape::LandscapeEditLayerTarget>
+    FindLandscapeEditLayerTarget( entt::registry& registry, const Common::UUID& landscape,
+                                  std::vector<World::Landscape::LandscapeLayerRule> rules,
+                                  const Common::UUID&                               layer )
+    {
+        using Result     = World::Landscape::LandscapeEditLayerTarget;
+        const auto  root = FindLandscapeRootEntity( registry, landscape );
+        const auto* body = root == entt::null ? nullptr : registry.try_get<LandscapeComponent>( root );
+        if ( body == nullptr )
+            return Common::MakeError<Result>( "landscape edit: entity " +
+                                              std::to_string( static_cast<uint64_t>( landscape ) ) +
+                                              " is not a loaded landscape" );
+        if ( body->EditLayers.Layers.empty() )
+            return Common::MakeError<Result>( "landscape edit: the landscape has no edit layers" );
+        Result target{ body->EditLayers, std::move( rules ),
+                       layer.IsNull() ? body->EditLayers.Layers.front().Guid : layer };
+        if ( auto ok = World::Landscape::CheckLandscapeEditLayerTarget( target ); !ok )
+            return Common::MakeError<Result>( "landscape edit: " + ok.GetError() );
         return Common::MakeSuccess( std::move( target ) );
     }
 

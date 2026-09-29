@@ -509,6 +509,13 @@ namespace Desert::World::Landscape
     {
     }
 
+    LandscapeHeightStroke::LandscapeHeightStroke( const LandscapeRoot& root, LandscapeTileLookup lookup,
+                                                  LandscapeSampleBounds           bounds,
+                                                  const LandscapeEditLayerTarget& layer )
+         : m_Root( root ), m_Bounds( bounds ), m_Cache( root, lookup, layer ), m_Original( root, lookup, layer )
+    {
+    }
+
     LandscapeSampleBounds LandscapeHeightStroke::StepRect( const LandscapeBrushWeights& weights ) const
     {
         // "expand the area by one vertex in each direction to ensure normals are calculated correctly"
@@ -1372,6 +1379,20 @@ namespace Desert::World::Landscape
         if ( rect.Empty() )
             return Common::MakeError( "landscape heights: empty rectangle " + RectName( rect ) );
         LandscapeHeightCache cache( root, std::move( lookup ) );
+        auto                 cached = cache.CacheData( rect.X1, rect.Z1, rect.X2, rect.Z2 );
+        if ( !cached.IsSuccess() )
+            return cached;
+        return cache.SetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2, values );
+    }
+
+    Common::BoolResultStr WriteLandscapeHeights( const LandscapeRoot& root, LandscapeTileLookup lookup,
+                                                 const LandscapeSampleBounds&    rect,
+                                                 const std::vector<uint16_t>&    values,
+                                                 const LandscapeEditLayerTarget& layer )
+    {
+        if ( rect.Empty() )
+            return Common::MakeError( "landscape heights: empty rectangle " + RectName( rect ) );
+        LandscapeHeightCache cache( root, std::move( lookup ), layer );
         auto                 cached = cache.CacheData( rect.X1, rect.Z1, rect.X2, rect.Z2 );
         if ( !cached.IsSuccess() )
             return cached;

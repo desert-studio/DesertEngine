@@ -369,6 +369,10 @@ namespace Desert::World::Landscape
          */
         LandscapeHeightStroke( const LandscapeRoot& root, LandscapeTileLookup lookup,
                                LandscapeSampleBounds bounds );
+        /// A stroke on edit layer @p layer.Layer: every step reads and writes that layer's heights, and the
+        /// undo record holds the layer's heights, not the merge (LandscapeHeightCache's layer constructor).
+        LandscapeHeightStroke( const LandscapeRoot& root, LandscapeTileLookup lookup, LandscapeSampleBounds bounds,
+                               const LandscapeEditLayerTarget& layer );
 
         /// FLandscapeToolStrokeSculpt::Apply (non-clay).
         Common::BoolResultStr ApplySculpt( const LandscapeBrushWeights&  weights,
@@ -474,6 +478,11 @@ namespace Desert::World::Landscape
     Common::BoolResultStr WriteLandscapeHeights( const LandscapeRoot& root, LandscapeTileLookup lookup,
                                                  const LandscapeSampleBounds& rect,
                                                  const std::vector<uint16_t>& values );
+    /// The same into edit layer @p layer.Layer's heights (an edit-layer stroke's record), re-merging each tile.
+    Common::BoolResultStr WriteLandscapeHeights( const LandscapeRoot& root, LandscapeTileLookup lookup,
+                                                 const LandscapeSampleBounds&    rect,
+                                                 const std::vector<uint16_t>&    values,
+                                                 const LandscapeEditLayerTarget& layer );
     /**
      * @brief FLandscapeToolRamp's two points and the mouse state that places and drags them (BeginTool, MouseMove,
      * InputKey's point pick, EndTool, ResetRamp). World cm. Pure: the editor feeds it the point under the cursor

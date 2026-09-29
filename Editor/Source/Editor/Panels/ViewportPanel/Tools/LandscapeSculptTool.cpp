@@ -7,6 +7,8 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
@@ -29,9 +31,10 @@ namespace Desert::Editor::Tools
         {
         public:
             LandscapeStrokeCommand( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
-                                    World::Landscape::LandscapeStrokeRecord record, std::string label )
+                                    World::Landscape::LandscapeStrokeRecord record, std::string label,
+                                    World::Landscape::LandscapeEditLayerTarget layer )
                  : m_Scene( &scene ), m_Landscape( landscape ), m_Record( std::move( record ) ),
-                   m_Label( std::move( label ) )
+                   m_Layer( std::move( layer ) ), m_Label( std::move( label ) )
             {
             }
 
@@ -58,7 +61,8 @@ namespace Desert::Editor::Tools
                     return false;
                 }
                 const auto& t = target.GetValue();
-                auto written  = World::Landscape::WriteLandscapeHeights( t.Root, t.Lookup, m_Record.Rect, values );
+                auto        written =
+                     World::Landscape::WriteLandscapeHeights( t.Root, t.Lookup, m_Record.Rect, values, m_Layer );
                 if ( !written.IsSuccess() )
                     ToastManager::Push( written.GetError(), ToastLevel::Error, 6.0f );
                 return written.IsSuccess();
@@ -67,6 +71,7 @@ namespace Desert::Editor::Tools
             ::Desert::Core::Scene*                  m_Scene;
             Common::UUID                            m_Landscape;
             World::Landscape::LandscapeStrokeRecord m_Record;
+            World::Landscape::LandscapeEditLayerTarget m_Layer;
             std::string                             m_Label;
         };
 
@@ -145,8 +150,18 @@ namespace Desert::Editor::Tools
         auto target = ECS::FindLandscapeEditTarget( scene.GetRegistry(), *landscape );
         if ( !target.IsSuccess() )
             return Common::MakeError( target.GetError() );
+        auto rootEntity = ECS::FindLandscapeRootEntity( scene.GetRegistry(), *landscape );
+        auto rules = ECS::LandscapeLayerRulesOf( scene.GetRegistry().get<ECS::LandscapeComponent>( rootEntity ),
+                                                 *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+        if ( !rules )
+            return Common::MakeError( "landscape sculpt: " + rules.GetError() );
+        auto layer = ECS::FindLandscapeEditLayerTarget( scene.GetRegistry(), *landscape, rules.ExtractValue(),
+                                                        Core::LandscapeSculptState::Get().EditingLayer );
+        if ( !layer )
+            return Common::MakeError( layer.GetError() );
+        m_Layer  = layer.ExtractValue();
         m_Target = target.GetValue();
-        m_Stroke.emplace( m_Target->Root, m_Target->Lookup, m_Target->Bounds );
+        m_Stroke.emplace( m_Target->Root, m_Target->Lookup, m_Target->Bounds, *m_Layer );
         m_ToolName = Core::LandscapeToolName( Core::LandscapeSculptState::Get().Settings.Tool );
         m_Failed   = false;
         return Common::MakeSuccess( true );
@@ -201,7 +216,7 @@ namespace Desert::Editor::Tools
             {
                 const std::string label = std::string( "Landscape " ) + m_ToolName;
                 CommandHistory::Get().PushCommand( std::make_unique<LandscapeStrokeCommand>(
-                     scene, m_Target->Landscape, record.GetValue(), label ) );
+                     scene, m_Target->Landscape, record.GetValue(), label, *m_Layer ) );
             }
         }
         m_Stroke.reset();

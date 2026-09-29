@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <cstdint>
 #include <span>
 #include <string>
 #include <vector>
@@ -11,7 +12,24 @@ namespace Desert::World::Landscape
 {
     class LandscapeTileData;
     struct LandscapeRect;
-    struct LandscapeLayerRule;
+    struct LandscapeWeightLayer;
+    /**
+     * @brief UE's ULandscapeLayerInfoObject reduced to what painting and blending read: the layer's name (the
+     * key a tile's LandscapeWeightLayer carries), its Hardness and bNoWeightBlend.
+     *
+     * UE 5.7 deprecated bNoWeightBlend for BlendMethod (None = not weight-blended); the one bit is what the
+     * card asks for and what both enums reduce to for normalisation, so the bit is kept.
+     */
+    struct LandscapeLayerRule
+    {
+        std::string Name;
+        /// UE: "how much a layer resists being painted over", 0..1, default 0.5. Here: when a painted layer
+        /// takes weight from the others, softer layers give first, in proportion to weight · (1 - Hardness);
+        /// only what they cannot give is then taken from the harder ones, in proportion to what they have left.
+        float Hardness = 0.5f;
+        /// UE: bNoWeightBlend — the layer is neither normalised nor counted in the others' sum.
+        bool NoWeightBlend = false;
+    };
 
     /**
      * @brief One edit layer of a landscape (UE 5.8: ULandscapeEditLayerBase,
@@ -75,4 +93,44 @@ namespace Desert::World::Landscape
     Common::BoolResultStr MergeLandscapeEditLayers( const LandscapeEditLayerStack&      stack,
                                                     std::span<const LandscapeLayerRule> rules,
                                                     const LandscapeRect& rect, LandscapeTileData& tile );
+
+    /**
+     * @brief What a brush edits (UE: ALandscape::GetEditingLayer): the root's stack, the paint rules the merge
+     * reads, and the Guid of the layer the brush writes. A brush writes that layer's data and re-merges the
+     * rectangle it wrote; the tile's samples and weights are never written by a brush directly.
+     */
+    struct LandscapeEditLayerTarget
+    {
+        LandscapeEditLayerStack         Stack;
+        std::vector<LandscapeLayerRule> Rules;
+        Common::UUID                    Layer;
+    };
+
+    /// Refuses an invalid stack, a layer the stack does not name and a Locked layer (UE: a locked layer
+    /// cannot be edited) — naming it.
+    Common::BoolResultStr CheckLandscapeEditLayerTarget( const LandscapeEditLayerTarget& target );
+
+    /// Layer @p layer's height at (x, z) of @p tile, relative to kLandscapeMidSample: its plane there, or mid
+    /// ("no change") where the layer holds no heights on the tile.
+    [[nodiscard]] uint16_t LandscapeEditLayerHeight( const LandscapeTileData& tile, const Common::UUID& layer,
+                                                     uint32_t x, uint32_t z );
+
+    /**
+     * @brief Writes @p values (row-major, X fastest, @p rect.Area() of them) into the target layer's height
+     * plane on @p tile — creating the plane at mid where the layer had none — and merges @p rect.
+     *
+     * Refuses, leaving the tile unchanged: a target CheckLandscapeEditLayerTarget refuses, a tile carrying no
+     * edit layers (its samples are not a merge), a rectangle outside the tile, a value count that does not
+     * match, and anything the merge refuses.
+     */
+    Common::BoolResultStr WriteLandscapeEditLayerHeights( const LandscapeEditLayerTarget& target,
+                                                          const LandscapeRect&            rect,
+                                                          std::span<const uint16_t>       values,
+                                                          LandscapeTileData&              tile );
+
+    /// Replaces the target layer's weight planes on @p tile with @p weights and merges @p rect. The same
+    /// refusals as WriteLandscapeEditLayerHeights, plus every plane SetEditLayer refuses.
+    Common::BoolResultStr WriteLandscapeEditLayerWeights( const LandscapeEditLayerTarget&   target,
+                                                          std::vector<LandscapeWeightLayer> weights,
+                                                          const LandscapeRect& rect, LandscapeTileData& tile );
 } // namespace Desert::World::Landscape

@@ -337,3 +337,171 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// ── Brushes write the editing layer (UE: ALandscape::GetEditingLayer), and the tile is its merge ─────────
+namespace
+{
+    constexpr uint64_t kBaseGuid = 1u;
+    constexpr uint64_t kTopGuid  = 2u;
+
+    LandscapeEditLayerStack BaseAndTop( bool topLocked = false )
+    {
+        LandscapeEditLayerStack stack{ { Layer( kBaseGuid, "Base" ), Layer( kTopGuid, "Top" ) } };
+        stack.Layers[1].Locked = topLocked;
+        return stack;
+    }
+
+    /// A 9x9 tile whose Base holds +50 and full Grass, Top a +5 plane, merged.
+    LandscapeTileData BrushTile( const LandscapeEditLayerStack& stack )
+    {
+        LandscapeTileData tile = Flat();
+        EXPECT_TRUE(
+             tile.SetEditLayer( { UUID( kBaseGuid ), Delta( tile.Bounds(), 50 ), { Plane( "Grass", 255u ) } } ) );
+        EXPECT_TRUE( tile.SetEditLayer( { UUID( kTopGuid ), Delta( tile.Bounds(), 5 ), {} } ) );
+        Merge( stack, tile, tile.Bounds() );
+        return tile;
+    }
+
+    LandscapeRoot BrushRoot()
+    {
+        LandscapeRoot root;
+        root.QuadsPerTile = kSize - 1u;
+        root.SpacingCm    = 100.0f;
+        return root;
+    }
+
+    LandscapeTileLookup OneTile( LandscapeTileData& tile )
+    {
+        return [&tile]( int32_t x, int32_t z ) -> LandscapeTileSlot
+        {
+            if ( x == 0 && z == 0 )
+                return { LandscapeTileState::Present, &tile };
+            return { LandscapeTileState::Absent, nullptr };
+        };
+    }
+
+    LandscapeEditLayerTarget Editing( const LandscapeEditLayerStack& stack, uint64_t layer )
+    {
+        return { stack, kRules, UUID( layer ) };
+    }
+
+    /// Raises the cache's 2..4 square to mid + @p delta through @p cache.
+    Common::BoolResultStr Raise( LandscapeHeightCache& cache, int delta )
+    {
+        if ( auto cached = cache.CacheData( 2, 2, 4, 4 ); !cached )
+            return cached;
+        return cache.SetCachedData( 2, 2, 4, 4,
+                                    std::vector<uint16_t>( 9u, static_cast<uint16_t>( kMid + delta ) ) );
+    }
+} // namespace
+
+TEST( LandscapeEditLayers, ASculptStrokeInTheTopLayerChangesOnlyItsDataAndTheTileIsTheMerge )
+{
+    const LandscapeEditLayerStack stack = BaseAndTop();
+    LandscapeTileData             tile  = BrushTile( stack );
+    const auto                    base  = tile.FindEditLayer( UUID( kBaseGuid ) )->Heights;
+
+    LandscapeHeightCache cache( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
+    ASSERT_TRUE( cache.CacheData( 2, 2, 4, 4 ) );
+    // The cache reads the LAYER (mid + 5), not the merge (mid + 55).
+    EXPECT_EQ( cache.GetCachedData( 3, 3, 3, 3 ).GetValue()[0], kMid + 5 );
+    auto raised = Raise( cache, 30 );
+    ASSERT_TRUE( raised ) << raised.GetError();
+
+    EXPECT_EQ( tile.FindEditLayer( UUID( kBaseGuid ) )->Heights, base );
+    EXPECT_EQ( tile.FindEditLayer( UUID( kTopGuid ) )->Heights[3u * kSize + 3u], kMid + 30 );
+    EXPECT_EQ( tile.FindEditLayer( UUID( kTopGuid ) )->Heights[0], kMid + 5 );
+    EXPECT_EQ( tile.Sample( 3u, 3u ), kMid + 80 );
+    EXPECT_EQ( tile.Sample( 0u, 0u ), kMid + 55 );
+
+    LandscapeEditLayerStack hidden = stack;
+    hidden.Layers[1].Visible       = false;
+    Merge( hidden, tile, tile.Bounds() );
+    EXPECT_EQ( tile.Sample( 3u, 3u ), kMid + 50 );
+    EXPECT_EQ( tile.Sample( 0u, 0u ), kMid + 50 );
+}
+
+TEST( LandscapeEditLayers, UndoingASculptStrokeGivesTheLayerBackByteForByte )
+{
+    const LandscapeEditLayerStack stack = BaseAndTop();
+    LandscapeTileData             tile  = BrushTile( stack );
+    const auto                    top   = tile.FindEditLayer( UUID( kTopGuid ) )->Heights;
+    const auto                    merge = tile.Samples();
+
+    LandscapeHeightCache stroke( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
+    ASSERT_TRUE( stroke.CacheData( 2, 2, 4, 4 ) );
+    const auto before = stroke.GetCachedData( 2, 2, 4, 4 ).GetValue(); // the record's Before: layer data
+    ASSERT_TRUE( Raise( stroke, 400 ) );
+    ASSERT_NE( tile.FindEditLayer( UUID( kTopGuid ) )->Heights, top );
+
+    LandscapeHeightCache undo( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
+    ASSERT_TRUE( undo.CacheData( 2, 2, 4, 4 ) );
+    ASSERT_TRUE( undo.SetCachedData( 2, 2, 4, 4, before ) );
+    EXPECT_EQ( tile.FindEditLayer( UUID( kTopGuid ) )->Heights, top );
+    EXPECT_EQ( tile.Samples(), merge );
+}
+
+TEST( LandscapeEditLayers, ALockedLayerRefusesEveryBrushAndTheTileIsUnchanged )
+{
+    const LandscapeEditLayerStack stack = BaseAndTop( true );
+    LandscapeTileData             tile  = BrushTile( stack );
+    const auto                    merge = tile.Samples();
+
+    LandscapeHeightCache cache( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
+    auto                 sculpt = Raise( cache, 30 );
+    ASSERT_FALSE( sculpt );
+    EXPECT_NE( sculpt.GetError().find( "locked" ), std::string::npos ) << sculpt.GetError();
+
+    LandscapePaintStroke   paint( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
+    const glm::vec2        centre( 400.0f, 400.0f );
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 200.0f;
+    auto weights   = ComputeLandscapeBrush( BrushRoot(), brush, std::span( &centre, 1u ) );
+    ASSERT_TRUE( weights ) << weights.GetError();
+    LandscapePaintSettings settings;
+    settings.Layer = "Rock";
+    auto painted   = paint.Apply( weights.GetValue(), brush, settings, false );
+    ASSERT_FALSE( painted );
+    EXPECT_NE( painted.GetError().find( "locked" ), std::string::npos ) << painted.GetError();
+    EXPECT_EQ( tile.Samples(), merge );
+    EXPECT_EQ( tile.FindEditLayer( UUID( kTopGuid ) )->Weights.size(), 0u );
+}
+
+TEST( LandscapeEditLayers, PaintingTheTopLayerLeavesTheBaseWeightsAndUndoGivesThemBack )
+{
+    const LandscapeEditLayerStack stack = BaseAndTop();
+    LandscapeTileData             tile  = BrushTile( stack );
+    const auto                    base  = tile.FindEditLayer( UUID( kBaseGuid ) )->Weights;
+
+    LandscapePaintStroke   paint( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
+    const glm::vec2        centre( 400.0f, 400.0f );
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 200.0f;
+    auto weights   = ComputeLandscapeBrush( BrushRoot(), brush, std::span( &centre, 1u ) );
+    ASSERT_TRUE( weights ) << weights.GetError();
+    LandscapePaintSettings settings;
+    settings.Layer = "Rock";
+    for ( int step = 0; step < 4; ++step )
+    {
+        auto painted = paint.Apply( weights.GetValue(), brush, settings, false );
+        ASSERT_TRUE( painted ) << painted.GetError();
+    }
+
+    const auto& baseAfter = tile.FindEditLayer( UUID( kBaseGuid ) )->Weights;
+    ASSERT_EQ( baseAfter.size(), base.size() );
+    EXPECT_EQ( baseAfter[0].Weights, base[0].Weights );
+    const auto& top = tile.FindEditLayer( UUID( kTopGuid ) )->Weights;
+    ASSERT_FALSE( top.empty() );
+    EXPECT_GT( WeightsOf( tile, "Rock" )[4u * kSize + 4u], 0u );
+    EXPECT_LT( WeightsOf( tile, "Grass" )[4u * kSize + 4u], 255u );
+
+    auto record = paint.Finish();
+    ASSERT_TRUE( record ) << record.GetError();
+    auto undone =
+         ApplyLandscapePaintRecord( OneTile( tile ), record.GetValue(), true, Editing( stack, kTopGuid ) );
+    ASSERT_TRUE( undone ) << undone.GetError();
+    EXPECT_TRUE( tile.FindEditLayer( UUID( kTopGuid ) )->Weights.empty() );
+    EXPECT_EQ( WeightsOf( tile, "Grass" ), base[0].Weights );
+    const auto rock = WeightsOf( tile, "Rock" );
+    EXPECT_TRUE( rock.empty() || rock[4u * kSize + 4u] == 0u );
+}

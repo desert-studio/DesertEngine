@@ -30,6 +30,7 @@ namespace Desert::Editor::Tools
         Common::BoolResultStr Step( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, bool invert );
         void                  End( ::Desert::Core::Scene& scene );
 
+        std::optional<World::Landscape::LandscapeEditLayerTarget> m_Layer;
         std::optional<ECS::LandscapeEditTarget>               m_Target;
         std::optional<World::Landscape::LandscapePaintStroke> m_Stroke;
         bool                                                  m_Failed = false;
