@@ -93,11 +93,11 @@ namespace Desert::Graphic::API::Vulkan
         const Core::Formats::ImageAspect aspect = Core::Formats::GetImageAspect( format );
 
         VkImageAspectFlags flags = 0;
-        if ( aspect & Core::Formats::ImageAspect_Colour )
+        if ( ( aspect & Core::Formats::ImageAspect_Colour ) != 0 )
             flags |= VK_IMAGE_ASPECT_COLOR_BIT;
-        if ( aspect & Core::Formats::ImageAspect_Depth )
+        if ( ( aspect & Core::Formats::ImageAspect_Depth ) != 0 )
             flags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-        if ( aspect & Core::Formats::ImageAspect_Stencil )
+        if ( ( aspect & Core::Formats::ImageAspect_Stencil ) != 0 )
             flags |= VK_IMAGE_ASPECT_STENCIL_BIT;
         return flags;
     }

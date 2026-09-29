@@ -77,13 +77,15 @@ namespace
         static Gpu gpu = []
         {
             Gpu        out;
-            const auto system = vkb::SystemInfo::get_system_info();
+            // The loader is linked (as in VulkanContext.cpp): its vkGetInstanceProcAddr is handed to vk-bootstrap,
+            // whose own dlopen("libvulkan.dylib") misses Homebrew's loader on macOS and never sees the layers.
+            const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
             if ( !system || !system.value().validation_layers_available )
             {
                 out.Error = "VK_LAYER_KHRONOS_validation is not installed; the suite's verdict needs it";
                 return out;
             }
-            vkb::InstanceBuilder builder;
+            vkb::InstanceBuilder builder( vkGetInstanceProcAddr );
             auto                 instance =
                  builder.set_app_name( "RenderGraphVulkan" )
                       .require_api_version( 1, 1, 0 )

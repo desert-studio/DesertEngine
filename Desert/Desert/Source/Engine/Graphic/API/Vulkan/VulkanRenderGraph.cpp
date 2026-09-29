@@ -39,7 +39,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             const VkFormat    format = RdgFormat( device, desc.Format );
             const bool        depth  = ( GetImageVulkanAspect( desc.Format ) & VK_IMAGE_ASPECT_DEPTH_BIT ) != 0;
-            VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+            VkImageCreateInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
             info.flags         = desc.Dim == RDG::TextureDim::Cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u;
             info.imageType     = desc.Dim == RDG::TextureDim::Tex3D ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
             info.format        = format;
@@ -57,7 +58,8 @@ namespace Desert::Graphic::API::Vulkan
 
         VkBufferCreateInfo RdgBufferInfo( const RDG::BufferDesc& desc, uint32_t accessMask )
         {
-            VkBufferCreateInfo info{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+            VkBufferCreateInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
             info.size        = desc.Bytes;
             info.usage       = RdgBufferUsage( accessMask );
             info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -256,6 +258,7 @@ namespace Desert::Graphic::API::Vulkan
             attachments.push_back( description );
             return VkAttachmentReference{ static_cast<uint32_t>( attachments.size() - 1 ), attachment.Layout };
         };
+        colourRefs.reserve( key.Colours.size() );
         for ( const RdgAttachmentKey& colour : key.Colours )
         {
             colourRefs.push_back( colour.Format == VK_FORMAT_UNDEFINED
@@ -272,7 +275,8 @@ namespace Desert::Graphic::API::Vulkan
         subpass.pColorAttachments       = colourRefs.data();
         subpass.pDepthStencilAttachment = key.Depth ? &depthRef : nullptr;
 
-        VkRenderPassCreateInfo info{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+        VkRenderPassCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         info.attachmentCount      = static_cast<uint32_t>( attachments.size() );
         info.pAttachments         = attachments.data();
         info.subpassCount         = 1;
@@ -361,7 +365,8 @@ namespace Desert::Graphic::API::Vulkan
         else if ( !forAttachment && m_Desc.Dim == RDG::TextureDim::Cube && range.LayerCount % 6 == 0 )
             type = range.LayerCount == 6 ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
 
-        VkImageViewCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+        VkImageViewCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         info.image            = m_Image;
         info.viewType         = type;
         info.format           = m_Format;
@@ -846,7 +851,8 @@ namespace Desert::Graphic::API::Vulkan
         }
         if ( framebuffer == VK_NULL_HANDLE )
         {
-            VkFramebufferCreateInfo info{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+            VkFramebufferCreateInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             info.renderPass       = renderPass.GetValue();
             info.attachmentCount  = static_cast<uint32_t>( views.size() );
             info.pAttachments     = views.data();
@@ -861,7 +867,8 @@ namespace Desert::Graphic::API::Vulkan
                  { renderPass.GetValue(), views, std::move( textures ), extent, layers, framebuffer } );
         }
 
-        VkRenderPassBeginInfo begin{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        VkRenderPassBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         begin.renderPass      = renderPass.GetValue();
         begin.framebuffer     = framebuffer;
         begin.renderArea      = { { 0, 0 }, extent };
