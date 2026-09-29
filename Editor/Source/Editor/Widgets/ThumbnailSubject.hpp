@@ -6,6 +6,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -157,6 +158,11 @@ namespace Desert::Editor::ThumbnailSubject
         /// is resolved from the SOURCE, because a sidecar `.demat` is what an artist leaves beside the
         /// `.fbx` — a different question from which file gets photographed.
         Common::AssetHandle Material{ static_cast<uint64_t>( 0 ) };
+
+        /// The cooked mesh is being read on a worker: nothing to capture YET, ask again on a later pass.
+        /// Handle and CookedPath are set; Material is not. Not a refusal — a caller that blacklists refusals
+        /// must not blacklist this.
+        bool Pending = false;
     };
 
     /// Called on the main thread, from `AsyncAssetLoader::Pump`, once a material that was pending has been
@@ -198,4 +204,13 @@ namespace Desert::Editor::ThumbnailSubject
      */
     [[nodiscard]] Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager,
                                                        const std::string&    sourcePath );
+
+    /// ResolveMaterial's answer for a material that is ALREADY LOADED — a panel holding the asset (Details,
+    /// a mesh row). Route, PreviewMesh (GUID checked against its record, a cold mesh awaited on workers),
+    /// registration. Costs a record read and a closure wait: ask it only when a capture is owed
+    /// (ThumbnailService::RequestLoadedMaterial).
+    [[nodiscard]] Common::ResultStr<Material>
+    ResolveLoadedMaterial( Assets::AssetManager&                                manager,
+                           const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
+                           const std::string&                                   assetPath );
 } // namespace Desert::Editor::ThumbnailSubject

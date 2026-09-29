@@ -1878,6 +1878,9 @@ namespace Desert::Editor
             m_FailedThumbs.insert( entry->AssetPath );
             return false;
         }
+        // Read in flight: the tile asks again next frame and meets it resident (never blacklisted).
+        if ( subject.GetValue().Pending )
+            return false;
 
         ThumbnailService::Get().RequestMesh( subject.GetValue().Handle, subject.GetValue().CookedPath,
                                              subject.GetValue().Material );
