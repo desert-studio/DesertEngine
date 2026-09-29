@@ -22,6 +22,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Editor/Panels/Sequencer/TimelineRuler.hpp>
+
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -90,52 +92,8 @@ namespace Desert::Editor
             return true;
         }
 
-        /// The time axis of a lane area, as the ONE mapping the ruler, the dope sheet and the curve view all
-        /// read. Three copies of `laneX0 + (t/duration)*laneW` is how a playhead and the key under it end up
-        /// two pixels apart at some zoom and nobody can say which of the three is lying.
-        [[nodiscard]] Sequencer::CurveViewport TimeAxis( float laneX0, float laneW, float durationSeconds )
-        {
-            Sequencer::CurveViewport axis;
-            axis.X0        = laneX0;
-            axis.X1        = laneX0 + laneW;
-            axis.TimeStart = 0.0;
-            axis.TimeEnd   = durationSeconds > 0.0f ? static_cast<double>( durationSeconds ) : 1.0;
-            return axis;
-        }
-
-        /// The DISPLAY-RATE frame grid. ONE FUNCTION, TWO CONSUMERS — the ruler and the curve view.
-        ///
-        /// What it replaces in the ruler was `for (int u = 0; u <= duration; ++u)`: one line per whole
-        /// SECOND, labelled with an integer second. So the grid an animator SAW and the grid their dragged
-        /// key LANDED ON were different grids, and the display rate — a field A5 added and a number every
-        /// `.anim` now states — was visible nowhere in the window that owns it. Report 07 §9.5 asks for this
-        /// in as many words ("линейка в КАДРАХ, не в секундах").
-        void DrawFrameGrid( ImDrawList* dl, const Sequencer::CurveViewport& axis, float yTop, float yBottom,
-                            Animation::FrameNumber durationTicks, Animation::FrameRate tickRate,
-                            Animation::FrameRate displayRate, bool labels, ImU32 lineColour )
-        {
-            const double fps = displayRate.AsDouble();
-            if ( !( fps > 0.0 ) )
-            {
-                return;
-            }
-            const double  secondsPerFrame = 1.0 / fps;
-            const int32_t step =
-                 Sequencer::ChooseFrameStep( axis.PixelsPerSecond() * secondsPerFrame, labels ? 44.0f : 9.0f );
-            const int32_t last = Animation::DisplayFrameIndex( durationTicks, tickRate, displayRate );
-
-            for ( int32_t frame = 0; frame <= last; frame += step )
-            {
-                const float x = axis.TimeToX( static_cast<double>( frame ) * secondsPerFrame );
-                dl->AddLine( ImVec2( x, yTop ), ImVec2( x, yBottom ), lineColour );
-                if ( labels )
-                {
-                    char buf[16];
-                    std::snprintf( buf, sizeof( buf ), "%d", frame );
-                    dl->AddText( ImVec2( x + 3.0f, yTop + 3.0f ), IM_COL32( 190, 190, 190, 160 ), buf );
-                }
-            }
-        }
+        using Sequencer::DrawFrameGrid;
+        using Sequencer::TimeAxis;
     } // namespace
 
     namespace ImGui = ::ImGui;
@@ -2527,8 +2485,7 @@ namespace Desert::Editor
         }
 
         // The playhead, over everything.
-        const float playX = vp.TimeToX( animator->GetCurrentTime() );
-        dl->AddLine( ImVec2( playX, vp.Y0 ), ImVec2( playX, vp.Y1 ), IM_COL32( 255, 90, 90, 190 ), 1.5f );
+        Sequencer::DrawPlayhead( dl, vp, static_cast<double>( animator->GetCurrentTime() ), vp.Y0, vp.Y1, vp.Y0 );
 
         ImGui::SetCursorScreenPos( ImVec2( contentX0, vp.Y1 + 6.0f ) );
         ImGui::TextDisabled( "Drag a key to retime (snapped to the display grid) and revalue it; drag a "

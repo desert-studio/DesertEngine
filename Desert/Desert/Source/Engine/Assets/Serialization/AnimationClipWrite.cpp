@@ -67,7 +67,7 @@ namespace Desert::Assets::Serialization
 
         data.Notifies.reserve( clip.Notifies.size() );
         for ( const auto& notify : clip.Notifies )
-            data.Notifies.push_back( NotifyData{ notify.Name, notify.Tick.Value } );
+            data.Notifies.push_back( NotifyData{ notify.Name, notify.Tick.Value, notify.Track } );
 
         // An in-memory clip that never got a section is written with the one it behaves as, so no
         // generation-3 file can be silent about what its values mean. One producer for all three writers.

@@ -24,6 +24,7 @@
 #include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/AssetOpen.hpp>
 
 namespace Desert::Editor
 {
@@ -154,6 +155,23 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_LAYERS "  Anim Layers", ImVec2( ImGui::GetContentRegionAvail().x, 0.0f ) ) )
             Core::PanelRequests::Open( "Anim Layers" );
         Utils::ImGuiUtilities::Tooltip( "Additive layers on top of the base clip" );
+
+        // The clip the combo names, as an ASSET: the Animation Editor's subject is the file, so the button
+        // queues its handle through the one route every Details asset field uses (EditorLayer answers it with
+        // RequestOpenAsset). Disabled, with the reason, when the name matches no clip for this skeleton.
+        const auto currentClip =
+             std::ranges::find_if( cached, [&animation]( const auto& asset )
+                                   { return asset && asset->GetClip().AnimationName == animation.CurrentClip; } );
+        const bool hasClip = currentClip != cached.end();
+        ImGui::BeginDisabled( !hasClip );
+        if ( ImGui::Button( ICON_MDI_RUN "  Open in Animation Editor",
+                            ImVec2( ImGui::GetContentRegionAvail().x, 0.0f ) ) &&
+             hasClip )
+            Core::AssetFieldRequests::Request( ( *currentClip )->GetMetadata().Handle,
+                                               Core::AssetFieldAction::Open );
+        ImGui::EndDisabled();
+        Utils::ImGuiUtilities::Tooltip( hasClip ? "Preview this clip on its skeletal mesh, with a transport"
+                                                : "Select a clip first: the editor opens a clip FILE" );
 
         RenderAnimGraph( entity, animation, cached );
 
