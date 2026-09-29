@@ -6162,11 +6162,13 @@ namespace Desert::Editor
                        ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
                        if ( camera == nullptr || !m_MainScene )
                            return PaletteCommandOutcome( false, "no viewport camera or no scene" );
+                       // The view centre's ray: the surface it meets, or UE's background drop distance.
                        const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
                        ::Desert::Core::RaycastHit hit;
-                       if ( !m_MainScene->Raycast( ray, hit ) )
-                           return PaletteCommandOutcome( false, "the viewport centre looks at no surface" );
-                       const auto dropped = ViewportPanel::DropMeshIntoActiveViewport( path, hit.Point );
+                       const bool                 met     = m_MainScene->Raycast( ray, hit );
+                       const auto                 dropped = ViewportPanel::DropMeshIntoActiveViewport(
+                            path, ActorDrop::TargetFor( met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt,
+                                                        hit.Normal, ray.Origin, ray.Direction ) );
                        if ( !dropped )
                            return Common::MakeError<bool>( dropped.GetError() );
                        return PaletteCommandDone();
