@@ -185,6 +185,10 @@ namespace Desert::World::Landscape
 
     void LandscapeTileData::SetSample( uint32_t x, uint32_t z, uint16_t value )
     {
+        DESERT_VERIFY( m_EditLayers.empty(),
+                       "Landscape sample ({}, {}) written directly on a tile with {} edit "
+                       "layers; its samples are their merge",
+                       x, z, m_EditLayers.size() );
         DESERT_VERIFY( x < m_SamplesX && z < m_SamplesZ, "Landscape sample ({}, {}) outside {} x {}", x, z,
                        m_SamplesX, m_SamplesZ );
         uint16_t& slot = m_Samples[static_cast<size_t>( z ) * m_SamplesX + x];
@@ -218,8 +222,25 @@ namespace Desert::World::Landscape
         return Common::MakeSuccess( std::move( out ) );
     }
 
+    Common::BoolResultStr LandscapeTileData::RefuseIfMerged( std::string_view what ) const
+    {
+        if ( !m_EditLayers.empty() )
+            return Common::MakeFormattedError<bool>( "Landscape tile carries {} edit layers, so its {} are their "
+                                                     "merge: write the layer and merge (MergeLandscapeEditLayers)",
+                                                     m_EditLayers.size(), what );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr LandscapeTileData::WriteRegion( const LandscapeRect&      rect,
                                                           std::span<const uint16_t> values )
+    {
+        if ( auto open = RefuseIfMerged( "samples" ); !open )
+            return open;
+        return WriteRegionUnchecked( rect, values );
+    }
+
+    Common::BoolResultStr LandscapeTileData::WriteRegionUnchecked( const LandscapeRect&      rect,
+                                                                   std::span<const uint16_t> values )
     {
         if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
             return valid;
@@ -268,6 +289,13 @@ namespace Desert::World::Landscape
 
     Common::ResultStr<size_t> LandscapeTileData::AddWeightLayer( std::string name )
     {
+        if ( auto open = RefuseIfMerged( "weight layers" ); !open )
+            return Common::MakeError<size_t>( open.GetError() );
+        return AddWeightLayerUnchecked( std::move( name ) );
+    }
+
+    Common::ResultStr<size_t> LandscapeTileData::AddWeightLayerUnchecked( std::string name )
+    {
         if ( name.empty() || name.size() > kLandscapeMaxWeightLayerName )
             return Common::MakeFormattedError<size_t>( "Landscape weight layer name '{}' must be 1..{} bytes",
                                                        name, kLandscapeMaxWeightLayerName );
@@ -313,6 +341,14 @@ namespace Desert::World::Landscape
     Common::BoolResultStr LandscapeTileData::WriteWeightRegion( size_t layer, const LandscapeRect& rect,
                                                                 std::span<const uint8_t> values )
     {
+        if ( auto open = RefuseIfMerged( "weights" ); !open )
+            return open;
+        return WriteWeightRegionUnchecked( layer, rect, values );
+    }
+
+    Common::BoolResultStr LandscapeTileData::WriteWeightRegionUnchecked( size_t layer, const LandscapeRect& rect,
+                                                                         std::span<const uint8_t> values )
+    {
         if ( layer >= m_WeightLayers.size() )
             return Common::MakeFormattedError<bool>( "Landscape weight layer {} of {}", layer,
                                                      m_WeightLayers.size() );
@@ -344,30 +380,78 @@ namespace Desert::World::Landscape
         return std::exchange( m_Dirty[static_cast<size_t>( consumer )], {} );
     }
 
+    namespace
+    {
+        /// At most kLandscapeMaxWeightLayers planes of @p plane weights each, every name 1..max bytes and once.
+        Common::BoolResultStr ValidateWeightPlanes( const std::vector<LandscapeWeightLayer>& layers, size_t plane )
+        {
+            if ( layers.size() > kLandscapeMaxWeightLayers )
+                return Common::MakeFormattedError<bool>( "Landscape tile given {} weight layers, at most {}",
+                                                         layers.size(), kLandscapeMaxWeightLayers );
+            for ( size_t i = 0; i < layers.size(); ++i )
+            {
+                if ( layers[i].Name.empty() || layers[i].Name.size() > kLandscapeMaxWeightLayerName ||
+                     layers[i].Weights.size() != plane )
+                    return Common::MakeFormattedError<bool>(
+                         "Landscape weight layer '{}' has {} weights, the tile "
+                         "needs {} (and a 1..{}-byte name)",
+                         layers[i].Name, layers[i].Weights.size(), plane, kLandscapeMaxWeightLayerName );
+                for ( size_t j = 0; j < i; ++j )
+                    if ( layers[j].Name == layers[i].Name )
+                        return Common::MakeFormattedError<bool>( "Landscape weight layer '{}' given twice",
+                                                                 layers[i].Name );
+            }
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
+
     Common::BoolResultStr LandscapeTileData::SetWeightLayers( std::vector<LandscapeWeightLayer> layers )
     {
-        if ( layers.size() > kLandscapeMaxWeightLayers )
-            return Common::MakeFormattedError<bool>( "Landscape tile given {} weight layers, at most {}",
-                                                     layers.size(), kLandscapeMaxWeightLayers );
-        const size_t plane = static_cast<size_t>( m_SamplesX ) * m_SamplesZ;
-        for ( size_t i = 0; i < layers.size(); ++i )
-        {
-            if ( layers[i].Name.empty() || layers[i].Name.size() > kLandscapeMaxWeightLayerName ||
-                 layers[i].Weights.size() != plane )
-                return Common::MakeFormattedError<bool>( "Landscape weight layer '{}' has {} weights, the tile "
-                                                         "needs {} (and a 1..{}-byte name)",
-                                                         layers[i].Name, layers[i].Weights.size(), plane,
-                                                         kLandscapeMaxWeightLayerName );
-            for ( size_t j = 0; j < i; ++j )
-                if ( layers[j].Name == layers[i].Name )
-                    return Common::MakeFormattedError<bool>( "Landscape weight layer '{}' given twice",
-                                                             layers[i].Name );
-        }
+        if ( auto open = RefuseIfMerged( "weight layers" ); !open )
+            return open;
+        if ( auto valid = ValidateWeightPlanes( layers, static_cast<size_t>( m_SamplesX ) * m_SamplesZ ); !valid )
+            return valid;
         const bool holesBefore = VisibilityLayer().has_value();
         m_WeightLayers         = std::move( layers );
         MarkDirty( Bounds(),
                    holesBefore || VisibilityLayer().has_value() ? kVisibilityConsumers : kWeightConsumers );
         return Common::MakeSuccess( true );
+    }
+
+    const LandscapeEditLayerTileData* LandscapeTileData::FindEditLayer( const Common::UUID& layer ) const
+    {
+        for ( const LandscapeEditLayerTileData& data : m_EditLayers )
+            if ( static_cast<uint64_t>( data.Layer ) == static_cast<uint64_t>( layer ) )
+                return &data;
+        return nullptr;
+    }
+
+    Common::BoolResultStr LandscapeTileData::SetEditLayer( LandscapeEditLayerTileData data )
+    {
+        if ( data.Layer.IsNull() )
+            return Common::MakeError<bool>( "Landscape edit layer data names no layer (null Guid)" );
+        const size_t plane = static_cast<size_t>( m_SamplesX ) * m_SamplesZ;
+        if ( !data.Heights.empty() && data.Heights.size() != plane )
+            return Common::MakeFormattedError<bool>(
+                 "Landscape edit layer {} has {} heights, the tile needs 0 or {}",
+                 static_cast<uint64_t>( data.Layer ), data.Heights.size(), plane );
+        if ( auto valid = ValidateWeightPlanes( data.Weights, plane ); !valid )
+            return valid;
+        for ( LandscapeEditLayerTileData& existing : m_EditLayers )
+            if ( static_cast<uint64_t>( existing.Layer ) == static_cast<uint64_t>( data.Layer ) )
+            {
+                existing = std::move( data );
+                return Common::MakeSuccess( true );
+            }
+        m_EditLayers.push_back( std::move( data ) );
+        return Common::MakeSuccess( true );
+    }
+
+    bool LandscapeTileData::RemoveEditLayer( const Common::UUID& layer )
+    {
+        return std::erase_if( m_EditLayers, [&]( const LandscapeEditLayerTileData& data )
+                              { return static_cast<uint64_t>( data.Layer ) == static_cast<uint64_t>( layer ); } ) >
+               0u;
     }
 
     void LandscapeTileData::MarkDirty( LandscapeRect rect, uint32_t consumers )

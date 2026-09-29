@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
 
 #include <glm/vec3.hpp>
 
@@ -243,6 +244,25 @@ namespace Desert::World::Landscape
         std::vector<uint8_t> Weights; ///< Row-major, X fastest, SamplesX * SamplesZ entries, 0..255.
     };
 
+    struct LandscapeEditLayerStack;
+    struct LandscapeLayerRule;
+
+    /**
+     * @brief One edit layer's data on one tile (UE: FLandscapeLayerComponentData, LandscapeComponent.h:329-356,
+     * held in ULandscapeComponent::LayersData by the layer's Guid). A tile carries only the layers that touched
+     * it. The layer's order, name, visibility and alphas are NOT here — they are the root's stack
+     * (LandscapeEditLayers.hpp); this is only what the layer holds on this square.
+     */
+    struct LandscapeEditLayerTileData
+    {
+        Common::UUID Layer; ///< The stack's LandscapeEditLayer::Guid.
+        /// Empty (the layer has no heights here) or SamplesX * SamplesZ entries, row-major, relative to
+        /// kLandscapeMidSample: mid is "no change", so the base layer's plane reads as absolute heights.
+        std::vector<uint16_t> Heights;
+        /// The layer's paint on this tile, the same planes a tile's own weight layers have.
+        std::vector<LandscapeWeightLayer> Weights;
+    };
+
     class LandscapeTileData
     {
     public:
@@ -374,7 +394,44 @@ namespace Desert::World::Landscape
         /// Refuses planes of the wrong size, a bad or repeated name, or a ninth layer.
         Common::BoolResultStr SetWeightLayers( std::vector<LandscapeWeightLayer> layers );
 
+        // ── Edit layers ───────────────────────────────────────────────────────────────────────────────
+        //
+        // A tile that carries edit layers is their merge: its samples and weights are written ONLY by
+        // MergeLandscapeEditLayers, and SetSample, WriteRegion, AddWeightLayer, WriteWeightRegion and
+        // SetWeightLayers refuse it. Changing a layer's data does not change the result by itself — the caller
+        // merges the rectangle it changed.
+
+        [[nodiscard]] const std::vector<LandscapeEditLayerTileData>& EditLayers() const
+        {
+            return m_EditLayers;
+        }
+
+        /// The data layer @p layer holds on this tile, or null when the layer never touched it.
+        [[nodiscard]] const LandscapeEditLayerTileData* FindEditLayer( const Common::UUID& layer ) const;
+
+        /// Adds @p data, or replaces the data of the same layer. Refuses a null Guid, a height plane that is
+        /// neither empty nor SamplesX * SamplesZ, and weight planes of the wrong size, a bad or repeated name
+        /// or a ninth layer — naming them.
+        Common::BoolResultStr SetEditLayer( LandscapeEditLayerTileData data );
+
+        /// Drops layer @p layer's data from this tile. False when the tile carried none.
+        bool RemoveEditLayer( const Common::UUID& layer );
+
     private:
+        friend Common::BoolResultStr MergeLandscapeEditLayers( const LandscapeEditLayerStack&      stack,
+                                                               std::span<const LandscapeLayerRule> rules,
+                                                               const LandscapeRect&                rect,
+                                                               LandscapeTileData&                  tile );
+
+        /// Refuses a direct write to a tile whose values are its edit layers' merge, naming @p what.
+        [[nodiscard]] Common::BoolResultStr RefuseIfMerged( std::string_view what ) const;
+
+        // The writes themselves, without that refusal: the public ones and the merge both come here.
+        Common::BoolResultStr WriteRegionUnchecked( const LandscapeRect& rect, std::span<const uint16_t> values );
+        Common::ResultStr<size_t> AddWeightLayerUnchecked( std::string name );
+        Common::BoolResultStr     WriteWeightRegionUnchecked( size_t layer, const LandscapeRect& rect,
+                                                              std::span<const uint8_t> values );
+
         LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples );
 
         /// Marks @p rect dirty for every consumer in @p consumers (a bit per LandscapeDirtyConsumer).
@@ -390,6 +447,7 @@ namespace Desert::World::Landscape
         uint16_t                                                             m_HighestSample = 0u;
         std::array<std::vector<LandscapeRect>, kLandscapeDirtyConsumerCount> m_Dirty;
         std::vector<LandscapeWeightLayer>                                    m_WeightLayers;
+        std::vector<LandscapeEditLayerTileData>                              m_EditLayers;
     };
 
     // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────
