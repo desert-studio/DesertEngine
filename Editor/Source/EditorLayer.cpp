@@ -164,6 +164,7 @@
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/AnimationEditor/AnimationEditorDocument.hpp"
+#include <Common/Content/ContentKinds.hpp>
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
@@ -961,15 +962,21 @@ namespace Desert::Editor
                                                              Assets::AssetHandle( subject.Owner ) ) != nullptr;
                            } } );
 
-        // THE STATIC MESH VIEWER. Also a renderer-slot claimant. AssetTypeID::Mesh covers `.skmesh` as well; the
-        // open route refuses those by name (Core::AssetSubjectFor), so only static meshes reach this factory.
+        // THE MESH EDITORS. Also renderer-slot claimants. AssetTypeID::Mesh covers `.stmesh` and `.skmesh`: the
+        // static one opens the static mesh viewer, the skinned one Persona's Mesh mode (Core::PersonaModeFor).
         m_SubjectEditors.Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Mesh ) ),
              Registration{ "StaticMesh", ICON_MDI_CUBE_OUTLINE,
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
-                               return std::make_unique<Editor::StaticMeshViewerDocument>(
-                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
+                               const Assets::AssetHandle handle( subject.Owner );
+                               const auto*               meta =
+                                    m_AssetManager ? m_AssetManager->FindMetadataByHandle( handle ) : nullptr;
+                               if ( meta != nullptr && Core::PersonaModeFor( *meta ) == Core::PersonaMode::Mesh )
+                                   return std::make_unique<Editor::AnimationEditorDocument>(
+                                        handle, Core::PersonaMode::Mesh, m_AssetManager.get(), &m_SubjectEditors );
+                               return std::make_unique<Editor::StaticMeshViewerDocument>( handle,
+                                                                                          m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -977,15 +984,31 @@ namespace Desert::Editor
                                                              Assets::AssetHandle( subject.Owner ) ) != nullptr;
                            } } );
 
-        // THE ANIMATION EDITOR (ANV1a). A renderer-slot claimant like the static mesh viewer.
+        // THE ANIMATION EDITOR (ANV1a) — Persona's Animation mode. A renderer-slot claimant like the mesh viewer.
         m_SubjectEditors.Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Animation ) ),
              Registration{ "Animation", ICON_MDI_RUN,
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::AnimationEditorDocument>(
-                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get(),
-                                    &m_SubjectEditors );
+                                    Assets::AssetHandle( subject.Owner ), Core::PersonaMode::Animation,
+                                    m_AssetManager.get(), &m_SubjectEditors );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
+        // PERSONA'S SKELETON MODE (ANV1f): the same window, about the rig.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Skeleton ) ),
+             Registration{ "Skeleton", ICON_MDI_RUN,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               return std::make_unique<Editor::AnimationEditorDocument>(
+                                    Assets::AssetHandle( subject.Owner ), Core::PersonaMode::Skeleton,
+                                    m_AssetManager.get(), &m_SubjectEditors );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -1222,7 +1245,10 @@ namespace Desert::Editor
              { std::string( Common::Constants::Extensions::STATIC_MESH ) }, [this]( const std::string& path )
              { return RequestStaticMeshDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
-             { std::string( Editor::kAnimationClipExtension ) }, [this]( const std::string& path )
+             { std::string( Editor::kAnimationClipExtension ),
+               std::string( Common::Content::KindSpec( Common::Content::ContentKind::SkinnedMesh ).Extension ),
+               std::string( Common::Content::KindSpec( Common::Content::ContentKind::Skeleton ).Extension ) },
+             [this]( const std::string& path )
              { return RequestAnimationEditorDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },

@@ -872,7 +872,9 @@ namespace Desert::Editor
         // The static half first: it clears the target's StaticMeshComponent and resets the framing, and it
         // drops any earlier skinned components, so the target carries exactly one mesh.
         SetMesh( Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
-        if ( static_cast<uint64_t>( mesh ) == 0 || !clip )
+        // No clip is Persona's Skeleton and Mesh modes: the animator is still built (the Skeleton Tree and the
+        // bones read it) and stands in the bind pose, which is what those modes show.
+        if ( static_cast<uint64_t>( mesh ) == 0 )
             return;
         EnsureInit();
 
@@ -891,7 +893,7 @@ namespace Desert::Editor
         // the playhead is SetAnimationTime, and ApplyAnimationTime builds the animator (Playing = false and
         // CurrentClip keep that true should the component ever reach a scene that does run the system).
         auto& anim       = m_Target.AddComponent<ECS::AnimationComponent>();
-        anim.CurrentClip = clip->GetClip().AnimationName;
+        anim.CurrentClip = clip ? clip->GetClip().AnimationName : std::string();
         anim.Playing     = false;
         anim.Loop        = true;
 
@@ -961,7 +963,7 @@ namespace Desert::Editor
 
     bool PreviewViewport::ApplyAnimationTime()
     {
-        if ( !m_Clip || !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
             return true;
         auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
         if ( !anim.Animator )
@@ -982,6 +984,18 @@ namespace Desert::Editor
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             const auto* skinned = static_cast<Desert::SkinnedMesh*>( mesh );
             anim.Animator       = std::make_unique<Animation::Animator>( skinned->GetSkeleton() );
+        }
+        if ( !m_Clip )
+        {
+            // The bind pose (or the owner's authoring pose over it): with no clip the pipeline's source stage
+            // produces the bind pose, and a zero step evaluates it into the skinning matrices.
+            anim.Animator->Update( Common::Timestep( 0.0f ) );
+            if ( m_PoseOverride )
+            {
+                anim.Animator->ApplyLocalPose();
+                ++m_ContentRevision;
+            }
+            return true;
         }
         const auto& clip    = m_Clip->GetClip();
         const auto* current = anim.Animator->GetCurrentClip();

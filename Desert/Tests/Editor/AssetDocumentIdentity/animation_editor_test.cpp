@@ -71,6 +71,23 @@ TEST( AnimationEditorIdentity, IsFoundByTheClipHandleUnderTheAnimationType )
 
 // Closing the window must DESTROY the preview scene — a hidden scene still holds its SceneRenderer, which is
 // the slot — and only then answer that the slot is free.
+// Persona's three modes are three subjects: one handle number as a mesh, a skeleton and a clip names three
+// windows, and each mode's window is found by its own asset under its own type.
+TEST( AnimationEditorIdentity, EachPersonaModeIsItsAssetUnderItsOwnType )
+{
+    using Desert::Editor::PersonaSubject;
+    using Desert::Editor::Core::PersonaMode;
+    const AssetHandle same( 930 );
+    EXPECT_EQ( PersonaSubject( same, PersonaMode::Animation ), AnimationEditorSubject( same ) );
+    EXPECT_NE( PersonaSubject( same, PersonaMode::Mesh ), PersonaSubject( same, PersonaMode::Skeleton ) );
+    EXPECT_NE( PersonaSubject( same, PersonaMode::Mesh ), PersonaSubject( same, PersonaMode::Animation ) );
+    EXPECT_EQ( PersonaSubject( same, PersonaMode::Mesh ),
+               Desert::Editor::AssetSubject( same, static_cast<uint32_t>( Desert::Assets::AssetTypeID::Mesh ) ) );
+    EXPECT_EQ(
+         PersonaSubject( same, PersonaMode::Skeleton ),
+         Desert::Editor::AssetSubject( same, static_cast<uint32_t>( Desert::Assets::AssetTypeID::Skeleton ) ) );
+}
+
 TEST( AnimationEditorIdentity, ReleasingTheViewDestroysThePreviewAndGivesTheSlotBack )
 {
     int                 destroyed = 0;

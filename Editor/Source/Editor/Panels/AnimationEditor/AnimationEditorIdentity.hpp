@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/IPanel.hpp>
 
@@ -13,6 +14,44 @@ namespace Desert::Editor
     [[nodiscard]] inline SubjectId AnimationEditorSubject( const Assets::AssetHandle& clip )
     {
         return AssetSubject( clip, static_cast<uint32_t>( Assets::AssetTypeID::Animation ) );
+    }
+
+    // The asset type each Persona mode is about. The window's subject is ITS asset under that type, so a
+    // mesh, its skeleton and a clip on it are three documents — the identity stays "one window per asset",
+    // and switching modes opens-or-focuses the other asset's window (a subject is fixed for a document's
+    // life, ISubjectDocument::Subject).
+    [[nodiscard]] constexpr Assets::AssetTypeID PersonaAssetType( const Core::PersonaMode mode ) noexcept
+    {
+        switch ( mode )
+        {
+            case Core::PersonaMode::Skeleton:
+                return Assets::AssetTypeID::Skeleton;
+            case Core::PersonaMode::Mesh:
+                return Assets::AssetTypeID::Mesh;
+            case Core::PersonaMode::Animation:
+                return Assets::AssetTypeID::Animation;
+        }
+        return Assets::AssetTypeID::Unknown;
+    }
+
+    [[nodiscard]] inline SubjectId PersonaSubject( const Assets::AssetHandle& asset, const Core::PersonaMode mode )
+    {
+        return AssetSubject( asset, static_cast<uint32_t>( PersonaAssetType( mode ) ) );
+    }
+
+    // The label of a mode on the window's toolbar and in its palette entries ("Mode Skeleton").
+    [[nodiscard]] constexpr const char* PersonaModeName( const Core::PersonaMode mode ) noexcept
+    {
+        switch ( mode )
+        {
+            case Core::PersonaMode::Skeleton:
+                return "Skeleton";
+            case Core::PersonaMode::Mesh:
+                return "Mesh";
+            case Core::PersonaMode::Animation:
+                return "Animation";
+        }
+        return "?";
     }
 
     /**
@@ -31,8 +70,18 @@ namespace Desert::Editor
     {
     public:
         AnimationEditorBase( const std::string& name, const Assets::AssetHandle& clip )
-             : ISubjectDocument( name, AnimationEditorSubject( clip ) )
+             : AnimationEditorBase( name, clip, Core::PersonaMode::Animation )
         {
+        }
+        AnimationEditorBase( const std::string& name, const Assets::AssetHandle& asset,
+                             const Core::PersonaMode mode )
+             : ISubjectDocument( name, PersonaSubject( asset, mode ) ), m_Mode( mode )
+        {
+        }
+
+        [[nodiscard]] Core::PersonaMode Mode() const noexcept
+        {
+            return m_Mode;
         }
 
         [[nodiscard]] bool ClaimsView() const final
@@ -62,5 +111,8 @@ namespace Desert::Editor
         virtual void DestroyPreview() = 0;
 
         bool m_PreviewLive = false;
+
+    private:
+        Core::PersonaMode m_Mode;
     };
 } // namespace Desert::Editor
