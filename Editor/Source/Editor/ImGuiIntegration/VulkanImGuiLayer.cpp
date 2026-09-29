@@ -1,6 +1,7 @@
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
 
+#include <Common/Core/Events/MouseEvents.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -170,6 +171,15 @@ namespace Desert::Graphic::API::Vulkan
                 io.AddMouseViewportEvent( ::Desert::Editor::Control::PointerInjection::ViewportId() );
             io.AddMousePosEvent( step->X, step->Y );
             io.AddMouseButtonEvent( ImGuiMouseButton_Left, step->Down );
+            // Picking (entity, UI element, bone) listens to the press EVENT, which only the OS callback
+            // emitted: a synthetic click reached the widgets and never selected anything. Sent before
+            // NewFrame, as the OS event arrives during polling; the hover step put the cursor here a frame
+            // earlier, so GetMousePos and the hover flags the listeners read are already this point.
+            if ( step->Press )
+            {
+                Common::MouseButtonPressedEvent press( Common::MouseButton::Left );
+                EngineContext::GetInstance().GetWindow()->DispatchEvent( press );
+            }
         }
         ::ImGui::NewFrame();
     }

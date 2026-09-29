@@ -760,6 +760,9 @@ TEST( ControlPointerDrag, APlanHoversPressesMovesAndReleasesInImagePixels )
     EXPECT_FLOAT_EQ( drag.At( 5 ).X, 210.0f );
     EXPECT_FALSE( drag.At( 6 ).Down );
     EXPECT_FLOAT_EQ( drag.At( 6 ).X, 210.0f );
+    // One press event per drag: frame 1 is the only rising edge the layers are told about.
+    for ( uint32_t frame = 0; frame < drag.FrameCount(); ++frame )
+        EXPECT_EQ( drag.At( frame ).Press, frame == 1 ) << "frame " << frame;
 
     EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 800.0f, 40.0f }, 4, 2.0f ).IsSuccess() );
     EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 20.0f, 40.0f }, 0, 2.0f ).IsSuccess() );

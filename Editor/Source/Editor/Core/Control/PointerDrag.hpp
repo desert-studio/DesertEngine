@@ -26,6 +26,9 @@ namespace Desert::Editor::Control
         float X    = 0.0f; ///< ImGui screen coordinates (points)
         float Y    = 0.0f;
         bool  Down = false;
+        /// The one rising edge of the drag: the frame the layers must also see as a mouse-press event,
+        /// because entity/bone picking listens to that event and not to ImGui's button state.
+        bool Press = false;
     };
 
     /// Where a target's image sits on screen this frame, in ImGui points, and which platform viewport
@@ -92,11 +95,11 @@ namespace Desert::Editor::Control
         [[nodiscard]] PointerStep At( const uint32_t frame ) const noexcept
         {
             if ( frame <= 1 )
-                return { m_FromX, m_FromY, frame == 1 };
+                return { m_FromX, m_FromY, frame == 1, frame == 1 };
             if ( frame >= m_Steps + 2 )
-                return { m_ToX, m_ToY, false };
+                return { m_ToX, m_ToY, false, false };
             const float t = static_cast<float>( frame - 1 ) / static_cast<float>( m_Steps );
-            return { m_FromX + ( m_ToX - m_FromX ) * t, m_FromY + ( m_ToY - m_FromY ) * t, true };
+            return { m_FromX + ( m_ToX - m_FromX ) * t, m_FromY + ( m_ToY - m_FromY ) * t, true, false };
         }
 
         [[nodiscard]] uint32_t ViewportId() const noexcept
