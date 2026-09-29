@@ -121,20 +121,15 @@ namespace Desert::Graphic::System
         // gbuffer = the camera G-buffer (albedo/normal/worldpos at 0/1/2); sceneColor = snapshot of the lit
         // opaque scene; viewProj/cameraPos = the camera; maxDistance and thickness are WORLD distances,
         // and a world unit is a centimetre - callers passing literature values convert through Common::Units.
-        void Execute( const std::shared_ptr<Framebuffer>& gbuffer, const std::shared_ptr<Image2D>& sceneColor,
-                      const glm::mat4& viewProj, const glm::vec4& cameraPos, int maxSteps, float maxDistance,
-                      float intensity, float thickness )
+        // The frame graph declares the images below before any pass runs, so every SSR target follows the
+        // scene target here (the trace at half its size; a resize invalidates the history), not inside a
+        // pass. False: nothing to draw.
+        bool Prepare()
         {
             const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !gbuffer || !sceneColor || !m_TracePipeline || !m_ResolvePipeline ||
-                 !m_CompositePipeline || !m_ResolveMaterial || !m_CompositeMaterial || !m_TraceImage ||
-                 !m_AccumFB[0] || !m_AccumFB[1] || !m_TileMask )
-                return;
-
-            auto& renderer = Renderer::GetInstance();
-
-            // Every SSR target follows the scene target (the trace at half its size); a resize invalidates
-            // the history.
+            if ( !target || !m_TracePipeline || !m_ResolvePipeline || !m_CompositePipeline || !m_ResolveMaterial ||
+                 !m_CompositeMaterial || !m_TraceImage || !m_AccumFB[0] || !m_AccumFB[1] || !m_TileMask )
+                return false;
             const uint32_t w = target->GetFramebufferWidth();
             const uint32_t h = target->GetFramebufferHeight();
             if ( m_AccumFB[0]->GetFramebufferWidth() != w || m_AccumFB[0]->GetFramebufferHeight() != h )
@@ -143,93 +138,89 @@ namespace Desert::Graphic::System
                 m_AccumFB[1]->Resize( w, h );
                 m_HistoryValid = false;
             }
-            const uint32_t gridW = TileGrid( w );
-            const uint32_t gridH = TileGrid( h );
-            if ( ( m_TileMask->GetWidth() != gridW || m_TileMask->GetHeight() != gridH ||
-                   m_TraceImage->GetWidth() != HalfRes( w ) || m_TraceImage->GetHeight() != HalfRes( h ) ) &&
-                 !CreateStorageTargets( w, h ) )
-                return;
-            // Six vertices per tile; SSRTiles.glslh collapses the unmarked ones.
-            const uint32_t tileVertices = gridW * gridH * 6u;
-            const auto&    tileMask     = m_TileMask;
+            if ( m_TileMask->GetWidth() != TileGrid( w ) || m_TileMask->GetHeight() != TileGrid( h ) ||
+                 m_TraceImage->GetWidth() != HalfRes( w ) || m_TraceImage->GetHeight() != HalfRes( h ) )
+                return CreateStorageTargets( w, h );
+            return true;
+        }
 
-            // --- Pass 1: classify + half-resolution trace, one compute dispatch (one workgroup per tile). ---
+        // Pass 1, a compute node that declares GetTraceImage() and GetTileMask() as storage writes: classify +
+        // half-resolution trace, one dispatch (one workgroup per tile). gbuffer = the camera G-buffer
+        // (albedo/normal/worldpos at 0/1/2); sceneColor = snapshot of the lit opaque scene; maxDistance and
+        // thickness are WORLD distances (a world unit is a centimetre - convert through Common::Units).
+        void RecordTrace( const std::shared_ptr<Framebuffer>& gbuffer, const std::shared_ptr<Image2D>& sceneColor,
+                          const glm::mat4& viewProj, const glm::vec4& cameraPos, int maxSteps, float maxDistance,
+                          float intensity, float thickness )
+        {
+            // Each pass is timed on its own because EnableSSR's default is a budget decision
+            // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
+            DESERT_PROFILE_PASS( "SSR: Classify + Trace" );
+            struct TracePush
             {
-                // Each pass is timed on its own because EnableSSR's default is a budget decision
-                // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
-                DESERT_PROFILE_PASS( "SSR: Classify + Trace" );
-                struct TracePush
-                {
-                    glm::mat4 ViewProj;
-                    glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (jitter + 2x2 rotation)
-                    glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
-                } push{ viewProj, glm::vec4( glm::vec3( cameraPos ), static_cast<float>( m_FrameIndex % 1024u ) ),
-                        glm::vec4( static_cast<float>( maxSteps ), maxDistance, intensity, thickness ) };
+                glm::mat4 ViewProj;
+                glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (jitter + 2x2 rotation)
+                glm::vec4 Params;    // x = maxSteps, y = maxDistance, z = intensity, w = thickness
+            } push{ viewProj, glm::vec4( glm::vec3( cameraPos ), static_cast<float>( m_FrameIndex % 1024u ) ),
+                    glm::vec4( static_cast<float>( maxSteps ), maxDistance, intensity, thickness ) };
 
-                renderer.ComputeImageBeginWrite( m_TraceImage.get() );
-                renderer.ComputeImageBeginWrite( m_TileMask.get() );
-                m_TracePipeline->SetInput( 0, gbuffer->GetColorAttachmentImage( 0 ).get() );
-                m_TracePipeline->SetInput( 1, gbuffer->GetColorAttachmentImage( 1 ).get() );
-                m_TracePipeline->SetInput( 2, gbuffer->GetColorAttachmentImage( 2 ).get() );
-                m_TracePipeline->SetInput( 3, sceneColor.get() );
-                m_TracePipeline->SetOutput( 4, m_TraceImage.get() );
-                m_TracePipeline->SetOutput( 5, m_TileMask.get() );
-                m_TracePipeline->SetPushConstants( &push, sizeof( push ) );
-                renderer.DispatchComputeInFrame( m_TracePipeline.get(), gridW, gridH, 1 );
-                renderer.ComputeImageEndWrite( m_TileMask.get() );
-                renderer.ComputeImageEndWrite( m_TraceImage.get() );
-            }
+            m_TracePipeline->SetInput( 0, gbuffer->GetColorAttachmentImage( 0 ).get() );
+            m_TracePipeline->SetInput( 1, gbuffer->GetColorAttachmentImage( 1 ).get() );
+            m_TracePipeline->SetInput( 2, gbuffer->GetColorAttachmentImage( 2 ).get() );
+            m_TracePipeline->SetInput( 3, sceneColor.get() );
+            m_TracePipeline->SetOutput( 4, m_TraceImage.get() );
+            m_TracePipeline->SetOutput( 5, m_TileMask.get() );
+            m_TracePipeline->SetPushConstants( &push, sizeof( push ) );
+            Renderer::GetInstance().DispatchComputeInFrame( m_TracePipeline.get(), TileGrid( Width() ),
+                                                            TileGrid( Height() ), 1 );
+        }
 
-            // --- Pass 2: spatial + temporal resolve into this frame's accumulation target. ---
-            const uint32_t  cur = m_AccumIndex;
-            const uint32_t  prv = 1u - m_AccumIndex;
-            const glm::vec2 texel( 1.0f / static_cast<float>( w ), 1.0f / static_cast<float>( h ) );
-            {
-                DESERT_PROFILE_PASS( "SSR: Resolve" );
-                RenderPassSpecification rp;
-                rp.TargetFramebuffer = m_AccumFB[cur];
-                rp.DebugName         = "SSRResolvePass";
-                rp.ClearColor.Color  = glm::vec4( 0.0f );
-                auto pass            = RenderPass::Create( rp );
+        // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): spatial + temporal
+        // resolve of the trace over GetHistoryImage().
+        void RecordResolve( const std::shared_ptr<Framebuffer>& gbuffer )
+        {
+            DESERT_PROFILE_PASS( "SSR: Resolve" );
+            m_ResolveMaterial->BindInputs( m_TraceImage, GetHistoryImage(), gbuffer->GetColorAttachmentImage( 2 ),
+                                           m_PrevViewProj, Texel(), m_HistoryValid ? 0.88f : 0.0f );
+            m_ResolveMaterial->BindTileMask( m_TileMask );
+            Renderer::GetInstance().SubmitVertices( m_ResolvePipeline.get(), TileVertices(),
+                                                    m_ResolveMaterial->GetMaterialExecutor() );
+        }
 
-                renderer.BeginRenderPass( pass.get() );
-                m_ResolveMaterial->BindInputs( m_TraceImage, m_AccumFB[prv]->GetColorAttachmentImage( 0 ),
-                                               gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel,
-                                               m_HistoryValid ? 0.88f : 0.0f );
-                m_ResolveMaterial->BindTileMask( tileMask );
-                renderer.SubmitVertices( m_ResolvePipeline.get(), tileVertices,
-                                         m_ResolveMaterial->GetMaterialExecutor() );
-                renderer.EndRenderPass();
-            }
-
-            // --- Pass 3: roughness-scaled blur of the RESOLVED buffer, blended over the scene. ---
-            {
-                DESERT_PROFILE_PASS( "SSR: Composite" );
-                m_CompositeMaterial->BindInputs( m_AccumFB[cur]->GetColorAttachmentImage( 0 ),
-                                                 gbuffer->GetColorAttachmentImage( 1 ), texel );
-                m_CompositeMaterial->BindTileMask( tileMask );
-
-                RenderPassSpecification rp;
-                rp.TargetFramebuffer = target;
-                rp.DebugName         = "SSRCompositePass";
-                auto pass            = RenderPass::Create( rp );
-
-                renderer.BeginRenderPass( pass.get(), false ); // LOAD: blend over the scene
-                renderer.SubmitVertices( m_CompositePipeline.get(), tileVertices,
-                                         m_CompositeMaterial->GetMaterialExecutor() );
-                renderer.EndRenderPass();
-            }
+        // Pass 3, inside the render pass the graph opens on the scene target with LOAD: roughness-scaled blur
+        // of the RESOLVED buffer, blended over the scene. Advances the ping-pong.
+        void RecordComposite( const std::shared_ptr<Framebuffer>& gbuffer, const glm::mat4& viewProj )
+        {
+            DESERT_PROFILE_PASS( "SSR: Composite" );
+            m_CompositeMaterial->BindInputs( GetAccumImage(), gbuffer->GetColorAttachmentImage( 1 ), Texel() );
+            m_CompositeMaterial->BindTileMask( m_TileMask );
+            Renderer::GetInstance().SubmitVertices( m_CompositePipeline.get(), TileVertices(),
+                                                    m_CompositeMaterial->GetMaterialExecutor() );
 
             m_PrevViewProj = viewProj;
             m_HistoryValid = true;
-            m_AccumIndex   = prv;
+            m_AccumIndex   = 1u - m_AccumIndex;
             ++m_FrameIndex;
+        }
+
+        // Before RecordComposite: the target the resolve writes this frame and the one it reprojects.
+        std::shared_ptr<Image2D> GetAccumImage() const
+        {
+            return m_AccumFB[m_AccumIndex] ? m_AccumFB[m_AccumIndex]->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+        std::shared_ptr<Image2D> GetHistoryImage() const
+        {
+            const uint32_t prv = 1u - m_AccumIndex;
+            return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+        std::shared_ptr<Image2D> GetTileMask() const
+        {
+            return m_TileMask;
         }
 
         // The current resolved (denoised) result / the raw trace — for the editor's debug dumps.
         std::shared_ptr<Image2D> GetResolvedImage() const
         {
-            const uint32_t last = 1u - m_AccumIndex; // Execute flipped the index after writing
+            const uint32_t last = 1u - m_AccumIndex; // RecordComposite flipped the index after writing
             return m_AccumFB[last] ? m_AccumFB[last]->GetColorAttachmentImage( 0 ) : nullptr;
         }
         std::shared_ptr<Image2D> GetTraceImage() const
@@ -246,6 +237,23 @@ namespace Desert::Graphic::System
             return ( pixels + kTileSize - 1u ) / kTileSize;
         }
         // The trace's size: one texel per 2x2 block, rounded up so an odd edge column still has a block.
+        uint32_t Width() const
+        {
+            return m_TargetFramebuffer.lock()->GetFramebufferWidth();
+        }
+        uint32_t Height() const
+        {
+            return m_TargetFramebuffer.lock()->GetFramebufferHeight();
+        }
+        glm::vec2 Texel() const
+        {
+            return glm::vec2( 1.0f / static_cast<float>( Width() ), 1.0f / static_cast<float>( Height() ) );
+        }
+        // Six vertices per tile; SSRTiles.glslh collapses the unmarked ones.
+        uint32_t TileVertices() const
+        {
+            return TileGrid( Width() ) * TileGrid( Height() ) * 6u;
+        }
         static uint32_t HalfRes( uint32_t pixels )
         {
             return ( pixels + 1u ) / 2u;

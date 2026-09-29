@@ -94,18 +94,14 @@ namespace Desert::Graphic::System
             m_HistoryValid = false;
         }
 
-        void Execute( const std::shared_ptr<Framebuffer>& gbuffer, const std::shared_ptr<Image2D>& rsmAlbedo,
-                      const std::shared_ptr<Image2D>& rsmNormal, const std::shared_ptr<Image2D>& rsmWorldPos,
-                      const glm::mat4& rsmViewProj, const glm::mat4& cameraViewProj,
-                      const glm::vec4& sunColorIntensity, float giIntensity )
+        // The frame graph declares the images below before any pass runs, so the accumulation targets follow
+        // the scene target here (a resize invalidates the history), not inside a pass. False: nothing to draw.
+        bool Prepare()
         {
             const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !gbuffer || !m_Pipeline || !m_ResolvePipeline || !m_Material ||
-                 !m_ResolveMaterial || !m_AccumFB[0] || !m_AccumFB[1] )
-                return;
-
-            auto& renderer = Renderer::GetInstance();
-
+            if ( !target || !m_Pipeline || !m_ResolvePipeline || !m_Material || !m_ResolveMaterial ||
+                 !m_AccumFB[0] || !m_AccumFB[1] )
+                return false;
             const uint32_t w = target->GetFramebufferWidth();
             const uint32_t h = target->GetFramebufferHeight();
             if ( m_AccumFB[0]->GetFramebufferWidth() != w || m_AccumFB[0]->GetFramebufferHeight() != h )
@@ -114,48 +110,54 @@ namespace Desert::Graphic::System
                 m_AccumFB[1]->Resize( w, h );
                 m_HistoryValid = false;
             }
+            return true;
+        }
 
-            // --- Pass 1: jittered VPL gather into the raw GI buffer. ---
-            {
-                RenderPassSpecification rp;
-                rp.TargetFramebuffer = target;
-                rp.DebugName         = "GIResolvePass";
-                rp.ClearColor.Color  = glm::vec4( 0.0f );
-                auto pass            = RenderPass::Create( rp );
+        // Pass 1, inside the render pass the graph opens on GetGatherImage() (cleared to 0): jittered VPL
+        // gather into the raw GI buffer.
+        void RecordGather( const std::shared_ptr<Framebuffer>& gbuffer, const std::shared_ptr<Image2D>& rsmAlbedo,
+                           const std::shared_ptr<Image2D>& rsmNormal, const std::shared_ptr<Image2D>& rsmWorldPos,
+                           const glm::mat4& rsmViewProj, const glm::vec4& sunColorIntensity, float giIntensity )
+        {
+            m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 1 ), gbuffer->GetColorAttachmentImage( 2 ),
+                                    rsmAlbedo, rsmNormal, rsmWorldPos, rsmViewProj, sunColorIntensity, giIntensity,
+                                    static_cast<float>( m_FrameIndex % 1024u ) );
+            Renderer::GetInstance().SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
+        }
 
-                renderer.BeginRenderPass( pass.get() );
-                m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 1 ),
-                                        gbuffer->GetColorAttachmentImage( 2 ), rsmAlbedo, rsmNormal, rsmWorldPos,
-                                        rsmViewProj, sunColorIntensity, giIntensity,
-                                        static_cast<float>( m_FrameIndex % 1024u ) );
-                renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
-                renderer.EndRenderPass();
-            }
-
-            // --- Pass 2: temporal accumulation (shared SSRResolve denoiser) into the ping-pong target. ---
-            const uint32_t  cur = m_AccumIndex;
-            const uint32_t  prv = 1u - m_AccumIndex;
-            const glm::vec2 texel( 1.0f / static_cast<float>( w ), 1.0f / static_cast<float>( h ) );
-            {
-                RenderPassSpecification rp;
-                rp.TargetFramebuffer = m_AccumFB[cur];
-                rp.DebugName         = "GITemporalResolvePass";
-                rp.ClearColor.Color  = glm::vec4( 0.0f );
-                auto pass            = RenderPass::Create( rp );
-
-                renderer.BeginRenderPass( pass.get() );
-                m_ResolveMaterial->BindInputs(
-                     target->GetColorAttachmentImage( 0 ), m_AccumFB[prv]->GetColorAttachmentImage( 0 ),
-                     gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel, m_HistoryValid ? 0.92f : 0.0f );
-                renderer.SubmitFullscreenQuad( m_ResolvePipeline.get(),
-                                               m_ResolveMaterial->GetMaterialExecutor() );
-                renderer.EndRenderPass();
-            }
+        // Pass 2, inside the render pass the graph opens on GetAccumImage() (cleared to 0): temporal
+        // accumulation (shared SSRResolve denoiser) of the gather over GetHistoryImage(). Advances the ping-pong.
+        void RecordTemporal( const std::shared_ptr<Framebuffer>& gbuffer, const glm::mat4& cameraViewProj )
+        {
+            const auto&     target = m_TargetFramebuffer.lock();
+            const glm::vec2 texel( 1.0f / static_cast<float>( target->GetFramebufferWidth() ),
+                                   1.0f / static_cast<float>( target->GetFramebufferHeight() ) );
+            m_ResolveMaterial->BindInputs( target->GetColorAttachmentImage( 0 ), GetHistoryImage(),
+                                           gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel,
+                                           m_HistoryValid ? 0.92f : 0.0f );
+            Renderer::GetInstance().SubmitFullscreenQuad( m_ResolvePipeline.get(),
+                                                          m_ResolveMaterial->GetMaterialExecutor() );
 
             m_PrevViewProj = cameraViewProj;
             m_HistoryValid = true;
-            m_AccumIndex   = prv;
+            m_AccumIndex   = 1u - m_AccumIndex;
             ++m_FrameIndex;
+        }
+
+        // Before RecordTemporal: the raw gather, the target it writes this frame, the one it reprojects.
+        std::shared_ptr<Image2D> GetGatherImage() const
+        {
+            const auto& target = m_TargetFramebuffer.lock();
+            return target ? target->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+        std::shared_ptr<Image2D> GetAccumImage() const
+        {
+            return m_AccumFB[m_AccumIndex] ? m_AccumFB[m_AccumIndex]->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+        std::shared_ptr<Image2D> GetHistoryImage() const
+        {
+            const uint32_t prv = 1u - m_AccumIndex;
+            return m_AccumFB[prv] ? m_AccumFB[prv]->GetColorAttachmentImage( 0 ) : nullptr;
         }
 
         // The temporally-resolved (denoised) indirect light — what the lighting pass should read.

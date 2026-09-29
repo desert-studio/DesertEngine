@@ -47,7 +47,8 @@ namespace Desert::Graphic::System
         {
         }
 
-        // Renders AO from the G-buffer into the SSAO target. viewProj = world->clip; cameraPos.xyz = camera.
+        // Records AO from the G-buffer into the SSAO target (GetAOImage), inside the render pass the frame
+        // graph opens on it (SceneRendererFrameDeferred.cpp "Deferred: SSAO"). viewProj = world->clip; cameraPos.xyz = camera.
         // radius and bias are WORLD distances (the shader offsets samples in world space), and a world
         // unit is a centimetre - callers passing literature values must convert through Common::Units.
         void Execute( const std::shared_ptr<Framebuffer>& gbuffer, const glm::mat4& viewProj,
@@ -57,18 +58,11 @@ namespace Desert::Graphic::System
             if ( !target || !gbuffer || !m_Pipeline || !m_Material )
                 return;
 
-            auto renderPass = RenderPass::Create( {
-                 .TargetFramebuffer = target,
-                 .DebugName         = "SSAOPass",
-            } );
-
             auto& renderer = Renderer::GetInstance();
-            renderer.BeginRenderPass( renderPass.get() ); // clear: AO is fully recomputed each frame
             // GBufferC(2) = world position, GBufferB(1) = normal.
             m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 2 ), gbuffer->GetColorAttachmentImage( 1 ),
                                     viewProj, cameraPos, radius, bias, power, sampleCount );
             renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
-            renderer.EndRenderPass();
         }
 
         std::shared_ptr<Image2D> GetAOImage() const

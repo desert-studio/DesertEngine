@@ -813,7 +813,7 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, gbuffer, meshRenderer );
             AddFrameTerrainGBuffer( graph, gbuffer );
-            AddFrameDepthResolve( graph );
+            AddFrameDepthResolve( graph, textures );
 
             glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );
             glm::vec4 lightColor( 1.0f, 0.98f, 0.92f, 3.0f );
@@ -844,7 +844,7 @@ namespace Desert::Graphic
                                    compositeReads );
             }
 
-            AddFrameComposite( graph, compositeReads, sceneColor(), meshRenderer, lightDir, lightColor, cameraPos,
+            AddFrameComposite( graph, textures, compositeReads, meshRenderer, lightDir, lightColor, cameraPos,
                                values );
             AddFrameGeneric( graph, sceneColor(), meshRenderer );
             AddFrameSkinned( graph, sceneColor(), meshRenderer );
@@ -853,10 +853,9 @@ namespace Desert::Graphic
             std::vector<RDG::TextureRef> copyReads;
             AddFrameSceneCopy( graph, textures, sceneColor(), copy, values, copyReads );
 
-            // The copy is made by the pass above, so whether SSR has an input is known only once that pass
-            // has run: SSR is added whenever a copy pass exists and records nothing when the copy is empty.
+            // SSR traces the copy made by the pass above; without a copy target there is nothing to trace.
             if ( m_EnableSSR && copy && EnsureSSRResources() )
-                AddFrameSSR( graph, gbuffer, copyReads, sceneColor(), viewProj, cameraPos, values );
+                AddFrameSSR( graph, textures, gbuffer, copyReads, viewProj, cameraPos, values );
 
             AddFrameGlass( graph, copyReads, sceneColor(), meshRenderer, values );
         }
@@ -1584,19 +1583,6 @@ namespace Desert::Graphic
     {
         const auto it = m_RenderSystems.find( "BackdropBlurSystem" );
         return it == m_RenderSystems.end() ? 0u : SP_CAST( System::BackdropBlurRenderer, it->second )->GetMaxLod();
-    }
-
-    void SceneRenderer::ClearMainFramebuffer()
-    {
-        auto& renderer = Renderer::GetInstance();
-
-        auto clearRenderPass = RenderPass::Create( {
-             .TargetFramebuffer = m_TargetFramebuffer,
-             .DebugName         = "ClearTargetFramebuffer",
-        } );
-
-        renderer.BeginRenderPass( clearRenderPass.get(), true );
-        renderer.EndRenderPass();
     }
 
 } // namespace Desert::Graphic

@@ -51,16 +51,10 @@ namespace Desert::Graphic::System
             if ( !target || !src || !m_Pipeline || !m_Material )
                 return;
 
-            auto renderPass = RenderPass::Create( {
-                 .TargetFramebuffer = target,
-                 .DebugName         = "SceneColorCopyPass",
-            } );
-
+            // Inside the render pass the frame graph opens on GetImage() ("Deferred: SceneCopy").
             auto& renderer = Renderer::GetInstance();
-            renderer.BeginRenderPass( renderPass.get() ); // clear + write the snapshot
             m_Material->BindInputs( src );
             renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
-            renderer.EndRenderPass();
         }
 
         std::shared_ptr<Image2D> GetImage() const

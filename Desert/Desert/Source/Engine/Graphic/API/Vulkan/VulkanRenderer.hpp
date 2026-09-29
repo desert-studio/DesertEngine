@@ -67,7 +67,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual void ComputeImageBeginRead( Image* image ) override;
         virtual void ComputeImageEndRead( Image* image ) override;
 
-        virtual void CopyDepthImage( Image2D* src, Image2D* dst ) override;
+        virtual Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
 
         virtual void ResizeWindowEvent( uint32_t width, uint32_t height ) override;

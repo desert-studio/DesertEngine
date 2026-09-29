@@ -817,36 +817,38 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    void VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )
+    Common::BoolResultStr VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )
     {
-        if ( !IsRecording() || src == nullptr || dst == nullptr )
-            return;
-        // Same extent required (a multisampled target depth vs the single-sample G-buffer would be an
-        // illegal copy — skip rather than fault; the grid just stays non-occluded under MSAA until a proper
-        // resolve is added).
-        if ( src->GetWidth() != dst->GetWidth() || src->GetHeight() != dst->GetHeight() )
-            return;
-
+        if ( !IsRecording() )
+            return Common::MakeError( "CopyDepthImage: no command buffer is recording" );
         auto* vsrc = dynamic_cast<VulkanImage2D*>( src );
         auto* vdst = dynamic_cast<VulkanImage2D*>( dst );
         if ( !vsrc || !vdst )
-            return;
+            return Common::MakeError( "CopyDepthImage: the source or the destination is not a Vulkan 2D image" );
+        // vkCmdCopyImage needs equal sample counts: a multisampled target depth cannot take the single-sample
+        // G-buffer depth by copy (that needs a depth resolve, which this is not).
+        const uint32_t srcSamples = src->GetImageSpecification().Samples;
+        const uint32_t dstSamples = dst->GetImageSpecification().Samples;
+        if ( srcSamples != dstSamples || src->GetWidth() != dst->GetWidth() || src->GetHeight() != dst->GetHeight() )
+        {
+            const std::string message =
+                 std::format( "CopyDepthImage: the source depth is {}x{} with {} sample(s), the destination {}x{} with "
+                              "{} sample(s); a copy needs the same size and sample count",
+                              src->GetWidth(), src->GetHeight(), srcSamples, dst->GetWidth(), dst->GetHeight(),
+                              dstSamples );
+            LOG_ERROR( "[Renderer] {}", message );
+            return Common::MakeError( message );
+        }
 
-        vsrc->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
-        vdst->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
-
+        // The frame graph's Copy node ("Deferred: DepthResolve") put src in TRANSFER_SRC and dst in
+        // TRANSFER_DST before this runs, and places the transitions after it.
         VkImageCopy region{};
         region.srcSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
         region.dstSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
         region.extent         = { src->GetWidth(), src->GetHeight(), 1 };
-
         vkCmdCopyImage( m_CurrentCommandBuffer, vsrc->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                         vdst->GetResource().Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
-
-        // Both back to the depth-attachment layout so the subsequent LOAD passes (forward-over-composite
-        // meshes, then the grid/collider overlays) read + test them normally.
-        vsrc->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL );
-        vdst->TransitionLayout( m_CurrentCommandBuffer, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL );
+        return BOOLSUCCESS;
     }
 
     void VulkanRendererAPI::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )

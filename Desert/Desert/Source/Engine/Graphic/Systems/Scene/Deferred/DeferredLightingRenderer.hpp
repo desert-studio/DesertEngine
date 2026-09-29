@@ -69,22 +69,16 @@ namespace Desert::Graphic::System
 
             ReportEnvironmentGap( environment );
 
-            auto renderPass = RenderPass::Create( {
-                 .TargetFramebuffer = target,
-                 .DebugName         = "DeferredLightingPass",
-            } );
-
             auto& renderer = Renderer::GetInstance();
-            // LOAD (clearFrame = false) preserves the forward-rendered sky/grid already in the target; the
-            // shader writes lit meshes where the G-buffer has geometry and discards elsewhere, compositing
-            // the deferred meshes over the real forward scene (so the skybox toggle + camera motion still work).
-            renderer.BeginRenderPass( renderPass.get(), false );
+            // Inside the render pass the frame graph opens on the scene target with LOAD ("Deferred:
+            // Composite"), which preserves the forward-rendered sky/grid already in it; the shader writes lit
+            // meshes where the G-buffer has geometry and discards elsewhere, compositing the deferred meshes
+            // over the real forward scene (so the skybox toggle + camera motion still work).
             m_Material->BindInputs( gbuffer->GetColorAttachmentImage( 0 ), gbuffer->GetColorAttachmentImage( 1 ),
                                     gbuffer->GetColorAttachmentImage( 2 ), gbuffer->GetColorAttachmentImage( 3 ),
                                     lightDir, lightColor, cameraPos, debugMode, pointLights, spotLights, shadow,
                                     aoImage, giIntensity, ssaoEnabled, giMode, giImage, cloudShadow, environment );
             renderer.SubmitFullscreenQuad( m_Pipeline.get(), m_Material->GetMaterialExecutor() );
-            renderer.EndRenderPass();
         }
 
     private:

@@ -1259,7 +1259,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     {
         for ( size_t at = from;; )
         {
-            const size_t legacy = text.find( "AddLegacy(", at );
+            const size_t legacy = std::min( text.find( "AddLegacy(", at ), text.find( "graph.AddPass(", at ) );
             const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
             const size_t first  = std::min( { legacy, phases, frame } );
@@ -1300,9 +1300,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "Deferred: GBuffer",      "TerrainGBuffer",
          "Deferred: DepthResolve", "Deferred: SSAO",
          "Deferred: RSM",          "Deferred: GIResolve",
-         "Deferred: Composite",    "Deferred: Generic",
-         "Deferred: Skinned",      "Deferred: SceneCopy",
-         "Deferred: SSR",          "Deferred: Glass",
+         "Deferred: GITemporal",   "Deferred: Composite",
+         "Deferred: Generic",      "Deferred: Skinned",
+         "Deferred: SceneCopy",    "Deferred: SSR",
+         "Deferred: SSRResolve",   "Deferred: SSRComposite",
+         "Deferred: Glass",
          "SkyAtmosphereLuts",      "AtmosphericFog",
          "VolumetricClouds",       "phases[phase==RenderPhase::Transparency]",
          "Debug: Overdraw",        "phases[phase==RenderPhase::Debug]",
@@ -1313,6 +1315,43 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
          "PostFX: FXAA",           "PostFX: SMAA",
     };
     EXPECT_EQ( added, legacyOrder );
+
+    // RDG-LEG1-L2: the deferred passes are graph nodes with declared accesses, not legacy wrappers.
+    const auto declares = [&]( std::string_view function, std::initializer_list<std::string_view> needles )
+    {
+        const std::string text = squeeze( bodyOf( function ) );
+        ASSERT_FALSE( text.empty() ) << function;
+        EXPECT_EQ( text.find( "AddLegacy(" ), std::string::npos ) << function << " still adds a legacy pass";
+        for ( const std::string_view needle : needles )
+            EXPECT_NE( text.find( needle ), std::string::npos ) << function << " does not declare " << needle;
+    };
+    declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
+    declares( "AddFrameSSAO", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,ao," } );
+    declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "ColorTarget(0,accum," } );
+    declares( "AddFrameComposite", { "PassFlags::Raster", "Access::SampledGraphics", "LoadTarget(pass,target)" } );
+    declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,copyReads" } );
+    declares( "AddFrameSSR", { "PassFlags::Compute", "Access::StorageWrite", "LoadTarget(pass,target)" } );
+}
+
+// DepthResolve is a Copy node: G-buffer depth CopySrc -> target depth CopyDst, so the graph plans the barriers
+// into TRANSFER_SRC / TRANSFER_DST before it (the old AddLegacy wrapper declared nothing and got none), and the
+// G-buffer depth ends the graph in the attachment layout. The same declarations compiled on recorded images:
+TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBarriers )
+{
+    const fs::path root = RepoRoot();
+    std::ifstream               file( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
+    ASSERT_TRUE( file );
+    std::string text( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+    text.erase( std::remove_if( text.begin(), text.end(), []( unsigned char c ) { return std::isspace( c ) != 0; } ),
+                text.end() );
+    const size_t begin = text.find( "voidSceneRenderer::AddFrameDepthResolve(" );
+    ASSERT_NE( begin, std::string::npos );
+    const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
+    EXPECT_NE( body.find( "\"Deferred:DepthResolve\",RDG::PassFlags::Copy" ), std::string::npos );
+    EXPECT_NE( body.find( "pass.Read(sourceRef,RDG::Access::CopySrc)" ), std::string::npos );
+    EXPECT_NE( body.find( "pass.Write(targetRef,RDG::Access::CopyDst)" ), std::string::npos );
+    EXPECT_NE( body.find( "\"GBuffer.Depth\",RDG::Access::DepthWrite" ), std::string::npos );
+    EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
 }
 
 // ── Imported framebuffers and render-pass merging (RDG-LEG1-L0) ───────────────────────────────────

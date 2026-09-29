@@ -87,7 +87,7 @@ namespace Desert::Graphic
 
         // Copy the depth aspect of @p src into @p dst (Deferred: G-buffer depth -> scene target depth so
         // depth-tested overlays occlude against static geometry). Call outside a render pass.
-        void CopyDepthImage( Image2D* src, Image2D* dst );
+        Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst );
 
         // Set the scissor rect (framebuffer px, top-left origin). Used by the 2D batcher for UI clipping.
         void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height );

@@ -201,9 +201,9 @@ namespace Desert::Graphic
         s_RendererAPI->ComputeImageEndRead( image );
     }
 
-    void Renderer::CopyDepthImage( Image2D* src, Image2D* dst )
+    Common::BoolResultStr Renderer::CopyDepthImage( Image2D* src, Image2D* dst )
     {
-        s_RendererAPI->CopyDepthImage( src, dst );
+        return s_RendererAPI->CopyDepthImage( src, dst );
     }
 
     void Renderer::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )
