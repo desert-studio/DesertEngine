@@ -1320,3 +1320,114 @@ TEST_F( ClipEditUndo, AControlRowKeyMovesAndDeletesAllThreeChannelsTogether )
     EXPECT_EQ( track.PositionKeys.size(), 1U );
     EXPECT_EQ( Desert::Editor::DeleteKeysAtTick( track, FrameNumber{ 1 }, PROJECT_TICK_RATE ), 0U );
 }
+
+// ── ANV1e: THE PERSONA "+ Key" BUTTON ────────────────────────────────────────────────────────────────────
+
+namespace
+{
+    /// The child's keyed Y at `tick`, read back THROUGH THE SAMPLER the preview uses, not from the key list:
+    /// the question is what the clip plays, and a key the sampler does not reach would pass a key-count check.
+    float SampledChildY( Animator& animator, const AnimationClip& clip, int32_t tick )
+    {
+        animator.SampleClipIntoLocalPose( clip, FrameTime{ FrameNumber{ tick }, 0.0f } );
+        return animator.GetAuthoringPose()[kChild].Translation.y;
+    }
+} // namespace
+
+TEST_F( ClipEditUndo, KeyBoneWritesThePoseAtTheFrameAndTheNeighboursInterpolate )
+{
+    Rig           rig( MakeClipWithInteriorKeys(), AutoChangeMode::All );
+    const int32_t at            = kDisplayFrameTicks * 15;
+    const int32_t between       = kDisplayFrameTicks * 12;
+    const float   betweenBefore = SampledChildY( rig.m_Animator, rig.m_Clip, between );
+
+    rig.m_Animator.SampleClipIntoLocalPose( rig.m_Clip, FrameTime{ FrameNumber{ at }, 0.0f } );
+    LocalPose posed           = rig.m_Animator.GetAuthoringPose();
+    posed[kChild].Translation = glm::vec3( 0.0f, 20.0f, 0.0f );
+    posed[kChild].Rotation    = glm::angleAxis( glm::radians( 30.0f ), glm::vec3( 0.0f, 0.0f, 1.0f ) );
+    ASSERT_TRUE( rig.m_Animator.SetAuthoringPose( posed ).IsSuccess() );
+
+    const auto keyed =
+         Desert::Editor::KeyBonePose( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip, kChild, FrameNumber{ at } );
+    ASSERT_TRUE( keyed.IsSuccess() ) << keyed.GetError();
+    EXPECT_EQ( keyed.GetValue(), 1u ) << "one press, one undo entry";
+    EXPECT_FALSE( rig.m_Transaction.Open() );
+
+    EXPECT_NEAR( SampledChildY( rig.m_Animator, rig.m_Clip, at ), 20.0f, 1e-4f ) << "the frame plays the key";
+    const float betweenAfter = SampledChildY( rig.m_Animator, rig.m_Clip, between );
+    EXPECT_GT( betweenAfter, betweenBefore + 1.0f ) << "the neighbour frame interpolates toward the new key";
+    EXPECT_LT( betweenAfter, 20.0f );
+    rig.m_Animator.SampleClipIntoLocalPose( rig.m_Clip, FrameTime{ FrameNumber{ at }, 0.0f } );
+    EXPECT_NEAR( glm::degrees( glm::angle( rig.m_Animator.GetAuthoringPose()[kChild].Rotation ) ), 30.0f, 1e-2f );
+}
+
+TEST_F( ClipEditUndo, KeyBoneIsUndoneByValueAndRedoneByValue )
+{
+    Rig                 rig( MakeClipWithInteriorKeys(), AutoChangeMode::All );
+    const AnimationClip before = rig.m_Clip;
+    const int32_t       at     = kDisplayFrameTicks * 15;
+
+    LocalPose posed           = rig.m_Animator.GetAuthoringPose();
+    posed[kChild].Translation = glm::vec3( 0.0f, 20.0f, 0.0f );
+    ASSERT_TRUE( rig.m_Animator.SetAuthoringPose( posed ).IsSuccess() );
+    ASSERT_TRUE(
+         Desert::Editor::KeyBonePose( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip, kChild, FrameNumber{ at } )
+              .IsSuccess() );
+    const AnimationClip after = rig.m_Clip;
+    ASSERT_FALSE( SameStoredValue( before.Tracks[0], after.Tracks[0] ) );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    ASSERT_EQ( rig.m_Clip.Tracks.size(), before.Tracks.size() );
+    EXPECT_TRUE( SameStoredValue( rig.m_Clip.Tracks[0], before.Tracks[0] ) )
+         << "undo restores the key AND tangents";
+    ASSERT_TRUE( CommandHistory::Get().Redo() );
+    EXPECT_TRUE( SameStoredValue( rig.m_Clip.Tracks[0], after.Tracks[0] ) );
+}
+
+TEST_F( ClipEditUndo, KeyBoneOnAnUntrackedBoneCreatesTheTrackAndUndoRemovesIt )
+{
+    Rig          rig( MakeClipWithInteriorKeys(), AutoChangeMode::All );
+    const size_t tracksBefore = rig.m_Clip.Tracks.size();
+    ASSERT_TRUE( Desert::Editor::KeyBonePose( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip, 0u,
+                                              FrameNumber{ kDisplayFrameTicks * 5 } )
+                      .IsSuccess() );
+    ASSERT_EQ( rig.m_Clip.Tracks.size(), tracksBefore + 1 );
+    EXPECT_EQ( rig.m_Clip.Tracks.back().BoneName, "root" );
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( rig.m_Clip.Tracks.size(), tracksBefore ) << "undo takes the created track away, not just its key";
+}
+
+TEST_F( ClipEditUndo, KeyBoneRefusesABoneOutsideTheSkeletonAndAnOpenInteraction )
+{
+    Rig rig( MakeClipWithInteriorKeys(), AutoChangeMode::All );
+    EXPECT_FALSE(
+         Desert::Editor::KeyBonePose( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip, 7u, FrameNumber{ 0 } )
+              .IsSuccess() );
+    ASSERT_TRUE( rig.m_Transaction.Begin( &rig.m_Animator, &rig.m_Clip ).IsSuccess() );
+    EXPECT_FALSE(
+         Desert::Editor::KeyBonePose( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip, kChild, FrameNumber{ 0 } )
+              .IsSuccess() );
+    rig.m_Transaction.Cancel();
+    EXPECT_TRUE( CommandHistory::Get().UndoStack().empty() );
+}
+
+TEST_F( ClipEditUndo, DroppingAPreviewAnimatorsRecordsKeepsEveryOtherRecord )
+{
+    // The Animation Editor rebuilds its preview animator with the mesh: its pose records must go (they write
+    // through the dead pointer), while an unrelated record of the same history stays undoable.
+    Rig   rig( MakeClipWithInteriorKeys(), AutoChangeMode::All );
+    float value    = 1.0f;
+    float oldValue = 0.0f;
+    CommandHistory::Get().Push( &value, &oldValue, &value, sizeof( value ) );
+    ASSERT_TRUE( Desert::Editor::KeyBonePose( rig.m_Transaction, &rig.m_Animator, &rig.m_Clip, kChild,
+                                              FrameNumber{ kDisplayFrameTicks * 5 } )
+                      .IsSuccess() );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 2U );
+
+    const Animator other( rig.m_Animator.GetSkeleton() );
+    EXPECT_EQ( Desert::Editor::DropPoseRecordsFor( &other ), 0U ) << "another animator's records are not these";
+    EXPECT_EQ( Desert::Editor::DropPoseRecordsFor( &rig.m_Animator ), 1U );
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "the unrelated record survives";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( value, 0.0f );
+}

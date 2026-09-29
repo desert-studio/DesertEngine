@@ -176,6 +176,18 @@ namespace Desert::Editor
             drop( m_Redo );
         }
 
+        // DropFor by a question other than "which object": the records `drops` answers true for, from both
+        // stacks. The Animation Editor needs it when its preview ANIMATOR dies (a mesh switch, a released
+        // preview) while the clip - the edited object - lives on with its notify and curve records.
+        template <typename Predicate>
+        size_t DropIf( Predicate drops )
+        {
+            const size_t before = m_Undo.size() + m_Redo.size();
+            std::erase_if( m_Undo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
+            std::erase_if( m_Redo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
+            return before - ( m_Undo.size() + m_Redo.size() );
+        }
+
         void Clear()
         {
             m_Undo.clear();

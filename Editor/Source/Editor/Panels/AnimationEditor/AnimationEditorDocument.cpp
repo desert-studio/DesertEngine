@@ -23,8 +23,12 @@
 
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
+#include <ImGuizmo.h>
+
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <cctype>
 #include <filesystem>
@@ -121,6 +125,7 @@ namespace Desert::Editor
         auto& clip    = m_ClipAsset->GetClipForAuthoring();
         clip.Notifies = m_OnDisk->Notifies;
         clip.Curves   = m_OnDisk->Curves;
+        clip.Tracks   = m_OnDisk->Tracks;
         CommandHistory::Get().DropFor( &clip );
         return true;
     }
@@ -228,10 +233,14 @@ namespace Desert::Editor
             }
             m_Mesh = std::move( mesh );
         }
-        m_MeshIndex       = candidate;
-        m_MeshName        = m_MeshCandidates[candidate].filename().string();
-        m_BrowserListed   = false; // the rig the browser lists for may have changed
-        const auto& mesh  = m_Mesh;
+        m_MeshIndex      = candidate;
+        m_MeshName       = m_MeshCandidates[candidate].filename().string();
+        m_BrowserListed  = false; // the rig the browser lists for may have changed
+        // The preview rebuilds its animator for the new mesh: the posing and every pose record that writes
+        // into the old one go first (DropPoseRecordsFor), the clip's other records stay.
+        EndPosing();
+        (void)DropPoseRecordsFor( m_Preview->GetAnimator() );
+        const auto& mesh = m_Mesh;
         const auto& slots = mesh->GetMaterialHandles();
         m_Preview->SetSkinnedMesh( mesh->GetMetadata().Handle,
                                    std::vector<Assets::AssetHandle>( slots.begin(), slots.end() ), m_ClipAsset );
@@ -239,6 +248,11 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::DestroyPreview()
     {
+        if ( m_Preview )
+        {
+            EndPosing();
+            (void)DropPoseRecordsFor( m_Preview->GetAnimator() );
+        }
         m_Preview.reset();
         m_UIHelper.reset();
     }
@@ -321,6 +335,24 @@ namespace Desert::Editor
                                          if ( const auto* rig = m_Preview ? m_Preview->GetAnimator() : nullptr )
                                              m_SelectedBone = BoneByName( rig->GetSkeleton(), name );
                                      } } );
+        // Posing, the palette's (and DesertCtl's) way to the gizmo and the "+ Key" button.
+        actions.push_back( { "Gizmo Translate", [this]() { m_GizmoRotate = false; } } );
+        actions.push_back( { "Gizmo Rotate", [this]() { m_GizmoRotate = true; } } );
+        actions.push_back( { "Rotate Bone Z +30", [this]()
+                             {
+                                 const auto* animator = BeginPosing();
+                                 if ( animator == nullptr || !m_SelectedBone ||
+                                      *m_SelectedBone >= animator->GetAuthoringPose().Size() )
+                                 {
+                                     LOG_ERROR( "Animation Editor: Rotate Bone needs a selected bone" );
+                                     return;
+                                 }
+                                 Animation::BoneTransform pose = animator->GetAuthoringPose()[*m_SelectedBone];
+                                 pose.Rotation                 = pose.Rotation *
+                                                 glm::angleAxis( glm::radians( 30.0f ), glm::vec3( 0, 0, 1 ) );
+                                 (void)PoseSelectedBone( pose, true );
+                             } } );
+        actions.push_back( { "Key Bone", [this]() { (void)KeySelectedBone(); } } );
         PreviewEnvironment::AppendActions( actions );
         return actions;
     }
@@ -357,6 +389,10 @@ namespace Desert::Editor
                     m_Flash[i] = kNotifyFlashSeconds;
             }
         }
+        // An unkeyed pose belongs to the frame it was made on (UE drops it the same way): play or another frame
+        // shows the clip again. Never mid-gesture - the transaction still holds its "before".
+        if ( m_Posed && !m_PoseEdit.Open() && ( m_Transport.Playing || m_Transport.FrameIndex() != m_PosedFrame ) )
+            EndPosing();
         m_Preview->SetAnimationTime( m_Transport.Time );
         PreviewEnvironment::ApplyTo( *m_Preview, m_Assets );
         m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
@@ -478,6 +514,9 @@ namespace Desert::Editor
         AnimationTransport& t = m_Transport;
         if ( ImGui::Button( GetDiskState() == DiskState::Dirty ? "Save*" : "Save" ) )
             (void)SaveDocument();
+        ImGui::SameLine();
+        if ( ImGui::Button( "+ Key" ) )
+            (void)KeySelectedBone();
         ImGui::SameLine();
         if ( ImGui::Button( "|<" ) )
             t.ToStart();
@@ -619,8 +658,11 @@ namespace Desert::Editor
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
-                (void)m_Preview->Draw( *m_UIHelper, view, PreviewInteraction::Interactive );
+                (void)m_Preview->Draw( *m_UIHelper, view,
+                                       m_GizmoHovered ? PreviewInteraction::Static
+                                                      : PreviewInteraction::Interactive );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
+            DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             DrawOverlay( glm::vec2( origin.x, origin.y ) );
         }
         ImGui::EndChild();
@@ -729,7 +771,7 @@ namespace Desert::Editor
         ImGui::EndChild();
     }
 
-    void AnimationEditorDocument::DrawBoneDetails() const
+    void AnimationEditorDocument::DrawBoneDetails()
     {
         const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
         if ( animator == nullptr || !m_SelectedBone ||
@@ -747,26 +789,203 @@ namespace Desert::Editor
                              parent < skeleton.GetBones().size() ? skeleton.GetBones()[parent].Name.c_str()
                                                                  : "(root)" );
 
-        // Read-only: the pose is the clip's at the playhead, the reference is the rig's rest pose.
-        const auto section = [index]( const char* label, const BoneTransformRows& rows )
+        // One row set per transform; `editable` rows commit on Enter, the reference pose is read-only.
+        const auto section = [index]( const char* label, BoneTransformRows& rows, const bool editable )
         {
             SectionHeader( label );
-            const auto row = [index]( const char* name, glm::vec3 value )
+            bool       changed = false;
+            const auto row     = [&]( const char* name, glm::vec3& value )
             {
                 ImGui::PushID( name );
                 ImGui::PushID( static_cast<int>( index ) );
                 ImGui::SetNextItemWidth( -80.0f );
-                ImGui::InputFloat3( name, &value.x, "%.3f", ImGuiInputTextFlags_ReadOnly );
+                changed |= ImGui::InputFloat3( name, &value.x, "%.3f",
+                                               editable ? ImGuiInputTextFlags_EnterReturnsTrue
+                                                        : ImGuiInputTextFlags_ReadOnly );
                 ImGui::PopID();
                 ImGui::PopID();
             };
             row( "Location", rows.Location );
             row( "Rotation", rows.RotationDegrees );
             row( "Scale", rows.Scale );
+            return changed && editable;
         };
-        section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(),
-                 DecomposeBoneTransform( animator->GetBoneLocalPose( index ) ) );
-        section( "Reference Pose", DecomposeBoneTransform( bone.LocalBindTransform ) );
+        // The pose AT THE PLAYHEAD: the clip's evaluated pose, or the pose being made on this frame. (The
+        // authoring buffer alone is the bind pose until something poses it - it is not the frame.)
+        const Animation::BoneTransform& shown =
+             m_Posed ? animator->GetAuthoringPose()[index] : animator->GetLocalPose()[index];
+        BoneTransformRows posed{ shown.Translation, glm::degrees( glm::eulerAngles( shown.Rotation ) ),
+                                 shown.Scale };
+        if ( section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(), posed, true ) )
+            (void)PoseSelectedBone( Animation::BoneTransform{ posed.Location,
+                                                              glm::quat( glm::radians( posed.RotationDegrees ) ),
+                                                              posed.Scale },
+                                    true );
+        BoneTransformRows reference = DecomposeBoneTransform( bone.LocalBindTransform );
+        (void)section( "Reference Pose", reference, false );
+    }
+
+    Animation::FrameNumber AnimationEditorDocument::KeyTick() const
+    {
+        const double rate = m_ClipAsset ? m_ClipAsset->GetClip().TickRate.AsDouble() : 0.0;
+        return Animation::FrameNumber{ static_cast<int32_t>( std::llround( m_Transport.Time * rate ) ) };
+    }
+
+    Animation::Animator* AnimationEditorDocument::BeginPosing()
+    {
+        auto*       animator = m_Preview ? m_Preview->GetAnimatorForAuthoring() : nullptr;
+        const auto* asset    = ClipAsset();
+        if ( animator == nullptr || asset == nullptr )
+            return nullptr;
+        if ( !m_Posed )
+        {
+            // Posing starts from the clip's pose at this frame, not from whatever the buffer last held.
+            animator->SampleClipIntoLocalPose( asset->GetClip(), Animation::FrameTime{ KeyTick(), 0.0f } );
+            animator->ApplyLocalPose();
+            m_Transport.Playing = false;
+            m_Posed             = true;
+            m_PosedFrame        = m_Transport.FrameIndex();
+            m_Preview->SetPoseOverride( true );
+        }
+        return animator;
+    }
+
+    void AnimationEditorDocument::EndPosing()
+    {
+        if ( m_PoseEdit.Open() )
+            m_PoseEdit.Cancel();
+        m_GizmoHeld = false;
+        m_Posed     = false;
+        if ( m_Preview )
+            m_Preview->SetPoseOverride( false );
+    }
+
+    bool AnimationEditorDocument::PoseSelectedBone( const Animation::BoneTransform& pose, const bool undoable )
+    {
+        auto* animator = BeginPosing();
+        auto* asset    = ClipAsset();
+        if ( animator == nullptr || asset == nullptr || !m_SelectedBone ||
+             *m_SelectedBone >= animator->GetAuthoringPose().Size() )
+            return false;
+        if ( undoable )
+        {
+            if ( const auto begun = m_PoseEdit.Begin( animator, &asset->GetClipForAuthoring() );
+                 !begun.IsSuccess() )
+            {
+                LOG_ERROR( "Animation Editor: pose edit refused: {}", begun.GetError() );
+                return false;
+            }
+        }
+        Animation::LocalPose edited = animator->GetAuthoringPose();
+        edited[*m_SelectedBone]     = pose;
+        if ( const auto set = animator->SetAuthoringPose( edited ); !set.IsSuccess() )
+        {
+            LOG_ERROR( "Animation Editor: pose refused: {}", set.GetError() );
+            if ( undoable )
+                m_PoseEdit.Cancel();
+            return false;
+        }
+        animator->ApplyLocalPose();
+        if ( undoable )
+        {
+            if ( const auto ended = m_PoseEdit.End(); !ended.IsSuccess() )
+            {
+                LOG_ERROR( "Animation Editor: pose edit not recorded: {}", ended.GetError() );
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool AnimationEditorDocument::KeySelectedBone()
+    {
+        auto* animator = BeginPosing();
+        auto* asset    = ClipAsset();
+        if ( animator == nullptr || asset == nullptr || !m_SelectedBone )
+        {
+            LOG_ERROR( "Animation Editor: + Key needs a selected bone in a loaded preview" );
+            return false;
+        }
+        const auto keyed =
+             KeyBonePose( m_PoseEdit, animator, &asset->GetClipForAuthoring(), *m_SelectedBone, KeyTick() );
+        if ( !keyed.IsSuccess() )
+        {
+            LOG_ERROR( "Animation Editor: + Key refused: {}", keyed.GetError() );
+            return false;
+        }
+        return true;
+    }
+
+    void AnimationEditorDocument::DrawBoneGizmo( const glm::vec2& origin, const glm::vec2& size )
+    {
+        m_GizmoHovered = false;
+        auto* animator = m_Preview ? m_Preview->GetAnimatorForAuthoring() : nullptr;
+        if ( animator == nullptr || ClipAsset() == nullptr || !m_SelectedBone || m_Transport.Playing ||
+             *m_SelectedBone >= animator->GetSkeleton().GetBones().size() )
+        {
+            if ( m_GizmoHeld )
+                EndPosing();
+            return;
+        }
+        // W / E as in the level viewport, while the pointer is over this window.
+        if ( ImGui::IsWindowHovered() && !ImGui::GetIO().WantTextInput )
+        {
+            if ( ImGui::IsKeyPressed( ImGuiKey_W, false ) )
+                m_GizmoRotate = false;
+            if ( ImGui::IsKeyPressed( ImGuiKey_E, false ) )
+                m_GizmoRotate = true;
+        }
+        const uint32_t  bone   = *m_SelectedBone;
+        const glm::mat4 target = m_Preview->GetTargetTransform();
+        const glm::mat4 view   = m_Preview->GetView();
+        const glm::mat4 proj   = m_Preview->GetProjection();
+        glm::mat4       world  = target * animator->GetBoneModelMatrix( bone );
+
+        ImGuizmo::SetOrthographic( false );
+        ImGuizmo::SetDrawlist();
+        ImGuizmo::SetRect( origin.x, origin.y, size.x, size.y );
+        const bool moved = ImGuizmo::Manipulate( &view[0][0], &proj[0][0],
+                                                 m_GizmoRotate ? ImGuizmo::ROTATE : ImGuizmo::TRANSLATE,
+                                                 ImGuizmo::LOCAL, &world[0][0] );
+        const bool held  = ImGuizmo::IsUsing();
+        m_GizmoHovered   = held || ImGuizmo::IsOver();
+
+        // One undo step per drag: the transaction opens on the press, over the clip's pose at this frame.
+        if ( held && !m_GizmoHeld )
+        {
+            Animation::Animator* posed = BeginPosing();
+            if ( const auto begun = m_PoseEdit.Begin( posed, &ClipAsset()->GetClipForAuthoring() );
+                 !begun.IsSuccess() )
+            {
+                LOG_ERROR( "Animation Editor: bone drag refused: {}", begun.GetError() );
+                return;
+            }
+            m_GizmoHeld = true;
+        }
+        if ( moved && m_GizmoHeld )
+        {
+            // World -> the bone's parent-relative transform (GizmoController's bone branch does the same).
+            glm::mat4      parentModel( 1.0f );
+            const uint32_t parent = animator->GetSkeleton().ResolveParent( bone );
+            if ( parent < animator->GetSkeleton().GetBones().size() )
+                parentModel = animator->GetBoneModelMatrix( parent );
+            const auto local = Animation::BoneTransform::FromMatrix( glm::inverse( parentModel ) *
+                                                                     glm::inverse( target ) * world );
+            if ( local.IsSuccess() )
+                (void)PoseSelectedBone( local.GetValue(), false );
+            else
+            {
+                LOG_ERROR( "Animation Editor: bone drag: {}", local.GetError() );
+            }
+        }
+        if ( !held && m_GizmoHeld )
+        {
+            m_GizmoHeld = false;
+            if ( const auto ended = m_PoseEdit.End(); !ended.IsSuccess() )
+            {
+                LOG_ERROR( "Animation Editor: bone drag not recorded: {}", ended.GetError() );
+            }
+        }
     }
 
     void AnimationEditorDocument::DrawAssetDetails()
