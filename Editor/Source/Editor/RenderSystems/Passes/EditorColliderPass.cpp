@@ -176,9 +176,11 @@ namespace Desert::Editor::Render
                     // Jolt capsule: axis along local Y; HalfHeight is the CYLINDER half-length,
                     // hemispherical caps of Radius extend beyond it.
                     // Axis picks which body axis plays Jolt's Y; the other two span the rings.
-                    const glm::vec3 up  = collider.Axis == Physics::CapsuleAxis::X   ? axisX
-                                          : collider.Axis == Physics::CapsuleAxis::Z ? axisZ
-                                                                                     : axisY;
+                    glm::vec3 up = axisY;
+                    if ( collider.Axis == Physics::CapsuleAxis::X )
+                        up = axisX;
+                    else if ( collider.Axis == Physics::CapsuleAxis::Z )
+                        up = axisZ;
                     const glm::vec3 u   = collider.Axis == Physics::CapsuleAxis::X ? axisY : axisX;
                     const glm::vec3 w   = collider.Axis == Physics::CapsuleAxis::Z ? axisY : axisZ;
                     const float     r   = collider.Radius;

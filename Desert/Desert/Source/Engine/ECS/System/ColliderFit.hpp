@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <span>
@@ -59,9 +60,9 @@ namespace Desert::ECS
                     axis = 1;
                 if ( size.z > size[axis] )
                     axis = 2;
-                out.Axis = axis == 0   ? Physics::CapsuleAxis::X
-                           : axis == 1 ? Physics::CapsuleAxis::Y
-                                       : Physics::CapsuleAxis::Z;
+                constexpr std::array<Physics::CapsuleAxis, 3> kAxes{
+                     Physics::CapsuleAxis::X, Physics::CapsuleAxis::Y, Physics::CapsuleAxis::Z };
+                out.Axis = kAxes.at( static_cast<size_t>( axis ) );
 
                 // Radius: the farthest point from the axis line. Half height: the shortest cylinder whose caps
                 // still cover every point — a point at distance d from the axis needs |t| <= h + sqrt(r^2 - d^2).

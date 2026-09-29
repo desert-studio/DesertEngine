@@ -26,9 +26,10 @@ namespace Desert::Editor::Core
              ECS::PhysicsECSSystem::GatherColliderMesh( *entity.GetRegistry(), entity.GetHandle(), scale );
         if ( !gathered.IsSuccess() )
             return Common::MakeError<ECS::ColliderData>( gathered.GetError() );
-        if ( !gathered.GetValue().has_value() )
+        const auto& mesh = gathered.GetValue();
+        if ( !mesh.has_value() )
             return Common::MakeError<ECS::ColliderData>( "the entity's mesh is still loading" );
-        return ECS::FitCollider( shape, gathered.GetValue()->Points );
+        return ECS::FitCollider( shape, mesh->Points );
     }
 
     // The collider's half-span along the body axes: what the Details warning compares against the fit.

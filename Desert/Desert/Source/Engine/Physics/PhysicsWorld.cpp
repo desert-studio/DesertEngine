@@ -396,11 +396,18 @@ namespace Desert::Physics
         if ( simple && ( offAxis || desc.Center != glm::vec3( 0.0f ) ) )
         {
             // Y onto X: -90 degrees about Z; Y onto Z: +90 degrees about X.
-            const JPH::Quat onto = !offAxis ? JPH::Quat::sIdentity()
-                                   : desc.Axis == CapsuleAxis::X
-                                        ? JPH::Quat::sRotation( JPH::Vec3::sAxisZ(), -JPH::JPH_PI * 0.5f )
-                                        : JPH::Quat::sRotation( JPH::Vec3::sAxisX(), JPH::JPH_PI * 0.5f );
-            shape                = new JPH::RotatedTranslatedShape( ToJolt( desc.Center ), onto, shape );
+            JPH::Quat onto = JPH::Quat::sIdentity();
+            if ( offAxis && desc.Axis == CapsuleAxis::X )
+                onto = JPH::Quat::sRotation( JPH::Vec3::sAxisZ(), -JPH::JPH_PI * 0.5f );
+            else if ( offAxis )
+                onto = JPH::Quat::sRotation( JPH::Vec3::sAxisX(), JPH::JPH_PI * 0.5f );
+            const JPH::RotatedTranslatedShapeSettings moved( ToJolt( desc.Center ), onto, shape );
+            const JPH::ShapeSettings::ShapeResult     result = moved.Create();
+            if ( result.HasError() )
+                return Common::MakeError<BodyHandle>(
+                     std::format( "{} collider could not be moved to its center: {}", ShapeName( desc.Shape ),
+                                  result.GetError().c_str() ) );
+            shape = result.Get();
         }
 
         const bool isStatic    = desc.Type == BodyType::Static;

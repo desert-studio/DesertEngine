@@ -102,19 +102,6 @@ namespace Desert::Editor
                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
         static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
                        "one rail entry per palette" );
-
-        // UE SetCollisionGeometryTool's simple types we have a shape for (Aligned Boxes, Minimal Spheres,
-        // Capsules, Convex Hulls), one element per mesh.
-        struct CollisionShapeEntry
-        {
-            const char*        Name;
-            Physics::ShapeType Shape;
-        };
-        constexpr std::array<CollisionShapeEntry, 4> kCollisionShapes = {
-             { { "Box", Physics::ShapeType::Box },
-               { "Sphere", Physics::ShapeType::Sphere },
-               { "Capsule", Physics::ShapeType::Capsule },
-               { "Convex Hull", Physics::ShapeType::ConvexHull } } };
     } // namespace
 
     ModelingPanel::ModelingPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
@@ -556,43 +543,43 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::Combo( "##CollisionShape", &m_CollisionShape, names.data(), static_cast<int>( names.size() ) );
         if ( ImGui::Button( "Mesh To Collision", ImVec2( -1.0f, 0.0f ) ) )
-            MeshToCollision();
+        {
+            const auto done =
+                 MeshToCollision( m_Scene, kCollisionShapes.at( static_cast<size_t>( m_CollisionShape ) ) );
+            if ( !done.IsSuccess() )
+                LOG_WARN( "Mesh To Collision: {}", done.GetError() );
+        }
     }
 
-    void ModelingPanel::MeshToCollision()
+    Common::ResultStr<bool> ModelingPanel::MeshToCollision( const std::shared_ptr<Desert::Core::Scene>& scene,
+                                                            const CollisionShapeEntry&                  shape )
     {
-        const auto& shape = kCollisionShapes.at( static_cast<size_t>( m_CollisionShape ) );
-        const auto& ids   = Core::SelectionManager::GetSelection();
-        if ( !m_Scene || ids.size() != 1 )
-        {
-            LOG_WARN( "Mesh To Collision: select one entity with a static mesh" );
-            return;
-        }
+        const auto& ids = Core::SelectionManager::GetSelection();
+        if ( !scene || ids.size() != 1 )
+            return Common::MakeFormattedError<bool>( "select one entity with a static mesh ({} selected)",
+                                                     ids.size() );
         const Common::UUID id  = ids.front();
-        auto               ref = m_Scene->FindEntityByID( id );
+        const auto         ref = scene->FindEntityByID( id );
         if ( !ref )
-        {
-            LOG_WARN( "Mesh To Collision: entity {} is not in the scene", static_cast<uint64_t>( id ) );
-            return;
-        }
-        ECS::Entity entity = ref->get();
+            return Common::MakeFormattedError<bool>( "entity {} is not in the scene",
+                                                     static_cast<uint64_t>( id ) );
+        const ECS::Entity entity = ref->get();
 
-        auto fit = Core::FitEntityCollider( entity, shape.Shape );
+        const auto fit = Core::FitEntityCollider( entity, shape.Shape );
         if ( !fit.IsSuccess() )
-        {
-            LOG_WARN( "Mesh To Collision on entity {}: {}", static_cast<uint64_t>( id ), fit.GetError() );
-            return;
-        }
+            return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
+                                                     fit.GetError() );
         const ECS::ColliderData collider = fit.GetValue();
         Commands::MutateEntityUndoable( id,
                                         [&]
                                         {
-                                            auto live = m_Scene->FindEntityByID( id );
+                                            auto live = scene->FindEntityByID( id );
                                             if ( live )
                                                 live->get().AddComponent<ECS::ColliderComponent>(
                                                      ECS::ColliderComponent{ collider } );
                                         } );
         LOG_INFO( "[Modeling] Mesh To Collision on entity {}: {}", static_cast<uint64_t>( id ), shape.Name );
+        return Common::MakeSuccess( true );
     }
 
     void ModelingPanel::DrawCubeGrid()
