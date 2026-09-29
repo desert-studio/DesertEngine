@@ -1640,7 +1640,7 @@ namespace Desert::Editor
     Assets::AssetHandle AnimationEditorDocument::ModeAsset( const Core::PersonaMode mode ) const
     {
         if ( mode == Mode() )
-            return Assets::AssetHandle( Subject().Owner );
+            return { Subject().Owner };
         switch ( mode )
         {
             case Core::PersonaMode::Skeleton:
@@ -1655,7 +1655,7 @@ namespace Desert::Editor
                 return m_BrowserClips.empty() ? Assets::AssetHandle( static_cast<uint64_t>( 0 ) )
                                               : m_BrowserClips.front().second;
         }
-        return Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        return { static_cast<uint64_t>( 0 ) };
     }
 
     void AnimationEditorDocument::OpenMode( const Core::PersonaMode mode )
@@ -1752,10 +1752,12 @@ namespace Desert::Editor
                 // Handle 0 is an empty slot, not a lost asset.
                 const auto  handle = static_cast<uint64_t>( slots[i] );
                 const auto* meta   = m_Assets != nullptr ? m_Assets->FindMetadataByHandle( slots[i] ) : nullptr;
-                row( std::format( "Slot {}", i ).c_str(),
-                     meta != nullptr ? meta->Filepath.filename().string()
-                     : handle == 0   ? std::string( "None" )
-                                     : std::format( "{:016x} (not registered)", handle ) );
+                std::string name = std::format( "{:016x} (not registered)", handle );
+                if ( meta != nullptr )
+                    name = meta->Filepath.filename().string();
+                else if ( handle == 0 )
+                    name = "None";
+                row( std::format( "Slot {}", i ).c_str(), name );
             }
             ImGui::EndTable();
         }
