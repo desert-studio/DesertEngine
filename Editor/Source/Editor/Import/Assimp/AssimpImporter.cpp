@@ -349,7 +349,8 @@ namespace Desert::Editor
         // vertices. We bake that world transform into STATIC vertices below so the prop faces the right way
         // (without it a Blender FBX imports rotated ~90° about X — "looking at the floor"). Skinned meshes are
         // NOT baked: their bind/bone hierarchy (BuildSkeletonHierarchy) already carries the same transforms.
-        std::vector<glm::mat4> meshWorld( scene->mNumMeshes, glm::mat4( 1.0f ) );
+        std::vector<glm::mat4>   meshWorld( scene->mNumMeshes, glm::mat4( 1.0f ) );
+        std::vector<std::string> meshNode( scene->mNumMeshes );
         {
             std::vector<bool> meshHasXf( scene->mNumMeshes, false );
             std::function<void( const aiNode*, const glm::mat4& )> walk =
@@ -362,6 +363,7 @@ namespace Desert::Editor
                     if ( mi < meshWorld.size() && !meshHasXf[mi] )
                     {
                         meshWorld[mi]  = world;
+                        meshNode[mi]   = node->mName.C_Str();
                         meshHasXf[mi]  = true;
                     }
                 }
@@ -624,6 +626,7 @@ namespace Desert::Editor
             }
 
             meshData.Submeshes.push_back( submesh );
+            result.SubmeshNodes.push_back( meshNode[meshIdx] );
         }
 
         // ============================

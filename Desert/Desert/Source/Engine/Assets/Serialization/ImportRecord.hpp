@@ -50,6 +50,12 @@ namespace Desert::Assets::Serialization
             std::array<float, 3> Max{};
         };
         std::optional<Box> Bounds;
+
+        // THE IMPORT OPTION "Combine Meshes" (UE: UFbxStaticMeshImportData::bCombineMeshes, OFF by default).
+        // Absent means UE's default, false: every mesh-bearing node of the source becomes its own static mesh
+        // (NodeMeshSplit). Set it true in the record to import the whole file as the one combined mesh only.
+        // Kept by every re-import (EnsureImportRecord rewrites the parsed record, never a fresh one).
+        std::optional<bool> CombineMeshes;
     };
 
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text );
@@ -62,6 +68,10 @@ namespace Desert::Assets::Serialization
     /// The import's side: the record's GUID, the record written first (with a new GUID) when @p source has
     /// none. An existing record keeps its GUID, so a re-import keeps the identity; its `Bounds` are rewritten
     /// when the import's box differs from the one it states.
+    /// @p source's "Combine Meshes" option: the record's value, UE's default (false) when the record states none
+    /// or when the source has no record yet (its first import). An error naming the record when it is unreadable.
+    Common::ResultStr<bool> ReadImportRecordCombineMeshes( const std::filesystem::path& source );
+
     Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
                                                                       const Common::Math::AABB&    bounds );
 } // namespace Desert::Assets::Serialization

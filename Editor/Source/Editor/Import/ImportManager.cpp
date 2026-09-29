@@ -16,6 +16,9 @@
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
+#include "NodeMeshSplit.hpp"
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -28,6 +31,7 @@
 
 #include <Common/Core/JobSystem.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <fstream>
@@ -207,6 +211,10 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
+        // The node meshes a split import wrote (their reference, their geometry), in node order.
+        std::optional<std::vector<NodeMesh>>                                                      splitKeeper;
+        std::vector<std::pair<Assets::AssetGuidRef, const Assets::Serialization::MeshAssetData*>> nodeMeshes;
+
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
             record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
         else if ( resolved.Mesh )
@@ -220,6 +228,32 @@ namespace Desert::Editor
             if ( const auto written = WriteImportedMeshAsset( resolved.Mesh.value(), named, sourcePath );
                  !written )
                 record( Common::MakeError<bool>( written.GetError() ) );
+            // COMBINE MESHES OFF (UE's default): every mesh-bearing node also becomes its own static mesh
+            // (NodeMeshSplit.hpp). A single-node source is its combined mesh already, so nothing is split.
+            auto split = NodeMeshesOfImport( resolved.Mesh.value(), resolved.SubmeshNodes, sourcePath );
+            if ( !split )
+                record( Common::MakeError<bool>( split.GetError() ) );
+            else
+            {
+                splitKeeper = split.ExtractValue();
+                for ( const NodeMesh& node : *splitKeeper )
+                {
+                    auto written = WriteNodeMeshAsset( node, named, sourcePath );
+                    if ( !written )
+                    {
+                        record( Common::MakeError<bool>( written.GetError() ) );
+                        continue;
+                    }
+                    Assets::ContentRegistry::NoteFile( written.GetValue() );
+                    std::error_code ec;
+                    const auto      located = std::filesystem::proximate( written.GetValue(), ec );
+                    nodeMeshes.push_back(
+                         { Assets::AssetGuidRef{
+                                Common::Content::AssetGuidToText( NodeMeshGuid( sourcePath, node.Node ) ),
+                                ( ec ? written.GetValue() : located ).generic_string() },
+                           &node.Mesh } );
+                }
+            }
         }
 
         // THE MATERIALS AFTER THE MESH: a static mesh's import record (its GUID) exists only once the mesh is
@@ -235,7 +269,19 @@ namespace Desert::Editor
                 record( Common::MakeError<bool>( ref.GetError() ) );
         }
         for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath, previewMesh ) );
+        {
+            // Split by node: the material's Preview Mesh is the first node mesh that carries it (UE's
+            // "preview mesh" of an imported material is likewise the mesh it came in with).
+            std::optional<Assets::AssetGuidRef> preview = previewMesh;
+            for ( const auto& [ref, mesh] : nodeMeshes )
+                if ( std::ranges::any_of( mesh->Submeshes,
+                                          [&]( const auto& sub ) { return sub.MaterialGuid == material.Guid; } ) )
+                {
+                    preview = ref;
+                    break;
+                }
+            record( SerializeMaterialAsset( material, sourcePath, preview ) );
+        }
 
         if ( resolved.Skeleton )
             record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );

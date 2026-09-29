@@ -63,6 +63,21 @@ namespace Desert::Assets::Serialization
         return guid;
     }
 
+    Common::ResultStr<bool> ReadImportRecordCombineMeshes( const std::filesystem::path& source )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        std::error_code             ec;
+        if ( !std::filesystem::is_regular_file( record, ec ) )
+            return Common::MakeSuccess( false ); // the first import: UE's default
+        const auto text = Common::Utils::FileSystem::ReadFileContent( record );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        const auto data = ParseImportRecord( text.GetValue() );
+        if ( !data )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), data.GetError() );
+        return Common::MakeSuccess( data.GetValue().CombineMeshes.value_or( false ) );
+    }
+
     Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
                                                                       const Common::Math::AABB&    bounds )
     {
