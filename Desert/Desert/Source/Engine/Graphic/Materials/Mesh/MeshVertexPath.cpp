@@ -6,12 +6,19 @@ namespace Desert::Graphic
     {
         // Indexed [path][pass]. Written out as a literal table rather than an if-chain so that a hole is
         // visible as a hole: the two defects this file exists for were both a missing cell nobody could
-        // see, because the combination was never named anywhere.
+        // see, because the combination was never named anywhere. Forward and GBuffer are cells of the ONE
+        // StandardSurface template ("<Template>/<Path>.<Pass>", DShaderParser's SurfaceCellName), and so is
+        // shadow depth: an opaque template's ShadowDepth cell is the path's vertex header plus
+        // Mesh/Surface/Pass_ShadowDepth, with no surface evaluated. Glass is still its own program (the
+        // translucent domain).
         constexpr const char* kMeshShaders[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward                  GBuffer               Glass                Shadow depth
-             { "StaticMeshPBR", "StaticMeshGBuffer", "StaticMeshGlass", "Shadow" },
-             { "SkinnedMeshPBR", nullptr, nullptr, "Shadow_Skinned" },
-             { "StaticMeshPBR_Instanced", "StaticMeshGBuffer_Instanced", nullptr, "Shadow_Instanced" },
+             // Forward                          GBuffer                            Glass              Shadow depth
+             { "StandardSurface/Static.Forward", "StandardSurface/Static.GBuffer", "StaticMeshGlass",
+               "StandardSurface/Static.ShadowDepth" },
+             { "StandardSurface/Skinned.Forward", "StandardSurface/Skinned.GBuffer", nullptr,
+               "StandardSurface/Skinned.ShadowDepth" },
+             { "StandardSurface/Instanced.Forward", "StandardSurface/Instanced.GBuffer", nullptr,
+               "StandardSurface/Instanced.ShadowDepth" },
         };
     } // namespace
 

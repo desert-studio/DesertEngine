@@ -528,7 +528,7 @@ namespace Desert::Graphic::System
 
         // Instanced shadow caster: one pipeline + per-cascade instanced material (each owns the cascade's
         // light matrix UBO + an InstanceTransforms SSBO). Batched casters of one mesh collapse to a single
-        // instanced draw per cascade. Optional — null if the Shadow_Instanced shader is missing.
+        // instanced draw per cascade. Optional — null if the Instanced.ShadowDepth cell is missing.
         std::shared_ptr<GraphicsPipeline>        m_ShadowInstancedPipeline;
         std::shared_ptr<Shader>                  m_ShadowInstancedShader;
         std::unique_ptr<MaterialShadowInstanced> m_ShadowInstancedMaterial[kMaxCascades];
@@ -536,7 +536,7 @@ namespace Desert::Graphic::System
         // Skinned shadow caster: the (Skinned x ShadowDepth) cell, which did not exist — the cascade pass
         // walked the static queue by name and a character cast nothing. One material per cascade, exactly
         // like the two above, and every skinned caster's pose packed into its single Bones buffer.
-        // Optional — null if the Shadow_Skinned shader is missing, and then skinned shadows are simply off.
+        // Optional — null if the Skinned.ShadowDepth cell is missing, and then skinned shadows are simply off.
         std::shared_ptr<GraphicsPipeline>      m_ShadowSkinnedPipeline;
         std::shared_ptr<Shader>                m_ShadowSkinnedShader;
         std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxCascades];

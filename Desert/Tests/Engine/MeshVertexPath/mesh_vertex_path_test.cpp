@@ -41,6 +41,7 @@
 
 #include <shaderc/shaderc.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -48,6 +49,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 using Desert::Core::Formats::ShaderStage;
@@ -67,11 +69,28 @@ namespace
     // Where each mesh shader lives, so the table's NAME can be resolved to a file. Derived from the name
     // rather than listed beside it: a second list of the same shaders is exactly the drift this suite is
     // about, so the only thing recorded here is the directory a family lives in.
+    //
+    // A table entry is either a program ("StaticMeshGlass") or a CELL of a surface template
+    // ("StandardSurface/Static.Forward", DShaderParser's SurfaceCellName): the file is named by the part
+    // before the slash, the cell by the part after it.
+    std::string TemplateOf( const char* tableName )
+    {
+        const std::string name( tableName );
+        return name.substr( 0, name.find( '/' ) );
+    }
+
+    std::string CellOf( const char* tableName )
+    {
+        const std::string name( tableName );
+        const size_t      slash = name.find( '/' );
+        return slash == std::string::npos ? std::string() : name.substr( slash + 1 );
+    }
+
     std::filesystem::path ShaderFileFor( const char* shaderName )
     {
-        const std::string           name( shaderName );
+        const std::string           name = TemplateOf( shaderName );
         const std::filesystem::path programs( "Resources/Shaders/Programs" );
-        for ( const char* dir : { "PBR", "Shadow", "Silhouette" } )
+        for ( const char* dir : { "PBR", "Silhouette" } )
         {
             const auto candidate = programs / dir / ( name + ".shader" );
             if ( std::filesystem::exists( candidate ) )
@@ -88,15 +107,30 @@ namespace
         return out.str();
     }
 
-    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage )
+    // The stages of the program the table names: the default program, or the named cell/pass.
+    std::unordered_map<ShaderStage, std::string> StagesOf( const Desert::Core::Preprocess::DShaderParseResult& parsed,
+                                                           const std::string&                                cell )
     {
-        auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( shaderFile ) );
-        EXPECT_TRUE( parsed.IsSuccess() ) << shaderFile.string();
+        if ( cell.empty() )
+            return parsed.Stages;
+        for ( const auto& pass : parsed.Passes )
+            if ( pass.Name == cell )
+                return pass.Stages;
+        ADD_FAILURE() << parsed.Name << " has no cell '" << cell << "'";
+        return {};
+    }
+
+    std::string StageSource( const char* tableName, ShaderStage stage )
+    {
+        const auto file   = ShaderFileFor( tableName );
+        auto       parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( file ) );
+        EXPECT_TRUE( parsed.IsSuccess() ) << file.string();
         if ( !parsed.IsSuccess() )
             return {};
-        const auto it = parsed.GetValue().Stages.find( stage );
-        EXPECT_NE( it, parsed.GetValue().Stages.end() ) << shaderFile.string();
-        return it == parsed.GetValue().Stages.end() ? std::string{} : it->second;
+        const auto stages = StagesOf( parsed.GetValue(), CellOf( tableName ) );
+        const auto it     = stages.find( stage );
+        EXPECT_NE( it, stages.end() ) << tableName;
+        return it == stages.end() ? std::string{} : it->second;
     }
 
     // Resolves `#include <...>` exactly as ShaderIncluder does, so the SPIR-V under test is the SPIR-V the
@@ -153,12 +187,13 @@ namespace
 
     // Both stages of a graphics shader folded into one reflection — which is what a material allocates and
     // what a pipeline layout is built from.
-    ShaderResource::ReflectionData ReflectGraphics( const std::filesystem::path& shaderFile )
+    ShaderResource::ReflectionData ReflectGraphics( const char* tableName )
     {
+        const auto shaderFile = ShaderFileFor( tableName );
         const auto vertexSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Vertex ), shaderFile, shaderc_vertex_shader );
+             CompileStage( StageSource( tableName, ShaderStage::Vertex ), shaderFile, shaderc_vertex_shader );
         const auto fragmentSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Fragment ), shaderFile, shaderc_fragment_shader );
+             CompileStage( StageSource( tableName, ShaderStage::Fragment ), shaderFile, shaderc_fragment_shader );
 
         ShaderResource::ReflectionData data;
         if ( vertexSpirv.empty() || fragmentSpirv.empty() )
@@ -246,9 +281,16 @@ TEST_F( ShaderRootFixture, EveryCellOfTheTableNamesAShaderThatExistsAndCallsItse
 
             const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( file ) );
             ASSERT_TRUE( parsed.IsSuccess() ) << file.string();
-            EXPECT_EQ( parsed.GetValue().Name, std::string( name ) )
+            EXPECT_EQ( parsed.GetValue().Name, TemplateOf( name ) )
                  << file.string() << " declares itself '" << parsed.GetValue().Name
                  << "' but the table asks the shader service for '" << name << "'";
+            const std::string cell = CellOf( name );
+            if ( !cell.empty() )
+            {
+                const auto& passes = parsed.GetValue().Meta.PassNames;
+                EXPECT_NE( std::find( passes.begin(), passes.end(), cell ), passes.end() )
+                     << file.string() << " expands into no cell '" << cell << "' ('" << name << "')";
+            }
         }
     }
 }
@@ -316,8 +358,8 @@ TEST_F( ShaderRootFixture, TheInstancedGBufferCellIsTheStaticOnePlusItsOwnBindin
     ASSERT_NE( staticName, nullptr );
     ASSERT_NE( instancedName, nullptr );
 
-    auto staticBindings    = BindingMap( SetZero( ReflectGraphics( ShaderFileFor( staticName ) ) ) );
-    auto instancedBindings = BindingMap( SetZero( ReflectGraphics( ShaderFileFor( instancedName ) ) ) );
+    auto staticBindings    = BindingMap( SetZero( ReflectGraphics( staticName ) ) );
+    auto instancedBindings = BindingMap( SetZero( ReflectGraphics( instancedName ) ) );
     ASSERT_FALSE( staticBindings.empty() ) << staticName;
     ASSERT_FALSE( instancedBindings.empty() ) << instancedName;
 
@@ -350,7 +392,7 @@ TEST_F( ShaderRootFixture, TheForwardVariantsAreOneSurfacePlusExactlyThePathsOwn
     {
         const char* name = MeshShaderFor( path, MeshPass::Forward );
         ASSERT_NE( name, nullptr ) << MeshVertexPathName( path );
-        bindings[path] = BindingMap( SetZero( ReflectGraphics( ShaderFileFor( name ) ) ) );
+        bindings[path] = BindingMap( SetZero( ReflectGraphics( name ) ) );
         ASSERT_FALSE( bindings[path].empty() ) << name;
     }
 
@@ -423,7 +465,7 @@ TEST_F( ShaderRootFixture, TheGBufferCellIsAProperSubsetOfItsPathsForwardSurface
     {
         const char* name = MeshShaderFor( MeshVertexPath::Static, pass );
         ASSERT_NE( name, nullptr ) << Desert::Graphic::MeshPassName( pass );
-        bindings[pass] = BindingMap( SetZero( ReflectGraphics( ShaderFileFor( name ) ) ) );
+        bindings[pass] = BindingMap( SetZero( ReflectGraphics( name ) ) );
         ASSERT_FALSE( bindings[pass].empty() ) << name;
     }
 
@@ -476,7 +518,7 @@ TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBi
     {
         const char* name = MeshShaderFor( path, MeshPass::ShadowDepth );
         ASSERT_NE( name, nullptr ) << MeshVertexPathName( path );
-        bindings[path] = BindingMap( SetZero( ReflectGraphics( ShaderFileFor( name ) ) ) );
+        bindings[path] = BindingMap( SetZero( ReflectGraphics( name ) ) );
         ASSERT_FALSE( bindings[path].empty() ) << name;
     }
 
@@ -516,21 +558,29 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
     {
         const char* name = MeshShaderFor( MeshVertexPath::Instanced, pass );
         ASSERT_NE( name, nullptr );
-        const auto        file   = ShaderFileFor( name );
-        const std::string vertex = StageSource( file, ShaderStage::Vertex );
+        const auto  file  = ShaderFileFor( name );
+        std::string vertex = StageSource( name, ShaderStage::Vertex );
+        // A template cell's vertex stage is the path's engine header, included; what is asserted is that
+        // header's text. Whitespace is dropped on both sides: the claims are about calls, not layout.
+        if ( !CellOf( name ).empty() )
+            vertex += ReadFile( Common::Constants::Path::SHADERDIR_PATH /
+                                Desert::Core::Preprocess::SurfaceVertexInclude( "Instanced" ) );
+        vertex.erase( std::remove_if( vertex.begin(), vertex.end(), []( char c ) { return c == ' '; } ),
+                      vertex.end() );
 
-        EXPECT_NE( vertex.find( "#include <Common/FoliageWind.glslh>" ), std::string::npos ) << name;
-        EXPECT_NE( vertex.find( "InstancedWorldPosition(model, a_Position, m_PushConstants.WindA, "
+        EXPECT_NE( vertex.find( "#include<Common/FoliageWind.glslh>" ), std::string::npos ) << name;
+        EXPECT_NE( vertex.find( "InstancedWorldPosition(model,a_Position,m_PushConstants.WindA,"
                                 "m_PushConstants.WindB)" ),
                    std::string::npos )
              << name << " does not position its vertex through the shared wind function";
-        EXPECT_NE( vertex.find( "gl_Position = cameraUB.Projection * cameraUB.View * vec4(worldPosition, 1.0);" ),
+        EXPECT_NE( vertex.find( "gl_Position=cameraUB.Projection*cameraUB.View*vec4(worldPosition,1.0);" ),
                    std::string::npos )
              << name << " projects something other than the wind-displaced position";
-        EXPECT_EQ( vertex.find( "model * vec4(a_Position" ), std::string::npos )
+        EXPECT_EQ( vertex.find( "model*vec4(a_Position" ), std::string::npos )
              << name << " still computes an undisplaced position beside the shared one";
 
-        const auto        spirv = CompileStage( vertex, file, shaderc_vertex_shader );
+        // Compiled from the stage as assembled — `vertex` above is a whitespace-free text for the finds.
+        const auto        spirv = CompileStage( StageSource( name, ShaderStage::Vertex ), file, shaderc_vertex_shader );
         const std::string words( reinterpret_cast<const char*>( spirv.data() ),
                                  spirv.size() * sizeof( uint32_t ) );
         EXPECT_NE( words.find( "FoliageWindOffset(" ), std::string::npos )
@@ -552,25 +602,26 @@ namespace
 
     // Parse -> the layout the generator wrote from -> compile each stage -> reflect -> reconcile. The same
     // road a template takes at runtime, with nothing in between that knows any field by name.
-    ReconciledCell Reconcile( const std::string& source, const std::string& label )
+    ReconciledCell Reconcile( const std::string& source, const std::string& label, const std::string& cell = {} )
     {
         auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( source );
         EXPECT_TRUE( parsed.IsSuccess() ) << label;
         if ( !parsed.IsSuccess() )
             return {};
         std::vector<Desert::Core::ShaderMapStage> stages;
+        const auto                                cellStages = StagesOf( parsed.GetValue(), cell );
         for ( const auto [stage, kind] : { std::pair{ ShaderStage::Vertex, shaderc_vertex_shader },
                                            std::pair{ ShaderStage::Fragment, shaderc_fragment_shader } } )
         {
-            const auto it = parsed.GetValue().Stages.find( stage );
-            if ( it == parsed.GetValue().Stages.end() )
+            const auto it = cellStages.find( stage );
+            if ( it == cellStages.end() )
                 continue;
             stages.push_back( { stage, CompileStage( it->second, label, kind ) } );
             EXPECT_FALSE( stages.back().Spirv.empty() ) << label;
         }
         // THE LOAD PATH: VulkanShader::BuildFromSpirv calls exactly this, and refuses the cell on any error.
         auto reconciled =
-             ShaderReflection::ReconcileCellLayout( parsed.GetValue().Meta, stages, parsed.GetValue().Name, "" );
+             ShaderReflection::ReconcileCellLayout( parsed.GetValue().Meta, stages, parsed.GetValue().Name, cell );
         return { std::move( reconciled.Layout ), std::move( reconciled.Errors ) };
     }
 
@@ -730,7 +781,7 @@ TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesBy
     {
         const char* name = MeshShaderFor( expected.Path, expected.Pass );
         ASSERT_NE( name, nullptr );
-        auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name );
+        auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name, CellOf( name ) );
         EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
         for ( const auto& field : expected.Fields )
         {
@@ -748,7 +799,7 @@ TEST_F( ShaderRootFixture, EveryShippedForwardCellReconcilesWithTheTransportFiel
     {
         const char* name = MeshShaderFor( path, MeshPass::Forward );
         ASSERT_NE( name, nullptr );
-        auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name );
+        auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name, CellOf( name ) );
         EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
         EXPECT_NE( cell.Layout.FindPush( "Transform" ), nullptr ) << name;
         EXPECT_NE( cell.Layout.FindPush( "MaterialIndex" ), nullptr ) << name;

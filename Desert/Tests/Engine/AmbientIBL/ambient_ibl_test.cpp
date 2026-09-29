@@ -261,9 +261,7 @@ TEST( AmbientIBL, BothRenderPathsReachTheirAmbientThroughTheOneSharedComposition
     // it composes a refraction, not an ambient, and reads the specular cube for a mirror term instead.
     const char* kShaders[] = {
          "Programs/Deferred/DeferredLighting.shader", // the deferred composite — where 0.08 lived
-         "Programs/PBR/StaticMeshPBR.shader",         // the forward path the owner compared against
-         "Programs/PBR/StaticMeshPBR_Instanced.shader",
-         "Programs/PBR/SkinnedMeshPBR.shader", // drawn FORWARD over the deferred composite
+         "Mesh/Surface/Pass_Forward.glslh", // every forward surface cell (skinned is drawn FORWARD in Deferred)
     };
 
     for ( const char* relative : kShaders )

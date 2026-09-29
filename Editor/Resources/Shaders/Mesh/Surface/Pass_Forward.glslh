@@ -1,0 +1,159 @@
+// Surface cell pass: forward lighting — the fragment stage of Programs/PBR/StaticMeshPBR.shader with the
+// surface's attributes coming from EvaluateSurface instead of from the shader's own texture reads. Every
+// binding sits where StaticMeshPBR put it (MeshRenderer binds one frame set to every forward mesh cell);
+// SurfaceTemplate holds the two layouts equal by reflection.
+#include <Mesh/PointLight.glslh>
+#include <Mesh/Spotlight.glslh>
+#include <Mesh/LightsMetadata.glslh>
+// THE direct-light BRDF, shared with the deferred composite and the point/spot headers above.
+#include <Mesh/DirectLighting.glslh>
+
+DESERT_SURFACE_VARYINGS( in )
+
+layout( location = 0 ) out vec4 oColor;
+
+const vec3 Fdielectric = vec3( 0.04 );
+
+struct DirectionLight
+{
+    vec4 Direction;      // xyz = normalized direction
+    vec4 ColorIntensity; // rgb = color, a = intensity
+};
+
+layout( binding = 3 ) uniform DirectionLightsUB
+{
+    DirectionLight directionLights;
+}
+directionLights;
+
+// The cascaded shadow's five bindings; Mesh/CascadedShadow.glslh reads them by these names.
+layout( binding = 5 ) uniform sampler2D u_ShadowMap0;
+layout( binding = 13 ) uniform sampler2D u_ShadowMap1;
+layout( binding = 14 ) uniform sampler2D u_ShadowMap2;
+layout( binding = 15 ) uniform sampler2D u_ShadowMap3;
+layout( binding = 7 ) uniform ShadowUB
+{
+    mat4 u_LightViewProj[4];
+    vec4 u_ShadowParams;      // x = bias, y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
+    vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
+    vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
+};
+
+#include <Mesh/CascadedShadow.glslh>
+
+// Environment maps, the sky's look (Common/SkyLook.glslh) and the split-sum LUT.
+layout( binding = 8 ) uniform samplerCube u_EnvSpecularTex;
+layout( binding = 9 ) uniform samplerCube u_EnvIrradianceTex;
+layout( binding = 22 ) uniform SkyLookUB
+{
+    vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
+    vec4 Gain;      // rgb = tint * intensity
+}
+skyLook;
+layout( binding = 10 ) uniform sampler2D u_BRDFLUTTexture;
+
+// The cloud layer's shadow on the world, the sun's second occluder (Common/CloudShadowReceiver.glslh).
+layout( binding = 20 ) uniform sampler2D u_CloudShadowMap;
+layout( binding = 21 ) uniform CloudShadowUB
+{
+    mat4 u_CloudShadowWorldToMap;
+    // x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
+    // z = the UV width of the border fade, w = the artist's shadow strength.
+    vec4 u_CloudShadowParams;
+};
+
+#include <Common/CloudShadowReceiver.glslh>
+
+// The sun through the shared Cook-Torrance text; DirectionLightsUB holds one light and the count gates it.
+vec3 DesertSurfaceSunLight( vec3 view, vec3 N, vec3 F0, float metalness, float roughness, vec3 albedo )
+{
+    vec3 color = vec3( 0 );
+    for ( uint i = 0; i < lightsMetadata.DirectionLightCount; i++ )
+    {
+        const vec3 radiance =
+             directionLights.directionLights.ColorIntensity.rgb * directionLights.directionLights.ColorIntensity.a;
+        color += EvaluateDirectionalLight( directionLights.directionLights.Direction.xyz, radiance, view, N, F0,
+                                           metalness, roughness, albedo );
+    }
+    return color;
+}
+
+// The split-sum ambient, the SAME text the deferred lighting pass compiles.
+#include <Mesh/AmbientIBL.glslh>
+
+void main()
+{
+    const SurfaceInput i =
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN );
+    const SurfaceOutput s = EvaluateSurface( i );
+    DESERT_SURFACE_CLIP( s );
+
+    const vec3 N = DesertSurfaceWorldNormal( i, s );
+
+    // Debug: the final world-space normal as RGB (viewport View Mode -> Normals).
+    if ( u_DebugParams.x > 0.5 )
+    {
+        oColor = vec4( N * 0.5 + 0.5, 1.0 );
+        return;
+    }
+
+    const vec3  albedo    = s.BaseColor;
+    const float metalness = s.Metallic;
+    const float roughness = max( s.Roughness, 0.04 ); // GGX NDF stays finite for mirror-smooth surfaces
+    const vec3  view      = normalize( v_Surface.CameraPosition - i.WorldPosition );
+
+    const vec3 F0    = mix( Fdielectric, albedo, metalness );
+    const vec3 light = DesertSurfaceSunLight( view, N, F0, metalness, roughness, albedo );
+    const vec3 ibl   = AmbientIBL( view, N, F0, metalness, roughness, albedo );
+
+    vec3 pointLight = vec3( 0.0 );
+    for ( uint p = 0; p < lightsMetadata.PointLightCount; p++ )
+        pointLight += CalculatePointLight( pointLights[p], i.WorldPosition, view, N, F0, metalness, roughness, albedo );
+
+    vec3 spotLight = vec3( 0.0 );
+    for ( uint p = 0; p < lightsMetadata.SpotLightCount; p++ )
+        spotLight += CalculateSpotLight( spotLights[p], i.WorldPosition, view, N, F0, metalness, roughness, albedo );
+
+    // The sun is occluded by the cascades (unless the surface does not receive them) and then by the cloud
+    // layer — the cloud factor AFTER the toggle, exactly as the deferred composite assembles it.
+    const vec3 sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
+    int        cascade;
+    float      shadow = ShadowFactor( i.WorldPosition, N, sunDir, cascade );
+    if ( s.ReceiveSunShadows < 0.5 )
+        shadow = 1.0;
+    shadow *= CloudShadowFactor( i.WorldPosition );
+
+    // Lighting debug (viewport View Mode -> Lighting): each source a distinct colour, weighted by
+    // attenuation * NdotL, mapped through an exposure-like curve so any light reaching the surface shows.
+    if ( u_DebugParams.y > 0.5 )
+    {
+        vec3 dbg = vec3( 0.0 );
+        for ( uint p = 0; p < lightsMetadata.PointLightCount; p++ )
+            dbg += LightDebugColor( p ) * PointLightContribution( pointLights[p], i.WorldPosition, N );
+        for ( uint p = 0; p < lightsMetadata.SpotLightCount; p++ )
+            dbg += HueToRGB( fract( float( p ) * 0.61803398875 + 0.5 ) ) *
+                   SpotLightContribution( spotLights[p], i.WorldPosition, N );
+        for ( uint p = 0; p < lightsMetadata.DirectionLightCount; p++ )
+            dbg += vec3( 1.0, 0.85, 0.35 ) *
+                   ( directionLights.directionLights.ColorIntensity.a * max( dot( N, sunDir ), 0.0 ) * shadow );
+        oColor = vec4( vec3( 1.0 ) - exp( -dbg * 6.0 ), 1.0 );
+        return;
+    }
+
+    // Shadow debug: mode 2 tints by cascade, mode 1 is the raw factor (1 = lit).
+    if ( u_ShadowParams.z > 1.5 )
+    {
+        oColor = vec4( cascadeDebugColor( cascade ) * ( shadow * 0.7 + 0.3 ), 1.0 );
+        return;
+    }
+    if ( u_ShadowParams.z > 0.5 )
+    {
+        oColor = vec4( vec3( shadow ), 1.0 );
+        return;
+    }
+
+    // Occlusion attenuates only the ambient; the forward path has no indirect-bounce gather (zero), the one
+    // difference from the deferred composite's call, visible in the argument list.
+    const vec3 ambient = ComposeAmbient( ibl, albedo, s.AmbientOcclusion, vec3( 0.0 ) );
+    oColor             = vec4( light * shadow + ambient + pointLight + spotLight + s.Emissive, 1.0 );
+}

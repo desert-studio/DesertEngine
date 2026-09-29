@@ -25,8 +25,8 @@ namespace Desert::Graphic
         MaterialShadow( std::string&& debugName, std::string&& shaderName );
     };
 
-    // Instanced depth-only shadow material: bound to the Shadow_Instanced shader, whose vertex reads each
-    // caster's model matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex.
+    // Instanced depth-only shadow material: bound to StandardSurface/Instanced.ShadowDepth, whose vertex reads
+    // each caster's model matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex.
     class MaterialShadowInstanced final : public MaterialShadow
     {
     public:

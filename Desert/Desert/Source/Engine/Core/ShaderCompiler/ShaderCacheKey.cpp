@@ -6,6 +6,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <chrono>
+#include <format>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -270,6 +271,10 @@ namespace Desert::Core
         std::string scanned = programSource;
         for ( const std::string_view injected : Preprocess::kParserInjectedIncludes )
             scanned.append( "\n#include <" ).append( injected ).append( ">\n" );
+        // A surface template's cells compile engine headers its text never names (DShaderParser.hpp).
+        if ( Preprocess::DShaderParser::MayDeclareSurface( programSource ) )
+            for ( const std::string& header : Preprocess::SurfaceTemplateIncludes() )
+                scanned.append( std::format( "\n#include <{}>\n", header ) );
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
             FnvMix( key, include.generic_string() );

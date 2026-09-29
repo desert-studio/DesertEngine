@@ -1593,7 +1593,7 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::SetupGeometryPass()
     {
-        m_GeometryShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "StaticMeshPBR" );
+        m_GeometryShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward ) );
 
         if ( !m_GeometryShader )
             return false;
@@ -1648,7 +1648,7 @@ namespace Desert::Graphic::System
         // matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex. Drawn via one instanced
         // draw call (RenderMeshInstanced). Optional — if the shader is missing, instancing is just disabled.
         m_InstancedGeometryShader =
-             Runtime::ResourceRegistry::GetShaderService()->GetByName( "StaticMeshPBR_Instanced" );
+             Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Instanced, MeshPass::Forward ) );
         if ( m_InstancedGeometryShader )
         {
             GraphicsPipelineSpecification ispec;
@@ -1675,7 +1675,7 @@ namespace Desert::Graphic::System
     {
         // Optional: only present when the deferred G-buffer shader exists and the scene renderer has a
         // G-buffer. Failure here does NOT fail Initialize — the forward path stays fully functional.
-        m_StaticGBufferShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "StaticMeshGBuffer" );
+        m_StaticGBufferShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Static, MeshPass::GBuffer ) );
         if ( !m_StaticGBufferShader )
             return false;
 
@@ -1848,7 +1848,7 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::SetupSkinnedGeometryPass()
     {
-        m_SkinnedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SkinnedMeshPBR" );
+        m_SkinnedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Skinned, MeshPass::Forward ) );
 
         if ( !m_SkinnedShader )
             return false;
@@ -2000,7 +2000,8 @@ namespace Desert::Graphic::System
             return true;
         }
 
-        m_ShadowShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "Shadow" );
+        m_ShadowShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
+             MeshShaderFor( MeshVertexPath::Static, MeshPass::ShadowDepth ) );
         if ( !m_ShadowShader )
         {
             LOG_ERROR( "Failed to load shadow shader" );
@@ -2071,8 +2072,8 @@ namespace Desert::Graphic::System
         // Instanced shadow caster (optional): same depth-only state, but the vertex pulls per-instance model
         // matrices from the InstanceTransforms SSBO. One instanced material per cascade (each its own light
         // matrix UBO + SSBO). If the shader is missing, instanced shadows are simply disabled.
-        m_ShadowInstancedShader =
-             Runtime::ResourceRegistry::GetShaderService()->GetByName( "Shadow_Instanced" );
+        m_ShadowInstancedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
+             MeshShaderFor( MeshVertexPath::Instanced, MeshPass::ShadowDepth ) );
         if ( m_ShadowInstancedShader )
         {
             GraphicsPipelineSpecification ispec = spec;
@@ -2123,7 +2124,7 @@ namespace Desert::Graphic::System
         }
         else
         {
-            LOG_WARN( "[MeshRenderer] Shadow_Skinned shader missing — skinned meshes will cast no shadow." );
+            LOG_WARN( "[MeshRenderer] Skinned shadow-depth cell missing — skinned meshes will cast no shadow." );
         }
 
         return true;

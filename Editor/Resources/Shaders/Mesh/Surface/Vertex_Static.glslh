@@ -1,0 +1,41 @@
+// Surface cell vertex path: one static mesh, its transform in the push block — the vertex stage of
+// Programs/PBR/StaticMeshPBR.shader and StaticMeshGBuffer.shader, and of Programs/Shadow/Shadow.shader for the
+// depth cell of an opaque template.
+layout( location = 0 ) in vec3 a_Position;
+layout( location = 1 ) in vec3 a_Normal;
+layout( location = 2 ) in vec3 a_Tangent;
+layout( location = 3 ) in vec3 a_Bitangent;
+layout( location = 4 ) in vec2 a_TextureCoord;
+
+#include <Common/CameraUB.glslh>
+
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+// The ONE engine push block, as the fragment stage's material row index reads it.
+#include <Common/MaterialTransport.glslh>
+DESERT_SURFACE_VARYINGS( out )
+#else
+// The shadow pass pushes the transform alone (Programs/Shadow/Shadow.shader, 64 bytes).
+layout( push_constant ) uniform constants
+{
+    mat4 Transform;
+}
+m_PushConstants;
+#endif
+
+void main()
+{
+    const mat4 world    = m_PushConstants.Transform;
+    const vec4 worldPos = world * vec4( a_Position, 1.0 );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    const mat3 normalMatrix  = transpose( inverse( mat3( world ) ) );
+    const vec3 T             = normalize( normalMatrix * a_Tangent );
+    const vec3 B             = normalize( normalMatrix * a_Bitangent );
+    const vec3 N             = normalize( normalMatrix * a_Normal );
+    v_Surface.WorldPosition  = worldPos.xyz;
+    v_Surface.Normal         = N;
+    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
+    v_Surface.TBN            = mat3( T, B, N );
+    v_Surface.CameraPosition = cameraUB.CameraPos;
+#endif
+    gl_Position = cameraUB.Projection * cameraUB.View * worldPos;
+}

@@ -208,7 +208,7 @@ namespace
     }
 
     // A .demat as the shading path sees it: the three PBR schema params, defaulted exactly as
-    // Programs/PBR/StaticMeshPBR.shader declares them (Albedo (1,1,1,1), Metallic 0, Roughness 0.5) so a
+    // Programs/PBR/StandardSurface.shader declares them (Albedo (1,1,1,1), Metallic 0, Roughness 0.5) so a
     // file that omits a param is read the way the GPU reads it and not the way a test would like to.
     struct Material
     {

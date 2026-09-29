@@ -124,7 +124,7 @@ TEST( MaterialDocumentOpen, ARecordIsLoadedByTheEditorsOwnPreparationNotByTheRou
     Assets::MaterialData data;
     const auto           shaderGuid = Common::Content::AssetGuidFromText( "4f1cac6af403a010c792d835dd6f7d44" );
     ASSERT_TRUE( shaderGuid ) << shaderGuid.GetError();
-    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" );
+    data.SetShader( shaderGuid.GetValue(), "engine:Shaders/Programs/PBR/StandardSurface.shader" );
     const auto written = Assets::WriteMaterialFile( tmp.File, data );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
 

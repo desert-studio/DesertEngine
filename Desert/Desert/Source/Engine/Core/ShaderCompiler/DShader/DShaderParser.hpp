@@ -70,6 +70,44 @@ namespace Desert::Core::Preprocess
         std::unordered_map<Core::Formats::ShaderStage, std::string> Stages;
     };
 
+    // ─── Surface templates ──────────────────────────────────────────────────────────────────────────
+    // A `Domain Surface` template may carry a `Surface { SurfaceOutput EvaluateSurface( SurfaceInput ) }`
+    // block instead of stage blocks. The parser expands it into one CELL per (vertex path × pass), named
+    // `<Path>.<Pass>`, each a named pass of the program: the engine's vertex header for the path, the
+    // engine's pass header for the pass and the author's surface function between them. These tables are
+    // the one home of the cell set and of the headers a cell is built from — the parser writes the cells
+    // from them and ComputeShaderMapKey hashes the same headers, so the two cannot disagree.
+    inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
+    inline constexpr std::array<std::string_view, 3> kSurfaceCellPasses  = { "Forward", "GBuffer", "ShadowDepth" };
+    inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
+    // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
+    // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
+    inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
+
+    enum class SurfaceBlendMode
+    {
+        Opaque,
+        Masked, // the pass headers discard below u_Material.<kSurfaceMaskClipParam>
+    };
+
+    // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
+    // Value); a Masked template that does not declare it is refused.
+    inline constexpr std::string_view kSurfaceMaskClipParam = "OpacityMaskClipValue";
+
+    std::string SurfaceCellName( std::string_view path, std::string_view pass );
+    std::string SurfaceVertexInclude( std::string_view path );
+    std::string SurfacePassInclude( std::string_view pass );
+    // Every engine header any cell of a surface template compiles: the key hashes all of them.
+    std::vector<std::string> SurfaceTemplateIncludes();
+
+    // What the `Surface` block declared; empty Cells = not a surface template.
+    struct SurfaceTemplateInfo
+    {
+        bool                     TwoSided = false;
+        SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
+        std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
+    };
+
     struct DShaderParseResult
     {
         std::string                                                 Name;
@@ -79,13 +117,18 @@ namespace Desert::Core::Preprocess
         // The row and texture layout the generated GLSL was written from (Core/Formats/MaterialLayout.hpp);
         // its push fields stay empty until ReconcileMaterialLayout reads them off a compiled cell.
         Core::Formats::MaterialLayout Layout;
+        SurfaceTemplateInfo           Surface; // the expanded `Surface` block; Cells empty for any other shader
 
-        // nullptr when the pass doesn't exist. Empty name = the default pass.
+        // nullptr when the pass doesn't exist. Empty name = the default pass, which for a shader made
+        // solely of named passes (a surface template's cells) is the first one — the same pass whose
+        // stages the parser copies into `Stages` above, so the default program and its lookup agree.
         const DShaderPass* FindPass( const std::string& name ) const
         {
             for ( const auto& p : Passes )
                 if ( p.Name == name )
                     return &p;
+            if ( name.empty() && !Passes.empty() )
+                return &Passes.front();
             return nullptr;
         }
     };
@@ -116,5 +159,9 @@ namespace Desert::Core::Preprocess
         // "parse to find out". ShaderService asks this of every shader it registers, and the answer is
         // what lets a warm start register a program without parsing its text at all.
         static bool MayDeclareMedium( std::string_view source );
+
+        // Cheap precheck for the shader map key, which must not parse: false = the text certainly declares
+        // no `Surface { ... }` block. A false positive only hashes the surface headers needlessly.
+        static bool MayDeclareSurface( std::string_view source );
     };
 } // namespace Desert::Core::Preprocess

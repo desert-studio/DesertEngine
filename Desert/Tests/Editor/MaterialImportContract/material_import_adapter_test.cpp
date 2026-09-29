@@ -152,11 +152,11 @@ TEST( MaterialImportAdapter, EveryGltfKeyReachesItsPropertyOrSlot )
     Assimp::Importer     importer;
     const SourceMaterial source = Read( file, importer );
 
-    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ),
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StandardSurface.shader" ),
                                                     Template( "Unlit/Unlit.shader" ) };
     const auto                        choice    = ChooseImportTemplate( source, templates, file.generic_string() );
     ASSERT_TRUE( choice.IsSuccess() ) << choice.GetError();
-    ASSERT_EQ( templates[choice.GetValue()].ShaderName, "StaticMeshPBR" );
+    ASSERT_EQ( templates[choice.GetValue()].ShaderName, "StandardSurface" );
     const TemplateFill fill = FillFromTemplate( source, templates[choice.GetValue()] );
 
     const auto expectParam = [&]( const char* name, glm::vec4 value, int components )
@@ -210,7 +210,7 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     const fs::path file =
          WriteGltf( "mr-only", R"("pbrMetallicRoughness": { "metallicRoughnessTexture": { "index": 1 } })", "" );
     Assimp::Importer   importer;
-    const TemplateFill fill = FillFromTemplate( Read( file, importer ), Template( "PBR/StaticMeshPBR.shader" ) );
+    const TemplateFill fill = FillFromTemplate( Read( file, importer ), Template( "PBR/StandardSurface.shader" ) );
     const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
     ASSERT_NE( orm, nullptr );
     ASSERT_TRUE( orm->NeedsPacking() ) << "glTF's R of a metallic-roughness image is not occlusion";
@@ -238,7 +238,7 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
 {
     const fs::path     file = WriteGltf( "pack-stable", kFullMaterial, kFullExtensions );
     Assimp::Importer   importer;
-    const TemplateFill fill = FillFromTemplate( Read( file, importer ), Template( "PBR/StaticMeshPBR.shader" ) );
+    const TemplateFill fill = FillFromTemplate( Read( file, importer ), Template( "PBR/StandardSurface.shader" ) );
     const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
     ASSERT_NE( orm, nullptr );
     ASSERT_TRUE( orm->NeedsPacking() );
@@ -258,7 +258,7 @@ TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
     const auto stamp = fs::last_write_time( packed ) - std::chrono::hours( 1 );
     fs::last_write_time( packed, stamp );
     Assimp::Importer   again;
-    const TemplateFill refill = FillFromTemplate( Read( file, again ), Template( "PBR/StaticMeshPBR.shader" ) );
+    const TemplateFill refill = FillFromTemplate( Read( file, again ), Template( "PBR/StandardSurface.shader" ) );
     ASSERT_NE( Slot( refill, "u_ORMTexture" ), nullptr );
     EXPECT_EQ( PackedTexturePath( *Slot( refill, "u_ORMTexture" ) ), packed ) << "same sources, same asset path";
     const auto second = PackTextureChannels( *orm, packed );
@@ -292,7 +292,7 @@ TEST( MaterialImportAdapter, AnUnlitMaterialTakesTheUnlitTemplate )
       "extensions": { "KHR_materials_unlit": {} })",
                                        R"("KHR_materials_unlit")" );
     Assimp::Importer importer;
-    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ),
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StandardSurface.shader" ),
                                                     Template( "Unlit/Unlit.shader" ) };
     const auto choice = ChooseImportTemplate( Read( file, importer ), templates, file.generic_string() );
     ASSERT_TRUE( choice.IsSuccess() ) << choice.GetError();
@@ -309,7 +309,7 @@ TEST( MaterialImportAdapter, AMaterialNoTemplateTakesIsRefused )
     // assimp states PBR defaults for every glTF material; keep only what this file wrote.
     std::erase_if( source.Entries, []( const auto& e ) { return e.first != "gltf.KHR_materials_clearcoat"; } );
     ASSERT_EQ( source.Entries.size(), 1u );
-    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ),
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StandardSurface.shader" ),
                                                     Template( "Unlit/Unlit.shader" ) };
     const auto                        choice    = ChooseImportTemplate( source, templates, file.generic_string() );
     ASSERT_FALSE( choice.IsSuccess() );
@@ -342,11 +342,11 @@ TEST( MaterialImportAdapter, EveryFbxPbrKeyReachesTheOrmTextureAndItsFactors )
     const SourceMaterial source = ReadSourceMaterial( mat, SourceFormatOf( "helmet.fbx" ), "M",
                                                       []( const std::string& ref ) { return fs::path( ref ); } )
                                        .Material;
-    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ),
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StandardSurface.shader" ),
                                                     Template( "Unlit/Unlit.shader" ) };
     const auto                        choice    = ChooseImportTemplate( source, templates, "helmet.fbx" );
     ASSERT_TRUE( choice.IsSuccess() ) << choice.GetError();
-    ASSERT_EQ( templates[choice.GetValue()].ShaderName, "StaticMeshPBR" );
+    ASSERT_EQ( templates[choice.GetValue()].ShaderName, "StandardSurface" );
     const TemplateFill fill = FillFromTemplate( source, templates[choice.GetValue()] );
 
     const ImportedParam* metal = Param( fill, "MetallicFactor" );
