@@ -1477,26 +1477,19 @@ namespace Desert::Core::Serialize
                 if ( data.Shader.has_value() )
                 {
                     const std::string context = EntityContext( entity );
-                    auto              name    = Assets::FindShaderNameByRef( assetManager, *data.Shader,
-                                                                             { "shader", "Material.Shader", context } );
+                    // An override only: a reference naming the PBRSurface template is REFUSED with its path, not
+                    // dropped (Assets::FindOverrideShaderNameByRef); the entity keeps no shader, not a guess.
+                    auto name = Assets::FindOverrideShaderNameByRef( assetManager, *data.Shader,
+                                                                     { "shader", "Material.Shader", context } );
                     if ( !name )
                     {
+                        issues.push_back( Common::Json::Issue{ "Material.Shader", "an override template's {Guid, Path}",
+                                                               name.GetError() } );
                         LOG_ERROR( "[Scene] {} - the entity draws with no shader until it names one",
                                    name.GetError() );
                     }
                     else
-                    {
-                        // A component naming the PBR surface template is no override: the mesh draws its
-                        // material slots, and Params are the slot-0 hand-off buffer (see MaterialComponent).
-                        const auto guid = Common::Content::AssetGuidFromText( data.Shader->Guid );
-                        const bool pbrSurface =
-                             guid &&
-                             Assets::IsPBRSurfaceTemplate(
-                                  assetManager, Common::AssetHandle( static_cast<uint64_t>(
-                                                     Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
-                        if ( !pbrSurface )
-                            mc.ShaderName = name.ExtractValue();
-                    }
+                        mc.ShaderName = name.ExtractValue();
                 }
 
                 if ( data.Params.has_value() )

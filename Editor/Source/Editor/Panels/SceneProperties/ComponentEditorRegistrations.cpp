@@ -28,7 +28,6 @@
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -206,11 +205,10 @@ namespace Desert::Editor
         // the one every future editor run resolves to.
         {
             ::Desert::Assets::MaterialData data;
-            // The Terrain template has no manifest Role yet: found by its compile key (census allow-list).
-            const auto terrain = ::Desert::Assets::FindShaderHandleByCompileName( *assetMgr, "Terrain" );
-            if ( const auto stated =
-                      terrain ? ::Desert::Assets::SurfaceMaterialAsset::StateShader( data, *assetMgr, *terrain )
-                              : Common::MakeError( std::string( "no loaded shader is named 'Terrain'" ) );
+            const auto terrain = ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kTerrainRole );
+            if ( const auto stated = terrain ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                    data, *assetMgr, terrain.GetValue() )
+                                             : Common::MakeError( terrain.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Landscape] material '{}': {}", path.string(), stated.GetError() );
@@ -676,12 +674,11 @@ namespace Desert::Editor
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
-            const auto                     cloud = ::Desert::Assets::FindShaderHandleByCompileName(
-                 *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
-            if ( const auto stated =
-                      cloud ? ::Desert::Assets::SurfaceMaterialAsset::StateShader( data, *assetMgr, *cloud )
-                            : Common::MakeError( std::format( "no loaded shader is named '{}'",
-                                                              ::Desert::Graphic::kCloudMaterialShaderName ) );
+            const auto                     cloud =
+                 ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kCloudMaterialRole );
+            if ( const auto stated = cloud ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                  data, *assetMgr, cloud.GetValue() )
+                                           : Common::MakeError( cloud.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );

@@ -161,7 +161,14 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionPlayerViewFlag = 40;
 
-    static_assert( kSceneVersionPlayerViewFlag == kSceneVersion,
+    //  41 - A MATERIAL COMPONENT NAMES ONLY AN OVERRIDE (MAT1g). A Material block whose Shader names the
+    //       template declaring `Role PBRSurface` (by its header GUID, read from the shader file's manifest)
+    //       overrode nothing: the mesh draws its material slots either way. The key goes
+    //       (MigratePBRSurfaceShaderV40ToV41); the loader refuses such a Shader from v41 on. Scenes and
+    //       prefabs alike, prefab overrides included.
+    inline constexpr int kSceneVersionNoPBRSurfaceShader = 41;
+
+    static_assert( kSceneVersionNoPBRSurfaceShader == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -247,6 +254,24 @@ namespace Desert::Migration
     // Renames Camera.IsMainCamera -> AutoActivateForPlayer on every record of @p entities under the rule
     // kSceneVersionPlayerViewFlag states, and drops the key from prefab overrides. PURE.
     PlayerViewFlagReport MigratePlayerViewFlagV39ToV40( std::vector<Assets::EntityData>& entities );
+
+    // What MigratePBRSurfaceShaderV40ToV41 did to one file.
+    struct PBRSurfaceShaderReport
+    {
+        std::size_t Dropped = 0; // Material.Shader keys taken out (records and prefab overrides)
+
+        // Shader references that cannot be judged, as "Tag > Material.Shader: why" (no such file, a GUID the
+        // file does not state, an unreadable manifest). Non-empty REFUSES the file: whether the key is an
+        // override is exactly what cannot be told.
+        std::vector<std::string> Refused;
+    };
+
+    // Drops Material.Shader from every record and prefab override of @p entities whose reference names a
+    // shader declaring `Role PBRSurface`. The shader file is found the way a mesh file is (under the nearest
+    // ancestor of `assetsRoot` holding its Path) and must state the referenced GUID. PURE but for reading the
+    // shader files.
+    PBRSurfaceShaderReport MigratePBRSurfaceShaderV40ToV41( std::vector<Assets::EntityData>& entities,
+                                                            const std::filesystem::path&     assetsRoot );
 
     // What MigrateInstanceTransformsV36ToV37 did to one scene.
     struct InstanceTransformsReport
@@ -357,11 +382,15 @@ namespace Desert::Migration
         bool                 PlayerViewFlagRaised = false; // below kSceneVersionPlayerViewFlag
         PlayerViewFlagReport PlayerViewFlag;
 
+        bool                   PBRSurfaceShaderRaised = false; // below kSceneVersionNoPBRSurfaceShader
+        PBRSurfaceShaderReport PBRSurfaceShader;
+
         bool Changed() const
         {
             return PathOnlyMeshGuidsRaised || FoliageTypesRaised || LandscapeLayerRefsRaised ||
                    ExternalEntitiesRaised || SceneSettingsHomesRaised || InstanceTransformsRaised ||
-                   LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised;
+                   LandscapeLayerModesRaised || UndeclaredKeysRaised || PlayerViewFlagRaised ||
+                   PBRSurfaceShaderRaised;
         }
     };
 

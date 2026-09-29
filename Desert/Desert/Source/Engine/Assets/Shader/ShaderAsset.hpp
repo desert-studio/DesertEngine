@@ -78,6 +78,12 @@ namespace Desert::Assets
     // Whether @p shader is a loaded template declaring `Role PBRSurface` (the batched PBR backend).
     [[nodiscard]] bool IsPBRSurfaceTemplate( const AssetManager& manager, Common::AssetHandle shader );
 
+    // A MaterialComponent's Shader: the compile key of an OVERRIDE template. FindShaderNameByRef's refusals, and
+    // a reference naming the `Role PBRSurface` template, which overrides nothing (the mesh draws its material
+    // slots; SceneMigrator v41 removed every such key from the files), refused by `site` with the path it states.
+    [[nodiscard]] Common::ResultStr<std::string>
+    FindOverrideShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref, const AssetRefSite& site );
+
     // THE TEMPLATE REGISTRY, over the loaded shaders' manifests. Exactly one shader declares @p role; none or
     // several is a refusal listing every declaring path (none: the role and "no loaded shader declares it").
     [[nodiscard]] Common::ResultStr<Common::AssetHandle> FindTemplateByRole( const AssetManager& manager,

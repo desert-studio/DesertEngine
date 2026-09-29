@@ -323,9 +323,6 @@ namespace
     };
 
     constexpr AllowedTemplateName kAllowedTemplateNames[] = {
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp", "Terrain",
-           "the Terrain template declares no Role yet; found by compile key for a new landscape material "
-           "(MAT1g follow-up: `Role Terrain`)" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "StaticMeshPBR",
            "ShaderService compile key of the batched PBR backend's geometry program (MAT1a-T1 owns it)" },
          { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.cpp", "StaticMeshPBR",
@@ -372,6 +369,30 @@ namespace
         return stems;
     }
 } // namespace
+
+// A MaterialComponent's Shader names an override only (MAT1g, scene v41): the PBRSurface template is refused
+// with the path the reference states - not dropped, not substituted - and any other template resolves.
+TEST( EngineShaderByGuid, AComponentShaderNamingThePBRSurfaceTemplateIsRefused )
+{
+    const ScratchDir             dir;
+    Desert::Assets::AssetManager manager;
+    ASSERT_TRUE( manager.CreateAsset<Desert::Assets::ShaderAsset>(
+         WriteMockShader( dir.Root, "MockPBR", kMockGuidA, "    Role PBRSurface\n" ) ) );
+    ASSERT_TRUE( manager.CreateAsset<Desert::Assets::ShaderAsset>(
+         WriteMockShader( dir.Root, "MockOverride", kMockGuidB, "" ) ) );
+    const Desert::Assets::AssetRefSite site{ "shader", "Material.Shader", "Entities[id=1]" };
+
+    const auto refused = Desert::Assets::FindOverrideShaderNameByRef(
+         manager, { kMockGuidA, "Resources/Shaders/MockPBR.shader" }, site );
+    ASSERT_FALSE( refused ) << "the PBRSurface template was accepted as an override";
+    EXPECT_NE( refused.GetError().find( "Resources/Shaders/MockPBR.shader" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "Entities[id=1]" ), std::string::npos ) << refused.GetError();
+
+    const auto kept = Desert::Assets::FindOverrideShaderNameByRef(
+         manager, { kMockGuidB, "Resources/Shaders/MockOverride.shader" }, site );
+    ASSERT_TRUE( kept ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue(), "MockOverride" );
+}
 
 TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
 {

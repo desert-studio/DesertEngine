@@ -387,6 +387,82 @@ namespace Desert::Migration
         return report;
     }
 
+    PBRSurfaceShaderReport MigratePBRSurfaceShaderV40ToV41( std::vector<Assets::EntityData>& entities,
+                                                            const std::filesystem::path&     assetsRoot )
+    {
+        namespace CC = Common::Content;
+        PBRSurfaceShaderReport report;
+        // Whether the reference names the PBRSurface template; an error says why it cannot be told.
+        const auto namesPBRSurface = [&]( const rfl::Generic& shader ) -> Common::ResultStr<bool>
+        {
+            std::string guidText;
+            std::string pathText;
+            if ( const auto ref = shader.to_object(); ref.has_value() )
+            {
+                if ( const auto g = ref.value().get( "Guid" ); g.has_value() )
+                    guidText = g.value().to_string().value_or( "" );
+                if ( const auto p = ref.value().get( "Path" ); p.has_value() )
+                    pathText = p.value().to_string().value_or( "" );
+            }
+            if ( guidText.empty() || pathText.empty() )
+                return Common::MakeError<bool>( std::string( "states no {Guid, Path}" ) );
+            // An engine shader's Path states the `engine:` root (Resources/), an ancestor of the content root.
+            constexpr std::string_view kEngineRoot = "engine:";
+            if ( std::string_view( pathText ).starts_with( kEngineRoot ) )
+                pathText.erase( 0, kEngineRoot.size() );
+            const auto located = LocateMeshFile( pathText, assetsRoot );
+            if ( !located )
+                return Common::MakeError<bool>( located.GetError() );
+            const auto&       file = located.GetValue().File;
+            std::ifstream     in( file, std::ios::binary );
+            std::stringstream text;
+            text << in.rdbuf();
+            const std::string source   = text.str();
+            const auto        header   = CC::ReadShaderHeader( source );
+            const auto        manifest = CC::ReadShaderManifest( source );
+            if ( !header )
+                return Common::MakeError<bool>( "'" + file.generic_string() + "': " + header.GetError() );
+            if ( !manifest )
+                return Common::MakeError<bool>( "'" + file.generic_string() + "': " + manifest.GetError() );
+            const auto stated = CC::AssetGuidFromText( guidText );
+            const auto actual = CC::AssetGuidFromText( header.GetValue().Guid );
+            if ( !stated || !actual || stated.GetValue() != actual.GetValue() )
+                return Common::MakeError<bool>( "names GUID " + guidText + " but '" + file.generic_string() +
+                                                "' states " + header.GetValue().Guid );
+            return Common::MakeSuccess( manifest.GetValue().Role == CC::kPBRSurfaceRole );
+        };
+        const auto settle = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "Material",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto shader = block.get( "Shader" );
+                           if ( !shader.has_value() )
+                               return false;
+                           const auto judged = namesPBRSurface( shader.value() );
+                           if ( !judged )
+                           {
+                               report.Refused.push_back( who + " > Material.Shader: " + judged.GetError() );
+                               return false;
+                           }
+                           if ( !judged.GetValue() )
+                               return false;
+                           report.Dropped += DropKey( block, "Shader" ) ? 1 : 0;
+                           return true;
+                       } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "(untagged)" );
+            settle( entity.Components, tag );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+                settle( override_.Components, tag + " (prefab override)" );
+        }
+        return report;
+    }
+
     std::size_t MigrateLandscapeLayerModesV37ToV38( std::vector<Assets::EntityData>& entities )
     {
         std::size_t dropped = 0;
@@ -1006,6 +1082,21 @@ namespace Desert::Migration
             {
                 report.PlayerViewFlagRaised = true;
                 report.PlayerViewFlag       = MigratePlayerViewFlagV39ToV40( entities );
+            }
+
+            // A Material block names only an override (MAT1g): a Shader naming the PBRSurface template goes.
+            if ( statedSceneVersion < kSceneVersionNoPBRSurfaceShader )
+            {
+                report.PBRSurfaceShaderRaised = true;
+                report.PBRSurfaceShader       = MigratePBRSurfaceShaderV40ToV41( entities, assetsRoot );
+                if ( !report.PBRSurfaceShader.Refused.empty() )
+                {
+                    std::string lines;
+                    for ( const auto& line : report.PBRSurfaceShader.Refused )
+                        lines += ( lines.empty() ? "" : "; " ) + line;
+                    report.Refused = "'" + name + "': " + lines + ". Nothing was written.";
+                    return;
+                }
             }
         }
 

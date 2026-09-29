@@ -120,6 +120,22 @@ namespace Desert::Assets
         return asset != nullptr && asset->GetRole() == Common::Content::kPBRSurfaceRole;
     }
 
+    Common::ResultStr<std::string> FindOverrideShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref,
+                                                                const AssetRefSite& site )
+    {
+        auto name = FindShaderNameByRef( manager, ref, site );
+        if ( !name )
+            return name;
+        const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
+        if ( guid && IsPBRSurfaceTemplate( manager, Common::AssetHandle( static_cast<uint64_t>(
+                                                         Common::Content::HandleForGuid( guid.GetValue() ) ) ) ) )
+            return Common::MakeError<std::string>(
+                 std::format( "{} on {}: '{}' (GUID {}) is the PBRSurface template, which overrides nothing - the "
+                              "mesh draws its material slots; SceneMigrator v41 removes the key",
+                              site.Field, site.Context, ref.Path, ref.Guid ) );
+        return name;
+    }
+
     Common::ResultStr<AssetGuidRef> FindShaderRefByName( const AssetManager& manager, std::string_view name,
                                                          const AssetRefSite& site )
     {
