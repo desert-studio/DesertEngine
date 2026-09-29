@@ -41,6 +41,9 @@ namespace Desert::Editor
         // Import reads.
         ImportOutcome ImportWithSettings( const std::filesystem::path&        path,
                                           const Assets::SourceImportSettings& settings );
+        // What @p path holds (the Import Options window's title and sections); an error for a file no importer
+        // takes or one that does not parse.
+        Common::ResultStr<ImportContentKind> ProbeContent( const std::filesystem::path& path );
         // The mesh sources under `root` the bulk cook reaches (`.blend` excluded: a headless Blender run is
         // imported on demand only).
         static std::vector<std::filesystem::path> MeshSources( const std::filesystem::path& root );

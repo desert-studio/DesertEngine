@@ -109,13 +109,15 @@ namespace Desert::Assets::Serialization
     }
 
     Common::ResultStr<Common::Content::AssetGuid>
-    EnsureImportRecord( const std::filesystem::path& source, const Common::Math::AABB& bounds,
+    EnsureImportRecord( const std::filesystem::path& source, const std::optional<Common::Math::AABB>& bounds,
                         const Assets::SourceImportSettings& settings )
     {
         using Common::Content::AssetGuid;
-        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
-        const ImportRecordData::Box box{ { bounds.Min.x, bounds.Min.y, bounds.Min.z },
-                                         { bounds.Max.x, bounds.Max.y, bounds.Max.z } };
+        const std::filesystem::path          record = Common::Content::ImportRecordPathFor( source );
+        std::optional<ImportRecordData::Box> box;
+        if ( bounds )
+            box = ImportRecordData::Box{ { bounds->Min.x, bounds->Min.y, bounds->Min.z },
+                                         { bounds->Max.x, bounds->Max.y, bounds->Max.z } };
         ImportRecordData            data;
         std::error_code             ec;
         if ( std::filesystem::is_regular_file( record, ec ) )
@@ -135,12 +137,16 @@ namespace Desert::Assets::Serialization
             if ( data.Settings )
                 if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
                     sameSettings = stated.GetValue() == settings;
-            if ( data.Bounds && data.Bounds->Min == box.Min && data.Bounds->Max == box.Max && sameSettings )
+            // No box (a file with no mesh: a skeleton and its clips) leaves the stated box as it is.
+            const bool sameBox =
+                 !box || ( data.Bounds && data.Bounds->Min == box->Min && data.Bounds->Max == box->Max );
+            if ( sameBox && sameSettings )
                 return ReadImportRecordGuid( source );
         }
         else
             data.Source = source.filename().string(); // no header: the stamp mints the GUID
-        data.Bounds   = box;
+        if ( box )
+            data.Bounds = box;
         data.Settings = ImportSettingsToText( settings );
         if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( data ) );
              !written )

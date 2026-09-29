@@ -102,8 +102,10 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
                                                 const std::optional<std::vector<std::string>>& nodes );
 
-    /// ... and its `Settings` rewritten to @p settings, the options this import ran with.
+    /// ... and its `Settings` rewritten to @p settings, the options this import ran with. Written by EVERY import,
+    /// static or skinned (UE: AssetImportData on every imported asset): a source with a record is not new. A file
+    /// with no mesh (skeleton and clips only) passes no @p bounds, and the record states none.
     Common::ResultStr<Common::Content::AssetGuid>
-    EnsureImportRecord( const std::filesystem::path& source, const Common::Math::AABB& bounds,
+    EnsureImportRecord( const std::filesystem::path& source, const std::optional<Common::Math::AABB>& bounds,
                         const Assets::SourceImportSettings& settings );
 } // namespace Desert::Assets::Serialization

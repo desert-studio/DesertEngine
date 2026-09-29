@@ -37,6 +37,8 @@ namespace Desert::Editor::ImportOptions
         {
             std::filesystem::path              Source;
             std::vector<std::function<void()>> OnImported; // run after it imported (Request's continuations)
+            // What the file holds, read once when it is first shown (the window's title and sections).
+            std::optional<Common::ResultStr<ImportContentKind>> Kind;
         };
         struct WindowState
         {
@@ -73,6 +75,45 @@ namespace Desert::Editor::ImportOptions
         constexpr std::array<Assets::MeshLodPolicy, 2> kLods = { Assets::MeshLodPolicy::Generate,
                                                                  Assets::MeshLodPolicy::None };
         constexpr std::array<const char*, 2> kLodLabels = { "Generate (authored, else simplified)", "LOD 0 only" };
+
+        // The window's title and its options section, by what the file holds (UE: Static Mesh / Skeletal Mesh /
+        // Animation import).
+        const char* KindTitle( const ImportContentKind kind )
+        {
+            switch ( kind )
+            {
+                case ImportContentKind::StaticMesh:
+                    return ICON_MDI_FILE_IMPORT_OUTLINE "  Static Mesh import";
+                case ImportContentKind::SkeletalMesh:
+                    return ICON_MDI_FILE_IMPORT_OUTLINE "  Skeletal Mesh import";
+                case ImportContentKind::Animation:
+                    return ICON_MDI_FILE_IMPORT_OUTLINE "  Animation import";
+            }
+            return "";
+        }
+        const char* KindSection( const ImportContentKind kind )
+        {
+            switch ( kind )
+            {
+                case ImportContentKind::StaticMesh:
+                    return ICON_MDI_SHAPE "  Mesh";
+                case ImportContentKind::SkeletalMesh:
+                    return ICON_MDI_SHAPE "  Skeletal Mesh";
+                case ImportContentKind::Animation:
+                    return ICON_MDI_SHAPE "  Animation";
+            }
+            return "";
+        }
+
+        // The window's shown options, for an edit from the palette: refused when no source waits.
+        Common::ResultStr<Assets::SourceImportSettings*> ShownSettings()
+        {
+            WindowState& w = Window();
+            if ( w.Queue.empty() || w.Answered )
+                return Common::MakeError<Assets::SourceImportSettings*>(
+                     "no source waits in the Import Options window" );
+            return Common::MakeSuccess( &w.Shown );
+        }
 
         // EVERY ENTITY THAT DRAWS A REIMPORTED MESH DRAWS THE NEW CONTENT FROM THE NEXT FRAME (UE:
         // FReimportManager
@@ -150,6 +191,50 @@ namespace Desert::Editor::ImportOptions
         return s_Importer;
     }
 
+    Common::BoolResultStr SetUniformScale( Assets::SourceImportSettings& settings, const float scale )
+    {
+        if ( !std::isfinite( scale ) || scale <= 0.0f )
+            return Common::MakeFormattedError<bool>( "Uniform Scale {} is not a finite number above zero", scale );
+        settings.Mesh.UniformScale = scale;
+        return BOOLSUCCESS;
+    }
+
+    void SetUpAxis( Assets::SourceImportSettings& settings, const Assets::MeshSourceUpAxis axis )
+    {
+        settings.Mesh.UpAxis = axis;
+    }
+
+    void SetCombineMeshes( Assets::SourceImportSettings& settings, const bool on )
+    {
+        settings.CombineMeshes = on;
+    }
+
+    Common::BoolResultStr SetShownUniformScale( const float scale )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        return SetUniformScale( *shown.GetValue(), scale );
+    }
+
+    Common::BoolResultStr SetShownUpAxis( const Assets::MeshSourceUpAxis axis )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        SetUpAxis( *shown.GetValue(), axis );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetShownCombineMeshes( const bool on )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        SetCombineMeshes( *shown.GetValue(), on );
+        return BOOLSUCCESS;
+    }
+
     void Request( const std::filesystem::path& source, std::function<void()> onImported )
     {
         WindowState& w = Window();
@@ -160,7 +245,7 @@ namespace Desert::Editor::ImportOptions
                     queued.OnImported.push_back( std::move( onImported ) );
                 return;
             }
-        QueuedSource entry{ source, {} };
+        QueuedSource entry{ source, {}, std::nullopt };
         if ( onImported )
             entry.OnImported.push_back( std::move( onImported ) );
         w.Queue.push_back( std::move( entry ) );
@@ -235,25 +320,34 @@ namespace Desert::Editor::ImportOptions
         return Common::Json::WriteFileAtomic( LastUsedPath(), Ser::ImportSettingsToText( settings ) );
     }
 
-    bool DrawImportSettingsFields( Assets::SourceImportSettings& settings )
+    bool DrawImportSettingsFields( Assets::SourceImportSettings& settings, const ImportContentKind kind )
     {
         using UI     = Utils::ImGuiUtilities;
         bool changed = false;
         ImGui::PushID( "ImportSettingsFields" );
 
-        UI::BeginPropertyRow( "Combine Meshes", "Off (UE's default): every mesh-bearing node of the file becomes "
-                                                "its own static mesh. On: the whole file is one static mesh." );
-        changed |= ImGui::Checkbox( "##CombineMeshes", &settings.CombineMeshes );
-        UI::EndPropertyRow();
+        // A skinned file is one skeletal mesh whatever its nodes (UE's Skeletal Mesh import has no Combine
+        // Meshes).
+        if ( kind == ImportContentKind::StaticMesh )
+        {
+            UI::BeginPropertyRow( "Combine Meshes",
+                                  "Off (UE's default): every mesh-bearing node of the file "
+                                  "becomes its own static mesh. On: the whole file is one static "
+                                  "mesh." );
+            bool combine = settings.CombineMeshes;
+            if ( ImGui::Checkbox( "##CombineMeshes", &combine ) )
+            {
+                SetCombineMeshes( settings, combine );
+                changed = true;
+            }
+            UI::EndPropertyRow();
+        }
 
         UI::BeginPropertyRow( "Uniform Scale", "Applied on import: source units to centimetres." );
         float scale = settings.Mesh.UniformScale;
         if ( ImGui::DragFloat( "##UniformScale", &scale, 0.01f, 0.001f, 1000.0f, "%.3f" ) &&
-             std::isfinite( scale ) && scale > 0.0f )
-        {
-            settings.Mesh.UniformScale = scale;
-            changed                    = true;
-        }
+             SetUniformScale( settings, scale ) )
+            changed = true;
         UI::EndPropertyRow();
 
         UI::BeginPropertyRow( "Up Axis", "From File keeps the exporter's own axis conversion; Z Up rotates +Z to "
@@ -264,8 +358,8 @@ namespace Desert::Editor::ImportOptions
                 axis = static_cast<int>( i );
         if ( ImGui::Combo( "##UpAxis", &axis, kAxisLabels.data(), static_cast<int>( kAxisLabels.size() ) ) )
         {
-            settings.Mesh.UpAxis = kAxes[static_cast<std::size_t>( axis )];
-            changed              = true;
+            SetUpAxis( settings, kAxes[static_cast<std::size_t>( axis )] );
+            changed = true;
         }
         UI::EndPropertyRow();
 
@@ -316,8 +410,18 @@ namespace Desert::Editor::ImportOptions
             return;
         }
 
-        const std::filesystem::path source = w.Queue.front().Source;
-        ImGui::TextUnformatted( ICON_MDI_FILE_IMPORT_OUTLINE "  Static Mesh import" );
+        QueuedSource& shown = w.Queue.front();
+        if ( !shown.Kind )
+            shown.Kind = SharedImporter().ProbeContent( shown.Source );
+        const std::filesystem::path source = shown.Source;
+        if ( !*shown.Kind )
+        {
+            // Not readable: said in the window, and Import will fail with the same file named.
+            ImGui::TextUnformatted( ICON_MDI_FILE_IMPORT_OUTLINE "  Import" );
+            ImGui::TextWrapped( "%s", shown.Kind->GetError().c_str() );
+        }
+        else
+            ImGui::TextUnformatted( KindTitle( shown.Kind->GetValue() ) );
         ImGui::Separator();
         ImGui::TextUnformatted( std::format( "File: {}", source.filename().string() ).c_str() );
         if ( ImGui::IsItemHovered() )
@@ -327,10 +431,11 @@ namespace Desert::Editor::ImportOptions
                  "%s", std::format( "{} more file(s) wait after this one", w.Queue.size() - 1 ).c_str() );
         ImGui::Spacing();
 
-        if ( Utils::ImGuiUtilities::SectionHeader( ICON_MDI_SHAPE "  Mesh" ) )
+        const ImportContentKind kind = *shown.Kind ? shown.Kind->GetValue() : ImportContentKind::StaticMesh;
+        if ( *shown.Kind && Utils::ImGuiUtilities::SectionHeader( KindSection( kind ) ) )
         {
             Utils::ImGuiUtilities::ResetPropertyRows();
-            (void)DrawImportSettingsFields( w.Shown );
+            (void)DrawImportSettingsFields( w.Shown, kind );
         }
         ImGui::Spacing();
         ImGui::Separator();
@@ -397,13 +502,13 @@ namespace Desert::Editor::ImportOptions
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( "%s", key.c_str() );
         Utils::ImGuiUtilities::EndPropertyRow();
-        (void)DrawImportSettingsFields( it->second.Edit );
+        (void)DrawImportSettingsFields( it->second.Edit, ImportContentKind::StaticMesh );
 
         const bool edited = it->second.Recorded != it->second.Edit;
         if ( ImGui::Button( ICON_MDI_RELOAD "  Reimport" ) )
         {
-            ImportOne( *source, it->second.Edit );
-            edits.erase( it ); // the record states what was imported now; the next frame reads it
+            if ( const auto reimported = Reimport( assetPath ); !reimported )
+                LOG_ERROR( "[Import] {}", reimported.GetError() );
             ImGui::PopID();
             return;
         }
@@ -417,5 +522,32 @@ namespace Desert::Editor::ImportOptions
                 it->second.Edit = it->second.Recorded;
         }
         ImGui::PopID();
+    }
+
+    Common::BoolResultStr Reimport( const std::filesystem::path& assetPath )
+    {
+        const auto source = ImportSourceOfMeshAsset( assetPath );
+        if ( !source )
+            return Common::MakeFormattedError<bool>( "'{}' has no import source to reimport from",
+                                                     assetPath.generic_string() );
+        // The Details' edit when the section shows one, the record's options otherwise.
+        auto&                        edits = Edits();
+        const auto                   it    = edits.find( source->generic_string() );
+        Assets::SourceImportSettings settings;
+        if ( it != edits.end() )
+            settings = it->second.Edit;
+        else
+        {
+            auto recorded = Ser::ReadImportRecordSettings( *source );
+            if ( !recorded )
+                return Common::MakeError<bool>( recorded.GetError() );
+            settings = recorded.GetValue();
+        }
+        if ( !ImportOne( *source, settings ) )
+            return Common::MakeFormattedError<bool>( "'{}' was not reimported (see the error above)",
+                                                     source->generic_string() );
+        if ( it != edits.end() )
+            edits.erase( it ); // the record states what was imported now; the next frame reads it
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::ImportOptions

@@ -4,6 +4,7 @@
 // Reimport). Both edit the ONE option set, Assets::SourceImportSettings, whose one home is the source's import
 // record (Engine/Assets/Serialization/ImportRecord.hpp); both draw it with the same DrawImportSettingsFields.
 #include <Common/Core/ResultStr.hpp>
+#include <Editor/Import/IAssetImporter.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 
 #include <filesystem>
@@ -35,6 +36,16 @@ namespace Desert::Editor
         // refuses when no source waits.
         Common::BoolResultStr ConfirmImport( bool all );
         Common::BoolResultStr CancelImport();
+        // THE OPTIONS' EDITS, one body each: the fields of both surfaces call them, and the palette's
+        // "Import Options: Uniform Scale / Up Axis / Combine Meshes" call the Shown ones on the window's options
+        // (refused when no source waits). Uniform Scale refuses a value that is not finite and above zero
+        // (MeshSourceAsset::ValidateImport's rule).
+        Common::BoolResultStr SetUniformScale( Assets::SourceImportSettings& settings, float scale );
+        void                  SetUpAxis( Assets::SourceImportSettings& settings, Assets::MeshSourceUpAxis axis );
+        void                  SetCombineMeshes( Assets::SourceImportSettings& settings, bool on );
+        Common::BoolResultStr SetShownUniformScale( float scale );
+        Common::BoolResultStr SetShownUpAxis( Assets::MeshSourceUpAxis axis );
+        Common::BoolResultStr SetShownCombineMeshes( bool on );
 
         // Draws the window (one modal, one source at a time: Import, Import All = the rest of the queue with the
         // same options, Cancel = this source is not imported). Call once per frame from the editor's UI pass.
@@ -42,7 +53,8 @@ namespace Desert::Editor
 
         // The options fields both surfaces draw: Combine Meshes, Uniform Scale, Up Axis, LOD. True when the user
         // changed one this frame. Uniform Scale stays finite and > 0 (MeshSourceAsset::ValidateImport's rule).
-        bool DrawImportSettingsFields( Assets::SourceImportSettings& settings );
+        // Combine Meshes only for @p kind StaticMesh: a skinned file is one skeletal mesh.
+        bool DrawImportSettingsFields( Assets::SourceImportSettings& settings, ImportContentKind kind );
 
         // The options the last Import Options window confirmed in this project (UE: the FBX import UI's
         // per-project config), read from `<project>/Saved/ImportOptions.json`. nullopt when the project has
@@ -61,5 +73,9 @@ namespace Desert::Editor
         // Combine Meshes changes how many static meshes the source makes). Draws nothing for a mesh with no
         // source.
         void DrawImportSettingsSection( const std::filesystem::path& assetPath );
+        // The section's Reimport button, one body (the palette's "Assets / Reimport selected" runs it too): the
+        // source of the mesh asset at @p assetPath imported again with the section's edited options, the
+        // record's when nothing is edited. An error for a mesh with no source or a failed import.
+        Common::BoolResultStr Reimport( const std::filesystem::path& assetPath );
     } // namespace ImportOptions
 } // namespace Desert::Editor

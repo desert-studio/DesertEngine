@@ -66,6 +66,15 @@ namespace Desert::Editor
     WriteNodeMeshAsset( const NodeMesh& node, std::span<const Assets::MeshMaterialSlot> named,
                         const std::filesystem::path& source );
 
+    // THE IMPORT'S RECORD, ONE WRITER FOR EVERY KIND OF FILE (UE: every import - static or skeletal - leaves its
+    // AssetImportData, which Reimport reads): the source's `.deimport` with @p settings and the box of
+    // @p imported (source space, before the options are applied), no box when the file has no mesh (a skeleton
+    // and its clips). The static writer below calls it first; a skinned import calls it from the import itself.
+    // A source with a record is not new: the Import Options window is not offered for it again.
+    [[nodiscard]] Common::BoolResultStr RecordImport( const std::filesystem::path&                source,
+                                                      const Assets::Serialization::MeshAssetData* imported,
+                                                      const Assets::SourceImportSettings&         settings );
+
     // THE STATIC MESH IMPORT'S WRITE, BOTH MODES (THM1j; UE: UFbxStaticMeshImportData::bCombineMeshes). The record
     // first (identity, box). Split (Combine Meshes off, more than one node): each node's mesh beside the source
     // and the node names in the record - and NO combined mesh, exactly as UE imports no combined asset then.

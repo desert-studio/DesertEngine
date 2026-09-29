@@ -133,6 +133,16 @@ namespace Desert::Editor
         return ImportParsed( path, settings );
     }
 
+    Common::ResultStr<ImportContentKind> ImportManager::ProbeContent( const std::filesystem::path& path )
+    {
+        auto ext = path.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+        if ( !m_Importers.contains( ext ) )
+            return Common::MakeFormattedError<ImportContentKind>( "'{}': no importer takes '{}' files",
+                                                                  path.string(), ext );
+        return m_Importers[ext]->Probe( path );
+    }
+
     ImportOutcome ImportManager::ImportParsed( const std::filesystem::path&        path,
                                                const Assets::SourceImportSettings& settings )
     {
@@ -248,9 +258,16 @@ namespace Desert::Editor
         // simplifies the skinned sections as the deriver does the static ones. A file with no static mesh
         // (skinned, or skeleton + clips only) is the case: the static path never sees the skeleton.
         const bool staticMesh = resolved.Mesh && !resolved.Mesh->IsSkinned;
+        // THE RECORD FOR EVERY KIND (RecordImport): the static writer records the import itself; a skinned file,
+        // or one with a skeleton and clips only, is recorded here, with the box before the options move it. A
+        // parse that produced nothing (a failed .blend conversion) is no import and leaves no record.
         if ( !staticMesh )
+        {
+            if ( resolved.Mesh || resolved.Skeleton || !resolved.Animations.empty() )
+                record( RecordImport( sourcePath, resolved.Mesh ? &resolved.Mesh.value() : nullptr, settings ) );
             ApplySourceToEngine( settings.Mesh, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
                                  resolved.Skeleton ? &resolved.Skeleton.value() : nullptr, resolved.Animations );
+        }
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
         {
             if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )

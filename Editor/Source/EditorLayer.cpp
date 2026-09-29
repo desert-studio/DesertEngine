@@ -6186,6 +6186,37 @@ namespace Desert::Editor
         importOptionsCommand( "Import Options: Import", [] { return ImportOptions::ConfirmImport( false ); } );
         importOptionsCommand( "Import Options: Import All", [] { return ImportOptions::ConfirmImport( true ); } );
         importOptionsCommand( "Import Options: Cancel", [] { return ImportOptions::CancelImport(); } );
+        // ITS FIELDS WITHOUT A MOUSE: the same edits the fields make (ImportOptions::SetShown*), on the options
+        // the window shows. Uniform Scale offers the unit conversions (metres, decimetres, centimetres, ...).
+        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
+            commands.push_back( { "Assets", std::format( "Import Options: Uniform Scale {}", scale ),
+                                  [scale] { return ImportOptions::SetShownUniformScale( scale ); } } );
+        for ( const auto& [label, axis] :
+              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
+                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
+            commands.push_back( { "Assets", std::format( "Import Options: Up Axis {}", label ),
+                                  [axis] { return ImportOptions::SetShownUpAxis( axis ); } } );
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
+                                  [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
+        // The Details' Import Settings Reimport, for the selected entity's static mesh: the button's own body.
+        commands.push_back( { "Assets", "Reimport selected", [this]() -> Common::BoolResultStr
+                              {
+                                  const auto selected = Core::SelectionManager::GetSelected();
+                                  if ( !m_MainScene || !selected.has_value() )
+                                      return Common::MakeError<bool>( "no entity is selected" );
+                                  auto ref = m_MainScene->FindEntityByID( *selected );
+                                  if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                                      return Common::MakeError<bool>( "the selected entity has no static mesh" );
+                                  const auto& mesh = ref->get().GetComponent<ECS::StaticMeshComponent>();
+                                  const auto  asset =
+                                       mesh.MeshHandle
+                                             ? m_AssetManager->FindByHandle<Assets::MeshAsset>( mesh.MeshHandle )
+                                             : nullptr;
+                                  if ( !asset )
+                                      return Common::MakeError<bool>( "the selected entity's mesh is not loaded" );
+                                  return ImportOptions::Reimport( asset->GetMetadata().Filepath );
+                              } } );
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
         commands.push_back( { "Foliage", "Foliage mode", []

@@ -184,18 +184,28 @@ namespace Desert::Editor
         return Common::MakeSuccess( path );
     }
 
+    Common::BoolResultStr RecordImport( const std::filesystem::path& source, const Ser::MeshAssetData* imported,
+                                        const Assets::SourceImportSettings& settings )
+    {
+        std::optional<Common::Math::AABB> box;
+        if ( imported )
+            box = Ser::MeshDataBounds( *imported );
+        if ( auto identity = Ser::EnsureImportRecord( source, box, settings ); !identity )
+            return Common::MakeError<bool>( identity.GetError() );
+        return BOOLSUCCESS;
+    }
+
     Common::ResultStr<std::vector<std::pair<NodeMesh, std::filesystem::path>>>
     WriteStaticMeshImport( const Ser::MeshAssetData& imported, std::span<const std::string> submeshNodes,
                            std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source,
                            const Assets::SourceImportSettings& settings )
     {
-        using Result   = std::vector<std::pair<NodeMesh, std::filesystem::path>>;
-        const auto box = Ser::MeshDataBounds( imported );
-        if ( !box )
+        using Result = std::vector<std::pair<NodeMesh, std::filesystem::path>>;
+        if ( !Ser::MeshDataBounds( imported ) )
             return Common::MakeFormattedError<Result>( "'{}': the import has no submesh, so no box",
                                                        source.string() );
-        if ( auto identity = Ser::EnsureImportRecord( source, *box, settings ); !identity )
-            return Common::MakeError<Result>( identity.GetError() );
+        if ( auto recorded = RecordImport( source, &imported, settings ); !recorded )
+            return Common::MakeError<Result>( recorded.GetError() );
 
         auto split = NodeMeshesOfImport( imported, submeshNodes, source );
         if ( !split )

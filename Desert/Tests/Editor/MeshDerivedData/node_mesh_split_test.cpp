@@ -4,6 +4,7 @@
 // fixture stands in for what the importer hands over for a three-node glTF - three tufts, their node world
 // transforms already baked, in a row along x - and the source file on disk is that glTF's text.
 
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Import/CookPaths.hpp>
@@ -169,7 +170,8 @@ TEST( NodeMeshSplit, CombineMeshesKeepsTheOneMesh )
     // The import writes the options it runs with into the record, which every later reader reads.
     Assets::SourceImportSettings on;
     on.CombineMeshes = true;
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, { { 0, 0, 0 }, { 1, 1, 1 } }, on ).IsSuccess() );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, Common::Math::AABB{ { 0, 0, 0 }, { 1, 1, 1 } }, on )
+                      .IsSuccess() );
     {
         const auto combine = Ser::ReadImportRecordSettings( project.Source );
         ASSERT_TRUE( combine.IsSuccess() && combine.GetValue() == on );
@@ -266,4 +268,54 @@ TEST( NodeMeshSplit, ReimportWithChangedSettingsChangesTheMeshes )
     auto third = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, split );
     ASSERT_TRUE( third.IsSuccess() ) << third.GetError();
     EXPECT_EQ( third.GetValue().size(), 3u );
+}
+
+// THM1l-b5: a SKINNED import is recorded like a static one (UE: every import leaves its AssetImportData). The
+// Import Options window's skinned import used to write no record, so the next drop found the file "new" and
+// offered the window forever. RecordImport is the one writer: the options are the record's, the source is no
+// longer new, and a file with no mesh (a skeleton and its clips) is recorded without a box.
+TEST( NodeMeshSplit, ASkinnedImportIsRecordedWithItsOptions )
+{
+    const GrassProject project;
+    Ser::MeshAssetData skinned;
+    skinned.IsSkinned = true;
+    Ser::SkinnedVertexData v{};
+    v.Position = { 0.0f, 10.0f, 20.0f };
+    skinned.SkinnedVertices.push_back( v );
+    Ser::SubmeshData sub{};
+    sub.VertexCount = 1;
+    sub.Transform   = glm::mat4( 1.0f );
+    sub.BoundingBox = { { 0.0f, 10.0f, 20.0f }, { 0.0f, 10.0f, 20.0f } };
+    skinned.Submeshes.push_back( sub );
+
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    ASSERT_FALSE( fs::exists( record ) ) << "the fixture's source starts new";
+
+    Assets::SourceImportSettings chosen;
+    chosen.Mesh.UniformScale = 100.0f;
+    chosen.Mesh.UpAxis       = Assets::MeshSourceUpAxis::Z;
+    const auto recorded      = Editor::RecordImport( project.Source, &skinned, chosen );
+    ASSERT_TRUE( recorded.IsSuccess() ) << recorded.GetError();
+    EXPECT_TRUE( fs::is_regular_file( record ) )
+         << "a recorded source is not new: the window is not offered again";
+    const auto stored = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( stored.IsSuccess() ) << stored.GetError();
+    EXPECT_EQ( stored.GetValue(), chosen ) << "Reimport reads the options the window confirmed";
+    const auto whole = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( whole.IsSuccess() && whole.GetValue() && whole.GetValue()->Bounds );
+    EXPECT_EQ( whole.GetValue()->Bounds->Min[1], 10.0f ) << "the box is the file's, before the options";
+    const auto guid = Ser::ReadImportRecordGuid( project.Source );
+    ASSERT_TRUE( guid.IsSuccess() ) << guid.GetError();
+
+    // A second import (Reimport with other options) keeps the identity; one with no mesh keeps the box.
+    Assets::SourceImportSettings again;
+    ASSERT_TRUE( Editor::RecordImport( project.Source, nullptr, again ).IsSuccess() );
+    const auto after = Ser::ReadImportRecord( project.Source );
+    ASSERT_TRUE( after.IsSuccess() && after.GetValue() && after.GetValue()->Bounds );
+    const auto againStored = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( againStored.IsSuccess() ) << againStored.GetError();
+    EXPECT_EQ( againStored.GetValue(), again );
+    const auto sameGuid = Ser::ReadImportRecordGuid( project.Source );
+    ASSERT_TRUE( sameGuid.IsSuccess() ) << sameGuid.GetError();
+    EXPECT_EQ( sameGuid.GetValue(), guid.GetValue() );
 }

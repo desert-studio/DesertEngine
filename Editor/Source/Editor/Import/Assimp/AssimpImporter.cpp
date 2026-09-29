@@ -866,6 +866,23 @@ namespace Desert::Editor
         return false;
     }
 
+    Common::ResultStr<ImportContentKind> AssimpImporter::Probe( const std::filesystem::path& path )
+    {
+        static ScopedAssimpLogger logger;
+        Assimp::Importer          importer;
+        // No post-processing: the kind is the scene's meshes and bones as the file states them.
+        const aiScene* scene = importer.ReadFile( path.string(), 0 );
+        if ( !scene || !scene->mRootNode )
+            return Common::MakeFormattedError<ImportContentKind>( "'{}' could not be read: {}", path.string(),
+                                                                  importer.GetErrorString() );
+        if ( scene->mNumMeshes == 0 )
+            return Common::MakeSuccess( ImportContentKind::Animation );
+        for ( uint32_t i = 0; i < scene->mNumMeshes; ++i )
+            if ( scene->mMeshes[i]->HasBones() )
+                return Common::MakeSuccess( ImportContentKind::SkeletalMesh );
+        return Common::MakeSuccess( ImportContentKind::StaticMesh );
+    }
+
     ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager )
     {
         static ScopedAssimpLogger logger;
