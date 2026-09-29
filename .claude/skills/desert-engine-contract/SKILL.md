@@ -106,6 +106,18 @@ finding these instead of me.
 
 A finding costs one paragraph in the report. Not finding it costs whatever it costs later.
 
+### Text is formatted, never glued (owner, 2026-09-29)
+A string built by `"[" + id + "] " + text` chains is returned. Text is made by a FORMAT, and a format has one home:
+- `std::format` / `std::format_to(std::back_inserter(out), …)` with a literal format string (checked at compile time);
+  in loops `format_to` into one buffer, not `+=` of temporaries.
+- A shape used more than once is ONE named function (`FormatNotifyLine(const Notify&)`) or one
+  `constexpr std::string_view k…Format` — never the same literal pieces repeated at two call sites.
+- Text a user reads in the UI goes through Localization (`LocaleFormat`, named arguments), not a literal in code.
+- Structured files (JSON, manifests) go through their writer (`Common/Json/Json.hpp`), never hand-built strings.
+- Paths are `std::filesystem::path` joined with `/`, never `dir + "/" + name`.
+- Existing glued lines (≈1,700 in 09-29) are migrated when a change touches them — the lines you change must follow
+  this rule; the changed-lines gate (FMT1) enforces it like clang-format.
+
 ### Architecture
 
 - **Interface before implementation.** The header first: types, signatures, resource ownership,
