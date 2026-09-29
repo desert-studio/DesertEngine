@@ -119,10 +119,10 @@ namespace Desert::Editor
                                                                  const std::filesystem::path& source )
     {
         using Result       = std::vector<NodeMesh>;
-        const auto combine = Ser::ReadImportRecordCombineMeshes( source );
-        if ( !combine )
-            return Common::MakeError<Result>( combine.GetError() );
-        if ( combine.GetValue() )
+        const auto settings = Ser::ReadImportRecordSettings( source );
+        if ( !settings )
+            return Common::MakeError<Result>( settings.GetError() );
+        if ( settings.GetValue().CombineMeshes )
             return Common::MakeSuccess( Result{} );
         auto split = SplitStaticMeshByNode( combined, submeshNodes );
         if ( !split )
@@ -160,6 +160,9 @@ namespace Desert::Editor
         const auto                  hash = Assets::HashMeshSourceFile( source );
         if ( !hash )
             return Common::MakeError<Result>( hash.GetError() );
+        const auto settings = Ser::ReadImportRecordSettings( source );
+        if ( !settings )
+            return Common::MakeError<Result>( settings.GetError() );
         auto sourceData = MeshSourceFromImport( node.Mesh, named, path.string() );
         if ( !sourceData )
             return Common::MakeError<Result>( sourceData.GetError() );
@@ -173,6 +176,7 @@ namespace Desert::Editor
         asset.Name              = path.stem().string();
         asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
         asset.Import.SourceHash = hash.GetValue();
+        asset.Import.Settings   = settings.GetValue().Mesh;
         asset.Source            = std::move( sourceData.ExtractValue().Source );
         if ( auto written = Assets::WriteMeshSourceAssetFile( path, asset ); !written )
             return Common::MakeFormattedError<Result>( "'{}' could not be written: {}", path.generic_string(),
@@ -182,14 +186,15 @@ namespace Desert::Editor
 
     Common::ResultStr<std::vector<std::pair<NodeMesh, std::filesystem::path>>>
     WriteStaticMeshImport( const Ser::MeshAssetData& imported, std::span<const std::string> submeshNodes,
-                           std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source )
+                           std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source,
+                           const Assets::SourceImportSettings& settings )
     {
         using Result   = std::vector<std::pair<NodeMesh, std::filesystem::path>>;
         const auto box = Ser::MeshDataBounds( imported );
         if ( !box )
             return Common::MakeFormattedError<Result>( "'{}': the import has no submesh, so no box",
                                                        source.string() );
-        if ( auto identity = Ser::EnsureImportRecord( source, *box ); !identity )
+        if ( auto identity = Ser::EnsureImportRecord( source, *box, settings ); !identity )
             return Common::MakeError<Result>( identity.GetError() );
 
         auto split = NodeMeshesOfImport( imported, submeshNodes, source );

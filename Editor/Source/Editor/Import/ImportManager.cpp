@@ -111,6 +111,31 @@ namespace Desert::Editor
                Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) || SkinnedImportIsFresh( path ) ) )
             return CookVerdict::UpToDate;
 
+        // The options the source was imported with last (its record), UE's defaults on a first import.
+        const auto settings = Assets::Serialization::ReadImportRecordSettings( path );
+        if ( !settings )
+        {
+            LOG_ERROR( "[Import] '{}' was not imported: {}", path.string(), settings.GetError() );
+            return CookVerdict::Failed;
+        }
+        return ImportParsed( path, settings.GetValue() );
+    }
+
+    CookVerdict ImportManager::ImportWithSettings( const std::filesystem::path&        path,
+                                                   const Assets::SourceImportSettings& settings )
+    {
+        auto ext = path.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+        if ( !m_Importers.contains( ext ) )
+            return CookVerdict::NotCookable;
+        return ImportParsed( path, settings );
+    }
+
+    CookVerdict ImportManager::ImportParsed( const std::filesystem::path&        path,
+                                             const Assets::SourceImportSettings& settings )
+    {
+        auto ext = path.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
         auto result = m_Importers[ext]->Import( path, *this );
         // The cook's verdict stops HERE, at a log line naming the file and the reason. It has nowhere
         // further to go and that is deliberate rather than overlooked: this function is void because
@@ -118,7 +143,7 @@ namespace Desert::Editor
         // JobSystem workers) and drag-and-drop. Widening it into a result would oblige every one of
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
-        if ( const auto cooked = CreateAssetsFromImport( result, path ); !cooked )
+        if ( const auto cooked = CreateAssetsFromImport( result, path, settings ); !cooked )
         {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
                        cooked.GetError() );
@@ -194,8 +219,9 @@ namespace Desert::Editor
     // make one unwritable material hide a mesh that could have been cooked. Only the first reason
     // travels up — the caller acts on "this cook is incomplete", not on the list — and every reason
     // names its own file, so the one that arrives is enough to find the cause.
-    Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&          result,
-                                                                 const std::filesystem::path& sourcePath )
+    Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&                 result,
+                                                                 const std::filesystem::path&        sourcePath,
+                                                                 const Assets::SourceImportSettings& settings )
     {
         std::string firstFailure;
         const auto  record = [&firstFailure]( const Common::BoolResultStr& outcome )
@@ -211,7 +237,14 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
-        if ( resolved.Mesh && resolved.Mesh->IsSkinned )
+        // A skinned import is not a MeshSourceAsset, so scale / axis / LOD options would reach nothing: refused
+        // by name instead of dropped.
+        if ( resolved.Mesh && resolved.Mesh->IsSkinned && settings.Mesh != Assets::MeshImportSettings{} )
+            record(
+                 Common::MakeFormattedError<bool>( "'{}' is skinned: Uniform Scale, Up Axis and LOD options apply "
+                                                   "to static meshes only; import it with the defaults",
+                                                   sourcePath.string() ) );
+        else if ( resolved.Mesh && resolved.Mesh->IsSkinned )
             record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
         else if ( resolved.Mesh )
         {
@@ -224,8 +257,8 @@ namespace Desert::Editor
             // COMBINE MESHES OFF (UE's default): every mesh-bearing node becomes its own static mesh and NO
             // combined one is written (NodeMeshSplit.hpp WriteStaticMeshImport); a single-node source, or Combine
             // Meshes on, is the one combined mesh.
-            auto written =
-                 WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath );
+            auto written = WriteStaticMeshImport( resolved.Mesh.value(), resolved.SubmeshNodes, named, sourcePath,
+                                                  settings );
             if ( !written )
                 record( Common::MakeError<bool>( written.GetError() ) );
             else

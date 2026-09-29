@@ -43,6 +43,7 @@
 #include <Common/Core/Profiler.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -4420,6 +4421,7 @@ namespace Desert::Editor
         DrawRecoveryPopup();
         DrawLayoutSavePopup();
         DrawOpenRefusedPopup();
+        ImportOptions::DrawWindow(); // a dropped file never imported asks for its options first (THM1l)
         DrawCloseQuestionPopup();
 
         // Transient bottom-right notifications (save/import/validation). Drawn last so they float on top.

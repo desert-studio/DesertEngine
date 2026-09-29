@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <memory>
 #include <unordered_map>
@@ -21,6 +22,12 @@ namespace Desert::Editor
         // force = re-cook even if an up-to-date cooked output already exists (Rebuild Cooked Assets).
         // The verdict is what the background startup cook (EditorLayer::DrainBackgroundCook) acts on.
         CookVerdict Import( const std::filesystem::path& path, bool force = false );
+        // THE IMPORT WITH OPTIONS (THM1l; UE: the FBX Import Options window's Import, and the asset's Reimport).
+        // Always imports (a changed option must reach the meshes even when the file's bytes did not change);
+        // @p settings are written into the source's import record, the options' one home, which every later
+        // Import reads.
+        CookVerdict ImportWithSettings( const std::filesystem::path&        path,
+                                        const Assets::SourceImportSettings& settings );
         // The mesh sources under `root` the bulk cook reaches (`.blend` excluded: a headless Blender run is
         // imported on demand only).
         static std::vector<std::filesystem::path> MeshSources( const std::filesystem::path& root );
@@ -49,8 +56,11 @@ namespace Desert::Editor
         // disk or a read-only Cooked/ produced an import that looked exactly like a successful one, and
         // the missing `.stmesh` surfaced later as an asset that would not resolve. The write itself is
         // WriteCookedJson (Editor/Import/CookedJsonWrite.hpp), which closes before it decides.
-        [[nodiscard]] Common::BoolResultStr CreateAssetsFromImport( const ImportResult&          result,
-                                                                    const std::filesystem::path& sourcePath );
+        [[nodiscard]] CookVerdict           ImportParsed( const std::filesystem::path&        path,
+                                                          const Assets::SourceImportSettings& settings );
+        [[nodiscard]] Common::BoolResultStr CreateAssetsFromImport( const ImportResult&                 result,
+                                                                    const std::filesystem::path&        sourcePath,
+                                                                    const Assets::SourceImportSettings& settings );
 
     private:
         [[nodiscard]] Common::BoolResultStr

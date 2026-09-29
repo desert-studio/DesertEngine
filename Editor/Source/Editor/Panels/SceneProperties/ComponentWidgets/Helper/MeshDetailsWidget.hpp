@@ -41,5 +41,8 @@ namespace Desert::Editor
         };
 
         static void Show( const Context& ctx );
+
+    private:
+        static void ShowMeshSection( const Context& ctx );
     };
 } // namespace Desert::Editor

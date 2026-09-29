@@ -161,29 +161,18 @@ TEST( NodeMeshSplit, CombineMeshesKeepsTheOneMesh )
     const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
     const auto box           = Ser::MeshDataBounds( data );
     ASSERT_TRUE( box.has_value() );
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *box ).IsSuccess() );
-    const auto combineDefault = Ser::ReadImportRecordCombineMeshes( project.Source );
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, *box, Assets::SourceImportSettings{} ).IsSuccess() );
+    const auto combineDefault = Ser::ReadImportRecordSettings( project.Source );
     ASSERT_TRUE( combineDefault.IsSuccess() ) << combineDefault.GetError();
-    ASSERT_FALSE( combineDefault.GetValue() ) << "UE's default is off";
+    ASSERT_FALSE( combineDefault.GetValue().CombineMeshes ) << "UE's default is off";
 
-    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
-    const auto     text   = Common::Utils::FileSystem::ReadFileContent( record );
-    ASSERT_TRUE( text.IsSuccess() );
-    auto parsed = Ser::ParseImportRecord( text.GetValue() );
-    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    Ser::ImportRecordData data2 = parsed.GetValue();
-    data2.CombineMeshes         = true;
-    std::ofstream( record, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( data2 );
+    // The import writes the options it runs with into the record, which every later reader reads.
+    Assets::SourceImportSettings on;
+    on.CombineMeshes = true;
+    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, { { 0, 0, 0 }, { 1, 1, 1 } }, on ).IsSuccess() );
     {
-        const auto combine = Ser::ReadImportRecordCombineMeshes( project.Source );
-        ASSERT_TRUE( combine.IsSuccess() && combine.GetValue() );
-    }
-
-    // The option survives a re-import that rewrites the record's box.
-    ASSERT_TRUE( Ser::EnsureImportRecord( project.Source, { { 0, 0, 0 }, { 1, 1, 1 } } ).IsSuccess() );
-    {
-        const auto combine = Ser::ReadImportRecordCombineMeshes( project.Source );
-        ASSERT_TRUE( combine.IsSuccess() && combine.GetValue() );
+        const auto combine = Ser::ReadImportRecordSettings( project.Source );
+        ASSERT_TRUE( combine.IsSuccess() && combine.GetValue() == on );
     }
 
     const auto meshes = Editor::NodeMeshesOfImport( data, nodes, project.Source );
@@ -214,7 +203,7 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     fs::create_directories( material.parent_path() );
     std::ofstream( material ) << "{}";
 
-    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    auto split = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, {} );
     ASSERT_TRUE( split.IsSuccess() ) << split.GetError();
     ASSERT_EQ( split.GetValue().size(), 3u );
     EXPECT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "a split import wrote the combined mesh";
@@ -228,15 +217,53 @@ TEST( NodeMeshSplit, ASplitImportWritesNoCombinedMesh )
     EXPECT_FALSE( Editor::ImportedMeshAssetIsCurrent( project.Source ) ) << "a deleted node mesh re-imports";
 
     // Combine Meshes on: the one combined mesh, the node list cleared.
-    Ser::ImportRecordData on = *record.GetValue();
-    on.CombineMeshes         = true;
-    std::ofstream( Common::Content::ImportRecordPathFor( project.Source ), std::ios::binary | std::ios::trunc )
-         << Ser::WriteImportRecord( on );
-    auto combined = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source );
+    Assets::SourceImportSettings on;
+    on.CombineMeshes = true;
+    auto combined    = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, on );
     ASSERT_TRUE( combined.IsSuccess() ) << combined.GetError();
     EXPECT_TRUE( combined.GetValue().empty() );
     EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) );
     const auto after = Ser::ReadImportRecord( project.Source );
     ASSERT_TRUE( after.IsSuccess() && after.GetValue() );
     EXPECT_FALSE( after.GetValue()->Nodes.has_value() );
+}
+
+// THM1l: the Details' Import Settings + Reimport. Changing an option and importing again changes what the import
+// writes - Combine Meshes the NUMBER of meshes, Uniform Scale / Up Axis / LOD the options each mesh is built with
+// - and the record keeps the options for the next re-import.
+TEST( NodeMeshSplit, ReimportWithChangedSettingsChangesTheMeshes )
+{
+    const GrassProject project;
+    const auto [data, nodes] = project.Import( { "TuftA", "TuftB", "TuftC" } );
+    const fs::path material  = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "GrassAtlas" );
+    fs::create_directories( material.parent_path() );
+    std::ofstream( material ) << "{}";
+
+    Assets::SourceImportSettings split;
+    split.Mesh.UniformScale = 2.0f;
+    split.Mesh.UpAxis       = Assets::MeshSourceUpAxis::Z;
+    auto first              = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, split );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    ASSERT_EQ( first.GetValue().size(), 3u ) << "Combine Meshes off: one static mesh per node";
+    const auto nodeMesh = Assets::ReadMeshSourceAssetFile( first.GetValue().front().second );
+    ASSERT_TRUE( nodeMesh.IsSuccess() ) << nodeMesh.GetError();
+    EXPECT_EQ( nodeMesh.GetValue().Import.Settings, split.Mesh ) << "the node mesh is built with the options";
+
+    // The Details panel's edit: Combine Meshes on, then Reimport with the record's options.
+    auto stored = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( stored.IsSuccess() && stored.GetValue() == split ) << "the record keeps the options";
+    Assets::SourceImportSettings combine = stored.GetValue();
+    combine.CombineMeshes                = true;
+    combine.Mesh.LodPolicy               = Assets::MeshLodPolicy::None;
+    auto second = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, combine );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    EXPECT_TRUE( second.GetValue().empty() ) << "Combine Meshes on: the one combined mesh, no node meshes";
+    EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) );
+    const auto after = Ser::ReadImportRecordSettings( project.Source );
+    ASSERT_TRUE( after.IsSuccess() && after.GetValue() == combine );
+
+    // Back off again: the same bytes, three meshes - the options, not the file, decided the count.
+    auto third = Editor::WriteStaticMeshImport( data, nodes, project.Named, project.Source, split );
+    ASSERT_TRUE( third.IsSuccess() ) << third.GetError();
+    EXPECT_EQ( third.GetValue().size(), 3u );
 }

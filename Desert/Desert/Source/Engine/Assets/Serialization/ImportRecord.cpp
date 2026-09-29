@@ -5,8 +5,37 @@
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <cmath>
+
 namespace Desert::Assets::Serialization
 {
+    SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings )
+    {
+        return { settings.CombineMeshes, settings.Mesh.UniformScale,
+                 std::string( Assets::MeshSourceUpAxisName( settings.Mesh.UpAxis ) ),
+                 std::string( Assets::MeshLodPolicyName( settings.Mesh.LodPolicy ) ) };
+    }
+
+    Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
+    {
+        using Result    = Assets::SourceImportSettings;
+        const auto axis = Assets::MeshSourceUpAxisFromName( text.UpAxis );
+        const auto lods = Assets::MeshLodPolicyFromName( text.LodPolicy );
+        if ( !axis || !lods )
+            return Common::MakeFormattedError<Result>( "import settings name up axis '{}' and LOD policy '{}'; "
+                                                       "one is unknown to this build",
+                                                       text.UpAxis, text.LodPolicy );
+        if ( !std::isfinite( text.UniformScale ) || text.UniformScale <= 0.0f )
+            return Common::MakeFormattedError<Result>(
+                 "import settings state scale {}, not a finite positive number", text.UniformScale );
+        Result out;
+        out.CombineMeshes     = text.CombineMeshes;
+        out.Mesh.UniformScale = text.UniformScale;
+        out.Mesh.UpAxis       = *axis;
+        out.Mesh.LodPolicy    = *lods;
+        return Common::MakeSuccess( out );
+    }
+
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text )
     {
         if ( text.empty() )
@@ -63,23 +92,25 @@ namespace Desert::Assets::Serialization
         return guid;
     }
 
-    Common::ResultStr<bool> ReadImportRecordCombineMeshes( const std::filesystem::path& source )
+    Common::ResultStr<Assets::SourceImportSettings> ReadImportRecordSettings( const std::filesystem::path& source )
     {
-        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
-        std::error_code             ec;
-        if ( !std::filesystem::is_regular_file( record, ec ) )
-            return Common::MakeSuccess( false ); // the first import: UE's default
-        const auto text = Common::Utils::FileSystem::ReadFileContent( record );
-        if ( !text )
-            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
-        const auto data = ParseImportRecord( text.GetValue() );
+        using Result = Assets::SourceImportSettings;
+        auto data    = ReadImportRecord( source );
         if ( !data )
-            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), data.GetError() );
-        return Common::MakeSuccess( data.GetValue().CombineMeshes.value_or( false ) );
+            return Common::MakeError<Result>( data.GetError() );
+        if ( !data.GetValue() || !data.GetValue()->Settings )
+            return Common::MakeSuccess(
+                 Result{} ); // the first import, or a record from before THM1l: UE's defaults
+        auto settings = ImportSettingsFromText( *data.GetValue()->Settings );
+        if ( !settings )
+            return Common::MakeFormattedError<Result>(
+                 "'{}': {}", Common::Content::ImportRecordPathFor( source ).string(), settings.GetError() );
+        return settings;
     }
 
-    Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
-                                                                      const Common::Math::AABB&    bounds )
+    Common::ResultStr<Common::Content::AssetGuid>
+    EnsureImportRecord( const std::filesystem::path& source, const Common::Math::AABB& bounds,
+                        const Assets::SourceImportSettings& settings )
     {
         using Common::Content::AssetGuid;
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
@@ -100,12 +131,17 @@ namespace Desert::Assets::Serialization
             if ( !parsed )
                 return Common::MakeFormattedError<AssetGuid>( "'{}': {}", record.string(), parsed.GetError() );
             data = parsed.ExtractValue();
-            if ( data.Bounds && data.Bounds->Min == box.Min && data.Bounds->Max == box.Max )
+            bool sameSettings = false;
+            if ( data.Settings )
+                if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
+                    sameSettings = stated.GetValue() == settings;
+            if ( data.Bounds && data.Bounds->Min == box.Min && data.Bounds->Max == box.Max && sameSettings )
                 return ReadImportRecordGuid( source );
         }
         else
             data.Source = source.filename().string(); // no header: the stamp mints the GUID
-        data.Bounds = box;
+        data.Bounds   = box;
+        data.Settings = ImportSettingsToText( settings );
         if ( auto written = Common::Content::WriteCanonicalJsonFileAtomic( record, WriteImportRecord( data ) );
              !written )
             return Common::MakeFormattedError<AssetGuid>( "'{}' could not be written: {}", record.string(),

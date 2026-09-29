@@ -1,6 +1,7 @@
 #pragma once
 // The body of an import record, `<name>.<ext>.deimport` (FIX8; UE: a .uasset's persistent GUID and its
 // UAssetImportData). Path rules and the reason the record exists: Common/Content/ImportRecord.hpp.
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ImportRecord.hpp>
@@ -38,6 +39,21 @@ namespace Desert::Assets::Serialization
         return versions;
     }
 
+    /// Assets::SourceImportSettings as text states it: the enums by NAME (MeshSourceUpAxisName /
+    /// MeshLodPolicyName, the names IMPT uses), so reordering an enum never changes what a record says. The
+    /// record's `Settings` and the editor's remembered Import Options are this shape.
+    struct SourceImportSettingsText
+    {
+        bool        CombineMeshes = false;
+        float       UniformScale  = 1.0f;
+        std::string UpAxis;
+        std::string LodPolicy;
+    };
+    [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
+    /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.
+    [[nodiscard]] Common::ResultStr<Assets::SourceImportSettings>
+    ImportSettingsFromText( const SourceImportSettingsText& text );
+
     struct ImportRecordData
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
@@ -51,11 +67,10 @@ namespace Desert::Assets::Serialization
         };
         std::optional<Box> Bounds;
 
-        // THE IMPORT OPTION "Combine Meshes" (UE: UFbxStaticMeshImportData::bCombineMeshes, OFF by default).
-        // Absent means UE's default, false: every mesh-bearing node of the source becomes its own static mesh
-        // (NodeMeshSplit). Set it true in the record to import the whole file as the one combined mesh only.
-        // Kept by every re-import (EnsureImportRecord rewrites the parsed record, never a fresh one).
-        std::optional<bool> CombineMeshes;
+        // THE SOURCE'S IMPORT OPTIONS (THM1l; UE UFbxImportUI): Combine Meshes, Uniform Scale, Up Axis, LOD
+        // policy - the one home of what the Import Options window and the Details' Import Settings edit. Absent
+        // means UE's defaults (SourceImportSettings{}). Written by every import with the options it ran with.
+        std::optional<SourceImportSettingsText> Settings;
 
         // THE NODE MESHES THE LAST SPLIT IMPORT WROTE (THM1j), by node name: <stem>_<node>.stmesh beside the
         // source (NodeMeshSplit). Present only when the source was split; then there is NO combined mesh, and
@@ -73,9 +88,10 @@ namespace Desert::Assets::Serialization
     /// The import's side: the record's GUID, the record written first (with a new GUID) when @p source has
     /// none. An existing record keeps its GUID, so a re-import keeps the identity; its `Bounds` are rewritten
     /// when the import's box differs from the one it states.
-    /// @p source's "Combine Meshes" option: the record's value, UE's default (false) when the record states none
-    /// or when the source has no record yet (its first import). An error naming the record when it is unreadable.
-    Common::ResultStr<bool> ReadImportRecordCombineMeshes( const std::filesystem::path& source );
+    /// @p source's import options: the record's, UE's defaults when the record states none or when the source has
+    /// no record yet (its first import). An error naming the record when it is unreadable.
+    Common::ResultStr<Assets::SourceImportSettings>
+    ReadImportRecordSettings( const std::filesystem::path& source );
 
     /// @p source's whole record; nullopt when the source has no record yet. An error naming the record when it is
     /// unreadable.
@@ -86,6 +102,8 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
                                                 const std::optional<std::vector<std::string>>& nodes );
 
-    Common::ResultStr<Common::Content::AssetGuid> EnsureImportRecord( const std::filesystem::path& source,
-                                                                      const Common::Math::AABB&    bounds );
+    /// ... and its `Settings` rewritten to @p settings, the options this import ran with.
+    Common::ResultStr<Common::Content::AssetGuid>
+    EnsureImportRecord( const std::filesystem::path& source, const Common::Math::AABB& bounds,
+                        const Assets::SourceImportSettings& settings );
 } // namespace Desert::Assets::Serialization
