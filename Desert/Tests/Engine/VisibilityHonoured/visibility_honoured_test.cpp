@@ -133,6 +133,10 @@ namespace
          Row{ "AudioECSSystem.hpp", Verdict::MustNot,
               "sound is not a picture. Ambience emitters carry no mesh at all, and hiding one in the "
               "outliner to declutter the scene would silently mute the level." },
+         Row{ "ColliderFit.hpp", Verdict::MustNot,
+              "it fits a collider's shape to a mesh for PhysicsECSSystem and the editor's Mesh To "
+              "Collision; a hidden body is still simulated, so its fitted shape must not depend on "
+              "visibility." },
          Row{ "ColliderMesh.hpp", Verdict::MustNot,
               "it picks the mesh a collider is built from and carries the entity scale into its "
               "points (M22); it serves PhysicsECSSystem, whose verdict it shares: a hidden body is "

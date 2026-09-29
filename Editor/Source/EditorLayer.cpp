@@ -5114,6 +5114,11 @@ namespace Desert::Editor
                    LOG_INFO( "[Modeling] converted to static mesh '{}'", written.GetValue().generic_string() );
                    return Common::MakeSuccess( true );
                } } );
+        // UE's Mesh To Collision (Modeling panel, Collision palette): the combo's choice and the button in one
+        // entry per type, running the button's own path on the selection.
+        for ( const auto& shape : Editor::ModelingPanel::kCollisionShapes )
+            commands.push_back( { "Modeling", std::string( "Mesh To Collision " ) + shape.Name, [this, &shape]
+                                  { return Editor::ModelingPanel::MeshToCollision( m_MainScene, shape ); } } );
         commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(
