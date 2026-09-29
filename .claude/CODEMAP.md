@@ -36,7 +36,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 138 lines: PreprocessedPass, ShaderPreprocess
 - `Core/Traits` — 1 files, 17 lines
 - `ECS` — 17 files, 4,632 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
-- `ECS/System` — 24 files, 4,696 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
+- `ECS/System` — 24 files, 4,706 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
 - `Generated` — 1 files, 746 lines
 - `Geometry` — 71 files, 14,043 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+65)
 - `Geometry/Errors` — 1 files, 20 lines
@@ -85,10 +85,10 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Systems/Scene/Particles` — 3 files, 466 lines: EmitterGpu, FrameEmitter, ParticleRenderer, SimPush
 - `Graphic/Systems/Scene/PostProcessing` — 19 files, 17,245 lines: AutoExposureRenderer, BackdropBlurRenderer, BloomRenderer, DownsamplePush, FXAARenderer, JumpFloodOutlineRenderer, LensFlareRenderer, LightShaftRenderer, Params, SMAARenderer, TonemapRenderer
 - `Graphic/Systems/Scene/Skybox` — 2 files, 1,167 lines: AtmosphereLutFingerprint, SkyboxRenderer
-- `Graphic/Systems/Scene/Terrain` — 3 files, 818 lines: FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeTileDraw, LandscapeTileLod, LandscapeWeightDraw, ProgramMaterials, TerrainDrawData, TerrainInstance, TerrainRenderer
+- `Graphic/Systems/Scene/Terrain` — 3 files, 827 lines: FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeTileDraw, LandscapeTileLod, LandscapeWeightDraw, ProgramMaterials, TerrainDrawData, TerrainInstance, TerrainRenderer
 - `Hair` — 2 files, 175 lines: GroomAsset, GroomBinding, GroomStepContext, HairCurves, HairGroup, HairGuideInterpolation, HairRenderFrame, HairRenderGroup, HairRootAttachment, IGroomRenderDataSource, IGroomSimulation, IGroomSimulationFactory
 - `Localization` — 10 files, 2,010 lines: CalendarDate, CurrencyRow, FormatArguments, FormattedText, LocaleRow, Localization, LocalizedEntry, PluralOperands, Resolved, Row, StringTableData, StringTableEntry
-- `Physics` — 2 files, 859 lines: BodyDesc, CharacterDesc, HeightFieldDesc, PhysicsWorld, RayHit
+- `Physics` — 2 files, 879 lines: BodyDesc, CharacterDesc, HeightFieldDesc, PhysicsWorld, RayHit
 - `Physics/Cloth` — 2 files, 259 lines: ClothCapsuleCollider, ClothConfig, ClothMeshBinding, ClothPhysicalMesh, ClothSimulationOutput, ClothSphereCollider, ClothStepContext, ClothVertexMaps, ClothingAsset, ClothingSimulationFactoryRegistry, IClothingSimulation, IClothingSimulationFactory
 - `Project` — 6 files, 806 lines: EngineRootLookup, ProjectContext, ResourceRootLookup
 - `Reflection` — 7 files, 842 lines: AssetResolver, EnumValue, FieldInfo, PropertyMetadata, ReflectionRegistry, TypeBuilder, TypeInfo
@@ -120,7 +120,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `UI` — 19 files, 7,293 lines: CanvasStyle, Change, ElementStyle, Entry, IUIMaterialSource, IUIRenderTextureSource, LayoutGroupParams, ListBindingSeen, ListWindow, Rect, Request, StyleSlotInfo, … (+17)
 - `Vector` — 4 files, 1,108 lines: BakedIcon, BakedIconLayer, Shape, Vec2, VectorImage
 - `World/Foliage` — 5 files, 430 lines: FoliageCellField, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan
-- `World/Landscape` — 20 files, 5,780 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeErosionField, LandscapeErosionSettings, LandscapeFlattenSettings, LandscapeFrame, LandscapeGenerateJob, LandscapeGenerateProgress, … (+33)
+- `World/Landscape` — 20 files, 5,859 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeErosionField, LandscapeErosionSettings, LandscapeFlattenSettings, LandscapeFrame, LandscapeGenerateJob, LandscapeGenerateProgress, … (+33)
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 26 files, 5,178 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+18)
@@ -161,7 +161,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/FileExplorer` — 5 files, 3,438 lines: DirectoryInformation, FileExplorerPanel, Rect
 - `Panels/Foliage` — 3 files, 902 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
 - `Panels/History` — 2 files, 103 lines: HistoryPanel
-- `Panels/Landscape` — 2 files, 628 lines: LandscapePanel
+- `Panels/Landscape` — 2 files, 640 lines: LandscapePanel
 - `Panels/Localization` — 2 files, 184 lines: LocalizationPanel
 - `Panels/Logs` — 2 files, 454 lines: LogEntry, LogsPanel
 - `Panels/LuaConsole` — 2 files, 234 lines: Line, LuaConsolePanel
@@ -183,7 +183,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/UI` — 5 files, 1,108 lines: UIEditorPanel, UIElementEntry
 - `Panels/Validation` — 2 files, 156 lines: Issue, SceneValidationPanel
 - `Panels/ViewportPanel` — 11 files, 5,590 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportData, ViewportPanel
-- `Panels/ViewportPanel/Tools` — 25 files, 7,109 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, FoliageReapplyResult, … (+12)
+- `Panels/ViewportPanel/Tools` — 25 files, 7,114 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, FoliageReapplyResult, … (+12)
 - `Panels/WorldPartition` — 4 files, 938 lines: LegendRow, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 150 lines: WorldSettingsPanel
 - `RenderSystems` — 2 files, 86 lines: RenderRegistry
@@ -198,7 +198,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `.` — 7 files, 1,943 lines: ContentMountResult, CrashTestRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 41 files, 6,654 lines
+- `Common` — 41 files, 6,683 lines
 - `Editor` — 1 files, 149 lines
 - `Generated` — 1 files, 70 lines
 - `Mesh` — 8 files, 680 lines
@@ -224,7 +224,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Silhouette` — 2 files, 94 lines
 - `Programs/Sky` — 5 files, 690 lines
 - `Programs/Skybox` — 1 files, 78 lines
-- `Programs/Terrain` — 5 files, 384 lines
+- `Programs/Terrain` — 5 files, 421 lines
 - `Programs/Text` — 1 files, 74 lines
 - `Programs/UI` — 5 files, 320 lines
 - `Programs/Unlit` — 1 files, 74 lines
