@@ -23,7 +23,6 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- the cook measures its own BC7 output before keeping it
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/tinyexr.cpp", -- .exr sources (links stb_image.cpp for deflate)
     }
 
     includedirs {
@@ -35,7 +34,9 @@ project(test_name)
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/", -- AssetManager.hpp, included by TextureAsset.hpp
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/include", -- <tinyexr/tinyexr.h>, for the texture cook
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h> (OpenEXRCore), for the texture import
+        "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include",  -- its generated config headers (BuildScripts/ThirdParty/OpenEXR.lua)
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the .tex payload is written with rfl::json
     }
 
@@ -62,6 +63,7 @@ project(test_name)
     -- Common: UUID/AssetHandle and the FileSystem helpers. Optick: Common's JobSystem registers its
     -- worker threads with the profiler.
     links { "Common", "Optick" }
+    links { "OpenEXRCore" } -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
 
     -- Common contains Objective-C (MacOSFileSystem's file dialog) and TextureAsset::Load reaches
     -- Common::Utils::FileSystem, so the ObjC runtime + AppKit have to link as well.

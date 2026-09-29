@@ -37,3 +37,9 @@
 [submodule "ThirdParty/OpenSubdiv"]
 	path = ThirdParty/OpenSubdiv
 	url = https://github.com/PixarAnimationStudios/OpenSubdiv.git
+[submodule "ThirdParty/openexr"]
+	path = ThirdParty/openexr
+	url = https://github.com/AcademySoftwareFoundation/openexr.git
+[submodule "ThirdParty/Imath"]
+	path = ThirdParty/Imath
+	url = https://github.com/AcademySoftwareFoundation/Imath.git

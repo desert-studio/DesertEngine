@@ -17,7 +17,6 @@ project "Editor"
         "Source/**.cpp", 
         "Source/**.hpp",
         "ThirdParty/ImGuizmo/ImGuizmo.cpp",
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/tinyexr.cpp", -- .exr texture sources; deflate via stb_image.cpp in Desert
 
     }
 
@@ -30,7 +29,9 @@ project "Editor"
     }
     externalincludedirs {
 
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/include/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h> (OpenEXRCore), for the texture import
+        "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include",  -- its generated config headers (BuildScripts/ThirdParty/OpenEXR.lua)
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/Glad/include/",
@@ -85,6 +86,7 @@ project "Editor"
         -- The PROJECT, not a file: BuildScripts/ThirdParty/Assimp.lua compiles the pinned submodule.
         -- The name it replaced carried the MSVC toolset in it (`assimp-vc142-mtd`).
         "Assimp",
+        "OpenEXRCore", -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
     }
 
     -- Optional: real face tracking via dlib (davisking/dlib). Auto-enabled when the sources are present

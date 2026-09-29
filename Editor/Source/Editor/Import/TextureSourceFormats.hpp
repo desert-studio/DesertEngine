@@ -27,7 +27,7 @@
 //      pick. They are still listed so that a stem shipping ONLY as `.exr`/`.hdr` is found, and so that the
 //      sky panorama in `Assets/Textures/HDR/` is cooked like any other texture — the runtime reads its
 //      `.tex` and holds no decoder (`Engine/Graphic/Environment/SceneEnvironment.cpp`). `.exr` is decoded
-//      by tinyexr (`ThirdParty/tinyexr`), everything else by stb. The exception to "kept float" is an EXR
+//      by OpenEXRCore (`ThirdParty/openexr`), everything else by stb. The exception to "kept float" is an EXR
 //      authored as a NormalMap (polyhaven ships normals only as `.exr`): it is quantised to 8-bit linear
 //      and takes the same BC5 path as a PNG normal — see `TextureImporter.cpp`, `QuantiseToUnorm8`.
 //

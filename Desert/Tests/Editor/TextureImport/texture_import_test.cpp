@@ -27,7 +27,7 @@
 #include <Editor/Import/TextureImporter.hpp>
 
 #include <Editor/Import/TextureIntentFile.hpp>
-#include <tinyexr/tinyexr.h>
+#include <openexr.h>
 
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -962,7 +962,7 @@ int main( int argc, char** argv )
 // ── `.exr` SOURCES (TEX-EXR) ─────────────────────────────────────────────────────────────────────
 //
 // stb has no EXR decoder, so every `.exr` used to fail the cook ("unknown image type") — including
-// every polyhaven normal map. The EXR the tests import is written by tinyexr's own writer into the test's
+// every polyhaven normal map. The EXR the tests import is written by OpenEXRCore's own encoder into the test's
 // temporary project, so the expected texels are known exactly and nothing is read from outside the tree.
 namespace
 {
@@ -983,11 +983,55 @@ namespace
         return rgba;
     }
 
-    void WriteExr( const fs::path& path, const std::vector<float>& rgba, int w, int h )
+    // Writes `rgba` as a scanline EXR of four FLOAT channels with `compression`. Every codec but DWAA/DWAB
+    // stores them losslessly; DWA's DCT stage takes the R, G and B channels (and leaves A exact).
+    void WriteExr( const fs::path& path, const std::vector<float>& rgba, int w, int h,
+                   exr_compression_t compression = EXR_COMPRESSION_ZIP )
     {
-        const char* err = nullptr;
-        const int   rc  = SaveEXR( rgba.data(), w, h, 4, /*save_as_fp16*/ 0, path.string().c_str(), &err );
-        ASSERT_EQ( rc, TINYEXR_SUCCESS ) << ( err ? err : "" );
+        exr_context_t             ctxt = nullptr;
+        exr_context_initializer_t init = EXR_DEFAULT_CONTEXT_INITIALIZER;
+        ASSERT_EQ( exr_start_write( &ctxt, path.string().c_str(), EXR_WRITE_FILE_DIRECTLY, &init ),
+                   EXR_ERR_SUCCESS );
+        int part = -1;
+        ASSERT_EQ( exr_add_part( ctxt, "rgba", EXR_STORAGE_SCANLINE, &part ), EXR_ERR_SUCCESS );
+        ASSERT_EQ( exr_initialize_required_attr_simple( ctxt, part, w, h, compression ), EXR_ERR_SUCCESS );
+        for ( const char* name : { "R", "G", "B", "A" } )
+            ASSERT_EQ( exr_add_channel( ctxt, part, name, EXR_PIXEL_FLOAT, EXR_PERCEPTUALLY_LINEAR, 1, 1 ),
+                       EXR_ERR_SUCCESS );
+        ASSERT_EQ( exr_write_header( ctxt ), EXR_ERR_SUCCESS );
+
+        int32_t linesPerChunk = 0;
+        ASSERT_EQ( exr_get_scanlines_per_chunk( ctxt, part, &linesPerChunk ), EXR_ERR_SUCCESS );
+        exr_encode_pipeline_t encoder     = EXR_ENCODE_PIPELINE_INITIALIZER;
+        bool                  encoderLive = false;
+        const size_t          lineStride  = static_cast<size_t>( w ) * 4u * sizeof( float );
+        for ( int y = 0; y < h; y += linesPerChunk )
+        {
+            exr_chunk_info_t chunk{};
+            ASSERT_EQ( exr_write_scanline_chunk_info( ctxt, part, y, &chunk ), EXR_ERR_SUCCESS );
+            ASSERT_EQ( encoderLive ? exr_encoding_update( ctxt, part, &chunk, &encoder )
+                                   : exr_encoding_initialize( ctxt, part, &chunk, &encoder ),
+                       EXR_ERR_SUCCESS );
+            encoderLive = true;
+            const auto* row =
+                 reinterpret_cast<const uint8_t*>( rgba.data() ) + static_cast<size_t>( y ) * lineStride;
+            for ( int16_t c = 0; c < encoder.channel_count; ++c )
+            {
+                exr_coding_channel_info_t& ch   = encoder.channels[c];
+                const std::string_view     n    = ch.channel_name;
+                const size_t               slot = n == "R" ? 0u : n == "G" ? 1u : n == "B" ? 2u : 3u;
+                ch.encode_from_ptr              = row + slot * sizeof( float );
+                ch.user_pixel_stride            = static_cast<int32_t>( 4u * sizeof( float ) );
+                ch.user_line_stride             = static_cast<int32_t>( lineStride );
+                ch.user_data_type               = EXR_PIXEL_FLOAT;
+                ch.user_bytes_per_element       = static_cast<int16_t>( sizeof( float ) );
+            }
+            ASSERT_EQ( exr_encoding_choose_default_routines( ctxt, part, &encoder ), EXR_ERR_SUCCESS );
+            ASSERT_EQ( exr_encoding_run( ctxt, part, &encoder ), EXR_ERR_SUCCESS );
+        }
+        if ( encoderLive )
+            exr_encoding_destroy( ctxt, &encoder );
+        ASSERT_EQ( exr_finish( &ctxt ), EXR_ERR_SUCCESS );
     }
 
     Desert::Assets::Serialization::TextureAssetData CookedData( const fs::path& source )
@@ -1026,6 +1070,52 @@ TEST_F( TextureImport, AnUnmarkedExrKeepsItsFloatTexelsExactly )
     std::vector<float> cooked( rgba.size() );
     std::memcpy( cooked.data(), level0.data(), level0.size() );
     EXPECT_EQ( cooked, rgba ) << "the cooked base level is not the EXR's texels, channel for channel";
+}
+
+TEST_F( TextureImport, EveryExrCompressionDecodesToTheSameFloatTexels )
+{
+    // tinyexr refused DWAA/DWAB outright ("Unknown compression type") — the compression Poly Haven ships
+    // its normal maps in. Each codec here takes its own decompressor path through OpenEXRCore.
+    const std::vector<float> rgba = ExrPattern( 37, 41, 1.0f / 64.0f ); // odd sizes: partial last chunk
+    struct Codec
+    {
+        exr_compression_t Compression;
+        const char*       Name;
+        bool              Lossy; // DWA: R, G, B through a DCT, A exact
+    };
+    const Codec codecs[] = {
+         { EXR_COMPRESSION_NONE, "NONE", false }, { EXR_COMPRESSION_RLE, "RLE", false },
+         { EXR_COMPRESSION_ZIPS, "ZIPS", false }, { EXR_COMPRESSION_ZIP, "ZIP", false },
+         { EXR_COMPRESSION_PIZ, "PIZ", false },   { EXR_COMPRESSION_DWAA, "DWAA", true },
+         { EXR_COMPRESSION_DWAB, "DWAB", true },
+    };
+    for ( const Codec& codec : codecs )
+    {
+        const fs::path source = TexturesDir() / std::format( "T_Codec_{}.exr", codec.Name );
+        WriteExr( source, rgba, 37, 41, codec.Compression );
+
+        TextureImporter importer;
+        EXPECT_NE( (uint64_t)importer.Import( source ), 0u ) << codec.Name << " was refused";
+        const auto data = CookedData( source );
+        ASSERT_EQ( data.Format, Fmt::ImageFormat::RGBA32F ) << codec.Name;
+        const auto base = BaseLevel( data );
+        ASSERT_EQ( base.size(), rgba.size() * sizeof( float ) ) << codec.Name;
+        std::vector<float> cooked( rgba.size() );
+        std::memcpy( cooked.data(), base.data(), base.size() );
+        if ( !codec.Lossy )
+        {
+            EXPECT_EQ( cooked, rgba ) << codec.Name << ": the cooked base level is not the EXR's texels";
+            continue;
+        }
+        // Lossy, but channel for channel: 1 % of the value (+ 1e-3 at zero) is far below the gap between any two
+        // channels of the pattern, so a swapped, dropped or zeroed channel still fails.
+        for ( size_t i = 0; i < rgba.size(); ++i )
+        {
+            const float tolerance = ( i % 4u == 3u ) ? 0.0f : 0.01f * std::abs( rgba[i] ) + 1e-3f;
+            ASSERT_NEAR( cooked[i], rgba[i], tolerance )
+                 << codec.Name << " texel " << i / 4u << " channel " << i % 4u;
+        }
+    }
 }
 
 TEST_F( TextureImport, AnExrNormalMapTakesTheSameBC5PathAsAPngNormal )
@@ -1077,7 +1167,7 @@ TEST_F( TextureImport, ABrokenExrCooksNothingAndSaysWhereAndWhy )
     }
     EXPECT_EQ( (uint64_t)handle, 0u );
     EXPECT_NE( text.find( "T_Broken.exr" ), std::string::npos ) << "the refusal did not name the file\n" << text;
-    EXPECT_NE( text.find( "tinyexr" ), std::string::npos ) << "the refusal did not carry tinyexr's reason\n"
+    EXPECT_NE( text.find( "OpenEXR" ), std::string::npos ) << "the refusal did not carry OpenEXR's reason\n"
                                                            << text;
     EXPECT_EQ( text.find( "stbi_load" ), std::string::npos ) << "an EXR must never reach stb\n" << text;
 }
