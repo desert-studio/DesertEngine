@@ -145,6 +145,9 @@ namespace Desert::Editor
         /// (THUMB3; UE renders what is on screen first). Already queued -> moved forward; already fresh on
         /// disk, failed or in flight -> nothing. These are the only captures the splash may run.
         void WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
+        /// The same for a mesh (THM1m): the open scene's meshes and the opening folder's uncaptured mesh tiles
+        /// are photographed on the splash too, keyed on the cooked form as RequestMesh keys them.
+        void WarmMesh( const ThumbnailSubject::Mesh& mesh );
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
 
@@ -217,6 +220,8 @@ namespace Desert::Editor
         bool ShouldQueue( const std::string& identity, const std::string& png, const std::string& source );
         // Identities WarmMaterial queued; an entry leaves with its m_Queued one (settled, failed or skipped).
         std::unordered_set<std::string> m_SceneWarm;
+        // The one queue-front insertion both Warm* entry points share.
+        void Warm( Request req );
 
         // The identity-free half of the question: is the PICTURE on disk missing or out of date? Split out
         // because dispatch asks it a second time, when the dedup sets deliberately still hold the entry.

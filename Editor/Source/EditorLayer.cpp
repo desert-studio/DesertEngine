@@ -1742,7 +1742,11 @@ namespace Desert::Editor
         if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
             ThumbnailService::TickDiskAndDecode();
         UploadSplashThumbnails();
-        // THE ONE CAPTURE THE SPLASH MAY RUN (THUMB3): the open scene's materials, queued by WarmSplashScene.
+        // THE ONE CAPTURE THE SPLASH MAY RUN (THUMB3, THM1m): the open scene's materials and meshes and the
+        // opening folder's uncaptured tiles, queued by WarmSplashScene. A warmed mesh still being read when
+        // the window appears keeps being asked for after it (TickWarmMeshes), first in the queue once queued.
+        if ( m_Revealed && m_FileExplorerPanel != nullptr )
+            (void)m_FileExplorerPanel->TickWarmMeshes();
         if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
             ThumbnailService::Get().TickCapture( ThumbnailWarmup::CaptureScope::Everything );
         else if ( Splash::SceneThumbnailCaptureAllowed( CurrentRevealState() ) &&
@@ -8105,7 +8109,9 @@ namespace Desert::Editor
         // An upload of pixels a worker already decoded from the disk cache: no renderer slot and no capture,
         // which is why it may run before the hand-over while ThumbnailCaptureAllowed is still false.
         const std::size_t pending     = m_FileExplorerPanel->UploadPrefetchedThumbnails();
-        const std::size_t warmPending = ThumbnailService::Get().SceneWarmPending();
+        // A cold mesh still being read counts too: it is a capture that has not been queued YET (THM1m).
+        const std::size_t warmPending =
+             ThumbnailService::Get().SceneWarmPending() + m_FileExplorerPanel->TickWarmMeshes();
         m_SplashWarmTotal = std::max( m_SplashWarmTotal, warmPending ); // a late resolve queues after the start
         if ( warmPending != m_SplashWarmShown )
         {
@@ -8131,7 +8137,7 @@ namespace Desert::Editor
              std::chrono::duration<double, std::milli>( now - *m_RevealOtherwiseReadySince ).count();
         const bool wasHolding  = m_ThumbnailsHoldReveal;
         m_ThumbnailsHoldReveal = Splash::ThumbnailsHoldReveal( pending, waitedMs ) ||
-                                 Splash::SceneCapturesHoldReveal( warmPending, waitedMs );
+                                 Splash::SceneCapturesHoldReveal( warmPending );
         if ( warmPending > 0 && wasHolding && !m_ThumbnailsHoldReveal )
         {
             LOG_WARN( "[Thumbnails] the hand-over waited {:.0f} ms for the scene's captures and {} are left; "
@@ -8161,14 +8167,18 @@ namespace Desert::Editor
 
         Assets::AssetRootSet roots;
         ::Desert::Core::CollectAssetRoots( *m_MainScene, roots );
-        const std::vector<std::string> warm = ThumbnailWarmup::SceneWarmList(
+        const std::vector<ThumbnailWarmup::WarmItem> scene = ThumbnailWarmup::SceneWarmList(
              roots.Handles(), []( const Common::AssetHandle& handle )
              { return Common::AssetPathIndex::PathFor( static_cast<uint64_t>( handle ) ); } );
-        m_FileExplorerPanel->WarmSceneThumbnails( warm );
-        m_SplashWarmTotal = ThumbnailService::Get().SceneWarmPending();
-        LOG_INFO( "[Thumbnails] the scene uses {} material(s) of {} root(s); {} picture(s) to capture before the "
-                  "hand-over (budget {:.0f} ms), the rest decode from the disk cache",
-                  warm.size(), roots.Size(), m_SplashWarmTotal, Splash::kSceneCaptureBudgetMs );
+        const auto meshes = static_cast<std::size_t>(
+             std::count_if( scene.begin(), scene.end(), []( const ThumbnailWarmup::WarmItem& item )
+                            { return item.Kind == ThumbnailWarmup::WarmKind::Mesh; } ) );
+        const std::size_t warmed = m_FileExplorerPanel->WarmSceneThumbnails( scene );
+        m_SplashWarmTotal = ThumbnailService::Get().SceneWarmPending() + m_FileExplorerPanel->TickWarmMeshes();
+        LOG_INFO( "[Thumbnails] the scene uses {} material(s) and {} mesh(es) of {} root(s), the opening folder "
+                  "adds {} uncaptured tile(s); {} picture(s) to capture before the hand-over, the rest "
+                  "decode from the disk cache",
+                  scene.size() - meshes, meshes, roots.Size(), warmed - scene.size(), m_SplashWarmTotal );
     }
 
     void EditorLayer::UpdateContentSettling()

@@ -66,24 +66,21 @@ namespace Desert::Editor::Splash
         return pending > 0 && msSinceOtherwiseReady < kThumbnailUploadBudgetMs;
     }
 
-    /// THE ONE EXCEPTION TO ThumbnailCaptureAllowed (THUMB3): the materials the open scene uses may be
-    /// captured on the splash, once the start-up stages are done (the renderer is up) and the scene is loaded.
-    /// The browser's folder still waits for the hand-over — ThumbnailService::TickCapture(SceneWarmOnly)
-    /// dispatches nothing that ThumbnailService::WarmMaterial did not queue.
+    /// THE ONE EXCEPTION TO ThumbnailCaptureAllowed (THUMB3, THM1m): the materials and meshes the open scene
+    /// uses, and the opening folder's material and mesh tiles with no fresh picture, may be captured on the
+    /// splash, once the start-up stages are done (the renderer is up) and the scene is loaded. Anything else
+    /// the browser asks for waits for the hand-over — ThumbnailService::TickCapture(SceneWarmOnly)
+    /// dispatches nothing that ThumbnailService::WarmMaterial / WarmMesh did not queue.
     [[nodiscard]] constexpr bool SceneThumbnailCaptureAllowed( const RevealState& s )
     {
         return s.HasSplash && !s.Revealed && !s.StartupLoading && !s.SceneLoadPending;
     }
 
-    /// How long the hand-over may wait for the scene's captures once everything else is ready. A capture
-    /// is ~0.3 s in a Debug build; the captures start with the settle, so on Starter they are done before
-    /// it is, and this bound is for a scene whose materials were never photographed on this machine. What
-    /// is not captured by then is captured after the reveal, first in the queue.
-    inline constexpr double kSceneCaptureBudgetMs = 2000.0;
-
-    /// Whether the scene's captures still hold the hand-over; the same shape as ThumbnailsHoldReveal.
-    [[nodiscard]] constexpr bool SceneCapturesHoldReveal( std::size_t pending, double msSinceOtherwiseReady )
+    /// Whether the splash's captures still hold the hand-over. NO TIME BOUND (owner, THM1m): the window is
+    /// handed over when every picture the scene and the opening folder show is ready — a capture that fails
+    /// leaves the pending count (ThumbnailService settles it as failed), so this cannot wait on nothing.
+    [[nodiscard]] constexpr bool SceneCapturesHoldReveal( std::size_t pending )
     {
-        return pending > 0 && msSinceOtherwiseReady < kSceneCaptureBudgetMs;
+        return pending > 0;
     }
 } // namespace Desert::Editor::Splash

@@ -125,12 +125,9 @@ TEST( SplashRevealGate, TheScenesCapturesMayRunOnTheSplashOnceTheSceneIsLoaded )
     EXPECT_FALSE( Splash::SceneThumbnailCaptureAllowed( s ) ) << "after the reveal the whole queue runs instead";
 }
 
-TEST( SplashRevealGate, TheScenesCapturesHoldTheHandOverOnlyWithinTheirBudget )
+TEST( SplashRevealGate, TheSplashsCapturesHoldTheHandOverUntilEveryOneIsDone )
 {
-    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 3, 0.0 ) );
-    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 3, Splash::kSceneCaptureBudgetMs - 1.0 ) );
-    EXPECT_FALSE( Splash::SceneCapturesHoldReveal( 3, Splash::kSceneCaptureBudgetMs ) );
-    EXPECT_FALSE( Splash::SceneCapturesHoldReveal( 0, 0.0 ) );
-    // The owner's bound: the splash may grow by a couple of seconds, not more.
-    EXPECT_LE( Splash::kSceneCaptureBudgetMs, 2000.0 );
+    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 3 ) ) << "no time bound: the window waits for every picture";
+    EXPECT_TRUE( Splash::SceneCapturesHoldReveal( 400 ) ) << "a folder of hundreds too (owner, THM1m)";
+    EXPECT_FALSE( Splash::SceneCapturesHoldReveal( 0 ) );
 }

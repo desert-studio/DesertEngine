@@ -479,21 +479,62 @@ namespace Desert::Editor
         return it->second;
     }
 
-    void FileExplorerPanel::WarmSceneThumbnails( const std::vector<std::string>& materialPaths )
+    std::size_t FileExplorerPanel::WarmSceneThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene )
     {
+        using ThumbnailWarmup::WarmItem;
+        using ThumbnailWarmup::WarmKind;
         if ( m_AssetManager == nullptr )
-            return;
-        m_ScenePrefetchItems.clear();
-        for ( const std::string& path : materialPaths )
+            return 0;
+
+        // A mesh is judged by its COOKED form, as its tile judges it (DrawMeshThumbnail): the picture is
+        // filed under the .stmesh and its freshness source is MeshFreshnessSource of it.
+        const auto verdictOf = [this]( const WarmItem& item )
         {
-            const std::string& png = ThumbnailPngFor( path );
-            m_ScenePrefetchItems.push_back( { png, path } );
-            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, path ) ) !=
-                 ThumbnailFreshness::Verdict::Capture )
+            if ( item.Kind == WarmKind::Mesh )
+            {
+                const std::string cooked = CookPaths::MeshAsset( item.Path ).generic_string();
+                return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                     ThumbnailKey::DiskPath( cooked ), ThumbnailFreshness::MeshFreshnessSource( cooked ) ) );
+            }
+            return ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( ThumbnailPngFor( item.Path ), item.Path ) );
+        };
+
+        std::vector<WarmItem> folder;
+        if ( m_CurrentDir != nullptr )
+        {
+            for ( const DirectoryInformation* entry : m_CurrentDir->Children )
+            {
+                if ( entry == nullptr || !entry->IsFile || entry->Hidden || m_FailedThumbs.count( entry->AssetPath ) )
+                    continue;
+                if ( entry->Type == FileType::Material )
+                    folder.push_back( { entry->AssetPath, WarmKind::Material } );
+                else if ( entry->Type == FileType::Model )
+                    folder.push_back( { entry->AssetPath, WarmKind::Mesh } );
+            }
+        }
+        const std::vector<WarmItem> warm = ThumbnailWarmup::SplashWarmList(
+             scene, folder,
+             [&]( const WarmItem& item ) { return verdictOf( item ) == ThumbnailFreshness::Verdict::Capture; } );
+
+        m_ScenePrefetchItems.clear();
+        m_WarmMeshesPending.clear();
+        for ( const WarmItem& item : warm )
+        {
+            if ( item.Kind == WarmKind::Mesh )
+            {
+                const std::string cooked = CookPaths::MeshAsset( item.Path ).generic_string();
+                m_ScenePrefetchItems.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
+                if ( verdictOf( item ) == ThumbnailFreshness::Verdict::Capture )
+                    m_WarmMeshesPending.push_back( item.Path );
+                continue;
+            }
+            const std::string& png = ThumbnailPngFor( item.Path );
+            m_ScenePrefetchItems.push_back( { png, item.Path } );
+            if ( verdictOf( item ) != ThumbnailFreshness::Verdict::Capture )
                 continue;
             // Resolved on a worker when it is not read yet; the arrival queues it as the tile's would.
             const auto subject = ThumbnailSubject::ResolveMaterial(
-                 *m_AssetManager, path,
+                 *m_AssetManager, item.Path,
                  []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
                  {
                      if ( resolved )
@@ -501,15 +542,40 @@ namespace Desert::Editor
                  } );
             if ( !subject )
             {
-                LOG_WARN( "[Thumbnails] the scene's '{}' cannot be warmed: {}", path, subject.GetError() );
+                LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", item.Path, subject.GetError() );
                 continue;
             }
             if ( const auto& material = subject.GetValue() )
-                ThumbnailService::Get().WarmMaterial( *material, path );
+                ThumbnailService::Get().WarmMaterial( *material, item.Path );
         }
+        (void)TickWarmMeshes();
         std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
         items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
         ThumbnailPrefetch::Get().Request( std::move( items ) );
+        return warm.size();
+    }
+
+    std::size_t FileExplorerPanel::TickWarmMeshes()
+    {
+        if ( m_AssetManager == nullptr || m_WarmMeshesPending.empty() )
+            return 0;
+        std::erase_if( m_WarmMeshesPending,
+                       [this]( const std::string& path )
+                       {
+                           const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, path );
+                           if ( !subject )
+                           {
+                               // The same refusal the tile would log and blacklist; once, here, instead.
+                               LOG_WARN( "[Thumbnails] the splash cannot warm '{}': {}", path, subject.GetError() );
+                               m_FailedThumbs.insert( path );
+                               return true;
+                           }
+                           if ( subject.GetValue().Pending )
+                               return false; // read in flight: asked again next frame
+                           ThumbnailService::Get().WarmMesh( subject.GetValue() );
+                           return true;
+                       } );
+        return m_WarmMeshesPending.size();
     }
 
     std::size_t FileExplorerPanel::UploadPrefetchedThumbnails()

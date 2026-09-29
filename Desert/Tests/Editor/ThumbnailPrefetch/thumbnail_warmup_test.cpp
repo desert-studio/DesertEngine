@@ -58,7 +58,7 @@ namespace
     };
 } // namespace
 
-TEST( ThumbnailWarmup, TheWarmListIsTheScenesMaterialRootsByPath )
+TEST( ThumbnailWarmup, TheWarmListIsTheScenesMaterialAndMeshRootsByPath )
 {
     const std::map<uint64_t, std::string> files = {
          { 1, "/p/Assets/Materials/B.demat" },        { 2, "/p/Assets/Meshes/Rock.stmesh" },
@@ -68,11 +68,50 @@ TEST( ThumbnailWarmup, TheWarmListIsTheScenesMaterialRootsByPath )
     const auto pathFor = [&]( const Common::AssetHandle& h ) -> std::filesystem::path
     { return files.at( static_cast<uint64_t>( h ) ); };
 
-    const std::vector<std::string> warm =
-         Warmup::SceneWarmList( { H( 1 ), H( 2 ), H( 3 ), H( 4 ), H( 5 ), H( 1 ) }, pathFor );
-    const std::vector<std::string> expected = { "/p/Assets/Materials/A.demat", "/p/Assets/Materials/B.demat" };
-    EXPECT_EQ( warm, expected ) << "every material root once, sorted; meshes, textures and nameless roots out";
+    const std::vector<Warmup::WarmItem> warm =
+         Warmup::SceneWarmList( { H( 1 ), H( 2 ), H( 3 ), H( 4 ), H( 5 ), H( 1 ), H( 2 ) }, pathFor );
+    const std::vector<Warmup::WarmItem> expected = {
+         { "/p/Assets/Materials/A.demat", Warmup::WarmKind::Material },
+         { "/p/Assets/Materials/B.demat", Warmup::WarmKind::Material },
+         { "/p/Assets/Meshes/Rock.stmesh", Warmup::WarmKind::Mesh },
+    };
+    EXPECT_EQ( warm, expected ) << "every material and mesh root once, sorted; textures and nameless roots out";
     EXPECT_TRUE( Warmup::SceneWarmList( {}, pathFor ).empty() );
+}
+
+TEST( ThumbnailWarmup, TheSplashWarmsTheScenesSubjectsThenTheFoldersUncapturedTiles )
+{
+    using Warmup::WarmItem;
+    using Warmup::WarmKind;
+    const std::vector<WarmItem> scene = {
+         { "/p/Assets/Materials/A.demat", WarmKind::Material },
+         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
+    };
+    const std::vector<WarmItem> folder = {
+         { "/p/Assets/Meshes/Crate.fbx", WarmKind::Mesh },       // no picture on disk
+         { "/p/Assets/Meshes/Barrel.fbx", WarmKind::Mesh },      // fresh picture
+         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },     // the scene already warms it
+         { "/p/Assets/Materials/Stale.demat", WarmKind::Material }, // stale picture
+    };
+    const std::map<std::string, bool> needs = {
+         { "/p/Assets/Meshes/Crate.fbx", true },
+         { "/p/Assets/Meshes/Barrel.fbx", false },
+         { "/p/Assets/Meshes/Rock.stmesh", true },
+         { "/p/Assets/Materials/Stale.demat", true },
+         { "/p/Assets/Materials/A.demat", false },
+    };
+    const auto needsCapture = [&]( const WarmItem& item ) { return needs.at( item.Path ); };
+
+    const std::vector<WarmItem> warm = Warmup::SplashWarmList( scene, folder, needsCapture );
+    const std::vector<WarmItem> expected = {
+         { "/p/Assets/Materials/A.demat", WarmKind::Material },
+         { "/p/Assets/Meshes/Rock.stmesh", WarmKind::Mesh },
+         { "/p/Assets/Meshes/Crate.fbx", WarmKind::Mesh },
+         { "/p/Assets/Materials/Stale.demat", WarmKind::Material },
+    };
+    EXPECT_EQ( warm, expected ) << "scene first (fresh or not: its own path prefetches it), then the folder's "
+                                   "uncaptured tiles in folder order, each once; a fresh tile is not a capture";
+    EXPECT_EQ( Warmup::SplashWarmList( {}, folder, []( const WarmItem& ) { return false; } ).size(), 0u );
 }
 
 TEST( ThumbnailWarmup, AtMostOneCaptureStartsPerFrameAndNoneWhileOneIsInFlight )

@@ -4,6 +4,7 @@
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
+#include <Editor/Widgets/ThumbnailWarmup.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <ImGui/imgui.h>
@@ -140,11 +141,18 @@ namespace Desert::Editor
         /// rendered. Returns how many of those pictures are still waiting for or on a worker.
         std::size_t UploadPrefetchedThumbnails();
 
-        /// THE OPEN SCENE'S MATERIALS, WARMED ON THE SPLASH (THUMB3). @p materialPaths = ThumbnailWarmup::
-        /// SceneWarmList. A picture already on disk is decoded by the prefetch workers with the opening
-        /// folder's; one that is missing or stale is resolved (on a worker) and queued with
-        /// ThumbnailService::WarmMaterial, ahead of the folder, for the splash's scene-only capture pass.
-        void WarmSceneThumbnails( const std::vector<std::string>& materialPaths );
+        /// WHAT THE SPLASH PHOTOGRAPHS (THUMB3, THM1m). @p scene = ThumbnailWarmup::SceneWarmList — the open
+        /// scene's materials AND meshes; the opening folder's material and mesh tiles with no fresh picture on
+        /// disk are added behind them (ThumbnailWarmup::SplashWarmList). A picture already on disk is decoded
+        /// by the prefetch workers with the opening folder's; one that is missing or stale is resolved (on a
+        /// worker) and queued with ThumbnailService::WarmMaterial / WarmMesh, ahead of everything else, for
+        /// the splash's scene-only capture pass. Returns how many pictures it set out to warm.
+        std::size_t WarmSceneThumbnails( const std::vector<ThumbnailWarmup::WarmItem>& scene );
+
+        /// Meshes WarmSceneThumbnails found cold (read in flight on a worker): asked again each frame until
+        /// each is resident and queued, or refused. Returns how many are still being read — they hold the
+        /// hand-over like a queued capture does, within the same budget.
+        std::size_t TickWarmMeshes();
 
         bool RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView );
         // Right-click context menu on a file/folder: Open (default app), Show in Explorer, Open folder, etc.
@@ -349,6 +357,7 @@ namespace Desert::Editor
         // pass reads, so "which folder opens" and "which pictures it shows" are never asked twice.
         std::vector<ThumbnailPrefetch::Item> m_PrefetchItems;
         std::vector<ThumbnailPrefetch::Item> m_ScenePrefetchItems; // WarmSceneThumbnails' pictures, decoded too
+        std::vector<std::string>             m_WarmMeshesPending; // TickWarmMeshes: cold meshes still being read
 
         // PER-TILE WORK THAT USED TO BE REDONE EVERY FRAME FOR EVERY TILE (THUMB3, sampled in a folder of 240
         // materials): the cache file name costs a StableKeyForPath (std::filesystem::absolute) and the

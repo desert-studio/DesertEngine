@@ -134,30 +134,46 @@ namespace Desert::Editor
 
     void ThumbnailService::WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath )
     {
-        const std::string identity  = ThumbnailKey::Identity( assetPath );
-        const auto        firstCold = std::find_if( m_Queue.begin(), m_Queue.end(), [this]( const Request& r )
-                                                    { return !m_SceneWarm.contains( r.Identity ); } );
+        Request req{ Kind::Material,
+                     material.Handle,
+                     Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
+                     ThumbnailKey::Identity( assetPath ),
+                     assetPath,
+                     ThumbnailKey::DiskPath( assetPath ),
+                     material.How };
+        req.PreviewMesh = material.PreviewMesh;
+        Warm( std::move( req ) );
+    }
+
+    void ThumbnailService::WarmMesh( const ThumbnailSubject::Mesh& mesh )
+    {
+        // Keyed and judged exactly as RequestMesh keys and judges it, so the browser tile and the splash
+        // ask for ONE picture of the cooked mesh, never two.
+        Warm( { Kind::Mesh, mesh.Handle, mesh.Material, ThumbnailKey::Identity( mesh.CookedPath ),
+                ThumbnailFreshness::MeshFreshnessSource( mesh.CookedPath ).generic_string(),
+                ThumbnailKey::DiskPath( mesh.CookedPath ), ThumbnailSubject::Preview::Sphere } );
+    }
+
+    void ThumbnailService::Warm( Request req )
+    {
+        const auto firstCold = std::find_if( m_Queue.begin(), m_Queue.end(), [this]( const Request& r )
+                                             { return !m_SceneWarm.contains( r.Identity ); } );
         if ( const auto queued = std::find_if( firstCold, m_Queue.end(),
-                                               [&]( const Request& r ) { return r.Identity == identity; } );
+                                               [&]( const Request& r ) { return r.Identity == req.Identity; } );
              queued != m_Queue.end() )
         {
             // The browser asked first: the same request, moved to the end of the scene-warm run.
-            const Request req = *queued;
+            const Request moved = *queued;
             m_Queue.erase( queued );
-            m_Queue.insert( firstCold, req );
-            m_SceneWarm.insert( identity );
+            m_Queue.insert( firstCold, moved );
+            m_SceneWarm.insert( moved.Identity );
             return;
         }
-        const std::string png = ThumbnailKey::DiskPath( assetPath );
-        if ( !ShouldQueue( identity, png, assetPath ) )
+        if ( !ShouldQueue( req.Identity, req.Png, req.Source ) )
             return;
-        Request req{ Kind::Material, material.Handle, Assets::AssetHandle( static_cast<uint64_t>( 0 ) ),
-                     identity,       assetPath,       png,
-                     material.How };
-        req.PreviewMesh = material.PreviewMesh;
-        m_Queue.insert( firstCold, req );
-        m_Queued.insert( identity );
-        m_SceneWarm.insert( identity );
+        m_Queued.insert( req.Identity );
+        m_SceneWarm.insert( req.Identity );
+        m_Queue.insert( firstCold, std::move( req ) );
     }
 
     std::size_t ThumbnailService::SceneWarmPending() const
