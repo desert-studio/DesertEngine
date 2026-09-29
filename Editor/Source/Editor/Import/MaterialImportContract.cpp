@@ -161,12 +161,11 @@ namespace Desert::Editor
                     slot.Parts.push_back( { *texture, row.Channels } );
                 }
             }
-            else if ( entry->second.Value.has_value() )
+            else if ( const auto& value = entry->second.Value; value.has_value() )
             {
-                const auto& value = *entry->second.Value;
                 if ( std::ranges::none_of( fill.Params,
                                            [&]( const ImportedParam& p ) { return p.Name == row.Property; } ) )
-                    fill.Params.push_back( { row.Property, value } );
+                    fill.Params.push_back( { row.Property, *value } );
             }
         }
         for ( const auto& [key, entry] : material.Entries )
