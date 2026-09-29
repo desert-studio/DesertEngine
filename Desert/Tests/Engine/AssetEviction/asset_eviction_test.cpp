@@ -193,7 +193,9 @@ namespace
     // Real files, for the reason the probe `.demat` above is a real file: the edge under test is the one
     // the LOADER produces. A one-bone rig and a one-triangle mesh, because the relation has nothing to do
     // with either of their sizes.
-    std::string WriteProbeRig( const std::filesystem::path& path )
+    // `withChild` writes the same rig with one more bone under the root — what a reimport of a source that
+    // gained a bone rewrites the file to.
+    std::string WriteProbeRig( const std::filesystem::path& path, const bool withChild = false )
     {
         Desert::Animation::BoneInfo root;
         root.Name               = "Root";
@@ -202,7 +204,14 @@ namespace
         root.ParentBoneID       = std::nullopt;
 
         Desert::Assets::Serialization::SkeletonAssetData data;
-        data.Bones     = { root };
+        data.Bones = { root };
+        if ( withChild )
+        {
+            Desert::Animation::BoneInfo child = root;
+            child.Name                        = "Child";
+            child.ParentBoneID                = 0U;
+            data.Bones.push_back( child );
+        }
         data.Signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
 
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
@@ -922,6 +931,39 @@ namespace
 // Each test below is the same shape as the two that were already here: a REAL file on disk, parsed by
 // the class's own loader, so that an edge which stopped being READ fails as surely as one that stopped
 // being walked.
+
+// A REIMPORT RE-READS A LOADED RIG AT THE SAME ADDRESS (THM1l-b9). SkinnedMesh holds `const Skeleton*` and
+// Animator `const Skeleton&` to the asset's object; the reimport path used to `Unload()` + `Load()`, which freed
+// it under both. `Load()` on a loaded rig now rewrites the object in place, and the new signature is what tells
+// the Animator to rebuild (Animation::EnsureAnimatorFor, tested in AnimatorPose).
+TEST( AssetEviction, AReloadedRigKeepsItsAddressAndTakesTheNewBones )
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction_reload";
+    std::filesystem::create_directories( dir );
+    const std::filesystem::path file = dir / "probe.skeleton";
+
+    AssetManager manager;
+    auto         skeleton = manager.CreateAsset<SkeletonAsset>( Common::Filepath( WriteProbeRig( file ) ) );
+    ASSERT_TRUE( skeleton );
+    const Desert::Animation::Skeleton* const before    = skeleton->GetSkeleton();
+    const std::uint64_t                      signature = skeleton->GetSignature();
+    ASSERT_NE( before, nullptr ) << "the probe rig did not load; the reload cannot be tested";
+    ASSERT_EQ( before->GetBones().size(), 1U );
+
+    WriteProbeRig( file, /*withChild=*/true );
+    ASSERT_TRUE( skeleton->Load().IsSuccess() );
+
+    EXPECT_EQ( skeleton->GetSkeleton(), before )
+         << "the reload replaced the Skeleton object: every SkinnedMesh and Animator pointing at it now reads "
+            "freed memory";
+    EXPECT_NE( skeleton->GetSignature(), signature ) << "the bones changed and the signature did not, so no "
+                                                        "Animator can notice it was built on the old rig";
+    EXPECT_EQ( skeleton->GetSignature(), before->GetSignature() );
+    ASSERT_EQ( before->GetBones().size(), 2U ) << "the object kept its address but not the new bones";
+    EXPECT_EQ( before->GetBones()[1].Name, "Child" );
+
+    std::filesystem::remove_all( dir );
+}
 
 TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
 {

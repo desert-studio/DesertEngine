@@ -3,6 +3,7 @@
 // playback ignores it — only ApplyLocalPose() renders it.
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/AnimatorForSkeleton.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 
@@ -224,6 +225,38 @@ TEST( AnimatorPose, AZeroWeightSectionReachesThePoseThePlaybackProduces )
     unchanged.SetTime( 0.0f );
     EXPECT_TRUE( MatNear( unsectioned, unchanged.GetPose().Matrices[1] ) )
          << "a full-weight Absolute section is what the whole corpus migrated to; it must be invisible";
+}
+
+// A REIMPORTED RIG IS THE SAME SKELETON OBJECT WITH OTHER BONES (SkeletonAsset::LoadFromFile rewrites it in
+// place, AssetEviction.AReloadedRigKeepsItsAddressAndTakesTheNewBones). The Animator's `const Skeleton&` stays
+// valid, but its bind pose and buffers were sized from the old list: only the signature stamp can tell, and
+// EnsureAnimatorFor is the one rule AnimationECSSystem and the editor preview rebuild by.
+TEST( AnimatorPose, AnAnimatorIsRebuiltWhenItsSkeletonIsRewrittenWithAnExtraBone )
+{
+    std::vector<BoneInfo> one( 1 );
+    one[0].Name               = "root";
+    one[0].LocalBindTransform = glm::mat4( 1.0f );
+    one[0].OffsetMatrix       = glm::mat4( 1.0f );
+    Skeleton rig( std::move( one ) );
+
+    std::unique_ptr<Animator> animator;
+    uint64_t                  built = 0;
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) ) << "no Animator was built";
+    animator->ApplyLocalPose();
+    ASSERT_EQ( animator->GetPose().Matrices.size(), 1U );
+    const Animator* const first = animator.get();
+    EXPECT_FALSE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) )
+         << "an unchanged rig rebuilt the Animator, which throws away its live pose every frame";
+    EXPECT_EQ( animator.get(), first );
+
+    rig = MakeChain(); // the reimport: same object, one more bone
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, rig ) )
+         << "the rig gained a bone and the Animator built on one bone was kept";
+    EXPECT_EQ( &animator->GetSkeleton(), &rig );
+    EXPECT_EQ( built, rig.GetSignature() );
+    animator->ApplyLocalPose();
+    EXPECT_EQ( animator->GetPose().Matrices.size(), 2U ) << "the rebuilt pose does not have the new bone";
+    EXPECT_EQ( animator->GetLocalPose().Size(), 2U );
 }
 
 int main( int argc, char** argv )

@@ -146,8 +146,10 @@ namespace Desert::Editor::ImportOptions
         // and the animation sequences with the mesh). In place because their consumers hold the asset itself: a
         // skinned mesh caches its rig asset (SkinnedMeshAsset's skeleton dependency, the MeshService entry's
         // Rig), an Animator binds the clip's AnimationClip, which Load rebuilds at the same address and stamps
-        // with a new track revision. Every live manager that loaded one refreshes it; one nobody loaded has
-        // nothing to refresh.
+        // with a new track revision; SkeletonAsset::LoadFromFile rewrites its Skeleton at the same address and
+        // a changed signature makes AnimationECSSystem rebuild the Animator. So it is `Load()` on the loaded
+        // asset and NEVER `Unload()` first: that frees the Skeleton the meshes and Animators still point at.
+        // Every live manager that loaded one refreshes it; one nobody loaded has nothing to refresh.
         template <typename AssetType>
         void ReloadLoaded( const std::vector<std::filesystem::path>& written )
         {
@@ -157,12 +159,6 @@ namespace Desert::Editor::ImportOptions
                     const auto asset = manager->FindByPath<AssetType>( path );
                     if ( !asset || !asset->IsReadyForUse() )
                         continue;
-                    if ( const auto unloaded = asset->Unload(); !unloaded )
-                    {
-                        LOG_ERROR( "[Import] '{}' was reimported but the loaded asset was not reset: {}",
-                                   path.generic_string(), unloaded.GetError() );
-                        continue;
-                    }
                     if ( const auto loaded = asset->Load(); !loaded )
                         LOG_ERROR( "[Import] '{}' was reimported but not read again: {}", path.generic_string(),
                                    loaded.GetError() );
