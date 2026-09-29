@@ -200,6 +200,8 @@ TEST( PackagedContent, PakKeysAreTheRuntimeLookupKeysUnderThePackageRoot )
     // trees under it, the launcher cds there, and every resource path resolves against it.
     const fs::path pkg = fs::temp_directory_path() / "desert_pkgkeys";
     Common::Constants::Path::SetProjectRoot( pkg, Desert::Editor::kPackagedAssetsRoot );
+    // ...and the package dir is its own engine root (Runtime/Source/Main.cpp: SetEngineRoot after mounting).
+    Common::Constants::Path::SetEngineRoot( pkg );
 
     for ( const auto& t : Desert::Editor::PackagedContentTrees() )
     {
@@ -263,9 +265,7 @@ TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
 
     SetEnv( "HOME", base.string() ); // keep RegisterRecent out of the real user config
     fs::current_path( proj );
-    Common::Constants::Path::SetEngineRoot(
-         fs::current_path() ); // the fixture stands in for the checkout        // relative resource trees resolve
-                               // against the editor cwd
+    Common::Constants::Path::SetEngineRoot( fs::current_path() ); // the fixture stands in for the checkout
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
@@ -433,7 +433,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
 // held — which the packager's rebase under <package>/Assets/ breaks exactly as it broke a script slot.
 //
 // WHY THIS WENT UNSEEN and why the fixture below therefore uses PROJECT assets and not the engine ones:
-// every font and icon this repository ships names Resources/Fonts or Resources/Icons, engine trees the
+// every font and icon this repository ships names Engine/Content/Fonts or /Icons, engine trees the
 // packager stores under their own dev-time relative paths and SetProjectRoot never remaps. A test built
 // from those would pass before the fix as well as after it, and would be measuring nothing.
 //
@@ -798,7 +798,8 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
 
     // The runtime's side of the relation: assemble the same stages the way VulkanShader::Reload does
     // and ask the cache with the runtime's own key overload. Every stage must already be there.
-    const fs::path shaderFile = fs::path( "Resources" ) / "Shaders" / "CookProbe.shader";
+    // Under the engine root's shader tree, as the runtime spells it: the key is derived from this path.
+    const fs::path shaderFile = Common::Constants::Path::SHADERDIR_PATH / "CookProbe.shader";
 
     // Ф3 made the primitive return a ResultStr. Asserting on the read ITSELF rather than on an empty
     // string is the point of that change: a probe file this test cannot read is a broken fixture and
@@ -1581,6 +1582,17 @@ namespace
              { "SHADERDIR_PATH", &P::SHADERDIR_PATH, RootVerdict::Packaged, "" },
              { "FONTS_PATH", &P::FONTS_PATH, RootVerdict::Packaged, "" },
              { "ICONS_PATH", &P::ICONS_PATH, RootVerdict::Packaged, "" },
+
+             // --- the editor's own content: a packaged GAME runs no editor ---
+             { "EDITOR_CONTENT_PATH", &P::EDITOR_CONTENT_PATH, RootVerdict::NotContent,
+               "the editor's own content (its grid and gizmo shaders, its gizmo icons); a packaged game runs "
+               "no editor, so nothing in it can ask for these. The editor drop copies Editor/Content beside "
+               "its binaries itself (scripts/*/Package.*), which is not the game archive." },
+             { "EDITOR_SHADERDIR_PATH", &P::EDITOR_SHADERDIR_PATH, RootVerdict::NotContent,
+               "editor-only shaders (grid, gizmos, selection) under EDITOR_CONTENT_PATH; no game pass binds "
+               "them." },
+             { "EDITOR_ICONS_PATH", &P::EDITOR_ICONS_PATH, RootVerdict::NotContent,
+               "editor gizmo icons under EDITOR_CONTENT_PATH; drawn only by the editor viewport." },
 
              // --- project content: every row is derived from the assets or cooked root, and both of
              //     those are packed trees, so the whole census travels by construction ---

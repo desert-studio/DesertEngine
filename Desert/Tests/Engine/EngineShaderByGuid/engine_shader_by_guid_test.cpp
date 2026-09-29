@@ -91,8 +91,9 @@ namespace
 TEST( EngineShaderByGuid, EveryCommittedMaterialResolvesItsShaderByGuid )
 {
     const std::filesystem::path editorDir = EditorDirectory();
-    ASSERT_TRUE( std::filesystem::exists( editorDir / "Engine" / "Content" / "Shaders" ) )
-         << "expected the real engine content at '" << editorDir.string() << "'";
+    // Editor/'s parent is the checkout's engine root (the default SetEngineRoot answer for this cwd).
+    ASSERT_TRUE( std::filesystem::exists( editorDir.parent_path() / "Engine" / "Content" / "Shaders" ) )
+         << "expected the real engine content under '" << editorDir.parent_path().string() << "'";
 
     const WorkingDirectoryGuard cwdGuard( editorDir );
 

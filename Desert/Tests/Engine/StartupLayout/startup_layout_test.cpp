@@ -76,7 +76,7 @@ namespace
         return root;
     }
 
-    // A DROP, as scripts/*/Package.sh|bat produces one: binaries, Resources/{Shaders,Fonts,Icons}
+    // A DROP, as scripts/*/Package.sh|bat produces one: binaries, Engine/Content/{Shaders,Fonts,Icons}
     // and the project descriptor, all in ONE directory, and no repository anywhere above it.
     fs::path MakeDrop( const std::string& name )
     {
@@ -277,17 +277,17 @@ TEST( StartupLayout, ADirectoryNamedLikeADescriptorIsNotADescriptor )
     EXPECT_EQ( fs::path( found.GetValue() ).filename().string(), "Desert.deproj" );
 }
 
-// ── 3. WHERE `Resources/` IS ────────────────────────────────────────────────────────────────────
+// ── 3. WHERE `Engine/Content/` IS ───────────────────────────────────────────────────────────────
 
 TEST( StartupLayout, AWorkingDirectoryThatAlreadyHoldsTheResourcesIsLeftAlone )
 {
     // THE NEGATIVE CONTROL FOR EVERY EXISTING LAUNCH. `scripts/*/RunEditor.*` change into
-    // `Editor/`, which holds `Resources/Shaders`; this must answer "do not move", or the change
+    // `Editor/`, whose parent holds `Engine/Content/Shaders`; this must answer "do not move", or the change
     // would silently rebase every relative path a developer passes on the command line.
     //
     // THE SCENARIO IS DELIBERATELY THE HARD ONE. With resources in only one of the two places, the
     // ORDER of the two checks cannot be observed at all: swapping them was measured to leave this
-    // test green, which makes it a test of nothing. So BOTH candidates hold `Resources/Shaders`
+    // test green, which makes it a test of nothing. So BOTH candidates hold `Engine/Content/Shaders`
     // here, which is a real layout — a drop's Editor run from inside a checkout — and the answer
     // "do not move" can then only come from the working directory being asked FIRST.
     const fs::path  root = MakeCheckout( "cwd_has_resources" );
@@ -299,6 +299,8 @@ TEST( StartupLayout, AWorkingDirectoryThatAlreadyHoldsTheResourcesIsLeftAlone )
     EXPECT_TRUE( lookup.WorkingDirectory.empty() )
          << "a launch that already had its resources was moved to " << lookup.WorkingDirectory;
     EXPECT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
+    // The engine root of a checkout's Editor/ is the checkout, not Editor/ and not the build output.
+    EXPECT_EQ( fs::path( lookup.EngineRoot ), fs::absolute( root ).lexically_normal() );
 }
 
 TEST( StartupLayout, ADropStartedFromSomewhereElseWorksFromBesideItsOwnBinaries )
@@ -310,20 +312,34 @@ TEST( StartupLayout, ADropStartedFromSomewhereElseWorksFromBesideItsOwnBinaries 
     ASSERT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
     std::error_code ec;
     EXPECT_EQ( fs::weakly_canonical( lookup.WorkingDirectory, ec ), fs::weakly_canonical( drop, ec ) );
+    // A drop is its own engine root: Engine/Content sits beside its binaries.
+    EXPECT_EQ( fs::weakly_canonical( lookup.EngineRoot, ec ), fs::weakly_canonical( drop, ec ) );
 }
 
-TEST( StartupLayout, AnEmptyResourcesFolderIsNotTheEngineResources )
+TEST( StartupLayout, ADropStartedFromItsOwnFolderIsItsOwnEngineRoot )
 {
-    // The marker is `Resources/Shaders`, not `Resources`. A drop that lost its shader tree would
-    // satisfy the weaker test, start, and fail 43 shaders later with a message about one shader.
+    // The negative control of the checkout rule: a drop's folder is not named Editor/, so its PARENT is
+    // never asked, and the engine root is the working directory itself.
+    const fs::path drop   = MakeDrop( "drop_from_itself" );
+    const auto     lookup = ResolveResourceRoot( drop, drop );
+    ASSERT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
+    EXPECT_TRUE( lookup.WorkingDirectory.empty() ) << lookup.WorkingDirectory;
+    EXPECT_EQ( fs::path( lookup.EngineRoot ), fs::absolute( drop ).lexically_normal() );
+}
+
+TEST( StartupLayout, AnEngineContentWithoutShadersIsNotTheEngineContent )
+{
+    // The marker is `Engine/Content/Shaders`, not `Engine/Content`. A drop that lost its shader tree
+    // would satisfy the weaker test, start, and fail 43 shaders later with a message about one shader.
     const fs::path  hollow = FreshDirectory( "hollow_resources" );
     std::error_code ec;
-    fs::create_directories( hollow / "Resources", ec );
+    fs::create_directories( hollow / "Engine" / "Content" / "Fonts", ec );
 
     const auto lookup = ResolveResourceRoot( hollow, hollow );
     EXPECT_TRUE( lookup.WorkingDirectory.empty() );
-    ASSERT_FALSE( lookup.Explanation.empty() ) << "an empty Resources/ folder was accepted";
-    EXPECT_NE( lookup.Explanation.find( "Resources/Shaders" ), std::string::npos ) << lookup.Explanation;
+    ASSERT_FALSE( lookup.Explanation.empty() ) << "an Engine/Content/ without shaders was accepted";
+    EXPECT_TRUE( lookup.EngineRoot.empty() ) << lookup.EngineRoot;
+    EXPECT_NE( lookup.Explanation.find( "Engine/Content/Shaders" ), std::string::npos ) << lookup.Explanation;
 }
 
 TEST( StartupLayout, WithNoResourcesAnywhereTheRefusalNamesBothPlacesItLooked )
@@ -348,7 +364,8 @@ TEST( StartupLayout, WithNoResourcesAnywhereTheRefusalNamesBothPlacesItLooked )
 
 namespace
 {
-    void AssertPackagerPutsTheDropTogether( const fs::path& script, const std::string& what )
+    void AssertPackagerPutsTheDropTogether( const fs::path& script, const std::string& what,
+                                            const std::string& contentTrees )
     {
         const std::string text = ReadAll( script );
         ASSERT_FALSE( text.empty() ) << "could not read " << script.string();
@@ -358,10 +375,11 @@ namespace
         EXPECT_NE( text.find( "Desert.deproj" ), std::string::npos )
              << what << " no longer names the project descriptor, so a drop has nothing to open";
 
-        // The resource trees, under `Resources/` in the output root — ResolveResourceRoot() looks
-        // for `Resources/Shaders` beside the executable.
-        EXPECT_NE( text.find( "Shaders Fonts Icons" ), std::string::npos )
-             << what << " no longer copies the three engine resource trees the drop needs";
+        // The content trees, at the same relative path in the output root as in a checkout —
+        // ResolveResourceRoot() looks for `Engine/Content/Shaders` beside the executable, and the
+        // drop is its own engine root, so Editor/Content must travel beside it too.
+        EXPECT_NE( text.find( contentTrees ), std::string::npos )
+             << what << " no longer copies " << contentTrees << ", the content trees the drop needs";
 
         // And NOT Templates/: a drop must not become something the launcher will pick and fail to
         // start. This is the census half of the refusal asserted above.
@@ -388,9 +406,10 @@ TEST( StartupLayout, BothPackagersBuildTheLayoutTheDerivationsLookFor )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "the repository root was not found from the test's working directory";
 
-    AssertPackagerPutsTheDropTogether( root / "scripts" / "MacOS" / "Package.sh", "scripts/MacOS/Package.sh" );
+    AssertPackagerPutsTheDropTogether( root / "scripts" / "MacOS" / "Package.sh", "scripts/MacOS/Package.sh",
+                                       "Engine/Content Editor/Content" );
     AssertPackagerPutsTheDropTogether( root / "scripts" / "Windows" / "Package.bat",
-                                       "scripts\\Windows\\Package.bat" );
+                                       "scripts\\Windows\\Package.bat", "Engine\\Content Editor\\Content" );
 }
 
 int main( int argc, char** argv )
@@ -404,8 +423,12 @@ TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
     // Visual Studio's F5 with per-user debugger settings that are not the generated ones: the working
     // directory is the solution root, the binary is in build/Bin/<config>. Measured on Windows
     // 2026-09-24 - the editor refused with "no Resources/Shaders" and nothing on screen said why.
+    // The checkout ROOT holds Engine/Content too, so it must not be mistaken for a drop started from its
+    // own folder: its `Editor` is the source directory (a drop's is the binary), and that is what tells them
+    // apart.
     const fs::path root = MakeCheckout( "started_where_built" );
     fs::create_directories( root / "Engine" / "Content" / "Shaders" );
+    fs::create_directories( root / "Editor" );
     const fs::path bin = root / "build" / "Bin" / "Debug";
     fs::create_directories( bin );
 
@@ -413,6 +436,7 @@ TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
     EXPECT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
     EXPECT_TRUE( lookup.FromCheckout );
     EXPECT_EQ( fs::path( lookup.WorkingDirectory ), root / "Editor" );
+    EXPECT_EQ( fs::path( lookup.EngineRoot ), fs::absolute( root ).lexically_normal() );
 
     // ...and only by that shape: Bin/<config> outside build/ is not the checkout's build output.
     const fs::path notBuild = root / "dist" / "Bin" / "Debug";

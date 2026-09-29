@@ -750,8 +750,8 @@ TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
 {
     // The companion: an inverse that ignored the tag and joined everything to one root would satisfy the
     // round trip for whichever root it picked and quietly move every other asset. Under the DEFAULT
-    // sandbox this is not hypothetical — ASSETS_PATH (`Resources/Assets/`) is nested inside
-    // ENGINE_CONTENT_PATH (`Resources/`), and the two tags must still land in different places.
+    // sandbox ASSETS_PATH is `Resources/Assets/` (under Editor/) and ENGINE_CONTENT_PATH is
+    // `../Engine/Content/` (the checkout root's): separate trees, and the tags must land in each.
     ProjectRootGuard guard;
     Common::Constants::Path::ResetToSandbox();
 
@@ -760,7 +760,11 @@ TEST( AssetHandleStability, TwoRootsThatShareAPrefixDoNotSwapKeysOnExpansion )
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "assets:Textures/T.png" ).generic_string(),
                "Resources/Assets/Textures/T.png" );
     EXPECT_EQ( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" ).generic_string(),
-               "Resources/Textures/T.png" );
+               "../Engine/Content/Textures/T.png" );
+    // The engine root is NOT the assets root's parent any more: nothing of the engine lives under Resources/.
+    EXPECT_FALSE( Common::AssetHandle::PathForStableKey( "engine:Textures/T.png" )
+                       .generic_string()
+                       .starts_with( "Resources/" ) );
 }
 
 TEST( AssetHandleStability, AnAbsoluteAndARelativeSpellingOfOneAssetAgree )
@@ -820,11 +824,11 @@ TEST( AssetHandleStability, EngineResourcesAreKeyedOnTheirOwnRootAndDoNotMoveWit
     EXPECT_EQ( HandleValue( "../Engine/Content/Shaders/Programs/PBR.shader" ), beforeAnyProject );
 }
 
-TEST( AssetHandleStability, TheDefaultSandboxNestsAssetsInsideResourcesAndAssetsStillWins )
+TEST( AssetHandleStability, TheDefaultSandboxKeysItsAssetsUnderTheAssetsTag )
 {
-    // With no project open ASSETS_PATH is `Resources/Assets/` -- INSIDE ENGINE_CONTENT_PATH (`Resources/`).
-    // Both roots contain the file, so the answer must not depend on which one the code happens to test
-    // first. Longest match is what makes that true, and this is the case that proves it.
+    // With no project open ASSETS_PATH is `Resources/Assets/`. Until the engine content moved to
+    // Engine/Content it sat INSIDE ENGINE_CONTENT_PATH (`Resources/`) and longest match decided; the
+    // roots are disjoint now, and the sandbox's asset must still key as an asset, never as engine content.
     ProjectRootGuard guard;
     Common::Constants::Path::ResetToSandbox();
 
@@ -1679,6 +1683,17 @@ TEST_P( AssetOpenedByItsOldPath, IsTheMovedAssetAndLoadsItsBytes )
     fs::create_directories( root );
     root = fs::canonical( root );
     Common::Constants::Path::SetProjectRoot( root, "Resources/Assets" );
+    // The fixture is its own engine root too: the default ("..", a checkout seen from Editor/) would put a
+    // Shader's tree BESIDE this directory, shared by every run and never removed by the remove_all above.
+    const struct EngineRootRestore
+    {
+        fs::path Saved = Common::Constants::Path::EngineRoot();
+        ~EngineRootRestore()
+        {
+            Common::Constants::Path::SetEngineRoot( Saved );
+        }
+    } engineRootRestore;
+    Common::Constants::Path::SetEngineRoot( root );
     const fs::path& spec = *Common::Content::KindSpec( kind.Kind ).Root;
     // A string table's language is its directory (STRT 3), so it sits one level down, as in a project.
     const fs::path dir = ( spec.is_absolute() ? spec : root / spec ) /

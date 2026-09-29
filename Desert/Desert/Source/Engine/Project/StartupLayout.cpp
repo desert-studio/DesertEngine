@@ -173,7 +173,10 @@ namespace Desert::Project
             return lookup;
         }
         // A drop started from its own folder: binaries and Engine/Content side by side; nothing moves.
-        if ( fs::is_directory( workingDirectory / marker, ec ) )
+        // NOT a checkout's root, which holds Engine/Content too: there `Editor` is the source DIRECTORY
+        // (in a drop it is the binary), and the editor must run from inside it — the rules below move it.
+        if ( fs::is_directory( workingDirectory / marker, ec ) &&
+             !fs::is_directory( workingDirectory / "Editor", ec ) )
         {
             lookup.EngineRoot = absoluteOf( workingDirectory );
             return lookup;
