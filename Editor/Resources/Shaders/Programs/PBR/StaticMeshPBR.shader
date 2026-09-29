@@ -19,7 +19,7 @@ Shader "StaticMeshPBR"
 
     // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
     // writes one Materials[] row per object from the forward material and every pass reads it, so these
-    // blocks are identical by contract — Desert/Tests/Engine/PBRSurfaceInputs holds them equal.
+    // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.
     Properties Binding(2)
     {
         Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
@@ -65,18 +65,10 @@ Shader "StaticMeshPBR"
 
         #include <Common/CameraUB.glslh>
 
-        // Shared push-constant block. Must be byte-for-byte identical to the one in PBR.glsl.frag so the
-        // reflected range (offset/size) matches across stages. The vertex stage only reads Transform; the
-        // per-object material parameters are consumed by the fragment stage. Per-object data lives here
-        // (not in a uniform buffer) so each draw carries its own values — a shared material UB would be
-        // overwritten by later objects in the same frame (last-write-wins) before the GPU executes the draws.
-        // Must match PBR.glsl.frag / Skinned.glsl.vert. Material data lives in a storage buffer (read in the
-        // fragment); the vertex stage only needs Transform.
-        PushConstant PushConstants
-        {
-        	mat4 Transform;     // offset 0
-        	uint MaterialIndex; // offset 64
-        } m_PushConstants;
+        // The ONE engine push block (Transform, MaterialIndex, BoneOffset, wind): the parser injects the same
+        // header into the fragment stage, so both stages of this pipeline reflect one range of one length.
+        // This stage reads Transform only.
+        #include <Common/MaterialTransport.glslh>
 
 
         Out(0) Vertex

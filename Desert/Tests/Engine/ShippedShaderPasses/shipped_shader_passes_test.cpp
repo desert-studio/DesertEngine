@@ -296,6 +296,14 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
          "MatProbe.shader",
          "MatProbeUnlit.shader",
          "NewShaderGraph.shader",
+         // MAT1a: the six mesh PBR passes read the one generated row the renderer writes per object (their
+         // hand-written GpuMaterial block and its ReadBuffer were deleted).
+         "SkinnedMeshPBR.shader",
+         "StaticMeshGBuffer.shader",
+         "StaticMeshGBuffer_Instanced.shader",
+         "StaticMeshGlass.shader",
+         "StaticMeshPBR.shader",
+         "StaticMeshPBR_Instanced.shader",
          "Terrain.shader",
          // LS-5: the terrain's deferred twin carries Terrain.shader's Properties block — the same row, written
          // by the TerrainRenderer into whichever of the two the render path draws with.

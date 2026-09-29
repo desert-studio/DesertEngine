@@ -8,7 +8,7 @@ Shader "StaticMeshPBR_Instanced"
 
     // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
     // writes one Materials[] row per object from the forward material and every pass reads it, so these
-    // blocks are identical by contract — Desert/Tests/Engine/PBRSurfaceInputs holds them equal.
+    // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.
     Properties Binding(2)
     {
         Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
@@ -69,16 +69,11 @@ Shader "StaticMeshPBR_Instanced"
         	mat4 transforms[];
         };
 
-        // Kept byte-identical to Static.glsl.vert / PBR.glsl.frag so the reflected push range matches. The
-        // instanced vertex IGNORES Transform (the instance SSBO supplies the model matrix); MaterialIndex is still
-        // used by the fragment stage.
-        PushConstant PushConstants
-        {
-        	mat4 Transform;     // offset 0  — unused here
-        	uint MaterialIndex; // offset 64
-        	vec4 WindA;         // offset 80 — Graphic::kInstancedWindPushOffset (Common/FoliageWind.glslh)
-        	vec4 WindB;         // offset 96
-        } m_PushConstants;
+        // The ONE engine push block, the same header the parser injects into the fragment stage, so both
+        // stages reflect one range of one length. This stage IGNORES Transform (the instance SSBO supplies
+        // the model matrix) and reads WindA/WindB (Graphic::kInstancedWindPushOffset); MaterialIndex is the
+        // fragment stage's.
+        #include <Common/MaterialTransport.glslh>
 
         #include <Common/FoliageWind.glslh>
 

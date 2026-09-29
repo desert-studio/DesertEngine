@@ -13,7 +13,7 @@ Shader "SkinnedMeshPBR"
 
     // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
     // writes one Materials[] row per object from the forward material and every pass reads it, so these
-    // blocks are identical by contract — Desert/Tests/Engine/PBRSurfaceInputs holds them equal.
+    // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.
     Properties Binding(2)
     {
         Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
@@ -61,18 +61,14 @@ Shader "SkinnedMeshPBR"
 
         #include <Common/CameraUB.glslh>
 
-        // Transform + MaterialIndex are the shared mesh push block (byte-identical to StaticMeshPBR's, and
-        // the fragment stage below repeats it). BoneOffset is this PATH's own field and is why one
+        // The ONE engine push block (Common/MaterialTransport.glslh), the same header the parser injects into
+        // the fragment stage, so both stages reflect one range of one length. BoneOffset is read by this
+        // PATH only, and is why one
         // material can draw every skinned mesh in the frame: the poses are packed end to end into the one
         // Bones buffer and each draw names its slice here. A push constant is snapshotted per draw, which
         // a storage buffer is not — storing the pose on the material instead made two skinned meshes
         // render with the pose of whichever was submitted last.
-        PushConstant PushConstants
-        {
-            mat4 Transform;     // offset 0
-            uint MaterialIndex; // offset 64
-            uint BoneOffset;    // offset 68  first bone of THIS draw inside BoneMatrices[]
-        } m_PushConstants;
+        #include <Common/MaterialTransport.glslh>
 
         // raw-glsl: implicit (shared) layout kept — std430 would change the bone matrix offsets.
         layout(binding = 1) readonly buffer Bones

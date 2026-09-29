@@ -300,7 +300,6 @@ namespace
     constexpr const char* kParamRow  = "Desert/Desert/Source/Engine/Core/Formats/MaterialParamRow.hpp";
     constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp";
     constexpr const char* kMaterial  = "Desert/Desert/Source/Engine/Graphic/Materials/Material.cpp";
-    constexpr const char* kDDM       = "Desert/Desert/Source/Engine/Graphic/Materials/DataDrivenMaterial.hpp";
     constexpr const char* kPipeline  = "Desert/Desert/Source/Engine/Graphic/PipelineCache.hpp";
     constexpr const char* kMeshRend  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp";
     constexpr const char* kShaderSvc = "Desert/Desert/Source/Engine/Runtime/Services/Shader/ShaderService.cpp";
@@ -337,7 +336,7 @@ namespace
          { "ShaderParam", "IsCubeTexture", kFactory, nullptr },
          { "ShaderParam", "Min", kMatEdit, nullptr },
          { "ShaderParam", "Max", kMatEdit, nullptr },
-         { "ShaderParam", "Default", kDDM, nullptr },
+         { "ShaderParam", "Default", kParamRow, nullptr },
 
          // The row this suite was born from. Read since М9 by Material::BindSchemaDefaultTexture, which
          // is what makes an empty texture slot expressible at all.

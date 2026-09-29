@@ -29,6 +29,7 @@
 
 #include <gtest/gtest.h>
 
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
@@ -509,6 +510,11 @@ TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBi
 // which fires here; delete BoneOffset and it shrinks, which fires here; and either way the alternative is
 // a renderer writing the bone offset over the material index and a character rendered with somebody
 // else's albedo, silently.
+//
+// EACH STAGE ON ITS OWN. The mesh PBR cells carry a generated material row, so the parser injects
+// Common/MaterialTransport.glslh into their FRAGMENT stage; a vertex stage that declared a longer block of
+// its own (skinned 72, instanced 112) left the fragment at 68 — one pipeline, two lengths — and the merged
+// reflection (the larger wins) hid it. So both stages are reflected separately and must agree.
 TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesIntoIt )
 {
     struct Expectation
@@ -518,13 +524,22 @@ TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesI
         uint32_t       Size;
     };
 
+    // The row-carrying cells all declare THE block; every field the renderer writes must end inside it.
+    static_assert( MaterialPBR::kPushSizeWithoutBones <= Desert::Core::Formats::kMaterialTransportPushSize );
+    static_assert( MaterialPBR::kPushSizeWithBones <= Desert::Core::Formats::kMaterialTransportPushSize );
+    static_assert( Desert::Graphic::kInstancedPushSize == Desert::Core::Formats::kMaterialTransportPushSize,
+                   "the wind tail is the last field of the one block" );
+    constexpr uint32_t kTransport = Desert::Core::Formats::kMaterialTransportPushSize;
+
     const Expectation expectations[] = {
-         { MeshVertexPath::Static, MeshPass::Forward, MaterialPBR::kPushSizeWithoutBones },
+         { MeshVertexPath::Static, MeshPass::Forward, kTransport },
+         { MeshVertexPath::Static, MeshPass::GBuffer, kTransport },
+         { MeshVertexPath::Static, MeshPass::Glass, kTransport },
          // The instanced cells carry the wind tail after the shared block (FO-7, Graphic/InstanceWind.hpp).
-         { MeshVertexPath::Instanced, MeshPass::Forward, Desert::Graphic::kInstancedPushSize },
-         { MeshVertexPath::Instanced, MeshPass::GBuffer, Desert::Graphic::kInstancedPushSize },
+         { MeshVertexPath::Instanced, MeshPass::Forward, kTransport },
+         { MeshVertexPath::Instanced, MeshPass::GBuffer, kTransport },
          { MeshVertexPath::Instanced, MeshPass::ShadowDepth, Desert::Graphic::kInstancedPushSize },
-         { MeshVertexPath::Skinned, MeshPass::Forward, MaterialPBR::kPushSizeWithBones },
+         { MeshVertexPath::Skinned, MeshPass::Forward, kTransport },
          { MeshVertexPath::Skinned, MeshPass::ShadowDepth, MaterialShadowSkinned::kPushSize },
     };
 
@@ -533,11 +548,24 @@ TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesI
         const char* name = MeshShaderFor( expected.Path, expected.Pass );
         ASSERT_NE( name, nullptr );
 
-        const auto data = ReflectGraphics( ShaderFileFor( name ) );
-        ASSERT_TRUE( data.PushConstantRanges.has_value() ) << name << " declares no push constant block";
-        EXPECT_EQ( data.PushConstantRanges->Size, expected.Size )
-             << name << "'s push block is " << data.PushConstantRanges->Size
-             << " bytes, and the renderer writes its last field at offset " << ( expected.Size - 4 );
+        const auto file = ShaderFileFor( name );
+        for ( const auto [stage, kind] : { std::pair{ ShaderStage::Vertex, shaderc_vertex_shader },
+                                           std::pair{ ShaderStage::Fragment, shaderc_fragment_shader } } )
+        {
+            const auto spirv = CompileStage( StageSource( file, stage ), file, kind );
+            ASSERT_FALSE( spirv.empty() ) << name;
+            ShaderResource::ReflectionData data;
+            const auto                     diagnostics = ShaderReflection::ReflectStage( spirv, stage, data );
+            EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
+            if ( !data.PushConstantRanges )
+                continue; // a stage that reads nothing from the block (a depth-only fragment) declares none
+            EXPECT_EQ( data.PushConstantRanges->Size, expected.Size )
+                 << name << "'s " << ( stage == ShaderStage::Vertex ? "vertex" : "fragment" ) << " push block is "
+                 << data.PushConstantRanges->Size << " bytes; every stage of the pipeline "
+                 << "must declare " << expected.Size;
+        }
+        const auto merged = ReflectGraphics( file );
+        ASSERT_TRUE( merged.PushConstantRanges.has_value() ) << name << " declares no push constant block";
     }
 }
 

@@ -58,6 +58,8 @@ namespace Desert::Graphic
         static constexpr uint32_t kPushBoneOffsetOffset    = kPushMaterialIndexOffset + 4; // 68, skinned only
         static constexpr uint32_t kPushSizeWithoutBones    = kPushMaterialIndexOffset + 4;
         static constexpr uint32_t kPushSizeWithBones       = kPushBoneOffsetOffset + 4;
+        static_assert( kPushSizeWithBones <= Core::Formats::kMaterialTransportPushSize,
+                       "BoneOffset must lie inside the one push block (Common/MaterialTransport.glslh)" );
 
         MeshVertexPath VertexPath() const
         {

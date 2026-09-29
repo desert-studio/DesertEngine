@@ -57,6 +57,11 @@ namespace Desert::Core::Formats
     // second copy of the number is how the two transports would drift apart again.
     inline constexpr uint32_t kMaterialTransformPushOffset = 0;
     inline constexpr uint32_t kMaterialIndexPushOffset     = 64; // sizeof( glm::mat4 )
+    // The length of THE push block (Common/MaterialTransport.glslh) in every stage of every pipeline that
+    // carries a row: Transform, MaterialIndex, the skinned BoneOffset at 68 and the instanced wind tail at
+    // 80..112. One length because the parser injects that header into the fragment stage, so a vertex stage
+    // with a longer block of its own would leave one pipeline with two.
+    inline constexpr uint32_t kMaterialTransportPushSize = 112;
 
     // Parameters that occupy a slot. Textures are descriptors, not row bytes, so they are not counted.
     inline uint32_t MaterialParamSlotCount( const ShaderProgramMeta& meta )
