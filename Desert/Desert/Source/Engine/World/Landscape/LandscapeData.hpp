@@ -163,11 +163,10 @@ namespace Desert::World::Landscape
     /// allocation before the payload length check can refuse it.
     inline constexpr uint32_t kLandscapeMaxTileSamples = 8193u;
 
-    /// How many Edit Layers the current format can carry. ZERO, by owner decision O4: Edit Layers are
-    /// round two. The blob already has the count field (see kLandscapeTileContainerVersion), so a tile
-    /// written today is a valid layered tile with no layers, and round two adds records rather than a
-    /// migration. A count above this is refused on read, never ignored.
-    inline constexpr uint32_t kLandscapeMaxEditLayers = 0u;
+    /// How many Edit Layers one tile blob may carry (the header's count, see kLandscapeTileContainerVersion).
+    /// A bound for a corrupt header, not a design limit: UE's stacks hold a handful of layers. A count above
+    /// this is refused on read, never ignored.
+    inline constexpr uint32_t kLandscapeMaxEditLayers = 64u;
 
     /**
      * @brief Who reads a tile's dirty rectangles. Each consumer has its OWN list.
@@ -531,9 +530,16 @@ namespace Desert::World::Landscape
     ///     SamplesX·SamplesZ weights, one byte each, row-major. The header's payload length still counts the
     ///     height samples only.
     ///
-    /// Only the current version is read. A v1 blob is refused by its number: SceneMigrator raised the
-    /// committed corpus to v2 (LS-15) and the v1 reader was deleted with that step.
-    inline constexpr uint32_t kLandscapeTileContainerVersion = 2u;
+    /// 3 — v2, and the header's edit-layer count is the number of edit-layer records that follow the weightmap
+    ///     section (LandscapeTileData::EditLayers, in the tile's order), each: the layer Guid (u64), its
+    ///     height count (u32, 0 or SamplesX·SamplesZ) and that many little-endian uint16 relative to
+    ///     kLandscapeMidSample, then its weight planes in the weightmap section's shape (count, and per
+    ///     plane name length, name, SamplesX·SamplesZ bytes). A count of 0 is a tile without edit layers,
+    ///     and its bytes are v2's with the version moved.
+    ///
+    /// Only the current version is read. v1 and v2 blobs are refused by their number: SceneMigrator raised
+    /// the committed corpus to v2 (LS-15) and to v3 (L10a2), and each raising step was deleted after it ran.
+    inline constexpr uint32_t kLandscapeTileContainerVersion = 3u;
 
     /// Byte lengths of the header and trailer. Exposed so the round-trip test can assert the total
     /// size: a header that grew without this constant moving would pass a test that meant nothing.
@@ -541,7 +547,8 @@ namespace Desert::World::Landscape
     inline constexpr size_t kLandscapeTileTrailerSize = 4u;
 
     /// Serialises a tile's samples. An empty (default-constructed) tile is a caller defect and verified. The
-    /// result is exactly header + 2·SamplesX·SamplesZ + the weight section + trailer bytes. Dirty state is not
+    /// result is exactly header + 2·SamplesX·SamplesZ + the weight section + the edit-layer
+    /// records + trailer bytes. Dirty state is not
     /// part of the blob — it describes the GPU copy, not the terrain.
     std::vector<unsigned char> EncodeLandscapeTile( const LandscapeTileData& tile );
 

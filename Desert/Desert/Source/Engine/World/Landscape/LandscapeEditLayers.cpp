@@ -39,39 +39,6 @@ namespace Desert::World::Landscape
         };
     } // namespace
 
-    const LandscapeEditLayer* LandscapeEditLayerStack::Find( const Common::UUID& guid ) const
-    {
-        for ( const LandscapeEditLayer& layer : Layers )
-            if ( SameGuid( layer.Guid, guid ) )
-                return &layer;
-        return nullptr;
-    }
-
-    Common::BoolResultStr ValidateLandscapeEditLayerStack( const LandscapeEditLayerStack& stack )
-    {
-        for ( size_t i = 0; i < stack.Layers.size(); ++i )
-        {
-            const LandscapeEditLayer& layer = stack.Layers[i];
-            if ( layer.Guid.IsNull() )
-                return Common::MakeFormattedError<bool>( "Landscape edit layer {} ('{}') has a null Guid", i,
-                                                         layer.Name );
-            if ( layer.Name.empty() )
-                return Common::MakeFormattedError<bool>( "Landscape edit layer {} has an empty name", i );
-            if ( !std::isfinite( layer.HeightAlpha ) || layer.HeightAlpha < -1.0f || layer.HeightAlpha > 1.0f )
-                return Common::MakeFormattedError<bool>(
-                     "Landscape edit layer '{}' height alpha {} is outside -1..1", layer.Name, layer.HeightAlpha );
-            if ( !std::isfinite( layer.WeightAlpha ) || layer.WeightAlpha < 0.0f || layer.WeightAlpha > 1.0f )
-                return Common::MakeFormattedError<bool>(
-                     "Landscape edit layer '{}' weight alpha {} is outside 0..1", layer.Name, layer.WeightAlpha );
-            for ( size_t j = 0; j < i; ++j )
-                if ( SameGuid( stack.Layers[j].Guid, layer.Guid ) )
-                    return Common::MakeFormattedError<bool>( "Landscape edit layers '{}' and '{}' share Guid {}",
-                                                             stack.Layers[j].Name, layer.Name,
-                                                             static_cast<uint64_t>( layer.Guid ) );
-        }
-        return Common::MakeSuccess( true );
-    }
-
     Common::BoolResultStr MergeLandscapeEditLayers( const LandscapeEditLayerStack&      stack,
                                                     std::span<const LandscapeLayerRule> rules,
                                                     const LandscapeRect& rect, LandscapeTileData& tile )

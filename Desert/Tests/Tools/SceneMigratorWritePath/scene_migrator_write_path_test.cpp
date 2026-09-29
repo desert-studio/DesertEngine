@@ -157,7 +157,7 @@ TEST( SceneMigratorWritePath, AVersionOneLandscapeTileFailsByPathAndNumberAndIsL
     std::string report;
     std::string errors;
     EXPECT_EQ( RunTool( { "--check", v2.string() }, report, errors ), 0 ) << report << errors;
-    EXPECT_NE( report.find( "ok     " + v2.string() + " — already at tile v2, heights crc " ), std::string::npos )
+    EXPECT_NE( report.find( "ok     " + v2.string() + " — already at tile v3, heights crc " ), std::string::npos )
          << report;
 
     // The v1 form: version 1, no weight-count word, fresh checksum.

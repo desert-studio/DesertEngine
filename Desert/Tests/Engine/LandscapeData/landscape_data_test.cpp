@@ -485,7 +485,7 @@ TEST( LandscapeBlob, LayoutIsPinnedByteByByte )
 
     const unsigned char header[28] = {
          'D', 'L', 'H', 'T',             //
-         2,   0,   0,   0,               // container version
+         3,   0,   0,   0,               // container version
          2,   0,   0,   0,               // samplesX
          3,   0,   0,   0,               // samplesZ
          0,   0,   0,   0,               // edit layers
@@ -561,12 +561,12 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
         b[0]   = 'X';
         refuse( b, "58", "bad magic" ); // 'X' = 0x58
     }
-    refuse( Reseal( PatchU32( good, 4, 3u ) ), "version 3", "future version" );
+    refuse( Reseal( PatchU32( good, 4, 4u ) ), "version 4", "future version" );
 
     // Field checks, each reached past a valid checksum.
     refuse( Reseal( PatchU32( good, 8, 1u ) ), "1 x 3", "one-sample side" );
     refuse( Reseal( PatchU32( good, 12, kLandscapeMaxTileSamples + 1u ) ), "8194", "oversized side" );
-    refuse( Reseal( PatchU32( good, 16, 1u ) ), "1 edit layers", "edit layers present" );
+    refuse( Reseal( PatchU32( good, 16, 65u ) ), "65 edit layers", "more edit layers than a tile may carry" );
     refuse( Reseal( PatchU32( good, 20, 25u ) ), "25 payload", "stated length disagrees with dimensions" );
     {
         std::vector<unsigned char> b( good.begin(), good.end() - 4 );

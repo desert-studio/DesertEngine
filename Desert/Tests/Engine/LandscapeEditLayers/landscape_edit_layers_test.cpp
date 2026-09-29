@@ -8,9 +8,13 @@
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapePaint.hpp>
 
+#include <Common/Utilities/Crc32c.hpp>
+
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <span>
+#include <string>
 #include <vector>
 
 using namespace Desert::World::Landscape;
@@ -226,6 +230,106 @@ TEST( LandscapeEditLayers, TheMergeRefusesWhatTheStackOrTheRulesDoNotName )
     EXPECT_FALSE( tile.SetEditLayer( { UUID( 2u ), std::vector<uint16_t>( 3u, kMid ), {} } ) );
     EXPECT_TRUE( tile.RemoveEditLayer( UUID( 9u ) ) );
     EXPECT_FALSE( tile.RemoveEditLayer( UUID( 9u ) ) );
+}
+
+// ── THE BLOB (DLHT v3) ─────────────────────────────────────────────────────────────────────────────
+namespace
+{
+    /// A tile with two edit layers (one with heights and paint, one with paint only) and their merge.
+    LandscapeTileData LayeredTile( const LandscapeEditLayerStack& stack )
+    {
+        LandscapeTileData tile = Flat();
+        EXPECT_TRUE(
+             tile.SetEditLayer( { UUID( 1u ), Delta( tile.Bounds(), 100 ), { Plane( "Grass", 200u ) } } ) );
+        EXPECT_TRUE( tile.SetEditLayer( { UUID( 0xF00DFACE12345678ull ), {}, { Plane( "Rock", 90u ) } } ) );
+        Merge( stack, tile, tile.Bounds() );
+        return tile;
+    }
+
+    const LandscapeEditLayerStack kTwoLayers{
+         { Layer( 1u, "Base" ), Layer( 0xF00DFACE12345678ull, "Rocks", 1.0f, 0.5f ) } };
+
+    /// Re-stamps a blob's trailer after a test edited its bytes, so the refusal is the section's, not the CRC's.
+    void Restamp( std::vector<unsigned char>& bytes )
+    {
+        const size_t   covered = bytes.size() - kLandscapeTileTrailerSize;
+        const uint32_t crc     = Common::Utils::Crc32c( bytes.data(), covered );
+        for ( size_t i = 0; i < 4u; ++i )
+            bytes[covered + i] = static_cast<unsigned char>( ( crc >> ( 8u * i ) ) & 0xFFu );
+    }
+} // namespace
+
+TEST( LandscapeEditLayers, ALayeredTileSurvivesTheBlobByteForByte )
+{
+    const LandscapeTileData          tile  = LayeredTile( kTwoLayers );
+    const std::vector<unsigned char> bytes = EncodeLandscapeTile( tile );
+    auto                             read  = DecodeLandscapeTile( bytes );
+    ASSERT_TRUE( read ) << read.GetError();
+    EXPECT_EQ( EncodeLandscapeTile( read.GetValue() ), bytes );
+
+    ASSERT_EQ( read.GetValue().EditLayers().size(), 2u );
+    for ( size_t i = 0; i < 2u; ++i )
+    {
+        const LandscapeEditLayerTileData& r = read.GetValue().EditLayers()[i];
+        const LandscapeEditLayerTileData& w = tile.EditLayers()[i];
+        EXPECT_EQ( static_cast<uint64_t>( r.Layer ), static_cast<uint64_t>( w.Layer ) ) << i;
+        EXPECT_EQ( r.Heights, w.Heights ) << i;
+        ASSERT_EQ( r.Weights.size(), w.Weights.size() ) << i;
+        for ( size_t k = 0; k < r.Weights.size(); ++k )
+        {
+            EXPECT_EQ( r.Weights[k].Name, w.Weights[k].Name ) << i;
+            EXPECT_EQ( r.Weights[k].Weights, w.Weights[k].Weights ) << i;
+        }
+    }
+
+    // The layers read back merge to the tile that was written.
+    LandscapeTileData merged = std::move( read.GetValue() );
+    Merge( kTwoLayers, merged, merged.Bounds() );
+    EXPECT_EQ( merged.Samples(), tile.Samples() );
+    EXPECT_EQ( WeightsOf( merged, "Grass" ), WeightsOf( tile, "Grass" ) );
+    EXPECT_EQ( WeightsOf( merged, "Rock" ), WeightsOf( tile, "Rock" ) );
+}
+
+TEST( LandscapeEditLayers, ATileWithoutLayersHasAnEmptySection )
+{
+    const std::vector<unsigned char> bytes = EncodeLandscapeTile( Flat() );
+    EXPECT_EQ( bytes.size(), kLandscapeTileHeaderSize + 2u * kArea + 4u + kLandscapeTileTrailerSize );
+    EXPECT_EQ( bytes[16], 0u ) << "the header's edit-layer count";
+    auto read = DecodeLandscapeTile( bytes );
+    ASSERT_TRUE( read ) << read.GetError();
+    EXPECT_TRUE( read.GetValue().EditLayers().empty() );
+}
+
+TEST( LandscapeEditLayers, ABrokenEditLayerSectionIsRefusedWithTheReason )
+{
+    // A header that counts a layer the section does not hold.
+    std::vector<unsigned char> counted = EncodeLandscapeTile( Flat() );
+    counted[16]                        = 1u;
+    Restamp( counted );
+    auto missing = DecodeLandscapeTile( counted );
+    ASSERT_FALSE( missing );
+    EXPECT_NE( missing.GetError().find( "edit layer 0" ), std::string::npos ) << missing.GetError();
+
+    // A section cut one byte short: the last layer's last weight plane no longer fits.
+    std::vector<unsigned char> cut = EncodeLandscapeTile( LayeredTile( kTwoLayers ) );
+    cut.erase( cut.end() - static_cast<std::ptrdiff_t>( kLandscapeTileTrailerSize ) - 1 );
+    Restamp( cut );
+    auto shortened = DecodeLandscapeTile( cut );
+    ASSERT_FALSE( shortened );
+    EXPECT_NE( shortened.GetError().find( "edit layer 1" ), std::string::npos ) << shortened.GetError();
+
+    // Heights that are neither none nor a whole plane.
+    std::vector<unsigned char> sized = EncodeLandscapeTile( LayeredTile( kTwoLayers ) );
+    // Counted from the end: layer 1 is Guid, count 0, one plane "Rock"; layer 0 is Guid, count, heights, "Grass".
+    const size_t record1     = 8u + 4u + 4u + ( 4u + 4u + kArea );
+    const size_t record0     = 8u + 4u + 2u * kArea + 4u + ( 4u + 5u + kArea );
+    const size_t firstRecord = sized.size() - kLandscapeTileTrailerSize - record1 - record0;
+    sized[firstRecord + 8u]  = 3u; // edit layer 0's height count, low byte
+    Restamp( sized );
+    auto heights = DecodeLandscapeTile( sized );
+    ASSERT_FALSE( heights );
+    EXPECT_NE( heights.GetError().find( "edit layer 0 states 3 heights" ), std::string::npos )
+         << heights.GetError();
 }
 
 int main( int argc, char** argv )

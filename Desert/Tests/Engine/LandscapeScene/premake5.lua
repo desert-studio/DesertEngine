@@ -17,6 +17,7 @@ project(test_name)
         -- calls them on a real save, reaches the renderer through Scene.hpp and no suite compiles it —
         -- so the trip is asserted on the pieces it is made of, through the text and bytes on disk.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayerStack.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeTileFiles.cpp",
     }

@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <format>
+#include <string_view>
 #include <utility>
 
 namespace Desert::World::Landscape
@@ -647,6 +649,60 @@ namespace Desert::World::Landscape
 
     // ── The blob ──────────────────────────────────────────────────────────────────────────────────────
 
+    namespace
+    {
+        // A weight-plane list as the blob spells it: count, then per plane name length, name, plane bytes.
+        void WriteWeightPlanes( std::vector<unsigned char>& out, const std::vector<LandscapeWeightLayer>& planes )
+        {
+            Assets::WriteU32( out, static_cast<uint32_t>( planes.size() ) );
+            for ( const LandscapeWeightLayer& layer : planes )
+            {
+                Assets::WriteU32( out, static_cast<uint32_t>( layer.Name.size() ) );
+                out.insert( out.end(), layer.Name.begin(), layer.Name.end() );
+                out.insert( out.end(), layer.Weights.begin(), layer.Weights.end() );
+            }
+        }
+
+        // Reads what WriteWeightPlanes wrote, every length checked against the bytes left before it is used.
+        // @p what names the list in a refusal ("weight layer", "edit layer 2's weight layer").
+        Common::ResultStr<std::vector<LandscapeWeightLayer>> ReadWeightPlanes( const unsigned char*& cursor,
+                                                                               const unsigned char*  end,
+                                                                               size_t                plane,
+                                                                               std::string_view      what )
+        {
+            using Result = std::vector<LandscapeWeightLayer>;
+            if ( end - cursor < 4 )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob ends before its {} count", what );
+            const uint32_t count = Assets::ReadU32( cursor );
+            cursor += 4;
+            if ( count > kLandscapeMaxWeightLayers )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob carries {} {}s, at most {}", count,
+                                                           what, kLandscapeMaxWeightLayers );
+            Result planes;
+            planes.reserve( count );
+            for ( uint32_t l = 0; l < count; ++l )
+            {
+                if ( end - cursor < 4 )
+                    return Common::MakeFormattedError<Result>( "Landscape tile blob ends inside {} {}", what, l );
+                const uint32_t nameLength = Assets::ReadU32( cursor );
+                cursor += 4;
+                if ( nameLength == 0u || nameLength > kLandscapeMaxWeightLayerName ||
+                     static_cast<size_t>( end - cursor ) < nameLength + plane )
+                    return Common::MakeFormattedError<Result>(
+                         "Landscape tile blob {} {} states a {}-byte name and "
+                         "{} weights; {} bytes remain",
+                         what, l, nameLength, plane, end - cursor );
+                LandscapeWeightLayer layer{ std::string( reinterpret_cast<const char*>( cursor ), nameLength ),
+                                            {} };
+                cursor += nameLength;
+                layer.Weights.assign( cursor, cursor + plane );
+                cursor += plane;
+                planes.push_back( std::move( layer ) );
+            }
+            return Common::MakeSuccess( std::move( planes ) );
+        }
+    } // namespace
+
     std::vector<unsigned char> EncodeLandscapeTile( const LandscapeTileData& tile )
     {
         DESERT_VERIFY( tile.SamplesX() >= kLandscapeMinTileSamples && tile.SamplesZ() >= kLandscapeMinTileSamples,
@@ -660,19 +716,24 @@ namespace Desert::World::Landscape
         Assets::WriteU32( out, kLandscapeTileContainerVersion );
         Assets::WriteU32( out, tile.SamplesX() );
         Assets::WriteU32( out, tile.SamplesZ() );
-        Assets::WriteU32( out, 0u ); // edit layers — see kLandscapeMaxEditLayers
+        Assets::WriteU32( out, static_cast<uint32_t>( tile.EditLayers().size() ) );
         Assets::WriteU64( out, payloadBytes );
         for ( const uint16_t s : samples )
         {
             out.push_back( static_cast<unsigned char>( s & 0xFFu ) );
             out.push_back( static_cast<unsigned char>( ( s >> 8 ) & 0xFFu ) );
         }
-        Assets::WriteU32( out, static_cast<uint32_t>( tile.WeightLayers().size() ) );
-        for ( const LandscapeWeightLayer& layer : tile.WeightLayers() )
+        WriteWeightPlanes( out, tile.WeightLayers() );
+        for ( const LandscapeEditLayerTileData& layer : tile.EditLayers() )
         {
-            Assets::WriteU32( out, static_cast<uint32_t>( layer.Name.size() ) );
-            out.insert( out.end(), layer.Name.begin(), layer.Name.end() );
-            out.insert( out.end(), layer.Weights.begin(), layer.Weights.end() );
+            Assets::WriteU64( out, static_cast<uint64_t>( layer.Layer ) );
+            Assets::WriteU32( out, static_cast<uint32_t>( layer.Heights.size() ) );
+            for ( const uint16_t h : layer.Heights )
+            {
+                out.push_back( static_cast<unsigned char>( h & 0xFFu ) );
+                out.push_back( static_cast<unsigned char>( ( h >> 8 ) & 0xFFu ) );
+            }
+            WriteWeightPlanes( out, layer.Weights );
         }
         Assets::WriteU32( out, Common::Utils::Crc32c( out.data(), out.size() ) );
         return out;
@@ -714,7 +775,7 @@ namespace Desert::World::Landscape
         const uint32_t layers = Assets::ReadU32( at + 16 );
         if ( layers > kLandscapeMaxEditLayers )
             return Common::MakeFormattedError<Result>( "Landscape tile blob carries {} edit layers; this version "
-                                                       "carries at most {} (Edit Layers are round two)",
+                                                       "carries at most {}",
                                                        layers, kLandscapeMaxEditLayers );
         const uint64_t payloadBytes = Assets::ReadU64( at + 20 );
         const uint64_t expected     = static_cast<uint64_t>( samplesX ) * samplesZ * 2u;
@@ -740,38 +801,58 @@ namespace Desert::World::Landscape
         LandscapeTileData    result = std::move( tile.GetValue() );
         const unsigned char* cursor = payload + expected;
         const unsigned char* end    = at + covered;
-        const uint32_t       count  = Assets::ReadU32( cursor );
-        cursor += 4;
-        if ( count > kLandscapeMaxWeightLayers )
-            return Common::MakeFormattedError<Result>( "Landscape tile blob carries {} weight layers, at most {}",
-                                                       count, kLandscapeMaxWeightLayers );
-        const size_t plane = static_cast<size_t>( samplesX ) * samplesZ;
-        for ( uint32_t l = 0; l < count; ++l )
+        const size_t         plane  = static_cast<size_t>( samplesX ) * samplesZ;
+        auto                 planes = ReadWeightPlanes( cursor, end, plane, "weight layer" );
+        if ( !planes )
+            return Common::MakeError<Result>( planes.GetError() );
+        for ( uint32_t l = 0; l < planes.GetValue().size(); ++l )
         {
-            if ( end - cursor < 4 )
-                return Common::MakeFormattedError<Result>( "Landscape tile blob ends inside weight layer {}", l );
-            const uint32_t nameLength = Assets::ReadU32( cursor );
-            cursor += 4;
-            if ( nameLength == 0u || nameLength > kLandscapeMaxWeightLayerName ||
-                 static_cast<size_t>( end - cursor ) < nameLength + plane )
-                return Common::MakeFormattedError<Result>( "Landscape tile blob weight layer {} states a {}-byte "
-                                                           "name and {} weights; {} bytes remain",
-                                                           l, nameLength, plane, end - cursor );
-            std::string name( reinterpret_cast<const char*>( cursor ), nameLength );
-            cursor += nameLength;
-            auto index = result.AddWeightLayer( name );
+            const LandscapeWeightLayer& layer = planes.GetValue()[l];
+            auto                        index = result.AddWeightLayer( layer.Name );
             if ( !index )
                 return Common::MakeError<Result>( index.GetError() );
             if ( index.GetValue() != l )
                 return Common::MakeFormattedError<Result>( "Landscape tile blob names weight layer '{}' twice",
-                                                           name );
-            auto written = result.WriteWeightRegion( l, result.Bounds(), std::span( cursor, plane ) );
+                                                           layer.Name );
+            auto written = result.WriteWeightRegion( l, result.Bounds(), layer.Weights );
             if ( !written )
                 return Common::MakeError<Result>( written.GetError() );
-            cursor += plane;
+        }
+
+        // The edit-layer records, after the tile's own planes: a layered tile refuses AddWeightLayer and
+        // WriteWeightRegion, so the merged planes above are set first. SetEditLayer checks the plane sizes.
+        for ( uint32_t l = 0; l < layers; ++l )
+        {
+            if ( end - cursor < 12 )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob ends inside edit layer {}", l );
+            LandscapeEditLayerTileData data;
+            data.Layer = Common::UUID( Assets::ReadU64( cursor ) );
+            cursor += 8;
+            const uint32_t heights = Assets::ReadU32( cursor );
+            cursor += 4;
+            if ( ( heights != 0u && heights != plane ) || static_cast<size_t>( end - cursor ) / 2u < heights )
+                return Common::MakeFormattedError<Result>(
+                     "Landscape tile blob edit layer {} states {} heights; the "
+                     "tile needs 0 or {}, and {} bytes remain",
+                     l, heights, plane, end - cursor );
+            data.Heights.resize( heights );
+            for ( size_t i = 0; i < heights; ++i )
+                data.Heights[i] = static_cast<uint16_t>( cursor[2u * i] | ( cursor[2u * i + 1u] << 8 ) );
+            cursor += 2u * static_cast<size_t>( heights );
+            auto weights =
+                 ReadWeightPlanes( cursor, end, plane, std::format( "edit layer {}'s weight layer", l ) );
+            if ( !weights )
+                return Common::MakeError<Result>( weights.GetError() );
+            data.Weights = std::move( weights.GetValue() );
+            if ( result.FindEditLayer( data.Layer ) )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob names edit layer {} twice",
+                                                           static_cast<uint64_t>( data.Layer ) );
+            if ( auto set = result.SetEditLayer( std::move( data ) ); !set )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob edit layer {}: {}", l,
+                                                           set.GetError() );
         }
         if ( cursor != end )
-            return Common::MakeFormattedError<Result>( "Landscape tile blob has {} bytes after its weight layers",
+            return Common::MakeFormattedError<Result>( "Landscape tile blob has {} bytes after its edit layers",
                                                        end - cursor );
         return Common::MakeSuccess( std::move( result ) );
     }
