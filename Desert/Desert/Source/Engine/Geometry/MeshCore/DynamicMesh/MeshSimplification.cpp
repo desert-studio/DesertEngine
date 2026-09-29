@@ -15,13 +15,9 @@ namespace Desert::Geometry
     // ---- QuadricError.h ----
 
     QuadricErrord::QuadricErrord( const glm::dvec3& normal, const glm::dvec3& point )
+         : Axx( normal.x * normal.x ), Axy( normal.x * normal.y ), Axz( normal.x * normal.z ),
+           Ayy( normal.y * normal.y ), Ayz( normal.y * normal.z ), Azz( normal.z * normal.z )
     {
-        Axx                = normal.x * normal.x;
-        Axy                = normal.x * normal.y;
-        Axz                = normal.x * normal.z;
-        Ayy                = normal.y * normal.y;
-        Ayz                = normal.y * normal.z;
-        Azz                = normal.z * normal.z;
         const glm::dvec3 v = MultiplyA( point );
         Bx                 = -v.x;
         By                 = -v.y;
@@ -398,7 +394,7 @@ namespace Desert::Geometry
                 collapseTo = b;
             return true;
         }
-        return !( ( collapseTo == a && retainB ) || ( collapseTo == b && retainA ) );
+        return ( collapseTo != a || !retainB ) && ( collapseTo != b || !retainA );
     }
 
     // FMeshRefinerBase::CheckIfCollapseCreatesFlipOrInvalid with ComputeEdgeFlipMetric
@@ -454,8 +450,13 @@ namespace Desert::Geometry
             const glm::dvec3 current = glm::cross( v[1] - v[0], v[2] - v[0] );
             if ( glm::dot( current, current ) < kTinyTriangleThreshold )
                 continue;
-            v[t.A == vertex ? 0 : ( t.B == vertex ? 1 : 2 )] = newPosition;
-            const glm::dvec3 moved                           = glm::cross( v[1] - v[0], v[2] - v[0] );
+            int movedIndex = 2;
+            if ( t.A == vertex )
+                movedIndex = 0;
+            else if ( t.B == vertex )
+                movedIndex = 1;
+            v[movedIndex]          = newPosition;
+            const glm::dvec3 moved = glm::cross( v[1] - v[0], v[2] - v[0] );
             if ( glm::dot( moved, moved ) < kTinyTriangleThreshold )
                 return true;
         }
@@ -464,6 +465,8 @@ namespace Desert::Geometry
 
     void QemSimplification::UpdateConstraintsAround( int edge )
     {
+        if ( !m_Constraints )
+            return;
         EdgeConstraint   edgeConstraint;
         VertexConstraint a;
         VertexConstraint b;

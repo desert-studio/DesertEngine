@@ -46,19 +46,26 @@ namespace
             welded.emplace( key, id );
             return id;
         };
-        const glm::dvec3                 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
+        const glm::dvec3                 X( 1, 0, 0 );
+        const glm::dvec3                 Y( 0, 1, 0 );
+        const glm::dvec3                 Z( 0, 0, 1 );
         const std::array<glm::dvec3, 18> faces = { X, Y, Z, -X, Z, Y, Y, Z, X, -Y, X, Z, Z, X, Y, -Z, Y, X };
         for ( int f = 0; f < 6; ++f )
         {
-            const glm::dvec3 nrm = faces[f * 3], u = faces[f * 3 + 1], v = faces[f * 3 + 2];
-            const auto       at = [&]( int i, int j ) {
+            const glm::dvec3 nrm = faces[static_cast<size_t>( f ) * 3];
+            const glm::dvec3 u   = faces[static_cast<size_t>( f ) * 3 + 1];
+            const glm::dvec3 v   = faces[static_cast<size_t>( f ) * 3 + 2];
+            const auto       at  = [&]( int i, int j ) {
                 return vertex( nrm * kHalf + u * ( -kHalf + 2 * kHalf * i / n ) +
-                                     v * ( -kHalf + 2 * kHalf * j / n ) );
+                                      v * ( -kHalf + 2 * kHalf * j / n ) );
             };
             for ( int i = 0; i < n; ++i )
                 for ( int j = 0; j < n; ++j )
                 {
-                    const int a = at( i, j ), b = at( i + 1, j ), c = at( i + 1, j + 1 ), d = at( i, j + 1 );
+                    const int a = at( i, j );
+                    const int b = at( i + 1, j );
+                    const int c = at( i + 1, j + 1 );
+                    const int d = at( i, j + 1 );
                     mesh.AppendTriangle( Index3i( a, b, c ), f + 1 );
                     mesh.AppendTriangle( Index3i( a, c, d ), f + 1 );
                 }
@@ -81,7 +88,8 @@ namespace
             if ( !mesh.IsGroupBoundaryEdge( e ) )
                 continue;
             const Index2i v = mesh.GetEdgeV( e );
-            const Point   a = Key( mesh.GetVertex( v.A ) ), b = Key( mesh.GetVertex( v.B ) );
+            const Point   a = Key( mesh.GetVertex( v.A ) );
+            const Point   b = Key( mesh.GetVertex( v.B ) );
             borders.emplace( std::min( a, b ), std::max( a, b ) );
         }
         return borders;
@@ -106,8 +114,8 @@ TEST( Simplify, HalfOfACubeSphereKeepsEveryPolygroupBorder )
     ASSERT_EQ( before.TriangleCount(), 768 );
     const auto borders = GroupBorders( before );
     ASSERT_EQ( borders.size(), 12u * 8u );
-    SimplifySettings   settings; // 50 %, Preserve PolyGroups
-    const DynamicMesh3 after = Simplified( before, settings );
+    const SimplifySettings settings; // 50 %, Preserve PolyGroups
+    const DynamicMesh3     after = Simplified( before, settings );
     // Each interior collapse removes two triangles: the simplifier stops AT the target, not below it.
     EXPECT_LE( after.TriangleCount(), 384 );
     EXPECT_GE( after.TriangleCount(), 383 );
@@ -187,7 +195,9 @@ namespace
         for ( const int v : ids )
         {
             glm::dvec3 p = mesh.GetVertex( v );
-            if ( onFacePlane( p.x ) + onFacePlane( p.y ) + onFacePlane( p.z ) != 1 )
+            if ( static_cast<int>( onFacePlane( p.x ) ) + static_cast<int>( onFacePlane( p.y ) ) +
+                      static_cast<int>( onFacePlane( p.z ) ) !=
+                 1 )
                 continue; // on a cube edge: moving it would bend the face
             for ( int k = 0; k < 3; ++k )
                 if ( !onFacePlane( p[k] ) )
@@ -200,11 +210,14 @@ namespace
     // Triangles facing the centre (the cube is convex, so none may) and triangles of zero area.
     std::pair<int, int> InwardAndDegenerate( const DynamicMesh3& mesh )
     {
-        int inward = 0, degenerate = 0;
+        int inward     = 0;
+        int degenerate = 0;
         for ( const int t : mesh.TriangleIndicesItr() )
         {
-            const Index3i    tri = mesh.GetTriangle( t );
-            const glm::dvec3 a = mesh.GetVertex( tri.A ), b = mesh.GetVertex( tri.B ), c = mesh.GetVertex( tri.C );
+            const Index3i    tri    = mesh.GetTriangle( t );
+            const glm::dvec3 a      = mesh.GetVertex( tri.A );
+            const glm::dvec3 b      = mesh.GetVertex( tri.B );
+            const glm::dvec3 c      = mesh.GetVertex( tri.C );
             const glm::dvec3 normal = glm::cross( b - a, c - a );
             if ( glm::length( normal ) < 1e-6 )
                 ++degenerate;
@@ -272,9 +285,9 @@ TEST( Simplify, ASecondSimplifyOfAHardEdgedSphereCollapsesAlongItsSeams )
         settings.Percentage       = 50.0f;
         const DynamicMesh3 half   = Simplified( before, settings );
         const DynamicMesh3 fourth = Simplified( half, settings );
-        std::printf( "perTriangle %d: %d -> %d -> %d triangles, seams %d -> %d -> %d\n", perTriangle,
-                     before.TriangleCount(), half.TriangleCount(), fourth.TriangleCount(), SeamEdges( before ),
-                     SeamEdges( half ), SeamEdges( fourth ) );
+        std::printf( "perTriangle %d: %d -> %d -> %d triangles, seams %d -> %d -> %d\n",
+                     static_cast<int>( perTriangle ), before.TriangleCount(), half.TriangleCount(),
+                     fourth.TriangleCount(), SeamEdges( before ), SeamEdges( half ), SeamEdges( fourth ) );
         EXPECT_EQ( half.TriangleCount(), before.TriangleCount() / 2 ) << perTriangle;
         EXPECT_EQ( fourth.TriangleCount(), before.TriangleCount() / 4 ) << perTriangle;
         EXPECT_TRUE( Valid( half ) && Valid( fourth ) ) << perTriangle;

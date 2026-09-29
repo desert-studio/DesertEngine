@@ -133,6 +133,6 @@ namespace Desert::Geometry
         // vertex near the edge's line (SeamEdgeWeight 256).
         std::unordered_map<int, QuadricErrord> m_SeamQuadrics;
         double                                 m_EdgeFlipTolerance = 0.0;
-        IndexPriorityQueue             m_Queue;
+        IndexPriorityQueue                     m_Queue;
     };
 } // namespace Desert::Geometry

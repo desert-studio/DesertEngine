@@ -148,8 +148,8 @@ namespace Desert::Geometry
     // (MeshConstraintsUtil.cpp:244-263); without it a seam never collapses and its vertices never move.
     struct BoundaryConstraintFlags
     {
-        EdgeRefineFlags MeshBoundary  = EdgeRefineFlags::NoFlip;
-        EdgeRefineFlags GroupBoundary = EdgeRefineFlags::NoConstraint;
+        EdgeRefineFlags MeshBoundary      = EdgeRefineFlags::NoFlip;
+        EdgeRefineFlags GroupBoundary     = EdgeRefineFlags::NoConstraint;
         bool            AllowSeamCollapse = true;
     };
 

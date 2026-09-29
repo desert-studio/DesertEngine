@@ -402,7 +402,7 @@ namespace Desert::Geometry
         if ( triangles == 0 )
             return Common::MakeError<RegionOutcome>( "Mesh Simplify: the mesh has no triangle" );
         const bool byVertices = settings.Target == SimplifyTarget::VertexCount;
-        if ( !byVertices && !( settings.Percentage > 0.0f && settings.Percentage <= 100.0f ) )
+        if ( !byVertices && ( settings.Percentage <= 0.0f || settings.Percentage > 100.0f ) )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Simplify: the target percentage {} is outside (0, 100]", settings.Percentage );
         if ( byVertices && settings.VertexCount < 3 )
