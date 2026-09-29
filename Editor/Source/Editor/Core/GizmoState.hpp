@@ -141,6 +141,20 @@ namespace Desert::Editor::Core
             s_PoseInteraction = held;
         }
 
+        // THE SAME BIT FOR A CONTROL. A control gesture (the shape drag or the axis gizmo) is held in
+        // `LightGizmoRenderer`, and the Sequencer's auto-key needs its edges exactly as the bone gizmo's
+        // are needed above; a second bit rather than reusing that one, because the bone transaction
+        // (`PoseEditTransaction::Observe`) must not open on a control gesture that writes no bone.
+        static bool ControlInteraction()
+        {
+            return s_ControlInteraction;
+        }
+
+        static void SetControlInteraction( bool held )
+        {
+            s_ControlInteraction = held;
+        }
+
         // Snap increments, owned by EditorPreferences (~/.desertengine/editor.json). Snapping is active
         // when the persistent toggle is ON, or while Ctrl is held — and Ctrl INVERTS the toggle (so with
         // snap-always on, Ctrl gives a temporary free drag).
@@ -166,5 +180,6 @@ namespace Desert::Editor::Core
         inline static Operation s_Operation = Operation::None;
         inline static Space     s_Space     = Space::World; // UE's default, and the behaviour before this existed
         inline static bool      s_PoseInteraction = false;
+        inline static bool      s_ControlInteraction = false;
     };
 } // namespace Desert::Editor::Core

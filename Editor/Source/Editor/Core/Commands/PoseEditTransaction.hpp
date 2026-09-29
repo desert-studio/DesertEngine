@@ -50,8 +50,10 @@
 #include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
+#include <Engine/Animation/Rig/ControlKeyer.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -413,4 +415,56 @@ namespace Desert::Editor
         PoseEditTransaction& m_Transaction;
         bool                 m_Opened = false;
     };
+    /**
+     * @brief The Sequencer's "Key (S)": key every control in @p controls at `target.Tick`, as ONE undo entry.
+     *
+     * The keys go through the keyer's button path (`ControlWriteSource::Authored`, not `Observe`), so the
+     * auto-key mode cannot silence a key the animator asked for. The transaction brackets the writes, so
+     * one press of S over five selected controls is one Ctrl+Z, and that is measured by ClipEditUndo rather
+     * than claimed by the panel, which no suite compiles.
+     *
+     * @return keys written. Refuses a target with no hierarchy or no clip, an empty selection, and a
+     *         transaction already open (a key pressed mid-drag belongs to the drag, which records it).
+     */
+    [[nodiscard]] Common::ResultStr<uint32_t> KeyControlsRecorded( PoseEditTransaction&               transaction,
+                                                                   Animation::Animator*               animator,
+                                                                   Animation::ControlKeyer&           keyer,
+                                                                   const Animation::ControlKeyTarget& target,
+                                                                   std::span<const uint32_t>          controls );
+
+    /**
+     * @brief Auto-key for a CONTROL gesture: exactly one key and one undo entry per press-drag-release.
+     *
+     * The edge rule is the keyer's (`ControlKeyer::Observe`); what this adds is the two facts the panel
+     * would otherwise compute in a file no suite compiles: "did the control move since last frame", and the
+     * undo transaction around the release frame — the only frame on which `Observe` writes the clip.
+     * Hand it a keyer of its own: `Observe` keeps last frame's pointer bit, so one keyer observed for a bone
+     * and for a control in the same frame would see two edges per frame.
+     */
+    class ControlAutoKey
+    {
+    public:
+        /// One call per frame. @p held is `GizmoState::ControlInteraction()`.
+        /// @return undo entries pushed: 1 on the release frame of a gesture that moved the control, else 0.
+        [[nodiscard]] Common::ResultStr<uint32_t>
+        Step( PoseEditTransaction& transaction, Animation::Animator* animator, Animation::ControlKeyer& keyer,
+              const Animation::ControlKeyTarget& target, uint32_t control, bool held );
+
+    private:
+        bool                     m_Held    = false;
+        uint32_t                 m_Control = Animation::ControlHierarchy::INVALID;
+        Animation::BoneTransform m_Last;
+    };
+
+    /// Every channel key of @p track at @p from, moved to @p to (a control's summary row is one diamond per
+    /// tick, so dragging it moves the three channels together). Refuses to land on a tick that already holds
+    /// a key of a moved channel — merging two keys silently loses one of them. Returns keys moved.
+    [[nodiscard]] Common::ResultStr<uint32_t> MoveKeysAtTick( Animation::BoneTrack&  track,
+                                                              Animation::FrameNumber from,
+                                                              Animation::FrameNumber to,
+                                                              Animation::FrameRate   tickRate );
+
+    /// Every channel key of @p track at @p at, removed. Returns keys removed (0 when there were none).
+    uint32_t DeleteKeysAtTick( Animation::BoneTrack& track, Animation::FrameNumber at,
+                               Animation::FrameRate tickRate );
 } // namespace Desert::Editor

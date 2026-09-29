@@ -4,6 +4,7 @@
 
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
 
 #include <algorithm>
 #include <utility>
@@ -539,5 +540,174 @@ namespace Desert::Editor
         {
             LOG_ERROR( "[PoseUndo] {}", ended.GetError() );
         }
+    }
+    // ── Sequencer control keying ─────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<uint32_t> KeyControlsRecorded( PoseEditTransaction& transaction,
+                                                     Animation::Animator* animator, Animation::ControlKeyer& keyer,
+                                                     const Animation::ControlKeyTarget& target,
+                                                     std::span<const uint32_t>          controls )
+    {
+        if ( target.Hierarchy == nullptr || target.Clip == nullptr )
+        {
+            return Common::MakeError<uint32_t>( "keying controls needs a control rig and an open clip" );
+        }
+        if ( controls.empty() )
+        {
+            return Common::MakeError<uint32_t>( "no control is selected; select one in the tree or the viewport" );
+        }
+        if ( auto begun = transaction.Begin( animator, target.Clip ); !begun.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( begun.GetError() );
+        }
+        uint32_t keyed = 0;
+        for ( const uint32_t control : controls )
+        {
+            if ( control >= target.Hierarchy->Size() )
+            {
+                transaction.Cancel();
+                return Common::MakeFormattedError<uint32_t>( "control {} is not in a rig of {} controls", control,
+                                                             target.Hierarchy->Size() );
+            }
+            const Animation::BoneTransform pose = target.Hierarchy->Get( control ).Pose;
+            auto written = keyer.Write( target, control, pose, Animation::ControlWriteSource::Authored );
+            if ( !written.IsSuccess() )
+            {
+                transaction.Cancel();
+                return Common::MakeError<uint32_t>( written.GetError() );
+            }
+            keyed += written.GetValue();
+        }
+        if ( auto ended = transaction.End(); !ended.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( ended.GetError() );
+        }
+        return Common::MakeSuccess( keyed );
+    }
+
+    Common::ResultStr<uint32_t> ControlAutoKey::Step( PoseEditTransaction&               transaction,
+                                                      Animation::Animator*               animator,
+                                                      Animation::ControlKeyer&           keyer,
+                                                      const Animation::ControlKeyTarget& target, uint32_t control,
+                                                      bool held )
+    {
+        if ( target.Hierarchy == nullptr || target.Clip == nullptr || control >= target.Hierarchy->Size() )
+        {
+            // Nothing to observe: forget the gesture rather than carry its edge into another rig.
+            if ( keyer.Interacting() )
+            {
+                keyer.CancelInteraction();
+            }
+            m_Held    = false;
+            m_Control = Animation::ControlHierarchy::INVALID;
+            return Common::MakeSuccess( 0U );
+        }
+
+        const Animation::BoneTransform pose  = target.Hierarchy->Get( control ).Pose;
+        const bool                     moved = control == m_Control && !SameStoredValue( pose, m_Last );
+        m_Control                            = control;
+        m_Last                               = pose;
+
+        // The release frame is the only one on which `Observe` writes the clip, so it is the only one that
+        // needs the transaction. Opened here, not on the rising edge: during the gesture the CONTROL moves
+        // and the clip does not, and the control's own undo entry is `ControlGizmoGesture`'s.
+        const bool release = m_Held && !held;
+        m_Held             = held;
+        bool opened        = false;
+        if ( release && !transaction.Open() )
+        {
+            if ( auto begun = transaction.Begin( animator, target.Clip ); !begun.IsSuccess() )
+            {
+                return Common::MakeError<uint32_t>( begun.GetError() );
+            }
+            opened = true;
+        }
+
+        auto observed = keyer.Observe(
+             target, Animation::KeySubject{ Animation::KeySubjectKind::Control, control }, held, moved );
+        if ( !observed.IsSuccess() )
+        {
+            if ( opened )
+            {
+                transaction.Cancel();
+            }
+            return Common::MakeError<uint32_t>( observed.GetError() );
+        }
+        if ( !opened )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+        return transaction.End();
+    }
+
+    namespace
+    {
+        template <typename Keys>
+        [[nodiscard]] bool HasKeyAt( const Keys& keys, Animation::FrameNumber tick )
+        {
+            return std::any_of( keys.begin(), keys.end(), [tick]( const auto& key ) { return key.Tick == tick; } );
+        }
+
+        template <typename Keys>
+        uint32_t RetimeKeys( Keys& keys, Animation::FrameNumber from, Animation::FrameNumber to )
+        {
+            uint32_t moved = 0;
+            for ( auto& key : keys )
+            {
+                if ( key.Tick == from )
+                {
+                    key.Tick = to;
+                    ++moved;
+                }
+            }
+            std::sort( keys.begin(), keys.end() );
+            return moved;
+        }
+
+        template <typename Keys>
+        uint32_t EraseKeys( Keys& keys, Animation::FrameNumber at )
+        {
+            const auto before = keys.size();
+            std::erase_if( keys, [at]( const auto& key ) { return key.Tick == at; } );
+            return static_cast<uint32_t>( before - keys.size() );
+        }
+    } // namespace
+
+    Common::ResultStr<uint32_t> MoveKeysAtTick( Animation::BoneTrack& track, Animation::FrameNumber from,
+                                                Animation::FrameNumber to, Animation::FrameRate tickRate )
+    {
+        if ( from == to )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+        const bool collides = ( HasKeyAt( track.PositionKeys, from ) && HasKeyAt( track.PositionKeys, to ) ) ||
+                              ( HasKeyAt( track.RotationKeys, from ) && HasKeyAt( track.RotationKeys, to ) ) ||
+                              ( HasKeyAt( track.ScaleKeys, from ) && HasKeyAt( track.ScaleKeys, to ) );
+        if ( collides )
+        {
+            return Common::MakeFormattedError<uint32_t>(
+                 "'{}' already has a key at tick {}; moving the key from tick {} onto it would lose one of them",
+                 track.BoneName, to.Value, from.Value );
+        }
+        const uint32_t moved = RetimeKeys( track.PositionKeys, from, to ) +
+                               RetimeKeys( track.RotationKeys, from, to ) +
+                               RetimeKeys( track.ScaleKeys, from, to );
+        if ( moved > 0 )
+        {
+            Animation::RefreshTangents( track, tickRate );
+        }
+        return Common::MakeSuccess( moved );
+    }
+
+    uint32_t DeleteKeysAtTick( Animation::BoneTrack& track, Animation::FrameNumber at,
+                               Animation::FrameRate tickRate )
+    {
+        const uint32_t removed = EraseKeys( track.PositionKeys, at ) + EraseKeys( track.RotationKeys, at ) +
+                                 EraseKeys( track.ScaleKeys, at );
+        if ( removed > 0 )
+        {
+            Animation::RefreshTangents( track, tickRate );
+        }
+        return removed;
     }
 } // namespace Desert::Editor

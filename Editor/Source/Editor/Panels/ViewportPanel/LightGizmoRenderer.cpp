@@ -1,4 +1,5 @@
 #include "LightGizmoRenderer.hpp"
+#include <Editor/Core/GizmoState.hpp>
 
 #include <Editor/Core/GizmoIconSet.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
@@ -236,8 +237,14 @@ namespace Desert::Editor
         if ( Core::ActiveAuthoringContext().ShowsControls() )
         {
             RenderControlRig( camera, width, height, xpos, ypos, owner, mine );
+            // Read once, after every early return inside, so the bit is this frame's whole answer.
+            Core::GizmoState::SetControlInteraction( m_ControlGizmo.Active() || m_ControlDrag.Active() );
         }
-        else if ( m_ControlDrag.Active() )
+        else
+        {
+            Core::GizmoState::SetControlInteraction( false );
+        }
+        if ( !Core::ActiveAuthoringContext().ShowsControls() && m_ControlDrag.Active() )
         {
             // Leaving the mode mid-drag ENDS the drag. Without this the next entry into the mode would
             // resume a grab against a hierarchy that may have been rebuilt under it.

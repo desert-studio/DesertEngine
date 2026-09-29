@@ -34,6 +34,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -1091,4 +1092,150 @@ TEST( ControlGizmoGestureUndo, AGestureWhoseControlChangedBeforeTheReleaseIsAban
     EXPECT_FALSE( gesture.Active() );
     EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0U );
     CommandHistory::Get().Clear();
+}
+
+// ── ANV2b: the Sequencer's control rows (Key (S), auto-key, scrub, key drag/delete) ─────────────────────
+
+namespace
+{
+    size_t PositionKeysOf( const AnimationClip& clip, const char* name )
+    {
+        for ( const BoneTrack& track : clip.Tracks )
+        {
+            if ( track.BoneName == name )
+            {
+                return track.PositionKeys.size();
+            }
+        }
+        return 0;
+    }
+
+    BoneTransform At( float x )
+    {
+        BoneTransform pose;
+        pose.Translation = glm::vec3( x, 0.0F, 0.0F );
+        return pose;
+    }
+} // namespace
+
+TEST_F( ClipEditUndo, KeyingTwoTicksThenScrubbingPutsTheControlBetweenThemAndEachKeyIsOneUndo )
+{
+    Rig      rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    uint32_t control   = 0;
+    auto     hierarchy = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+    const std::array<uint32_t, 1> selected = { control };
+
+    ASSERT_TRUE( hierarchy.SetPose( control, At( 0.0F ) ).IsSuccess() );
+    rig.SetTick( 0 );
+    ControlKeyTarget target = rig.Target();
+    target.Hierarchy        = &hierarchy;
+    auto first =
+         Desert::Editor::KeyControlsRecorded( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, selected );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    EXPECT_EQ( first.GetValue(), 1U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "one Key press is one undo entry";
+
+    ASSERT_TRUE( hierarchy.SetPose( control, At( 20.0F ) ).IsSuccess() );
+    rig.SetTick( kDisplayFrameTicks * 20 );
+    target           = rig.Target();
+    target.Hierarchy = &hierarchy;
+    auto second =
+         Desert::Editor::KeyControlsRecorded( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, selected );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 2U );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 2U );
+
+    // Scrub to the middle: the control is interpolated, not left where the pointer put it.
+    ASSERT_TRUE( hierarchy.SetPose( control, At( -77.0F ) ).IsSuccess() );
+    rig.SetTick( kDisplayFrameTicks * 10 );
+    target           = rig.Target();
+    target.Hierarchy = &hierarchy;
+    ControlKeyer playback;
+    const auto   applied = Desert::Animation::ApplyClipToControls( target, playback );
+    ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
+    EXPECT_EQ( applied.GetValue(), 1U );
+    EXPECT_NEAR( hierarchy.Get( control ).Pose.Translation.x, 10.0F, 0.01F );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 2U ) << "playback must key nothing";
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 1U ) << "undo removes the second key only";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 0U );
+
+    const std::vector<uint32_t> none;
+    EXPECT_FALSE(
+         Desert::Editor::KeyControlsRecorded( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, none )
+              .IsSuccess() );
+}
+
+TEST_F( ClipEditUndo, AutoKeyWritesExactlyOneKeyAndOneEntryPerControlGesture )
+{
+    Rig      rig( MakeClipWithEndpoints(), AutoChangeMode::All );
+    uint32_t control   = 0;
+    auto     hierarchy = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+    ControlKeyTarget target = rig.Target();
+    target.Hierarchy        = &hierarchy;
+
+    Desert::Editor::ControlAutoKey autoKey;
+    uint32_t                       entries = 0;
+    const auto                     step    = [&]( bool held )
+    {
+        const auto stepped =
+             autoKey.Step( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, control, held );
+        EXPECT_TRUE( stepped.IsSuccess() ) << ( stepped.IsSuccess() ? "" : stepped.GetError() );
+        entries += stepped.IsSuccess() ? stepped.GetValue() : 0U;
+    };
+
+    step( false );
+    for ( int frame = 1; frame <= 30; ++frame )
+    {
+        ASSERT_TRUE( hierarchy.SetPose( control, At( static_cast<float>( frame ) ) ).IsSuccess() );
+        step( true );
+        EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "nothing is keyed while the gesture is held";
+    }
+    step( false );
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 1U ) << "thirty moved frames are ONE key";
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+
+    // A press that moves nothing keys nothing.
+    for ( int frame = 0; frame < 10; ++frame )
+    {
+        step( true );
+    }
+    step( false );
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 0U );
+}
+
+TEST_F( ClipEditUndo, AControlRowKeyMovesAndDeletesAllThreeChannelsTogether )
+{
+    BoneTrack track;
+    track.BoneName = "hand_ctrl";
+    ASSERT_TRUE( Desert::Animation::SetTransformKey( track, FrameNumber{ 0 }, At( 0.0F ), PROJECT_TICK_RATE ) );
+    ASSERT_TRUE( Desert::Animation::SetTransformKey( track, FrameNumber{ kDisplayFrameTicks * 20 }, At( 20.0F ),
+                                                     PROJECT_TICK_RATE ) );
+
+    const auto blocked = Desert::Editor::MoveKeysAtTick(
+         track, FrameNumber{ 0 }, FrameNumber{ kDisplayFrameTicks * 20 }, PROJECT_TICK_RATE );
+    EXPECT_FALSE( blocked.IsSuccess() ) << "landing on a key would merge two keys into one";
+    EXPECT_EQ( track.PositionKeys.size(), 2U );
+
+    const auto moved = Desert::Editor::MoveKeysAtTick( track, FrameNumber{ 0 },
+                                                       FrameNumber{ kDisplayFrameTicks * 5 }, PROJECT_TICK_RATE );
+    ASSERT_TRUE( moved.IsSuccess() ) << moved.GetError();
+    EXPECT_EQ( moved.GetValue(), 3U );
+    EXPECT_EQ( track.PositionKeys.front().Tick.Value, kDisplayFrameTicks * 5 );
+    EXPECT_EQ( track.RotationKeys.front().Tick.Value, kDisplayFrameTicks * 5 );
+    EXPECT_EQ( track.ScaleKeys.front().Tick.Value, kDisplayFrameTicks * 5 );
+
+    EXPECT_EQ( Desert::Editor::DeleteKeysAtTick( track, FrameNumber{ kDisplayFrameTicks * 5 }, PROJECT_TICK_RATE ),
+               3U );
+    EXPECT_EQ( track.PositionKeys.size(), 1U );
+    EXPECT_EQ( Desert::Editor::DeleteKeysAtTick( track, FrameNumber{ 1 }, PROJECT_TICK_RATE ), 0U );
 }
