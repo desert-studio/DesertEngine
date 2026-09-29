@@ -1,9 +1,12 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <format>
 #include <functional>
+#include <optional>
 #include <regex>
 #include <span>
 #include <set>
@@ -1197,6 +1200,28 @@ namespace Desert::Core::Preprocess
             return out.str();
         }
 
+        // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
+        // function does not move vertices yet); the fragment stage is the author's surface function between
+        // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
+        // the surface function on the .shader's own lines.
+        std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
+                                              const RawBlock& surface, const RawBlock& include,
+                                              const std::string& autoDecls, const bool masked )
+        {
+            RawBlock code;
+            code.StartLine = 1;
+            if ( stage == ShaderStage::Vertex )
+                code.Content = std::format( "#include <{}>\n#include <{}>\n", kSurfaceTypesInclude,
+                                            SurfaceVertexInclude( path ) );
+            else
+                code.Content =
+                     std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n",
+                                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "", kSurfaceTypesInclude,
+                                  surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
+                                  SurfacePassInclude( pass ) );
+            return AssembleStage( stage, code, include, autoDecls );
+        }
+
     } // namespace
 
     // ─── Public API ─────────────────────────────────────────────────────────────────
@@ -1225,6 +1250,53 @@ namespace Desert::Core::Preprocess
                 return true;
         }
         return false;
+    }
+
+    bool DShaderParser::MayDeclareSurface( const std::string_view source )
+    {
+        constexpr std::string_view keyword = "surface";
+        for ( size_t i = 0; i + keyword.size() <= source.size(); ++i )
+        {
+            if ( i > 0 && IsIdentChar( source[i - 1] ) )
+                continue;
+            size_t matched = 0;
+            while ( matched < keyword.size() &&
+                    std::tolower( static_cast<unsigned char>( source[i + matched] ) ) == keyword[matched] )
+                ++matched;
+            if ( matched != keyword.size() )
+                continue;
+            size_t next = i + matched;
+            while ( next < source.size() && std::isspace( static_cast<unsigned char>( source[next] ) ) )
+                ++next;
+            if ( next < source.size() && source[next] == '{' )
+                return true;
+        }
+        return false;
+    }
+
+    std::string SurfaceCellName( const std::string_view path, const std::string_view pass )
+    {
+        return std::format( "{}.{}", path, pass );
+    }
+
+    std::string SurfaceVertexInclude( const std::string_view path )
+    {
+        return std::format( "Mesh/Surface/Vertex_{}.glslh", path );
+    }
+
+    std::string SurfacePassInclude( const std::string_view pass )
+    {
+        return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
+    }
+
+    std::vector<std::string> SurfaceTemplateIncludes()
+    {
+        std::vector<std::string> includes{ std::string( kSurfaceTypesInclude ) };
+        for ( const std::string_view path : kSurfaceVertexPaths )
+            includes.push_back( SurfaceVertexInclude( path ) );
+        for ( const std::string_view pass : kSurfaceCellPasses )
+            includes.push_back( SurfacePassInclude( pass ) );
+        return includes;
     }
 
     std::string DShaderParser::TranslateSugar( const std::string& source )
@@ -1270,6 +1342,11 @@ namespace Desert::Core::Preprocess
         RawBlock                 includeBlock;
         PendingPass              defaultPass; // top-level stage blocks
         std::vector<PendingPass> namedPasses;
+        // The `Surface` block, expanded into cells after the loop; the line of the first TwoSided/BlendMode
+        // names the error when those settings arrive without a block to shape.
+        std::optional<RawBlock> surfaceBlock;
+        uint32_t                surfaceLine        = 0;
+        uint32_t                surfaceSettingLine = 0;
 
         // Reads one stage block into the given pass. Returns false + err on problems.
         const auto readStageBlock = [&]( Cursor& cur, PendingPass& pass, ShaderStage stage,
@@ -1397,6 +1474,50 @@ namespace Desert::Core::Preprocess
                 }
                 result.Meta.MediumSource = std::move( medium.Content );
             }
+            else if ( lower == "surface" )
+            {
+                if ( surfaceBlock )
+                {
+                    err = { line, "duplicate Surface block" };
+                    return fail();
+                }
+                RawBlock block;
+                if ( !ReadBlock( c, block.Content, block.StartLine, err ) )
+                    return fail();
+                if ( block.Content.find( "#version" ) != std::string::npos )
+                {
+                    err = { block.StartLine, "a Surface block must not declare #version — every cell's stages "
+                                             "are assembled around it" };
+                    return fail();
+                }
+                if ( block.Content.find( "EvaluateSurface" ) == std::string::npos )
+                {
+                    err = { block.StartLine, "a Surface block must define "
+                                             "'SurfaceOutput EvaluateSurface( SurfaceInput )'" };
+                    return fail();
+                }
+                surfaceLine  = line;
+                surfaceBlock = std::move( block );
+            }
+            else if ( lower == "twosided" )
+            {
+                result.Surface.TwoSided = true;
+                surfaceSettingLine      = surfaceSettingLine ? surfaceSettingLine : line;
+            }
+            else if ( lower == "blendmode" )
+            {
+                const std::string v = Lower( ReadIdent( c ) );
+                if ( v == "opaque" )
+                    result.Surface.Blend = SurfaceBlendMode::Opaque;
+                else if ( v == "masked" )
+                    result.Surface.Blend = SurfaceBlendMode::Masked;
+                else
+                {
+                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked)", v ) };
+                    return fail();
+                }
+                surfaceSettingLine = surfaceSettingLine ? surfaceSettingLine : line;
+            }
             else if ( lower == "pass" )
             {
                 PendingPass pass;
@@ -1476,7 +1597,29 @@ namespace Desert::Core::Preprocess
         // A MEDIUM-ONLY SHADER IS LEGAL AND IS THE ONE EXCEPTION. It has no stages because it is not a
         // program: it is the body compiled into four other programs. Every other file without a stage
         // block is still the error it always was — a shader that draws nothing.
-        if ( defaultPass.Blocks.empty() && namedPasses.empty() && !result.Meta.IsMediumProgram() )
+        if ( surfaceBlock )
+        {
+            if ( result.Meta.Domain != ShaderDomain::Surface )
+            {
+                err = { surfaceLine, "a Surface block needs 'Domain Surface'" };
+                return fail();
+            }
+            // A surface template's programs ARE its cells; a stage block beside them would be a program
+            // no mesh pass ever selects.
+            if ( !defaultPass.Blocks.empty() || !namedPasses.empty() )
+            {
+                err = { surfaceLine, "a Surface template must not also declare stage blocks or Pass blocks — "
+                                     "its programs are its cells" };
+                return fail();
+            }
+        }
+        else if ( surfaceSettingLine )
+        {
+            err = { surfaceSettingLine, "TwoSided and BlendMode shape a Surface block, and this shader has none" };
+            return fail();
+        }
+
+        if ( defaultPass.Blocks.empty() && namedPasses.empty() && !result.Meta.IsMediumProgram() && !surfaceBlock )
         {
             err = { c.Line, "shader defines no stage blocks (Vertex/Fragment/Compute...)" };
             return fail();
@@ -1495,6 +1638,45 @@ namespace Desert::Core::Preprocess
                 out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls ) );
             return out;
         };
+
+        if ( surfaceBlock )
+        {
+            const bool masked = result.Surface.Blend == SurfaceBlendMode::Masked;
+            if ( masked )
+            {
+                const auto clip =
+                     std::find_if( result.Meta.Params.begin(), result.Meta.Params.end(), []( const ShaderParam& p )
+                                   { return p.Name == kSurfaceMaskClipParam && !p.IsTexture; } );
+                if ( clip == result.Meta.Params.end() || clip->Type != ShaderValueType::Float ||
+                     !result.Layout.RowBinding )
+                {
+                    err = { surfaceSettingLine,
+                            std::format( "BlendMode Masked needs a Float '{}' in a 'Properties Binding(n)' block "
+                                         "— the clip threshold is a material parameter",
+                                         kSurfaceMaskClipParam ) };
+                    return fail();
+                }
+            }
+
+            ShaderRenderState cellOverride;
+            if ( result.Surface.TwoSided )
+                cellOverride.Cull = StateCull::None;
+            const ShaderRenderState cellState = MergeState( defaultPass.State, cellOverride );
+
+            for ( const std::string_view path : kSurfaceVertexPaths )
+                for ( const std::string_view pass : kSurfaceCellPasses )
+                {
+                    DShaderPass cell;
+                    cell.Name  = SurfaceCellName( path, pass );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
+                                                                              includeBlock, autoDecls, masked ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
+        }
 
         // The default program is the top-level stage set; when a shader consists solely of
         // named passes, the first pass doubles as the default program.

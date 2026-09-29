@@ -1,0 +1,23 @@
+// Surface cell vertex path: instanced static mesh, one transform per instance in InstanceTransforms (binding 17).
+#include <Common/CameraUB.glslh>
+
+layout( location = 0 ) in vec3 a_Position;
+layout( location = 1 ) in vec3 a_Normal;
+layout( location = 4 ) in vec2 a_TextureCoord;
+
+layout( std430, binding = 17 ) readonly buffer InstanceTransforms
+{
+    mat4 transforms[];
+};
+
+DESERT_SURFACE_VARYINGS( out )
+
+void main()
+{
+    const mat4 world        = transforms[gl_InstanceIndex];
+    const vec4 worldPos     = world * vec4( a_Position, 1.0 );
+    v_Surface.WorldPosition = worldPos.xyz;
+    v_Surface.Normal        = normalize( transpose( inverse( mat3( world ) ) ) * a_Normal );
+    v_Surface.UV0           = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
+    gl_Position             = cameraUB.Projection * cameraUB.View * worldPos;
+}

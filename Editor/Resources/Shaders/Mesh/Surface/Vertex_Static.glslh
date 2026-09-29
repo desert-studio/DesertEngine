@@ -1,0 +1,19 @@
+// Surface cell vertex path: one static mesh, its transform in the push block (Common/MaterialTransport.glslh).
+#include <Common/CameraUB.glslh>
+#include <Common/MaterialTransport.glslh>
+
+layout( location = 0 ) in vec3 a_Position;
+layout( location = 1 ) in vec3 a_Normal;
+layout( location = 4 ) in vec2 a_TextureCoord;
+
+DESERT_SURFACE_VARYINGS( out )
+
+void main()
+{
+    const mat4 world        = m_PushConstants.Transform;
+    const vec4 worldPos     = world * vec4( a_Position, 1.0 );
+    v_Surface.WorldPosition = worldPos.xyz;
+    v_Surface.Normal        = normalize( transpose( inverse( mat3( world ) ) ) * a_Normal );
+    v_Surface.UV0           = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
+    gl_Position             = cameraUB.Projection * cameraUB.View * worldPos;
+}

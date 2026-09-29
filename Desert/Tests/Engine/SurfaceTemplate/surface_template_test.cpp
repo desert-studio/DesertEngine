@@ -1,0 +1,222 @@
+// SURF1a: a surface template is ONE authored function; the engine owns how it is drawn. The parser expands
+// the `Surface` block into a cell per (vertex path x pass), named `<Path>.<Pass>`, and each cell is a real
+// program: it compiles, its material layout holds against its SPIR-V, and the engine headers it is built from
+// move the shader map key when they are edited — a header outside the key would leave a warm start drawing
+// the old cell.
+
+#include <gtest/gtest.h>
+
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
+
+#include <TestSupport/derived_data_sandbox.hpp>
+
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <string>
+#include <vector>
+
+namespace
+{
+    namespace PP = Desert::Core::Preprocess;
+
+    // Masked + TwoSided so every branch of the expansion is exercised: the clip threshold is a parameter
+    // and the texture makes the row and the sampler both reach the fragment stage.
+    constexpr const char* kMockTemplate = R"(Shader "MockSurface"
+{
+    Domain Surface
+    TwoSided
+    BlendMode Masked
+
+    Properties Binding(2) TextureBinding(20)
+    {
+        Color     Tint                 ("Tint") = (1, 1, 1, 1)
+        Float     OpacityMaskClipValue ("Opacity Mask Clip", Range(0,1)) = 0.5
+        Texture2D u_BaseTexture        ("Base")
+    }
+
+    Surface
+    {
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
+        {
+            SurfaceOutput s = DefaultSurfaceOutput();
+            const vec4 base = texture( u_BaseTexture, i.UV0 ) * u_Material.Tint;
+            s.BaseColor     = base.rgb;
+            s.Opacity       = base.a;
+            return s;
+        }
+    }
+}
+)";
+
+    std::filesystem::path s_EditorDir;
+
+    struct SurfaceTemplateFixture : ::testing::Test
+    {
+        static void SetUpTestSuite()
+        {
+            // Includes resolve against "Resources/Shaders/", relative: run from Editor/ as the editor does.
+            std::filesystem::path here = std::filesystem::current_path();
+            for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" );
+                  ++up )
+                here = here.parent_path();
+            ASSERT_TRUE( std::filesystem::exists( here / "Editor" / "Resources" / "Shaders" ) )
+                 << "could not find Editor/Resources/Shaders above " << std::filesystem::current_path();
+            s_EditorDir = here / "Editor";
+            std::filesystem::current_path( s_EditorDir );
+        }
+    };
+
+    std::vector<std::string> ExpectedCells()
+    {
+        return { "Static.Forward",    "Static.GBuffer",    "Static.ShadowDepth",
+                 "Instanced.Forward", "Instanced.GBuffer", "Instanced.ShadowDepth",
+                 "Skinned.Forward",   "Skinned.GBuffer",   "Skinned.ShadowDepth" };
+    }
+
+    std::string ParseError( const std::string& text )
+    {
+        const auto parsed = PP::DShaderParser::Parse( text );
+        return parsed.IsSuccess() ? std::string() : parsed.GetError();
+    }
+} // namespace
+
+TEST_F( SurfaceTemplateFixture, TheSurfaceBlockExpandsIntoTheNineNamedCells )
+{
+    const auto parsed = PP::DShaderParser::Parse( kMockTemplate );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto& result = parsed.GetValue();
+
+    EXPECT_EQ( result.Surface.Cells, ExpectedCells() );
+    EXPECT_EQ( result.Meta.PassNames, ExpectedCells() ) << "a cell the boot build does not see is never compiled";
+    EXPECT_TRUE( result.Surface.TwoSided );
+    EXPECT_EQ( result.Surface.Blend, PP::SurfaceBlendMode::Masked );
+
+    for ( const auto& name : ExpectedCells() )
+    {
+        const auto* cell = result.FindPass( name );
+        ASSERT_NE( cell, nullptr ) << name;
+        EXPECT_EQ( cell->Stages.size(), 2u ) << name << ": a cell is one vertex and one fragment stage";
+        ASSERT_TRUE( cell->State.Cull.has_value() ) << name;
+        EXPECT_EQ( *cell->State.Cull, Desert::Core::Formats::StateCull::None ) << name << ": TwoSided lost";
+
+        const auto& fragment = cell->Stages.at( Desert::Core::Formats::ShaderStage::Fragment );
+        const auto  pass     = name.substr( name.find( '.' ) + 1 );
+        EXPECT_NE( fragment.find( PP::SurfacePassInclude( pass ) ), std::string::npos ) << name;
+        EXPECT_NE( fragment.find( "EvaluateSurface" ), std::string::npos ) << name;
+        EXPECT_NE( fragment.find( "#define DESERT_SURFACE_MASKED" ), std::string::npos ) << name;
+        const auto& vertex = cell->Stages.at( Desert::Core::Formats::ShaderStage::Vertex );
+        EXPECT_NE( vertex.find( PP::SurfaceVertexInclude( name.substr( 0, name.find( '.' ) ) ) ),
+                   std::string::npos )
+             << name;
+    }
+}
+
+TEST_F( SurfaceTemplateFixture, EveryCellCompilesAndItsMaterialLayoutHolds )
+{
+    const Desert::TestSupport::DerivedDataSandbox cache( "SurfaceTemplateCells" );
+    const std::filesystem::path                   path = "Resources/Shaders/Programs/Test/MockSurface.shader";
+
+    // Cells only: a surface template has no default ("") program of its own (SURF1c decides what boot
+    // builds for it).
+    for ( const auto& cell : ExpectedCells() )
+    {
+        const auto built = Desert::Core::BuildShaderMap(
+             { kMockTemplate, path, cell, {}, std::format( "MockSurface/{}", cell ) } );
+        ASSERT_TRUE( built.IsSuccess() ) << "cell '" << cell << "': " << built.GetError();
+        const auto& map = built.GetValue();
+        EXPECT_EQ( map.Stages.size(), 2u ) << cell;
+        for ( const auto& stage : map.Stages )
+            EXPECT_FALSE( stage.Spirv.empty() ) << cell;
+
+        const auto reconciled = Desert::Graphic::API::Vulkan::ShaderReflection::ReconcileCellLayout(
+             map.Meta, map.Stages, "MockSurface", cell );
+        for ( const auto& error : reconciled.Errors )
+            ADD_FAILURE() << error;
+        EXPECT_EQ( reconciled.Layout.Params.size(), 2u ) << cell << ": Tint and the clip threshold";
+    }
+}
+
+TEST_F( SurfaceTemplateFixture, TheTemplateSettingsAreRefusedWhereTheyCannotApply )
+{
+    EXPECT_NE( ParseError( R"(Shader "M" { Domain Surface BlendMode Masked
+        Properties Binding(2) { Color Tint ("Tint") = (1,1,1,1) }
+        Surface { SurfaceOutput EvaluateSurface( SurfaceInput i ) { return DefaultSurfaceOutput(); } } })" )
+                    .find( std::string( PP::kSurfaceMaskClipParam ) ),
+               std::string::npos )
+         << "Masked without its threshold parameter must be refused by name";
+
+    EXPECT_NE( ParseError( R"(Shader "M" { Domain PostProcess
+        Surface { SurfaceOutput EvaluateSurface( SurfaceInput i ) { return DefaultSurfaceOutput(); } } })" )
+                    .find( "Domain Surface" ),
+               std::string::npos );
+
+    EXPECT_NE( ParseError( R"(Shader "M" { Domain Surface TwoSided
+        Vertex { void main() { gl_Position = vec4( 0.0 ); } } })" )
+                    .find( "TwoSided" ),
+               std::string::npos )
+         << "TwoSided without a Surface block shapes nothing";
+
+    EXPECT_NE( ParseError( R"(Shader "M" { Domain Surface
+        Surface { SurfaceOutput EvaluateSurface( SurfaceInput i ) { return DefaultSurfaceOutput(); } }
+        Vertex { void main() { gl_Position = vec4( 0.0 ); } } })" )
+                    .find( "cells" ),
+               std::string::npos )
+         << "a stage block beside the cells is a program no mesh pass selects";
+
+    EXPECT_FALSE( ParseError( R"(Shader "M" { Domain Surface
+        Surface { SurfaceOutput EvaluateSurface( SurfaceInput i ) { return DefaultSurfaceOutput(); } } })" )
+                       .size() )
+         << "an opaque one-sided template is the plain case";
+}
+
+TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
+{
+    // A private copy of the shader root, so the edit never touches the repository's headers.
+    const auto root = std::filesystem::temp_directory_path() / "desert_surface_template_key";
+    std::filesystem::remove_all( root );
+    const auto shaders = root / "Resources" / "Shaders";
+    std::filesystem::create_directories( shaders / "Mesh" );
+    std::filesystem::copy( s_EditorDir / "Resources/Shaders/Common", shaders / "Common",
+                           std::filesystem::copy_options::recursive );
+    std::filesystem::copy( s_EditorDir / "Resources/Shaders/Mesh/Surface", shaders / "Mesh" / "Surface",
+                           std::filesystem::copy_options::recursive );
+
+    const auto previous = std::filesystem::current_path();
+    std::filesystem::current_path( root );
+    const std::filesystem::path program = "Resources/Shaders/Programs/Test/MockSurface.shader";
+
+    const auto keys = [&]
+    {
+        std::vector<uint64_t> out;
+        for ( const auto& cell : ExpectedCells() )
+            out.push_back( Desert::Core::ComputeShaderMapKey( kMockTemplate, program, cell, false ) );
+        return out;
+    };
+
+    const auto headers = PP::SurfaceTemplateIncludes();
+    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + PP::kSurfaceCellPasses.size() );
+    for ( const auto& header : headers )
+    {
+        ASSERT_TRUE( std::filesystem::exists( shaders / header ) ) << header;
+        const auto before = keys();
+        // A different SIZE as well: the per-process file cache is invalidated by size or write time.
+        std::ofstream( shaders / header, std::ios::binary | std::ios::app ) << "\n// edited by the test\n";
+        const auto after = keys();
+        for ( size_t i = 0; i < before.size(); ++i )
+            EXPECT_NE( before[i], after[i] )
+                 << "editing " << header << " left the key of cell " << ExpectedCells()[i] << " where it was";
+    }
+
+    std::filesystem::current_path( previous );
+    std::filesystem::remove_all( root );
+}
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
