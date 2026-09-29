@@ -572,8 +572,7 @@ namespace Desert::Editor
         auto asset = mgr.CreateAsset<Assets::TextureAsset>( cookedMeta.string() );
         if ( !asset )
         {
-            LOG_ERROR( "ImportTextureAsset: failed to create TextureAsset from {}",
-                       cookedMeta.string() );
+            LOG_ERROR( "ImportTextureAsset: failed to create TextureAsset from {}", cookedMeta.string() );
             return nullptr;
         }
         return asset;
