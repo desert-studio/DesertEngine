@@ -8,6 +8,7 @@
 //   4. Shapes are cooked once per content: equal data shares one shape, different data does not.
 //   5. The ECS path: the StaticMesh source is picked in draw order, and the entity's scale reaches the points.
 
+#include <Engine/ECS/System/ColliderFit.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
@@ -330,4 +331,91 @@ TEST( MeshCollision, ScaledUnitCubeHullRestsAtItsScaledHalfHeight )
 
     world.Run( 4.0f );
     EXPECT_NEAR( world.Physics.GetPosition( body.GetValue() ).y, 50.0f, 1.5f );
+}
+
+// ---- M22b: Mesh To Collision — simple shapes fit to the points a hull collider is cooked from ----------------
+namespace
+{
+    // A cylinder along X: two rings of `segments` points at x = ±halfLength, radius `radius`.
+    std::vector<glm::vec3> CylinderAlongX( float halfLength, float radius, int segments )
+    {
+        std::vector<glm::vec3> points;
+        for ( int i = 0; i < segments; ++i )
+        {
+            const float a =
+                 2.0f * std::numbers::pi_v<float> * static_cast<float>( i ) / static_cast<float>( segments );
+            for ( const float x : { -halfLength, halfLength } )
+                points.emplace_back( x, radius * std::cos( a ), radius * std::sin( a ) );
+        }
+        return points;
+    }
+} // namespace
+
+TEST( MeshCollision, BoxFitsTheCubeWithItsHalfSize )
+{
+    // A 100 x 60 x 40 cm box, off the body origin by (10, 20, 30): half extents are HALF the size, centred on it.
+    std::vector<glm::vec3> points = CubeCorners( 1.0f );
+    for ( glm::vec3& p : points )
+        p = p * glm::vec3( 50.0f, 30.0f, 20.0f ) + glm::vec3( 10.0f, 20.0f, 30.0f );
+    const auto fit = ECS::FitCollider( Physics::ShapeType::Box, points );
+    ASSERT_TRUE( fit.IsSuccess() ) << fit.GetError();
+    EXPECT_EQ( fit.GetValue().Shape, Physics::ShapeType::Box );
+    EXPECT_EQ( fit.GetValue().HalfExtents, glm::vec3( 50.0f, 30.0f, 20.0f ) );
+    EXPECT_EQ( fit.GetValue().Center, glm::vec3( 10.0f, 20.0f, 30.0f ) );
+}
+
+TEST( MeshCollision, SphereFitsTheSphereWithinOnePercent )
+{
+    std::vector<glm::vec3> points;
+    constexpr float        kRadius = 75.0f;
+    for ( int lat = 0; lat <= 16; ++lat )
+        for ( int lon = 0; lon < 32; ++lon )
+        {
+            const float theta = std::numbers::pi_v<float> * static_cast<float>( lat ) / 16.0f;
+            const float phi   = 2.0f * std::numbers::pi_v<float> * static_cast<float>( lon ) / 32.0f;
+            points.emplace_back( kRadius * std::sin( theta ) * std::cos( phi ), kRadius * std::cos( theta ),
+                                 kRadius * std::sin( theta ) * std::sin( phi ) );
+        }
+    const auto fit = ECS::FitCollider( Physics::ShapeType::Sphere, points );
+    ASSERT_TRUE( fit.IsSuccess() ) << fit.GetError();
+    EXPECT_NEAR( fit.GetValue().Radius, kRadius, kRadius * 0.01f );
+    EXPECT_NEAR( glm::length( fit.GetValue().Center ), 0.0f, kRadius * 0.01f );
+}
+
+TEST( MeshCollision, CapsuleRunsAlongTheLongAxisOfAStretchedCylinder )
+{
+    const std::vector<glm::vec3> points = CylinderAlongX( 200.0f, 30.0f, 32 );
+    const auto                   fit    = ECS::FitCollider( Physics::ShapeType::Capsule, points );
+    ASSERT_TRUE( fit.IsSuccess() ) << fit.GetError();
+    EXPECT_EQ( fit.GetValue().Axis, Physics::CapsuleAxis::X );
+    EXPECT_NEAR( fit.GetValue().Radius, 30.0f, 0.01f );
+    EXPECT_NEAR( fit.GetValue().HalfHeight, 200.0f, 0.01f ); // the rim sits on the cylinder's end: caps go past it
+}
+
+TEST( MeshCollision, FittedCapsuleLiesOnTheFloorAlongItsAxis )
+{
+    SimWorld           world;
+    const TriangleData floor = Floor( 4 );
+    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+
+    const auto fit = ECS::FitCollider( Physics::ShapeType::Capsule, CylinderAlongX( 200.0f, 30.0f, 32 ) );
+    ASSERT_TRUE( fit.IsSuccess() ) << fit.GetError();
+    Physics::BodyDesc log;
+    log.Shape       = fit.GetValue().Shape;
+    log.Radius      = fit.GetValue().Radius;
+    log.HalfHeight  = fit.GetValue().HalfHeight;
+    log.Axis        = fit.GetValue().Axis;
+    log.Center      = fit.GetValue().Center;
+    log.Mass        = 10.0f;
+    log.Restitution = 0.0f;
+    log.Position    = { 0.0f, 150.0f, 0.0f };
+    const auto body = world.Physics.CreateBody( log );
+    ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
+
+    // Lying along X it rests at its radius; a capsule left standing on Y would sit (or topple) far higher.
+    world.Run( 3.0f );
+    EXPECT_NEAR( world.Physics.GetPosition( body.GetValue() ).y, 30.0f, 1.5f );
+    const auto hit = world.Physics.CastRay( { 180.0f, 100.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 200.0f );
+    ASSERT_TRUE( hit.has_value() ) << "the capsule's far end is not where its axis puts it";
+    EXPECT_NEAR( hit->Point.y, 60.0f, 2.0f ); // NOLINT(bugprone-unchecked-optional-access): ASSERT above
 }

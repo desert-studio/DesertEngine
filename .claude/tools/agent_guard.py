@@ -41,7 +41,12 @@ TREE_SEARCH = [
     re.compile(r"(^|[;&|(]\s*|\s)(ag|ack)\s"),
 ]
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
+# grep -r over a build log directory or the scratch is reading logs, not searching the tree (09-29: L10b refused)
+LOG_SEARCH = re.compile(r"grep\s+-[A-Za-z]*[rR][A-Za-z]*\s+(\S+\s+)?[\"']?(\S*build/DevLogs|/private/tmp/|/tmp/)")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
+BRIEF_PATH = re.compile(r"/[^\s'\";|&]*BRIEF\.md")
+# the body of a heredoc (python/C++ written to a file) is data, not shell: `str.find(` is not a tree search
+HEREDOC_BODY = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\b", re.S)
 EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
 SINGLE_TU = re.compile(r"\.o\b|\s-n\b|--dry-run")
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
@@ -49,6 +54,7 @@ MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
 SELF_WAIT = re.compile(r"pgrep\s+-x\s+make|build_quiet\.sh")  # a command that waits for the other build itself is allowed
 GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
+WIP_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b[^;&|]*(-m\s*[\"']wip|-F\s*-\s*<<-?\s*[\"']?\w+[\"']?\s*\n\s*wip)", re.I)
 CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
 MAX_READ_LINES = 150
@@ -87,8 +93,15 @@ CHEAT_SHEET = """[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый �
 - dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
 - сборка: build_quiet.sh в фоне + build_wait.sh; одна make на машине, -j≤4; sleep ≤ 270 с.
 - формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
+- долгое (> 4 мин: сюиты, мигратор, CheckTidy, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
 - CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
+
+
+def bg_out(data):
+    """The output file of a background Bash job, read from the tool's own reply, so the hint names the exact wait."""
+    m = re.search(r"Output is being written to: (\S+)", json.dumps(data.get("tool_response", "")))
+    return m.group(1).rstrip("\\.\"") if m else "<output-файл из ответа инструмента>"
 
 def map_digest(map_path=None, tree=None):
     """CODEMAP's index (every '## ' heading with its line number) and its hand-written Notes section."""
@@ -133,7 +146,11 @@ def log(data, agent, decision, note=""):
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(os.path.join(STATE_DIR, "log.jsonl"), "a") as f:
             f.write(json.dumps({"t": time.time(), "agent": agent, "type": data.get("agent_type"),
-                                "tool": data.get("tool_name"), "decision": decision, "note": note[:200]}) + "\n")
+                                "tool": data.get("tool_name"), "decision": decision, "note": note[:200],
+                                # the refused call itself, so false refusals can be found (09-29: 13 `cat` refusals, cause unknowable)
+                                "cmd": str((data.get("tool_input") or {}).get("command")
+                                           or (data.get("tool_input") or {}).get("file_path") or "")[:160]
+                                if decision == "deny" else ""}) + "\n")
     except OSError:
         pass
 
@@ -252,6 +269,8 @@ def script_rule(cmd, cwd):
     if GIT_PUSH.search(cmd) and "--delete" not in cmd and has("handoff_check.sh"):
         head = subprocess.run(["git", "-C", tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         subject = subprocess.run(["git", "-C", tree, "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
+        if WIP_COMMIT.search(cmd):  # `git commit -m "wip: …" && git push` — HEAD is still the old commit at check time
+            subject = "wip"
         if head and not subject.lower().startswith("wip") and \
                 not os.path.exists(os.path.join(tree, ".cache", "handoff", head + ".ok")):
             return ("[agent_guard] Push без проверки: нет .cache/handoff/<HEAD>.ok. Запусти scripts/Dev/handoff_check.sh "
@@ -286,6 +305,8 @@ def self_check():
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
         "push without handoff": {"tool_name": "Bash", "tool_input": {"command": "git -C " + os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + " push origin nothing-selfcheck"}},
         "merge dev by hand": {"tool_name": "Bash", "tool_input": {"command": "git merge origin/dev"}},
+        "call longer than the cache": {"tool_name": "Bash", "tool_input": {"command": "scripts/Dev/suite.sh X",
+                                                                           "timeout": 600000}},
         "migrator directly": {"tool_name": "Bash", "tool_input": {"command": "./build/Bin/Debug/SceneMigrator a"}},
         "own test loop": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/MacOS/RunTests.sh"}},
         "agent waits for CI": {"tool_name": "Bash", "tool_input": {"command": "gh run watch 1 --exit-status"}},
@@ -364,7 +385,7 @@ def main():
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
                   "[agent_guard] Задача в фоне. НЕ заканчивай ход в ожидании уведомления: простой > 5 мин сбрасывает кэш "
                   "контекста (AF7v потерял так 0,43 млн). Жди блокирующими вызовами ≤ 4 мин: сборка build_quiet.sh — "
-                  "~/.claude/tools/build_wait.sh <лог>; прочее — for i in $(seq 24); do <проверка готовности> && break; sleep 10; done."}})
+                  "~/.claude/tools/build_wait.sh <лог>; прочее — ~/.claude/tools/wait_bg.sh " + bg_out(data) + "."}})
             sys.exit(0)
         calls = state.get("calls", 0)
         if calls >= limit - (TURN_LIMIT - TURN_WARN):
@@ -401,7 +422,8 @@ def main():
              data, agent)
 
     # The build tree is shared state and costs a full rebuild (~10 min, a dozen calls of waiting) to recreate.
-    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd):
+    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd) \
+            and not re.search(r"\brm\s+-[a-zA-Z]*\s+[^;&|]*build/Tests/Intermediates/\w+/\w+/\w+", cmd):
         save_state(state, path)
         deny("[agent_guard] Дерево сборки не чистится: make clean / rm -rf build стоит полной пересборки. Устаревший "
              "объект — пересобери один файл (touch источника) или удали один .o.", data, agent)
@@ -417,6 +439,15 @@ def main():
     if (tool == "Bash" and "CODEMAP.md" in cmd and re.search(r"sed\s+-n\s+'?\d+,\d+p", cmd)) or \
             (tool == "Read" and (tin.get("file_path") or "").endswith("CODEMAP.md") and tin.get("offset")):
         state["map_read"] = True
+    # The lead's pre-scan puts a «## Карта» into the brief (LEAD_PROTOCOL §000 step 2): reading THAT brief is reading the
+    # map — refusing the first code read then only cost a call (09-29: L10b2, PRJ1a).
+    brief = BRIEF_PATH.search(cmd if tool == "Bash" else (tin.get("file_path") or ""))
+    if brief and not state.get("map_read"):
+        try:
+            if "## Карта" in open(brief.group(0), encoding="utf-8").read():
+                state["map_read"] = True
+        except OSError:
+            pass
     reading_code = (tool == "Read" and CODE_FILE.search(tin.get("file_path") or "")) or \
                    (tool == "Bash" and CODE_READ.search(cmd) and CODE_FILE.search(cmd))
     if reading_code and not state.get("map_read") and not state.get("explored"):
@@ -431,7 +462,7 @@ def main():
         deny(f"[agent_guard] Код читается диапазоном ≤ {MAX_READ_LINES} строк: Read(file_path, offset, limit≤{MAX_READ_LINES}) "
              f"или sed -n 'A,Bp'. Целый файл — главная статья расхода.", data, agent)
     if tool == "Bash" and CODE_FILE.search(cmd):
-        if re.search(r"(^|[;&|(]\s*)cat\s+[^|;&]*\.(cpp|hpp|h|glslh|shader|lua|mm)\b", cmd):
+        if re.search(r"(^|[;&|(]\s*)cat\s+(?!>)[^|;&>]*\.(cpp|hpp|h|glslh|shader|lua|mm)\b", cmd):
             save_state(state, path)
             deny(f"[agent_guard] `cat` исходника целиком запрещён: grep -n → sed -n 'A,Bp' (≤ {MAX_READ_LINES} строк).",
                  data, agent)
@@ -457,14 +488,15 @@ def main():
              "git restore --staged .claude && git checkout -- .claude", data, agent)
 
     if tool == "Bash":
+        shell = HEREDOC_BODY.sub("", cmd)
         for rx in TREE_SEARCH:
-            if rx.search(cmd):
+            if rx.search(shell) and not LOG_SEARCH.search(shell):
                 save_state(state, path)
                 deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Где определено имя — "
                      "scripts/Dev/sym.sh <Имя> (1–2 с), где используется — sym.sh --refs <Имя>. Вопрос шире — "
                      "субагенту: Agent(subagent_type: \"Explore\", prompt: \"<что найти, ответ ≤60 строк>\"). "
                      "Сам ищи только внутри уже известных файлов: grep -n <шаблон> <файл>.", data, agent)
-        if FIND.search(cmd) and "-maxdepth" not in cmd:
+        if FIND.search(shell) and "-maxdepth" not in shell:
             save_state(state, path)
             deny("[agent_guard] `find` без -maxdepth — это поиск по дереву; используй Explore или "
                  "`find <папка> -maxdepth 2 ...`.", data, agent)
@@ -474,6 +506,14 @@ def main():
                 deny(f"[agent_guard] sleep {m.group(1)} > {MAX_SLEEP} с: кэш истекает через 5 минут и весь "
                      f"контекст пишется заново. Жди кусками: for i in $(seq 27); do grep -q <маркер> <лог> && "
                      f"break; sleep 10; done", data, agent)
+        # A foreground call longer than the cache's 5 minutes re-reads the whole context (09-29: L10a2 lost 299k,
+        # 30 %, on 6-8 min calls). Long work goes to the background and is waited on in <= 4-min calls.
+        if not tin.get("run_in_background") and int(tin.get("timeout") or 0) > MAX_SLEEP * 1000 + 10000:
+            save_state(state, path)
+            deny(f"[agent_guard] timeout {int(tin['timeout']) // 1000} с > {MAX_SLEEP + 10} с: вызов дольше 5 минут "
+                 "сбрасывает кэш контекста (перечитывание ~1,25× всего контекста). Запусти то же с run_in_background: "
+                 "true и жди ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов; сборка — build_wait.sh).",
+                 data, agent)
         if CI_WAIT.search(cmd):
             save_state(state, path)
             deny("[agent_guard] CI не ждёшь сам: пауза сбрасывает кэш, и весь контекст пишется заново (CI12: 1,5 из "

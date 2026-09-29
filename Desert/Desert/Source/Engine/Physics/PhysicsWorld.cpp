@@ -10,6 +10,7 @@
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -399,6 +400,28 @@ namespace Desert::Physics
                 m_Impl->CookedShapes.emplace( key, shape );
                 break;
             }
+        }
+
+        // A simple shape off the body's origin, or a capsule off Y, is the same shape moved inside the body (UE's
+        // FKShapeElem Center/Rotation). Mesh and ConvexHull points already sit where they are.
+        const bool simple =
+             desc.Shape == ShapeType::Box || desc.Shape == ShapeType::Sphere || desc.Shape == ShapeType::Capsule;
+        const bool offAxis = desc.Shape == ShapeType::Capsule && desc.Axis != CapsuleAxis::Y;
+        if ( simple && ( offAxis || desc.Center != glm::vec3( 0.0f ) ) )
+        {
+            // Y onto X: -90 degrees about Z; Y onto Z: +90 degrees about X.
+            JPH::Quat onto = JPH::Quat::sIdentity();
+            if ( offAxis && desc.Axis == CapsuleAxis::X )
+                onto = JPH::Quat::sRotation( JPH::Vec3::sAxisZ(), -JPH::JPH_PI * 0.5f );
+            else if ( offAxis )
+                onto = JPH::Quat::sRotation( JPH::Vec3::sAxisX(), JPH::JPH_PI * 0.5f );
+            const JPH::RotatedTranslatedShapeSettings moved( ToJolt( desc.Center ), onto, shape );
+            const JPH::ShapeSettings::ShapeResult     result = moved.Create();
+            if ( result.HasError() )
+                return Common::MakeError<BodyHandle>(
+                     std::format( "{} collider could not be moved to its center: {}", ShapeName( desc.Shape ),
+                                  result.GetError() ) );
+            shape = result.Get();
         }
 
         const bool isStatic    = desc.Type == BodyType::Static;

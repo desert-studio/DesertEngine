@@ -119,6 +119,8 @@ namespace Desert::ECS
                 desc.HalfExtents = collider.Data.HalfExtents;
                 desc.Radius      = collider.Data.Radius;
                 desc.HalfHeight  = collider.Data.HalfHeight;
+                desc.Axis        = collider.Data.Axis;
+                desc.Center      = collider.Data.Center;
                 desc.Type        = rb.Data.Type;
                 desc.Mass        = rb.Data.Mass;
                 desc.Friction    = rb.Data.Friction;
@@ -297,8 +299,8 @@ namespace Desert::ECS
             }
         }
 
-    private:
-        // nullopt = the asset is still loading; an error = there is nothing to build from.
+        // nullopt = the asset is still loading; an error = there is nothing to build from. Public: the editor's
+        // Mesh To Collision tool fits its simple shapes to the same points a hull collider is cooked from.
         static Common::ResultStr<std::optional<ColliderMesh>>
         GatherColliderMesh( entt::registry& registry, entt::entity entity, const glm::vec3& scale )
         {
@@ -350,6 +352,7 @@ namespace Desert::ECS
             return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
         }
 
+    private:
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
         void RefuseCollider( entt::entity entity, const std::string& reason )
         {

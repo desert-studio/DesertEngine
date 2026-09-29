@@ -1,3 +1,4 @@
+#include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
 #include <Editor/Core/DragPayloads.hpp>
@@ -1471,6 +1472,10 @@ namespace Desert::Editor
         // Render scene
         m_UIHelper->Image( m_Scene->GetFinalImage( ViewIndex() ),
                            { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        Control::PointerInjection::PublishTarget( Control::Subject::Viewport,
+                                                  { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
+                                                    ImGui::GetItemRectSize().x, ImGui::GetItemRectSize().y,
+                                                    ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
 
         // UI Preview vs Design. Preview: publish the viewport pointer/keyboard so the EditorUIPass drives the
         // canvas with real input (buttons interactive) and SKIP the authoring overlays/handles. Design: the

@@ -7,6 +7,9 @@
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Common/Core/UUID.hpp>
+#include <Engine/Physics/PhysicsWorld.hpp>
+
+#include <array>
 
 #include <memory>
 
@@ -41,6 +44,25 @@ namespace Desert::Editor
             m_Scene = scene;
         }
 
+        // UE SetCollisionGeometryTool's simple types we have a shape for (Aligned Boxes, Minimal Spheres,
+        // Capsules, Convex Hulls), one element per mesh. The panel's combo and the control channel's
+        // "Mesh To Collision <Name>" commands both list this.
+        struct CollisionShapeEntry
+        {
+            const char*        Name;
+            Physics::ShapeType Shape;
+        };
+        static constexpr std::array<CollisionShapeEntry, 4> kCollisionShapes = {
+             { { "Box", Physics::ShapeType::Box },
+               { "Sphere", Physics::ShapeType::Sphere },
+               { "Capsule", Physics::ShapeType::Capsule },
+               { "Convex Hull", Physics::ShapeType::ConvexHull } } };
+
+        // UE's Mesh To Collision on the selected entity: fits `shape` to its mesh as its Collider, one undo
+        // step. The panel's button and the palette command both run this; a refusal carries its reason.
+        static Common::ResultStr<bool> MeshToCollision( const std::shared_ptr<Desert::Core::Scene>& scene,
+                                                        const CollisionShapeEntry&                  shape );
+
     private:
         // The Select Elements tool's properties: mode, counts, and the selection operations.
         void DrawCreateShape();
@@ -53,6 +75,7 @@ namespace Desert::Editor
         void DrawPolyModelPalette();
         void DrawTriModelPalette();
         void DrawTransformPalette();
+        void DrawCollisionPalette();
         void DrawCubeGrid();
         // A mesh / XForm operation on one click; a refusal is logged with its reason.
         void Operate( Core::MeshOperation op );
@@ -64,5 +87,6 @@ namespace Desert::Editor
         std::shared_ptr<Desert::Core::Scene> m_Scene;
         int                                  m_Category  = 0; // index into the rail (Palette in the .cpp)
         int                                  m_ShownTool = 0; // the ModelingState::Tool the rail last followed
+        int m_CollisionShape = 0; // Mesh To Collision's type: index into kCollisionShapes in the .cpp
     };
 } // namespace Desert::Editor
