@@ -406,7 +406,7 @@ namespace Desert::Physics
             if ( result.HasError() )
                 return Common::MakeError<BodyHandle>(
                      std::format( "{} collider could not be moved to its center: {}", ShapeName( desc.Shape ),
-                                  result.GetError().c_str() ) );
+                                  result.GetError() ) );
             shape = result.Get();
         }
 
