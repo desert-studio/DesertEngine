@@ -1435,6 +1435,40 @@ TEST_F( ShaderRootFixture, AnUnlitGraphSurfaceReceivesNoneOfIt )
     EXPECT_FALSE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
 }
 
+TEST_F( ShaderRootFixture, TheUnlitTemplateIsASurfaceWhoseCellsReadNoLight )
+{
+    // SURF1f-4: Unlit.shader stopped being a hand-written program and became a surface template with
+    // ShadingModel Unlit, so it exists the one way a surface material exists — as cells. The relation held
+    // here is between its cells and the lit template's: every cell compiles, and not one of them compiles a
+    // shared shading text or binds anything but the material row, the camera and its own albedo slot.
+    const auto path   = ShaderPath( "Unlit/Unlit.shader" );
+    const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( path ) );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto& cells = parsed.GetValue().Passes;
+    ASSERT_NE(
+         std::find_if( cells.begin(), cells.end(), []( const auto& p ) { return p.Name == "Static.Forward"; } ),
+         cells.end() )
+         << "the Unlit template expanded into no Static.Forward cell";
+
+    for ( const auto& cell : cells )
+    {
+        for ( const auto& include : FragmentIncludes( path, cell.Name ) )
+            EXPECT_FALSE( IsSharedShadingText( include ) )
+                 << "the Unlit cell " << cell.Name << " compiles " << include.filename().string();
+    }
+
+    const auto forward = GraphicsSetZero( path, "Static.Forward" );
+    ASSERT_FALSE( forward.empty() ) << "the Unlit forward cell does not compile";
+    EXPECT_TRUE( HasBinding( forward, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
+         << "the albedo map is not on the material layout's albedo slot: " << DescribeBindings( forward );
+    for ( const auto& b : forward )
+        EXPECT_TRUE( b.binding == 11 || b.descriptorType != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER )
+             << "the Unlit forward cell samples binding " << b.binding
+             << " (a shadow cascade, IBL or another lighting texture): " << DescribeBindings( forward );
+    EXPECT_LE( forward.size(), 3u ) << "an unlit surface binds more than camera + material row + albedo: "
+                                    << DescribeBindings( forward );
+}
+
 // ---- The terrain's per-draw data rides beside the draw, not in the shared block --------------------
 
 TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock )
