@@ -6,13 +6,16 @@
 //      floor and rests on its face; a dense point cloud is simplified by Jolt, not refused.
 //   3. Refusals by name: a Mesh on a dynamic body, no points, a broken index list.
 //   4. Shapes are cooked once per content: equal data shares one shape, different data does not.
+//   5. The ECS path: the StaticMesh source is picked in draw order, and the entity's scale reaches the points.
 
+#include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 
 #include <glm/geometric.hpp>
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -65,14 +68,14 @@ namespace
         return desc;
     }
 
-    struct World
+    struct SimWorld
     {
         Physics::PhysicsWorld Physics;
-        World()
+        SimWorld()
         {
             EXPECT_TRUE( Physics.Init( kGravity ) );
         }
-        ~World()
+        ~SimWorld()
         {
             Physics.Shutdown();
         }
@@ -92,7 +95,7 @@ namespace
 
 TEST( MeshCollision, BallComesToRestOnAMeshFloor )
 {
-    World              world;
+    SimWorld              world;
     const TriangleData floor = Floor( 4 );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
@@ -116,7 +119,7 @@ TEST( MeshCollision, BallComesToRestOnAMeshFloor )
 
 TEST( MeshCollision, ConvexHullCubeFallsAndRestsOnItsFace )
 {
-    World              world;
+    SimWorld              world;
     const TriangleData floor = Floor( 4 );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
@@ -139,7 +142,7 @@ TEST( MeshCollision, ConvexHullCubeFallsAndRestsOnItsFace )
 
 TEST( MeshCollision, ConvexHullOfADenseCloudIsSimplifiedNotRefused )
 {
-    World                  world;
+    SimWorld                  world;
     std::vector<glm::vec3> cloud; // 40 × 50 points on a sphere: far past the hull's 256-point cap
     for ( int i = 0; i < 40; ++i )
         for ( int j = 0; j < 50; ++j )
@@ -158,7 +161,7 @@ TEST( MeshCollision, ConvexHullOfADenseCloudIsSimplifiedNotRefused )
 
 TEST( MeshCollision, RayMeetsTheTriangleItIsAimedAt )
 {
-    World world;
+    SimWorld world;
     // One triangle on the plane y = x / 2, over (0,0), (0,1000), (1000,0) in xz; its normal faces up.
     TriangleData slope;
     slope.Points    = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1000.0f }, { 1000.0f, 500.0f, 0.0f } };
@@ -181,7 +184,7 @@ TEST( MeshCollision, RayMeetsTheTriangleItIsAimedAt )
 
 TEST( MeshCollision, RefusalsNameTheReason )
 {
-    World              world;
+    SimWorld              world;
     const TriangleData floor = Floor( 1 );
 
     const auto dynamicMesh = world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Dynamic ) );
@@ -215,7 +218,7 @@ TEST( MeshCollision, RefusalsNameTheReason )
 
 TEST( MeshCollision, ShapesAreCookedOncePerContent )
 {
-    World              world;
+    SimWorld              world;
     const TriangleData floor = Floor( 2 );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
@@ -242,4 +245,83 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+namespace
+{
+    // RuntimeMesh is only tested for non-null, never read: an empty owner aliasing a dummy address stands in
+    // for a DynamicMesh, whose construction would need the GPU mesh code this suite does not compile.
+    std::shared_ptr<DynamicMesh> StandInRuntimeMesh()
+    {
+        static int dummy = 0;
+        // The pointer is never dereferenced: PickColliderMeshSource only asks whether it is set.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        return std::shared_ptr<DynamicMesh>( std::shared_ptr<void>(), reinterpret_cast<DynamicMesh*>( &dummy ) );
+    }
+
+    // A unit cube (half extent 0.5), as the primitive factory makes it: the entity's scale gives it its size.
+    std::vector<Vertex> UnitCubeVertices()
+    {
+        std::vector<Vertex> vertices;
+        for ( const glm::vec3& corner : CubeCorners( 0.5f ) )
+        {
+            Vertex v{};
+            v.Position = corner;
+            vertices.push_back( v );
+        }
+        return vertices;
+    }
+} // namespace
+
+TEST( MeshCollision, ColliderSourceFollowsTheDrawOrder )
+{
+    ECS::StaticMeshComponent mesh;
+    mesh.RuntimeMesh = StandInRuntimeMesh();
+    mesh.Primitive   = Geometry::PrimitiveType::Cube;
+    mesh.MeshHandle  = Assets::AssetHandle( 42ull );
+    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::RuntimeMesh ); // edited mesh wins
+
+    mesh.RuntimeMesh.reset();
+    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::Primitive ); // then the primitive
+
+    mesh.Primitive.reset();
+    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::Asset ); // then the asset
+
+    mesh.MeshHandle = Assets::AssetHandle();
+    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::None );
+}
+
+TEST( MeshCollision, ColliderMeshCarriesTheEntityScale )
+{
+    const std::vector<Vertex> vertices  = UnitCubeVertices();
+    const std::vector<Index>  triangles = { { 0, 1, 2 }, { 2, 3, 0 } };
+    const glm::vec3           scale( 100.0f, 200.0f, 300.0f );
+
+    const ECS::ColliderMesh built = ECS::BuildColliderMesh( vertices, triangles, scale );
+    ASSERT_EQ( built.Points.size(), vertices.size() );
+    for ( size_t i = 0; i < vertices.size(); ++i )
+        EXPECT_EQ( built.Points[i], vertices[i].Position * scale ) << "point " << i;
+    EXPECT_EQ( built.Indices, ( std::vector<uint32_t>{ 0, 1, 2, 2, 3, 0 } ) );
+}
+
+TEST( MeshCollision, ScaledUnitCubeHullRestsAtItsScaledHalfHeight )
+{
+    SimWorld              world;
+    const TriangleData floor = Floor( 4 );
+    ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
+
+    // An entity scaled ×100: a 1 cm unit cube on screen is 100 cm, so the hull must be too.
+    const ECS::ColliderMesh built = ECS::BuildColliderMesh( UnitCubeVertices(), std::vector<Index>{},
+                                                            glm::vec3( 100.0f ) );
+    Physics::BodyDesc       cube;
+    cube.Shape       = Physics::ShapeType::ConvexHull;
+    cube.MeshPoints  = built.Points;
+    cube.Mass        = 10.0f;
+    cube.Restitution = 0.0f;
+    cube.Position    = { 0.0f, 300.0f, 0.0f };
+    const auto body  = world.Physics.CreateBody( cube );
+    ASSERT_TRUE( body.IsSuccess() ) << body.GetError();
+
+    world.Run( 4.0f );
+    EXPECT_NEAR( world.Physics.GetPosition( body.GetValue() ).y, 50.0f, 1.5f );
 }

@@ -3,6 +3,7 @@
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
+#include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -294,15 +295,6 @@ namespace Desert::ECS
         }
 
     private:
-        struct ColliderMesh
-        {
-            std::vector<glm::vec3> Points; // body space, world scale applied
-            std::vector<uint32_t>  Indices;
-        };
-
-        // UE's rule: a Mesh / ConvexHull collider is built from the StaticMesh of the SAME entity — its edited
-        // mesh, its primitive or its asset, in the order MeshECSSystem draws them — so the collision is the
-        // thing on screen. The body's transform carries no scale, so the points take it here.
         // nullopt = the asset is still loading; an error = there is nothing to build from.
         static Common::ResultStr<std::optional<ColliderMesh>>
         GatherColliderMesh( entt::registry& registry, entt::entity entity, const glm::vec3& scale )
@@ -313,44 +305,40 @@ namespace Desert::ECS
                      "the collider builds from its entity's StaticMesh, and there is none" );
             const auto& mesh = registry.get<StaticMeshComponent>( entity );
 
-            ColliderMesh out;
-            const auto   fill = [&]( const auto& vertices, const auto& indices )
+            switch ( PickColliderMeshSource( mesh ) )
             {
-                out.Points.reserve( vertices.size() );
-                for ( const auto& v : vertices )
-                    out.Points.push_back( v.Position * scale );
-                out.Indices.reserve( indices.size() * 3u );
-                for ( const auto& t : indices )
-                    out.Indices.insert( out.Indices.end(), { t.V1, t.V2, t.V3 } );
-            };
-            if ( mesh.RuntimeMesh )
-                fill( mesh.RuntimeMesh->GetVertices(), mesh.RuntimeMesh->GetIndices() );
-            else if ( mesh.Primitive.has_value() )
-            {
-                const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive );
-                if ( !shared )
-                    return Common::MakeError<Result>(
-                         std::format( "primitive {} has no shared mesh", static_cast<int>( *mesh.Primitive ) ) );
-                fill( shared->GetVertices(), shared->GetIndices() );
+                case ColliderMeshSource::RuntimeMesh:
+                    return Common::MakeSuccess( Result( BuildColliderMesh(
+                         mesh.RuntimeMesh->GetVertices(), mesh.RuntimeMesh->GetIndices(), scale ) ) );
+                case ColliderMeshSource::Primitive:
+                {
+                    const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive );
+                    if ( !shared )
+                        return Common::MakeError<Result>(
+                             std::format( "primitive {} has no shared mesh", static_cast<int>( *mesh.Primitive ) ) );
+                    return Common::MakeSuccess(
+                         Result( BuildColliderMesh( shared->GetVertices(), shared->GetIndices(), scale ) ) );
+                }
+                case ColliderMeshSource::Asset:
+                {
+                    const auto* service = Runtime::ResourceRegistry::GetMeshService();
+                    if ( !service )
+                        return Common::MakeError<Result>( "no mesh service to read the collider's mesh from" );
+                    const Assets::MeshAsset* asset = service->GetAsset( mesh.MeshHandle );
+                    if ( !asset )
+                        return Common::MakeSuccess( Result{} );
+                    const auto* staticAsset = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
+                    if ( !staticAsset )
+                        return Common::MakeError<Result>(
+                             "the StaticMesh's asset is skinned: a skinned mesh has no rest "
+                             "collision, use a Box/Sphere/Capsule" );
+                    return Common::MakeSuccess( Result(
+                         BuildColliderMesh( staticAsset->GetVertices(), staticAsset->GetIndices(), scale ) ) );
+                }
+                case ColliderMeshSource::None:
+                    break;
             }
-            else if ( mesh.MeshHandle )
-            {
-                const auto* service = Runtime::ResourceRegistry::GetMeshService();
-                if ( !service )
-                    return Common::MakeError<Result>( "no mesh service to read the collider's mesh from" );
-                const Assets::MeshAsset* asset = service->GetAsset( mesh.MeshHandle );
-                if ( !asset )
-                    return Common::MakeSuccess( Result{} );
-                const auto* staticAsset = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
-                if ( !staticAsset )
-                    return Common::MakeError<Result>(
-                         "the StaticMesh's asset is skinned: a skinned mesh has no rest "
-                         "collision, use a Box/Sphere/Capsule" );
-                fill( staticAsset->GetVertices(), staticAsset->GetIndices() );
-            }
-            else
-                return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
-            return Common::MakeSuccess( Result( std::move( out ) ) );
+            return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
         }
 
         // Said once per entity per Play: a refused collider would otherwise be retried, and logged, every frame.
