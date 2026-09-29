@@ -300,6 +300,7 @@ def self_check():
         "editor without cap": {"tool_name": "Bash", "tool_input": {"command": "cd Editor && ../build/Bin/Debug/Editor"}},
         "explore not on haiku": {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore", "prompt": "x"}},
         "agent spawns a worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}},
+        "agent spawns a sonnet worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "model": "sonnet", "prompt": "x"}},
         "clean the build": {"tool_name": "Bash", "tool_input": {"command": "make -f Desert.make clean"}},
         "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
         "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
@@ -344,6 +345,12 @@ def main():
     # Verified 2026-09-24 on live calls: a sub-agent's input carries agent_id and agent_type.
     agent = data.get("agent_id")
     agent_type = (data.get("agent_type") or "").lower()
+    # The lead's own spawns: sonnet is refused for any agent (owner 09-29 «соннет дорогой», measured above).
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
+            "sonnet" in str((data.get("tool_input") or {}).get("model") or "").lower():
+        deny("[agent_guard] Тимлид: sonnet не запускать — владелец 09-29 «соннет дорогой»; по замеру на задачу он дороже "
+             "основной модели (L10-FIX 0,59 млн за 15 правок, AL1-12c 0,56 против 0,13–0,23). Основная модель; разведка — haiku Explore.",
+             data, "lead")
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 
@@ -415,12 +422,14 @@ def main():
     # (2026-09-24: P10e spawned "P10e code" and the machine ran five). Only Explore (discovery) is allowed.
     # Owner 2026-09-24 refined it: the limit exists for ECONOMY — a helper is fine when it LOWERS spend. So a worker
     # is allowed only on a cheaper model than the caller (sonnet or haiku), never on the inherited expensive one.
-    if tool == "Agent" and (tin.get("subagent_type") or "general-purpose").lower() != "explore" and \
-            (tin.get("model") or "").lower() not in ("sonnet", "haiku"):
+    # 2026-09-29 owner: «sonnet дорогой» — measured per TASK, not per token: AL1-12c sonnet 0.56 M vs 0.13-0.23 M on the
+    # main model; L10-FIX sonnet 0.59 M for 15 tidy fixes (skipped the glued list). Half the price, 2.5-4x the tokens.
+    # So a worker helper is never cheaper: only Explore (haiku, read-only) remains.
+    if tool == "Agent" and (tin.get("subagent_type") or "general-purpose").lower() != "explore":
         save_state(state, path)
-        deny("[agent_guard] Помощник допустим, только если он СНИЖАЕТ расход: model: \"sonnet\" или \"haiku\" "
-             "(механика, прогоны, правки по списку). На своей модели — делай сам; не влезает — коммит, пуш, отчёт.",
-             data, agent)
+        deny("[agent_guard] Рабочий помощник запрещён (в т.ч. sonnet: владелец 09-29 «соннет дорогой» — по замеру он тратит "
+             "на задачу в 2,5–4 раза больше токенов). Разрешён только Explore на haiku для поиска. Правь сам; не влезает — "
+             "коммит, пуш, REMAINDER, отчёт.", data, agent)
 
     # The build tree is shared state and costs a full rebuild (~10 min, a dozen calls of waiting) to recreate.
     if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd) \
