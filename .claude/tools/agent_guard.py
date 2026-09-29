@@ -229,7 +229,7 @@ def subagent_stop(data):
 
 
 GIT_PUSH = re.compile(r"\bgit\b[^;&|]*\bpush\b")
-DEV_MERGE = re.compile(r"\bgit\b[^;&|]*\b(merge|pull)\b[^;&|]*\b(origin/dev|origin\s+dev|\bdev)\b")
+DEV_MERGE = re.compile(r"\bgit\b[^;&|]*\b(merge|pull)\b(?!-)[^;&|]*\b(origin/dev|origin\s+dev|\bdev)\b")
 MIGRATOR_RUN = re.compile(r"Bin/(Debug|Release)/SceneMigrator\b")
 TEST_LOOP = re.compile(r"RunTests\.sh|for\s+\w+\s+in\s+[^;]*Bin/Tests/")
 
