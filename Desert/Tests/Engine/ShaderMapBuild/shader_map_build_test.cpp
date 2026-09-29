@@ -45,7 +45,7 @@ namespace
     std::string ReadFile( const std::filesystem::path& path )
     {
         const std::ifstream in( path, std::ios::binary );
-        std::ostringstream out;
+        std::ostringstream  out;
         out << in.rdbuf();
         return out.str();
     }
