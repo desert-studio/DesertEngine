@@ -129,26 +129,6 @@ namespace Desert::Editor
         // body clears the selection (the ScrollY table is a child window, so an item-based check can't work).
         bool m_TileHovered = false;
 
-        // EDIT THUMBNAIL (UE: context menu -> "Edit Thumbnail"): the tile of m_EditThumbnailPath is interactive —
-        // a left drag orbits, the wheel zooms — and ONE gesture is ONE ThumbnailEdit::EditOrbit (one write into
-        // the asset's home, one undo entry) when it ends: the drag is released, or the wheel rests for
-        // kThumbnailWheelRestSeconds, or the pointer leaves the tile. Esc or a click outside the tile leaves the
-        // mode. While a gesture runs the tile shows the live orbit; the picture is re-shot from the home after.
-        struct ThumbnailGesture
-        {
-            Assets::ThumbnailOrbit From;               // the orbit the home stated when the gesture began
-            Assets::ThumbnailOrbit Live;               // From moved by the drag and the wheel so far
-            ImVec2                 Drag{ 0.0f, 0.0f }; // pixels of the current left drag
-            float                  Wheel     = 0.0f;   // notches so far
-            double                 LastWheel = 0.0;    // ImGui time of the last notch
-        };
-        static constexpr double         kThumbnailWheelRestSeconds = 0.35;
-        std::string                     m_EditThumbnailPath;
-        std::optional<ThumbnailGesture> m_ThumbnailGesture;
-        // Runs the mode on the tile item just drawn (the thumbnail button, rect @p min..@p max).
-        void DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min, const ImVec2& max );
-        // The gesture's orbit written as one edit; the gesture ends whether or not the write succeeded.
-        void CommitThumbnailGesture();
         // Paths of the current multi-selection; falls back to m_CurrentSelected when empty.
         std::vector<std::string> SelectionPaths() const;
         // Cut/copy/paste of the current selection into the current directory.
@@ -232,6 +212,35 @@ namespace Desert::Editor
         Common::BoolResultStr    SelectEntry( const std::string& path );
 
     private:
+        // EDIT THUMBNAIL (UE: context menu -> "Edit Thumbnail"): the tile of m_EditThumbnailPath is interactive —
+        // a left drag orbits, the wheel zooms — and ONE gesture is ONE ThumbnailEdit::EditOrbit (one write into
+        // the asset's home, one undo entry) when it ends: the drag is released, or the wheel rests for
+        // kThumbnailWheelRestSeconds, or the pointer leaves the tile. Esc or a click outside the tile leaves the
+        // mode, and so does leaving the folder (ChangeDirectory). While a gesture runs the tile shows the LIVE
+        // picture: ThumbnailService::RequestPreview* with the live orbit (UE's realtime thumbnail), never written
+        // or cached; the orbit the gesture settles on is re-shot from the home after.
+        struct ThumbnailGesture
+        {
+            Assets::ThumbnailOrbit From;               // the orbit the home stated when the gesture began
+            Assets::ThumbnailOrbit Live;               // From moved by the drag and the wheel so far
+            ImVec2                 Drag{ 0.0f, 0.0f }; // pixels of the current left drag
+            float                  Wheel     = 0.0f;   // notches so far
+            double                 LastWheel = 0.0;    // ImGui time of the last notch
+            std::string            PreviewKey;         // the path the service files this asset's preview under
+            std::string            PreviewPng;         // ThumbnailKey::PreviewPath of it, once a preview was asked
+        };
+        static constexpr double         kThumbnailWheelRestSeconds = 0.35;
+        std::string                     m_EditThumbnailPath;
+        std::optional<ThumbnailGesture> m_ThumbnailGesture;
+        // Runs the mode on the tile item just drawn (the thumbnail button, rect @p min..@p max).
+        void DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min, const ImVec2& max );
+        // The gesture's orbit written as one edit; the gesture ends whether or not the write succeeded.
+        void CommitThumbnailGesture();
+        // The live orbit asked of ThumbnailService as a preview (subject resolved as the tile resolves it).
+        void RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture );
+        // Leaves Edit Thumbnail: a running gesture is committed first, its preview ended.
+        void LeaveThumbnailEdit();
+
         // Collects a finished cloud-volume generation, exactly once. Called from OnPreUpdate rather than
         // from the render so that a collapsed or hidden Assets window still finishes what it started.
         void PollCloudAssetBake();

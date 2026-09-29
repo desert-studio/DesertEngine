@@ -402,6 +402,7 @@ namespace Desert::Editor
     {
         if ( !directory )
             return;
+        LeaveThumbnailEdit(); // the edited tile is not in the folder being opened
 
         m_PreviousDirectory    = m_CurrentDir;
         m_CurrentDir           = directory;
@@ -2564,9 +2565,34 @@ namespace Desert::Editor
         if ( !m_ThumbnailGesture )
             return;
         const Assets::ThumbnailOrbit live = m_ThumbnailGesture->Live;
+        ThumbnailService::Get().EndPreview( m_ThumbnailGesture->PreviewKey );
         m_ThumbnailGesture.reset();
         if ( auto edited = ThumbnailEdit::EditOrbit( m_EditThumbnailPath, live ); !edited )
             LOG_WARN( "[Thumbnail] Edit Thumbnail '{}': {}", m_EditThumbnailPath, edited.GetError() );
+    }
+
+    void FileExplorerPanel::LeaveThumbnailEdit()
+    {
+        CommitThumbnailGesture();
+        m_EditThumbnailPath.clear();
+    }
+
+    void FileExplorerPanel::RequestThumbnailPreview( const DirectoryInformation& entry, ThumbnailGesture& gesture )
+    {
+        if ( !m_AssetManager )
+            return;
+        if ( entry.Type == FileType::Material )
+        {
+            const auto subject = ThumbnailSubject::ResolveMaterial(
+                 *m_AssetManager, entry.AssetPath, []( const std::string&, const auto& ) {} ); // tile asks again
+            if ( subject && subject.GetValue() )
+                gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMaterial(
+                     *subject.GetValue(), entry.AssetPath, gesture.Live );
+            return;
+        }
+        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, entry.AssetPath );
+        if ( subject && !subject.GetValue().Pending )
+            gesture.PreviewPng = ThumbnailService::Get().RequestPreviewMesh( subject.GetValue(), gesture.Live );
     }
 
     void FileExplorerPanel::DrawThumbnailEdit( const DirectoryInformation& entry, const ImVec2& min,
@@ -2591,6 +2617,9 @@ namespace Desert::Editor
                 return;
             }
             m_ThumbnailGesture = ThumbnailGesture{ stated.GetValue(), stated.GetValue() };
+            m_ThumbnailGesture->PreviewKey = entry.Type == FileType::Model
+                                                  ? CookPaths::MeshAsset( entry.AssetPath ).generic_string()
+                                                  : entry.AssetPath;
         }
         if ( m_ThumbnailGesture )
         {
@@ -2603,6 +2632,15 @@ namespace Desert::Editor
                 g.LastWheel = ImGui::GetTime();
             }
             g.Live = ThumbnailEdit::Orbited( g.From, g.Drag.x, g.Drag.y, g.Wheel );
+            RequestThumbnailPreview( entry, g ); // the service keeps only the newest orbit
+
+            // THE LIVE PICTURE over the tile, once this gesture's first preview has landed.
+            if ( !g.PreviewPng.empty() && m_Thumbnails && m_UIHelper &&
+                 ThumbnailService::Get().PreviewLanded( g.PreviewKey ) )
+                if ( const auto img = m_Thumbnails->Get( g.PreviewPng ) )
+                    if ( const void* tex = m_UIHelper->GetTextureID( img ) )
+                        ImGui::GetWindowDrawList()->AddImage(
+                             reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ), min, max );
 
             const bool wheelRests = g.Wheel != 0.0f && ImGui::GetTime() - g.LastWheel > kThumbnailWheelRestSeconds;
             if ( !active && ( ImGui::IsItemDeactivated() || !hovered || wheelRests ) )
@@ -2623,10 +2661,7 @@ namespace Desert::Editor
         const bool clickedOutside = !hovered && ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ||
                                                   ImGui::IsMouseClicked( ImGuiMouseButton_Right ) );
         if ( ImGui::IsKeyPressed( ImGuiKey_Escape, false ) || clickedOutside )
-        {
-            CommitThumbnailGesture();
-            m_EditThumbnailPath.clear();
-        }
+            LeaveThumbnailEdit();
     }
 
     bool FileExplorerPanel::RenderFile( int dirIndex, bool folder, int shownIndex, bool gridView )

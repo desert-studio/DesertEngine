@@ -6,8 +6,6 @@
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 
-#include <algorithm>
-#include <cmath>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -112,68 +110,6 @@ namespace Desert::Editor::ThumbnailEdit
             return written;
         CommandHistory::Get().PushCommand( std::make_unique<OrbitCommand>( asset, before.GetValue(), orbit ) );
         return Common::MakeSuccess( true );
-    }
-
-    Assets::ThumbnailOrbit Orbited( const Assets::ThumbnailOrbit& from, float dx, float dy, float wheel )
-    {
-        Assets::ThumbnailOrbit next = from;
-        float                  yaw  = std::fmod( from.Yaw + dx * kDegreesPerPixel, 360.0f );
-        if ( yaw > 180.0f )
-            yaw -= 360.0f;
-        else if ( yaw <= -180.0f )
-            yaw += 360.0f;
-        next.Yaw   = yaw;
-        next.Pitch = std::clamp( from.Pitch + dy * kDegreesPerPixel, -89.0f, 89.0f );
-        // Zoom is a fraction of the fitted distance: forward (positive) notches bring the camera in.
-        next.Zoom = std::max( from.Zoom - wheel * kZoomPerNotch, -0.9f );
-        return next;
-    }
-
-    std::string_view OrbitStepName( OrbitStep step )
-    {
-        switch ( step )
-        {
-            case OrbitStep::YawPlus:
-                return "yaw +45";
-            case OrbitStep::YawMinus:
-                return "yaw -45";
-            case OrbitStep::PitchPlus:
-                return "pitch +15";
-            case OrbitStep::PitchMinus:
-                return "pitch -15";
-            case OrbitStep::ZoomOut:
-                return "zoom +0.25";
-            case OrbitStep::ZoomIn:
-                return "zoom -0.25";
-            case OrbitStep::Reset:
-                return "reset";
-        }
-        return "unknown step";
-    }
-
-    Assets::ThumbnailOrbit Stepped( const Assets::ThumbnailOrbit& from, OrbitStep step )
-    {
-        // Degrees and notches through Orbited, so a step obeys exactly the wrap and clamps a drag obeys.
-        constexpr float kPixelsPerDegree = 1.0f / kDegreesPerPixel;
-        constexpr float kNotchesPerZoom  = 1.0f / kZoomPerNotch;
-        switch ( step )
-        {
-            case OrbitStep::YawPlus:
-                return Orbited( from, 45.0f * kPixelsPerDegree, 0.0f, 0.0f );
-            case OrbitStep::YawMinus:
-                return Orbited( from, -45.0f * kPixelsPerDegree, 0.0f, 0.0f );
-            case OrbitStep::PitchPlus:
-                return Orbited( from, 0.0f, 15.0f * kPixelsPerDegree, 0.0f );
-            case OrbitStep::PitchMinus:
-                return Orbited( from, 0.0f, -15.0f * kPixelsPerDegree, 0.0f );
-            case OrbitStep::ZoomOut:
-                return Orbited( from, 0.0f, 0.0f, -0.25f * kNotchesPerZoom );
-            case OrbitStep::ZoomIn:
-                return Orbited( from, 0.0f, 0.0f, 0.25f * kNotchesPerZoom );
-            case OrbitStep::Reset:
-                return Assets::ThumbnailOrbit{};
-        }
-        return from;
     }
 
     Common::BoolResultStr EditOrbitStep( const std::filesystem::path& asset, OrbitStep step )

@@ -4,6 +4,7 @@
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Widgets/ThumbnailPreview.hpp>
 
 #include <Engine/Assets/AssetRootPin.hpp>
 
@@ -154,6 +155,25 @@ namespace Desert::Editor
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
 
+        /**
+         * @brief THE LIVE PREVIEW of Edit Thumbnail (UE renders the tile in real time with the orbit being
+         *        dragged): a capture of the subject seen from @p orbit, an orbit NOT stated anywhere yet.
+         *
+         * Through the same renderer and the same dispatch as every capture - no second renderer - but into
+         * ThumbnailKey::PreviewPath, never recorded, never judged fresh and never the cached thumbnail. One slot,
+         * the last request wins (ThumbnailPreview::Slot), dispatched ahead of the background queue because a
+         * person is dragging. Returns the preview PNG to draw once it exists (ThumbnailCache re-decodes it on
+         * every rewrite). The gesture's end is EndPreview; the orbit it settles on is written by
+         * ThumbnailEdit::EditOrbit and re-shot by freshness like any edit.
+         */
+        std::string RequestPreviewMaterial( const ThumbnailSubject::Material& material,
+                                            const std::string& assetPath, const Assets::ThumbnailOrbit& orbit );
+        std::string RequestPreviewMesh( const ThumbnailSubject::Mesh& mesh, const Assets::ThumbnailOrbit& orbit );
+        /// The gesture on @p assetPath ended: a waiting preview is dropped (one in flight still lands).
+        void EndPreview( const std::string& assetPath );
+        /// A preview of @p assetPath has landed since its gesture began: the PreviewPath file is this gesture's.
+        [[nodiscard]] bool PreviewLanded( const std::string& assetPath ) const;
+
         // Forget a cached/failed result, e.g. after the asset was edited.
         void Invalidate( const std::string& assetPath );
 
@@ -191,7 +211,7 @@ namespace Desert::Editor
 
         [[nodiscard]] bool HasWork() const
         {
-            return !m_Queue.empty() || ( m_Renderer && m_Renderer->HasPending() ) || !m_PaintQueue.empty() ||
+            return CaptureOwed() || ( m_Renderer && m_Renderer->HasPending() ) || !m_PaintQueue.empty() ||
                    m_PaintInFlight.valid();
         }
 
@@ -220,6 +240,18 @@ namespace Desert::Editor
             // whole info, a mesh's orbit in Thumbnail.Orbit (its primitive and PreviewMesh unused).
             Assets::ThumbnailInfo Thumbnail;
         };
+
+        // The renderer's own dispatch of @p req (a mesh, a material, a material on its preview mesh).
+        Common::BoolResultStr Dispatch( const Request& req );
+        // The live preview (RequestPreview*): one slot, last wins, never recorded.
+        ThumbnailPreview::Slot<Request> m_Preview;
+        // Dispatch or settle the preview. True when it used this tick's renderer turn.
+        bool TickPreview( ThumbnailWarmup::CaptureScope scope );
+        // Anything the renderer still owes: the background queue or the preview.
+        [[nodiscard]] bool CaptureOwed() const
+        {
+            return !m_Queue.empty() || m_Preview.Waiting() || m_Preview.InFlight();
+        }
 
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the
         // asset's IDENTITY (ThumbnailKey::Identity), never a raw path — the sets below are keyed on it.
