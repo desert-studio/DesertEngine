@@ -669,10 +669,10 @@ TEST_F( ShaderRootFixture, TheClosureOfTheFogPassListsEveryHeaderItNames )
 TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
 {
     // The TRANSITIVE step, which is what makes the walk worth having over a single grep of the stage
-    // source: NewShaderGraph names Common/GraphVertex.glslh, and only GraphVertex names
-    // Common/CameraUB.glslh. A key that stopped at depth one would not move when CameraUB was edited,
-    // and the machine holding the stale SPIR-V would render differently from the one that had none.
-    const auto path     = ShaderPath( "Graph/NewShaderGraph.shader" );
+    // source: UIMatError's vertex stage names Common/UIVertex.glslh, and only UIVertex names
+    // Common/MaterialTransport.glslh. A key that stopped at depth one would not move when MaterialTransport
+    // was edited, and the machine holding the stale SPIR-V would render differently from the one that had none.
+    const auto path     = ShaderPath( "UI/UIMatError.shader" );
     const auto includes = CollectShaderIncludes( StageSource( path, ShaderStage::Vertex ), path );
 
     const auto contains = [&includes]( const char* name )
@@ -683,8 +683,8 @@ TEST_F( ShaderRootFixture, TheClosureFollowsAHeaderThatIncludesAnother )
         return false;
     };
 
-    EXPECT_TRUE( contains( "GraphVertex.glslh" ) );
-    EXPECT_TRUE( contains( "CameraUB.glslh" ) );
+    EXPECT_TRUE( contains( "UIVertex.glslh" ) );
+    EXPECT_TRUE( contains( "MaterialTransport.glslh" ) );
 }
 
 TEST_F( ShaderRootFixture, TheClosureListsEachFileOnce )
@@ -1142,7 +1142,7 @@ TEST_F( ShaderRootFixture, ALitGraphSurfaceCompilesEverySharedShadingTextTheMesh
     // one into Mesh/ and wires it into StaticMeshPBR only — which is exactly how the graph fell behind the
     // first time.
     const auto mesh  = FragmentIncludes( ShaderPath( "PBR/StandardSurface.shader" ), "Static.Forward" );
-    const auto graph = FragmentIncludes( ShaderPath( "Graph/MatLitConst.shader" ) );
+    const auto graph = FragmentIncludes( ShaderPath( "Graph/MatLitConst.shader" ), "Static.Forward" );
 
     ASSERT_FALSE( mesh.empty() );
     ASSERT_FALSE( graph.empty() );
@@ -1188,7 +1188,7 @@ TEST_F( ShaderRootFixture, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH )
     // Numbers, not names, because that is what a descriptor set is; they are the SAME numbers the four
     // mesh shaders use for the same things, which is a property worth keeping even though every material
     // in this engine binds by name.
-    const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatLitConst.shader" ) );
+    const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatLitConst.shader" ), "Static.Forward" );
     ASSERT_FALSE( bindings.empty() );
 
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_EnvSpecularTex

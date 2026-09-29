@@ -6,7 +6,7 @@
 // oblique clip into pixel-space corners, so the only thing left to do is project them. A material that
 // could write its own vertex stage could move geometry the CPU-side clipper has already cut, and the
 // picture would then disagree with the pointer — the two are cut by one ClipRegion2D precisely so they
-// cannot (see DrawList2D::PushClipRect). GraphVertex.glslh draws the same line for the mesh path.
+// cannot (see DrawList2D::PushClipRect). Mesh/Surface/Vertex_<Path>.glslh draws the same line for the mesh path.
 //
 // THE MATRIX SLOT. This includes Common/MaterialTransport.glslh unchanged rather than declaring a push
 // block of its own, because Vulkan takes ONE push range per pipeline and a second spelling of the same

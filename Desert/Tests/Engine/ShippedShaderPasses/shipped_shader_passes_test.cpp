@@ -241,10 +241,10 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsMaterialParametersReadsThemFromTh
          << "a shipped shader reads u_Material without declaring the Materials[] buffer it comes from, so "
             "it is carrying its parameters some third way.";
 
-    // The six that migrated, named so this test fails if one of them silently stops carrying parameters
+    // The five that migrated (NewShaderGraph, an orphan no .dgraph produced, was deleted in SURF1f), named so this test fails if one of them silently stops carrying parameters
     // at all — which is how a transport change quietly turns into a shader that renders its defaults.
-    for ( const char* migrated : { "MatProbe.shader", "MatProbeUnlit.shader", "NewShaderGraph.shader",
-                                   "Terrain.shader", "TextSDF.shader", "Unlit.shader" } )
+    for ( const char* migrated : { "MatProbe.shader", "MatProbeUnlit.shader", "Terrain.shader", "TextSDF.shader",
+                                   "Unlit.shader" } )
     {
         EXPECT_NE( std::find( onTheSharedBuffer.begin(), onTheSharedBuffer.end(), migrated ),
                    onTheSharedBuffer.end() )
@@ -296,7 +296,6 @@ TEST( ShippedShaderPasses, AGeneratedMaterialRowAlwaysArrivesWithThePushConstant
     static constexpr std::string_view kCarriesAGeneratedRow[] = {
          "MatProbe.shader",
          "MatProbeUnlit.shader",
-         "NewShaderGraph.shader",
          // MAT1a: the mesh PBR programs read the one generated row the renderer writes per object (their
          // hand-written GpuMaterial block and its ReadBuffer were deleted). SURF1c: StandardSurface is the
          // template whose cells replaced the five forward/G-buffer programs.
