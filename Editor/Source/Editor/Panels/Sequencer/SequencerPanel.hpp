@@ -336,6 +336,37 @@ namespace Desert::Editor
         // not be taken back. ONE PER WINDOW, for the keyer's reason — an interaction is about the
         // character this document is over.
         PoseEditTransaction m_ClipEdit;
+
+        // ── THE CONTROL RIG'S TRACKS (ANV2b) ───────────────────────────────────────────────────────────
+        // A keyer OF ITS OWN for control gestures: `ControlKeyer::Observe` keeps last frame's pointer bit,
+        // so the bone keyer above observed for a control too would see two edges per frame. Its MODES are
+        // not its own — they are copied from `m_Keyer` every frame, so the one Auto Key toggle drives both.
+        Animation::ControlKeyer m_ControlKeyer;
+        ControlAutoKey          m_ControlAutoKey;
+        // The tick whose keys were last written onto the controls. Re-applied only when the playhead
+        // moves, so a control the user is holding is never overwritten by the clip under it.
+        int32_t m_ControlTickShown = INT32_MIN;
+        // The selected summary-row key: which control's row, at which tick. Delete removes it.
+        uint32_t m_ControlKeyRow  = Animation::ControlHierarchy::INVALID;
+        int32_t  m_ControlKeyTick = 0;
+
+        /// The key target for the control rig: `KeyTargetFor` plus the live hierarchy (null without a rig).
+        [[nodiscard]] Animation::ControlKeyTarget ControlTargetFor( Animation::AnimationClip* clip,
+                                                                    Animation::Animator&      animator ) const;
+        /// Per frame: auto-key the held control, S / Delete, and the clip's pose onto the controls when the
+        /// playhead moved. Called after `m_ClipEdit.Observe`, so a bone gesture's transaction closed first.
+        void UpdateControlRig( Animation::AnimationClip* clip, Animation::Animator* animator );
+        /// The tree "entity -> Control Rig -> controls" on the left, one summary key row per control.
+        void DrawControlRigTracks( const ECS::Entity& entity, Animation::AnimationClip* clip,
+                                   Animation::Animator* animator, float contentX0, float gutter, float laneW,
+                                   float duration );
+        /// The selected control, when the live authoring context is about THIS window's entity.
+        [[nodiscard]] std::optional<uint32_t> SelectedControlHere() const;
+        void                                  SelectControlFromTrack( uint32_t control );
+        /// "Key (S)": every selected control keyed at the playhead as one undo entry. Refusals are logged.
+        void KeySelectedControls();
+        void SetAutoKey( bool on );
+        void SetTimePercent( int percent );
         // THE UI TIMELINE'S OWN TRANSACTION, and it is a second type rather than a second use of the one
         // above because the subjects have nothing in common: this one edits a UIAnimComponent ON AN ENTITY
         // -- no animator, no authoring pose, no BoneTrack -- so neither half of a ClipPoseCommand is about

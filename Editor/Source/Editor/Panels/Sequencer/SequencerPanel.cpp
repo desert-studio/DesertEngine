@@ -22,6 +22,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
 
 #include <Engine/Animation/AnimationLibrary.hpp>
@@ -43,8 +44,11 @@
 #include <glm/trigonometric.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -532,16 +536,14 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.70f, 0.15f, 0.15f, 1.0f ) );
                 ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.82f, 0.20f, 0.20f, 1.0f ) );
             }
-            if ( ImGui::Button( armed ? ICON_MDI_RECORD_CIRCLE " REC" : ICON_MDI_RECORD " Record" ) )
+            if ( ImGui::Button( armed ? ICON_MDI_RECORD_CIRCLE " Auto Key" : ICON_MDI_RECORD " Auto Key" ) )
             {
-                Animation::KeyingModes modes = m_Keyer.Modes();
-                modes.AutoChange = armed ? Animation::AutoChangeMode::None : Animation::AutoChangeMode::All;
-                m_Keyer.SetModes( modes );
+                SetAutoKey( !armed );
             }
             if ( armed )
                 ImGui::PopStyleColor( 2 );
-            Utils::ImGuiUtilities::Tooltip( "Auto-key (UE ships this OFF): while ON, posing the selected bone "
-                                            "writes ONE key when you let go of the gizmo — not one per mouse "
+            Utils::ImGuiUtilities::Tooltip( "Auto Key (UE ships this OFF): while ON, posing the selected bone or "
+                                            "control writes ONE key when you let go of the gizmo — not one per mouse "
                                             "move, and not one per tick the playhead crossed." );
             ImGui::SameLine();
 
@@ -675,6 +677,8 @@ namespace Desert::Editor
             {
                 LOG_ERROR( "[Sequencer] pose edit not undoable: {}", recorded.GetError() );
             }
+            // AFTER the bone transaction's edge: a control gesture opens its own, and the two must not nest.
+            UpdateControlRig( editClip, animator );
         }
 
         // ---- Timeline (gutter-aligned ruler; the track lanes below share the same time mapping) ----
@@ -753,6 +757,7 @@ namespace Desert::Editor
             // a statement about a RANGE of this clip, so it belongs against the same time axis whether
             // the keys below are drawn as diamonds or as curves — putting it inside one of the two
             // branches would make "which section am I in" a question only one of the views could answer.
+            DrawControlRigTracks( entity, editable, animator, origin.x, gutter, laneW, duration );
             DrawSectionLane( editable, animator, origin.x, gutter, laneW, duration );
 
             if ( m_CurveView )
@@ -832,6 +837,8 @@ namespace Desert::Editor
         // always assumed to be; naming the right one costs nothing and removes the assumption.
         const Animation::FrameRate tickRate    = clip->TickRate;
         const Animation::FrameRate displayRate = clip->DisplayRate;
+        const Animation::ControlHierarchy* rigControls =
+             animator->GetRig() != nullptr ? &animator->GetRig()->GetHierarchy() : nullptr;
 
         const float laneX0    = contentX0 + gutter;
         const float laneH     = 18.0f;
@@ -856,6 +863,13 @@ namespace Desert::Editor
         for ( int ti = 0; ti < static_cast<int>( clip->Tracks.size() ); ++ti )
         {
             auto& tr = clip->Tracks[ti];
+            // A CONTROL'S TRACK IS DRAWN IN THE RIG BLOCK above, as one row; three bone lanes of it here
+            // would be a second place to edit the same keys.
+            if ( rigControls != nullptr &&
+                 rigControls->Find( tr.BoneName ) != Animation::ControlHierarchy::INVALID )
+            {
+                continue;
+            }
             for ( int ch = 0; ch < 3; ++ch )
             {
                 const ImVec2 rp    = ImGui::GetCursorScreenPos();
@@ -1932,6 +1946,18 @@ namespace Desert::Editor
         // THEY ARE OFFERED EVEN WITH NOTHING SELECTED, and refuse in words when run. A palette that
         // hid them would make "the command is missing" and "the command did nothing" the same
         // observation from outside — the empty successful answer, one layer up.
+        // THE CONTROL RIG'S KEYING, reachable without a mouse (ANV2b) — the same functions S, the Auto Key
+        // toggle and the ruler call. Set Time is a grid, as the Animation Editor's is.
+        actions.push_back( DocumentAction{ "Key selected controls", [this] { KeySelectedControls(); } } );
+        actions.push_back( DocumentAction{ "Auto Key On", [this] { SetAutoKey( true ); } } );
+        actions.push_back( DocumentAction{ "Auto Key Off", [this] { SetAutoKey( false ); } } );
+        static constexpr std::array kTimePercents = { 0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100 };
+        for ( const int percent : kTimePercents )
+        {
+            actions.push_back( DocumentAction{ std::format( "Set Time {}%", percent ),
+                                               [this, percent] { SetTimePercent( percent ); } } );
+        }
+
         actions.push_back( DocumentAction{ "Add a section at the playhead", [this] { AddSectionAtPlayhead(); } } );
         // SAVING IS THE OTHER HALF OF AUTHORING, and it was a button too. Without it a section authored
         // through the palette exists only in memory, so "the editor can author a section" could be shown
@@ -2791,5 +2817,354 @@ namespace Desert::Editor
     // IsContextual/IsRelevant ARE GONE WITH THE PANEL. They answered "should this window appear because
     // of what is selected?", which is a question only a singleton tool can be asked — a document is
     // opened, by subject, and selecting something else is not a request to open or close one.
+
+    // ── THE CONTROL RIG'S TRACKS (ANV2b) ─────────────────────────────────────────────────────────────────
+    //
+    // Every decision that can be wrong here is made by the functions in PoseEditTransaction.hpp that
+    // ClipEditUndo measures (one key per S, one per auto-keyed gesture, a row move/delete across three
+    // channels); what is left in this file is widgets and the order they are called in.
+
+    Animation::ControlKeyTarget SequencerPanel::ControlTargetFor( Animation::AnimationClip* clip,
+                                                                  Animation::Animator&      animator ) const
+    {
+        Animation::ControlKeyTarget target = KeyTargetFor( clip, animator );
+        Animation::ControlRigStage* rig    = animator.GetRig();
+        target.Hierarchy                   = rig != nullptr ? &rig->GetHierarchy() : nullptr;
+        return target;
+    }
+
+    std::optional<uint32_t> SequencerPanel::SelectedControlHere() const
+    {
+        const auto& live = Core::ActiveAuthoringContext();
+        if ( live.Entity() != Subject().Owner )
+        {
+            return std::nullopt;
+        }
+        return live.SelectedControl();
+    }
+
+    void SequencerPanel::SelectControlFromTrack( uint32_t control )
+    {
+        // The click IS the user choosing this window — take the context first, as SelectBoneFromTrack does.
+        auto& live = Core::ActiveAuthoringContext();
+        live.Focus( m_AuthoringOwner, m_Authoring );
+        if ( const auto mode = live.SetMode( m_AuthoringOwner, m_Authoring, Core::AuthoringMode::Control );
+             !mode.IsSuccess() )
+        {
+            LOG_WARN( "[Sequencer] control mode refused: {}", mode.GetError() );
+            return;
+        }
+        if ( const auto picked = live.SetSelectedControl( m_AuthoringOwner, m_Authoring, control );
+             !picked.IsSuccess() )
+        {
+            LOG_WARN( "[Sequencer] control selection refused: {}", picked.GetError() );
+        }
+    }
+
+    void SequencerPanel::KeySelectedControls()
+    {
+        const auto target = ResolveSectionTarget();
+        if ( !target )
+        {
+            LOG_WARN( "[Sequencer] Key selected controls: no clip is playing on this window's entity" );
+            return;
+        }
+        const auto control = SelectedControlHere();
+        if ( !control )
+        {
+            LOG_WARN( "[Sequencer] Key selected controls: no control of this entity is selected" );
+            return;
+        }
+        const Animation::ControlKeyTarget keyTarget = ControlTargetFor( target->Clip, *target->Animator );
+        const std::array<uint32_t, 1>     controls  = { *control };
+        const auto keyed = KeyControlsRecorded( m_ClipEdit, target->Animator, m_ControlKeyer, keyTarget, controls );
+        if ( !keyed.IsSuccess() )
+        {
+            LOG_WARN( "[Sequencer] Key selected controls refused: {}", keyed.GetError() );
+            return;
+        }
+        LOG_INFO( "[Sequencer] keyed {} control channel set(s) at tick {}", keyed.GetValue(), keyTarget.Tick.Value );
+    }
+
+    void SequencerPanel::SetAutoKey( bool on )
+    {
+        // THE BONE KEYER'S MODES ARE THE ONE SOURCE; the control keyer copies them every frame.
+        Animation::KeyingModes modes = m_Keyer.Modes();
+        modes.AutoChange             = on ? Animation::AutoChangeMode::All : Animation::AutoChangeMode::None;
+        m_Keyer.SetModes( modes );
+    }
+
+    void SequencerPanel::SetTimePercent( int percent )
+    {
+        const auto resolved = ResolveEntity();
+        if ( !resolved || !resolved->get().HasComponent<ECS::AnimationComponent>() )
+        {
+            LOG_WARN( "[Sequencer] Set Time: this window's entity has no animation" );
+            return;
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — the seam ResolveSectionTarget documents
+        auto& anim = const_cast<ECS::AnimationComponent&>( resolved->get().GetComponent<ECS::AnimationComponent>() );
+        if ( !anim.Animator )
+        {
+            LOG_WARN( "[Sequencer] Set Time: the animation has no animator" );
+            return;
+        }
+        anim.Playing = false;
+        anim.Animator->SetTime( anim.Animator->GetDuration() * static_cast<float>( percent ) / 100.0f );
+    }
+
+    void SequencerPanel::UpdateControlRig( Animation::AnimationClip* clip, Animation::Animator* animator )
+    {
+        if ( clip == nullptr || animator == nullptr )
+        {
+            return;
+        }
+        const Animation::ControlKeyTarget target = ControlTargetFor( clip, *animator );
+        if ( target.Hierarchy == nullptr )
+        {
+            return;
+        }
+        m_ControlKeyer.SetModes( m_Keyer.Modes() );
+
+        const bool held = Core::GizmoState::ControlInteraction();
+        if ( const auto selected = SelectedControlHere() )
+        {
+            const auto stepped =
+                 m_ControlAutoKey.Step( m_ClipEdit, animator, m_ControlKeyer, target, *selected, held );
+            if ( !stepped.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] control auto-key: {}", stepped.GetError() );
+            }
+        }
+
+        // THE CLIP ONTO THE CONTROLS, only when the playhead moved and nothing is held: re-applying every
+        // frame would pull a control the user is posing back to its keyed value under the mouse.
+        if ( !held && target.Tick.Value != m_ControlTickShown )
+        {
+            const auto applied = Animation::ApplyClipToControls( target, m_ControlKeyer );
+            if ( !applied.IsSuccess() )
+            {
+                LOG_ERROR( "[Sequencer] clip -> controls at tick {}: {}", target.Tick.Value, applied.GetError() );
+            }
+            m_ControlTickShown = target.Tick.Value;
+            // The bones follow the controls through the rig on the animator's next evaluation.
+            animator->SetTime( animator->GetCurrentTime() );
+        }
+
+        const ImGuiIO& io        = ImGui::GetIO();
+        const bool     focused   = ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows );
+        const bool     rigOnThis = Core::ActiveAuthoringContext().ShowsControls() &&
+                               Core::ActiveAuthoringContext().Entity() == Subject().Owner;
+        const bool     typing    = io.WantTextInput || io.KeyCtrl || ImGui::IsMouseDown( ImGuiMouseButton_Right );
+        if ( !typing && ( focused || rigOnThis ) && ImGui::IsKeyPressed( ImGuiKey_S, false ) )
+        {
+            KeySelectedControls();
+        }
+        if ( !typing && focused && m_ControlKeyRow < target.Hierarchy->Size() &&
+             ImGui::IsKeyPressed( ImGuiKey_Delete, false ) )
+        {
+            const std::string& name = target.Hierarchy->Get( m_ControlKeyRow ).Name;
+            for ( Animation::BoneTrack& track : clip->Tracks )
+            {
+                if ( track.BoneName == name )
+                {
+                    ScopedPoseEdit edit( m_ClipEdit, animator, clip );
+                    const uint32_t removed = DeleteKeysAtTick( track, Animation::FrameNumber{ m_ControlKeyTick },
+                                                               clip->TickRate );
+                    LOG_INFO( "[Sequencer] deleted {} key(s) of '{}' at tick {}", removed, name, m_ControlKeyTick );
+                    break;
+                }
+            }
+            m_ControlKeyRow    = Animation::ControlHierarchy::INVALID;
+            m_ControlTickShown = INT32_MIN;
+        }
+    }
+
+    void SequencerPanel::DrawControlRigTracks( const ECS::Entity& entity, Animation::AnimationClip* clip,
+                                               Animation::Animator* animator, float contentX0, float gutter,
+                                               float laneW, float duration )
+    {
+        if ( clip == nullptr || animator == nullptr || animator->GetRig() == nullptr )
+        {
+            return;
+        }
+        const Animation::ControlHierarchy& hierarchy = animator->GetRig()->GetHierarchy();
+        const uint32_t                     count     = static_cast<uint32_t>( hierarchy.Size() );
+        if ( count == 0 )
+        {
+            return;
+        }
+
+        // THE TREE, in the order ControlRigPanel draws it: a control sits under the first CONTROL among its
+        // parent spaces. Built per draw from the hierarchy, so it cannot go stale.
+        std::vector<std::vector<uint32_t>> children( count );
+        std::vector<uint32_t>              roots;
+        for ( uint32_t c = 0; c < count; ++c )
+        {
+            uint32_t parent = Animation::ControlHierarchy::INVALID;
+            for ( const Animation::ControlSpace& space : hierarchy.Get( c ).Parents )
+            {
+                if ( space.Kind == Animation::ControlSpaceKind::Control )
+                {
+                    parent = space.Index;
+                    break;
+                }
+            }
+            ( parent < count && parent != c ? children[parent] : roots ).push_back( c );
+        }
+        std::vector<std::pair<uint32_t, int>> rows;
+        std::vector<std::pair<uint32_t, int>> stack;
+        for ( auto it = roots.rbegin(); it != roots.rend(); ++it )
+        {
+            stack.emplace_back( *it, 0 );
+        }
+        while ( !stack.empty() && rows.size() < count )
+        {
+            const auto [c, depth] = stack.back();
+            stack.pop_back();
+            rows.emplace_back( c, depth );
+            for ( auto it = children[c].rbegin(); it != children[c].rend(); ++it )
+            {
+                stack.emplace_back( *it, depth + 1 );
+            }
+        }
+
+        const Animation::FrameRate     tickRate    = clip->TickRate;
+        const Animation::FrameRate     displayRate = clip->DisplayRate;
+        const float                    rowH        = 18.0f;
+        const float                    laneX0      = contentX0 + gutter;
+        const Sequencer::CurveViewport axis        = TimeAxis( laneX0, laneW, duration );
+        const float childH = std::min( 240.0f, 8.0f + static_cast<float>( rows.size() + 2 ) * rowH );
+        ImGui::BeginChild( "##rigTracks", ImVec2( gutter + laneW, childH ), false );
+        ImDrawList*    dl       = ImGui::GetWindowDrawList();
+        const auto     selected = SelectedControlHere();
+        const ImVec2   top      = ImGui::GetCursorScreenPos();
+        const auto     header   = [&]( const char* text, float indent, ImU32 color )
+        {
+            const ImVec2 rp = ImGui::GetCursorScreenPos();
+            dl->AddRectFilled( rp, ImVec2( rp.x + gutter + laneW, rp.y + rowH - 1.0f ), IM_COL32( 34, 34, 40, 255 ) );
+            dl->AddText( ImVec2( rp.x + 4.0f + indent, rp.y + 2.0f ), color, text );
+            ImGui::Dummy( ImVec2( gutter + laneW, rowH ) );
+        };
+        header( entity.HasComponent<ECS::TagComponent>() ? entity.GetComponent<ECS::TagComponent>().Tag.c_str()
+                                                         : "(entity)",
+                0.0f, IM_COL32( 225, 225, 230, 255 ) );
+        header( "Control Rig", 12.0f, IM_COL32( 170, 200, 255, 255 ) );
+
+        for ( const auto& [c, depth] : rows )
+        {
+            const Animation::ControlElement& element = hierarchy.Get( c );
+            const ImU32  color = ImGui::ColorConvertFloat4ToU32(
+                 ImVec4( element.Color.r, element.Color.g, element.Color.b, 1.0f ) );
+            const ImVec2 rp    = ImGui::GetCursorScreenPos();
+            const bool   isSel = selected.has_value() && *selected == c;
+            dl->AddRectFilled( rp, ImVec2( rp.x + gutter + laneW, rp.y + rowH - 1.0f ),
+                               isSel ? IM_COL32( 58, 68, 98, 255 ) : IM_COL32( 24, 24, 29, 255 ) );
+            const float textX = rp.x + 34.0f + static_cast<float>( depth ) * 12.0f;
+            dl->AddRectFilled( ImVec2( textX - 10.0f, rp.y + 5.0f ), ImVec2( textX - 4.0f, rp.y + 11.0f ), color );
+            dl->AddText( ImVec2( textX, rp.y + 2.0f ), color, element.Name.c_str() );
+
+            ImGui::PushID( static_cast<int>( c ) );
+            ImGui::SetCursorScreenPos( rp );
+            ImGui::InvisibleButton( "##label", ImVec2( gutter, rowH - 1.0f ) );
+            if ( ImGui::IsItemClicked() )
+            {
+                SelectControlFromTrack( c );
+            }
+
+            Animation::BoneTrack* track = nullptr;
+            for ( Animation::BoneTrack& candidate : clip->Tracks )
+            {
+                if ( candidate.BoneName == element.Name )
+                {
+                    track = &candidate;
+                    break;
+                }
+            }
+            // ONE DIAMOND PER TICK: the union of the three channels, because a control key is a pose.
+            std::vector<int32_t> ticks;
+            if ( track != nullptr )
+            {
+                for ( const auto& key : track->PositionKeys )
+                    ticks.push_back( key.Tick.Value );
+                for ( const auto& key : track->RotationKeys )
+                    ticks.push_back( key.Tick.Value );
+                for ( const auto& key : track->ScaleKeys )
+                    ticks.push_back( key.Tick.Value );
+                std::sort( ticks.begin(), ticks.end() );
+                ticks.erase( std::unique( ticks.begin(), ticks.end() ), ticks.end() );
+            }
+
+            // ONE BUTTON PER ROW, hit-tested by hand: a button per diamond would change its ID with the
+            // tick it is dragged to and lose the drag on the first frame the key moved.
+            ImGui::SetCursorScreenPos( ImVec2( laneX0, rp.y ) );
+            ImGui::InvisibleButton( "##keys", ImVec2( std::max( laneW, 1.0f ), rowH - 1.0f ) );
+            if ( ImGui::IsItemActivated() )
+            {
+                SelectControlFromTrack( c );
+                m_ControlKeyRow    = Animation::ControlHierarchy::INVALID;
+                const float mouseX = ImGui::GetMousePos().x;
+                for ( const int32_t tick : ticks )
+                {
+                    const float x = axis.TimeToX( TickToSeconds( Animation::FrameNumber{ tick }, tickRate ) );
+                    if ( std::abs( x - mouseX ) <= 6.0f )
+                    {
+                        m_ControlKeyRow  = c;
+                        m_ControlKeyTick = tick;
+                        if ( const auto began = m_ClipEdit.Begin( animator, clip ); !began.IsSuccess() )
+                        {
+                            LOG_ERROR( "[Sequencer] control key move not undoable: {}", began.GetError() );
+                        }
+                        break;
+                    }
+                }
+            }
+            if ( ImGui::IsItemActive() && track != nullptr && m_ControlKeyRow == c &&
+                 ImGui::IsMouseDragging( ImGuiMouseButton_Left ) )
+            {
+                const Animation::FrameNumber to = SecondsToSnappedTick(
+                     static_cast<float>( axis.XToTime( ImGui::GetMousePos().x ) ), tickRate, displayRate );
+                if ( to.Value >= 0 && to.Value != m_ControlKeyTick )
+                {
+                    const auto moved =
+                         MoveKeysAtTick( *track, Animation::FrameNumber{ m_ControlKeyTick }, to, tickRate );
+                    if ( moved.IsSuccess() )
+                    {
+                        m_ControlKeyTick   = to.Value;
+                        m_ControlTickShown = INT32_MIN;
+                    }
+                }
+            }
+            if ( ImGui::IsItemDeactivated() && m_ControlKeyRow == c && m_ClipEdit.OpenExplicitly() )
+            {
+                if ( const auto ended = m_ClipEdit.End(); !ended.IsSuccess() )
+                {
+                    LOG_ERROR( "[Sequencer] control key move not recorded: {}", ended.GetError() );
+                }
+            }
+
+            for ( const int32_t tick : ticks )
+            {
+                const float  x      = axis.TimeToX( TickToSeconds( Animation::FrameNumber{ tick }, tickRate ) );
+                const ImVec2 center( x, rp.y + rowH * 0.5f - 0.5f );
+                const bool   keySel = m_ControlKeyRow == c && m_ControlKeyTick == tick;
+                const float  r      = 5.0f;
+                dl->AddQuadFilled( ImVec2( center.x, center.y - r ), ImVec2( center.x + r, center.y ),
+                                   ImVec2( center.x, center.y + r ), ImVec2( center.x - r, center.y ),
+                                   keySel ? IM_COL32( 255, 255, 255, 255 ) : color );
+                dl->AddQuad( ImVec2( center.x, center.y - r ), ImVec2( center.x + r, center.y ),
+                             ImVec2( center.x, center.y + r ), ImVec2( center.x - r, center.y ),
+                             IM_COL32( 0, 0, 0, 200 ) );
+            }
+            ImGui::PopID();
+            ImGui::SetCursorScreenPos( ImVec2( rp.x, rp.y + rowH ) );
+        }
+
+        const float playX  = axis.TimeToX( animator->GetCurrentTime() );
+        const float bottom = ImGui::GetCursorScreenPos().y;
+        dl->AddLine( ImVec2( playX, top.y ), ImVec2( playX, bottom ), IM_COL32( 255, 90, 90, 255 ), 2.0f );
+        ImGui::Dummy( ImVec2( 0.0f, 0.0f ) );
+        ImGui::EndChild();
+    }
 
 } // namespace Desert::Editor
