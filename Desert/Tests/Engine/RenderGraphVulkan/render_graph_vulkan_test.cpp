@@ -6,6 +6,7 @@
 
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
@@ -899,6 +900,209 @@ TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLay
 }
 
 // Every render-graph layout comes back from its Vulkan layout; a layout the graph cannot express is refused.
+// A pipeline built against the ENGINE's render pass for a framebuffer (the attachment VulkanFramebuffer gives a
+// single-sample colour target, and the SinglePassDependencies every engine pass takes) draws inside the render
+// pass the graph opens on that framebuffer: the two are compatible by construction, no
+// VUID-vkCmdDraw-renderPass-02684. The draw covers the upper half in the engine's +Y-up convention, so with the
+// engine's negative-height viewport it lands in the top rows of the image; the bottom rows keep the clear.
+TEST( RenderGraphVulkan, AnEnginePipelineDrawsRightSideUpInARenderPassTheGraphOpens )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    const VkDevice device = gpu.Device.device;
+
+    VkAttachmentDescription attachment{};
+    attachment.format         = VK_FORMAT_R8G8B8A8_UNORM;
+    attachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+    attachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachment.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    const VkAttachmentReference colourRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription        subpass{};
+    subpass.pipelineBindPoint                           = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount                        = 1;
+    subpass.pColorAttachments                           = &colourRef;
+    const std::vector<VkSubpassDependency> dependencies = SinglePassDependencies( true, false, false );
+    VkRenderPassCreateInfo                 renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments    = &attachment;
+    renderPassInfo.subpassCount    = 1;
+    renderPassInfo.pSubpasses      = &subpass;
+    renderPassInfo.dependencyCount = static_cast<uint32_t>( dependencies.size() );
+    renderPassInfo.pDependencies   = dependencies.data();
+    VkRenderPass engineRenderPass  = VK_NULL_HANDLE;
+    ASSERT_EQ( vkCreateRenderPass( device, &renderPassInfo, nullptr, &engineRenderPass ), VK_SUCCESS );
+
+    auto vs = CompileGlsl( R"(#version 450
+void main() { vec2 p = vec2( ( gl_VertexIndex << 1 ) & 2, gl_VertexIndex & 2 ); gl_Position = vec4( p.x * 2.0 - 1.0, p.y, 0.0, 1.0 ); })",
+                           shaderc_vertex_shader, "upper-half.vert" );
+    auto fs = CompileGlsl( R"(#version 450
+layout( location = 0 ) out vec4 colour;
+void main() { colour = vec4( 1.0, 0.0, 0.0, 1.0 ); })",
+                           shaderc_fragment_shader, "red.frag" );
+    ASSERT_TRUE( vs && fs ) << ( !vs ? vs.GetError() : fs.GetError() );
+    const VkShaderModule                                 vsModule = Module( device, vs.GetValue() );
+    const VkShaderModule                                 fsModule = Module( device, fs.GetValue() );
+    const std::array<VkPipelineShaderStageCreateInfo, 2> stages   = {
+         VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                                          VK_SHADER_STAGE_VERTEX_BIT, vsModule, "main", nullptr },
+         VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                                          VK_SHADER_STAGE_FRAGMENT_BIT, fsModule, "main", nullptr } };
+    VkPipelineLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    VkPipelineLayout           pipelineLayout = VK_NULL_HANDLE;
+    vkCreatePipelineLayout( device, &layoutInfo, nullptr, &pipelineLayout );
+    VkPipelineVertexInputStateCreateInfo vertexInput{ VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+    VkPipelineInputAssemblyStateCreateInfo assembly{ VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+    assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport{ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+    viewport.viewportCount = 1;
+    viewport.scissorCount  = 1;
+    VkPipelineRasterizationStateCreateInfo raster{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode    = VK_CULL_MODE_NONE;
+    raster.lineWidth   = 1.0f;
+    VkPipelineMultisampleStateCreateInfo multisample{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState blendAttachment{};
+    blendAttachment.colorWriteMask =
+         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo blend{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+    blend.attachmentCount                        = 1;
+    blend.pAttachments                           = &blendAttachment;
+    const std::array<VkDynamicState, 2> dynamics = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo    dynamic{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+    dynamic.dynamicStateCount = 2;
+    dynamic.pDynamicStates    = dynamics.data();
+    VkGraphicsPipelineCreateInfo graphics{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+    graphics.stageCount          = 2;
+    graphics.pStages             = stages.data();
+    graphics.pVertexInputState   = &vertexInput;
+    graphics.pInputAssemblyState = &assembly;
+    graphics.pViewportState      = &viewport;
+    graphics.pRasterizationState = &raster;
+    graphics.pMultisampleState   = &multisample;
+    graphics.pColorBlendState    = &blend;
+    graphics.pDynamicState       = &dynamic;
+    graphics.layout              = pipelineLayout;
+    graphics.renderPass          = engineRenderPass;
+    VkPipeline pipeline          = VK_NULL_HANDLE;
+    ASSERT_EQ( vkCreateGraphicsPipelines( device, VK_NULL_HANDLE, 1, &graphics, nullptr, &pipeline ), VK_SUCCESS );
+    vkDestroyShaderModule( device, vsModule, nullptr );
+    vkDestroyShaderModule( device, fsModule, nullptr );
+
+    VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    info.imageType     = VK_IMAGE_TYPE_2D;
+    info.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    info.extent        = { kSize, kSize, 1 };
+    info.mipLevels     = 1;
+    info.arrayLayers   = 1;
+    info.samples       = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo memory{};
+    memory.usage             = VMA_MEMORY_USAGE_AUTO;
+    VkImage       image      = VK_NULL_HANDLE;
+    VmaAllocation allocation = nullptr;
+    ASSERT_EQ( vmaCreateImage( gpu.Allocator, &info, &memory, &image, &allocation, nullptr ), VK_SUCCESS );
+    std::vector<uint8_t> pixels;
+    {
+        VulkanRdgPool        pool( gpu.Rdg, 1 );
+        VulkanRdgBackend     backend( gpu.Rdg, pool );
+        RDG::ExternalTexture target;
+        target.Desc = Target();
+        target.SubresourceStates.assign( target.Desc.SubresourceCount(),
+                                         RDG::RecordedLayoutState( RDG::ImageLayout::Undefined ) );
+        target.Physical          = VulkanRdgTexture::Wrap( device, image, VK_FORMAT_R8G8B8A8_UNORM, Target() );
+        target.RecordFinalStates = []( const std::vector<RDG::AccessState>& ) -> Common::BoolResultStr
+        { return Common::MakeSuccess( true ); };
+
+        VkCommandBuffer             cmd = VK_NULL_HANDLE;
+        VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        allocate.commandPool        = gpu.CommandPool;
+        allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocate.commandBufferCount = 1;
+        vkAllocateCommandBuffers( device, &allocate, &cmd );
+        VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer( cmd, &begin );
+        pool.BeginFrame( 0 );
+        backend.SetCommandBuffer( cmd );
+
+        RDG::ExternalBuffer                        readback;
+        RDG::Builder                               graph( "engine-pipeline" );
+        const std::array<RDG::ExternalTexture*, 1> colors = { &target };
+        const RDG::ImportedFramebuffer             fb     = graph.ImportFramebuffer( colors, nullptr, "Scene" );
+        const RDG::BufferRef bytes = graph.CreateBuffer( RDG::BufferDesc{ kSize * kSize * 4 }, "Readback" );
+        graph.AddPass(
+             "Draw", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
+             { pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::ClearColor( 0.0f, 1.0f, 0.0f, 1.0f ) ); },
+             [&]( RDG::PassContext& ) -> Common::BoolResultStr
+             {
+                 vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+                 vkCmdDraw( cmd, 3, 1, 0, 0 );
+                 return Common::MakeSuccess( true );
+             } );
+        graph.AddPass(
+             "Readback", RDG::PassFlags::Copy,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( fb.Colors[0], RDG::Access::CopySrc );
+                 pass.Write( bytes, RDG::Access::CopyDst );
+             },
+             [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 auto source = context.GetTexture( fb.Colors[0], RDG::Access::CopySrc );
+                 auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
+                 if ( !source || !dest )
+                     return Fail( !source ? source.GetError() : dest.GetError() );
+                 auto sourceImage = VulkanRdgBackend::TextureOf( source.GetValue() );
+                 auto buffer      = VulkanRdgBackend::BufferOf( dest.GetValue() );
+                 if ( !sourceImage || !buffer )
+                     return Fail( "no Vulkan resource" );
+                 VkBufferImageCopy region{};
+                 region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                 region.imageExtent      = { kSize, kSize, 1 };
+                 vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(), 1,
+                                         &region );
+                 return Common::MakeSuccess( true );
+             } );
+        graph.Extract( bytes, readback, RDG::Access::HostRead );
+        const Common::BoolResultStr executed = graph.Execute( backend );
+        vkEndCommandBuffer( cmd );
+        ASSERT_TRUE( executed ) << executed.GetError();
+        VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers    = &cmd;
+        vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+        vkQueueWaitIdle( gpu.Queue );
+        vkFreeCommandBuffers( device, gpu.CommandPool, 1, &cmd );
+        ASSERT_TRUE( readback.Physical && readback.Physical->GetBackendKind() == RDG::BackendKind::Vulkan );
+        const auto& buffer = static_cast<const VulkanRdgBuffer&>( *readback.Physical );
+        buffer.InvalidateForHost();
+        ASSERT_NE( buffer.GetMapped(), nullptr );
+        const auto* texel = static_cast<const uint8_t*>( buffer.GetMapped() );
+        pixels.assign( texel, texel + kSize * kSize * 4 );
+        vkDeviceWaitIdle( device );
+    }
+    vmaDestroyImage( gpu.Allocator, image, allocation );
+    vkDestroyPipeline( device, pipeline, nullptr );
+    vkDestroyPipelineLayout( device, pipelineLayout, nullptr );
+    vkDestroyRenderPass( device, engineRenderPass, nullptr );
+
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+    ASSERT_EQ( pixels.size(), static_cast<size_t>( kSize * kSize * 4 ) );
+    const auto row = [&]( uint32_t y )
+    { return std::vector<uint8_t>( pixels.begin() + y * kSize * 4, pixels.begin() + y * kSize * 4 + 4 ); };
+    EXPECT_EQ( row( 0 ), ( std::vector<uint8_t>{ 255, 0, 0, 255 } ) ) << "the upper half is drawn in the top row";
+    EXPECT_EQ( row( kSize - 1 ), ( std::vector<uint8_t>{ 0, 255, 0, 255 } ) ) << "the bottom row keeps the clear";
+}
+
 TEST( RenderGraphVulkan, EveryGraphLayoutRoundTripsThroughItsVulkanLayout )
 {
     for ( const RDG::ImageLayout layout :

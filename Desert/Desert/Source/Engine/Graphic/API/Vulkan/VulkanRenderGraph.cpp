@@ -1,6 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -303,12 +304,22 @@ namespace Desert::Graphic::API::Vulkan
         subpass.pColorAttachments       = colourRefs.data();
         subpass.pDepthStencilAttachment = key.Depth ? &depthRef : nullptr;
 
+        // The engine's own dependencies, so a pipeline built against a framebuffer's render pass (or against
+        // RdgCompatibleRenderPassKey) is compatible with this one: render-pass compatibility compares them.
+        const bool hasColour =
+             std::any_of( colourRefs.begin(), colourRefs.end(), []( const VkAttachmentReference& reference )
+                          { return reference.attachment != VK_ATTACHMENT_UNUSED; } );
+        const std::vector<VkSubpassDependency> dependencies =
+             SinglePassDependencies( hasColour, key.Depth.has_value(), false );
+
         VkRenderPassCreateInfo info{};
         info.sType                = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         info.attachmentCount      = static_cast<uint32_t>( attachments.size() );
         info.pAttachments         = attachments.data();
         info.subpassCount         = 1;
         info.pSubpasses           = &subpass;
+        info.dependencyCount      = static_cast<uint32_t>( dependencies.size() );
+        info.pDependencies        = dependencies.data();
         VkRenderPass   renderPass = VK_NULL_HANDLE;
         const VkResult result     = vkCreateRenderPass( device, &info, nullptr, &renderPass );
         if ( result != VK_SUCCESS )
@@ -905,9 +916,15 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdBeginRenderPass( m_CommandBuffer, &begin, VK_SUBPASS_CONTENTS_INLINE );
         m_RenderPassOpen = true;
 
-        // The whole target: what nearly every pass wants, set once here instead of in every exec lambda.
-        const VkViewport viewport{
-             0.0f, 0.0f, static_cast<float>( extent.width ), static_cast<float>( extent.height ), 0.0f, 1.0f };
+        // The whole target: what nearly every pass wants, set once here instead of in every exec lambda. The
+        // engine's convention (VulkanRendererAPI::SetViewportAndScissor): negative height, so +Y is up and the
+        // engine's pipelines draw the same picture in a graph-opened render pass as in their own.
+        const VkViewport viewport{ 0.0f,
+                                   static_cast<float>( extent.height ),
+                                   static_cast<float>( extent.width ),
+                                   -static_cast<float>( extent.height ),
+                                   0.0f,
+                                   1.0f };
         const VkRect2D scissor{ { 0, 0 }, extent };
         vkCmdSetViewport( m_CommandBuffer, 0, 1, &viewport );
         vkCmdSetScissor( m_CommandBuffer, 0, 1, &scissor );
