@@ -12,6 +12,8 @@
 
 #include <gtest/gtest.h>
 
+#include <stdexcept>
+
 using namespace Desert;
 using namespace Desert::World::Landscape;
 using namespace Desert::Editor::Commands;
@@ -57,8 +59,10 @@ namespace
         }
         LandscapeTileData& Tile()
         {
-            return registry.get<ECS::LandscapeTileComponent>( tile )
-                 .Heights.value(); // NOLINT(bugprone-unchecked-optional-access)
+            auto& heights = registry.get<ECS::LandscapeTileComponent>( tile ).Heights;
+            if ( !heights )
+                throw std::logic_error( "fixture tile has no heights" );
+            return *heights;
         }
         uint16_t Height()
         {
