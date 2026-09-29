@@ -796,10 +796,22 @@ TEST( LandscapePaint, PaintingOverAHoleNeitherMovesNorCountsTheVisibilityLayer )
         ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
     }
 
-    const LandscapeTileData& tile  = tiles.at( { 0, 0 } );
-    const size_t             grass = tile.FindWeightLayer( "Grass" ).value();
-    const size_t             rock  = tile.FindWeightLayer( "Rock" ).value();
-    const size_t             mask  = tile.VisibilityLayer().value();
+    const LandscapeTileData& tile = tiles.at( { 0, 0 } );
+
+    const auto grassLayer = tile.FindWeightLayer( "Grass" );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    ASSERT_TRUE( grassLayer.has_value() );
+    const size_t grass = *grassLayer;
+
+    const auto rockLayer = tile.FindWeightLayer( "Rock" );
+    ASSERT_TRUE( rockLayer.has_value() );
+    const size_t rock = *rockLayer;
+
+    const auto maskLayer = tile.VisibilityLayer();
+    ASSERT_TRUE( maskLayer.has_value() );
+    const size_t mask = *maskLayer;
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( tile.Weight( grass, 3, 3 ), 255 ) << "the stroke's centre was painted";
     for ( uint32_t z = 0; z < tile.SamplesZ(); ++z )
         for ( uint32_t x = 0; x < tile.SamplesX(); ++x )
@@ -878,7 +890,12 @@ TEST( LandscapePaint, TheVisibilityBrushCutsAHoleShiftFillsItAndPhysicsIsTold )
     paint.Layer = std::string( kLandscapeVisibilityLayerName );
     for ( int step = 0; step < 8; ++step )
         ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
-    const size_t mask = tile.VisibilityLayer().value();
+    const auto maskLayer = tile.VisibilityLayer();
+    ASSERT_TRUE( maskLayer.has_value() );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    const size_t mask = *maskLayer;
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( tile.Weight( mask, 3, 3 ), 255 ) << "the stroke's centre is a hole";
     EXPECT_TRUE( LandscapeWeightIsHole( tile.Weight( mask, 3, 3 ) ) );
     EXPECT_EQ( tile.Weight( mask, 7, 7 ), 0 ) << "outside the brush";

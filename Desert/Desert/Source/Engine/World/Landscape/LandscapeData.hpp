@@ -347,7 +347,7 @@ namespace Desert::World::Landscape
 
         /// The index of the tile's visibility layer (kLandscapeVisibilityLayerName), or nullopt when the tile
         /// has no holes.
-        std::optional<size_t> VisibilityLayer() const
+        [[nodiscard]] std::optional<size_t> VisibilityLayer() const
         {
             return FindWeightLayer( kLandscapeVisibilityLayerName );
         }

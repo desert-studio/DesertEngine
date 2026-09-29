@@ -912,13 +912,22 @@ TEST( LandscapeRaycast, ARayIntoAHolePassesAndItsRimIsHit )
         const glm::vec3 origin   = at( rim.x, rim.y );
         const auto      hit      = RaycastLandscape( tiles, origin, down, 1e4f );
         const auto      expected = land.Height( origin.x, origin.z );
+        // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         ASSERT_TRUE( hit.has_value() ) << "the rim cell " << rim.x << ", " << rim.y;
+        const float hitY = hit->Point.y;
         ASSERT_TRUE( expected.has_value() );
-        EXPECT_NEAR( hit->Point.y, *expected, 0.05f ) << rim.x << ", " << rim.y;
+        EXPECT_NEAR( hitY, *expected, 0.05f ) << rim.x << ", " << rim.y;
+        // NOLINTEND(bugprone-unchecked-optional-access)
     }
 
     // Weight 170 is no hole, 171 is (UE's mask 1 - w below its 0.3333 clip).
-    const size_t               mask = land.Tiles[0].VisibilityLayer().value();
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    const auto maskLayer = land.Tiles[0].VisibilityLayer();
+    ASSERT_TRUE( maskLayer.has_value() );
+    const size_t mask = *maskLayer;
+    // NOLINTEND(bugprone-unchecked-optional-access)
     const LandscapeRect        rect{ 10u, 10u, 15u, 15u };
     const std::vector<uint8_t> below( rect.Area(), 170u );
     ASSERT_TRUE( land.Tiles[0].WriteWeightRegion( mask, rect, below ).IsSuccess() );
@@ -935,22 +944,38 @@ TEST( LandscapeCollision, ABallDroppedIntoAPaintedHoleFallsThroughAndTheRimStill
     auto&         component = jolt.Registry.get<ECS::LandscapeTileComponent>( jolt.Entities[0] );
     const auto    body      = jolt.Collision->BodyOf( jolt.Entities[0] );
     ASSERT_NE( body, Physics::kInvalidBody );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    ASSERT_TRUE( component.Heights.has_value() );
+    LandscapeTileData& heights = *component.Heights;
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     const auto x = [&]( float gx ) { return land.Frames[0].OriginX + gx * kSpacing; };
     const auto z = [&]( float gz ) { return land.Frames[0].OriginZ + gz * kSpacing; };
     ASSERT_TRUE( jolt.JoltHeight( x( 16.0f ), z( 16.0f ) ).has_value() ) << "ground before the hole";
 
     // Painted after the body exists: the weight write alone must reach the collider (the dirty path).
-    CutHole( *component.Heights, 6u, 6u, 26u, 26u );
+    CutHole( heights, 6u, 6u, 26u, 26u );
     jolt.Sync( land );
     EXPECT_EQ( jolt.Collision->BodyOf( jolt.Entities[0] ), body ) << "a hole is a patch, not a new body";
     EXPECT_FALSE( jolt.JoltHeight( x( 16.0f ), z( 16.0f ) ).has_value() ) << "Jolt still has ground in the hole";
     const auto rim = jolt.JoltHeight( x( 4.5f ), z( 16.0f ) );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     ASSERT_TRUE( rim.has_value() ) << "the rim lost its collision";
-    EXPECT_NEAR( *rim, *land.Height( x( 4.5f ), z( 16.0f ) ), kJoltQuantisationCm );
+    const float rimY        = *rim;
+    const auto  rimExpected = land.Height( x( 4.5f ), z( 16.0f ) );
+    ASSERT_TRUE( rimExpected.has_value() );
+    EXPECT_NEAR( rimY, *rimExpected, kJoltQuantisationCm );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
-    constexpr float   kRadius = 40.0f;
-    const float       ground  = *land.Height( x( 16.0f ), z( 16.0f ) );
+    constexpr float kRadius   = 40.0f;
+    const auto      groundOpt = land.Height( x( 16.0f ), z( 16.0f ) );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    ASSERT_TRUE( groundOpt.has_value() );
+    const float ground = *groundOpt;
+    // NOLINTEND(bugprone-unchecked-optional-access)
     Physics::BodyDesc ball;
     ball.Shape    = Physics::ShapeType::Sphere;
     ball.Radius   = kRadius;
@@ -965,12 +990,20 @@ TEST( LandscapeCollision, ABallDroppedIntoAPaintedHoleFallsThroughAndTheRimStill
     EXPECT_LT( jolt.World.GetPosition( id ).y, ground - 300.0f ) << "the ball rests on a hole";
 
     // Filling it back (Shift) restores the ground.
-    const size_t               mask = component.Heights->VisibilityLayer().value();
+    const auto fillMaskLayer = heights.VisibilityLayer();
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    ASSERT_TRUE( fillMaskLayer.has_value() );
+    const size_t mask = *fillMaskLayer;
+    // NOLINTEND(bugprone-unchecked-optional-access)
     const LandscapeRect        rect{ 6u, 6u, 26u, 26u };
     const std::vector<uint8_t> none( rect.Area(), 0u );
-    ASSERT_TRUE( component.Heights->WriteWeightRegion( mask, rect, none ).IsSuccess() );
+    ASSERT_TRUE( heights.WriteWeightRegion( mask, rect, none ).IsSuccess() );
     jolt.Sync( land );
     const auto back = jolt.JoltHeight( x( 16.0f ), z( 16.0f ) );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     ASSERT_TRUE( back.has_value() ) << "the filled hole has no collision";
     EXPECT_NEAR( *back, ground, kJoltQuantisationCm );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 }
