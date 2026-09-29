@@ -984,7 +984,9 @@ TEST( LandscapeCollision, ABallDroppedIntoAPaintedHoleFallsThroughAndTheRimStill
     ball.Type     = Physics::BodyType::Dynamic;
     ball.Mass     = 10.0f;
     ball.Position = glm::vec3( x( 16.0f ), ground + 200.0f, z( 16.0f ) );
-    const auto id = jolt.World.CreateBody( ball );
+    const auto created = jolt.World.CreateBody( ball );
+    ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
+    const auto id = created.GetValue();
     ASSERT_NE( id, Physics::kInvalidBody );
     for ( int step = 0; step < 120; ++step )
         jolt.World.Step( 1.0f / 60.0f );
