@@ -53,6 +53,35 @@ namespace
     }
 } // namespace
 
+// ── Yielded: a gizmo over the picture has the pointer ───────────────────────────────────────────────────
+
+TEST( PreviewInput, AYieldedDragDoesNotOrbitPanOrMoveTheSun )
+{
+    PreviewInputEvents drag = Drag( 40.0f, -12.0f );
+    ExpectStill( PreviewInput( PreviewInteraction::Yielded, drag ) );
+    drag.RightDown = true;
+    ExpectStill( PreviewInput( PreviewInteraction::Yielded, drag ) );
+    drag.RightDown    = false;
+    drag.LightKeyDown = true;
+    ExpectStill( PreviewInput( PreviewInteraction::Yielded, drag ) );
+    EXPECT_EQ( WheelOwner( PreviewInteraction::Yielded, true, true ), PreviewWheelOwner::PassThrough );
+}
+
+TEST( PreviewInput, APressOnTheGizmoYieldsTheSameFrame )
+{
+    // Pointer on the ring, nothing held: the preview must not claim the press.
+    EXPECT_EQ( PreviewInteractionUnderTool( true, false, false ), PreviewInteraction::Yielded );
+    // The gizmo is being dragged, even if the pointer has left the ring.
+    EXPECT_EQ( PreviewInteractionUnderTool( false, true, false ), PreviewInteraction::Yielded );
+    EXPECT_EQ( PreviewInteractionUnderTool( false, true, true ), PreviewInteraction::Yielded );
+}
+
+TEST( PreviewInput, AnOrbitThatCrossesTheGizmoKeepsOrbiting )
+{
+    EXPECT_EQ( PreviewInteractionUnderTool( true, false, true ), PreviewInteraction::Interactive );
+    EXPECT_EQ( PreviewInteractionUnderTool( false, false, false ), PreviewInteraction::Interactive );
+}
+
 // ── Static: the Details row ─────────────────────────────────────────────────────────────────────────────
 
 TEST( PreviewInput, StaticDragDoesNotOrbit )

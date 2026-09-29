@@ -142,6 +142,10 @@ namespace Desert
 
         virtual void SetEventCallback( const EventCallbackFn& e ) = 0;
 
+        /// Hands @p e to the same callback the OS events reach, so a synthetic input (the control
+        /// channel's pointer drag) arrives at the layers by the one route a real click takes.
+        virtual void DispatchEvent( Common::Event& e ) = 0;
+
         virtual Common::ResultStr<bool>
         SetupSwapChain( ) = 0;
 
