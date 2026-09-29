@@ -3,6 +3,7 @@
 #include "SourceAlphaMode.hpp"
 #include "SourceMaterialAdapter.hpp"
 #include "SourceTexturePath.hpp"
+#include "VertexStreams.hpp"
 
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
@@ -387,6 +388,10 @@ namespace Desert::Editor
         };
         std::vector<MorphContribution> morphContribs;
 
+        // COLOR_0 and TEXCOORD_1 become the asset's optional streams, one entry per vertex in the order the
+        // vertex arrays below are filled.
+        const SceneVertexStreams streams = StreamsOf( *scene );
+
         for ( uint32_t meshIdx = 0; meshIdx < scene->mNumMeshes; ++meshIdx )
         {
             aiMesh* mesh = scene->mMeshes[meshIdx];
@@ -443,6 +448,7 @@ namespace Desert::Editor
 
                     meshData.StaticVertices.push_back( v );
                 }
+                AppendVertexStreams( *mesh, streams, meshData.Colors, meshData.UV1 );
             }
             else
             {
@@ -538,6 +544,7 @@ namespace Desert::Editor
                 {
                     meshData.SkinnedVertices.push_back( v );
                 }
+                AppendVertexStreams( *mesh, streams, meshData.Colors, meshData.UV1 );
             }
 
             // ============================
