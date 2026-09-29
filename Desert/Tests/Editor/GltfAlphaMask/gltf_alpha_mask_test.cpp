@@ -34,6 +34,14 @@ namespace
          0x00, 0xc4, 0xff, 0xc1, 0x04, 0x88, 0x03, 0x00, 0x38, 0x93, 0x06, 0x5f, 0x42, 0x8d, 0x50, 0x75,
          0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82 };
 
+    // 2x2 RGB PNG (colour type 2, no alpha channel): what a JPG base colour is to the mask - nothing.
+    constexpr std::array<uint8_t, 73> kRgbCardPng = {
+         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+         0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xfd, 0xd4, 0x9a,
+         0x73, 0x00, 0x00, 0x00, 0x10, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xd0, 0x58, 0xa0, 0x01,
+         0x44, 0x0c, 0x10, 0x0a, 0x00, 0x1a, 0x4e, 0x03, 0xc1, 0x04, 0xba, 0xcb, 0x0c, 0x00, 0x00, 0x00,
+         0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82 };
+
     std::filesystem::path WriteCard( const std::string& caseName, const std::string& alphaStatement )
     {
         namespace fs        = std::filesystem;
@@ -151,6 +159,46 @@ TEST( GltfAlphaMask, ABlendCardIsDrawnMaskedAndSaysSo )
     EXPECT_EQ( alpha.Kind, SourceAlphaKind::BlendAsMask );
     EXPECT_EQ( alpha.AlphaMode, "BLEND" );
     EXPECT_FLOAT_EQ( alpha.AlphaCutoff, Desert::Editor::kGltfDefaultAlphaCutoff );
+}
+
+TEST( GltfAlphaMask, AMaskOverAnRgbaBaseColourStaysMasked )
+{
+    Imported card;
+    const std::filesystem::path file = WriteCard( "mask-rgba", R"("alphaMode": "MASK",)" );
+    Import( card, file );
+    if ( HasFatalFailure() )
+        return;
+
+    const SourceAlpha alpha = ResolveSourceAlpha( card.Material(), file.parent_path() / "card.png" );
+    EXPECT_EQ( alpha.Kind, SourceAlphaKind::Mask );
+    EXPECT_TRUE( alpha.Warning.empty() ) << alpha.Warning;
+}
+
+// Poly Haven's glTF grass: alphaMode BLEND over a JPG base colour. The file states a cut-out it cannot carry.
+TEST( GltfAlphaMask, ACutOutOverABaseColourWithoutAlphaIsImportedOpaqueAndSaysSo )
+{
+    for ( const char* mode : { "MASK", "BLEND" } )
+    {
+        SCOPED_TRACE( mode );
+        Imported                    card;
+        const std::filesystem::path file =
+             WriteCard( std::string( "rgb-" ) + mode, std::string( R"("alphaMode": ")" ) + mode + R"(",)" );
+        const std::filesystem::path png = file.parent_path() / "card.png";
+        std::ofstream( png, std::ios::binary | std::ios::trunc )
+             .write( reinterpret_cast<const char*>( kRgbCardPng.data() ),
+                     static_cast<std::streamsize>( kRgbCardPng.size() ) );
+        Import( card, file );
+        if ( HasFatalFailure() )
+            return;
+
+        const SourceAlpha alpha = ResolveSourceAlpha( card.Material(), png );
+        EXPECT_EQ( alpha.Kind, SourceAlphaKind::Opaque );
+        EXPECT_FLOAT_EQ( alpha.AlphaCutoff, 0.0f );
+        EXPECT_EQ( alpha.AlphaMode, mode );
+        EXPECT_NE( alpha.Warning.find( "'Card'" ), std::string::npos ) << alpha.Warning;
+        EXPECT_NE( alpha.Warning.find( "'card.png'" ), std::string::npos ) << alpha.Warning;
+        EXPECT_NE( alpha.Warning.find( "no alpha channel" ), std::string::npos ) << alpha.Warning;
+    }
 }
 
 int main( int argc, char** argv )

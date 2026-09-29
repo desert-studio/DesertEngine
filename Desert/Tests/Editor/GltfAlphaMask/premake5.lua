@@ -14,11 +14,14 @@ project(test_name)
     files {
         test_files,
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/SourceAlphaMode.cpp",
+        -- stb_image: SourceAlphaMode reads the base colour's header (stbi_info) for its channel count.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",  -- <Editor/Import/Assimp/SourceAlphaMode.hpp>
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
     }
 
     externalincludedirs {

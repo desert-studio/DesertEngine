@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 
 struct aiMaterial;
@@ -23,10 +24,14 @@ namespace Desert::Editor
         SourceAlphaKind Kind        = SourceAlphaKind::Opaque;
         float           AlphaCutoff = 0.0f; // 0 = no cut-out; what PBRSurfaceParams::AlphaCutoff receives
         std::string     AlphaMode;          // the glTF statement verbatim ("" when the file made none)
+        std::string     Warning;            // non-empty: what the importer must LOG_WARN about this material
     };
 
     // glTF's default cutoff for `alphaMode: MASK` when the file states none (glTF 2.0 §5.19).
     inline constexpr float kGltfDefaultAlphaCutoff = 0.5f;
 
-    SourceAlpha ResolveSourceAlpha( const aiMaterial& material );
+    // `baseColourFile` is the base colour texture as found on disk (empty when there is none). A glTF MASK or
+    // BLEND takes its mask from that image's alpha; when the image has NO alpha channel (a JPG, an RGB PNG)
+    // there is no mask to honour, so the material is imported OPAQUE and `Warning` names material and file.
+    SourceAlpha ResolveSourceAlpha( const aiMaterial& material, const std::filesystem::path& baseColourFile = {} );
 } // namespace Desert::Editor
