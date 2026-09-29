@@ -60,7 +60,31 @@ namespace Desert::Graphic
         {
             if ( !framebuffer || framebuffer->GetDepthAttachmentCount() == 0 )
                 return {};
-            const std::shared_ptr<Image2D>& image = framebuffer->GetDepthAttachmentImage();
+            return Import( framebuffer->GetDepthAttachmentImage(), std::format( "{}.Depth", name ) );
+        }
+
+        // The multisampled colour images of @p framebuffer (Samples > 1), by slot, imported with the layout their
+        // images record, as the depth is; Colors() of the same framebuffer are the images they resolve into.
+        std::vector<RDG::TextureRef> MultisampleColors( const std::shared_ptr<Framebuffer>& framebuffer,
+                                                        std::string_view                    name )
+        {
+            std::vector<RDG::TextureRef> refs;
+            if ( !framebuffer || framebuffer->GetSpecification().Samples <= 1 )
+                return refs;
+            for ( uint32_t i = 0; i < framebuffer->GetColorAttachmentCount(); ++i )
+                if ( const RDG::TextureRef ref = Import( framebuffer->GetMultisampleColorAttachmentImage( i ),
+                                                         std::format( "{}.Color{}.MSAA", name, i ) );
+                     ref.IsValid() )
+                    refs.push_back( ref );
+            return refs;
+        }
+
+    private:
+        // An attachment the engine keeps outside SHADER_READ_ONLY (a depth, a multisampled colour), imported with
+        // the layout its image records; Execute writes the layout the graph leaves back into the image. An image
+        // that cannot be imported gets an invalid ref, and the error is logged.
+        RDG::TextureRef Import( const std::shared_ptr<Image2D>& image, const std::string& name )
+        {
             if ( !image )
                 return {};
             if ( const auto it = m_Refs.find( image.get() ); it != m_Refs.end() )
@@ -69,15 +93,13 @@ namespace Desert::Graphic
             auto&           external = m_Storage.emplace_back( std::make_unique<RDG::ExternalTexture>() );
             const Common::BoolResultStr imported = Renderer::GetInstance().ImportImage( image, *external );
             if ( imported )
-                ref = m_Graph.RegisterExternal( *external, std::format( "{}.Depth", name ) );
+                ref = m_Graph.RegisterExternal( *external, name );
             else
-                LOG_ERROR( "[SceneRenderer] the depth of '{}' is not in the frame graph: {}", name,
-                           imported.GetError() );
+                LOG_ERROR( "[SceneRenderer] '{}' is not in the frame graph: {}", name, imported.GetError() );
             m_Refs.emplace( image.get(), ref );
             return ref;
         }
 
-    private:
         RDG::TextureRef Get( const std::shared_ptr<Image2D>& image, std::string_view name )
         {
             if ( !image )
@@ -95,6 +117,7 @@ namespace Desert::Graphic
                 desc.Format    = spec.Format;
                 desc.Mips      = image->GetMipmapLevels();
                 desc.Layers    = 1;
+                desc.Samples   = std::max( 1u, spec.Samples );
                 auto& external = m_Storage.emplace_back(
                      std::make_unique<RDG::ExternalTexture>( desc, RDG::Access::LegacyWrite ) );
                 external->Physical = std::move( physical );

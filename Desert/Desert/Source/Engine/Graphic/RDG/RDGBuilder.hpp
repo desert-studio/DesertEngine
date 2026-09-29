@@ -96,6 +96,10 @@ namespace Desert::Graphic::RDG
         // after the pass reads); Store keeps them when anything later or outside the graph needs them.
         void DepthTarget( TextureRef texture, const LoadOp& load, bool write = true,
                           uint32_t layer = kAllRemaining, StoreAction store = StoreAction::Store );
+        // The single-sample image the multisampled ColorTarget of @p slot resolves into at the end of the render
+        // pass. The ColorTarget is declared first; both have the same format and size. The resolve overwrites
+        // every pixel, so the image's previous contents are not loaded.
+        void ResolveTarget( uint32_t slot, TextureRef texture );
 
     private:
         friend class Builder;
@@ -107,7 +111,7 @@ namespace Desert::Graphic::RDG
                              std::string_view call );
         void DeclareBuffer( BufferRef buffer, Access access, bool asWrite, std::string_view call );
         void DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access, const LoadOp& load,
-                                uint32_t mip, uint32_t layer, StoreAction store );
+                                uint32_t mip, uint32_t layer, StoreAction store, bool isResolve = false );
 
         Builder& m_Builder;
         uint32_t m_Pass;
@@ -135,8 +139,10 @@ namespace Desert::Graphic::RDG
         // Registers the attachments of an engine framebuffer, each carrying the state the engine recorded
         // for it (colour i as "<name>.Color<i>", depth as "<name>.Depth"). @p depth may be null. Execute
         // writes the final states back through each texture's RecordFinalStates.
+        // @p resolves (by colour slot, multisampled framebuffers only) are registered as "<name>.Resolve<i>".
         ImportedFramebuffer ImportFramebuffer( std::span<ExternalTexture* const> colors, ExternalTexture* depth,
-                                               std::string_view name );
+                                               std::string_view                  name,
+                                               std::span<ExternalTexture* const> resolves = {} );
 
         // A transient extracted into @p into survives the graph: it is a culling root, is never aliased,
         // and @p into receives its description and final states on Execute. For an external resource
@@ -206,8 +212,9 @@ namespace Desert::Graphic::RDG
         struct AttachmentRecord
         {
             uint32_t Slot     = 0;
-            bool     IsDepth  = false;
-            uint32_t Resource = kInvalidResource;
+            bool     IsDepth   = false;
+            bool     IsResolve = false;
+            uint32_t Resource  = kInvalidResource;
             LoadOp   Load;
             uint32_t Mip        = 0;
             uint32_t BaseLayer  = 0;

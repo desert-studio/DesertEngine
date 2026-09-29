@@ -38,6 +38,7 @@ namespace Desert::Graphic::RDG
     {
         uint32_t    Slot      = 0; // colour slot; unused for depth
         bool        IsDepth   = false;
+        bool        IsResolve = false; // the single-sample image colour slot `Slot` resolves into
         Access      Usage     = Access::ColorTarget; // ColorTarget, DepthWrite or DepthRead: the attachment layout
         uint32_t    Resource  = kInvalidResource;
         uint32_t    Mip       = 0;

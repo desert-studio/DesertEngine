@@ -784,9 +784,10 @@ namespace Desert::Graphic::API::Vulkan
 
         RDG::TextureDesc desc;
         desc.Size   = { image->GetWidth(), image->GetHeight(), 1 };
-        desc.Format = image->GetImageSpecification().Format;
-        desc.Mips   = resource.MipLevels;
-        desc.Layers = resource.LayerCount;
+        desc.Format  = image->GetImageSpecification().Format;
+        desc.Mips    = resource.MipLevels;
+        desc.Layers  = resource.LayerCount;
+        desc.Samples = std::max( 1u, image->GetImageSpecification().Samples );
         if ( !vulkanImage->GetGraphTexture() )
         {
             const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )

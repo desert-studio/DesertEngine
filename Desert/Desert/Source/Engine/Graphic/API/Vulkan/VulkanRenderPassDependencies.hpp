@@ -2,6 +2,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::API::Vulkan
@@ -59,5 +61,39 @@ namespace Desert::Graphic::API::Vulkan
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         }
         return dependencies;
+    }
+
+    // THE single-subpass render pass of the engine: VulkanFramebuffer's clear and load passes and the render
+    // graph's passes (CreateRdgRenderPass) are all created here, so the subpass (colour, resolve and depth
+    // references) and the dependencies are built one way and a pipeline built against one of them is
+    // compatible with the others on the same formats and sample count. @p resolves is empty, or has one entry
+    // per colour (VK_ATTACHMENT_UNUSED for a colour that is not resolved).
+    inline VkResult CreateSinglePassRenderPass( VkDevice device, std::span<const VkAttachmentDescription> attachments,
+                                                std::span<const VkAttachmentReference> colours,
+                                                std::span<const VkAttachmentReference> resolves,
+                                                const VkAttachmentReference* depth, bool presentTarget,
+                                                VkRenderPass& renderPass )
+    {
+        VkSubpassDescription subpass    = {};
+        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount    = static_cast<uint32_t>( colours.size() );
+        subpass.pColorAttachments       = colours.empty() ? nullptr : colours.data();
+        subpass.pResolveAttachments     = resolves.empty() ? nullptr : resolves.data();
+        subpass.pDepthStencilAttachment = depth;
+
+        const bool hasColour = std::any_of( colours.begin(), colours.end(), []( const VkAttachmentReference& ref )
+                                            { return ref.attachment != VK_ATTACHMENT_UNUSED; } );
+        const std::vector<VkSubpassDependency> dependencies =
+             SinglePassDependencies( hasColour, depth != nullptr, presentTarget );
+
+        VkRenderPassCreateInfo info = {};
+        info.sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        info.attachmentCount        = static_cast<uint32_t>( attachments.size() );
+        info.pAttachments           = attachments.data();
+        info.subpassCount           = 1;
+        info.pSubpasses             = &subpass;
+        info.dependencyCount        = static_cast<uint32_t>( dependencies.size() );
+        info.pDependencies          = dependencies.data();
+        return vkCreateRenderPass( device, &info, nullptr, &renderPass );
     }
 } // namespace Desert::Graphic::API::Vulkan

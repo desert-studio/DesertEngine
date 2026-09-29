@@ -40,6 +40,9 @@ namespace Desert::Graphic::RDG
         uint32_t                   Mips   = 1;
         uint32_t                   Layers = 1;
         TextureDim                 Dim    = TextureDim::Tex2D;
+        // Samples per pixel. A multisampled colour attachment is resolved into a single-sample image the same
+        // pass declares with PassBuilder::ResolveTarget.
+        uint32_t Samples = 1;
 
         constexpr uint32_t SubresourceCount() const
         {
@@ -179,8 +182,10 @@ namespace Desert::Graphic::RDG
     // attachments that LOAD them share one render pass.
     struct ImportedFramebuffer
     {
-        std::vector<TextureRef> Colors; // by colour slot
-        TextureRef              Depth;  // invalid when the framebuffer has no depth attachment
+        std::vector<TextureRef> Colors;   // by colour slot
+        TextureRef              Depth;    // invalid when the framebuffer has no depth attachment
+        std::vector<TextureRef> Resolves; // by colour slot: the single-sample images a multisampled framebuffer
+                                          // resolves its colours into; empty for a single-sample framebuffer
     };
 
     struct ClearValue
