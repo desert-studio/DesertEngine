@@ -40,10 +40,10 @@ namespace Desert::Editor
 
         if ( ( out.AlphaMode == "MASK" || out.AlphaMode == "BLEND" ) && ImageLacksAlpha( baseColourFile ) )
         {
-            out.Warning = std::format( "[Import][Material] '{}' states alphaMode {} but base colour '{}' has no alpha "
-                                       "channel — imported opaque",
-                                       material.GetName().C_Str(), out.AlphaMode,
-                                       baseColourFile.filename().generic_string() );
+            out.Warning = std::format(
+                 "[Import][Material] '{}' states alphaMode {} but base colour '{}' has no alpha "
+                 "channel — imported opaque",
+                 material.GetName().C_Str(), out.AlphaMode, baseColourFile.filename().generic_string() );
             return out; // Kind stays Opaque, AlphaCutoff 0
         }
 
