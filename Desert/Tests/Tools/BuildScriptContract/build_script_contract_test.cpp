@@ -477,6 +477,7 @@ namespace
     {
         const std::string command = std::format(
              "bash '{}scripts/CI/CheckGluedText.sh' --file '{}' >/dev/null 2>&1", root, fixture.string() );
+        // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test, runs the real script
         const int status = std::system( command.c_str() );
         return WIFEXITED( status ) ? WEXITSTATUS( status ) : -1;
     }
