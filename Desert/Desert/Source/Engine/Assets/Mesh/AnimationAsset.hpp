@@ -21,6 +21,14 @@ namespace Desert::Assets
             return m_Clip;
         }
 
+        // The clip for the Animation Editor's AUTHORING-ONLY edits (notifies: name, tick, track). Such an edit
+        // does not touch the bone tracks, so TrackRevision stays — an Animator's cached per-track state is still
+        // valid. An edit that changes tracks must go through SetInMemoryClip / a reload, which bump it.
+        Animation::AnimationClip& GetClipForAuthoring()
+        {
+            return m_Clip;
+        }
+
         uint64_t GetSkeletonSignature() const
         {
             return m_SkeletonSignature;

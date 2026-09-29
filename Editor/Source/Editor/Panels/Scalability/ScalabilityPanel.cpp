@@ -18,7 +18,9 @@ namespace Desert::Editor
     // UE's Scalability / GameUserSettings: what THIS MACHINE can afford. Every control here writes
     // Common::Settings::MachineSettings (machine.json) and nothing reaches a scene file. They lived in the
     // Scene Settings panel, marked "(this machine)", until SET1 gave them their own window.
-    ScalabilityPanel::ScalabilityPanel() : IPanel( "Scalability" )
+    // Starts CLOSED, like the other tools in Window -> Tools (Localization): it is opened on purpose, and a
+    // default-visible floating window sat on top of the viewport at every start on a fresh profile.
+    ScalabilityPanel::ScalabilityPanel() : IPanel( "Scalability", /*showPanel=*/false )
     {
     }
 

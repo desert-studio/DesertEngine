@@ -30,6 +30,7 @@
 #include "Editor/Widgets/WindowChrome.hpp"
 #include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
+#include "Editor/Core/UnsavedClose.hpp"
 
 #include <Engine/Assets/ItemProgress.hpp>
 
@@ -144,6 +145,8 @@ namespace Desert::Editor
         // content root. See DrawCommandPalette for what makes rebuilding on OPEN correct rather than a
         // snapshot going stale.
         [[nodiscard]] std::vector<PaletteCommand> BuildPaletteCommands();
+        /// Turns the authoring context's selected control about its own @p axis and records one undo entry.
+        [[nodiscard]] Common::BoolResultStr RotateSelectedControl( int axis, float degrees );
 
         // Runs one action a document published (ISubjectDocument::Actions), addressed by subject + label.
         // Named rather than a lambda in the list above — see the definition for both reasons.
@@ -331,6 +334,19 @@ namespace Desert::Editor
         // different causes — the user dismissed it, Close All, or its subject stopped existing — and a log
         // line that could not tell them apart would make "my window vanished" unanswerable.
         void RequestDocumentClose( const SubjectId& subject, std::string reason );
+        // A close THE PERSON asked for. A dirty document is not queued: it gets the Save / Don't Save / Cancel
+        // question (Editor/Core/UnsavedClose.hpp) and closes only on the answer. Every user gesture that
+        // closes a document goes through here; RequestDocumentClose stays for closes the editor makes on its
+        // own (the subject is gone, view memory is short), which have nobody to ask.
+        void AskDocumentClose( const SubjectId& subject, std::string reason );
+        // The answer to a pending close question for @p subject. Returns whether the document is now queued
+        // for closing; false for Cancel, for a Save that wrote nothing, and when no question was pending.
+        bool AnswerCloseQuestion( const SubjectId& subject, UnsavedCloseChoice choice );
+        // Leaving the editor from its own frame's x or File > Exit: every dirty document asks first, and the
+        // editor closes once the last one is answered. Cancel on any of them keeps the editor open. The
+        // control channel's `quit` does not come here — an unattended run has nobody to answer.
+        void RequestEditorExit();
+        void DrawCloseQuestionPopup();
         // Every open document, queued for closing. One implementation behind Window ▸ Close All Documents
         // and behind the palette entry of the same name — the menu item used to carry the loop itself, and
         // a second copy of it in the palette would be two answers to "what does Close All close".
@@ -396,6 +412,13 @@ namespace Desert::Editor
         // have separate owners and separate close semantics — a tool passes &GetVisibility() to Begin, a
         // document passes a frame-local bool whose false is a CLOSE REQUEST, not a hidden window.
         void DrawDocuments();
+        // UE's major tabs: "Scene" plus one tab per open document that OpensAsMajorTab(); the one in front
+        // owns the whole dock area and the level's panels are not drawn.
+        void               DrawMajorTabStrip();
+        [[nodiscard]] bool MajorTabActive() const
+        {
+            return !m_ActiveMajorTab.IsNull();
+        }
         // The refusal, on screen. A seventh renderer consumer is refused; before this the refusal was a
         // line in the log and the click simply looked dead. The census text already existed — it had
         // nowhere to be shown.
@@ -610,6 +633,11 @@ namespace Desert::Editor
             std::string Reason;
         };
         std::vector<PendingDocumentClose> m_DocumentsToClose;
+        // Close questions waiting for an answer, the front one shown as a modal. Same shape as the queue
+        // above because an answer that closes moves the entry there unchanged.
+        std::vector<PendingDocumentClose> m_CloseQuestions;
+        // RequestEditorExit raised the questions: close the editor once the last one is answered.
+        bool m_ExitAfterCloseQuestions = false;
 
         // How long a document must go UNDRAWN BY EVERY VIEW before it gives its renderer slot back. A
         // document behind another one's tab is open and invisible, and it was holding one of the six
@@ -627,6 +655,9 @@ namespace Desert::Editor
         // Which document window has the keyboard focus, as of the last frame. Drives the radio in
         // Window ▸ Documents and is where Ctrl+Tab starts from.
         SubjectId m_FocusedDocument;
+        // Whether a document window has the keyboard NOW. m_FocusedDocument outlives the focus on purpose, so
+        // Ctrl+S needs this separately to decide between the document's asset and the scene (SaveShortcut.hpp).
+        bool m_DocumentHasFocus = false;
         // Ctrl+Tab holds the ring still. Landing on a document by cycling must NOT reorder the ring, or the
         // second press would come straight back to where the first started; the order is committed once Ctrl
         // is released, which is the behaviour every alt-tab ring has.
@@ -642,6 +673,10 @@ namespace Desert::Editor
         // Documents whose opening has been placed. The placement is applied ONCE, on the first frame the
         // window exists; afterwards the window is the person's and is only observed.
         std::unordered_set<SubjectId> m_PlacedDocuments;
+        SubjectId                     m_ActiveMajorTab; // null = the level ("Scene") is in front
+        std::unordered_set<SubjectId> m_SeenMajorTabs;  // a tab not seen before comes to the front once
+        glm::vec2                     m_MajorTabOrigin{ 0.0f };
+        glm::vec2                     m_MajorTabSize{ 0.0f };
         void                          RegisterDocumentPlacementHandler();
 
         // A refused open, waiting to be shown (see DrawOpenRefusedPopup). Holds the census by value: the

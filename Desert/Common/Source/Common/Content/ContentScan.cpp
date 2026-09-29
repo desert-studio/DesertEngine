@@ -268,6 +268,24 @@ namespace Common::Content
             return document ? document.GetValue().Signature : 0;
         }
 
+        // A clip's `SkeletonSignature` member: the rig its channels were baked against (AnimationAsset checks the
+        // skeleton it plays on against it). The Asset Browser lists a rig's clips from this tag, nothing loaded.
+        struct StatedClipRig
+        {
+            uint64_t SkeletonSignature = 0;
+        };
+        DESERT_JSON_LENIENT( StatedClipRig, "reads the one SkeletonSignature member of a whole clip document; the "
+                                            "channels, notifies and curves are the rest of that clip, not damage" )
+        uint64_t StatedClipRigSignature( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return 0;
+            const auto document = Json::Read<StatedClipRig>( text.GetValue() );
+            return document ? document.GetValue().SkeletonSignature : 0;
+        }
+
         ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
         {
             const auto text =
@@ -337,6 +355,8 @@ namespace Common::Content
             described.DisplayName = StatedDisplayName( file, member );
         if ( kind == ContentKind::Skeleton )
             described.RigSignature = StatedRigSignature( file );
+        if ( kind == ContentKind::Animation )
+            described.RigSignature = StatedClipRigSignature( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -447,7 +467,10 @@ namespace Common::Content
         //    both empty for as long as their files' size and stamp hold, so it is refused and rebuilt once.
         // 6: prefab rows carry the box their file states (AL1-8a). A version-5 cache holds every prefab row
         //    without one for as long as its file's size and stamp hold, so it is refused and rebuilt once.
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 6";
+        // 7: clip rows carry the rig their file states (ANV1d2). A version-6 cache holds every .anim row with
+        //    rig 0 for as long as its file's size and stamp hold, and the Animation Editor's Asset Browser
+        //    would list no clip for any skeleton, so it is refused and rebuilt once.
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 7";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()

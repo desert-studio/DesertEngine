@@ -2,7 +2,9 @@
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 
 namespace Desert::Scripting
@@ -58,6 +60,49 @@ namespace Desert::Scripting
     void RegisterAnimationBindings( ScriptEngine::Impl& impl )
     {
         sol::table entity = impl.Lua["Entity"];
+
+        // self:getAnimCurve(name) -> number | nil. UE's GetCurveValue, on the clip the entity plays now
+        // (blended through a crossfade). nil, logged, when there is no animator or no such curve — 0 is a
+        // value a curve can have, so it cannot also mean "not there".
+        entity["getAnimCurve"] = []( ScriptEntity& self, const std::string& name,
+                                     sol::this_state lua ) -> sol::object
+        {
+            if ( !self.Valid() || !self.Reg().has<ECS::AnimationComponent>( self.handle ) )
+            {
+                LOG_ERROR( "[Anim] getAnimCurve('{}'): the entity has no AnimationComponent, so no clip plays.",
+                           name );
+                return sol::lua_nil;
+            }
+            const auto&                anim = self.Reg().get<ECS::AnimationComponent>( self.handle );
+            const std::optional<float> value =
+                 anim.Animator ? anim.Animator->GetCurveValue( name ) : std::optional<float>{};
+            if ( !value )
+            {
+                LOG_ERROR( "[Anim] getAnimCurve('{}'): entity '{}' plays no clip carrying a keyed curve of that "
+                           "name.",
+                           name, self.Name() );
+                return sol::lua_nil;
+            }
+            return sol::make_object( lua, *value );
+        };
+
+        // self:isAnimNotifyStateActive(name) -> bool. Whether a notify state of that name spans the
+        // playhead of the clip playing now — the polling side of OnAnimationNotifyBegin / End.
+        entity["isAnimNotifyStateActive"] = []( ScriptEntity& self, const std::string& name ) -> bool
+        {
+            if ( !self.Valid() || !self.Reg().has<ECS::AnimationComponent>( self.handle ) )
+            {
+                return false;
+            }
+            const auto& anim = self.Reg().get<ECS::AnimationComponent>( self.handle );
+            if ( !anim.Animator )
+            {
+                return false;
+            }
+            const auto& active = anim.Animator->GetActiveNotifyStates();
+            return std::any_of( active.begin(), active.end(), [&name]( const Animation::AnimationNotify& state )
+                                { return state.Name == name; } );
+        };
 
         // self:setAnimParam(name, value) -> bool. Returns false AND logs on every refusal: the boolean is
         // for the script that wants to branch, the log is for the developer who does not know yet that

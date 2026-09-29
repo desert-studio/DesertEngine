@@ -1,4 +1,5 @@
 #include "LightGizmoRenderer.hpp"
+#include <Editor/Core/GizmoState.hpp>
 
 #include <Editor/Core/GizmoIconSet.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
@@ -19,6 +20,7 @@
 
 #include <Editor/Core/ControlNudgeRequest.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
+#include <ImGuizmo.h>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
@@ -235,8 +237,14 @@ namespace Desert::Editor
         if ( Core::ActiveAuthoringContext().ShowsControls() )
         {
             RenderControlRig( camera, width, height, xpos, ypos, owner, mine );
+            // Read once, after every early return inside, so the bit is this frame's whole answer.
+            Core::GizmoState::SetControlInteraction( m_ControlGizmo.Active() || m_ControlDrag.Active() );
         }
-        else if ( m_ControlDrag.Active() )
+        else
+        {
+            Core::GizmoState::SetControlInteraction( false );
+        }
+        if ( !Core::ActiveAuthoringContext().ShowsControls() && m_ControlDrag.Active() )
         {
             // Leaving the mode mid-drag ENDS the drag. Without this the next entry into the mode would
             // resume a grab against a hierarchy that may have been rebuilt under it.
@@ -373,18 +381,13 @@ namespace Desert::Editor
             const bool isSelected = ( shape.Control == chosen );
             const bool isHovered  = ( shape.Control == hover.Control );
 
-            // Written as a lookup rather than as nested ternaries: three states (selected, hovered, idle)
-            // read as three rows, and the analyser refuses a conditional inside a conditional anyway.
-            ImU32 colour = IM_COL32( 90, 190, 255, 200 );
-            if ( isSelected )
-            {
-                colour = IM_COL32( 255, 200, 60, 255 );
-            }
-            else if ( isHovered )
-            {
-                colour = IM_COL32( 255, 255, 255, 255 );
-            }
-            const float thickness = isSelected ? 2.5f : 1.5f;
+            // THE AUTHORED COLOUR, LIFTED BY STATE (UE's rule; Animation::StrokeForControl): a left control is
+            // blue whether idle, hovered or grabbed, so the side stays readable while the animator works.
+            const Animation::ControlStroke stroke =
+                 Animation::StrokeForControl( hierarchy.Get( shape.Control ).Color, isHovered, isSelected );
+            const ImU32 colour = ImGui::ColorConvertFloat4ToU32(
+                 ImVec4( stroke.Color.r, stroke.Color.g, stroke.Color.b, stroke.Color.a ) );
+            const float thickness = stroke.Thickness;
 
             for ( const Animation::ManipulatorSegment& segment : shape.Screen )
             {
@@ -397,6 +400,51 @@ namespace Desert::Editor
                 drawList->AddText( ImVec2( shape.Origin.Pixel.x + 8.0f, shape.Origin.Pixel.y - 6.0f ), colour,
                                    hierarchy.Get( shape.Control ).Name.c_str() );
             }
+        }
+
+        // THE AXIS GIZMO ON THE SELECTED CONTROL, as UE's Control Rig draws it: W translates, E rotates (the
+        // context's ControlRotate, which the panel's radio buttons also write). Drawn only while no shape drag
+        // is in progress — two manipulators writing one control in one frame have no defined winner. The
+        // gesture records ONE undo entry per press-drag-release (ControlGizmoGesture), and it steps BEFORE this
+        // frame's write so the rising edge captures the pose the gesture started from.
+        if ( chosen < hierarchy.Size() && !m_ControlDrag.Active() )
+        {
+            ImGuizmo::SetOrthographic( false );
+            ImGuizmo::SetDrawlist();
+            ImGuizmo::SetRect( xpos, ypos, width, height );
+
+            const glm::mat4 cameraView = camera->GetViewMatrix();
+            const glm::mat4 cameraProj = camera->GetProjectionMatrix();
+            glm::mat4       gizmoWorld = entityWorld * hierarchy.GetGlobalTransform( chosen );
+            const auto      operation  = authoring.ControlRotate() ? ImGuizmo::ROTATE : ImGuizmo::TRANSLATE;
+            const bool      changed    = ImGuizmo::Manipulate( &cameraView[0][0], &cameraProj[0][0], operation,
+                                                               ImGuizmo::LOCAL, &gizmoWorld[0][0] );
+            const bool      held       = ImGuizmo::IsUsing();
+
+            if ( const auto recorded = m_ControlGizmo.Step( &hierarchy, chosen, held ); !recorded.IsSuccess() )
+            {
+                LOG_WARN( "[Animation] the control gizmo gesture was not recorded for undo: {}",
+                          recorded.GetError() );
+            }
+            if ( changed && held )
+            {
+                if ( const auto written =
+                          hierarchy.SetGlobalTransform( chosen, glm::inverse( entityWorld ) * gizmoWorld );
+                     !written )
+                {
+                    LOG_WARN( "[Animation] the control gizmo was refused: {}", written.GetError() );
+                }
+            }
+            if ( held || ImGuizmo::IsOver() )
+            {
+                // The gizmo owns the pointer: no shape pick or scene pick underneath it.
+                m_LightIconHovered = true;
+                return;
+            }
+        }
+        else if ( m_ControlGizmo.Active() )
+        {
+            m_ControlGizmo.Abandon();
         }
 
         if ( !ImGui::IsWindowHovered( ImGuiHoveredFlags_AllowWhenBlockedByActiveItem ) )

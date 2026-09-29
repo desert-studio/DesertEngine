@@ -4,6 +4,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor
@@ -27,6 +28,14 @@ namespace Desert::Editor
         virtual bool IsVolatile() const
         {
             return false;
+        }
+
+        // The object this record writes through a raw pointer when it is NOT a scene entity (an asset's payload
+        // an asset editor edits), or null. CommandHistory::DropFor forgets every record of one subject when
+        // its editor closes: the history is process-wide and outlives the window, the payload need not.
+        [[nodiscard]] virtual const void* EditedObject() const
+        {
+            return nullptr;
         }
 
         // Short human-readable name for the History panel (e.g. "Move", "Rename", "Delete").
@@ -80,6 +89,26 @@ namespace Desert::Editor
             ++m_Revision;
         }
 
+        /// The last two entries become ONE, undone newest-first and redone oldest-first. For a single
+        /// user action whose two halves are recorded by two owners a frame apart: an auto-keyed control
+        /// edit is the control's pose entry (RecordControlDrag) and the Sequencer's key entry, and one
+        /// Ctrl+Z has to take back both, as UE's one transaction does. False (and nothing changes) when
+        /// fewer than two entries exist.
+        bool JoinLastTwo()
+        {
+            if ( m_Undo.size() < 2 )
+            {
+                return false;
+            }
+            std::unique_ptr<ICommand> second = std::move( m_Undo.back() );
+            m_Undo.pop_back();
+            std::unique_ptr<ICommand> first = std::move( m_Undo.back() );
+            m_Undo.pop_back();
+            m_Undo.push_back( std::make_unique<JoinedCommand>( std::move( first ), std::move( second ) ) );
+            ++m_Revision;
+            return true;
+        }
+
         bool Undo()
         {
             // Stale entries (target entity gone) report failure — discard them and keep walking down.
@@ -131,6 +160,34 @@ namespace Desert::Editor
             drop( m_Redo );
         }
 
+        // Forgets every record (undo and redo) that writes into @p object. An asset editor calls it when it
+        // closes: UE's transactions keep their object alive; ours hold a raw pointer into a payload the asset
+        // manager may evict once the window's root pin is gone, so the records go with the window.
+        void DropFor( const void* object )
+        {
+            if ( object == nullptr )
+                return;
+            auto drop = [object]( std::vector<std::unique_ptr<ICommand>>& stack )
+            {
+                std::erase_if( stack, [object]( const std::unique_ptr<ICommand>& c )
+                               { return c->EditedObject() == object; } );
+            };
+            drop( m_Undo );
+            drop( m_Redo );
+        }
+
+        // DropFor by a question other than "which object": the records `drops` answers true for, from both
+        // stacks. The Animation Editor needs it when its preview ANIMATOR dies (a mesh switch, a released
+        // preview) while the clip - the edited object - lives on with its notify and curve records.
+        template <typename Predicate>
+        size_t DropIf( Predicate drops )
+        {
+            const size_t before = m_Undo.size() + m_Redo.size();
+            std::erase_if( m_Undo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
+            std::erase_if( m_Redo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
+            return before - ( m_Undo.size() + m_Redo.size() );
+        }
+
         void Clear()
         {
             m_Undo.clear();
@@ -148,6 +205,43 @@ namespace Desert::Editor
         }
 
     private:
+        class JoinedCommand final : public ICommand
+        {
+        public:
+            JoinedCommand( std::unique_ptr<ICommand> first, std::unique_ptr<ICommand> second )
+                 : m_First( std::move( first ) ), m_Second( std::move( second ) )
+            {
+            }
+
+            bool Undo() override
+            {
+                const bool second = m_Second->Undo();
+                const bool first  = m_First->Undo();
+                return first || second;
+            }
+
+            bool Redo() override
+            {
+                const bool first  = m_First->Redo();
+                const bool second = m_Second->Redo();
+                return first || second;
+            }
+
+            [[nodiscard]] bool IsVolatile() const override
+            {
+                return m_First->IsVolatile() || m_Second->IsVolatile();
+            }
+
+            [[nodiscard]] std::string GetLabel() const override
+            {
+                return m_First->GetLabel() + " + " + m_Second->GetLabel();
+            }
+
+        private:
+            std::unique_ptr<ICommand> m_First;
+            std::unique_ptr<ICommand> m_Second;
+        };
+
         class ByteCommand final : public ICommand
         {
         public:

@@ -304,6 +304,14 @@ namespace Desert::Editor
         {
         }
 
+        // Is this document a TIMELINE of the level (the Sequencer)? A timeline edits what the level viewport
+        // shows, so it opens in the drawer UNDER that viewport, as UE's Sequencer does, instead of as a tab
+        // that covers it (DocumentPlacement::ResolveTimeline).
+        [[nodiscard]] virtual bool IsLevelTimeline() const
+        {
+            return false;
+        }
+
         // Does this document show a 3D PREVIEW that can be put at a named viewpoint?
         //
         // Asked by the command palette, which offers "Preview: Front", "Preview: Back" and the rest for
@@ -312,6 +320,14 @@ namespace Desert::Editor
         // has the whole argument). A document with no preview offers none of those entries, rather than
         // offering seven that do nothing.
         [[nodiscard]] virtual bool HasPreview() const
+        {
+            return false;
+        }
+
+        // UE's MAJOR TAB: an asset editor that owns the whole editor area while it is in front ("Scene |
+        // <asset>" above everything), instead of a tab beside the level viewport. The level's panels are not
+        // drawn while it is. Off by default: a document opts in (the Animation Editor does).
+        [[nodiscard]] virtual bool OpensAsMajorTab() const
         {
             return false;
         }

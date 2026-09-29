@@ -12,6 +12,8 @@
 #include <Common/Core/Timestep.hpp>
 
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <unordered_map>
 
 namespace Desert::Animation
@@ -199,15 +201,31 @@ namespace Desert::Animation
         // show the posed skeleton in the viewport.
         void ApplyLocalPose();
 
-        // Returns (and clears) the names of the current clip's notifies crossed during the last Update — for
-        // the ECS to dispatch to scripts. Call once per frame after Update. Scrubbing via SetTime does NOT
-        // fire notifies (only forward playback does).
-        std::vector<std::string> ConsumeNotifies()
+        // Returns (and clears) the current clip's notify events since the last call — instant notifies
+        // crossed by forward playback (Fire), and notify states entered / left (Begin / End) by playback,
+        // a loop, a scrub (SetTick / SetTime) or a clip change. For the ECS to dispatch to scripts; call
+        // once per frame after Update.
+        std::vector<NotifyEvent> ConsumeNotifyEvents()
         {
-            std::vector<std::string> out;
-            out.swap( m_FiredNotifies );
+            std::vector<NotifyEvent> out;
+            out.swap( m_NotifyEvents );
             return out;
         }
+
+        /// The current clip's notify states active at the playhead (UE: the active AnimNotifyStates).
+        [[nodiscard]] const std::vector<AnimationNotify>& GetActiveNotifyStates() const
+        {
+            return m_ActiveStates;
+        }
+
+        /**
+         * @brief The value of anim curve @p name at the playhead (UE: UAnimInstance::GetCurveValue).
+         *
+         * During a crossfade the two clips' values are blended by the fade's alpha, a clip without the
+         * curve contributing 0 — UE's curve blend. Empty when neither clip carries a keyed curve of that
+         * name: "no such curve" is a different answer from 0, and a script must be able to tell.
+         */
+        [[nodiscard]] std::optional<float> GetCurveValue( std::string_view name ) const;
 
         // --- Animation layers (override / additive, with optional per-bone masks) ---
         // A layer plays a clip ON TOP of the base clip, restricted to its masked bones (empty mask = all).
@@ -484,8 +502,13 @@ namespace Desert::Animation
 
         float m_PlaybackSpeed = 1.0F;
 
-        // Notify names crossed during the last Update of the current clip, drained by ConsumeNotifies().
-        std::vector<std::string> m_FiredNotifies;
+        // Notify events of the current clip not yet drained by ConsumeNotifyEvents().
+        std::vector<NotifyEvent> m_NotifyEvents;
+        // The current clip's notify states active at its playhead — see StepNotifyStates.
+        std::vector<AnimationNotify> m_ActiveStates;
+
+        /// Ends every active state: the clip they belong to stops being the current one.
+        void RetireNotifyStates();
 
         // Active animation layers, folded over the base pose by PoseStage::Layers.
         std::vector<AnimationLayer> m_Layers;

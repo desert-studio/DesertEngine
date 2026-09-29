@@ -50,8 +50,11 @@
 #include <Engine/Animation/ClipSection.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
+#include <Engine/Animation/Rig/ControlKeyer.hpp>
 
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -162,7 +165,20 @@ namespace Desert::Editor
             return true;
         }
 
+        /// The clip it writes through. An Animation Editor that closes calls `DropFor` on its clip; without
+        /// this a "+ Key" record would outlive the window and write into a payload the manager may evict.
+        [[nodiscard]] const void* EditedObject() const override
+        {
+            return m_Clip;
+        }
+
         std::string GetLabel() const override;
+
+        /// The animator whose authoring pose Undo/Redo write: `DropPoseRecordsFor` matches on it.
+        [[nodiscard]] const Animation::Animator* PosedAnimator() const
+        {
+            return m_Animator;
+        }
 
         /// For the suite: how much this entry is actually carrying. A transaction that pushed an entry
         /// holding nothing would satisfy every count-based assertion while undoing nothing.
@@ -258,6 +274,56 @@ namespace Desert::Editor
     [[nodiscard]] Common::ResultStr<uint32_t> RecordControlDrag( Animation::ControlHierarchy*    hierarchy,
                                                                  uint32_t                        control,
                                                                  const Animation::BoneTransform& before );
+
+    /**
+     * @brief Turn a control about one of its LOCAL axes (Animation::RotateControlLocal) and record the turn as
+     *        exactly one undo entry.
+     *
+     * The palette's "Control Rig / Rotate selected <axis> <deg>" is this call. It lives here and not inside
+     * EditorLayer so that "one entry per turn" is measured by a suite (ClipEditUndo) instead of asserted by a
+     * comment in a file no suite compiles.
+     *
+     * @return entries pushed (1; 0 only for a zero-degree turn, which moved nothing).
+     */
+    [[nodiscard]] Common::ResultStr<uint32_t> RotateControlRecorded( Animation::ControlHierarchy* hierarchy,
+                                                                     uint32_t control, int axis, float degrees );
+
+    /**
+     * @brief The viewport axis gizmo's gesture boundary: ONE undo entry per press-drag-release.
+     *
+     * ImGuizmo reports only "held this frame", and every held frame writes the control. Recording per frame
+     * would make one drag forty undo steps; recording nothing would make it none. This remembers the pose at
+     * the rising edge and records it against the control's pose at the falling edge — the same pairing the
+     * shape drag uses (RecordControlDrag), held by value.
+     *
+     * A gesture whose rig or control changed underneath it (selection moved, rig rebuilt) is ABANDONED on
+     * release rather than recorded: an entry addressed into a different rig is worth less than no entry.
+     */
+    class ControlGizmoGesture
+    {
+    public:
+        /// Call once per frame after the gizmo reported whether it is held and BEFORE this frame's write is
+        /// applied, so the rising edge captures the pose the gesture started from.
+        /// @return entries pushed this frame: 1 on the release of a gesture that moved the control, else 0.
+        [[nodiscard]] Common::ResultStr<uint32_t> Step( Animation::ControlHierarchy* hierarchy, uint32_t control,
+                                                        bool held );
+
+        [[nodiscard]] bool Active() const noexcept
+        {
+            return m_Active;
+        }
+
+        void Abandon() noexcept
+        {
+            m_Active = false;
+        }
+
+    private:
+        bool                         m_Active    = false;
+        Animation::ControlHierarchy* m_Hierarchy = nullptr;
+        uint32_t                     m_Control   = Animation::ControlHierarchy::INVALID;
+        Animation::BoneTransform     m_Before;
+    };
 
     /**
      * @brief The interaction boundary, and the only thing that decides what "one undo step" means.
@@ -363,4 +429,108 @@ namespace Desert::Editor
         PoseEditTransaction& m_Transaction;
         bool                 m_Opened = false;
     };
+    /**
+     * @brief THE PERSONA "+ Key" BUTTON: one bone of the authoring pose, keyed into the clip, as ONE undo step.
+     *
+     * The bone's WHOLE transform (location, rotation, scale) is upserted into the track named after the
+     * skeleton bone at `tick`, creating the track when the clip has none for it. It goes through the same
+     * transaction as a drag so that Ctrl+Z puts back the clip AND the pose by value, neighbours' auto
+     * tangents included (`SetTransformKey` refreshes the whole track).
+     *
+     * @return undo entries pushed (1, or 0 when the clip already held exactly this key). Refuses a null
+     *         animator or clip, a bone outside the skeleton, a non-finite pose and a transaction already open.
+     */
+    /**
+     * @brief Forget every pose record that writes into @p animator, which is about to be destroyed.
+     *
+     * The Animation Editor's preview builds its animator with the mesh and loses it with the preview, while
+     * the clip lives on: `DropFor(&clip)` would also take the notify and curve records, which stay valid.
+     * A "+ Key" record goes too - it restores the pose and the tracks as ONE step, and half of it would point
+     * at freed memory. @return how many records were dropped.
+     */
+    size_t DropPoseRecordsFor( const Animation::Animator* animator );
+
+    [[nodiscard]] Common::ResultStr<uint32_t> KeyBonePose( PoseEditTransaction&      transaction,
+                                                           Animation::Animator*      animator,
+                                                           Animation::AnimationClip* clip, uint32_t bone,
+                                                           Animation::FrameNumber tick );
+
+    /**
+     * @brief The Sequencer's "Key (S)": key every control in @p controls at `target.Tick`, as ONE undo entry.
+     *
+     * The keys go through the keyer's button path (`ControlWriteSource::Authored`, not `Observe`), so the
+     * auto-key mode cannot silence a key the animator asked for. The transaction brackets the writes, so
+     * one press of S over five selected controls is one Ctrl+Z, and that is measured by ClipEditUndo rather
+     * than claimed by the panel, which no suite compiles.
+     *
+     * @return keys written. Refuses a target with no hierarchy or no clip, an empty selection, and a
+     *         transaction already open (a key pressed mid-drag belongs to the drag, which records it).
+     */
+    [[nodiscard]] Common::ResultStr<uint32_t> KeyControlsRecorded( PoseEditTransaction&               transaction,
+                                                                   Animation::Animator*               animator,
+                                                                   Animation::ControlKeyer&           keyer,
+                                                                   const Animation::ControlKeyTarget& target,
+                                                                   std::span<const uint32_t>          controls );
+
+    /**
+     * @brief Auto-key for a CONTROL gesture: exactly one key and one undo entry per press-drag-release.
+     *
+     * The edge rule is the keyer's (`ControlKeyer::Observe`); what this adds is the two facts the panel
+     * would otherwise compute in a file no suite compiles: "did the control move since last frame", and the
+     * undo transaction around the release frame — the only frame on which `Observe` writes the clip.
+     * Hand it a keyer of its own: `Observe` keeps last frame's pointer bit, so one keyer observed for a bone
+     * and for a control in the same frame would see two edges per frame.
+     */
+    class ControlAutoKey
+    {
+    public:
+        /// One call per frame. @p held is `GizmoState::ControlInteraction()`.
+        ///
+        /// A gesture is also opened by `LastControlEdit()` naming this rig and @p control: that is how the
+        /// palette's "Rotate selected", a nudge and a Details edit — none of which holds the gizmo bit —
+        /// reach the keyer, through the same edge the mouse uses. Such a gesture is held for the frame the
+        /// edit is first seen and released on the next, and its key entry is JOINED with the control's
+        /// own pose entry when that is still the top of the stack: one command, one Ctrl+Z.
+        /// A pose change outside any gesture (the playhead writing the clip onto the controls) keys nothing.
+        /// @return undo entries pushed: 1 on the release frame of a gesture that moved the control, else 0.
+        [[nodiscard]] Common::ResultStr<uint32_t>
+        Step( PoseEditTransaction& transaction, Animation::Animator* animator, Animation::ControlKeyer& keyer,
+              const Animation::ControlKeyTarget& target, uint32_t control, bool held );
+
+    private:
+        bool                     m_Held    = false;
+        uint32_t                 m_Control = Animation::ControlHierarchy::INVALID;
+        Animation::BoneTransform m_Last;
+        /// `LastControlEdit().Generation` already seen; empty until the first Step, so an edit made
+        /// before this Sequencer existed is not taken for a new one.
+        std::optional<uint64_t> m_SeenEdit;
+        /// The history revision right after the control's entry of the edit inside this gesture.
+        std::optional<uint64_t> m_JoinRevision;
+    };
+
+    /// THE ONE "A CONTROL WAS CHANGED" SIGNAL. Every control edit that becomes an undo entry goes through
+    /// `RecordControlDrag` (the gizmo release, a nudge, the palette's rotate, the Control Rig panel's
+    /// pose field), and that is where this is stamped — so the auto-keyer listens to one place instead of
+    /// to each tool.
+    struct ControlEdit
+    {
+        uint64_t                           Generation = 0; ///< 0 = no edit yet; +1 per recorded edit
+        const Animation::ControlHierarchy* Hierarchy  = nullptr;
+        uint32_t                           Control    = Animation::ControlHierarchy::INVALID;
+        uint64_t                           Revision   = 0; ///< CommandHistory::Revision() after its entry
+    };
+
+    [[nodiscard]] ControlEdit LastControlEdit();
+
+    /// Every channel key of @p track at @p from, moved to @p to (a control's summary row is one diamond per
+    /// tick, so dragging it moves the three channels together). Refuses to land on a tick that already holds
+    /// a key of a moved channel — merging two keys silently loses one of them. Returns keys moved.
+    [[nodiscard]] Common::ResultStr<uint32_t> MoveKeysAtTick( Animation::BoneTrack&  track,
+                                                              Animation::FrameNumber from,
+                                                              Animation::FrameNumber to,
+                                                              Animation::FrameRate   tickRate );
+
+    /// Every channel key of @p track at @p at, removed. Returns keys removed (0 when there were none).
+    uint32_t DeleteKeysAtTick( Animation::BoneTrack& track, Animation::FrameNumber at,
+                               Animation::FrameRate tickRate );
 } // namespace Desert::Editor

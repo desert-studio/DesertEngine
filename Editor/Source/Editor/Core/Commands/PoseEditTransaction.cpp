@@ -3,8 +3,11 @@
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Rig/ControlManipulator.hpp>
+#include <Engine/Animation/TrackEditing.hpp>
 
 #include <algorithm>
+#include <format>
 #include <utility>
 
 namespace Desert::Editor
@@ -250,6 +253,15 @@ namespace Desert::Editor
         return "Control drag";
     }
 
+    namespace
+    {
+        ControlEdit& LastControlEditSlot()
+        {
+            static ControlEdit s_Last;
+            return s_Last;
+        }
+    } // namespace
+
     Common::ResultStr<uint32_t> RecordControlDrag( Animation::ControlHierarchy* hierarchy, uint32_t control,
                                                    const Animation::BoneTransform& before )
     {
@@ -268,7 +280,63 @@ namespace Desert::Editor
 
         CommandHistory::Get().PushCommand(
              std::make_unique<ControlPoseCommand>( hierarchy, control, before, after ) );
+        ControlEdit& last = LastControlEditSlot();
+        last = ControlEdit{ last.Generation + 1, hierarchy, control, CommandHistory::Get().Revision() };
         return Common::MakeSuccess( 1U );
+    }
+
+    ControlEdit LastControlEdit()
+    {
+        return LastControlEditSlot();
+    }
+
+    Common::ResultStr<uint32_t> RotateControlRecorded( Animation::ControlHierarchy* hierarchy, uint32_t control,
+                                                       int axis, float degrees )
+    {
+        if ( hierarchy == nullptr || control >= hierarchy->Size() )
+        {
+            return Common::MakeFormattedError<uint32_t>( "cannot rotate control {} of a rig with {} of them",
+                                                         control, hierarchy != nullptr ? hierarchy->Size() : 0U );
+        }
+        const Animation::BoneTransform before = hierarchy->Get( control ).Pose;
+        if ( auto turned = Animation::RotateControlLocal( *hierarchy, control, axis, degrees ); !turned )
+        {
+            return Common::MakeError<uint32_t>( turned.GetError() );
+        }
+        return RecordControlDrag( hierarchy, control, before );
+    }
+
+    Common::ResultStr<uint32_t> ControlGizmoGesture::Step( Animation::ControlHierarchy* hierarchy,
+                                                           uint32_t control, bool held )
+    {
+        if ( held && !m_Active )
+        {
+            if ( hierarchy == nullptr || control >= hierarchy->Size() )
+            {
+                return Common::MakeFormattedError<uint32_t>(
+                     "a gizmo gesture cannot start on control {} of a rig with {} of them", control,
+                     hierarchy != nullptr ? hierarchy->Size() : 0U );
+            }
+            m_Active    = true;
+            m_Hierarchy = hierarchy;
+            m_Control   = control;
+            m_Before    = hierarchy->Get( control ).Pose;
+            return Common::MakeSuccess( 0U );
+        }
+        if ( held || !m_Active )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+
+        m_Active = false;
+        if ( hierarchy != m_Hierarchy || control != m_Control )
+        {
+            return Common::MakeFormattedError<uint32_t>(
+                 "the gizmo gesture on control {} was abandoned: the rig or the selection changed before the "
+                 "release (now control {})",
+                 m_Control, control );
+        }
+        return RecordControlDrag( hierarchy, control, m_Before );
     }
 
     // ── PoseEditTransaction ──────────────────────────────────────────────────────────────────────────
@@ -489,5 +557,275 @@ namespace Desert::Editor
         {
             LOG_ERROR( "[PoseUndo] {}", ended.GetError() );
         }
+    }
+    // ── Sequencer control keying ─────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<uint32_t> KeyControlsRecorded( PoseEditTransaction& transaction,
+                                                     Animation::Animator* animator, Animation::ControlKeyer& keyer,
+                                                     const Animation::ControlKeyTarget& target,
+                                                     std::span<const uint32_t>          controls )
+    {
+        if ( target.Hierarchy == nullptr || target.Clip == nullptr )
+        {
+            return Common::MakeError<uint32_t>( "keying controls needs a control rig and an open clip" );
+        }
+        if ( controls.empty() )
+        {
+            return Common::MakeError<uint32_t>( "no control is selected; select one in the tree or the viewport" );
+        }
+        if ( auto begun = transaction.Begin( animator, target.Clip ); !begun.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( begun.GetError() );
+        }
+        uint32_t keyed = 0;
+        for ( const uint32_t control : controls )
+        {
+            if ( control >= target.Hierarchy->Size() )
+            {
+                transaction.Cancel();
+                return Common::MakeFormattedError<uint32_t>( "control {} is not in a rig of {} controls", control,
+                                                             target.Hierarchy->Size() );
+            }
+            const Animation::BoneTransform pose = target.Hierarchy->Get( control ).Pose;
+            auto written = keyer.Write( target, control, pose, Animation::ControlWriteSource::Authored );
+            if ( !written.IsSuccess() )
+            {
+                transaction.Cancel();
+                return Common::MakeError<uint32_t>( written.GetError() );
+            }
+            keyed += written.GetValue();
+        }
+        if ( auto ended = transaction.End(); !ended.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( ended.GetError() );
+        }
+        return Common::MakeSuccess( keyed );
+    }
+
+    Common::ResultStr<uint32_t> ControlAutoKey::Step( PoseEditTransaction&               transaction,
+                                                      Animation::Animator*               animator,
+                                                      Animation::ControlKeyer&           keyer,
+                                                      const Animation::ControlKeyTarget& target, uint32_t control,
+                                                      bool held )
+    {
+        const ControlEdit edit  = LastControlEdit();
+        const bool        fresh = m_SeenEdit.has_value() && edit.Generation != *m_SeenEdit;
+        m_SeenEdit              = edit.Generation;
+        if ( target.Hierarchy == nullptr || target.Clip == nullptr || control >= target.Hierarchy->Size() )
+        {
+            // Nothing to observe: forget the gesture rather than carry its edge into another rig.
+            if ( keyer.Interacting() )
+            {
+                keyer.CancelInteraction();
+            }
+            m_Held    = false;
+            m_Control = Animation::ControlHierarchy::INVALID;
+            m_JoinRevision.reset();
+            return Common::MakeSuccess( 0U );
+        }
+
+        // An edit recorded against THIS control holds the gesture for the frame it is first seen, so the
+        // command's key comes out of the same edge as the mouse's.
+        const bool edited = fresh && edit.Hierarchy == target.Hierarchy && edit.Control == control;
+        if ( edited )
+        {
+            m_JoinRevision = edit.Revision;
+        }
+        const bool gesture = held || edited;
+
+        const Animation::BoneTransform pose    = target.Hierarchy->Get( control ).Pose;
+        const bool                     changed = control == m_Control && !SameStoredValue( pose, m_Last );
+        // Only a gesture moves a control as far as keying goes: the playhead writing the clip back onto
+        // the controls changes the pose too, and keying THAT would key every scrub. An edit counts as a
+        // move by itself — the recorder pushed an entry only because the pose differed, and a Details drag
+        // changed it on frames that were no gesture yet.
+        const bool moved = gesture && ( changed || edited );
+        m_Control        = control;
+        m_Last           = pose;
+
+        // The release frame is the only one on which `Observe` writes the clip, so it is the only one that
+        // needs the transaction. Opened here, not on the rising edge: during the gesture the CONTROL moves
+        // and the clip does not, and the control's own undo entry is `ControlGizmoGesture`'s.
+        const bool release = m_Held && !gesture;
+        m_Held             = gesture;
+        const bool joinable =
+             release && m_JoinRevision.has_value() && *m_JoinRevision == CommandHistory::Get().Revision();
+        if ( release )
+        {
+            m_JoinRevision.reset();
+        }
+        bool opened = false;
+        if ( release && !transaction.Open() )
+        {
+            if ( auto begun = transaction.Begin( animator, target.Clip ); !begun.IsSuccess() )
+            {
+                return Common::MakeError<uint32_t>( begun.GetError() );
+            }
+            opened = true;
+        }
+
+        auto observed = keyer.Observe(
+             target, Animation::KeySubject{ Animation::KeySubjectKind::Control, control }, gesture, moved );
+        if ( !observed.IsSuccess() )
+        {
+            if ( opened )
+            {
+                transaction.Cancel();
+            }
+            return Common::MakeError<uint32_t>( observed.GetError() );
+        }
+        if ( !opened )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+        auto ended = transaction.End();
+        if ( ended.IsSuccess() && ended.GetValue() == 1U && joinable )
+        {
+            // The control's pose entry and this key are one user action: one Ctrl+Z takes both back.
+            CommandHistory::Get().JoinLastTwo();
+        }
+        return ended;
+    }
+
+    namespace
+    {
+        template <typename Keys>
+        [[nodiscard]] bool HasKeyAt( const Keys& keys, Animation::FrameNumber tick )
+        {
+            return std::any_of( keys.begin(), keys.end(), [tick]( const auto& key ) { return key.Tick == tick; } );
+        }
+
+        template <typename Keys>
+        uint32_t RetimeKeys( Keys& keys, Animation::FrameNumber from, Animation::FrameNumber to )
+        {
+            uint32_t moved = 0;
+            for ( auto& key : keys )
+            {
+                if ( key.Tick == from )
+                {
+                    key.Tick = to;
+                    ++moved;
+                }
+            }
+            std::sort( keys.begin(), keys.end() );
+            return moved;
+        }
+
+        template <typename Keys>
+        uint32_t EraseKeys( Keys& keys, Animation::FrameNumber at )
+        {
+            const auto before = keys.size();
+            std::erase_if( keys, [at]( const auto& key ) { return key.Tick == at; } );
+            return static_cast<uint32_t>( before - keys.size() );
+        }
+    } // namespace
+
+    Common::ResultStr<uint32_t> MoveKeysAtTick( Animation::BoneTrack& track, Animation::FrameNumber from,
+                                                Animation::FrameNumber to, Animation::FrameRate tickRate )
+    {
+        if ( from == to )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+        const bool collides = ( HasKeyAt( track.PositionKeys, from ) && HasKeyAt( track.PositionKeys, to ) ) ||
+                              ( HasKeyAt( track.RotationKeys, from ) && HasKeyAt( track.RotationKeys, to ) ) ||
+                              ( HasKeyAt( track.ScaleKeys, from ) && HasKeyAt( track.ScaleKeys, to ) );
+        if ( collides )
+        {
+            return Common::MakeFormattedError<uint32_t>(
+                 "'{}' already has a key at tick {}; moving the key from tick {} onto it would lose one of them",
+                 track.BoneName, to.Value, from.Value );
+        }
+        const uint32_t moved = RetimeKeys( track.PositionKeys, from, to ) +
+                               RetimeKeys( track.RotationKeys, from, to ) +
+                               RetimeKeys( track.ScaleKeys, from, to );
+        if ( moved > 0 )
+        {
+            Animation::RefreshTangents( track, tickRate );
+        }
+        return Common::MakeSuccess( moved );
+    }
+
+    uint32_t DeleteKeysAtTick( Animation::BoneTrack& track, Animation::FrameNumber at,
+                               Animation::FrameRate tickRate )
+    {
+        const uint32_t removed = EraseKeys( track.PositionKeys, at ) + EraseKeys( track.RotationKeys, at ) +
+                                 EraseKeys( track.ScaleKeys, at );
+        if ( removed > 0 )
+        {
+            Animation::RefreshTangents( track, tickRate );
+        }
+        return removed;
+    }
+
+    Common::ResultStr<uint32_t> KeyBonePose( PoseEditTransaction& transaction, Animation::Animator* animator,
+                                             Animation::AnimationClip* clip, uint32_t bone,
+                                             Animation::FrameNumber tick )
+    {
+        if ( animator == nullptr || clip == nullptr )
+        {
+            return Common::MakeError<uint32_t>( "Key Bone: no animator or no clip to key into" );
+        }
+        const auto& bones = animator->GetSkeleton().GetBones();
+        if ( bone >= bones.size() || bone >= animator->GetAuthoringPose().Size() )
+        {
+            return Common::MakeError<uint32_t>(
+                 std::format( "Key Bone: bone {} is outside the skeleton ({} bones)", bone, bones.size() ) );
+        }
+        if ( transaction.Open() )
+        {
+            // A key pressed mid-drag belongs to the drag; a second opener would split one interaction in two.
+            return Common::MakeError<uint32_t>( "Key Bone: a pose edit is already open; release it first" );
+        }
+        if ( const auto began = transaction.Begin( animator, clip ); !began.IsSuccess() )
+        {
+            return Common::MakeError<uint32_t>( began.GetError() );
+        }
+
+        const std::string&    name  = bones[bone].Name;
+        Animation::BoneTrack* track = nullptr;
+        for ( auto& candidate : clip->Tracks )
+        {
+            if ( candidate.BoneName == name )
+            {
+                track = &candidate;
+                break;
+            }
+        }
+        const bool created = ( track == nullptr );
+        if ( created )
+        {
+            // An append changes Tracks.size(), which is what Animator::ResolveTrack rebinds on (the same
+            // reason ControlKeyer's TrackFor bumps no TrackRevision).
+            Animation::BoneTrack fresh;
+            fresh.BoneName = name;
+            clip->Tracks.push_back( std::move( fresh ) );
+            track = &clip->Tracks.back();
+        }
+
+        const Animation::BoneTransform pose = animator->GetAuthoringPose()[bone];
+        if ( !Animation::SetTransformKey( *track, tick, pose, clip->TickRate ) )
+        {
+            if ( created )
+            {
+                clip->Tracks.pop_back(); // Cancel pushes nothing, so it must also leave nothing behind
+            }
+            transaction.Cancel();
+            return Common::MakeError<uint32_t>(
+                 std::format( "Key Bone: the pose of '{}' is not finite; nothing was keyed", name ) );
+        }
+        return transaction.End();
+    }
+
+    size_t DropPoseRecordsFor( const Animation::Animator* animator )
+    {
+        if ( animator == nullptr )
+            return 0;
+        return CommandHistory::Get().DropIf(
+             [animator]( const ICommand& command )
+             {
+                 const auto* pose = dynamic_cast<const ClipPoseCommand*>( &command );
+                 return pose != nullptr && pose->PosedAnimator() == animator;
+             } );
     }
 } // namespace Desert::Editor

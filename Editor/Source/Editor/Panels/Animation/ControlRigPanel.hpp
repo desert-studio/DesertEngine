@@ -4,8 +4,11 @@
 
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 
+#include <Engine/Animation/Pose.hpp>
+
 #include <functional>
 #include <memory>
+#include <optional>
 
 namespace Desert::Core
 {
@@ -64,5 +67,15 @@ namespace Desert::Editor
                      const std::function<Common::BoolResultStr( Core::AuthoringContext& )>& write );
 
         std::shared_ptr<::Desert::Core::Scene> m_Scene;
+
+        // The pose field's edit in progress: the control and its pose before the first changed frame.
+        // Recorded (RecordControlDrag) when the field lets go, so a typed or dragged pose is one undo
+        // entry and reaches the Sequencer's auto-key like every other control edit.
+        struct PoseFieldEdit
+        {
+            uint32_t                 Control = 0;
+            Animation::BoneTransform Before;
+        };
+        std::optional<PoseFieldEdit> m_PoseFieldEdit;
     };
 } // namespace Desert::Editor

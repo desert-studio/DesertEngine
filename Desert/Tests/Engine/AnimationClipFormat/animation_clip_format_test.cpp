@@ -22,7 +22,6 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -103,9 +102,14 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // read under, which is report 05 §938's "from day one".
     // T7e (generation 4): `Version` moves into the text asset `Header`, beside the clip's GUID.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Channels", "DisplayRate", "DurationTicks", "Header", "Name",
+               ( std::vector<std::string>{ "Channels", "Curves", "DisplayRate", "DurationTicks", "Header", "Name",
                                            "Notifies", "Sections", "SkeletonSignature", "TickRate" } ) );
-    EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Tick" } ) );
+    // ANV1b: a notify states the Animation Editor row it is drawn on (UE's Notify Tracks).
+    // ANV3: and its length — a notify with one is UE's Notify State.
+    EXPECT_EQ( FieldNames<Ser::NotifyData>(),
+               ( std::vector<std::string>{ "DurationTicks", "Name", "Tick", "Track" } ) );
+    // ANV3: an anim curve is a name and the scalar keys a section weight already stores.
+    EXPECT_EQ( FieldNames<Ser::CurveData>(), ( std::vector<std::string>{ "Keys", "Name" } ) );
     EXPECT_EQ( FieldNames<Ser::FrameRateData>(), ( std::vector<std::string>{ "Denominator", "Numerator" } ) );
     EXPECT_EQ( FieldNames<Ser::SectionData>(),
                ( std::vector<std::string>{ "Blend", "EndTick", "Name", "StartTick", "Tracks", "Weight" } ) );
@@ -190,6 +194,39 @@ TEST( AnimationClipFormat, NotifiesComeOutSortedByTick )
     ASSERT_EQ( built.GetValue().Notifies.size(), 3u );
     EXPECT_EQ( built.GetValue().Notifies[0].Name, "early" );
     EXPECT_EQ( built.GetValue().Notifies[2].Name, "late" );
+}
+
+// ANV1b: the row a notify is drawn on survives the file and the build — a notify moved to track 2 and saved
+// is on track 2 when the clip is opened again, not on the first row.
+TEST( AnimationClipFormat, ANotifysTrackSurvivesTheFileAndTheBuild )
+{
+    const Ser::NotifyData written{ "FootSync", 12000, 2 };
+    const auto            read = Common::Json::Read<Ser::NotifyData>( Common::Json::Write( written ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue().Track, 2 );
+
+    Ser::AnimationAssetData data;
+    data.Name        = "Tracked";
+    data.Notifies    = { { "b", 4800, 1 }, { "a", 2400, 2 } };
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    ASSERT_TRUE( built ) << built.GetError();
+    ASSERT_EQ( built.GetValue().Notifies.size(), 2u );
+    EXPECT_EQ( built.GetValue().Notifies[0].Track, 2 );
+    EXPECT_EQ( built.GetValue().Notifies[1].Track, 1 );
+
+    const auto back = Desert::Assets::Serialization::BuildAssetDataFromClip( built.GetValue() );
+    ASSERT_EQ( back.Notifies.size(), 2u );
+    EXPECT_EQ( back.Notifies[0].Track, 2 );
+}
+
+TEST( AnimationClipFormat, ANegativeNotifyTrackIsRefusedByName )
+{
+    Ser::AnimationAssetData data;
+    data.Name        = "Negative";
+    data.Notifies    = { { "Hit", 2400, -1 } };
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
+    ASSERT_FALSE( built );
+    EXPECT_NE( built.GetError().find( "Hit" ), std::string::npos ) << built.GetError();
 }
 
 // ============================================================================
@@ -342,7 +379,7 @@ TEST( AnimationClipFormat, ASkeletonStillStatingTheOldBoneIndexIsRefusedByName )
 // Until Д35 this suite could only test the direction that READS a `.anim`. The direction that writes one
 // lived inside SequencerPanel::SaveClipToDisk — a member of an ImGui panel — so the format's round trip
 // was an assumption, and the row Д31-D called its WORST was in the part no test could reach: the panel
-// did `out << rfl::json::write( data )` with no check after it at all and returned the path as proof of
+// did `out << <the data written as JSON>` with no check after it at all and returned the path as proof of
 // a save.
 
 namespace
@@ -719,4 +756,61 @@ TEST( AnimationClipFormat, AScaleKeysSHAPEAndTANGENTSSurviveARoundTrip )
     EXPECT_EQ( static_cast<int>( loaded.Mode ), 1 );
     EXPECT_FLOAT_EQ( loaded.ArriveTangent.x, 0.25f );
     EXPECT_FLOAT_EQ( loaded.LeaveTangent.x, -0.75f );
+}
+
+// ANV3: a notify state's length and an anim curve's keys survive the file, the build and the write back —
+// one clip through JSON text, not two structs compared field by field.
+TEST( AnimationClipFormat, NotifyStatesAndCurvesSurviveTheFileRoundTrip )
+{
+    Ser::AnimationAssetData data;
+    data.Name          = "Curved";
+    data.DurationTicks = 24000;
+    data.Notifies      = { { "Trail", 4800, 1, 7200 }, { "Hit", 2400, 0, 0 } };
+    Ser::CurveData blink;
+    blink.Name  = "Blink";
+    blink.Keys  = { { 0, 0.0f, Ser::KeyShape{ 1, 0, 0.0f, 0.0f }, 0.0f, 0.0f },
+                    { 12000, 1.0f, Ser::KeyShape{ 2, 1, 0.0f, 0.0f }, 0.5f, -0.25f },
+                    { 24000, 0.0f, Ser::KeyShape{ 0, 0, 0.0f, 0.0f }, 0.0f, 0.0f } };
+    data.Curves = { blink };
+
+    const auto read = Common::Json::Read<Ser::AnimationAssetData>( Common::Json::Write( data ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const auto built = Ser::BuildClipFromAssetData( read.GetValue() );
+    ASSERT_TRUE( built ) << built.GetError();
+    const auto& clip = built.GetValue();
+    ASSERT_EQ( clip.Notifies.size(), 2u );
+    EXPECT_EQ( clip.Notifies[1].Name, "Trail" );
+    EXPECT_EQ( clip.Notifies[1].DurationTicks.Value, 7200 );
+    EXPECT_TRUE( clip.Notifies[1].IsState() );
+    EXPECT_FALSE( clip.Notifies[0].IsState() );
+    const auto* curve = clip.FindCurve( "Blink" );
+    ASSERT_NE( curve, nullptr );
+    ASSERT_EQ( curve->Keys.size(), 3u );
+    EXPECT_EQ( curve->Keys[1].Interp, Desert::Animation::KeyInterp::Cubic );
+    EXPECT_EQ( curve->Keys[1].Mode, Desert::Animation::TangentMode::User );
+    EXPECT_EQ( curve->Keys[2].Interp, Desert::Animation::KeyInterp::Constant );
+
+    const auto back = Ser::BuildAssetDataFromClip( clip );
+    ASSERT_EQ( back.Curves.size(), 1u );
+    EXPECT_EQ( Common::Json::Write( back.Curves[0] ), Common::Json::Write( blink ) );
+    ASSERT_EQ( back.Notifies.size(), 2u );
+    EXPECT_EQ( back.Notifies[1].DurationTicks, 7200 );
+}
+
+TEST( AnimationClipFormat, ANegativeNotifyLengthAndATwiceNamedCurveAreRefusedByName )
+{
+    Ser::AnimationAssetData data;
+    data.Name           = "Broken";
+    data.Notifies       = { { "Trail", 4800, 0, -1 } };
+    const auto negative = Ser::BuildClipFromAssetData( data );
+    ASSERT_FALSE( negative );
+    EXPECT_NE( negative.GetError().find( "Trail" ), std::string::npos ) << negative.GetError();
+
+    data.Notifies.clear();
+    Ser::CurveData twice;
+    twice.Name           = "Blink";
+    data.Curves          = { twice, twice };
+    const auto duplicate = Ser::BuildClipFromAssetData( data );
+    ASSERT_FALSE( duplicate );
+    EXPECT_NE( duplicate.GetError().find( "Blink" ), std::string::npos ) << duplicate.GetError();
 }

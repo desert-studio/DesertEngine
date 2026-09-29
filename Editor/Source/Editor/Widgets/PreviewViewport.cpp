@@ -5,7 +5,10 @@
 #include <Editor/RenderSystems/Passes/EditorGridPass.hpp>
 
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include "UIHelper/ImGuiUI.hpp"
 
@@ -512,6 +515,7 @@ namespace Desert::Editor
         }
 
         EnsureInit();
+        DropSkinned();
 
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
         ECS::ClearEditableMesh( smc );
@@ -652,6 +656,7 @@ namespace Desert::Editor
     {
         ++m_ContentRevision;
         EnsureInit();
+        DropSkinned();
 
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
@@ -689,6 +694,7 @@ namespace Desert::Editor
         ++m_ContentRevision;
         EnsureInit();
 
+        DropSkinned();
         // Nothing rides the mesh path in this mode — the ball is the external pass's draw (see the
         // header for why it is not a primitive with a scratch material).
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
@@ -847,6 +853,151 @@ namespace Desert::Editor
         m_Renderer->GetPipelineCache().InvalidateByShader( shader );
     }
 
+    void PreviewViewport::DropSkinned()
+    {
+        m_Clip.reset();
+        m_AnimationTime = 0.0;
+        if ( !m_Target )
+            return;
+        if ( m_Target.HasComponent<ECS::AnimationComponent>() )
+            m_Target.RemoveComponent<ECS::AnimationComponent>();
+        if ( m_Target.HasComponent<ECS::SkinnedMeshComponent>() )
+            m_Target.RemoveComponent<ECS::SkinnedMeshComponent>();
+    }
+
+    void PreviewViewport::SetSkinnedMesh( const Assets::AssetHandle&              mesh,
+                                          const std::vector<Assets::AssetHandle>& materials,
+                                          Assets::Asset<Assets::AnimationAsset>   clip )
+    {
+        // The static half first: it clears the target's StaticMeshComponent and resets the framing, and it
+        // drops any earlier skinned components, so the target carries exactly one mesh.
+        SetMesh( Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+        if ( static_cast<uint64_t>( mesh ) == 0 || !clip )
+            return;
+        EnsureInit();
+
+        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        smc.Primitive.reset();
+        smc.MaterialSlots.clear();
+        smc.RuntimeMaterialInstances.clear();
+        ECS::ClearEditableMesh( smc );
+
+        auto& skinned         = m_Target.AddComponent<ECS::SkinnedMeshComponent>();
+        skinned.MeshHandle    = mesh;
+        skinned.MaterialSlots = materials;
+
+        // THE SCENE'S CLOCK IS STOPPED: the preview scene runs no AnimationECSSystem, so the only writer of
+        // the playhead is SetAnimationTime, and ApplyAnimationTime builds the animator (Playing = false and
+        // CurrentClip keep that true should the component ever reach a scene that does run the system).
+        auto& anim       = m_Target.AddComponent<ECS::AnimationComponent>();
+        anim.CurrentClip = clip->GetClip().AnimationName;
+        anim.Playing     = false;
+        anim.Loop        = true;
+
+        m_Clip            = std::move( clip );
+        m_AnimationTime   = 0.0;
+        m_MeshHandle      = mesh;
+        m_Fill            = Fill::Object;
+        m_HasContent      = true;
+        m_Focus           = glm::vec3( 0.0f );
+        m_FrameHalfExtent = glm::vec3( 50.0f ); // stand-in until the bounds are known (see TryFrameMesh)
+        m_FrameRadius     = RadiusOfHalfExtent( m_FrameHalfExtent );
+        m_Target.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f );
+        ResetView();
+        m_Framed = TryFrameMesh();
+        ++m_ContentRevision;
+    }
+
+    const Animation::Animator* PreviewViewport::GetAnimator() const
+    {
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return nullptr;
+        return m_Target.GetComponent<ECS::AnimationComponent>().Animator.get();
+    }
+
+    glm::mat4 PreviewViewport::GetViewProjection() const
+    {
+        return m_Camera ? m_Camera->GetProjectionMatrix() * m_Camera->GetViewMatrix() : glm::mat4( 1.0f );
+    }
+
+    glm::mat4 PreviewViewport::GetView() const
+    {
+        return m_Camera ? m_Camera->GetViewMatrix() : glm::mat4( 1.0f );
+    }
+
+    glm::mat4 PreviewViewport::GetProjection() const
+    {
+        return m_Camera ? m_Camera->GetProjectionMatrix() : glm::mat4( 1.0f );
+    }
+
+    Animation::Animator* PreviewViewport::GetAnimatorForAuthoring()
+    {
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return nullptr;
+        return m_Target.GetComponent<ECS::AnimationComponent>().Animator.get();
+    }
+
+    void PreviewViewport::SetPoseOverride( const bool posed )
+    {
+        if ( posed == m_PoseOverride )
+            return;
+        m_PoseOverride = posed;
+        ++m_ContentRevision;
+    }
+
+    glm::mat4 PreviewViewport::GetTargetTransform() const
+    {
+        return m_Target ? m_Target.GetComponent<ECS::TransformComponent>().GetTransform() : glm::mat4( 1.0f );
+    }
+
+    void PreviewViewport::SetAnimationTime( const double seconds )
+    {
+        if ( seconds == m_AnimationTime )
+            return;
+        m_AnimationTime = seconds;
+        ++m_ContentRevision;
+    }
+
+    bool PreviewViewport::ApplyAnimationTime()
+    {
+        if ( !m_Clip || !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return true;
+        auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
+        if ( !anim.Animator )
+        {
+            // THIS SCENE HAS NO AnimationECSSystem (it needs the editor's AnimationLibrary and AssetManager,
+            // and its clock would fight the scrub), so nothing else ever builds the animator: waiting for "the
+            // system's next update" left GetAnimator() null forever, which hid the bones, the Skeleton Tree
+            // and every "Select Bone" command. The preview builds it itself, the same way the system does,
+            // once the skinned mesh has resolved; until then the bind pose renders and the caller keeps
+            // rendering.
+            Desert::Mesh* mesh = m_Target.HasComponent<ECS::SkinnedMeshComponent>()
+                                      ? Runtime::ResourceRegistry::GetMeshService()->Get(
+                                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
+                                      : nullptr;
+            if ( mesh == nullptr || !mesh->IsSkinned() )
+                return false;
+            // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            const auto* skinned = static_cast<Desert::SkinnedMesh*>( mesh );
+            anim.Animator       = std::make_unique<Animation::Animator>( skinned->GetSkeleton() );
+        }
+        const auto& clip    = m_Clip->GetClip();
+        const auto* current = anim.Animator->GetCurrentClip();
+        if ( current != &clip )
+            anim.Animator->Play( clip, true );
+        anim.Animator->SetTime( static_cast<float>( m_AnimationTime ) );
+        if ( m_PoseOverride )
+        {
+            // SetTime just evaluated the clip; the owner's authoring pose goes back on top. The revision moves
+            // every posed frame because nothing here can see the owner change that pose.
+            anim.Animator->ApplyLocalPose();
+            ++m_ContentRevision;
+        }
+        return true;
+    }
+
     void PreviewViewport::Clear()
     {
         ++m_ContentRevision;
@@ -856,6 +1007,7 @@ namespace Desert::Editor
         m_Fill       = Fill::Empty;
         if ( !m_Inited )
             return;
+        DropSkinned();
 
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
@@ -993,7 +1145,10 @@ namespace Desert::Editor
         in.Focus           = m_Focus;
         in.Width           = m_Width;
         in.Height          = m_Height;
-        const bool loading = Assets::AsyncAssetLoader::Get().Outstanding() > 0;
+        // A skinned preview whose animator does not exist yet renders the bind pose; keep rendering until the
+        // pose is the one asked for.
+        const bool posing  = !ApplyAnimationTime();
+        const bool loading = Assets::AsyncAssetLoader::Get().Outstanding() > 0 || posing;
         m_RenderedLastUpdate =
              PreviewRenderGate::ShouldRender( m_Gate, in, IsSkyRebuilding() || loading, m_Realtime );
         if ( !m_RenderedLastUpdate )
