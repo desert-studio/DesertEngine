@@ -20,7 +20,7 @@ namespace Desert::Assets
 {
     class AssetManager;
     class AnimationAsset;
-}
+} // namespace Desert::Assets
 
 namespace Desert::Editor::UI
 {
@@ -86,9 +86,9 @@ namespace Desert::Editor
         void DestroyPreview() override;
 
     private:
-        void EnsurePreview();
-        void DrawOverlay( const glm::vec2& origin ) const;
-        void DrawTransport();
+        void                EnsurePreview();
+        void                DrawOverlay( const glm::vec2& origin ) const;
+        void                DrawTransport();
         void                DrawTimeline( float width, float height );
         void                DrawNotifyPopups( Animation::AnimationClip& clip );
         [[nodiscard]] float TimelineHeight() const;

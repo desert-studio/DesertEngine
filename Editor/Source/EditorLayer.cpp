@@ -4698,9 +4698,17 @@ namespace Desert::Editor
                                   ++control )
                             {
                                 const std::string name = hierarchy.Get( control ).Name;
-                                commands.push_back( { "Control Rig", "Select control " + name, [this, control]
+                                commands.push_back( { "Control Rig", "Select control " + name,
+                                                      [this, subject, control]
                                                       {
+                                                          // The palette takes the context the way it does for
+                                                          // "Author": after "Viewport mode: Control" the viewport
+                                                          // holds it, and picking a control by name refused.
+                                                          // Focus adopts the holder's mode for the same entity.
                                                           auto& host = Core::ActiveAuthoringContext();
+                                                          m_PaletteAuthoring.Entity = subject;
+                                                          (void)host.Focus( m_PaletteAuthoringOwner,
+                                                                            m_PaletteAuthoring );
                                                           return host.SetSelectedControl( m_PaletteAuthoringOwner,
                                                                                           m_PaletteAuthoring,
                                                                                           control );

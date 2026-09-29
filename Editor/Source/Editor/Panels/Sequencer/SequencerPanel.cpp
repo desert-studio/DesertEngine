@@ -542,9 +542,10 @@ namespace Desert::Editor
             }
             if ( armed )
                 ImGui::PopStyleColor( 2 );
-            Utils::ImGuiUtilities::Tooltip( "Auto Key (UE ships this OFF): while ON, posing the selected bone or "
-                                            "control writes ONE key when you let go of the gizmo — not one per mouse "
-                                            "move, and not one per tick the playhead crossed." );
+            Utils::ImGuiUtilities::Tooltip(
+                 "Auto Key (UE ships this OFF): while ON, posing the selected bone or "
+                 "control writes ONE key when you let go of the gizmo — not one per mouse "
+                 "move, and not one per tick the playhead crossed." );
             ImGui::SameLine();
 
             // THE TWO KEYING-MODE ENUMS, ON THE SURFACE THAT USES THEM. A mode nothing can reach is a knob
@@ -2877,13 +2878,15 @@ namespace Desert::Editor
         }
         const Animation::ControlKeyTarget keyTarget = ControlTargetFor( target->Clip, *target->Animator );
         const std::array<uint32_t, 1>     controls  = { *control };
-        const auto keyed = KeyControlsRecorded( m_ClipEdit, target->Animator, m_ControlKeyer, keyTarget, controls );
+        const auto                        keyed =
+             KeyControlsRecorded( m_ClipEdit, target->Animator, m_ControlKeyer, keyTarget, controls );
         if ( !keyed.IsSuccess() )
         {
             LOG_WARN( "[Sequencer] Key selected controls refused: {}", keyed.GetError() );
             return;
         }
-        LOG_INFO( "[Sequencer] keyed {} control channel set(s) at tick {}", keyed.GetValue(), keyTarget.Tick.Value );
+        LOG_INFO( "[Sequencer] keyed {} control channel set(s) at tick {}", keyed.GetValue(),
+                  keyTarget.Tick.Value );
     }
 
     void SequencerPanel::SetAutoKey( bool on )
@@ -2903,7 +2906,8 @@ namespace Desert::Editor
             return;
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — the seam ResolveSectionTarget documents
-        auto& anim = const_cast<ECS::AnimationComponent&>( resolved->get().GetComponent<ECS::AnimationComponent>() );
+        auto& anim =
+             const_cast<ECS::AnimationComponent&>( resolved->get().GetComponent<ECS::AnimationComponent>() );
         if ( !anim.Animator )
         {
             LOG_WARN( "[Sequencer] Set Time: the animation has no animator" );
@@ -2955,7 +2959,7 @@ namespace Desert::Editor
         const bool     focused   = ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows );
         const bool     rigOnThis = Core::ActiveAuthoringContext().ShowsControls() &&
                                Core::ActiveAuthoringContext().Entity() == Subject().Owner;
-        const bool     typing    = io.WantTextInput || io.KeyCtrl || ImGui::IsMouseDown( ImGuiMouseButton_Right );
+        const bool typing = io.WantTextInput || io.KeyCtrl || ImGui::IsMouseDown( ImGuiMouseButton_Right );
         if ( !typing && ( focused || rigOnThis ) && ImGui::IsKeyPressed( ImGuiKey_S, false ) )
         {
             KeySelectedControls();
@@ -2969,9 +2973,10 @@ namespace Desert::Editor
                 if ( track.BoneName == name )
                 {
                     ScopedPoseEdit edit( m_ClipEdit, animator, clip );
-                    const uint32_t removed = DeleteKeysAtTick( track, Animation::FrameNumber{ m_ControlKeyTick },
-                                                               clip->TickRate );
-                    LOG_INFO( "[Sequencer] deleted {} key(s) of '{}' at tick {}", removed, name, m_ControlKeyTick );
+                    const uint32_t removed =
+                         DeleteKeysAtTick( track, Animation::FrameNumber{ m_ControlKeyTick }, clip->TickRate );
+                    LOG_INFO( "[Sequencer] deleted {} key(s) of '{}' at tick {}", removed, name,
+                              m_ControlKeyTick );
                     break;
                 }
             }
@@ -3036,13 +3041,14 @@ namespace Desert::Editor
         const Sequencer::CurveViewport axis        = TimeAxis( laneX0, laneW, duration );
         const float childH = std::min( 240.0f, 8.0f + static_cast<float>( rows.size() + 2 ) * rowH );
         ImGui::BeginChild( "##rigTracks", ImVec2( gutter + laneW, childH ), false );
-        ImDrawList*    dl       = ImGui::GetWindowDrawList();
-        const auto     selected = SelectedControlHere();
-        const ImVec2   top      = ImGui::GetCursorScreenPos();
-        const auto     header   = [&]( const char* text, float indent, ImU32 color )
+        ImDrawList*  dl       = ImGui::GetWindowDrawList();
+        const auto   selected = SelectedControlHere();
+        const ImVec2 top      = ImGui::GetCursorScreenPos();
+        const auto   header   = [&]( const char* text, float indent, ImU32 color )
         {
             const ImVec2 rp = ImGui::GetCursorScreenPos();
-            dl->AddRectFilled( rp, ImVec2( rp.x + gutter + laneW, rp.y + rowH - 1.0f ), IM_COL32( 34, 34, 40, 255 ) );
+            dl->AddRectFilled( rp, ImVec2( rp.x + gutter + laneW, rp.y + rowH - 1.0f ),
+                               IM_COL32( 34, 34, 40, 255 ) );
             dl->AddText( ImVec2( rp.x + 4.0f + indent, rp.y + 2.0f ), color, text );
             ImGui::Dummy( ImVec2( gutter + laneW, rowH ) );
         };
@@ -3054,7 +3060,7 @@ namespace Desert::Editor
         for ( const auto& [c, depth] : rows )
         {
             const Animation::ControlElement& element = hierarchy.Get( c );
-            const ImU32  color = ImGui::ColorConvertFloat4ToU32(
+            const ImU32                      color   = ImGui::ColorConvertFloat4ToU32(
                  ImVec4( element.Color.r, element.Color.g, element.Color.b, 1.0f ) );
             const ImVec2 rp    = ImGui::GetCursorScreenPos();
             const bool   isSel = selected.has_value() && *selected == c;
@@ -3145,7 +3151,7 @@ namespace Desert::Editor
 
             for ( const int32_t tick : ticks )
             {
-                const float  x      = axis.TimeToX( TickToSeconds( Animation::FrameNumber{ tick }, tickRate ) );
+                const float  x = axis.TimeToX( TickToSeconds( Animation::FrameNumber{ tick }, tickRate ) );
                 const ImVec2 center( x, rp.y + rowH * 0.5f - 0.5f );
                 const bool   keySel = m_ControlKeyRow == c && m_ControlKeyTick == tick;
                 const float  r      = 5.0f;

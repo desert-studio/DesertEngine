@@ -399,8 +399,8 @@ namespace Desert::Editor
         constexpr float kSideWidth   = 260.0f;
         const float  transportHeight = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetStyle().ItemSpacing.y;
         const ImVec2 avail           = ImGui::GetContentRegionAvail();
-        const float     timelineHeight  = TimelineHeight();
-        const ImVec2    view(
+        const float  timelineHeight  = TimelineHeight();
+        const ImVec2 view(
              std::max( avail.x - kSideWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f ),
              std::max( avail.y - transportHeight - timelineHeight - ImGui::GetStyle().ItemSpacing.y, 1.0f ) );
 
