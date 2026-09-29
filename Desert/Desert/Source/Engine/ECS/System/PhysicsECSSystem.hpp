@@ -314,8 +314,8 @@ namespace Desert::ECS
                 {
                     const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive );
                     if ( !shared )
-                        return Common::MakeError<Result>(
-                             std::format( "primitive {} has no shared mesh", static_cast<int>( *mesh.Primitive ) ) );
+                        return Common::MakeError<Result>( std::format( "primitive {} has no shared mesh",
+                                                                       static_cast<int>( *mesh.Primitive ) ) );
                     return Common::MakeSuccess(
                          Result( BuildColliderMesh( shared->GetVertices(), shared->GetIndices(), scale ) ) );
                 }

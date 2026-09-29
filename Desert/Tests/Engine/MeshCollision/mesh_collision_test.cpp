@@ -95,7 +95,7 @@ namespace
 
 TEST( MeshCollision, BallComesToRestOnAMeshFloor )
 {
-    SimWorld              world;
+    SimWorld           world;
     const TriangleData floor = Floor( 4 );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
@@ -119,7 +119,7 @@ TEST( MeshCollision, BallComesToRestOnAMeshFloor )
 
 TEST( MeshCollision, ConvexHullCubeFallsAndRestsOnItsFace )
 {
-    SimWorld              world;
+    SimWorld           world;
     const TriangleData floor = Floor( 4 );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
@@ -142,7 +142,7 @@ TEST( MeshCollision, ConvexHullCubeFallsAndRestsOnItsFace )
 
 TEST( MeshCollision, ConvexHullOfADenseCloudIsSimplifiedNotRefused )
 {
-    SimWorld                  world;
+    SimWorld               world;
     std::vector<glm::vec3> cloud; // 40 × 50 points on a sphere: far past the hull's 256-point cap
     for ( int i = 0; i < 40; ++i )
         for ( int j = 0; j < 50; ++j )
@@ -184,7 +184,7 @@ TEST( MeshCollision, RayMeetsTheTriangleItIsAimedAt )
 
 TEST( MeshCollision, RefusalsNameTheReason )
 {
-    SimWorld              world;
+    SimWorld           world;
     const TriangleData floor = Floor( 1 );
 
     const auto dynamicMesh = world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Dynamic ) );
@@ -218,7 +218,7 @@ TEST( MeshCollision, RefusalsNameTheReason )
 
 TEST( MeshCollision, ShapesAreCookedOncePerContent )
 {
-    SimWorld              world;
+    SimWorld           world;
     const TriangleData floor = Floor( 2 );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
@@ -306,14 +306,14 @@ TEST( MeshCollision, ColliderMeshCarriesTheEntityScale )
 
 TEST( MeshCollision, ScaledUnitCubeHullRestsAtItsScaledHalfHeight )
 {
-    SimWorld              world;
+    SimWorld           world;
     const TriangleData floor = Floor( 4 );
     ASSERT_TRUE( world.Physics.CreateBody( MeshBody( floor, Physics::BodyType::Static ) ).IsSuccess() );
 
     // An entity scaled ×100: a 1 cm unit cube on screen is 100 cm, so the hull must be too.
-    const ECS::ColliderMesh built = ECS::BuildColliderMesh( UnitCubeVertices(), std::vector<Index>{},
-                                                            glm::vec3( 100.0f ) );
-    Physics::BodyDesc       cube;
+    const ECS::ColliderMesh built =
+         ECS::BuildColliderMesh( UnitCubeVertices(), std::vector<Index>{}, glm::vec3( 100.0f ) );
+    Physics::BodyDesc cube;
     cube.Shape       = Physics::ShapeType::ConvexHull;
     cube.MeshPoints  = built.Points;
     cube.Mass        = 10.0f;
