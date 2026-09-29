@@ -32,7 +32,7 @@ namespace Desert::ECS
             return ColliderMeshSource::RuntimeMesh;
         if ( mesh.Primitive.has_value() )
             return ColliderMeshSource::Primitive;
-        if ( mesh.MeshHandle )
+        if ( !mesh.MeshHandle.IsNull() )
             return ColliderMeshSource::Asset;
         return ColliderMeshSource::None;
     }
