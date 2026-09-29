@@ -52,6 +52,7 @@
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
@@ -276,6 +277,55 @@ namespace
         if ( !written )
             err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
         return static_cast<bool>( written );
+    }
+
+    // L10b3 TEMPORARY STEP (deleted once it has raised the corpus): a Landscape block with no edit layers gains
+    // the one Base layer every landscape now has, in the order and form the engine's WriteComponent writes it.
+    int RaiseLandscapeBaseLayer( Desert::Migration::SceneSerialized& scene )
+    {
+        int raised = 0;
+        for ( auto& entity : scene.Entities )
+            for ( auto& [key, value] : entity.Components )
+            {
+                if ( key != "Landscape" )
+                    continue;
+                auto object = value.to_object();
+                if ( !object )
+                    continue;
+                const auto layers = object.value().get( "EditLayers" );
+                if ( layers )
+                {
+                    const auto array = layers.value().to_array();
+                    if ( array && !array.value().empty() )
+                        continue;
+                }
+                rfl::Generic::Object base;
+                base["Guid"]        = rfl::Generic( std::to_string( Desert::World::Landscape::kLandscapeBaseEditLayerGuid ) );
+                base["Name"]        = rfl::Generic( std::string( "Base" ) );
+                base["Visible"]     = rfl::Generic( true );
+                base["Locked"]      = rfl::Generic( false );
+                base["HeightAlpha"] = rfl::Generic( 1.0 );
+                base["WeightAlpha"] = rfl::Generic( 1.0 );
+                const rfl::Generic   stack( rfl::Generic::Array{ rfl::Generic( base ) } );
+                rfl::Generic::Object block;
+                bool                 placed = false;
+                for ( const auto& [k, v] : object.value() )
+                {
+                    if ( k == "EditLayers" )
+                        continue;
+                    if ( k == "Layers" )
+                    {
+                        block["EditLayers"] = stack;
+                        placed              = true;
+                    }
+                    block[k] = v;
+                }
+                if ( !placed )
+                    block["EditLayers"] = stack;
+                value = rfl::Generic( block );
+                ++raised;
+            }
+        return raised;
     }
 
     // A SCENE goes through the engine's one scene writer (ExternalEntities::WriteSceneFile), partitioned or not,
@@ -714,12 +764,39 @@ namespace Desert::Migration
         for ( const auto& path : tiles )
         {
             const std::string bytes = ReadAll( path );
-            const auto        tile  = Desert::World::Landscape::DecodeLandscapeTile(
+            auto              tile  = Desert::World::Landscape::DecodeLandscapeTile(
                  std::span( reinterpret_cast<const unsigned char*>( bytes.data() ), bytes.size() ) );
             if ( !tile )
             {
                 err << "FAIL   " << path.string() << " — " << tile.GetError() << "\n";
                 ++failed;
+                continue;
+            }
+            if ( tile.GetValue().EditLayers().empty() ) // L10b3 temporary: the tile gains the Base layer
+            {
+                Desert::World::Landscape::LandscapeTileData data = tile.ExtractValue();
+                auto set = data.SetEditLayer( { Common::UUID( Desert::World::Landscape::kLandscapeBaseEditLayerGuid ),
+                                                data.Samples(), data.WeightLayers() } );
+                if ( !set )
+                {
+                    err << "FAIL   " << path.string() << " — " << set.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << ( check ? "WOULD  " : "raised " ) << path.string() << " — tile gains the Base edit layer\n";
+                if ( !check )
+                {
+                    const std::vector<unsigned char> encoded = Desert::World::Landscape::EncodeLandscapeTile( data );
+                    const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
+                         path, std::string( encoded.begin(), encoded.end() ) );
+                    if ( !written )
+                    {
+                        err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                }
+                ++changed;
                 continue;
             }
             const std::vector<uint16_t>& samples = tile.GetValue().Samples();
@@ -820,6 +897,7 @@ namespace Desert::Migration
             // THE CANONICAL PASS, after the steps: every reflected block (Settings and the rows of
             // ReflectedComponentBlocks.hpp) restated in the saver's own text, so a scene opened and saved with
             // no edit is byte-identical to its file. No version moves - see SettingsCanonical.hpp.
+            const int landscapeRaised = RaiseLandscapeBaseLayer( parsed.value() ); // L10b3 temporary
             const Desert::Migration::SceneCanonicalisationReport canonical =
                  Desert::Migration::CanonicaliseScene( parsed.value() );
             if ( !canonical.Refused.empty() )
@@ -845,9 +923,11 @@ namespace Desert::Migration
                 report.EntitiesMovedOut       = parsed.value().Entities.size();
             }
 
-            if ( !report.Changed() && canonical.Changed() )
+            if ( !report.Changed() && ( canonical.Changed() || landscapeRaised > 0 ) )
             {
                 out << ( check ? "WOULD  " : "canon  " ) << path.string() << " —";
+                if ( landscapeRaised > 0 )
+                    out << " " << landscapeRaised << " landscape(s) gain the Base edit layer;";
                 printCanonical();
                 out << "\n";
                 if ( !check && !WriteScene( path, rfl::json::write( parsed.value() ), err ) )
