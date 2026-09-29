@@ -162,7 +162,8 @@ Shader "StaticMeshGBuffer_Instanced"
         	vec2 uv = inVertex.Texcoord * tiling;
 
         	float alphaCutoff = mat.MetalRoughEmission.w;
-        	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
+        	vec4 maskTexel = texture(u_OpacityTexture, uv); // the ONE mask source: opacity map, else albedo (PBRSurfaceParams::MaskTexture)
+        	if (alphaCutoff > 0.0 && mix(maskTexel.r, maskTexel.a, mat.EmissionColor.a) < alphaCutoff)
         		discard;
 
         	vec3 albedo = mat.AlbedoAO.rgb * pow(texture(u_AlbedoTexture, uv).rgb, vec3(2.2));

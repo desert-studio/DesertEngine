@@ -38,6 +38,20 @@ namespace Desert::Assets
 
         std::optional<glm::vec2> UVTiling;
 
+        // THE MASK HAS ONE SOURCE, CHOSEN HERE ONCE (UE Interchange's glTF rule: OpacityMask = BaseColor.a
+        // unless the material names a mask of its own). A separate opacity map (FBX's cut-out cards) is read
+        // from its red channel; without one, the albedo texture's ALPHA is the mask (glTF `alphaMode: MASK`
+        // keeps it there). MaterialFactory binds MaskTexture() into `u_OpacityTexture` and BuildPBRGpuMaterial
+        // states MaskFromAlbedoAlpha() to the shader - both read this one predicate, so they cannot disagree.
+        bool MaskFromAlbedoAlpha() const
+        {
+            return static_cast<uint64_t>( OpacityTexture ) == 0;
+        }
+        AssetHandle MaskTexture() const
+        {
+            return MaskFromAlbedoAlpha() ? AlbedoTexture : OpacityTexture;
+        }
+
         static PBRSurfaceParams FromMaterialData( const MaterialData& m )
         {
             PBRSurfaceParams p;

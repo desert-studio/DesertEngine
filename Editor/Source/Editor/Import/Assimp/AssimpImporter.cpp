@@ -1,5 +1,6 @@
 #include "AssimpImporter.hpp"
 #include "../TextureImporter.hpp"
+#include "SourceAlphaMode.hpp"
 
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
@@ -372,8 +373,27 @@ namespace Desert::Editor
             const glm::vec4 emissive = GetColor( mat, AI_MATKEY_COLOR_EMISSIVE, glm::vec4( 0.0f ) );
             d.EmissiveColor          = glm::vec4( glm::vec3( emissive ), 1.0f );
 
-            // An opacity map implies cutout (leaves/cards) -> enable by default; opaque materials keep 0.
-            d.AlphaCutoff = ( mat->GetTextureCount( aiTextureType_OPACITY ) > 0 ) ? 0.5f : 0.0f;
+            // The cut-out as the SOURCE states it: an FBX opacity map, or glTF's alphaMode/alphaCutoff (whose
+            // mask is the albedo's alpha - PBRSurfaceParams::MaskTexture picks it when no opacity map exists).
+            const SourceAlpha alpha = ResolveSourceAlpha( *mat );
+            d.AlphaCutoff           = alpha.AlphaCutoff;
+            if ( alpha.Kind == SourceAlphaKind::BlendAsMask )
+            {
+                LOG_WARN( "[Import][Material] '{}' in '{}' states alphaMode BLEND; surface materials have no "
+                          "translucent blend mode, so it is drawn MASKED at cutoff {} (the albedo's alpha)",
+                          out.Name, sourcePath.generic_string(), alpha.AlphaCutoff );
+            }
+            else if ( alpha.Kind == SourceAlphaKind::Mask )
+            {
+                LOG_INFO( "[Import][Material] '{}' alphaMode MASK, cutoff {} (the albedo's alpha)", out.Name,
+                          alpha.AlphaCutoff );
+            }
+            else if ( alpha.Kind == SourceAlphaKind::OpacityMap && !alpha.AlphaMode.empty() &&
+                      alpha.AlphaMode != "OPAQUE" )
+            {
+                LOG_INFO( "[Import][Material] '{}' has an opacity map; it is the mask over alphaMode {}", out.Name,
+                          alpha.AlphaMode );
+            }
 
             result.push_back( std::move( out ) );
         }

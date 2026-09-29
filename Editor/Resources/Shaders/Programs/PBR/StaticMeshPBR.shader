@@ -261,7 +261,8 @@ Shader "StaticMeshPBR"
         	// Alpha cutout (foliage/cards): discard transparent texels per the Opacity Map. MetalRoughEmission.w is
         	// the cutoff (0 = disabled, so opaque materials are unaffected). Done first to skip lighting on discards.
         	float alphaCutoff = mat.MetalRoughEmission.w;
-        	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
+        	vec4 maskTexel = texture(u_OpacityTexture, uv); // the ONE mask source: opacity map, else albedo (PBRSurfaceParams::MaskTexture)
+        	if (alphaCutoff > 0.0 && mix(maskTexel.r, maskTexel.a, mat.EmissionColor.a) < alphaCutoff)
         		discard;
 
         	m_Params.AlbedoColor = mat.AlbedoAO.rgb;

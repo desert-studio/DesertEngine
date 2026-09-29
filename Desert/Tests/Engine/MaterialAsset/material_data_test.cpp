@@ -4,6 +4,7 @@
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
+#include <Engine/Graphic/Materials/Mesh/PBR/PBRPush.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -257,6 +258,33 @@ TEST( MaterialFormatV3, ACloudSlotNamedByGuidFindsTheTypeRegisteredUnderThatGuid
                  handed = handle;
          } );
     EXPECT_EQ( handed, registeredUnder );
+}
+
+// THM1a: a material has ONE mask source. Without an opacity map the albedo's alpha is the mask (glTF MASK),
+// and the texture bound into u_OpacityTexture and the channel the shader reads are both derived from it.
+TEST( PBRMaskSource, WithoutAnOpacityMapTheAlbedoAlphaIsTheMask )
+{
+    Desert::Assets::PBRSurfaceParams p;
+    p.AlbedoTexture = Desert::Assets::AssetHandle( 11ULL );
+    p.AlphaCutoff   = 0.3f;
+
+    EXPECT_TRUE( p.MaskFromAlbedoAlpha() );
+    EXPECT_EQ( static_cast<uint64_t>( p.MaskTexture() ), 11ULL );
+    const auto gpu = Desert::Graphic::BuildPBRGpuMaterial( p );
+    EXPECT_EQ( gpu.EmissionColor.a, 1.0f ) << "the shader must read the ALPHA of the albedo it was handed";
+    EXPECT_EQ( gpu.MetalRoughEmission.w, 0.3f );
+}
+
+TEST( PBRMaskSource, AnOpacityMapIsTheMaskAndIsReadByItsRedChannel )
+{
+    Desert::Assets::PBRSurfaceParams p;
+    p.AlbedoTexture  = Desert::Assets::AssetHandle( 11ULL );
+    p.OpacityTexture = Desert::Assets::AssetHandle( 22ULL );
+    p.AlphaCutoff    = 0.5f;
+
+    EXPECT_FALSE( p.MaskFromAlbedoAlpha() );
+    EXPECT_EQ( static_cast<uint64_t>( p.MaskTexture() ), 22ULL );
+    EXPECT_EQ( Desert::Graphic::BuildPBRGpuMaterial( p ).EmissionColor.a, 0.0f );
 }
 
 int main( int argc, char** argv )

@@ -86,7 +86,9 @@ namespace Desert::Graphic
 
         bindTexture( material.Data().AlbedoTexture, "u_AlbedoTexture" );
         bindTexture( material.Data().NormalTexture, "u_NormalTexture" );
-        bindTexture( material.Data().OpacityTexture, "u_OpacityTexture" );
+        // The mask slot carries the ONE mask source PBRSurfaceParams::MaskTexture names (the opacity map, else
+        // the albedo whose alpha is the mask); the GPU entry says which channel to read.
+        bindTexture( material.Data().MaskTexture(), "u_OpacityTexture" );
     }
 
     void MaterialFactory::ApplyShaderAsset( DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset )
