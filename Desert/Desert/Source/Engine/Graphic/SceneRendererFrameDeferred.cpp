@@ -35,6 +35,7 @@
 #include <string_view>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/DeferredFrameNodes.hpp>
 
 namespace Desert::Graphic
 {
@@ -46,16 +47,6 @@ namespace Desert::Graphic
         {
             const glm::vec4 c = RenderPassSpecification{}.ClearColor.Color;
             return RDG::LoadOp::ClearColor( c.r, c.g, c.b, c.a );
-        }
-
-        // Every attachment of @p target LOAD/STORE, the depth tested and written: the graph opens the render
-        // pass a pipeline built for that framebuffer draws in, and leaves the depth in the attachment layout.
-        void LoadTarget( RDG::PassBuilder& pass, const RDG::ImportedFramebuffer& target )
-        {
-            for ( uint32_t i = 0; i < target.Colors.size(); ++i )
-                pass.ColorTarget( i, target.Colors[i], RDG::LoadOp::Load() );
-            if ( target.Depth.IsValid() )
-                pass.DepthTarget( target.Depth, RDG::LoadOp::Load(), /*write*/ true );
         }
 
         void ReadAll( RDG::PassBuilder& pass, const std::vector<RDG::TextureRef>& refs, RDG::Access access )
@@ -100,15 +91,12 @@ namespace Desert::Graphic
             return;
         const std::shared_ptr<Image2D> source = m_GBuffer->GetDepthAttachmentImage();
         const std::shared_ptr<Image2D> target = m_TargetFramebuffer->GetDepthAttachmentImage();
-        const RDG::TextureRef          sourceRef = textures.Import( source, "GBuffer.Depth", RDG::Access::DepthWrite );
+        const RDG::TextureRef          sourceRef =
+             textures.Import( source, "GBuffer.Depth", DeferredFrameNodes::kGBufferDepthFinal );
         const RDG::TextureRef          targetRef = textures.ImportFramebuffer( m_TargetFramebuffer, "SceneColor" ).Depth;
         graph.AddPass(
-             "Deferred: DepthResolve", RDG::PassFlags::Copy,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.Read( sourceRef, RDG::Access::CopySrc );
-                 pass.Write( targetRef, RDG::Access::CopyDst );
-             },
+             "Deferred: DepthResolve", RDG::PassFlags::Copy, [&]( RDG::PassBuilder& pass )
+             { DeferredFrameNodes::DeclareDepthResolve( pass, sourceRef, targetRef ); },
              [source, target]( RDG::PassContext& ) -> Common::BoolResultStr
              { return Renderer::GetInstance().CopyDepthImage( source.get(), target.get() ); } );
     }
@@ -214,7 +202,7 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  ReadAll( pass, compositeReads, RDG::Access::SampledGraphics );
-                 LoadTarget( pass, target );
+                 DeferredFrameNodes::LoadTarget( pass, target );
              },
              [this, meshRenderer, lightDir, lightColor, cameraPos, values]( RDG::PassContext& ) -> Common::BoolResultStr
                    {
@@ -339,7 +327,7 @@ namespace Desert::Graphic
              {
                  ReadAll( pass, gbuffer, RDG::Access::SampledGraphics );
                  ReadAll( pass, { accum, tiles }, RDG::Access::SampledGraphics );
-                 LoadTarget( pass, target ); // blend over the scene
+                 DeferredFrameNodes::LoadTarget( pass, target ); // blend over the scene
              },
              [this, ssr, viewProj]( RDG::PassContext& ) -> Common::BoolResultStr
              {

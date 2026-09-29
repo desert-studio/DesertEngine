@@ -5,6 +5,7 @@
 // never ask for one.
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/DeferredFrameNodes.hpp>
 
 #include <gtest/gtest.h>
 
@@ -1348,9 +1349,11 @@ TEST( RenderGraphCompile, DepthResolveIsACopyNodeWithCopySrcCopyDstAndPlannedBar
     ASSERT_NE( begin, std::string::npos );
     const std::string body = text.substr( begin, text.find( "voidSceneRenderer::", begin + 1 ) - begin );
     EXPECT_NE( body.find( "\"Deferred:DepthResolve\",RDG::PassFlags::Copy" ), std::string::npos );
-    EXPECT_NE( body.find( "pass.Read(sourceRef,RDG::Access::CopySrc)" ), std::string::npos );
-    EXPECT_NE( body.find( "pass.Write(targetRef,RDG::Access::CopyDst)" ), std::string::npos );
-    EXPECT_NE( body.find( "\"GBuffer.Depth\",RDG::Access::DepthWrite" ), std::string::npos );
+    // The declarations are DeferredFrameNodes', which
+    // DepthResolveCopyPlansTransferBarriersAndCompositeTakesTheDepthBack compiles on recorded images.
+    EXPECT_NE( body.find( "DeferredFrameNodes::DeclareDepthResolve(pass,sourceRef,targetRef)" ),
+               std::string::npos );
+    EXPECT_NE( body.find( "\"GBuffer.Depth\",DeferredFrameNodes::kGBufferDepthFinal" ), std::string::npos );
     EXPECT_EQ( body.find( "AddLegacy(" ), std::string::npos );
 }
 
@@ -1543,4 +1546,66 @@ TEST( RenderGraphCompile, DepthTargetOnAnImportedDepthIsTransitionedIntoAttachme
     { return std::find( backend.Calls.begin(), backend.Calls.end(), call ) - backend.Calls.begin(); };
     EXPECT_LT( at( std::format( kBarriersFormat, result.Passes[0].Barriers.size() ) ), at( "BeginRenderPass 2" ) );
     EXPECT_EQ( depthBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilAttachment } );
+}
+
+// The deferred frame's own declarations (DeferredFrameNodes, what SceneRendererFrameDeferred.cpp declares) on the
+// images as the frame hands them over: the G-buffer depth and the scene target depth both recorded in the
+// attachment layout. The graph must plan TRANSFER_SRC / TRANSFER_DST before the copy (the old AddLegacy wrapper
+// declared nothing, and CopyDepthImage transitioned by hand behind the graph's back), take the target depth back
+// into the attachment layout before Composite, and leave the G-buffer depth where the next frame's G-buffer
+// pass begins.
+TEST( RenderGraphCompile, DepthResolveCopyPlansTransferBarriersAndCompositeTakesTheDepthBack )
+{
+    namespace Nodes = Desert::Graphic::DeferredFrameNodes;
+    std::vector<ImageLayout> sourceBack;
+    std::vector<ImageLayout> targetBack;
+    ExternalTexture source = Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, &sourceBack );
+    ExternalTexture targetDepth =
+         Recorded( ImageFormat::DEPTH32F, ImageLayout::DepthStencilAttachment, &targetBack );
+    ExternalTexture  targetColor = Recorded( ImageFormat::RGBA8F, ImageLayout::ColorAttachment, nullptr );
+    Builder          graph( "deferred" );
+    const TextureRef sourceRef = graph.RegisterExternal( source, "GBuffer.Depth" );
+    graph.Extract( sourceRef, source, Nodes::kGBufferDepthFinal );
+    ExternalTexture* const    colors[] = { &targetColor };
+    const ImportedFramebuffer target   = graph.ImportFramebuffer( colors, &targetDepth, "SceneColor" );
+    graph.AddPass(
+         "Deferred: DepthResolve", PassFlags::Copy,
+         [&]( PassBuilder& pass ) { Nodes::DeclareDepthResolve( pass, sourceRef, target.Depth ); }, Ok );
+    graph.AddPass(
+         "Deferred: Composite", PassFlags::Raster, [&]( PassBuilder& pass ) { Nodes::LoadTarget( pass, target ); },
+         Ok );
+    const CompileResult result = CompileOrFail( graph );
+    ASSERT_EQ( result.Passes.size(), 2u );
+    const CompiledPass* copy      = result.FindPass( "Deferred: DepthResolve" );
+    const CompiledPass* composite = result.FindPass( "Deferred: Composite" );
+    ASSERT_NE( copy, nullptr );
+    ASSERT_NE( composite, nullptr );
+
+    // Before the copy: the source into TRANSFER_SRC, the target depth into TRANSFER_DST, both from the recorded
+    // attachment layout.
+    const std::vector<Barrier> intoSrc = BarriersOn( copy, sourceRef.Index );
+    ASSERT_EQ( intoSrc.size(), 1u );
+    EXPECT_EQ( intoSrc[0].Before.Layout, ImageLayout::DepthStencilAttachment );
+    EXPECT_EQ( intoSrc[0].After, GetAccessState( Access::CopySrc ) );
+    EXPECT_EQ( intoSrc[0].After.Layout, ImageLayout::TransferSrc );
+    const std::vector<Barrier> intoDst = BarriersOn( copy, target.Depth.Index );
+    ASSERT_EQ( intoDst.size(), 1u );
+    EXPECT_EQ( intoDst[0].Before.Layout, ImageLayout::DepthStencilAttachment );
+    EXPECT_EQ( intoDst[0].After, GetAccessState( Access::CopyDst ) );
+    EXPECT_EQ( intoDst[0].After.Layout, ImageLayout::TransferDst );
+    EXPECT_FALSE( intoDst[0].DiscardContents );
+
+    // Composite's depth target takes the copied depth from TRANSFER_DST back to the attachment layout, keeping
+    // the copied contents.
+    const std::vector<Barrier> back = BarriersOn( composite, target.Depth.Index );
+    ASSERT_EQ( back.size(), 1u );
+    EXPECT_EQ( back[0].Before, GetAccessState( Access::CopyDst ) );
+    EXPECT_EQ( back[0].After, GetAccessState( Access::DepthWrite ) );
+    EXPECT_FALSE( back[0].DiscardContents );
+
+    RecordingBackend backend;
+    ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
+    // Both depth records end in the attachment layout: the target's from Composite, the source's from the extract.
+    EXPECT_EQ( targetBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilAttachment } );
+    EXPECT_EQ( sourceBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilAttachment } );
 }
