@@ -62,6 +62,8 @@ WORKTREE = re.compile(r"(/Users/[^\s\"']+/DesertEngine-[A-Za-z0-9]+)(?:/|\b)")
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
 # Owner 2026-09-29: an agent never waits for CI — the idle cache expires and the whole context is written again
 # (CI12: 1.5 of 3.2 M units). Push, report the run id, the lead watches it from a background shell for free.
+# Owner 2026-09-30: suites, tidy, glued-text and handoff are the lead's — an agent waiting on them lets its cache expire.
+LEAD_ONLY_RUNS = re.compile(r"scripts/Dev/suite\.sh|scripts/CI/CheckTidy\.sh|scripts/CI/CheckGluedText\.sh|handoff_check\.sh|build/Bin/Tests/")
 CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
                      r"\b(while|until|for)\b[^\n]*\bgh\s+(run|pr)\b|\bgh\s+(run|pr)\b[^\n]*\bsleep\b")
 
@@ -89,11 +91,11 @@ ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 CHEAT_SHEET = """[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ (владелец 09-29): делай как ПРАВИЛЬНО устроено (UE или лучше), без бюджетов, урезанных охватов, угадываний и мостов; не влезает — REMAINDER, не компромисс.\n[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
 - где определено имя: scripts/Dev/sym.sh <Имя>; где используется: scripts/Dev/sym.sh --refs <Имя>. НЕ grep -r / rg / git grep / find без -maxdepth.
 - чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
-- тесты: scripts/Dev/suite.sh <Сюита…>. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
+- тесты ПИШЕШЬ и КОМПИЛИРУЕШЬ, НЕ запускаешь (сюиты/tidy/склейки/handoff — только тимлид, 09-30); в REMAINDER «Сюиты для тимлида: …» + мутации. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
 - dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
 - сборка: build_quiet.sh в фоне + build_wait.sh; одна make на машине, -j≤4; sleep ≤ 270 с.
 - формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
-- долгое (> 4 мин: сюиты, мигратор, CheckTidy, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
+- долгое (> 4 мин: мигратор, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
 - CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
 
@@ -525,6 +527,11 @@ def main():
                  "сбрасывает кэш контекста (перечитывание ~1,25× всего контекста). Запусти то же с run_in_background: "
                  "true и жди ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов; сборка — build_wait.sh).",
                  data, agent)
+        if LEAD_ONLY_RUNS.search(cmd):
+            save_state(state, path)
+            deny("[agent_guard] Сюиты, CheckTidy, CheckGluedText и handoff гоняет ТОЛЬКО тимлид (владелец 2026-09-30: "
+                 "«они долго идут и кэш остынет»). Ты компилируешь (build_quiet.sh), а в REMAINDER пишешь "
+                 "«Сюиты для тимлида: …» и мутации файл:строка → какой тест должен покраснеть.", data, agent)
         if CI_WAIT.search(cmd):
             save_state(state, path)
             deny("[agent_guard] CI не ждёшь сам: пауза сбрасывает кэш, и весь контекст пишется заново (CI12: 1,5 из "
