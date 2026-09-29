@@ -476,6 +476,12 @@ namespace Desert::Editor
         panel( "Skeleton Tree", 0, [this]() { DrawSkeletonTree(); } );
         panel( "Details", 0, [this]() { DrawBoneDetails(); } );
         panel( "Preview Scene Settings", 0, [this]() { DrawPreviewSceneSettings(); } );
+        if ( m_FrontTabsFrames > 0 && --m_FrontTabsFrames == 0 )
+        {
+            // Focusing a docked window selects its tab; Details last, so the bone's properties hold focus.
+            ImGui::SetWindowFocus( PanelTitle( "Skeleton Tree" ).c_str() );
+            ImGui::SetWindowFocus( PanelTitle( "Details" ).c_str() );
+        }
     }
 
     void AnimationEditorDocument::DrawViewportPanel()

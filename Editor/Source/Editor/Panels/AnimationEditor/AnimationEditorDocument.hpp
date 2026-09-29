@@ -119,6 +119,11 @@ namespace Desert::Editor
         std::unique_ptr<PreviewViewport> m_Preview;
         std::unique_ptr<UI::UIHelper>    m_UIHelper;
         bool                             m_DrewThisFrame = false;
+        // Frames until the Skeleton Tree and the bone's Details are brought to the front of their dock nodes.
+        // A dock node's SelectedTabId set by the builder loses to the window focused LAST on creation (the
+        // Preview Scene Settings tab), so the front tabs are focused once the windows exist — on every open,
+        // which is what makes a reopened editor come back with the same tabs in front.
+        int                              m_FrontTabsFrames = 2;
         glm::uvec2                       m_RenderSize{ 0u, 0u };
         std::string                      m_Unavailable; // why there is no picture, in the words the pane shows
         std::string                      m_ClipName;
