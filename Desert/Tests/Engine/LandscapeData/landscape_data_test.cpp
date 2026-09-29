@@ -485,7 +485,7 @@ TEST( LandscapeBlob, LayoutIsPinnedByteByByte )
 
     const unsigned char header[28] = {
          'D', 'L', 'H', 'T',             //
-         2,   0,   0,   0,               // container version
+         3,   0,   0,   0,               // container version
          2,   0,   0,   0,               // samplesX
          3,   0,   0,   0,               // samplesZ
          0,   0,   0,   0,               // edit layers
@@ -561,12 +561,12 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
         b[0]   = 'X';
         refuse( b, "58", "bad magic" ); // 'X' = 0x58
     }
-    refuse( Reseal( PatchU32( good, 4, 3u ) ), "version 3", "future version" );
+    refuse( Reseal( PatchU32( good, 4, 4u ) ), "version 4", "future version" );
 
     // Field checks, each reached past a valid checksum.
     refuse( Reseal( PatchU32( good, 8, 1u ) ), "1 x 3", "one-sample side" );
     refuse( Reseal( PatchU32( good, 12, kLandscapeMaxTileSamples + 1u ) ), "8194", "oversized side" );
-    refuse( Reseal( PatchU32( good, 16, 1u ) ), "1 edit layers", "edit layers present" );
+    refuse( Reseal( PatchU32( good, 16, 65u ) ), "65 edit layers", "more edit layers than a tile may carry" );
     refuse( Reseal( PatchU32( good, 20, 25u ) ), "25 payload", "stated length disagrees with dimensions" );
     {
         std::vector<unsigned char> b( good.begin(), good.end() - 4 );
@@ -597,4 +597,39 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( LandscapeBlob, VisibilityLayerRoundTripsBesideThePaintLayers )
+{
+    using namespace Desert::World::Landscape;
+    // The holes are saved with the tile: the visibility layer rides the weight section as a named layer
+    // (kLandscapeVisibilityLayerName), so a hole cut in the editor is a hole after reload - with its exact
+    // bytes, on its own channel, after any paint layer.
+    auto made = LandscapeTileData::Create( 5u, 4u );
+    ASSERT_TRUE( made.IsSuccess() );
+    LandscapeTileData tile = made.ExtractValue();
+    EXPECT_FALSE( tile.VisibilityLayer().has_value() ) << "a new tile has no holes";
+
+    auto grass = tile.AddWeightLayer( "Grass" );
+    auto mask  = tile.AddWeightLayer( std::string( kLandscapeVisibilityLayerName ) );
+    ASSERT_TRUE( grass.IsSuccess() && mask.IsSuccess() );
+    std::vector<uint8_t> hole( tile.Samples().size(), 0u );
+    for ( uint32_t z = 1; z < 3; ++z )
+        for ( uint32_t x = 1; x < 3; ++x )
+            hole[static_cast<size_t>( z ) * tile.SamplesX() + x] = 255u;
+    hole[0] = 127u; // one sample just below the hole threshold survives as it is
+    ASSERT_TRUE( tile.WriteWeightRegion( mask.GetValue(), tile.Bounds(), hole ).IsSuccess() );
+    ASSERT_TRUE( tile.WriteWeightRegion( grass.GetValue(), tile.Bounds(),
+                                         std::vector<uint8_t>( tile.Samples().size(), 200u ) )
+                      .IsSuccess() );
+
+    const std::vector<unsigned char> blob = EncodeLandscapeTile( tile );
+    auto                             back = DecodeLandscapeTile( blob );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    const LandscapeTileData& read = back.GetValue();
+    ASSERT_EQ( read.VisibilityLayer(), std::optional<size_t>( 1u ) );
+    EXPECT_EQ( read.WeightLayers()[1].Weights, hole );
+    EXPECT_EQ( read.WeightLayers()[0].Name, "Grass" );
+    EXPECT_EQ( read.WeightLayers()[0].Weights, std::vector<uint8_t>( tile.Samples().size(), 200u ) );
+    EXPECT_EQ( EncodeLandscapeTile( read ), blob );
 }

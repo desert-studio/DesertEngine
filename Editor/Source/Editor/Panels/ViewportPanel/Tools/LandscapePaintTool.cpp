@@ -8,6 +8,7 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
+#include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/ECS/LandscapeLayerRules.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -16,6 +17,7 @@
 #include <ImGui/imgui.h>
 
 #include <array>
+#include <format>
 #include <memory>
 #include <string>
 #include <utility>
@@ -32,9 +34,10 @@ namespace Desert::Editor::Tools
         {
         public:
             LandscapePaintCommand( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
-                                   World::Landscape::LandscapePaintRecord record, std::string label )
+                                   World::Landscape::LandscapePaintRecord record, std::string label,
+                                   World::Landscape::LandscapeEditLayerTarget layer )
                  : m_Scene( &scene ), m_Landscape( landscape ), m_Record( std::move( record ) ),
-                   m_Label( std::move( label ) )
+                   m_Layer( std::move( layer ) ), m_Label( std::move( label ) )
             {
             }
 
@@ -60,8 +63,8 @@ namespace Desert::Editor::Tools
                     ToastManager::Push( target.GetError(), ToastLevel::Error, 6.0f );
                     return false;
                 }
-                auto written =
-                     World::Landscape::ApplyLandscapePaintRecord( target.GetValue().Lookup, m_Record, before );
+                auto written = World::Landscape::ApplyLandscapePaintRecord( target.GetValue().Lookup, m_Record,
+                                                                            before, m_Layer );
                 if ( !written.IsSuccess() )
                     ToastManager::Push( written.GetError(), ToastLevel::Error, 6.0f );
                 return written.IsSuccess();
@@ -70,6 +73,7 @@ namespace Desert::Editor::Tools
             ::Desert::Core::Scene*                 m_Scene;
             Common::UUID                           m_Landscape;
             World::Landscape::LandscapePaintRecord m_Record;
+            World::Landscape::LandscapeEditLayerTarget m_Layer;
             std::string                            m_Label;
         };
 
@@ -107,8 +111,13 @@ namespace Desert::Editor::Tools
         auto target = ECS::FindLandscapeEditTarget( registry, *landscape );
         if ( !target.IsSuccess() )
             return Common::MakeError( target.GetError() );
+        auto layer = ECS::FindLandscapeEditLayerTarget( registry, *landscape, rules.ExtractValue(),
+                                                        Core::LandscapeSculptState::Get().EditingLayer );
+        if ( !layer )
+            return Common::MakeError( std::format( "landscape paint: {}", layer.GetError() ) );
+        m_Layer  = layer.ExtractValue();
         m_Target = target.GetValue();
-        m_Stroke.emplace( m_Target->Root, m_Target->Lookup, rules.ExtractValue() );
+        m_Stroke.emplace( m_Target->Root, m_Target->Lookup, *m_Layer );
         m_Failed = false;
         return Common::MakeSuccess( true );
     }
@@ -134,11 +143,18 @@ namespace Desert::Editor::Tools
             auto record = m_Stroke->Finish();
             if ( !record.IsSuccess() )
                 ToastManager::Push( record.GetError(), ToastLevel::Error, 6.0f );
+            else if ( !m_Target || !m_Layer )
+                ToastManager::Push(
+                     "landscape paint: the stroke finished without a target landscape or edit layer",
+                     ToastLevel::Error, 6.0f );
             else
             {
-                const std::string label = "Landscape Paint " + Core::LandscapeSculptState::Get().Paint.Layer;
+                const std::string& layer = Core::LandscapeSculptState::Get().Paint.Layer;
+                const std::string  label = layer == World::Landscape::kLandscapeVisibilityLayerName
+                                                ? std::string( "Landscape Visibility" )
+                                                : std::format( "Landscape Paint {}", layer );
                 CommandHistory::Get().PushCommand( std::make_unique<LandscapePaintCommand>(
-                     scene, m_Target->Landscape, record.GetValue(), label ) );
+                     scene, m_Target->Landscape, record.GetValue(), label, *m_Layer ) );
             }
         }
         m_Stroke.reset();

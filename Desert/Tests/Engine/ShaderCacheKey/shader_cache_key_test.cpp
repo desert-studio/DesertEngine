@@ -1521,7 +1521,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 //     a block that drifted would read a param at another offset than it was written at, in Deferred only;
 //   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the main
 //     camera's LOD) and the heightmap — and no Materials[] row or TerrainUB it is never given.
-TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyThePatch )
+TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyPatchAndHoles )
 {
     const auto parse = [&]( const char* file )
     { return Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( file ) ) ); };
@@ -1580,10 +1580,13 @@ TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOn
     EXPECT_TRUE( HasBinding( g, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
          << DescribeBindings( g ); // u_Weightmap
 
+    // The caster reads the patch and, since the landscape's visibility layer (L11a), the weightmap: a hole must
+    // cast no shadow, so the caster discards on the same channel the surface does. Still nothing that shades.
     const auto c = reflect( "Terrain/TerrainShadow.shader" );
-    EXPECT_EQ( c.size(), 2u ) << DescribeBindings( c );
-    EXPECT_TRUE( HasBinding( c, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
-    EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap
+    EXPECT_EQ( c.size(), 3u ) << DescribeBindings( c );
+    EXPECT_TRUE( HasBinding( c, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // TerrainInstances[]
+    EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_Heightmap
+    EXPECT_TRUE( HasBinding( c, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (holes)
 }
 
 // ---- The particle state: one layout, three statements of it, and the dispatch that divides by a fourth --
@@ -1737,6 +1740,18 @@ TEST( ShaderCacheKeyProfile, TheTwoProfilesKeyApart )
     const std::string src = "#version 450\nvoid main() {}\n";
     EXPECT_NE( Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "probe", true ),
                Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "probe", false ) );
+}
+
+// Debug info writes the compiling file's path into the binary, so under that profile the same stage text
+// in two files is two artifacts; without it the binary has no path and the text shares one entry. (SHC1:
+// before this, the Debug artifact under a key was whichever file compiled it first.)
+TEST( ShaderCacheKeyProfile, TheFileNamesTheKeyExactlyWhenTheBinaryNamesTheFile )
+{
+    const std::string src = "#version 450\nvoid main() {}\n";
+    EXPECT_NE( Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "A.shader", true ),
+               Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "B.shader", true ) );
+    EXPECT_EQ( Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "A.shader", false ),
+               Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "B.shader", false ) );
 }
 
 // The 3-argument overload IS the profile overload at this build's own policy — the runtime asks with

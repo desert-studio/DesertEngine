@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
 
 #include <glm/vec3.hpp>
 
@@ -162,11 +163,10 @@ namespace Desert::World::Landscape
     /// allocation before the payload length check can refuse it.
     inline constexpr uint32_t kLandscapeMaxTileSamples = 8193u;
 
-    /// How many Edit Layers the current format can carry. ZERO, by owner decision O4: Edit Layers are
-    /// round two. The blob already has the count field (see kLandscapeTileContainerVersion), so a tile
-    /// written today is a valid layered tile with no layers, and round two adds records rather than a
-    /// migration. A count above this is refused on read, never ignored.
-    inline constexpr uint32_t kLandscapeMaxEditLayers = 0u;
+    /// How many Edit Layers one tile blob may carry (the header's count, see kLandscapeTileContainerVersion).
+    /// A bound for a corrupt header, not a design limit: UE's stacks hold a handful of layers. A count above
+    /// this is refused on read, never ignored.
+    inline constexpr uint32_t kLandscapeMaxEditLayers = 64u;
 
     /**
      * @brief Who reads a tile's dirty rectangles. Each consumer has its OWN list.
@@ -205,6 +205,30 @@ namespace Desert::World::Landscape
     inline constexpr uint32_t kLandscapeMaxWeightLayerName = 64u;
 
     /**
+     * @brief The reserved name of a tile's VISIBILITY layer — UE's ALandscapeProxy::VisibilityLayer, whose
+     * LayerName is UMaterialExpressionLandscapeVisibilityMask::ParameterName.
+     *
+     * Ported from UE 5.8
+     * Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeVisibilityMask.cpp:20 and
+     * LandscapeProxy.cpp (VisibilityLayer: bNoWeightBlend = true), adapted: the layer is a plain
+     * LandscapeWeightLayer under this name rather than a ULandscapeLayerInfoObject, so it is stored, encoded
+     * and uploaded exactly as the paint layers are (one weightmap channel, no container change).
+     *
+     * It is NOT a paint layer: the root never lists it, it has no colour (ResolveLandscapeWeightChannels
+     * reports it as LandscapeWeightChannels::Visibility, never as Unknown), and it is NoWeightBlend — neither
+     * normalised nor counted in the others' sum (LandscapePaintStroke's rule for it). A weight of 0.5 or more
+     * is a hole: the surface, the G-buffer and the shadow caster all discard there
+     * (LandscapeIsHole in LandscapeWeights.glslh).
+     */
+    inline constexpr std::string_view kLandscapeVisibilityLayerName = "__LANDSCAPE_VISIBILITY__";
+    static_assert( kLandscapeVisibilityLayerName.size() <= kLandscapeMaxWeightLayerName );
+
+    /// Whether a sample whose visibility-layer weight is @p weight (0..255) is a hole: LandscapeIsHole
+    /// (Shaders/Common/LandscapeWeights.glslh) compiled as C++, so the collider and the CPU raycast cut the
+    /// hole where the terrain programs discard it — UE's mask 1 - w below the 0.3333 clip, i.e. 171 and up.
+    bool LandscapeWeightIsHole( uint8_t weight );
+
+    /**
      * @brief One layer's weights on one tile — UE's FWeightmapLayerAllocationInfo plus its channel of the
      * component's weightmap texture, stored as its own plane.
      *
@@ -217,6 +241,25 @@ namespace Desert::World::Landscape
     {
         std::string          Name;
         std::vector<uint8_t> Weights; ///< Row-major, X fastest, SamplesX * SamplesZ entries, 0..255.
+    };
+
+    struct LandscapeEditLayerStack;
+    struct LandscapeLayerRule;
+
+    /**
+     * @brief One edit layer's data on one tile (UE: FLandscapeLayerComponentData, LandscapeComponent.h:329-356,
+     * held in ULandscapeComponent::LayersData by the layer's Guid). A tile carries only the layers that touched
+     * it. The layer's order, name, visibility and alphas are NOT here — they are the root's stack
+     * (LandscapeEditLayers.hpp); this is only what the layer holds on this square.
+     */
+    struct LandscapeEditLayerTileData
+    {
+        Common::UUID Layer; ///< The stack's LandscapeEditLayer::Guid.
+        /// Empty (the layer has no heights here) or SamplesX * SamplesZ entries, row-major, relative to
+        /// kLandscapeMidSample: mid is "no change", so the base layer's plane reads as absolute heights.
+        std::vector<uint16_t> Heights;
+        /// The layer's paint on this tile, the same planes a tile's own weight layers have.
+        std::vector<LandscapeWeightLayer> Weights;
     };
 
     class LandscapeTileData
@@ -321,6 +364,13 @@ namespace Desert::World::Landscape
         /// The index of the layer named @p name on this tile, or nullopt when the tile carries none.
         std::optional<size_t> FindWeightLayer( std::string_view name ) const;
 
+        /// The index of the tile's visibility layer (kLandscapeVisibilityLayerName), or nullopt when the tile
+        /// has no holes.
+        [[nodiscard]] std::optional<size_t> VisibilityLayer() const
+        {
+            return FindWeightLayer( kLandscapeVisibilityLayerName );
+        }
+
         /// Allocates @p name on this tile with every weight zero and returns its index (UE: a component gets
         /// a layer allocation on the first stroke that paints it). Adding a name already present returns
         /// that index. Refuses an empty or over-long name and a ninth layer, naming them.
@@ -333,16 +383,54 @@ namespace Desert::World::Landscape
         Common::ResultStr<std::vector<uint8_t>> ReadWeightRegion( size_t layer, const LandscapeRect& rect ) const;
 
         /// Writes @p values into layer @p layer over @p rect and marks the rectangle dirty for the Weights
-        /// consumer only. Same refusal and no-change rules as WriteRegion.
+        /// consumer — and for Physics too when the layer is the visibility layer (a hole has no collision).
+        /// Same refusal and no-change rules as WriteRegion.
         Common::BoolResultStr WriteWeightRegion( size_t layer, const LandscapeRect& rect,
                                                  std::span<const uint8_t> values );
 
         /// Replaces every weight layer at once (a paint stroke's undo/redo) and marks the whole tile dirty for
-        /// the Weights consumer. Refuses planes of the wrong size, a bad or repeated name, or a
-        /// ninth layer.
+        /// the Weights consumer, and for Physics when a visibility layer is replaced or removed or arrives.
+        /// Refuses planes of the wrong size, a bad or repeated name, or a ninth layer.
         Common::BoolResultStr SetWeightLayers( std::vector<LandscapeWeightLayer> layers );
 
+        // ── Edit layers ───────────────────────────────────────────────────────────────────────────────
+        //
+        // A tile that carries edit layers is their merge: its samples and weights are written ONLY by
+        // MergeLandscapeEditLayers, and SetSample, WriteRegion, AddWeightLayer, WriteWeightRegion and
+        // SetWeightLayers refuse it. Changing a layer's data does not change the result by itself — the caller
+        // merges the rectangle it changed.
+
+        [[nodiscard]] const std::vector<LandscapeEditLayerTileData>& EditLayers() const
+        {
+            return m_EditLayers;
+        }
+
+        /// The data layer @p layer holds on this tile, or null when the layer never touched it.
+        [[nodiscard]] const LandscapeEditLayerTileData* FindEditLayer( const Common::UUID& layer ) const;
+
+        /// Adds @p data, or replaces the data of the same layer. Refuses a null Guid, a height plane that is
+        /// neither empty nor SamplesX * SamplesZ, and weight planes of the wrong size, a bad or repeated name
+        /// or a ninth layer — naming them.
+        Common::BoolResultStr SetEditLayer( LandscapeEditLayerTileData data );
+
+        /// Drops layer @p layer's data from this tile. False when the tile carried none.
+        bool RemoveEditLayer( const Common::UUID& layer );
+
     private:
+        friend Common::BoolResultStr MergeLandscapeEditLayers( const LandscapeEditLayerStack&      stack,
+                                                               std::span<const LandscapeLayerRule> rules,
+                                                               const LandscapeRect&                rect,
+                                                               LandscapeTileData&                  tile );
+
+        /// Refuses a direct write to a tile whose values are its edit layers' merge, naming @p what.
+        [[nodiscard]] Common::BoolResultStr RefuseIfMerged( std::string_view what ) const;
+
+        // The writes themselves, without that refusal: the public ones and the merge both come here.
+        Common::BoolResultStr WriteRegionUnchecked( const LandscapeRect& rect, std::span<const uint16_t> values );
+        Common::ResultStr<size_t> AddWeightLayerUnchecked( std::string name );
+        Common::BoolResultStr     WriteWeightRegionUnchecked( size_t layer, const LandscapeRect& rect,
+                                                              std::span<const uint8_t> values );
+
         LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples );
 
         /// Marks @p rect dirty for every consumer in @p consumers (a bit per LandscapeDirtyConsumer).
@@ -358,6 +446,7 @@ namespace Desert::World::Landscape
         uint16_t                                                             m_HighestSample = 0u;
         std::array<std::vector<LandscapeRect>, kLandscapeDirtyConsumerCount> m_Dirty;
         std::vector<LandscapeWeightLayer>                                    m_WeightLayers;
+        std::vector<LandscapeEditLayerTileData>                              m_EditLayers;
     };
 
     // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────
@@ -441,9 +530,16 @@ namespace Desert::World::Landscape
     ///     SamplesX·SamplesZ weights, one byte each, row-major. The header's payload length still counts the
     ///     height samples only.
     ///
-    /// Only the current version is read. A v1 blob is refused by its number: SceneMigrator raised the
-    /// committed corpus to v2 (LS-15) and the v1 reader was deleted with that step.
-    inline constexpr uint32_t kLandscapeTileContainerVersion = 2u;
+    /// 3 — v2, and the header's edit-layer count is the number of edit-layer records that follow the weightmap
+    ///     section (LandscapeTileData::EditLayers, in the tile's order), each: the layer Guid (u64), its
+    ///     height count (u32, 0 or SamplesX·SamplesZ) and that many little-endian uint16 relative to
+    ///     kLandscapeMidSample, then its weight planes in the weightmap section's shape (count, and per
+    ///     plane name length, name, SamplesX·SamplesZ bytes). A count of 0 is a tile without edit layers,
+    ///     and its bytes are v2's with the version moved.
+    ///
+    /// Only the current version is read. v1 and v2 blobs are refused by their number: SceneMigrator raised
+    /// the committed corpus to v2 (LS-15) and to v3 (L10a2), and each raising step was deleted after it ran.
+    inline constexpr uint32_t kLandscapeTileContainerVersion = 3u;
 
     /// Byte lengths of the header and trailer. Exposed so the round-trip test can assert the total
     /// size: a header that grew without this constant moving would pass a test that meant nothing.
@@ -451,7 +547,8 @@ namespace Desert::World::Landscape
     inline constexpr size_t kLandscapeTileTrailerSize = 4u;
 
     /// Serialises a tile's samples. An empty (default-constructed) tile is a caller defect and verified. The
-    /// result is exactly header + 2·SamplesX·SamplesZ + the weight section + trailer bytes. Dirty state is not
+    /// result is exactly header + 2·SamplesX·SamplesZ + the weight section + the edit-layer
+    /// records + trailer bytes. Dirty state is not
     /// part of the blob — it describes the GPU copy, not the terrain.
     std::vector<unsigned char> EncodeLandscapeTile( const LandscapeTileData& tile );
 

@@ -64,6 +64,10 @@
                 vec4  w0    = texture( u_Weightmap, LandscapeWeightmapPageUV( g, 0.0, size, pages ) );
                 vec4  w1    = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( g, 1.0, size, pages ) )
                                           : vec4( 0.0 );
+                // UE's Landscape Visibility Mask: the tile's visibility layer punches a hole (the shadow
+                // caster, TerrainShadow.shader, discards on the same test).
+                if ( LandscapeIsHole( LandscapeVisibility( w0, w1, u_T.Params.z ) ) )
+                    discard;
                 albedo = LandscapeWeightBlend(
                      w0, w1, u_T.LayerColors[0], u_T.LayerColors[1], u_T.LayerColors[2], u_T.LayerColors[3],
                      u_T.LayerColors[4], u_T.LayerColors[5], u_T.LayerColors[6], u_T.LayerColors[7],

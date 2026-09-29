@@ -8,6 +8,9 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -25,11 +28,16 @@
 #include <string>
 #include <cstdarg>
 #include <cstdio>
+#include <format>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
 JPH_SUPPRESS_WARNINGS
+
+static_assert( Desert::Physics::kHeightFieldNoCollision == JPH::HeightFieldShapeConstants::cNoCollisionValue,
+               "a hole must be the value Jolt reads as no collision" );
 
 namespace Desert::Physics
 {
@@ -137,13 +145,24 @@ namespace Desert::Physics
                                                                            std::to_string( desc.SpacingCm ) +
                                                                            " cm is not positive and finite" );
 
-            const auto [low, high] = std::minmax_element( desc.HeightsCm.begin(), desc.HeightsCm.end() );
+            // The range holes leave: Jolt ignores cNoCollisionValue in its own range scan
+            // (HeightFieldShapeSettings::DetermineMinAndMaxSample), and a tile that is all hole encodes 0.
+            float low  = std::numeric_limits<float>::max();
+            float high = std::numeric_limits<float>::lowest();
+            for ( const float h : desc.HeightsCm )
+                if ( h != kHeightFieldNoCollision )
+                {
+                    low  = std::min( low, h );
+                    high = std::max( high, h );
+                }
+            if ( low > high )
+                low = high = 0.0f;
             JPH::HeightFieldShapeSettings settings( desc.HeightsCm.data(), JPH::Vec3::sZero(),
                                                     JPH::Vec3( desc.SpacingCm, 1.0f, desc.SpacingCm ), n );
             settings.mBlockSize      = kHeightFieldBlockSize;
             settings.mBitsPerSample  = kHeightFieldBitsPerSample;
-            settings.mMinHeightValue = *low - kHeightFieldHeadroomCm;
-            settings.mMaxHeightValue = *high + kHeightFieldHeadroomCm;
+            settings.mMinHeightValue = low - kHeightFieldHeadroomCm;
+            settings.mMaxHeightValue = high + kHeightFieldHeadroomCm;
 
             const JPH::ShapeSettings::ShapeResult result = settings.Create();
             if ( result.HasError() )
@@ -151,6 +170,92 @@ namespace Desert::Physics
                      std::string( "Jolt refused the heightfield: " ) + result.GetError().c_str() );
             return Common::MakeSuccess( JPH::Ref<JPH::HeightFieldShape>(
                  static_cast<JPH::HeightFieldShape*>( const_cast<JPH::Shape*>( result.Get().GetPtr() ) ) ) );
+        }
+
+        std::string_view ShapeName( ShapeType shape )
+        {
+            switch ( shape )
+            {
+                case ShapeType::Box:
+                    return "Box";
+                case ShapeType::Sphere:
+                    return "Sphere";
+                case ShapeType::Capsule:
+                    return "Capsule";
+                case ShapeType::Mesh:
+                    return "Mesh";
+                case ShapeType::ConvexHull:
+                    return "ConvexHull";
+            }
+            return "unknown";
+        }
+
+        uint64_t HashBytes( uint64_t hash, const void* data, size_t size )
+        {
+            const auto* bytes = static_cast<const unsigned char*>( data );
+            for ( size_t i = 0; i < size; ++i )
+                hash = ( hash ^ bytes[i] ) * 1099511628211ull;
+            return hash;
+        }
+
+        // The cache key is the CONTENT (FNV-1a over kind, points and, for Mesh, indices), not the asset that
+        // supplied it: two entities on one mesh share a shape, and a mesh edited in place can never be served
+        // the shape of its previous self.
+        uint64_t CookKey( const BodyDesc& desc )
+        {
+            const auto kind = static_cast<uint32_t>( desc.Shape );
+            uint64_t   hash = HashBytes( 1469598103934665603ull, &kind, sizeof( kind ) );
+            hash            = HashBytes( hash, desc.MeshPoints.data(), desc.MeshPoints.size_bytes() );
+            if ( desc.Shape == ShapeType::Mesh )
+                hash = HashBytes( hash, desc.MeshIndices.data(), desc.MeshIndices.size_bytes() );
+            return hash;
+        }
+
+        Common::ResultStr<JPH::ShapeRefC> CookConvexHull( std::span<const glm::vec3> points )
+        {
+            JPH::Array<JPH::Vec3> joltPoints;
+            joltPoints.reserve( points.size() );
+            for ( const glm::vec3& p : points )
+                joltPoints.push_back( ToJolt( p ) );
+            // The builder stops at cMaxPointsInHull and keeps the hull within tolerance of the rest, so a
+            // dense mesh is simplified here rather than refused.
+            const JPH::ConvexHullShapeSettings    settings( joltPoints );
+            const JPH::ShapeSettings::ShapeResult result = settings.Create();
+            if ( result.HasError() )
+                return Common::MakeError<JPH::ShapeRefC>( std::format(
+                     "Jolt refused the convex hull of {} points: {}", points.size(), result.GetError() ) );
+            return Common::MakeSuccess( JPH::ShapeRefC( result.Get() ) );
+        }
+
+        Common::ResultStr<JPH::ShapeRefC> CookTriangleMesh( std::span<const glm::vec3> points,
+                                                            std::span<const uint32_t>  indices )
+        {
+            if ( indices.empty() || indices.size() % 3u != 0u )
+                return Common::MakeError<JPH::ShapeRefC>( std::format(
+                     "Mesh collider has {} indices: needs a positive multiple of three", indices.size() ) );
+
+            JPH::VertexList vertices;
+            vertices.reserve( points.size() );
+            for ( const glm::vec3& p : points )
+                vertices.push_back( JPH::Float3( p.x, p.y, p.z ) );
+            JPH::IndexedTriangleList triangles;
+            triangles.reserve( indices.size() / 3u );
+            for ( size_t i = 0; i < indices.size(); i += 3u )
+            {
+                for ( size_t k = i; k < i + 3u; ++k )
+                    if ( indices[k] >= points.size() )
+                        return Common::MakeError<JPH::ShapeRefC>(
+                             std::format( "Mesh collider index {} (at {}) is out of range for {} points",
+                                          indices[k], k, points.size() ) );
+                triangles.push_back( JPH::IndexedTriangle( indices[i], indices[i + 1u], indices[i + 2u] ) );
+            }
+            const JPH::MeshShapeSettings          settings( std::move( vertices ), std::move( triangles ) );
+            const JPH::ShapeSettings::ShapeResult result = settings.Create();
+            if ( result.HasError() )
+                return Common::MakeError<JPH::ShapeRefC>(
+                     std::format( "Jolt refused the triangle mesh of {} points and {} triangles: {}",
+                                  points.size(), indices.size() / 3u, result.GetError() ) );
+            return Common::MakeSuccess( JPH::ShapeRefC( result.Get() ) );
         }
     } // namespace
 
@@ -168,6 +273,9 @@ namespace Desert::Physics
         // The heightfields' shapes, held non-const: SetHeights patches the shape the body already carries,
         // and the body only hands back a const reference to it.
         std::unordered_map<BodyHandle, JPH::Ref<JPH::HeightFieldShape>> HeightFields;
+
+        // Mesh and ConvexHull shapes by CookKey: cooking a hull or a BVH is the expensive part of such a body.
+        std::unordered_map<uint64_t, JPH::ShapeRefC> CookedShapes;
 
         // Character controllers (CharacterVirtual). Handle = index into this vector (nulled on remove).
         std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
@@ -250,10 +358,10 @@ namespace Desert::Physics
         }
     }
 
-    BodyHandle PhysicsWorld::CreateBody( const BodyDesc& desc )
+    Common::ResultStr<BodyHandle> PhysicsWorld::CreateBody( const BodyDesc& desc )
     {
         if ( !m_Impl )
-            return kInvalidBody;
+            return Common::MakeError<BodyHandle>( "the physics world is not initialised" );
 
         JPH::ShapeRefC shape;
         switch ( desc.Shape )
@@ -265,9 +373,55 @@ namespace Desert::Physics
                 shape = new JPH::CapsuleShape( desc.HalfHeight, desc.Radius );
                 break;
             case ShapeType::Box:
-            default:
                 shape = new JPH::BoxShape( ToJolt( glm::max( desc.HalfExtents, glm::vec3( 1.0f ) ) ) );
                 break;
+            case ShapeType::Mesh:
+            case ShapeType::ConvexHull:
+            {
+                if ( desc.Shape == ShapeType::Mesh && desc.Type == BodyType::Dynamic )
+                    return Common::MakeError<BodyHandle>(
+                         "a Mesh collider cannot be on a Dynamic body: Jolt's MeshShape has no volume to carry "
+                         "mass (use ConvexHull, or make the body Static)" );
+                if ( desc.MeshPoints.empty() )
+                    return Common::MakeError<BodyHandle>( std::format(
+                         "{} collider has no points: its mesh has no vertices", ShapeName( desc.Shape ) ) );
+                const uint64_t key    = CookKey( desc );
+                const auto     cached = m_Impl->CookedShapes.find( key );
+                if ( cached != m_Impl->CookedShapes.end() )
+                {
+                    shape = cached->second;
+                    break;
+                }
+                auto cooked = desc.Shape == ShapeType::Mesh ? CookTriangleMesh( desc.MeshPoints, desc.MeshIndices )
+                                                            : CookConvexHull( desc.MeshPoints );
+                if ( !cooked.IsSuccess() )
+                    return Common::MakeError<BodyHandle>( cooked.GetError() );
+                shape = cooked.GetValue();
+                m_Impl->CookedShapes.emplace( key, shape );
+                break;
+            }
+        }
+
+        // A simple shape off the body's origin, or a capsule off Y, is the same shape moved inside the body (UE's
+        // FKShapeElem Center/Rotation). Mesh and ConvexHull points already sit where they are.
+        const bool simple =
+             desc.Shape == ShapeType::Box || desc.Shape == ShapeType::Sphere || desc.Shape == ShapeType::Capsule;
+        const bool offAxis = desc.Shape == ShapeType::Capsule && desc.Axis != CapsuleAxis::Y;
+        if ( simple && ( offAxis || desc.Center != glm::vec3( 0.0f ) ) )
+        {
+            // Y onto X: -90 degrees about Z; Y onto Z: +90 degrees about X.
+            JPH::Quat onto = JPH::Quat::sIdentity();
+            if ( offAxis && desc.Axis == CapsuleAxis::X )
+                onto = JPH::Quat::sRotation( JPH::Vec3::sAxisZ(), -JPH::JPH_PI * 0.5f );
+            else if ( offAxis )
+                onto = JPH::Quat::sRotation( JPH::Vec3::sAxisX(), JPH::JPH_PI * 0.5f );
+            const JPH::RotatedTranslatedShapeSettings moved( ToJolt( desc.Center ), onto, shape );
+            const JPH::ShapeSettings::ShapeResult     result = moved.Create();
+            if ( result.HasError() )
+                return Common::MakeError<BodyHandle>(
+                     std::format( "{} collider could not be moved to its center: {}", ShapeName( desc.Shape ),
+                                  result.GetError() ) );
+            shape = result.Get();
         }
 
         const bool isStatic    = desc.Type == BodyType::Static;
@@ -294,8 +448,15 @@ namespace Desert::Physics
         const JPH::EActivation activation = isStatic ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
         const JPH::BodyID      id         = m_Impl->Bodies->CreateAndAddBody( settings, activation );
         if ( id.IsInvalid() )
-            return kInvalidBody;
-        return id.GetIndexAndSequenceNumber();
+            return Common::MakeError<BodyHandle>(
+                 std::format( "Jolt refused the {} body: {} bodies exist, the world's limit is reached",
+                              ShapeName( desc.Shape ), GetBodyCount() ) );
+        return Common::MakeSuccess( static_cast<BodyHandle>( id.GetIndexAndSequenceNumber() ) );
+    }
+
+    uint32_t PhysicsWorld::GetCookedShapeCount() const
+    {
+        return m_Impl ? static_cast<uint32_t>( m_Impl->CookedShapes.size() ) : 0u;
     }
 
     void PhysicsWorld::RemoveBody( BodyHandle handle )
@@ -361,7 +522,7 @@ namespace Desert::Physics
             for ( uint32_t x = x0; x < x1; ++x )
             {
                 const float h = desc.HeightsCm[static_cast<size_t>( z ) * n + x];
-                if ( h < lowest || h > highest )
+                if ( h != kHeightFieldNoCollision && ( h < lowest || h > highest ) )
                 {
                     inRange = false;
                     break;

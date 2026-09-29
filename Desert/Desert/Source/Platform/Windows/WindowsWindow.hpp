@@ -74,6 +74,11 @@ namespace Desert::Platform::Windows
             m_Data.EventCallback = e;
         }
 
+        void DispatchEvent( Common::Event& e ) override
+        {
+            m_Data.EventCallback( e );
+        }
+
         virtual Common::ResultStr<bool> SetupSwapChain() override;
 
     private:

@@ -35,6 +35,7 @@
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 namespace Desert::Geometry
@@ -293,6 +294,10 @@ namespace Desert::ECS
         // ULandscapeLayerInfoObject). Every tile's weight plane is keyed by the asset's LayerName, and the
         // paint stroke reads its Hardness/NoWeightBlend (Runtime::LandscapeLayerInfoService resolves them).
         std::vector<Assets::AssetHandle> Layers;
+        // UE edit layers (ALandscape's stack), bottom first: order, name, visibility, lock and alphas. Each
+        // layer's data lives on the tiles it touched (LandscapeTileData::EditLayers, in the DLHT blob), and a
+        // tile's samples are their merge (MergeLandscapeEditLayers).
+        World::Landscape::LandscapeEditLayerStack EditLayers;
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
@@ -2501,6 +2506,14 @@ namespace Desert::ECS
 
         PROPERTY( DisplayName( "Half Height" ), Category( "Collider" ), Range( 1.0f, 5000.0f ), Length )
         float HalfHeight = 50.0f; // Capsule
+
+        PROPERTY( DisplayName( "Capsule Axis" ), Category( "Collider" ) )
+        Physics::CapsuleAxis Axis =
+             Physics::CapsuleAxis::Y; // Capsule: the body-local axis its cylinder runs along
+
+        PROPERTY( DisplayName( "Center" ), Category( "Collider" ), Length )
+        glm::vec3 Center = { 0.0f, 0.0f,
+                             0.0f }; // Box / Sphere / Capsule: body-local offset (UE FKShapeElem Center)
     };
 
     struct ColliderComponent

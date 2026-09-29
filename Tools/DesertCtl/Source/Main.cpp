@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <string>
 #include <thread>
 #include <vector>
@@ -53,6 +54,8 @@ namespace
                       "  state [section ...]           read the editor's state as JSON (default: all)\n"
                       "  shot-window <file.png>        capture the WHOLE editor, interface included\n"
                       "  shot-viewport <file.png>      capture the 3D viewport only, no interface\n"
+                      "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
+                      "                                subject's image (pixels), through ImGui's input\n"
                       "  quit [code]                   end the session with that exit status\n"
                       "\n"
                       "  --wait <seconds>  wait for the socket to appear before connecting; an editor\n"
@@ -67,7 +70,8 @@ namespace
                       "                    the camera is placed without a capture flag; 'modeling' --\n"
                       "                    the Modeling panel's values; 'selection' -- the one selected\n"
                       "                    entity's Translation (cm), Rotation (radians) and Scale, set\n"
-                      "                    as one undo step, like a Details edit.\n"
+                      "                    as one undo step, like a Details edit. 'drag' aims at\n"
+                      "                    'document' (the Animation window's preview) or 'viewport'.\n"
                       "\n"
                       "Exit status: 0 the editor did it, 1 it refused (reason on stderr), 2 unreachable.\n" );
     }
@@ -379,6 +383,21 @@ static int RunTool( int argc, char** argv )
         }
         const char* op = ( operation == "shot-window" ) ? "shot.window" : "shot.viewport";
         request        = std::string( R"({"id":1,"op":")" ) + op + R"(","path":")" + Escape( rest[1] ) + R"("})";
+    }
+    else if ( operation == "drag" )
+    {
+        // drag <fromX,fromY> <toX,toY> [steps] — image pixels of --subject (document | viewport).
+        std::string from;
+        std::string to;
+        if ( rest.size() < 3 || !NumberArray( rest[1], from ) || !NumberArray( rest[2], to ) )
+        {
+            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image pixels.\n" );
+            return kNoEditor;
+        }
+        const std::string steps = ( rest.size() > 3 ) ? rest[3] : "8";
+        request                 = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{}{}}})",
+                                               from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps,
+                                               SubjectField( subject ) );
     }
     else if ( operation == "quit" )
     {

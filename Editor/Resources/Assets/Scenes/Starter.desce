@@ -223,7 +223,9 @@
                 "Shape": 0,
                 "HalfExtents": [1200.0, 10.0, 1200.0],
                 "Radius": 50.0,
-                "HalfHeight": 50.0
+                "HalfHeight": 50.0,
+                "Axis": 1,
+                "Center": [0.0, 0.0, 0.0]
             },
             "RigidBody": {
                 "Type": 0,

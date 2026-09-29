@@ -1,5 +1,8 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Editor/Core/Control/PointerDrag.hpp>
+#include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
@@ -404,12 +407,28 @@ namespace Desert::Editor
         }
     }
 
+    // THE TITLE OF A WINDOW WITH A GLYPH: "<icon>  <label>###<id>". One shape, one home: a panel and a document
+    // are both drawn with it, and the two call sites used to glue the same five pieces by hand.
+    static constexpr std::string_view kIconWindowTitleFormat = "{}  {}###{}";
+
+    static std::string IconWindowTitle( std::string_view icon, std::string_view label, std::string_view id )
+    {
+        return std::format( kIconWindowTitleFormat, icon, label, id );
+    }
+
+    // A scene window's ImGui title: the name a person reads, then the "###<kind><id>" identity that keeps two
+    // windows from merging and a closed window's imgui.ini entry from being inherited.
+    static std::string SceneWindowTitle( std::string_view name, std::string_view kind, std::uint64_t id )
+    {
+        return std::format( "{}###{}{}", name, kind, id );
+    }
+
     static std::string PanelDisplayTitle( const std::string& name )
     {
         std::string label = name;
         if ( const auto pos = label.find( "###" ); pos != std::string::npos )
             label.erase( pos ); // visible part only (drop any existing ###id)
-        return std::string( PanelIcon( name ) ) + "  " + label + "###" + name;
+        return IconWindowTitle( PanelIcon( name ), label, name );
     }
 
     // The name a person reads for a panel: the ImGui "##id" suffix dropped (the palette's Panel labels).
@@ -447,8 +466,8 @@ namespace Desert::Editor
     // up by a name that is an asset's and give every document the same fallback.
     std::string EditorLayer::DocumentDisplayTitle( const ISubjectDocument& document ) const
     {
-        return std::string( m_SubjectEditors.Icon( document.Subject(), kUnknownDocumentIcon ) ) + "  " +
-               DocumentDisplayName( document.GetName() ) + "###" + document.GetName();
+        return IconWindowTitle( m_SubjectEditors.Icon( document.Subject(), kUnknownDocumentIcon ),
+                                DocumentDisplayName( document.GetName() ), document.GetName() );
     }
 
     // Cognitive complexity 27 against a threshold of 19, PRE-EXISTING and reported for any edit inside
@@ -718,6 +737,24 @@ namespace Desert::Editor
                  // layer is detached, the device goes idle. Two ways to end a session would drift.
                  [this]() { RequestEditorExit(); } );
         }
+
+        // THE OS FRAME'S CLOSE ASKS WHAT File -> Exit ASKS. The application no longer stops on the event
+        // itself: RequestEditorExit either closes at once (nothing dirty) or raises the Save / Don't Save /
+        // Cancel questions and closes after the last one; Cancel leaves the editor running, so the
+        // platform's should-close flag is cleared here rather than left set behind a live window.
+        m_Application->GetCloseGate().Install(
+             [this]()
+             {
+                 RequestEditorExit();
+                 if ( const auto& window = m_Application->GetWindow() )
+                 {
+                     // GLFW takes back the handle Window hands out as const void*.
+                     // NOLINTNEXTLINE(bugprone-casting-through-void,cppcoreguidelines-pro-type-const-cast)
+                     auto* native = static_cast<GLFWwindow*>( const_cast<void*>( window->GetNativeWindow() ) );
+                     glfwSetWindowShouldClose( native, GLFW_FALSE );
+                 }
+                 return false;
+             } );
 
         // 1. Create ImGui Context first
         ::ImGui::CreateContext();
@@ -2200,7 +2237,7 @@ namespace Desert::Editor
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
-                                Control::IsShot( request.Operation ) );
+                                request.Operation == Control::Op::Drag || Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
         {
@@ -2276,6 +2313,7 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
+        quiescence.Set( Control::PendingWork::PointerDrag, Control::PointerInjection::Playing() );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
@@ -2571,6 +2609,28 @@ namespace Desert::Editor
 
             case Control::Op::Quit:
                 return Control::Response::Success( request.Id );
+
+            case Control::Op::Drag:
+            {
+                const auto target =
+                     Control::PointerInjection::FreshTarget( request.Whose, ::ImGui::GetFrameCount() );
+                if ( !target )
+                {
+                    return Control::Response::Failure(
+                         request.Id, request.Whose == Control::Subject::Viewport
+                                          ? "no level viewport image was drawn in the last frame."
+                                          : "no document view (the Animation window's preview) was drawn in the "
+                                            "last frame; open and focus one first." );
+                }
+                const auto plan = Control::PointerDrag::Plan(
+                     *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
+                     request.Steps, ::ImGui::GetIO().DisplayFramebufferScale.x );
+                if ( !plan.IsSuccess() )
+                    return Control::Response::Failure( request.Id, plan.GetError() );
+                if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                    return Control::Response::Failure( request.Id, armed.GetError() );
+                return Control::Response::Success( request.Id );
+            }
         }
 
         // Unreachable while every Op is handled above, and stated rather than left to fall off the end:
@@ -3040,7 +3100,7 @@ namespace Desert::Editor
         // Numbered by the id, not by the current count: with closing implemented, "Scene 3" reappearing as
         // the name of a fourth view after the third was closed would put two different documents under one
         // label across a session, and the log lines below are how a slot leak is read.
-        doc->Name = "Scene " + std::to_string( id + 1 ); // the main scene reads as "Scene 1"
+        doc->Name = std::format( "Scene {}", id + 1 ); // the main scene reads as "Scene 1"
 
         doc->Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
         doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
@@ -3055,7 +3115,7 @@ namespace Desert::Editor
         // Unique ImGui id per viewport — two windows sharing an id would merge into a single dockable window.
         // Keyed on the document id so a closed window's saved imgui.ini entry (position, dock node, size) is
         // never inherited by an unrelated later view.
-        const std::string title = doc->Name + "###sceneview" + std::to_string( id );
+        const std::string title = SceneWindowTitle( doc->Name, "sceneview", id );
         auto vp = std::make_unique<Editor::ViewportPanel>( doc->Scene, m_AssetManager.get(), title, id );
         // Captures the ID, never the index. See Editor/Core/SceneViewIdentity.hpp.
         vp->SetOnActivate( [this, id] { SetActiveScene( id ); } );
@@ -3174,7 +3234,7 @@ namespace Desert::Editor
 
         // Unique ImGui id per window, keyed on the id and not the index — a closed window's saved
         // imgui.ini entry must never be inherited by an unrelated later one.
-        const std::string title = view->Name + "###sceneviewport" + std::to_string( view->Id );
+        const std::string title = SceneWindowTitle( view->Name, "sceneviewport", view->Id );
         auto vp = std::make_unique<Editor::ViewportPanel>( scene, m_AssetManager.get(), title, view->Id,
                                                            renderer.get() );
         vp->GetVisibility() = true;
@@ -5082,6 +5142,11 @@ namespace Desert::Editor
                    LOG_INFO( "[Modeling] converted to static mesh '{}'", written.GetValue().generic_string() );
                    return Common::MakeSuccess( true );
                } } );
+        // UE's Mesh To Collision (Modeling panel, Collision palette): the combo's choice and the button in one
+        // entry per type, running the button's own path on the selection.
+        for ( const auto& shape : Editor::ModelingPanel::kCollisionShapes )
+            commands.push_back( { "Modeling", std::string( "Mesh To Collision " ) + shape.Name, [this, &shape]
+                                  { return Editor::ModelingPanel::MeshToCollision( m_MainScene, shape ); } } );
         commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(
@@ -5366,6 +5431,95 @@ namespace Desert::Editor
                                       paint.Layer = added.GetValue();
                                   return PaletteCommandDone();
                               } } );
+        // Edit Layers (LandscapePanel::DrawEditLayers): every button of a row acts on the EDITING layer here, so a
+        // frame can add a layer, stroke into it and hide it unattended.
+        commands.push_back( { "Landscape", "Create Edit Layer", [this]
+                              {
+                                  auto added = Commands::AddLandscapeEditLayer( m_MainScene );
+                                  return added.IsSuccess() ? PaletteCommandDone()
+                                                           : PaletteCommandOutcome( false, added.GetError() );
+                              } } );
+        {
+            // The editing layer's Guid: null means the stack's bottom layer, as the brushes read it.
+            const auto editingLayer = [this]() -> Common::UUID
+            {
+                const auto& editing = Core::LandscapeSculptState::Get().EditingLayer;
+                if ( !editing.IsNull() || !m_MainScene )
+                    return editing;
+                auto&      registry  = m_MainScene->GetRegistry();
+                const auto landscape = ECS::FirstLandscape( registry );
+                const auto root =
+                     landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+                if ( root == entt::null ||
+                     registry.get<ECS::LandscapeComponent>( root ).EditLayers.Layers.empty() )
+                    return editing;
+                return registry.get<ECS::LandscapeComponent>( root ).EditLayers.Layers.front().Guid;
+            };
+            const auto layerOf = [this]( const Common::UUID& guid ) -> const World::Landscape::LandscapeEditLayer*
+            {
+                auto&      registry  = m_MainScene->GetRegistry();
+                const auto landscape = ECS::FirstLandscape( registry );
+                const auto root =
+                     landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+                return root == entt::null ? nullptr
+                                          : registry.get<ECS::LandscapeComponent>( root ).EditLayers.Find( guid );
+            };
+            const auto outcome = []( const Common::BoolResultStr& r )
+            { return r.IsSuccess() ? PaletteCommandDone() : PaletteCommandOutcome( false, r.GetError() ); };
+            commands.push_back( { "Landscape", "Editing edit layer: toggle visibility",
+                                  [this, editingLayer, layerOf, outcome]
+                                  {
+                                      const auto  guid  = editingLayer();
+                                      const auto* layer = m_MainScene ? layerOf( guid ) : nullptr;
+                                      if ( layer == nullptr )
+                                          return PaletteCommandOutcome( false, "no editing edit layer" );
+                                      return outcome( Commands::SetLandscapeEditLayerVisible( m_MainScene, guid,
+                                                                                              !layer->Visible ) );
+                                  } } );
+            commands.push_back( { "Landscape", "Editing edit layer: toggle lock",
+                                  [this, editingLayer, layerOf, outcome]
+                                  {
+                                      const auto  guid  = editingLayer();
+                                      const auto* layer = m_MainScene ? layerOf( guid ) : nullptr;
+                                      if ( layer == nullptr )
+                                          return PaletteCommandOutcome( false, "no editing edit layer" );
+                                      return outcome( Commands::SetLandscapeEditLayerLocked( m_MainScene, guid,
+                                                                                             !layer->Locked ) );
+                                  } } );
+            commands.push_back(
+                 { "Landscape", "Editing edit layer: delete", [this, editingLayer, outcome]
+                   { return outcome( Commands::RemoveLandscapeEditLayer( m_MainScene, editingLayer() ) ); } } );
+            for ( const float alpha : { 0.0f, 0.5f, 1.0f } )
+                commands.push_back( { "Landscape", std::format( "Editing edit layer: alphas {:.1f}", alpha ),
+                                      [this, editingLayer, outcome, alpha] {
+                                          return outcome( Commands::SetLandscapeEditLayerAlpha(
+                                               m_MainScene, editingLayer(), alpha, alpha ) );
+                                      } } );
+            if ( m_MainScene )
+            {
+                auto&      registry  = m_MainScene->GetRegistry();
+                const auto landscape = ECS::FirstLandscape( registry );
+                const auto root =
+                     landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+                if ( root != entt::null )
+                    for ( const auto& layer : registry.get<ECS::LandscapeComponent>( root ).EditLayers.Layers )
+                        commands.push_back( { "Landscape", std::format( "Edit layer: {}", layer.Name ),
+                                              [guid = layer.Guid]
+                                              {
+                                                  Core::LandscapeSculptState::Get().EditingLayer = guid;
+                                                  return PaletteCommandDone();
+                                              } } );
+            }
+        }
+        // The Visibility target (UE's Visibility tool): paint cuts a hole, the lowering stroke (invert) fills it.
+        commands.push_back( { "Landscape", "Target layer: Visibility (holes)", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Paint;
+                                  Core::LandscapeSculptState::Get().Paint.Layer =
+                                       std::string( World::Landscape::kLandscapeVisibilityLayerName );
+                                  return PaletteCommandDone();
+                              } } );
         if ( m_MainScene )
         {
             auto&      registry  = m_MainScene->GetRegistry();
@@ -5548,7 +5702,7 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {
@@ -5846,6 +6000,17 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Subdivide: New PolyGroups",
                        []( MS& ms, bool on ) { ms.ElementSubdivide.NewPolyGroups = on; } );
+        modelingOnOff( "Modeling", "Simplify: Preserve Sharp Edges",
+                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveSharpEdges = on; } );
+        for ( const auto target : { Geometry::SimplifyTarget::Percentage, Geometry::SimplifyTarget::VertexCount } )
+            commands.push_back( { "Modeling", std::string( "Simplify target: " ) + Geometry::ToString( target ),
+                                  [target]
+                                  {
+                                      MS::Get().ElementSimplify.Target = target;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Simplify: Preserve PolyGroups",
+                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveGroupBoundaries = on; } );
         static constexpr std::array<const char*, 3> kAxisNames = { "X", "Y", "Z" };
         for ( int axis = 0; axis < 3; ++axis )
         {
@@ -10647,6 +10812,7 @@ namespace Desert::Editor
 
     Common::BoolResultStr EditorLayer::OnDetach()
     {
+        m_Application->GetCloseGate().Uninstall();
         // The socket goes first, and its file with it. A leftover path is not harmless: the next editor
         // to be given it PROBES what is there, and while a dead one only costs a log line, leaving the
         // file behind on every exit would train everybody to ignore that line.

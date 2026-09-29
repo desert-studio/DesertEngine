@@ -86,6 +86,11 @@ jobs:
       - name: Check formatting of changed lines
         run: ./scripts/CI/CheckFormat.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+      # Text is formatted, never glued (owner 2026-09-29): the same changed lines, the same base, must not
+      # build text with `+` on a string literal -- std::format / format_to instead. Exit 2 = could not run.
+      - name: Check changed lines for glued text
+        run: ./scripts/CI/CheckGluedText.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+
       # Every third-party header must live in THIS repository. TextureBinary.cpp once included
       # <fmt/format.h>, which no checkout contains -- it resolved only from the author's Homebrew
       # prefix, compiled in every local sweep, and broke AssetEviction and AssetMissingFile the first
@@ -337,6 +342,20 @@ jobs:
       # agree with a default computed somewhere else is a gate that silently caches nothing the day
       # they diverge. `runner.temp` is job-scoped and empty at the start of the job, so nothing but
       # this restore can put anything in it.
+      # THE RUNNER RAN OUT OF DISK, NOT THE CODE (run 36540884385, 2026-09-29: `ranlib: can't write to output
+      # file (No space left on device)` on libDesert.a after 30 minutes of sanitizer build; the same commit
+      # was green on its branch run). ASan objects are ~3x larger than plain Debug. The runner image carries
+      # Xcodes, simulator runtimes and the Android SDK this job never uses; they go before the build, and
+      # `df` prints the headroom so the next time it shrinks it is a number in the log, not a guess.
+      - name: Free disk space
+        run: |
+          df -h / | tail -1
+          active="$(xcode-select -p | sed 's|/Contents/Developer||')"
+          for x in /Applications/Xcode*.app; do [ "$x" = "$active" ] || sudo rm -rf "$x"; done
+          sudo rm -rf "${ANDROID_HOME:-$HOME/Library/Android/sdk}" /usr/local/share/dotnet ~/.dotnet
+          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes
+          df -h / | tail -1
+
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:

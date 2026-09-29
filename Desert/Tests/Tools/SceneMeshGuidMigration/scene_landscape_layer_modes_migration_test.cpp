@@ -91,6 +91,7 @@ TEST( SceneLandscapeLayerModesMigration, CorpusLandscapesStateOnlyTheKeptFields 
          "SpacingCm",    // ALandscape actor scale, XY
          "ZScale",       // ALandscape actor scale, Z
          "Layers",       // target layers -> ULandscapeLayerInfoObject
+         "EditLayers",   // ALandscape::LandscapeEditLayers
     };
     const std::set<std::string> keptLook = { "Material" }; // ALandscape::LandscapeMaterial
 

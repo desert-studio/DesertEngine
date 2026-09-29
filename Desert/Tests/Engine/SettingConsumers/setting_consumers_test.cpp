@@ -615,10 +615,8 @@ namespace
     };
 
     constexpr Row kColliderRows[] = {
-         { "Shape", kPhysicsSystem },
-         { "HalfExtents", kPhysicsSystem },
-         { "Radius", kPhysicsSystem },
-         { "HalfHeight", kPhysicsSystem },
+         { "Shape", kPhysicsSystem },      { "HalfExtents", kPhysicsSystem }, { "Radius", kPhysicsSystem },
+         { "HalfHeight", kPhysicsSystem }, { "Axis", kPhysicsSystem },        { "Center", kPhysicsSystem },
     };
 
     constexpr Row kRigidBodyRows[] = {

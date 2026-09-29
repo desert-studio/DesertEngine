@@ -286,6 +286,7 @@ namespace Desert::ECS
                 weights.LayerCount = channels.Count;
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
+                weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
                      m_WarnedWeights.insert( d.Entity ).second )
                 {
