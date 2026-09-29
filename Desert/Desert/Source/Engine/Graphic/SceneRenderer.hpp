@@ -527,20 +527,20 @@ namespace Desert::Graphic
         void ExecuteCloudShadowMap();
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
-        void AddFrameGBuffer( RDG::Builder& graph, const std::vector<RDG::TextureRef>& gbuffer,
+        void AddFrameGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures,
                               System::MeshRenderer* meshRenderer );
-        void AddFrameTerrainGBuffer( RDG::Builder& graph, const std::vector<RDG::TextureRef>& gbuffer );
-        void AddFrameRSM( RDG::Builder& graph, const std::vector<RDG::TextureRef>& rsm,
-                          System::MeshRenderer* meshRenderer, const glm::vec3& sunDir );
-        void AddFrameGeneric( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+        void AddFrameTerrainGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameRSM( RDG::Builder& graph, LegacyFrameTextures& textures, System::MeshRenderer* meshRenderer,
+                          const glm::vec3& sunDir );
+        void AddFrameGeneric( RDG::Builder& graph, LegacyFrameTextures& textures,
                               System::MeshRenderer* meshRenderer );
-        void AddFrameSkinned( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+        void AddFrameSkinned( RDG::Builder& graph, LegacyFrameTextures& textures,
                               System::MeshRenderer* meshRenderer );
-        void AddFrameGlass( RDG::Builder& graph, const std::vector<RDG::TextureRef>& copyReads,
-                            const std::vector<RDG::TextureRef>& sceneColor, System::MeshRenderer* meshRenderer,
+        void AddFrameGlass( RDG::Builder& graph, LegacyFrameTextures& textures,
+                            const std::vector<RDG::TextureRef>& copyReads, System::MeshRenderer* meshRenderer,
                             const std::shared_ptr<LegacyFrameValues>& values );
 #if DESERT_DEV_INSTRUMENTS
-        void AddFrameOverdraw( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameOverdraw( RDG::Builder& graph, LegacyFrameTextures& textures );
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph );

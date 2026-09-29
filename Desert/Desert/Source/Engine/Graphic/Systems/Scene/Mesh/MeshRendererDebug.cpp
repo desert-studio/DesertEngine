@@ -210,60 +210,45 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void MeshRenderer::RenderOverdrawManual()
+    void MeshRenderer::RenderOverdrawAccumManual()
     {
-        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline )
-            return;
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        const auto  camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !target || !camera )
+        const auto camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline || !camera )
             return;
 
         auto& renderer = Renderer::GetInstance();
 
-        // 1) Accumulate: clear to 0, then draw every opaque mesh additively (static + generic; both use the
-        //    static vertex layout). Skinned meshes are skipped — they'd need the skinned layout + bone SSBO.
-        {
-            RenderPassSpecification rpSpec;
-            rpSpec.TargetFramebuffer = m_OverdrawFB;
-            rpSpec.DebugName         = "OverdrawAccumPass";
-            rpSpec.ClearColor.Color  = glm::vec4( 0.0f );
-            auto rp                  = RenderPass::Create( rpSpec );
+        // 1) Accumulate into m_OverdrawFB (the graph opens it cleared to 0): every opaque mesh additively
+        //    (static + generic; both use the static vertex layout). Skinned meshes are skipped — they'd need
+        //    the skinned layout + bone SSBO.
+        m_OverdrawMaterial->UpdateCamera( camera );
 
-            renderer.BeginRenderPass( rp.get() );
-            m_OverdrawMaterial->UpdateCamera( camera );
+        // CULLED LIKE THE PASS IT REPORTS ON. This view exists to answer "how many times was this
+        // pixel shaded", and an uncalled re-rasterization would answer it about a frame the engine
+        // does not draw — an instrument disagreeing with the thing it measures, which is the defect
+        // shape this repository keeps finding rather than a conservative choice.
+        const Core::Frustum overdrawFrustum = camera->GetFrustum();
+        for ( const auto& rd : m_StaticQueue )
+            if ( rd.Mesh != nullptr && IsVisibleInView( overdrawFrustum, rd.Transform,
+                                                        Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                renderer.RenderMesh( m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
+                                     m_OverdrawMaterial->GetMaterialExecutor() );
+        for ( const auto& g : m_GenericQueue )
+            if ( g.Mesh != nullptr &&
+                 IsVisibleInView( overdrawFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+                renderer.RenderMesh( m_OverdrawPipeline.get(), g.Mesh, g.Transform,
+                                     m_OverdrawMaterial->GetMaterialExecutor() );
+    }
 
-            // CULLED LIKE THE PASS IT REPORTS ON. This view exists to answer "how many times was this
-            // pixel shaded", and an uncalled re-rasterization would answer it about a frame the engine
-            // does not draw — an instrument disagreeing with the thing it measures, which is the defect
-            // shape this repository keeps finding rather than a conservative choice.
-            const Core::Frustum overdrawFrustum = camera->GetFrustum();
-            for ( const auto& rd : m_StaticQueue )
-                if ( rd.Mesh != nullptr && IsVisibleInView( overdrawFrustum, rd.Transform,
-                                                            Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
-                    renderer.RenderMesh( m_OverdrawPipeline.get(), rd.Mesh, rd.Transform,
-                                         m_OverdrawMaterial->GetMaterialExecutor() );
-            for ( const auto& g : m_GenericQueue )
-                if ( g.Mesh != nullptr && IsVisibleInView( overdrawFrustum, g.Transform,
-                                                           Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
-                    renderer.RenderMesh( m_OverdrawPipeline.get(), g.Mesh, g.Transform,
-                                         m_OverdrawMaterial->GetMaterialExecutor() );
-            renderer.EndRenderPass();
-        }
-
-        // 2) Resolve: heat-map the accumulation over the scene colour (LOAD; the resolve discards empty texels).
-        {
-            RenderPassSpecification rpSpec;
-            rpSpec.TargetFramebuffer = target;
-            rpSpec.DebugName         = "OverdrawResolvePass";
-            auto rp                  = RenderPass::Create( rpSpec );
-
-            renderer.BeginRenderPass( rp.get(), false );
-            m_OverdrawResolveMaterial->BindInputs( m_OverdrawFB->GetColorAttachmentImage( 0 ) );
-            renderer.SubmitFullscreenQuad( m_OverdrawResolvePipeline.get(),
-                                           m_OverdrawResolveMaterial->GetMaterialExecutor() );
-            renderer.EndRenderPass();
-        }
+    void MeshRenderer::RenderOverdrawResolveManual()
+    {
+        if ( !m_OverdrawPipeline || !m_OverdrawFB || !m_OverdrawResolvePipeline )
+            return;
+        // 2) Resolve: heat-map the accumulation over the scene colour (the graph opens the target with LOAD;
+        //    the resolve discards empty texels).
+        m_OverdrawResolveMaterial->BindInputs( m_OverdrawFB->GetColorAttachmentImage( 0 ) );
+        Renderer::GetInstance().SubmitFullscreenQuad( m_OverdrawResolvePipeline.get(),
+                                                      m_OverdrawResolveMaterial->GetMaterialExecutor() );
     }
 
     void MeshRenderer::RegisterDebugPass( RenderGraphBuilder& builder )

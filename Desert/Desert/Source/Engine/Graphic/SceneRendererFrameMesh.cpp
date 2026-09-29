@@ -33,70 +33,168 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <optional>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 
 namespace Desert::Graphic
 {
-    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, const std::vector<RDG::TextureRef>& gbuffer,
+    namespace
+    {
+        // The whole of a framebuffer as graph names: every colour attachment by slot, and the depth.
+        struct RasterTargets
+        {
+            std::vector<RDG::TextureRef> Colors;
+            RDG::TextureRef              Depth;
+        };
+
+        // A target the graph cannot declare whole is refused with its pass, never half-declared: a render pass
+        // missing an attachment is not the one the pass's pipelines were built against. That covers a colour
+        // image outside SHADER_READ_ONLY and a multisampled target (the graph has no resolve attachment).
+        std::optional<RasterTargets> TargetsOf( LegacyFrameTextures&                textures,
+                                                const std::shared_ptr<Framebuffer>& framebuffer,
+                                                std::string_view name, std::string_view pass )
+        {
+            if ( !framebuffer )
+                return std::nullopt;
+            RasterTargets  targets{ textures.Colors( framebuffer, name ), textures.Depth( framebuffer, name ) };
+            const uint32_t samples  = framebuffer->GetSpecification().Samples;
+            const bool     hasDepth = framebuffer->GetDepthAttachmentCount() != 0;
+            if ( samples > 1 || targets.Colors.size() != framebuffer->GetColorAttachmentCount() ||
+                 hasDepth != targets.Depth.IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] '{}' is not recorded: the graph can declare {} of the {} colour "
+                           "attachment(s) of '{}' ({} sample(s)), depth {}",
+                           pass, targets.Colors.size(), framebuffer->GetColorAttachmentCount(), name, samples,
+                           targets.Depth.IsValid() ? "declared" : ( hasDepth ? "NOT declared" : "absent" ) );
+                return std::nullopt;
+            }
+            return targets;
+        }
+
+        // One raster node: the graph opens the render pass on @p targets (every colour with @p color, the depth
+        // with @p depth, all stored), @p sampled are read by its fragment shaders, and @p body records the draws.
+        // NeverCull: the bodies also write per-frame material state later passes of the frame rely on.
+        void AddRaster( RDG::Builder& graph, std::string_view name, const RasterTargets& targets,
+                        const RDG::LoadOp& color, const RDG::LoadOp& depth,
+                        const std::vector<RDG::TextureRef>& sampled, std::function<void()> body )
+        {
+            graph.AddPass(
+                 name, RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     for ( const RDG::TextureRef read : sampled )
+                         pass.Read( read, RDG::Access::SampledGraphics );
+                     for ( uint32_t slot = 0; slot < targets.Colors.size(); ++slot )
+                         pass.ColorTarget( slot, targets.Colors[slot], color );
+                     if ( targets.Depth.IsValid() )
+                         pass.DepthTarget( targets.Depth, depth );
+                 },
+                 [body = std::move( body )]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     body();
+                     return BOOLSUCCESS;
+                 } );
+        }
+    } // namespace
+
+    void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
-        AddLegacy( graph, "Deferred: GBuffer", {}, gbuffer,
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
+        if ( !targets || !meshRenderer )
+            return;
+        // ZERO, not the default 0.1 grey: empty texels need a zero normal, the lighting pass tells geometry from
+        // sky by dot(normal, normal).
+        AddRaster( graph, "Deferred: GBuffer", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+                   RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
                    [meshRenderer]() { meshRenderer->RenderGBufferManual(); } );
     }
 
-    void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, const std::vector<RDG::TextureRef>& gbuffer )
+    void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the
-        // graph's "TerrainPass").
+        // graph's "TerrainPass"). LOAD: the meshes' G-buffer node cleared it; the graph merges the two into
+        // one render pass.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "TerrainGBuffer" );
+        if ( !targets )
+            return;
         // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddLegacy(
-             graph, "TerrainGBuffer", {}, gbuffer,
+        AddRaster(
+             graph, "TerrainGBuffer", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
              [this]() {
                  UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->RenderGBufferManual();
              } );
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
-    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, const std::vector<RDG::TextureRef>& rsm,
+    void SceneRenderer::AddFrameRSM( RDG::Builder& graph, LegacyFrameTextures& textures,
                                      System::MeshRenderer* meshRenderer, const glm::vec3& sunDir )
     {
         if ( glm::distance( sunDir, m_RSMLastSunDir ) > 1e-4f || m_RSMFrameCounter == 0 )
         {
-            AddLegacy( graph, "Deferred: RSM", {}, rsm, [meshRenderer]() { meshRenderer->RenderRSMManual(); } );
+            const auto targets = TargetsOf( textures, m_RSMBuffer, "RSM", "Deferred: RSM" );
+            if ( !targets || !meshRenderer )
+                return;
+            // Colour 0 = "no caster here" for the VPL gather. Standard-Z pass (drawn through a cascade matrix), so
+            // depth clears to 1 = far, not to the engine's reversed-Z clear.
+            AddRaster( graph, "Deferred: RSM", *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+                       RDG::LoadOp::ClearDepth( 1.0f ), {},
+                       [meshRenderer]() { meshRenderer->RenderRSMManual(); } );
             m_RSMLastSunDir = sunDir;
         }
     }
 
-    void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+    void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, LegacyFrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
-        AddLegacy( graph, "Deferred: Generic", {}, sceneColor,
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
+        if ( !targets || !meshRenderer )
+            return;
+        AddRaster( graph, "Deferred: Generic", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
                    [meshRenderer]() { meshRenderer->RenderGenericManual(); } );
     }
 
-    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+    void SceneRenderer::AddFrameSkinned( RDG::Builder& graph, LegacyFrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
-        AddLegacy( graph, "Deferred: Skinned", {}, sceneColor,
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Skinned" );
+        if ( !targets || !meshRenderer )
+            return;
+        AddRaster( graph, "Deferred: Skinned", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), {},
                    [meshRenderer]() { meshRenderer->RenderSkinnedManual(); } );
     }
 
-    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, const std::vector<RDG::TextureRef>& copyReads,
-                                       const std::vector<RDG::TextureRef>&       sceneColor,
+    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                       const std::vector<RDG::TextureRef>&       copyReads,
                                        System::MeshRenderer*                     meshRenderer,
                                        const std::shared_ptr<LegacyFrameValues>& values )
     {
-        AddLegacy( graph, "Deferred: Glass", copyReads, sceneColor,
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Glass" );
+        if ( !targets || !meshRenderer )
+            return;
+        // The glass samples the scene copy for its refraction.
+        AddRaster( graph, "Deferred: Glass", *targets, RDG::LoadOp::Load(), RDG::LoadOp::Load(), copyReads,
                    [meshRenderer, values]() { meshRenderer->RenderGlassManual( values->SceneCopy ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor )
+    void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
-        AddLegacy(
-             graph, "Debug: Overdraw", {}, sceneColor, [this]()
-             { UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->RenderOverdrawManual(); } );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        if ( !meshRenderer )
+            return;
+        const auto accum =
+             TargetsOf( textures, meshRenderer->GetOverdrawFramebuffer(), "Overdraw", "Debug: Overdraw" );
+        const auto scene = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Overdraw Resolve" );
+        if ( !accum || !scene )
+            return;
+        AddRaster( graph, "Debug: Overdraw", *accum, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ),
+                   RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+                   [meshRenderer]() { meshRenderer->RenderOverdrawAccumManual(); } );
+        AddRaster( graph, "Debug: Overdraw Resolve", *scene, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
+                   accum->Colors, [meshRenderer]() { meshRenderer->RenderOverdrawResolveManual(); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

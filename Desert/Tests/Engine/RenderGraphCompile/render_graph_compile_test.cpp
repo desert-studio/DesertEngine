@@ -1262,7 +1262,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             const size_t legacy = text.find( "AddLegacy(", at );
             const size_t phases = text.find( "AddGraphPhasePasses(", at );
             const size_t frame  = text.find( "AddFrame", at );
-            const size_t first  = std::min( { legacy, phases, frame } );
+            size_t       raster = text.find( "AddRaster(", at );
+            // A call names its node first (a quote before the call's first ')'); the helper's definition does not.
+            while ( raster != std::string::npos && text.find( '"', raster ) > text.find( ')', raster ) )
+                raster = text.find( "AddRaster(", raster + 1 );
+            const size_t first = std::min( { legacy, phases, frame, raster } );
             if ( first == std::string::npos )
                 return;
             if ( first == frame )
@@ -1274,9 +1278,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
                 collect( called, called.find( '(' ) + 1 );
                 at = open + 1;
             }
-            else if ( first == legacy )
+            else if ( first == legacy || first == raster )
             {
-                const size_t open  = text.find( '"', legacy );
+                const size_t open  = text.find( '"', first );
                 const size_t close = text.find( '"', open + 1 );
                 ASSERT_NE( close, std::string::npos );
                 added.push_back( text.substr( open + 1, close - open - 1 ) );
@@ -1295,22 +1299,39 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     collect( body, 0 );
 
     const std::vector<std::string> legacyOrder = {
-         "ClearMainFramebuffer",   "Particles: SimulateInFrame",
-         "CloudShadowMap",         "phases[!RenderPhase::IsDeferredOverlay(phase)]",
-         "Deferred: GBuffer",      "TerrainGBuffer",
-         "Deferred: DepthResolve", "Deferred: SSAO",
-         "Deferred: RSM",          "Deferred: GIResolve",
-         "Deferred: Composite",    "Deferred: Generic",
-         "Deferred: Skinned",      "Deferred: SceneCopy",
-         "Deferred: SSR",          "Deferred: Glass",
-         "SkyAtmosphereLuts",      "AtmosphericFog",
-         "VolumetricClouds",       "phases[phase==RenderPhase::Transparency]",
-         "Debug: Overdraw",        "phases[phase==RenderPhase::Debug]",
-         "UI: BackdropBlur",       "phases[phase==RenderPhase::UI]",
-         "PostFX: JumpFlood",      "PostFX: AutoExposure",
-         "PostFX: Bloom",          "PostFX: LightShafts",
-         "PostFX: LensFlare",      "PostFX: Tonemap",
-         "PostFX: FXAA",           "PostFX: SMAA",
+         "ClearMainFramebuffer",
+         "Particles: SimulateInFrame",
+         "CloudShadowMap",
+         "phases[!RenderPhase::IsDeferredOverlay(phase)]",
+         "Deferred: GBuffer",
+         "TerrainGBuffer",
+         "Deferred: DepthResolve",
+         "Deferred: SSAO",
+         "Deferred: RSM",
+         "Deferred: GIResolve",
+         "Deferred: Composite",
+         "Deferred: Generic",
+         "Deferred: Skinned",
+         "Deferred: SceneCopy",
+         "Deferred: SSR",
+         "Deferred: Glass",
+         "SkyAtmosphereLuts",
+         "AtmosphericFog",
+         "VolumetricClouds",
+         "phases[phase==RenderPhase::Transparency]",
+         "Debug: Overdraw",
+         "Debug: Overdraw Resolve",
+         "phases[phase==RenderPhase::Debug]",
+         "UI: BackdropBlur",
+         "phases[phase==RenderPhase::UI]",
+         "PostFX: JumpFlood",
+         "PostFX: AutoExposure",
+         "PostFX: Bloom",
+         "PostFX: LightShafts",
+         "PostFX: LensFlare",
+         "PostFX: Tonemap",
+         "PostFX: FXAA",
+         "PostFX: SMAA",
     };
     EXPECT_EQ( added, legacyOrder );
 }
@@ -1504,4 +1525,59 @@ TEST( RenderGraphCompile, DepthTargetOnAnImportedDepthIsTransitionedIntoAttachme
     { return std::find( backend.Calls.begin(), backend.Calls.end(), call ) - backend.Calls.begin(); };
     EXPECT_LT( at( std::format( kBarriersFormat, result.Passes[0].Barriers.size() ) ), at( "BeginRenderPass 2" ) );
     EXPECT_EQ( depthBack, std::vector<ImageLayout>{ ImageLayout::DepthStencilAttachment } );
+}
+
+// THE MESH AND TERRAIN PASSES ARE RASTER NODES (RDG-LEG1-L1): SceneRendererFrameMesh.cpp adds no legacy pass, each
+// of its passes declares its targets (the graph opens the render pass), and none of their bodies opens or closes a
+// render pass of its own.
+TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+    const auto read = [&root]( const char* relative )
+    {
+        std::ifstream file( root / relative );
+        EXPECT_TRUE( file ) << relative << " is gone";
+        return std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() );
+    };
+    const std::string frame = read( "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameMesh.cpp" );
+    EXPECT_EQ( frame.find( "AddLegacy(" ), std::string::npos );
+    EXPECT_NE( frame.find( "pass.ColorTarget(" ), std::string::npos );
+    EXPECT_NE( frame.find( "pass.DepthTarget(" ), std::string::npos );
+    for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
+                               "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Deferred: Glass\"",
+                               "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
+        EXPECT_NE( frame.find( std::format( "AddRaster( graph, {}", node ) ), std::string::npos ) << node;
+
+    const auto bodyOf = []( const std::string& source, std::string_view function )
+    {
+        const size_t begin = source.find( std::format( "::{}()", function ) );
+        if ( begin == std::string::npos )
+            return std::string{};
+        const size_t end = source.find( "\n    }\n", begin );
+        return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+    };
+    const std::pair<const char*, const char*> bodies[] = {
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDeferred.cpp",
+           "RenderGBufferManual" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
+           "RenderGBufferManual" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp", "RenderRSMManual" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
+           "RenderGenericManual" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
+           "RenderSkinnedManual" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp", "RenderGlassManual" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
+           "RenderOverdrawAccumManual" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
+           "RenderOverdrawResolveManual" } };
+    for ( const auto& [file, function] : bodies )
+    {
+        const std::string body = bodyOf( read( file ), function );
+        ASSERT_FALSE( body.empty() ) << file << ": no " << function;
+        EXPECT_EQ( body.find( "BeginRenderPass(" ), std::string::npos ) << function;
+        EXPECT_EQ( body.find( "EndRenderPass(" ), std::string::npos ) << function;
+        EXPECT_EQ( body.find( "TransitionLayout(" ), std::string::npos ) << function;
+    }
 }

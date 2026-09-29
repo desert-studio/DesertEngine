@@ -53,6 +53,30 @@ namespace Desert::Graphic
             return refs;
         }
 
+        // The depth attachment of @p framebuffer (a depth target never sits in SHADER_READ_ONLY), imported with
+        // the layout its image records; Execute writes the layout the graph leaves back into the image. An
+        // image that cannot be imported gets an invalid ref, and the error is logged.
+        RDG::TextureRef Depth( const std::shared_ptr<Framebuffer>& framebuffer, std::string_view name )
+        {
+            if ( !framebuffer || framebuffer->GetDepthAttachmentCount() == 0 )
+                return {};
+            const std::shared_ptr<Image2D>& image = framebuffer->GetDepthAttachmentImage();
+            if ( !image )
+                return {};
+            if ( const auto it = m_Refs.find( image.get() ); it != m_Refs.end() )
+                return it->second;
+            RDG::TextureRef ref;
+            auto&           external = m_Storage.emplace_back( std::make_unique<RDG::ExternalTexture>() );
+            const Common::BoolResultStr imported = Renderer::GetInstance().ImportImage( image, *external );
+            if ( imported )
+                ref = m_Graph.RegisterExternal( *external, std::format( "{}.Depth", name ) );
+            else
+                LOG_ERROR( "[SceneRenderer] the depth of '{}' is not in the frame graph: {}", name,
+                           imported.GetError() );
+            m_Refs.emplace( image.get(), ref );
+            return ref;
+        }
+
     private:
         RDG::TextureRef Get( const std::shared_ptr<Image2D>& image, std::string_view name )
         {

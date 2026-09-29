@@ -811,8 +811,8 @@ namespace Desert::Graphic
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const std::vector<RDG::TextureRef> gbuffer = textures.Colors( m_GBuffer, "GBuffer" );
 
-            AddFrameGBuffer( graph, gbuffer, meshRenderer );
-            AddFrameTerrainGBuffer( graph, gbuffer );
+            AddFrameGBuffer( graph, textures, meshRenderer );
+            AddFrameTerrainGBuffer( graph, textures );
             AddFrameDepthResolve( graph );
 
             glm::vec4 lightDir( 0.0f, -1.0f, 0.0f, 0.0f );
@@ -837,7 +837,7 @@ namespace Desert::Graphic
             {
                 const std::vector<RDG::TextureRef> rsm = textures.Colors( m_RSMBuffer, "RSM" );
                 const glm::vec3                    sunDir( lightDir );
-                AddFrameRSM( graph, rsm, meshRenderer, sunDir );
+                AddFrameRSM( graph, textures, meshRenderer, sunDir );
                 m_RSMFrameCounter = ( m_RSMFrameCounter + 1 ) % kRSMRefreshEvery;
 
                 AddFrameGIResolve( graph, textures, gbuffer, rsm, meshRenderer, viewProj, lightColor, values,
@@ -846,8 +846,8 @@ namespace Desert::Graphic
 
             AddFrameComposite( graph, compositeReads, sceneColor(), meshRenderer, lightDir, lightColor, cameraPos,
                                values );
-            AddFrameGeneric( graph, sceneColor(), meshRenderer );
-            AddFrameSkinned( graph, sceneColor(), meshRenderer );
+            AddFrameGeneric( graph, textures, meshRenderer );
+            AddFrameSkinned( graph, textures, meshRenderer );
 
             auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             std::vector<RDG::TextureRef> copyReads;
@@ -858,7 +858,7 @@ namespace Desert::Graphic
             if ( m_EnableSSR && copy && EnsureSSRResources() )
                 AddFrameSSR( graph, gbuffer, copyReads, sceneColor(), viewProj, cameraPos, values );
 
-            AddFrameGlass( graph, copyReads, sceneColor(), meshRenderer, values );
+            AddFrameGlass( graph, textures, copyReads, meshRenderer, values );
         }
 
         AddFrameSkyAtmosphereLuts( graph );
@@ -878,7 +878,7 @@ namespace Desert::Graphic
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )
         {
-            AddFrameOverdraw( graph, sceneColor() );
+            AddFrameOverdraw( graph, textures );
         }
 #endif // DESERT_DEV_INSTRUMENTS
 

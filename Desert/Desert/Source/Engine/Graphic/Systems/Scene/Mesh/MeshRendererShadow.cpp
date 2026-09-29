@@ -69,16 +69,7 @@ namespace Desert::Graphic::System
         MaterialInstance* ri = m_RSMInstance.get();
         CaptureFrameState( &lightCam ).ApplyTo( ri );
 
-        RenderPassSpecification rpSpec;
-        rpSpec.TargetFramebuffer = rsm;
-        rpSpec.DebugName         = "RSMPass";
-        rpSpec.ClearColor.Color  = glm::vec4( 0.0f ); // zero normal = "no caster here" for the VPL gather
-        // Standard-Z pass (it is drawn through a cascade matrix), so its depth clears to 1 = far, not to
-        // the engine's reversed-Z 0. With 0 the LessOrEqual test rejects everything and the RSM is empty.
-        rpSpec.ClearColor.DepthStencil.x = 1.0f;
-        auto rp                          = RenderPass::Create( rpSpec );
-
-        renderer.BeginRenderPass( rp.get() );
+        // The graph opens the render pass: colour clears to 0, depth to 1 (SceneRenderer::AddFrameRSM).
         for ( uint32_t i = 0; i < static_cast<uint32_t>( objs.size() ); ++i )
         {
             const auto* obj = objs[i];
@@ -88,7 +79,6 @@ namespace Desert::Graphic::System
             renderer.RenderMesh( m_RSMPipeline.get(), obj->Mesh, obj->Transform,
                                  m_RSMMaterial->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes );
         }
-        renderer.EndRenderPass();
     }
 
     void MeshRenderer::LogShadowBudget( double allocMs ) const
