@@ -39,7 +39,7 @@ namespace Desert::Core::Formats
     // So the layout is made trivial instead of checked: the parser pads every parameter out to 16 bytes,
     // and therefore parameter i lives at 16*i in std140 and std430 alike, whatever its type. The C++ side
     // needs no layout rules at all — a row is a `std::vector<glm::vec4>`, one entry per parameter, in
-    // schema order. `PBRGpuMaterial` is hand-packed as five vec4s for the same reason.
+    // schema order.
     //
     // The relation is still asserted rather than trusted: Desert/Tests/Engine/ShaderCacheKey reflects the
     // real SPIR-V of the shipped shaders and holds every member offset to 16*i.
@@ -47,8 +47,8 @@ namespace Desert::Core::Formats
     // One parameter's slot in the row. Not sizeof(glm::vec4) by coincidence: the row IS a vec4 array.
     inline constexpr uint32_t kMaterialParamSlotSize = 16;
 
-    // The reflected name of the storage block the row is written into, shared by MaterialPBR's
-    // hand-written `Materials` and by every block the DSL generates. Materials bind by NAME, so this
+    // The reflected name of the storage block the row is written into, shared by every block the DSL
+    // generates (MaterialPBR's included). Materials bind by NAME, so this
     // string is what makes "one transport" true at the CPU as well as in the shader.
     inline constexpr const char* kMaterialRowBlockName = "Materials";
 
@@ -87,4 +87,39 @@ namespace Desert::Core::Formats
 
     // The bytes one draw reads. Sized by MaterialParamSlotCount and indexed by MaterialParamSlot.
     using MaterialParamRow = std::vector<glm::vec4>;
+
+    // Every numeric param at its `Properties ... = default` value, in slot order.
+    inline MaterialParamRow MaterialParamDefaultRow( const ShaderProgramMeta& meta )
+    {
+        MaterialParamRow row;
+        row.reserve( MaterialParamSlotCount( meta ) );
+        for ( const auto& p : meta.Params )
+            if ( !p.IsTexture )
+                row.push_back( p.Default );
+        return row;
+    }
+
+    // Write a param by name into its whole slot (the components past its width are the generated struct's
+    // padding). False when the shader has no such numeric param; the row is then untouched.
+    inline bool SetMaterialParam( const ShaderProgramMeta& meta, MaterialParamRow& row, std::string_view name,
+                                  const glm::vec4& value )
+    {
+        const auto slot = MaterialParamSlot( meta, name );
+        if ( !slot || *slot >= row.size() )
+            return false;
+        row[*slot] = value;
+        return true;
+    }
+
+    // The row a material asset asks for: schema defaults, then every persisted `{Name, Value}` the schema
+    // knows. The ONE builder behind DataDrivenMaterial and MaterialPBR alike, so an authored value reaches
+    // the same bytes whichever class draws it.
+    template <class NamedValues>
+    MaterialParamRow BuildMaterialParamRow( const ShaderProgramMeta& meta, const NamedValues& values )
+    {
+        MaterialParamRow row = MaterialParamDefaultRow( meta );
+        for ( const auto& v : values )
+            SetMaterialParam( meta, row, v.Name, v.Value );
+        return row;
+    }
 } // namespace Desert::Core::Formats

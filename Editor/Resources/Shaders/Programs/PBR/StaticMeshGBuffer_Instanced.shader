@@ -16,6 +16,44 @@ Shader "StaticMeshGBuffer_Instanced"
     // nothing else: Desert/Tests/Engine/MeshVertexPath asserts that relation against the reflected
     // SPIR-V, so the two cells of one pass cannot drift into two different G-buffer writes.
 
+    // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
+    // writes one Materials[] row per object from the forward material and every pass reads it, so these
+    // blocks are identical by contract — Desert/Tests/Engine/PBRSurfaceInputs holds them equal.
+    Properties Binding(2)
+    {
+        Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
+        Float       MetallicFactor ("Metallic", Range(0,1), Category("Surface")) = 0
+        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.5
+        Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
+        Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
+        Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
+        Float       AlphaCutoff ("Alpha Cutoff", Range(0,1), Category("Surface")) = 0
+        Float       Transmission ("Transmission", Range(0,1), Category("Glass")) = 0
+        Float       IOR ("IOR", Range(1,2.5), Category("Glass")) = 1.5
+        Color       GlassTint ("Glass Tint", Category("Glass")) = (1, 1, 1, 1)
+        Vec2        UVTiling ("UV Tiling", Category("Surface")) = (1, 1)
+        Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
+        Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
+        Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
+        // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
+        // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
+        Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Texture2D   u_AlbedoTexture ("Albedo Map", Category("Textures"))
+        // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
+        // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
+        // whereas (0.5,0.5,1) decodes to +Z, which is what "this surface has no normal detail" means.
+        // The fragment stages here, in StaticMeshGBuffer and in StaticMeshPBR_Instanced all guard with
+        // `textureSize(u_NormalTexture,0).x > 1` and skip a 1x1, so this changes no pixel today; it is
+        // written down so the guard is a fast path rather than the only thing standing between an empty
+        // slot and a wrong normal.
+        Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
+        Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
+        Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
+        Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
+        Texture2D   u_AOTexture ("AO Map", Category("Textures"))
+        Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
+    }
+
     Vertex
     {
         In(0) vec3 a_Position;
@@ -126,21 +164,7 @@ Shader "StaticMeshGBuffer_Instanced"
         Out(2) vec4 oGBufferC; // WorldPosition.xyz, texCount.w
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb (HDR, self-illumination added in the deferred resolve)
 
-        PushConstant PushConstants
-        {
-        	mat4 Transform;
-        	uint MaterialIndex;
-        } pc;
 
-        struct GpuMaterial
-        {
-        	vec4 AlbedoAO;
-        	vec4 MetalRoughEmission;
-        	vec4 EmissionColor;
-        	vec4 ExtraParams;
-        	vec4 GlassTint; // rgb = tint, a = transmission (G-buffer path is opaque; used to SKIP glass, not shade it)
-        };
-        ReadBuffer(2) Materials { GpuMaterial materials[]; };
 
         // The surface's own three maps, at the SAME slots the forward mesh shaders use them at. The numbers
         // are deliberately unchanged and deliberately not compacted to 0,1,2: the whole mesh shader family
@@ -156,32 +180,31 @@ Shader "StaticMeshGBuffer_Instanced"
 
         void main()
         {
-        	GpuMaterial mat = materials[pc.MaterialIndex];
 
-        	vec2 tiling = mat.ExtraParams.xy;
+        	vec2 tiling = u_Material.UVTiling;
         	if (tiling.x <= 0.0) tiling.x = 1.0;
         	if (tiling.y <= 0.0) tiling.y = 1.0;
-        	// The transport (GpuMaterial) carries a scale only: offset/rotation at their identities, UV set 0.
-        	vec2 uv = PBRTransformUV(PBRSelectUV(inVertex.Texcoord, inVertex.Texcoord, 0), vec2(0.0), tiling, 0.0);
+        	// Offset/rotation/scale come from the row; TEXCOORD_1 is not a vertex input yet, so UV set 0.
+        	vec2 uv = PBRTransformUV(PBRSelectUV(inVertex.Texcoord, inVertex.Texcoord, 0), u_Material.UVOffset, tiling, u_Material.UVRotation);
 
-        	float alphaCutoff = mat.MetalRoughEmission.w;
+        	float alphaCutoff = u_Material.AlphaCutoff;
         	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
         		discard;
 
         	// No vertex-colour input in this vertex layout: the vertex colour is white.
-        	vec3 albedo = PBRBaseColor(mat.AlbedoAO.rgb, pow(texture(u_AlbedoTexture, uv).rgb, vec3(2.2)), vec3(1.0));
+        	vec3 albedo = PBRBaseColor(u_Material.AlbedoColor.rgb, pow(texture(u_AlbedoTexture, uv).rgb, vec3(2.2)), vec3(1.0));
 
         	vec3 N = normalize(inVertex.Normal);
         	const ivec2 nrmSize = textureSize(u_NormalTexture, 0);
         	if (nrmSize.x > 1 && nrmSize.y > 1)
         	{
-        		// The transport carries no normal scale: glTF's default 1 changes nothing.
-        		vec3 tangentNormal = PBRScaleTangentNormal(SampleTangentNormal(u_NormalTexture, uv), 1.0);
+        		// NormalScale from the row (glTF normalTexture.scale).
+        		vec3 tangentNormal = PBRScaleTangentNormal(SampleTangentNormal(u_NormalTexture, uv), u_Material.NormalScale);
         		N = normalize(inVertex.TBN * tangentNormal);
         	}
 
         	// No ORM texture on this path: a white texel passes the factors through (occlusion is not a GBuffer channel).
-        	const vec3  orm       = PBRResolveORM(vec3(1.0), 1.0, mat.MetalRoughEmission.y, mat.MetalRoughEmission.x);
+        	const vec3  orm       = PBRResolveORM(vec3(1.0), 1.0, u_Material.RoughnessFactor, u_Material.MetallicFactor);
         	const float metallic  = orm.z;
         	const float roughness = max(orm.y, 0.04);
 
@@ -199,7 +222,7 @@ Shader "StaticMeshGBuffer_Instanced"
         	// Emissive is view-independent self-illumination; the deferred lighting resolve ADDS it, matching the
         	// forward StaticMeshPBR path so emissive materials reach the HDR composite and bloom (values > 1).
         	// No emissive texture is bound: its texel is white.
-        	oGBufferEmissive = vec4(PBREmission(vec3(1.0), mat.EmissionColor.rgb, mat.MetalRoughEmission.z), 1.0);
+        	oGBufferEmissive = vec4(PBREmission(vec3(1.0), u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity), 1.0);
         }
     }
 }

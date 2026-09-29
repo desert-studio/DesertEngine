@@ -2,6 +2,8 @@
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -30,6 +32,9 @@ namespace Desert::Graphic
                             std::string( shaderName ) ),
            m_Path( path ), m_Pass( pass )
     {
+        if ( auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName ) )
+            m_Schema = shader->GetProgramMeta();
+        m_Row = Core::Formats::MaterialParamDefaultRow( m_Schema );
     }
 
     void MaterialPBR::UploadBones( const glm::mat4* matrices, size_t count )

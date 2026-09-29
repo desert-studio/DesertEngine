@@ -64,11 +64,7 @@ namespace Desert::Graphic
         // a layout that MaterialParamRow.hpp deliberately has only one of.
         bool SetParam( const std::string& name, const glm::vec4& value )
         {
-            const auto slot = Core::Formats::MaterialParamSlot( m_Schema, name );
-            if ( !slot )
-                return false;
-            m_Row[*slot] = value;
-            return true;
+            return Core::Formats::SetMaterialParam( m_Schema, m_Row, name, value );
         }
 
         // The name the override producers use. Identical to SetParam now — it was a separate entry point
@@ -109,13 +105,7 @@ namespace Desert::Graphic
         // Seed every numeric param with its `Properties ... = default` value.
         void ApplyDefaults()
         {
-            uint32_t slot = 0;
-            for ( const auto& p : m_Schema.Params )
-            {
-                if ( p.IsTexture )
-                    continue;
-                m_Row[slot++] = p.Default;
-            }
+            m_Row = Core::Formats::MaterialParamDefaultRow( m_Schema );
         }
 
     private:

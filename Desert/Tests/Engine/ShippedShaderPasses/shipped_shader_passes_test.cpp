@@ -681,3 +681,95 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// ── THE PBR ROW IS THE GENERIC ROW (MAT1a-T1) ────────────────────────────────────────────────────────────
+// The six PBR passes read ONE Materials[] row per object, written from the FORWARD material: glass and the
+// RSM/GBuffer pass consume the forward row as it is. So their `Properties Binding(2)` blocks must declare the
+// same numeric params in the same order, or a GBuffer draw reads roughness where the forward wrote metallic.
+namespace
+{
+    const std::vector<std::string> kPBRPasses = { "StaticMeshPBR",     "StaticMeshPBR_Instanced",
+                                                  "StaticMeshGBuffer", "StaticMeshGBuffer_Instanced",
+                                                  "SkinnedMeshPBR",    "StaticMeshGlass" };
+
+    const DShaderParseResult* ShippedByName( const std::string& name )
+    {
+        for ( const auto& shader : ShippedShaders() )
+            if ( shader.File.stem().string() == name && shader.Parsed.IsSuccess() )
+                return &shader.Parsed.GetValue();
+        return nullptr;
+    }
+
+    // Member names of the GENERATED `struct MaterialParams`, pads skipped: what the GPU actually indexes.
+    std::vector<std::string> GeneratedRowMembers( const DShaderParseResult& parsed )
+    {
+        for ( const auto& [stage, source] : parsed.Stages )
+        {
+            const auto begin = source.find( "struct MaterialParams\n{\n" );
+            if ( begin == std::string::npos )
+                continue;
+            const auto               end = source.find( "};", begin );
+            std::vector<std::string> names;
+            static const std::regex  kMember( R"(^\s+\w+\s+(\w+)(\[\d+\])?;)" );
+            std::istringstream       lines( source.substr( begin, end - begin ) );
+            for ( std::string line; std::getline( lines, line ); )
+                if ( std::smatch m;
+                     std::regex_search( line, m, kMember ) && m[1].str().rfind( "_slotPad", 0 ) != 0 )
+                    names.push_back( m[1].str() );
+            return names;
+        }
+        return {};
+    }
+
+    struct MockParam // the shape of Assets::MaterialShaderParam, which is what a .demat persists
+    {
+        std::string Name;
+        glm::vec4   Value;
+    };
+} // namespace
+
+TEST( ShippedShaderPasses, EveryPBRPassDeclaresTheOneRowLayout )
+{
+    const auto* forward = ShippedByName( "StaticMeshPBR" );
+    ASSERT_NE( forward, nullptr );
+    const auto layout = GeneratedRowMembers( *forward );
+    ASSERT_FALSE( layout.empty() ) << "StaticMeshPBR generates no Materials[] row";
+    for ( const auto& name : kPBRPasses )
+    {
+        const auto* parsed = ShippedByName( name );
+        ASSERT_NE( parsed, nullptr ) << name;
+        EXPECT_EQ( GeneratedRowMembers( *parsed ), layout )
+             << name << " reads a different row than the forward pass writes";
+    }
+}
+
+TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestName )
+{
+    const auto* parsed = ShippedByName( "StaticMeshPBR" );
+    ASSERT_NE( parsed, nullptr );
+    const auto& meta    = parsed->Meta;
+    const auto  members = GeneratedRowMembers( *parsed );
+
+    const std::vector<MockParam> demat = { { "EmissiveIntensity", glm::vec4( 7.0f, 0, 0, 0 ) },
+                                           { "UVTiling", glm::vec4( 3.0f, 4.0f, 0, 0 ) },
+                                           { "UVRotation", glm::vec4( 0.5f, 0, 0, 0 ) } };
+    const auto                   row   = Desert::Core::Formats::BuildMaterialParamRow( meta, demat );
+    ASSERT_EQ( row.size(), members.size() );
+    const auto* bytes = reinterpret_cast<const float*>( row.data() );
+
+    // The GPU finds member i at 16*i (ShaderCacheKey holds that against SPIR-V); the value must be there.
+    const auto floatAt = [&]( const std::string& name, int component )
+    {
+        const auto it = std::find( members.begin(), members.end(), name );
+        EXPECT_NE( it, members.end() ) << name;
+        const auto i = static_cast<size_t>( it - members.begin() );
+        return bytes[i * Desert::Core::Formats::kMaterialParamSlotSize / sizeof( float ) + component];
+    };
+    EXPECT_EQ( floatAt( "EmissiveIntensity", 0 ), 7.0f );
+    EXPECT_EQ( floatAt( "UVTiling", 0 ), 3.0f );
+    EXPECT_EQ( floatAt( "UVTiling", 1 ), 4.0f );
+    EXPECT_EQ( floatAt( "UVRotation", 0 ), 0.5f );
+    // Not in the file: the shader's own default, not zero.
+    EXPECT_EQ( floatAt( "NormalScale", 0 ), 1.0f );
+    EXPECT_EQ( floatAt( "ReceiveSunShadows", 0 ), 1.0f );
+}

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "MaterialPBRBase.hpp"
-#include "PBRPush.hpp"
 
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -78,6 +77,23 @@ namespace Desert::Graphic
             return m_Data;
         }
 
+        // The shader's `Properties Binding(2)` manifest and this material's row of it — the SAME transport
+        // DataDrivenMaterial uses (Core/Formats/MaterialParamRow.hpp). MaterialFactory builds the row from the
+        // asset's persisted params; the renderer copies it (plus instance overrides, by name) into
+        // `Materials[]`. Every PBR pass declares the one layout, so a forward row feeds GBuffer/glass as is.
+        const Core::Formats::ShaderProgramMeta& GetSchema() const
+        {
+            return m_Schema;
+        }
+        const Core::Formats::MaterialParamRow& GetParamRow() const
+        {
+            return m_Row;
+        }
+        void SetParamRow( Core::Formats::MaterialParamRow row )
+        {
+            m_Row = std::move( row );
+        }
+
         // Which row of `Materials[]` the next draw reads is Material::SetMaterialIndex — the one entry
         // point every transport in the engine now shares. It used to be a member here plus a push in
         // Bind, and the push had to be repeated by anything that drew without an instance.
@@ -104,7 +120,9 @@ namespace Desert::Graphic
     private:
         MaterialPBR( MeshVertexPath path, MeshPass pass, const char* shaderName );
 
-        Assets::PBRSurfaceParams m_Data;
+        Assets::PBRSurfaceParams         m_Data;
+        Core::Formats::ShaderProgramMeta m_Schema;
+        Core::Formats::MaterialParamRow  m_Row;
         uint32_t                 m_BoneOffset = 0;
         MeshVertexPath           m_Path;
         MeshPass                 m_Pass;

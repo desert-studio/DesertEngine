@@ -5,6 +5,44 @@ Shader "StaticMeshGlass"
     // StaticMeshPBR so material data binds unchanged, but shades glass (Fresnel edge + specular + transmission)
     // and blends over the composited scene. Selected for materials with Transmission > 0.
 
+    // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
+    // writes one Materials[] row per object from the forward material and every pass reads it, so these
+    // blocks are identical by contract — Desert/Tests/Engine/PBRSurfaceInputs holds them equal.
+    Properties Binding(2)
+    {
+        Color       AlbedoColor ("Albedo", Category("Surface")) = (1, 1, 1, 1)
+        Float       MetallicFactor ("Metallic", Range(0,1), Category("Surface")) = 0
+        Float       RoughnessFactor ("Roughness", Range(0,1), Category("Surface")) = 0.5
+        Float       AOStrength ("Ambient Occlusion", Range(0,1), Category("Surface")) = 1
+        Color       EmissiveColor ("Emissive", Category("Surface")) = (0, 0, 0, 1)
+        Float       EmissiveIntensity ("Emissive Intensity", Range(0,100), Category("Surface")) = 1
+        Float       AlphaCutoff ("Alpha Cutoff", Range(0,1), Category("Surface")) = 0
+        Float       Transmission ("Transmission", Range(0,1), Category("Glass")) = 0
+        Float       IOR ("IOR", Range(1,2.5), Category("Glass")) = 1.5
+        Color       GlassTint ("Glass Tint", Category("Glass")) = (1, 1, 1, 1)
+        Vec2        UVTiling ("UV Tiling", Category("Surface")) = (1, 1)
+        Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
+        Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
+        Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
+        // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
+        // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
+        Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Texture2D   u_AlbedoTexture ("Albedo Map", Category("Textures"))
+        // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
+        // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
+        // whereas (0.5,0.5,1) decodes to +Z, which is what "this surface has no normal detail" means.
+        // The fragment stages here, in StaticMeshGBuffer and in StaticMeshPBR_Instanced all guard with
+        // `textureSize(u_NormalTexture,0).x > 1` and skip a 1x1, so this changes no pixel today; it is
+        // written down so the guard is a fast path rather than the only thing standing between an empty
+        // slot and a wrong normal.
+        Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
+        Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
+        Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
+        Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
+        Texture2D   u_AOTexture ("AO Map", Category("Textures"))
+        Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
+    }
+
     Vertex
     {
         In(0) vec3 a_Position;
@@ -88,17 +126,7 @@ Shader "StaticMeshGlass"
 
         Out(0) vec4 oColor;
 
-        PushConstant PushConstants { mat4 Transform; uint MaterialIndex; } pc;
 
-        struct GpuMaterial
-        {
-        	vec4 AlbedoAO;
-        	vec4 MetalRoughEmission;
-        	vec4 EmissionColor;
-        	vec4 ExtraParams;  // z = IOR
-        	vec4 GlassTint;    // rgb = tint, a = transmission
-        };
-        ReadBuffer(2) Materials { GpuMaterial materials[]; };
 
         struct DirectionLight { vec4 Direction; vec4 ColorIntensity; };
         Uniform(3) DirectionLightsUB { DirectionLight directionLights; } directionLights;
@@ -133,11 +161,10 @@ Shader "StaticMeshGlass"
 
         void main()
         {
-        	GpuMaterial mat = materials[pc.MaterialIndex];
 
-        	vec3  tint         = mat.GlassTint.rgb;
-        	float transmission = clamp(mat.GlassTint.a, 0.0, 1.0);
-        	float ior          = max(mat.ExtraParams.z, 1.0);
+        	vec3  tint         = u_Material.GlassTint.rgb;
+        	float transmission = clamp(u_Material.Transmission, 0.0, 1.0);
+        	float ior          = max(u_Material.IOR, 1.0);
 
         	vec3 N = normalize(inVertex.Normal);
         	const ivec2 nrmSize = textureSize(u_NormalTexture, 0);

@@ -4,7 +4,6 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/PBRPush.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
@@ -16,6 +15,7 @@
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/Units.hpp>
 
+#include <type_traits>
 #include <variant>
 #include <chrono>
 #include <cmath>
@@ -41,73 +41,55 @@ namespace Desert::Graphic::System
             }
         };
 
-        // Per-instance material override (MaterialPropertyBlock-style): start from the material's
-        // reflected data and apply any overridden instance properties on top — generically, by name,
-        // through reflection. Each drawn object thus gets its own effective material in the SSBO.
-        PBRGpuMaterial BuildEffectiveMaterial( MaterialPBR* material, MaterialInstance* instance )
+        // One object's row of `Materials[]` (MaterialPropertyBlock-style): the material's own row, then every
+        // overridden instance property written into ITS slot, found by name in the shader's manifest — the
+        // generic transport (Core/Formats/MaterialParamRow.hpp), no per-parameter code. Names without a slot
+        // (the Transform push value, textures) are not row bytes and are skipped.
+        Core::Formats::MaterialParamRow EffectiveRow( const MaterialPBR* material, MaterialInstance* instance )
         {
-            Assets::PBRSurfaceParams data = material->Data();
-
-            if ( instance )
+            Core::Formats::MaterialParamRow row = material->GetParamRow();
+            if ( !instance )
+                return row;
+            for ( const auto& [name, prop] : instance->GetPropertySet().GetProperties() )
             {
-                // Apply instance overrides by schema name onto the typed hot-path view. The names
-                // are the StaticMeshPBR schema (single material protocol) — same ones the tint
-                // path (MeshECSSystem) and the material canon use.
-                const auto vec4Of = []( const auto& v, const glm::vec4& current ) -> glm::vec4
-                {
-                    if ( auto* v4 = std::get_if<glm::vec4>( &v ) )
-                        return *v4;
-                    if ( auto* v3 = std::get_if<glm::vec3>( &v ) )
-                        return glm::vec4( *v3, current.w );
-                    return current;
-                };
-                const auto floatOf = []( const auto& v, float current ) -> float
-                {
-                    if ( auto* f = std::get_if<float>( &v ) )
-                        return *f;
-                    // A bare-instance override (no pre-existing typed property) is stored as a vec4; a scalar
-                    // param authored that way (e.g. RoughnessFactor from MaterialComponent) rides in .x.
-                    if ( auto* v4 = std::get_if<glm::vec4>( &v ) )
-                        return v4->x;
-                    return current;
-                };
-
-                for ( const auto& [name, prop] : instance->GetPropertySet().GetProperties() )
-                {
-                    if ( !prop.bIsOverridden )
-                        continue;
-                    const auto& v = prop.Value;
-
-                    if ( name == "AlbedoColor" )
-                        data.AlbedoColor = vec4Of( v, data.AlbedoColor );
-                    else if ( name == "MetallicFactor" )
-                        data.MetallicFactor = floatOf( v, data.MetallicFactor );
-                    else if ( name == "RoughnessFactor" )
-                        data.RoughnessFactor = floatOf( v, data.RoughnessFactor );
-                    else if ( name == "AOStrength" )
-                        data.AOStrength = floatOf( v, data.AOStrength );
-                    else if ( name == "EmissiveColor" )
-                        data.EmissiveColor = vec4Of( v, data.EmissiveColor );
-                    else if ( name == "EmissiveIntensity" )
-                        data.EmissiveIntensity = floatOf( v, data.EmissiveIntensity );
-                    else if ( name == "AlphaCutoff" )
-                        data.AlphaCutoff = floatOf( v, data.AlphaCutoff );
-                    else if ( name == "Transmission" )
-                        data.Transmission = floatOf( v, data.Transmission );
-                    else if ( name == "IOR" )
-                        data.IOR = floatOf( v, data.IOR );
-                    else if ( name == "GlassTint" )
-                        data.GlassTint = vec4Of( v, data.GlassTint );
-                    else if ( name == "UVTiling" )
-                    {
-                        const glm::vec4 t = vec4Of( v, glm::vec4( data.UVTiling.value_or( glm::vec2( 1.0f ) ), 0, 0 ) );
-                        data.UVTiling     = glm::vec2( t );
-                    }
-                    // Textures are per-material descriptors, not SSBO data — not overridable here.
-                }
+                if ( !prop.bIsOverridden )
+                    continue;
+                const auto slot = Core::Formats::MaterialParamSlot( material->GetSchema(), name );
+                if ( !slot || *slot >= row.size() )
+                    continue;
+                glm::vec4& dst = row[*slot];
+                std::visit(
+                     [&dst]( const auto& v )
+                     {
+                         using T = std::decay_t<decltype( v )>;
+                         if constexpr ( std::is_same_v<T, float> )
+                             dst = glm::vec4( v, 0.0f, 0.0f, 0.0f );
+                         else if constexpr ( std::is_same_v<T, glm::vec2> )
+                             dst = glm::vec4( v, 0.0f, 0.0f );
+                         else if constexpr ( std::is_same_v<T, glm::vec3> )
+                             dst = glm::vec4( v, dst.w );
+                         else if constexpr ( std::is_same_v<T, glm::vec4> )
+                             dst = v;
+                     },
+                     prop.Value );
             }
+            return row;
+        }
 
-            return BuildPBRGpuMaterial( data );
+        // Transmission > 0 sends an object to the glass pass. By name through the manifest like every param.
+        bool IsTransmissive( const MaterialPBR* material, const Core::Formats::MaterialParamRow& row )
+        {
+            const auto slot = Core::Formats::MaterialParamSlot( material->GetSchema(), "Transmission" );
+            return slot && *slot < row.size() && row[*slot].x > 0.001f;
+        }
+
+        // Appends one row to a buffer of rows laid end to end and returns its index there. Every PBR pass
+        // declares one layout, so every row in a buffer has the same length.
+        uint32_t AppendRow( std::vector<glm::vec4>& rows, const Core::Formats::MaterialParamRow& row )
+        {
+            const auto index = row.empty() ? 0u : static_cast<uint32_t>( rows.size() / row.size() );
+            rows.insert( rows.end(), row.begin(), row.end() );
+            return index;
         }
 
         // First slot instance whose parent is a PBR material ON THE GIVEN VERTEX PATH. Slots holding a
@@ -774,7 +756,7 @@ namespace Desert::Graphic::System
         const Core::Frustum frustum = camera->GetFrustum();
 
         std::vector<const StaticMeshRenderData*> glassObjs;
-        std::vector<PBRGpuMaterial>              gpuMats;
+        std::vector<glm::vec4>                   gpuMats;
         for ( const auto& data : m_StaticQueue )
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
@@ -784,12 +766,12 @@ namespace Desert::Graphic::System
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
                 continue;
-            auto*          mat = static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() );
-            PBRGpuMaterial gm = BuildEffectiveMaterial( mat, pbrInst );
-            if ( gm.GlassTint.a <= 0.001f )
+            auto*      mat = static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() );
+            const auto row = EffectiveRow( mat, pbrInst );
+            if ( !IsTransmissive( mat, row ) )
                 continue; // opaque -> drawn by the opaque pass, not here
             glassObjs.push_back( &data );
-            gpuMats.push_back( gm );
+            AppendRow( gpuMats, row );
         }
         if ( glassObjs.empty() )
             return;
@@ -798,8 +780,7 @@ namespace Desert::Graphic::System
 
         // --- One-time shared setup on the dedicated glass material (written ONCE per frame) ---
         if ( auto* sb = m_GlassMaterial->Get<StorageBufferProperty>( "Materials" ) )
-            sb->SetRawData( gpuMats.data(),
-                            static_cast<uint32_t>( gpuMats.size() * sizeof( PBRGpuMaterial ) ) );
+            sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( glm::vec4 ) ) );
 
         // The whole scene contribution in one snapshot (see Graphic::PBRSceneFrame) — the glass pass
         // needs every part of it, including the env cube + BRDF bindings it epsilon-touches.
@@ -846,7 +827,7 @@ namespace Desert::Graphic::System
         // Their effective materials go into the DEDICATED RSM material's Materials SSBO, so each texel's
         // albedo is the real per-object one — that albedo IS the flux colour, i.e. the colour bleeding.
         std::vector<const StaticMeshRenderData*> objs;
-        std::vector<PBRGpuMaterial>              gpuMats;
+        std::vector<glm::vec4>                   gpuMats;
         for ( const auto& data : m_StaticQueue )
         {
             if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
@@ -854,12 +835,12 @@ namespace Desert::Graphic::System
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
                 continue;
-            PBRGpuMaterial gm =
-                 BuildEffectiveMaterial( static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() ), pbrInst );
-            if ( gm.GlassTint.a > 0.001f )
+            const auto* mat = static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() );
+            const auto  row = EffectiveRow( mat, pbrInst );
+            if ( IsTransmissive( mat, row ) )
                 continue;
             objs.push_back( &data );
-            gpuMats.push_back( gm );
+            AppendRow( gpuMats, row );
         }
         if ( objs.empty() )
             return;
@@ -867,7 +848,7 @@ namespace Desert::Graphic::System
         auto& renderer = Renderer::GetInstance();
 
         if ( auto* sb = m_RSMMaterial->Get<StorageBufferProperty>( "Materials" ) )
-            sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( PBRGpuMaterial ) ) );
+            sb->SetRawData( gpuMats.data(), static_cast<uint32_t>( gpuMats.size() * sizeof( glm::vec4 ) ) );
 
         // Render from the SUN. A DEDICATED material+instance (like the glass pass) keeps this camera write
         // off the opaque passes' per-frame UBs — two writes to the same UB in one frame is the hazard that
@@ -1119,8 +1100,8 @@ namespace Desert::Graphic::System
                 ObjDraw od;
                 od.Obj  = obj;
                 od.Inst = FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static );
-                od.Gm   = BuildEffectiveMaterial( mat, od.Inst );
-                if ( od.Gm.GlassTint.a > 0.001f )
+                od.Row  = EffectiveRow( mat, od.Inst );
+                if ( IsTransmissive( mat, od.Row ) )
                     continue;
                 if ( od.Inst )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
@@ -1193,11 +1174,10 @@ namespace Desert::Graphic::System
                         d.Mesh          = mesh;
                         d.InstanceCount = count;
                         d.FirstInstance = firstInstance;
-                        d.MaterialIndex = static_cast<uint32_t>( groupSet->Materials.size() );
-                        d.LodLevel      = level;
                         // No batchable object carries overrides (filtered above), so every instance of
                         // the batch genuinely shares the parent material's effective values.
-                        groupSet->Materials.push_back( batchable[0].Gm );
+                        d.MaterialIndex = AppendRow( groupSet->Materials, batchable[0].Row );
+                        d.LodLevel      = level;
                         groupSet->Draws.push_back( d );
                     }
                 }
@@ -1276,16 +1256,18 @@ namespace Desert::Graphic::System
             gpuMaterials.reserve( singles.size() );
             for ( const auto& od : singles )
             {
-                PBRGpuMaterial gm = od.Gm;
-                // ExtraParams.w rides the per-mesh Receive Shadows toggle (1 = skip sun shadows);
-                // the batched path only ever carries receivers, so it stays 0 there.
-                gm.ExtraParams.w = od.Obj->ReceiveShadows ? 0.0f : 1.0f;
-                gpuMaterials.push_back( gm );
+                Core::Formats::MaterialParamRow row = od.Row;
+                // The per-mesh Receive Shadows toggle zeroes the material's ReceiveSunShadows (either one
+                // opts out); the batched path only ever carries receivers, so its rows keep the material's.
+                if ( !od.Obj->ReceiveShadows )
+                    Core::Formats::SetMaterialParam( mat->GetSchema(), row, "ReceiveSunShadows",
+                                                     glm::vec4( 0.0f ) );
+                AppendRow( gpuMaterials, row );
             }
 
             if ( auto* sb = drawMat->Get<StorageBufferProperty>( "Materials" ) )
                 sb->SetRawData( gpuMaterials.data(),
-                                static_cast<uint32_t>( gpuMaterials.size() * sizeof( PBRGpuMaterial ) ) );
+                                static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 
             // SHARED per-frame scene data (camera / lights / shadow / env) is written ONCE per material
             // group, NOT per mesh: these Update* all write the drawn material's buffers (shared by every
@@ -1400,8 +1382,7 @@ namespace Desert::Graphic::System
 
                 // ONE material row for the whole ISM, named by every one of its per-level draws: the
                 // level splits the geometry, not the material.
-                const auto materialIndex = static_cast<uint32_t>( ismSet->Materials.size() );
-                ismSet->Materials.push_back( BuildEffectiveMaterial( mat, ism.Material.get() ) );
+                const auto materialIndex = AppendRow( ismSet->Materials, EffectiveRow( mat, ism.Material.get() ) );
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
@@ -1447,7 +1428,7 @@ namespace Desert::Graphic::System
                                     static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
                 if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "Materials" ) )
                     sb->SetRawData( set.Materials.data(),
-                                    static_cast<uint32_t>( set.Materials.size() * sizeof( PBRGpuMaterial ) ) );
+                                    static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );
 
                 frameState.ApplyTo( set.Inst );
                 MaterialPBR::UpdateTransform( set.Inst, glm::mat4( 1.0f ) ); // unused by the instanced VS
@@ -1545,7 +1526,7 @@ namespace Desert::Graphic::System
             {
                 boneOffsets.push_back( static_cast<uint32_t>( bones.size() ) );
                 bones.insert( bones.end(), obj->BoneMatrices.begin(), obj->BoneMatrices.end() );
-                gpuMaterials.push_back( BuildEffectiveMaterial( mat, obj->Instance ) );
+                AppendRow( gpuMaterials, EffectiveRow( mat, obj->Instance ) );
             }
 
             // Both buffers at FINAL size before any draw is recorded, so the descriptor points at the
@@ -1553,7 +1534,7 @@ namespace Desert::Graphic::System
             mat->UploadBones( bones.data(), bones.size() );
             if ( auto* sb = mat->Get<StorageBufferProperty>( "Materials" ) )
                 sb->SetRawData( gpuMaterials.data(),
-                                static_cast<uint32_t>( gpuMaterials.size() * sizeof( PBRGpuMaterial ) ) );
+                                static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 
             // Shared per-frame scene state once per group, as the static path does.
             frameState.ApplyTo( objects[0]->Instance );

@@ -20,6 +20,9 @@ namespace Desert::Graphic
         // Build the backend's typed view from the material canon (single protocol -> optimized
         // hot-path struct). No per-parameter setters.
         material.Data() = Assets::PBRSurfaceParams::FromMaterialData( asset.Data() );
+        // What the shader reads: the generic row, by name from the asset's params (the schema's defaults
+        // for anything the file does not mention) — the same builder DataDrivenMaterial's row comes from.
+        material.SetParamRow( Core::Formats::BuildMaterialParamRow( material.GetSchema(), asset.Data().Params ) );
 
         // Resolve texture handles to images and (re)bind them to the shader's sampler slots.
         auto resolveImage = []( Assets::AssetHandle handle ) -> Graphic::Image2D*
