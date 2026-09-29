@@ -208,7 +208,7 @@ namespace Desert::Editor
         bool                m_Posed        = false;
         int32_t             m_PosedFrame   = 0;
         bool                m_GizmoRotate  = true; // E rotate / W translate, as the level viewport
-        bool                m_GizmoHeld    = false;
+        BoneGizmoGesture    m_BoneGesture;
         bool                m_GizmoHovered = false; // last frame's: the orbit must not take the gizmo's drag
     };
 

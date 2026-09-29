@@ -961,8 +961,8 @@ namespace Desert::Editor
     {
         if ( m_PoseEdit.Open() )
             m_PoseEdit.Cancel();
-        m_GizmoHeld = false;
-        m_Posed     = false;
+        m_BoneGesture.Abandon();
+        m_Posed = false;
         if ( m_Preview )
             m_Preview->SetPoseOverride( false );
     }
@@ -1030,7 +1030,7 @@ namespace Desert::Editor
         if ( animator == nullptr || ClipAsset() == nullptr || !m_SelectedBone || m_Transport.Playing ||
              *m_SelectedBone >= animator->GetSkeleton().GetBones().size() )
         {
-            if ( m_GizmoHeld )
+            if ( m_BoneGesture.Active() )
                 EndPosing();
             return;
         }
@@ -1058,19 +1058,16 @@ namespace Desert::Editor
         const bool held  = ImGuizmo::IsUsing();
         m_GizmoHovered   = held || ImGuizmo::IsOver();
 
-        // One undo step per drag: the transaction opens on the press, over the clip's pose at this frame.
-        if ( held && !m_GizmoHeld )
+        // One undo step per drag: BoneGizmoGesture opens the transaction on the press, over the clip's pose at
+        // this frame, and closes it on the release.
+        if ( const auto stepped = m_BoneGesture.Step(
+                  m_PoseEdit, held, [this]() { return BeginPosing(); }, &ClipAsset()->GetClipForAuthoring() );
+             !stepped.IsSuccess() )
         {
-            Animation::Animator* posed = BeginPosing();
-            if ( const auto begun = m_PoseEdit.Begin( posed, &ClipAsset()->GetClipForAuthoring() );
-                 !begun.IsSuccess() )
-            {
-                LOG_ERROR( "Animation Editor: bone drag refused: {}", begun.GetError() );
-                return;
-            }
-            m_GizmoHeld = true;
+            LOG_ERROR( "Animation Editor: bone drag: {}", stepped.GetError() );
+            return;
         }
-        if ( moved && m_GizmoHeld )
+        if ( moved && m_BoneGesture.Active() )
         {
             // World -> the bone's parent-relative transform (GizmoController's bone branch does the same).
             glm::mat4      parentModel( 1.0f );
@@ -1084,14 +1081,6 @@ namespace Desert::Editor
             else
             {
                 LOG_ERROR( "Animation Editor: bone drag: {}", local.GetError() );
-            }
-        }
-        if ( !held && m_GizmoHeld )
-        {
-            m_GizmoHeld = false;
-            if ( const auto ended = m_PoseEdit.End(); !ended.IsSuccess() )
-            {
-                LOG_ERROR( "Animation Editor: bone drag not recorded: {}", ended.GetError() );
             }
         }
     }
