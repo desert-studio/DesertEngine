@@ -53,6 +53,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/tinyexr.cpp", -- .exr sources (links stb_image.cpp for deflate)
     }
 
     includedirs {
@@ -64,6 +65,7 @@ project(test_name)
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include", -- <stb_image/stb_image.h>, for the texture cook
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/include", -- <tinyexr/tinyexr.h>, for the texture cook
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

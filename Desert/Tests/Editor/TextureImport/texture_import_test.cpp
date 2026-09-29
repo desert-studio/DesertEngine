@@ -27,6 +27,7 @@
 #include <Editor/Import/TextureImporter.hpp>
 
 #include <Editor/Import/TextureIntentFile.hpp>
+#include <tinyexr/tinyexr.h>
 
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -956,4 +957,127 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── `.exr` SOURCES (TEX-EXR) ─────────────────────────────────────────────────────────────────────
+//
+// stb has no EXR decoder, so every `.exr` used to fail the cook ("unknown image type") — including
+// every polyhaven normal map. The EXR the tests import is written by tinyexr's own writer into the test's
+// temporary project, so the expected texels are known exactly and nothing is read from outside the tree.
+namespace
+{
+    // w x h RGBA floats, each channel a different function of (x, y) so a swapped or dropped channel
+    // changes the texels. `scale` keeps the values exact in fp32 and on the 8-bit grid when scale = 1/255.
+    std::vector<float> ExrPattern( int w, int h, float scale )
+    {
+        std::vector<float> rgba( static_cast<size_t>( w ) * h * 4u );
+        for ( int y = 0; y < h; ++y )
+            for ( int x = 0; x < w; ++x )
+            {
+                float* t = &rgba[( static_cast<size_t>( y ) * w + x ) * 4u];
+                t[0]     = static_cast<float>( 16 + x * 20 ) * scale;
+                t[1]     = static_cast<float>( 200 - y * 20 ) * scale;
+                t[2]     = static_cast<float>( 128 + x * 4 + y * 3 ) * scale;
+                t[3]     = 255.0f * scale;
+            }
+        return rgba;
+    }
+
+    void WriteExr( const fs::path& path, const std::vector<float>& rgba, int w, int h )
+    {
+        const char* err = nullptr;
+        const int   rc  = SaveEXR( rgba.data(), w, h, 4, /*save_as_fp16*/ 0, path.string().c_str(), &err );
+        ASSERT_EQ( rc, TINYEXR_SUCCESS ) << ( err ? err : "" );
+    }
+
+    Desert::Assets::Serialization::TextureAssetData CookedData( const fs::path& source )
+    {
+        const fs::path meta = PlatformData( source );
+        const auto decoded  = Desert::Assets::Serialization::DecodeTextureBinary( ReadAll( meta ), meta.string() );
+        EXPECT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
+        return decoded.IsSuccess() ? decoded.GetValue() : Desert::Assets::Serialization::TextureAssetData{};
+    }
+
+    std::vector<unsigned char> BaseLevel( const Desert::Assets::Serialization::TextureAssetData& data )
+    {
+        if ( data.Levels.empty() )
+            return {};
+        const auto& l0 = data.Levels[0];
+        return { data.Pixels.begin() + static_cast<std::ptrdiff_t>( l0.ByteOffset ),
+                 data.Pixels.begin() + static_cast<std::ptrdiff_t>( l0.ByteOffset + l0.ByteSize ) };
+    }
+} // namespace
+
+TEST_F( TextureImport, AnUnmarkedExrKeepsItsFloatTexelsExactly )
+{
+    const fs::path           source = TexturesDir() / "T_Float.exr";
+    const std::vector<float> rgba   = ExrPattern( 4, 3, 1.0f / 64.0f ); // values above 1: really float range
+    WriteExr( source, rgba, 4, 3 );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto data = CookedData( source );
+    EXPECT_EQ( data.Width, 4u );
+    EXPECT_EQ( data.Height, 3u );
+    EXPECT_EQ( data.Format, Fmt::ImageFormat::RGBA32F ) << "an unmarked EXR is float data and stays float";
+    const std::vector<unsigned char> level0 = BaseLevel( data );
+    ASSERT_EQ( level0.size(), rgba.size() * sizeof( float ) );
+    std::vector<float> cooked( rgba.size() );
+    std::memcpy( cooked.data(), level0.data(), level0.size() );
+    EXPECT_EQ( cooked, rgba ) << "the cooked base level is not the EXR's texels, channel for channel";
+}
+
+TEST_F( TextureImport, AnExrNormalMapTakesTheSameBC5PathAsAPngNormal )
+{
+    const fs::path           source = TexturesDir() / "T_Normal_nor_gl.exr";
+    const std::vector<float> rgba   = ExrPattern( 8, 8, 1.0f / 255.0f );
+    WriteExr( source, rgba, 8, 8 );
+    WriteIntent( source, "NormalMap" );
+
+    TextureImporter importer;
+    ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
+
+    const auto data = CookedData( source );
+    EXPECT_EQ( data.Intent, Fmt::TextureIntent::NormalMap );
+    EXPECT_NE( data.Format, Fmt::ImageFormat::RGBA32F ) << "a normal map must not stay 16 bytes a texel";
+    EXPECT_NE( data.Format, Fmt::ImageFormat::BC7_UNORM ) << "BC7 on a normal map is forbidden by T1";
+
+    // The 8-bit texels the importer must have quantised to, through the format the container declares.
+    std::vector<unsigned char> expected( rgba.size() );
+    for ( size_t i = 0; i < rgba.size(); ++i )
+        expected[i] = static_cast<unsigned char>( std::lround( rgba[i] * 255.0f ) );
+    if ( Fmt::IsBlockCompressed( data.Format ) )
+    {
+        EXPECT_EQ( data.Format, Fmt::ImageFormat::BC5_UNORM );
+        auto encoded = Fmt::BlockCompressImage( 8u, 8u, Fmt::ImageFormat::RGBA8F, data.Format, expected.data(),
+                                                expected.size() );
+        ASSERT_TRUE( encoded.IsSuccess() ) << encoded.GetError();
+        expected = encoded.ExtractValue();
+    }
+    EXPECT_EQ( BaseLevel( data ), expected ) << "the cooked normal is not the EXR's texels, quantised linearly";
+}
+
+TEST_F( TextureImport, ABrokenExrCooksNothingAndSaysWhereAndWhy )
+{
+    // The OpenEXR magic and version, then nothing a header can be read from.
+    const fs::path source = TexturesDir() / "T_Broken.exr";
+    {
+        std::ofstream out( source, std::ios::binary );
+        out << std::string( "\x76\x2f\x31\x01\x02\x00\x00\x00", 8 ) << "truncated";
+    }
+
+    TextureImporter importer;
+    std::string     text;
+    Common::UUID    handle = Common::UUID( 1ull );
+    {
+        LogCapture log;
+        handle = importer.Import( source );
+        text   = log.Text();
+    }
+    EXPECT_EQ( (uint64_t)handle, 0u );
+    EXPECT_NE( text.find( "T_Broken.exr" ), std::string::npos ) << "the refusal did not name the file\n" << text;
+    EXPECT_NE( text.find( "tinyexr" ), std::string::npos ) << "the refusal did not carry tinyexr's reason\n"
+                                                           << text;
+    EXPECT_EQ( text.find( "stbi_load" ), std::string::npos ) << "an EXR must never reach stb\n" << text;
 }

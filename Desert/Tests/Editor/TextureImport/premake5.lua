@@ -23,6 +23,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- the cook measures its own BC7 output before keeping it
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/tinyexr.cpp", -- .exr sources (links stb_image.cpp for deflate)
     }
 
     includedirs {
@@ -34,6 +35,7 @@ project(test_name)
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/", -- AssetManager.hpp, included by TextureAsset.hpp
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/include", -- <tinyexr/tinyexr.h>, for the texture cook
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the .tex payload is written with rfl::json
     }
 

@@ -17,6 +17,7 @@ project "Editor"
         "Source/**.cpp", 
         "Source/**.hpp",
         "ThirdParty/ImGuizmo/ImGuizmo.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/tinyexr.cpp", -- .exr texture sources; deflate via stb_image.cpp in Desert
 
     }
 
@@ -29,6 +30,7 @@ project "Editor"
     }
     externalincludedirs {
 
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/tinyexr/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/GLFW/include/",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/Glad/include/",

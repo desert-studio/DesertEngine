@@ -24,8 +24,12 @@
 #include <cstring>
 
 #include <stb_image/stb_image.h>
+#include <tinyexr/tinyexr.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <format>
+#include <string>
 #include <cctype>
 #include <cmath>
 
@@ -265,6 +269,65 @@ namespace Desert::Editor
         {
             return static_cast<uint64_t>( version ) | ( static_cast<uint64_t>( intent ) << 32 );
         }
+        /// ONE DECODED `.exr`: float RGBA, four floats a texel, or the reason tinyexr gave for refusing it.
+        struct ExrDecode
+        {
+            int                w = 0;
+            int                h = 0;
+            std::vector<float> Rgba;
+            std::string        Problem; // empty on success
+        };
+
+        /// OpenEXR magic (0x76 0x2f 0x31 0x01) OR the `.exr` spelling. The spelling alone would send a
+        /// renamed PNG to tinyexr; the magic alone would send a TRUNCATED `.exr` to stb, whose "unknown
+        /// image type" says nothing about what is actually wrong with the file. Either means "EXR".
+        bool IsExrSource( const std::string& bytes, const std::string& sourceKey )
+        {
+            if ( IsEXRFromMemory( reinterpret_cast<const unsigned char*>( bytes.data() ), bytes.size() ) ==
+                 TINYEXR_SUCCESS )
+                return true;
+            std::string ext = std::filesystem::path( sourceKey ).extension().string();
+            std::ranges::transform( ext, ext.begin(),
+                                    []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+            return ext == ".exr";
+        }
+
+        ExrDecode DecodeExr( const std::string& bytes )
+        {
+            ExrDecode   out;
+            float*      rgba = nullptr;
+            const char* err  = nullptr;
+            const int   rc =
+                 LoadEXRFromMemory( &rgba, &out.w, &out.h, reinterpret_cast<const unsigned char*>( bytes.data() ),
+                                    bytes.size(), &err );
+            if ( rc != TINYEXR_SUCCESS )
+            {
+                out.Problem = std::format( "tinyexr error {}: {}", rc, err ? err : "no reason reported" );
+                if ( err )
+                    FreeEXRErrorMessage( err );
+                std::free( rgba );
+                return out;
+            }
+            out.Rgba.assign( rgba, rgba + static_cast<size_t>( out.w ) * out.h * 4u );
+            std::free( rgba );
+            return out;
+        }
+
+        /// A NORMAL MAP IS DIRECTION DATA IN [0, 1], NOT RADIANCE. polyhaven ships its normals as `.exr`;
+        /// the float path would keep them RGBA32F and uncompressed (16 bytes a texel, no block format
+        /// offered), while the same map as a PNG goes to BC5. The authored NormalMap intent is what says
+        /// which of the two this is, so the float texels are quantised linearly to 8 bits (no transfer
+        /// curve: a normal map is never sRGB) and the texture takes the ordinary normal-map path.
+        std::vector<unsigned char> QuantiseToUnorm8( const std::vector<float>& rgba )
+        {
+            std::vector<unsigned char> bytes( rgba.size() );
+            for ( size_t i = 0; i < rgba.size(); ++i )
+            {
+                const float v = std::isfinite( rgba[i] ) ? std::clamp( rgba[i], 0.0f, 1.0f ) : 0.0f;
+                bytes[i]      = static_cast<unsigned char>( std::lround( v * 255.0f ) );
+            }
+            return bytes;
+        }
     } // namespace
 
     TextureCookResult TextureImporter::Cook( const std::filesystem::path& path )
@@ -340,14 +403,41 @@ namespace Desert::Editor
             Assets::ContentRegistry::NoteFile( assetPath );
             return { handle, TextureCookOutcome::Fresh };
         }
-        const bool isHDR = stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
-                                                    static_cast<int>( sourceBytesStorage.size() ) ) != 0;
+        const bool isEXR = IsExrSource( sourceBytesStorage, sourceKey );
+        const bool isHDR =
+             !isEXR && stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
+                                                static_cast<int>( sourceBytesStorage.size() ) ) != 0;
 
         int                                w = 0, h = 0, ch = 0;
         std::vector<unsigned char>         base;
         Desert::Core::Formats::ImageFormat format = Desert::Core::Formats::ImageFormat::RGBA8F;
 
-        if ( isHDR )
+        if ( isEXR )
+        {
+            // stb has no EXR decoder; tinyexr is the one (ThirdParty/tinyexr). A refusal is the same
+            // refusal as stb's below: nothing written, nothing cached, the path and tinyexr's reason logged.
+            ExrDecode exr = DecodeExr( sourceBytesStorage );
+            if ( !exr.Problem.empty() )
+            {
+                LOG_ERROR( "[TextureImporter] EXR decode failed for '{0}' ({1}); no cooked texture was "
+                           "written and the null handle is returned.",
+                           abs, exr.Problem );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            }
+            w = exr.w;
+            h = exr.h;
+            if ( authored.Intent == Fmt::TextureIntent::NormalMap )
+            {
+                base = QuantiseToUnorm8( exr.Rgba );
+            }
+            else
+            {
+                format = Desert::Core::Formats::ImageFormat::RGBA32F;
+                base.resize( exr.Rgba.size() * sizeof( float ) );
+                std::memcpy( base.data(), exr.Rgba.data(), base.size() );
+            }
+        }
+        else if ( isHDR )
         {
             float* pixels =
                  stbi_loadf_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
