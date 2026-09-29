@@ -208,7 +208,7 @@ namespace Desert::Physics
             const JPH::ShapeSettings::ShapeResult result = settings.Create();
             if ( result.HasError() )
                 return Common::MakeError<JPH::ShapeRefC>( std::format(
-                     "Jolt refused the convex hull of {} points: {}", points.size(), result.GetError().c_str() ) );
+                     "Jolt refused the convex hull of {} points: {}", points.size(), result.GetError() ) );
             return Common::MakeSuccess( JPH::ShapeRefC( result.Get() ) );
         }
 
@@ -239,7 +239,7 @@ namespace Desert::Physics
             if ( result.HasError() )
                 return Common::MakeError<JPH::ShapeRefC>(
                      std::format( "Jolt refused the triangle mesh of {} points and {} triangles: {}",
-                                  points.size(), indices.size() / 3u, result.GetError().c_str() ) );
+                                  points.size(), indices.size() / 3u, result.GetError() ) );
             return Common::MakeSuccess( JPH::ShapeRefC( result.Get() ) );
         }
     } // namespace
