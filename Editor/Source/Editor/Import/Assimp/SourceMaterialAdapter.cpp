@@ -26,7 +26,44 @@ namespace Desert::Editor
         read.Material.Name = std::move( name );
         auto& entries      = read.Material.Entries;
 
-        const auto texture = [&]( aiTextureType type ) -> std::optional<std::filesystem::path>
+        struct SourceTexture
+        {
+            std::filesystem::path                      File;
+            std::optional<::Desert::Core::Formats::SamplerState> Sampler;
+        };
+        // The source's sampler for the texture of @p type: assimp folds glTF wrapS/wrapT (and FBX's wrap
+        // mode) into MAPPINGMODE_U/V and keeps glTF magFilter as GLTF_MAPPINGFILTER_MAG. The default state
+        // is reported as absent so an ordinary import writes nothing new into the .demat.
+        const auto samplerOf = [&]( aiTextureType type ) -> std::optional<::Desert::Core::Formats::SamplerState>
+        {
+            using ::Desert::Core::Formats::SamplerWrap;
+            const auto wrapOf = [&]( const char* key, unsigned t, unsigned index ) -> SamplerWrap
+            {
+                int mode = aiTextureMapMode_Wrap;
+                if ( mat.Get( key, t, index, mode ) != AI_SUCCESS )
+                    return SamplerWrap::Repeat;
+                switch ( mode )
+                {
+                    case aiTextureMapMode_Clamp:
+                    case aiTextureMapMode_Decal:
+                        return SamplerWrap::Clamp;
+                    case aiTextureMapMode_Mirror:
+                        return SamplerWrap::Mirror;
+                    default:
+                        return SamplerWrap::Repeat;
+                }
+            };
+            ::Desert::Core::Formats::SamplerState state;
+            state.WrapU = wrapOf( AI_MATKEY_MAPPINGMODE_U( type, 0 ) );
+            state.WrapV = wrapOf( AI_MATKEY_MAPPINGMODE_V( type, 0 ) );
+            unsigned magFilter = 0;
+            if ( mat.Get( AI_MATKEY_GLTF_MAPPINGFILTER_MAG( type, 0 ), magFilter ) == AI_SUCCESS )
+                state.Filter = ::Desert::Core::Formats::SamplerFilterFromGltf( static_cast<int>( magFilter ) );
+            if ( state == ::Desert::Core::Formats::SamplerState{} )
+                return std::nullopt;
+            return state;
+        };
+        const auto texture = [&]( aiTextureType type ) -> std::optional<SourceTexture>
         {
             aiString path;
             if ( mat.GetTextureCount( type ) == 0 || mat.GetTexture( type, 0, &path ) != AI_SUCCESS )
@@ -38,7 +75,7 @@ namespace Desert::Editor
                           path.C_Str(), static_cast<int>( type ) );
                 return std::nullopt;
             }
-            return found;
+            return SourceTexture{ found, samplerOf( type ) };
         };
         const auto colour = [&]( const char* key, unsigned type, unsigned index ) -> std::optional<glm::vec4>
         {
@@ -55,14 +92,16 @@ namespace Desert::Editor
             return glm::vec4( static_cast<float>( f ), 0.0f, 0.0f, 0.0f );
         };
         const auto put = [&]( std::string_view key, std::optional<glm::vec4> value,
-                              std::optional<std::filesystem::path> file = std::nullopt )
+                              const std::optional<SourceTexture>& file = std::nullopt )
         {
             if ( value || file )
-                entries[std::format( "{}.{}", format, key )] = { value, file };
+                entries[std::format( "{}.{}", format, key )] = {
+                     value, file ? std::optional( file->File ) : std::nullopt,
+                     file ? file->Sampler : std::nullopt };
         };
 
-        const std::optional<std::filesystem::path> baseColour = texture( aiTextureType_DIFFUSE );
-        read.Alpha = ResolveSourceAlpha( mat, baseColour.value_or( std::filesystem::path{} ) );
+        const std::optional<SourceTexture> baseColour = texture( aiTextureType_DIFFUSE );
+        read.Alpha = ResolveSourceAlpha( mat, baseColour ? baseColour->File : std::filesystem::path{} );
 
         if ( format == "fbx" )
         {

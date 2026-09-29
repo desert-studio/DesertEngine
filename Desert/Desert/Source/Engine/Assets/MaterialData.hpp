@@ -12,6 +12,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Core/Formats/SamplerState.hpp>
 
 namespace Desert::Assets
 {
@@ -40,6 +41,10 @@ namespace Desert::Assets
         std::string Name;
         std::string Guid;
         std::string Path;
+        // This slot's sampler (wrap U/V, filter), when the material states one: an override of the template's
+        // `Sampler(...)` (ShaderParam::Sampler), resolved by Core::Formats::ResolveSlotSampler. Absent = the
+        // template's. A glTF import writes it from the source texture's sampler. Additive: no schema step.
+        std::optional<Core::Formats::SamplerState> Sampler;
     };
 
     // THE material asset payload (.demat) — the single protocol for every material.
@@ -220,6 +225,17 @@ namespace Desert::Assets
         void SetTexture( std::string_view name, const Common::Content::AssetGuid& guid, std::string_view path )
         {
             SetRef( Textures, name, guid, path );
+        }
+
+        /// THE SAMPLER THE `name` SLOT DRAWS WITH: this material's own `Sampler` on the slot when it states
+        /// one, else @p templateDefault (the shader's `Sampler(...)`, ShaderParam::Sampler). The one reader of
+        /// MaterialAssetRef::Sampler; MaterialFactory hands its answer to the slot's Texture2DProperty.
+        [[nodiscard]] Core::Formats::SamplerState SlotSampler( std::string_view                   name,
+                                                               const Core::Formats::SamplerState& templateDefault ) const
+        {
+            const MaterialAssetRef* ref = FindRef( Textures, name );
+            return Core::Formats::ResolveSlotSampler( templateDefault,
+                                                      ref ? ref->Sampler : std::optional<Core::Formats::SamplerState>{} );
         }
 
         uint64_t GetCloudAsset( std::string_view name ) const
