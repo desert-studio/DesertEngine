@@ -187,6 +187,14 @@ most expensive defects in this project all shipped built, tested and unseen.
    - After a **mutation** check, delete the suite's objects
      (`build/Tests/Intermediates/Debug/Debug/<Suite>/*.o`) before the final run: a restored source
      can leave the mutated object in place and turn the hand-off red (ANV4f, PreviewInput).
+3c. **No call longer than the prompt cache (owner, 2026-09-29 — measured).** An agent's cache lives 5 minutes; every
+   gap longer than that (a long foreground call, or ending the turn to wait for a background job) re-reads the whole
+   context at 1.25× (L10a2: 299 k of 996 k; gaps of 6–8 min, each ~100 k). A 4-minute blocking wait costs ~0.1× the
+   context. So: anything that can run past 4 minutes goes `run_in_background`, and is waited on with
+   `~/.claude/tools/wait_bg.sh <output-file>` (builds: `build_wait.sh <log>`), ≤ 4 minutes per call, turn not ended.
+   The guard refuses a foreground `timeout` above 280 s. Heavy FINAL checks (full suites, final Editor build, CheckTidy,
+   corpus migration check) are the lead's, in the background; their errors go to a FRESH agent with the error list and
+   the branch diff — returning the author costs a full cache rebuild anyway, unless the failure is about the design.
 4. No new TODOs, stubs or dead parameters.
 5. Tests on the pure logic, written and passing — **all suites, not the matching one**, and frames
    if the render changed. See `desert-engine-verify`.

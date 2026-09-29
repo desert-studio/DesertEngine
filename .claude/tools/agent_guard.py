@@ -87,8 +87,15 @@ CHEAT_SHEET = """[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый �
 - dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
 - сборка: build_quiet.sh в фоне + build_wait.sh; одна make на машине, -j≤4; sleep ≤ 270 с.
 - формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
+- долгое (> 4 мин: сюиты, мигратор, CheckTidy, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
 - CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
+
+
+def bg_out(data):
+    """The output file of a background Bash job, read from the tool's own reply, so the hint names the exact wait."""
+    m = re.search(r"Output is being written to: (\S+)", json.dumps(data.get("tool_response", "")))
+    return m.group(1).rstrip("\\.\"") if m else "<output-файл из ответа инструмента>"
 
 def map_digest(map_path=None, tree=None):
     """CODEMAP's index (every '## ' heading with its line number) and its hand-written Notes section."""
@@ -290,6 +297,8 @@ def self_check():
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
         "push without handoff": {"tool_name": "Bash", "tool_input": {"command": "git -C " + os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + " push origin nothing-selfcheck"}},
         "merge dev by hand": {"tool_name": "Bash", "tool_input": {"command": "git merge origin/dev"}},
+        "call longer than the cache": {"tool_name": "Bash", "tool_input": {"command": "scripts/Dev/suite.sh X",
+                                                                           "timeout": 600000}},
         "migrator directly": {"tool_name": "Bash", "tool_input": {"command": "./build/Bin/Debug/SceneMigrator a"}},
         "own test loop": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/MacOS/RunTests.sh"}},
         "agent waits for CI": {"tool_name": "Bash", "tool_input": {"command": "gh run watch 1 --exit-status"}},
@@ -368,7 +377,7 @@ def main():
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
                   "[agent_guard] Задача в фоне. НЕ заканчивай ход в ожидании уведомления: простой > 5 мин сбрасывает кэш "
                   "контекста (AF7v потерял так 0,43 млн). Жди блокирующими вызовами ≤ 4 мин: сборка build_quiet.sh — "
-                  "~/.claude/tools/build_wait.sh <лог>; прочее — for i in $(seq 24); do <проверка готовности> && break; sleep 10; done."}})
+                  "~/.claude/tools/build_wait.sh <лог>; прочее — ~/.claude/tools/wait_bg.sh " + bg_out(data) + "."}})
             sys.exit(0)
         calls = state.get("calls", 0)
         if calls >= limit - (TURN_LIMIT - TURN_WARN):
@@ -478,6 +487,14 @@ def main():
                 deny(f"[agent_guard] sleep {m.group(1)} > {MAX_SLEEP} с: кэш истекает через 5 минут и весь "
                      f"контекст пишется заново. Жди кусками: for i in $(seq 27); do grep -q <маркер> <лог> && "
                      f"break; sleep 10; done", data, agent)
+        # A foreground call longer than the cache's 5 minutes re-reads the whole context (09-29: L10a2 lost 299k,
+        # 30 %, on 6-8 min calls). Long work goes to the background and is waited on in <= 4-min calls.
+        if not tin.get("run_in_background") and int(tin.get("timeout") or 0) > MAX_SLEEP * 1000 + 10000:
+            save_state(state, path)
+            deny(f"[agent_guard] timeout {int(tin['timeout']) // 1000} с > {MAX_SLEEP + 10} с: вызов дольше 5 минут "
+                 "сбрасывает кэш контекста (перечитывание ~1,25× всего контекста). Запусти то же с run_in_background: "
+                 "true и жди ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов; сборка — build_wait.sh).",
+                 data, agent)
         if CI_WAIT.search(cmd):
             save_state(state, path)
             deny("[agent_guard] CI не ждёшь сам: пауза сбрасывает кэш, и весь контекст пишется заново (CI12: 1,5 из "
