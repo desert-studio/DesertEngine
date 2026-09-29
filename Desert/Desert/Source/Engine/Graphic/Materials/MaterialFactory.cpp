@@ -15,6 +15,66 @@
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        // Every `Texture2D` slot the template's manifest declares gets a value on every application: the
+        // image the `.demat` names for it, or — for a slot the file does not name, has just stopped naming,
+        // whose texture is still being read, or whose handle nobody has — the slot's schema default
+        // (`setSlot(name, nullptr)`). THE LOOP IS OVER THE SCHEMA, NOT OVER THE FILE (М9): walking the file
+        // visits only the slots it mentions, and this runs again over a LIVE material when the `.demat`
+        // changes (AssetHotReload), so a slot the file stopped naming would keep drawing its old texture.
+        // One function for every template: a slot a shader adds is bound by name, with no line to add here.
+        template <class SetSlot>
+        void BindManifestTextures( const Core::Formats::ShaderProgramMeta& meta,
+                                   const Assets::SurfaceMaterialAsset& asset, const std::string& shaderName,
+                                   SetSlot&& setSlot )
+        {
+            const auto& data = asset.Data();
+            Core::Formats::ForEachMaterialTextureSlot(
+                 meta, [&data]( const std::string& name ) { return data.GetTexture( name ); },
+                 [&]( const Core::Formats::ShaderParam& param, uint64_t handle )
+                 {
+                     if ( handle == 0 )
+                     {
+                         setSlot( param.Name, nullptr ); // an empty slot is an authored decision
+                         return;
+                     }
+
+                     auto* textures = Runtime::ResourceRegistry::GetTextureService();
+                     if ( auto* tex = textures->Get( Common::UUID( handle ) ) )
+                     {
+                         if ( auto* img = static_cast<Graphic::Image2D*>(
+                                   Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                        tex->GetImageHandle() ) ) )
+                         {
+                             setSlot( param.Name, img );
+                             return;
+                         }
+                     }
+
+                     // PENDING IS NOT MISSING (AL1-4): the slot shows its default until the texture lands,
+                     // and the texture service rebuilds this material then, bound.
+                     setSlot( param.Name, nullptr );
+                     if ( textures->Require( Common::UUID( handle ) ).IsPending() )
+                     {
+                         textures->RebuildWhenReady( Common::UUID( handle ), asset.GetMetadata().Handle );
+                         return;
+                     }
+
+                     // DC §1.4: a `.demat` names its textures by number and by nothing else, so a reference
+                     // that stops resolving produces a surface that is merely untextured — nothing in the log
+                     // a search can start from. This is the only place that knows the material, the slot and
+                     // the number together.
+                     LOG_ERROR( "[Materials] '{0}' names texture handle {1} in its '{2}' slot and no texture "
+                                "with that handle is registered, so '{3}' samples that slot's schema default "
+                                "instead. A texture's handle is HandleForGuid of its .detex header GUID, which "
+                                "the slot names, so this means that texture asset is not in the project "
+                                "(deleted, or never imported); re-import it or re-assign the slot.",
+                                asset.GetMetadata().Filepath.string(), handle, param.Name, shaderName );
+                 } );
+        }
+    } // namespace
+
     void MaterialFactory::ApplyPBRAsset( MaterialPBR& material, const Assets::SurfaceMaterialAsset& asset )
     {
         // Build the backend's typed view from the material canon (single protocol -> optimized
@@ -24,74 +84,14 @@ namespace Desert::Graphic
         // for anything the file does not mention) — the same builder DataDrivenMaterial's row comes from.
         material.SetParamRow( Core::Formats::BuildMaterialParamRow( material.GetSchema(), asset.Data().Params ) );
 
-        // Resolve texture handles to images and (re)bind them to the shader's sampler slots.
-        auto resolveImage = []( Assets::AssetHandle handle ) -> Graphic::Image2D*
-        {
-            auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( handle );
-            if ( !tex )
-                return nullptr;
-            return static_cast<Graphic::Image2D*>(
-                Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-        };
-
-        auto bindTexture = [&]( const Assets::AssetHandle& handle, const char* shaderName )
-        {
-            // AN UNSET SLOT IS AN AUTHORED DECISION, AND IT IS NOW EXECUTED RATHER THAN SKIPPED. This
-            // used to `return` here, which is correct only for a material being built from scratch: a
-            // material is also RE-APPLIED in place (AssetHotReload re-runs the factory over the live
-            // object when the `.demat` changes), and then skipping meant the descriptor kept the texture
-            // the file had just stopped naming. Binding the schema's default is what makes clearing a
-            // slot in the editor reach the picture at all.
-            if ( static_cast<uint64_t>( handle ) == 0 )
-            {
-                material.BindSchemaDefaultTexture( shaderName );
-                return;
-            }
-
-            if ( auto* img = resolveImage( handle ) )
-            {
-                if ( auto* prop = material.Get<Texture2DProperty>( shaderName ) )
-                    prop->SetImage( img );
-                return;
-            }
-
-            // PENDING IS NOT MISSING (AL1-4): the texture is being read. The slot shows its default until
-            // it lands, and the texture service invalidates this material then, so it is rebuilt bound.
-            if ( auto* textures = Runtime::ResourceRegistry::GetTextureService();
-                 textures->Require( handle ).IsPending() )
-            {
-                material.BindSchemaDefaultTexture( shaderName );
-                textures->RebuildWhenReady( handle, asset.GetMetadata().Handle );
-                return;
-            }
-
-            // The handle names a texture nobody has: the slot falls back to its schema default so the
-            // surface at least shows what an EMPTY slot shows, rather than the previous material's map.
-            // The error below is what says the difference out loud.
-            material.BindSchemaDefaultTexture( shaderName );
-
-            // DC §1.4, and this is THE site the rule was written for. A `.demat` names its textures by
-            // number and by nothing else, so a reference that stops resolving produces a surface that is
-            // merely untextured — no missing file, no failed load, nothing in the log that a search can
-            // start from. This line is the only place that knows all three of: which material, which slot,
-            // and which number.
-            //
-            // It replaces an unconditional LOG_INFO that printed `resolved=true` for every successful bind
-            // of every material every time a mesh was built, which is how a real `resolved=false` went
-            // unread. A message that fires on success is not a message.
-            LOG_ERROR( "[Materials] '{0}' names texture handle {1} in its '{2}' slot and no texture with "
-                       "that handle is registered, so the surface draws UNTEXTURED. A texture's handle is "
-                       "AssetHandle::FromCookedPath of its source image, so this usually means the image "
-                       "was renamed, moved, or cooked before the derivation changed; re-cook it (Assets > "
-                       "Rebuild Cooked Assets) and re-assign the slot.",
-                       asset.GetMetadata().Filepath.string(), static_cast<uint64_t>( handle ), shaderName );
-        };
-
-        bindTexture( material.Data().AlbedoTexture, "u_AlbedoTexture" );
-        bindTexture( material.Data().NormalTexture, "u_NormalTexture" );
-        // An empty opacity slot keeps its 1x1 default, which is how the PBR passes know to read the mask
-        // from the albedo's alpha instead (PBRSurfaceParams::MaskFromAlbedoAlpha).
-        bindTexture( material.Data().OpacityTexture, "u_OpacityTexture" );
+        BindManifestTextures( material.GetSchema(), asset, asset.GetShaderName(),
+                              [&material]( const std::string& name, Graphic::Image2D* image )
+                              {
+                                  if ( !image )
+                                      material.BindSchemaDefaultTexture( name );
+                                  else if ( auto* prop = material.Get<Texture2DProperty>( name ) )
+                                      prop->SetImage( image );
+                              } );
     }
 
     void MaterialFactory::ApplyShaderAsset( DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset )
@@ -116,61 +116,9 @@ namespace Desert::Graphic
             return nullptr;
         };
 
-        // THE LOOP IS OVER THE SCHEMA, NOT OVER THE FILE, and that is М9's change. Iterating
-        // `data.Textures` visits only the slots a material HAS something to say about, so the two cases
-        // that matter most were unreachable from it: a slot the material never mentioned, and a slot the
-        // material has just STOPPED mentioning. This function is also re-run over a LIVE material when
-        // the `.demat` changes (AssetHotReload), so "not mentioned" had to mean "leave whatever is bound"
-        // — the file could lose a texture and the surface would keep drawing it. Every 2D sampler the
-        // shader declares is now given a value on every application: the authored one, or the schema's
-        // own default.
-        for ( const auto& param : schema.Params )
-        {
-            // A non-texture asset reference (its service reads it out of MaterialData directly) or a cube
-            // slot (bound by MaterialSkybox from the environment, not from here). Neither is this loop's.
-            if ( !param.IsTexture || param.IsCubeTexture || param.IsAssetRef() )
-                continue;
-
-            const uint64_t handle = data.GetTexture( param.Name );
-            if ( handle == 0 )
-            {
-                // An empty slot, whether it was never filled or has just been cleared. Not a failure and
-                // not silent in the sense DC §1.4 forbids: the value the sampler gets is the one the
-                // SHADER declares for an empty slot, so nothing is being substituted behind anybody.
-                material.SetTexture( param.Name, nullptr );
-                continue;
-            }
-
-            auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
-            auto* img = tex ? static_cast<Graphic::Image2D*>(
-                                   Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) )
-                            : nullptr;
-            if ( img )
-            {
-                material.SetTexture( param.Name, img );
-                continue;
-            }
-
-            // Pending, not missing: the shader's empty-slot value until the texture lands (see above).
-            if ( auto* textures = Runtime::ResourceRegistry::GetTextureService();
-                 textures->Require( Common::UUID( handle ) ).IsPending() )
-            {
-                material.SetTexture( param.Name, nullptr );
-                textures->RebuildWhenReady( Common::UUID( handle ), asset.GetMetadata().Handle );
-                continue;
-            }
-
-            // DC §1.4 — the same obligation, and the same wording, as the PBR path above. Both `continue`s
-            // this replaces were silent, and the visible result of either was a shader sampling its
-            // fallback: a surface that looks authored rather than broken.
-            material.SetTexture( param.Name, nullptr );
-            LOG_ERROR( "[Materials] '{0}' names texture handle {1} in its '{2}' slot and no texture with "
-                       "that handle is registered, so '{3}' samples that slot's schema default instead. A "
-                       "texture's handle is HandleForGuid of its .detex header GUID, which the slot names, so "
-                       "this means that texture asset is not in the project (deleted, or never imported); "
-                       "re-import it or re-assign the slot.",
-                       asset.GetMetadata().Filepath.string(), handle, param.Name, material.GetShaderName() );
-        }
+        BindManifestTextures( schema, asset, material.GetShaderName(),
+                              [&material]( const std::string& name, Graphic::Image2D* image )
+                              { material.SetTexture( name, image ); } );
 
         // The file's side of the same relation: a name the material carries that the shader no longer
         // declares. It cannot be found by the loop above (which only walks names the shader HAS), and it

@@ -23,6 +23,7 @@ Shader "StaticMeshGBuffer"
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
+        Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
@@ -36,6 +37,8 @@ Shader "StaticMeshGBuffer"
         // slot and a wrong normal.
         Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
         Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
+        // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
+        Texture2D   u_ORMTexture ("ORM Map", Category("Textures"))
         Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
         Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
         Texture2D   u_AOTexture ("AO Map", Category("Textures"))
@@ -136,6 +139,8 @@ Shader "StaticMeshGBuffer"
         Uniform(11) sampler2D u_AlbedoTexture;
         Uniform(12) sampler2D u_NormalTexture;
         Uniform(18) sampler2D u_OpacityTexture;
+        Uniform(23) sampler2D u_ORMTexture;      // R = occlusion, G = roughness, B = metallic (data, linear)
+        Uniform(24) sampler2D u_EmissiveTexture; // sRGB colour, linearised below like the albedo
 
         void main()
         {
@@ -167,8 +172,9 @@ Shader "StaticMeshGBuffer"
         		N = normalize(inVertex.TBN * tangentNormal);
         	}
 
-        	// No ORM texture on this path: a white texel passes the factors through (occlusion is not a GBuffer channel).
-        	const vec3  orm       = PBRResolveORM(vec3(1.0), 1.0, u_Material.RoughnessFactor, u_Material.MetallicFactor);
+        	// The ORM map against its factors (an empty slot is white, so the factors pass through unchanged).
+        	const vec3  orm       = PBRResolveORM(texture(u_ORMTexture, uv).rgb, u_Material.OcclusionStrength, u_Material.RoughnessFactor, u_Material.MetallicFactor);
+        	const vec3  emissiveTexel = pow(texture(u_EmissiveTexture, uv).rgb, vec3(2.2));
         	const float metallic  = orm.z;
         	const float roughness = max(orm.y, 0.04);
 
@@ -179,14 +185,15 @@ Shader "StaticMeshGBuffer"
         	if (textureSize(u_AlbedoTexture, 0).x > 1)  texCount++;
         	if (nrmSize.x > 1)                          texCount++; // normal map (nrmSize computed above)
         	if (textureSize(u_OpacityTexture, 0).x > 1) texCount++;
+        	if (textureSize(u_ORMTexture, 0).x > 1)      texCount++;
+        	if (textureSize(u_EmissiveTexture, 0).x > 1) texCount++;
 
         	oGBufferA = vec4(albedo, metallic);
         	oGBufferB = vec4(N, roughness);
         	oGBufferC = vec4(inVertex.WorldPosition, float(texCount));
         	// Emissive is view-independent self-illumination; the deferred lighting resolve ADDS it, matching the
         	// forward StaticMeshPBR path so emissive materials reach the HDR composite and bloom (values > 1).
-        	// No emissive texture is bound: its texel is white.
-        	oGBufferEmissive = vec4(PBREmission(vec3(1.0), u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity), 1.0);
+        	oGBufferEmissive = vec4(PBREmission(emissiveTexel, u_Material.EmissiveColor.rgb, u_Material.EmissiveIntensity), 1.0);
         }
     }
 }
