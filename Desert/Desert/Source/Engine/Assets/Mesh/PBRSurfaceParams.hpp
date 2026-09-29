@@ -30,9 +30,6 @@ namespace Desert::Assets
 
         AssetHandle AlbedoTexture{ 0ULL };
         AssetHandle NormalTexture{ 0ULL };
-        AssetHandle MetallicTexture{ 0ULL };
-        AssetHandle RoughnessTexture{ 0ULL };
-        AssetHandle AOTexture{ 0ULL };
         AssetHandle EmissiveTexture{ 0ULL };
         AssetHandle OpacityTexture{ 0ULL };
 
@@ -61,9 +58,6 @@ namespace Desert::Assets
 
             p.AlbedoTexture    = AssetHandle( m.GetTexture( "u_AlbedoTexture" ) );
             p.NormalTexture    = AssetHandle( m.GetTexture( "u_NormalTexture" ) );
-            p.MetallicTexture  = AssetHandle( m.GetTexture( "u_MetallicTexture" ) );
-            p.RoughnessTexture = AssetHandle( m.GetTexture( "u_RoughnessTexture" ) );
-            p.AOTexture        = AssetHandle( m.GetTexture( "u_AOTexture" ) );
             p.EmissiveTexture  = AssetHandle( m.GetTexture( "u_EmissiveTexture" ) );
             p.OpacityTexture   = AssetHandle( m.GetTexture( "u_OpacityTexture" ) );
 

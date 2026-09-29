@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -42,10 +44,12 @@ namespace Desert::Editor
         return slot.Parts.front().Source.parent_path() / std::format( "{}_{}.png", name, slotName );
     }
 
-    Common::BoolResultStr PackTextureChannels( const ImportedTextureSlot& slot, const std::filesystem::path& out )
+    Common::ResultStr<PackOutcome> PackTextureChannels( const ImportedTextureSlot&   slot,
+                                                        const std::filesystem::path& out )
     {
         if ( slot.Parts.empty() )
-            return Common::MakeError<bool>( std::format( "[Import] slot '{}' has nothing to pack", slot.Slot ) );
+            return Common::MakeError<PackOutcome>(
+                 std::format( "[Import] slot '{}' has nothing to pack", slot.Slot ) );
 
         std::vector<Pixels> images;
         for ( const auto& part : slot.Parts )
@@ -55,11 +59,11 @@ namespace Desert::Editor
             image.Data.reset(
                  stbi_load( part.Source.string().c_str(), &image.Width, &image.Height, &components, 4 ) );
             if ( !image.Data )
-                return Common::MakeError<bool>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
-                                                             slot.Slot, part.Source.generic_string(),
-                                                             stbi_failure_reason() ) );
+                return Common::MakeError<PackOutcome>( std::format( "[Import] slot '{}': cannot read '{}' ({})",
+                                                                    slot.Slot, part.Source.generic_string(),
+                                                                    stbi_failure_reason() ) );
             if ( image.Width != images.front().Width || image.Height != images.front().Height )
-                return Common::MakeError<bool>( std::format(
+                return Common::MakeError<PackOutcome>( std::format(
                      "[Import] slot '{}': '{}' is {}x{} and '{}' is {}x{}; packing needs one size", slot.Slot,
                      slot.Parts.front().Source.generic_string(), images.front().Width, images.front().Height,
                      part.Source.generic_string(), image.Width, image.Height ) );
@@ -77,9 +81,27 @@ namespace Desert::Editor
                 for ( std::size_t i = kChannels.find( c ); i < packed.size(); i += 4 )
                     packed[i] = source[i];
         }
-        if ( stbi_write_png( out.string().c_str(), width, height, 4, packed.data(), width * 4 ) == 0 )
-            return Common::MakeError<bool>(
+        std::string encoded;
+        const auto  append = []( void* context, void* data, int size )
+        {
+            static_cast<std::string*>( context )->append( static_cast<const char*>( data ),
+                                                          static_cast<std::size_t>( size ) );
+        };
+        if ( stbi_write_png_to_func( append, &encoded, width, height, 4, packed.data(), width * 4 ) == 0 )
+            return Common::MakeError<PackOutcome>(
+                 std::format( "[Import] slot '{}': cannot encode '{}'", slot.Slot, out.generic_string() ) );
+
+        {
+            std::ifstream existing( out, std::ios::binary );
+            if ( existing && std::string( std::istreambuf_iterator<char>( existing ),
+                                          std::istreambuf_iterator<char>() ) == encoded )
+                return Common::MakeSuccess( PackOutcome::Unchanged );
+        }
+        std::ofstream file( out, std::ios::binary | std::ios::trunc );
+        file.write( encoded.data(), static_cast<std::streamsize>( encoded.size() ) );
+        if ( !file.good() )
+            return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': cannot write '{}'", slot.Slot, out.generic_string() ) );
-        return Common::MakeSuccess( true );
+        return Common::MakeSuccess( PackOutcome::Written );
     }
 } // namespace Desert::Editor

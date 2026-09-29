@@ -22,6 +22,7 @@
 
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -30,6 +31,8 @@
 #include <chrono>
 #include <format>
 #include <fstream>
+#include <memory>
+#include <mutex>
 
 namespace Desert::Editor
 {
@@ -313,39 +316,46 @@ namespace Desert::Editor
 
     namespace
     {
-        // The import templates: every shipped .shader that declares an Import block, read once per session
-        // (shader files ship with the editor and do not change under a running import). A shader the readers
-        // refuse is logged and skipped - it cannot take a material, and saying so is the refusal.
-        const std::vector<ImportTemplate>& ImportTemplates()
+        // THE IMPORT TEMPLATES ARE THE ASSET REGISTRY'S SHADERS (MAT1b), not a second scan of the shader
+        // directory: whatever the editor loaded as a ShaderAsset, and only that, can take an imported material.
+        // Published once the shaders are loaded (EditorLayer, after CompileEngineShaders) and read by every
+        // importer — the background cook's per-thread ones included — so the snapshot is swapped under a lock.
+        std::mutex                                         s_TemplatesMutex;
+        std::shared_ptr<const std::vector<ImportTemplate>> s_Templates;
+
+        std::shared_ptr<const std::vector<ImportTemplate>> ImportTemplates()
         {
-            static const std::vector<ImportTemplate> templates = []
-            {
-                std::vector<ImportTemplate> out;
-                const std::filesystem::path shaders   = Common::Constants::Path::SHADERDIR_PATH;
-                const std::filesystem::path resources = shaders.parent_path().parent_path();
-                std::error_code             ec;
-                for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders, ec ) )
-                {
-                    if ( entry.path().extension() != ".shader" )
-                        continue;
-                    std::ifstream     in( entry.path() );
-                    const std::string source( ( std::istreambuf_iterator<char>( in ) ),
-                                              std::istreambuf_iterator<char>() );
-                    auto              read = ReadImportTemplate(
-                         source,
-                         "engine:" + std::filesystem::relative( entry.path(), resources ).generic_string() );
-                    if ( !read )
-                        LOG_ERROR( "[Import] {}", read.GetError() );
-                    else if ( read.GetValue().Manifest.DeclaresImport )
-                        out.push_back( std::move( read.GetValue() ) );
-                }
-                if ( ec )
-                    LOG_ERROR( "[Import] cannot list '{}': {}", shaders.generic_string(), ec.message() );
-                return out;
-            }();
-            return templates;
+            std::scoped_lock lock( s_TemplatesMutex );
+            return s_Templates;
         }
     } // namespace
+
+    std::size_t ImportManager::PublishImportTemplates( const Assets::AssetManager& manager )
+    {
+        const std::filesystem::path resources =
+             std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ).parent_path().parent_path();
+        auto templates = std::make_shared<std::vector<ImportTemplate>>();
+        for ( const auto& [handle, shader] : manager.FindAllByType<Assets::ShaderAsset>() )
+        {
+            if ( !shader->IsReadyForUse() )
+                continue;
+            const std::filesystem::path& file = shader->GetMetadata().Filepath;
+            auto                         read =
+                 ReadImportTemplate( shader->GetShaderContent(),
+                                     "engine:" + std::filesystem::relative( file, resources ).generic_string() );
+            // A shader the readers refuse cannot take a material, and saying so is the refusal.
+            if ( !read )
+            {
+                LOG_ERROR( "[Import] {}", read.GetError() );
+            }
+            else if ( read.GetValue().Manifest.DeclaresImport )
+                templates->push_back( std::move( read.GetValue() ) );
+        }
+        const std::size_t count = templates->size();
+        std::scoped_lock  lock( s_TemplatesMutex );
+        s_Templates = std::move( templates );
+        return count;
+    }
 
     Common::BoolResultStr
     ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
@@ -373,7 +383,13 @@ namespace Desert::Editor
         // THE TEMPLATE CHOOSES ITSELF (MAT1b): every shipped shader with an Import block is a candidate, the
         // core picks the one whose Requires the source satisfies most, and that template's rows say which
         // source key fills which Property. No taker is a refusal naming the material and the file.
-        const std::vector<ImportTemplate>& templates = ImportTemplates();
+        const auto published = ImportTemplates();
+        if ( !published )
+            return Common::MakeError<bool>( std::format(
+                 "material '{}' in '{}': no import templates are published (the shaders are not loaded yet; "
+                 "ImportManager::PublishImportTemplates runs after they are)",
+                 material.Name, sourcePath.generic_string() ) );
+        const std::vector<ImportTemplate>& templates = *published;
         const auto choice = ChooseImportTemplate( material.Source, templates, sourcePath.generic_string() );
         if ( !choice )
             return Common::MakeError<bool>( choice.GetError() );

@@ -7,6 +7,7 @@
 #include <assimp/scene.h>
 
 #include <stb_image/stb_image.h>
+#include <stb_image/stb_image_write.h>
 
 #include <Editor/Import/Assimp/SourceMaterialAdapter.hpp>
 #include <Editor/Import/Assimp/SourceTexturePath.hpp>
@@ -14,6 +15,8 @@
 #include <Editor/Import/TextureChannelPack.hpp>
 
 #include <array>
+#include <chrono>
+#include <iterator>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -210,6 +213,59 @@ TEST( MaterialImportAdapter, AMetallicRoughnessImageAloneIsPackedWithWhiteOcclus
     EXPECT_EQ( px[2], src[2] ); // B: the source's blue (metal)
     stbi_image_free( px );
     stbi_image_free( src );
+}
+
+// THE PACKED ORM IS AN IMPORTED TEXTURE ASSET (lead decision, MAT1b-3): its name is a function of the sources,
+// so the texture importer keeps its GUID (kept by path); two imports in a row leave the file untouched (bytes and
+// mtime); a changed input rebuilds it.
+TEST( MaterialImportAdapter, APackedImageIsRebuiltOnlyWhenAnInputChanges )
+{
+    const fs::path     file = WriteGltf( "pack-stable", kFullMaterial, kFullExtensions );
+    Assimp::Importer   importer;
+    const TemplateFill fill = FillFromTemplate( Read( file, importer ), Template( "PBR/StaticMeshPBR.shader" ) );
+    const ImportedTextureSlot* orm = Slot( fill, "u_ORMTexture" );
+    ASSERT_NE( orm, nullptr );
+    ASSERT_TRUE( orm->NeedsPacking() );
+    const fs::path packed = PackedTexturePath( *orm );
+    const auto     bytes  = [&]
+    {
+        std::ifstream in( packed, std::ios::binary );
+        return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+    };
+
+    const auto first = PackTextureChannels( *orm, packed );
+    ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
+    EXPECT_EQ( first.GetValue(), PackOutcome::Written );
+    const std::string firstBytes = bytes();
+
+    // Stamp the file into the past: a rewrite would move the stamp back to now.
+    const auto stamp = fs::last_write_time( packed ) - std::chrono::hours( 1 );
+    fs::last_write_time( packed, stamp );
+    Assimp::Importer   again;
+    const TemplateFill refill = FillFromTemplate( Read( file, again ), Template( "PBR/StaticMeshPBR.shader" ) );
+    ASSERT_NE( Slot( refill, "u_ORMTexture" ), nullptr );
+    EXPECT_EQ( PackedTexturePath( *Slot( refill, "u_ORMTexture" ) ), packed ) << "same sources, same asset path";
+    const auto second = PackTextureChannels( *orm, packed );
+    ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
+    EXPECT_EQ( second.GetValue(), PackOutcome::Unchanged );
+    EXPECT_EQ( fs::last_write_time( packed ), stamp ) << "unchanged inputs rewrote the packed image";
+    EXPECT_EQ( bytes(), firstBytes );
+
+    // One input changes (the occlusion image's red): the pack is rebuilt and differs.
+    int      w = 0, h = 0, n = 0;
+    uint8_t* occ = stbi_load( ( file.parent_path() / "occ.png" ).string().c_str(), &w, &h, &n, 4 );
+    ASSERT_NE( occ, nullptr );
+    std::vector<uint8_t> changed( occ, occ + static_cast<std::size_t>( w * h * 4 ) );
+    stbi_image_free( occ );
+    for ( std::size_t i = 0; i < changed.size(); i += 4 )
+        changed[i] = static_cast<uint8_t>( changed[i] + 1 );
+    ASSERT_NE(
+         stbi_write_png( ( file.parent_path() / "occ.png" ).string().c_str(), w, h, 4, changed.data(), w * 4 ),
+         0 );
+    const auto third = PackTextureChannels( *orm, packed );
+    ASSERT_TRUE( third.IsSuccess() ) << third.GetError();
+    EXPECT_EQ( third.GetValue(), PackOutcome::Written );
+    EXPECT_NE( bytes(), firstBytes );
 }
 
 TEST( MaterialImportAdapter, AnUnlitMaterialTakesTheUnlitTemplate )

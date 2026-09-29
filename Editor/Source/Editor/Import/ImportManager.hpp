@@ -27,6 +27,11 @@ namespace Desert::Editor
         void         ImportAllFromDirectory( const std::filesystem::path& root, bool force = false );
         Common::UUID ImportTexture( const std::filesystem::path& path );
 
+        // Publishes the import templates every importer chooses among: the loaded ShaderAssets of `manager`
+        // whose manifest declares an Import block (the registry, not a directory scan). Call after the shaders
+        // load; a material import before it is refused. Returns how many templates were published.
+        static std::size_t PublishImportTemplates( const Assets::AssetManager& manager );
+
         /// Imports every loose image under `LooseTextureRoots()` that has no `.detex` yet; returns the count.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.
         /// @p progress names each source as it is reached (the splash's item line).
