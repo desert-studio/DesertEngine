@@ -150,7 +150,7 @@ namespace Desert::Runtime
             return BOOLSUCCESS;
 
         // ONE LOADING PATH (AL1-4, plan §2.4(c)). The walks that need the data NOW (CreateRuntimeInstance,
-        // ResolveOverrides, ShaderNameOf, the editor) go through the same request Get() starts, finished on
+        // ResolveOverrides, ShaderHandleOf, the editor) go through the same request Get() starts, finished on
         // this thread by FlushOne: no second read of a file a worker is already reading, the shader resolved
         // by the one completion, and SyncLoadLedger counting it as the synchronous load it is.
         const auto handle = asset->GetMetadata().Handle;
@@ -397,7 +397,7 @@ namespace Desert::Runtime
         return true;
     }
 
-    std::string MaterialService::ShaderNameOf( const Assets::AssetHandle& handle ) const
+    MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
     {
         // Same chain walk as ResolveOverrides — an instance names no program of its own, so the answer is
         // always the base's. Depth-capped for the same cycle reason.
@@ -406,22 +406,22 @@ namespace Desert::Runtime
         {
             auto it = FindOrDiscover( current );
             if ( it == m_MaterialAssets.end() )
-                return {};
+                return MaterialTemplate{};
             (void)EnsureLoaded( it->second );
             auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( it->second.get() );
             if ( !surf )
-                return {};
+                return MaterialTemplate{};
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
             {
-                return surf->GetShaderName();
+                return MaterialTemplate{ surf->GetShaderHandle(), surf->GetShaderName() };
             }
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
-                return surf->GetShaderName();
+                return MaterialTemplate{ surf->GetShaderHandle(), surf->GetShaderName() };
             current = parent;
         }
-        return {};
+        return MaterialTemplate{};
     }
 
     void MaterialService::Clear()

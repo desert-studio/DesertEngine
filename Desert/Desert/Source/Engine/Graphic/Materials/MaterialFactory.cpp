@@ -191,9 +191,19 @@ namespace Desert::Graphic
         if ( !asset )
             return nullptr;
 
-        const std::string shaderName = asset->GetShaderName();
+        // ROUTED BY THE TEMPLATE'S HANDLE (its GUID identity), never by its name: the name is display text
+        // and renaming a shader must not change which backend draws it.
+        const Common::AssetHandle shader     = asset->GetShaderHandle();
+        const std::string         shaderName = asset->GetShaderName();
+        if ( shader.IsNull() )
+        {
+            LOG_ERROR( "[MaterialFactory] Material '{}' has no resolved surface template (its \"Shader\" GUID is "
+                       "missing or names no loaded shader) — it draws nothing; there is no default template.",
+                       asset->GetMetadata().Filepath.generic_string() );
+            return nullptr;
+        }
 
-        // Shader-name registry (replaces the old closed MaterialType switch). Specialized shaders keep
+        // Template registry (replaces the old closed MaterialType switch). Specialized shaders keep
         // their optimized C++ material (PBR batches into an SSBO); any other shader is handled generically
         // by DataDrivenMaterial — so a new shader becomes assignable with zero C++.
         //
@@ -206,11 +216,12 @@ namespace Desert::Graphic
         // The refusal lives where the consumer IS known, in MeshRenderer::DrawGenericMeshes, which asks
         // Core::Formats::DrawnByMeshPath() and names the material it will not draw.
         //
-        // "StaticMeshPBR" and "SkinnedMeshPBR" both mean THE PBR SURFACE and neither picks a vertex path
-        // any more — the path is the parameter above. An asset naming the skinned shader used to be
+        // The template declaring `Role PBRSurface` (StaticMeshPBR.shader) means THE PBR SURFACE and neither picks
+        // a vertex path any more — the path is the parameter above. An asset naming the skinned shader used to be
         // answered with the static class here, which is where defect (1) in MeshVertexPath.hpp was born:
         // MeshRenderer then looked for a skinned parent, found a static one, and dropped the mesh.
-        if ( shaderName.empty() || shaderName == "StaticMeshPBR" || shaderName == "SkinnedMeshPBR" )
+        const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset );
+        if ( surface != nullptr && !surface->UsesCustomShader() )
         {
             auto pbrMaterial = MaterialPBR::Create( path, pass );
             if ( !pbrMaterial )

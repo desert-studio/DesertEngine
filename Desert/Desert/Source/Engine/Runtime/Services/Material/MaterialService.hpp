@@ -151,17 +151,22 @@ namespace Desert::Runtime
         // schema defaults in place.
         bool ResolveOverrides( const Assets::AssetHandle& handle, Graphic::MaterialOverrides& out ) const;
 
-        // WHICH SHADER this handle's material is drawn by — the base of the instance chain's, since an
-        // instance overrides values and never the program. Empty when the handle resolves to no `.demat`
-        // at all, which is a DIFFERENT answer from "StaticMeshPBR": SurfaceMaterialAsset::GetShaderName()
-        // substitutes that default for an absent field, and a caller that cannot tell the two apart reads
-        // a dangling handle as a request for the standard mesh surface.
+        // WHICH TEMPLATE this handle's material is drawn by — the base of the instance chain's, since an
+        // instance overrides values and never the program. IDENTITY IS Shader (the template's handle); a
+        // null Shader means the handle resolves to no `.demat`, or to one naming no loaded template, and
+        // the caller refuses. CompileName is the ShaderService compile key (the template file's stem) and
+        // is used for nothing but building the program.
         //
         // It exists for the same caller ResolveOverrides exists for — one that owns its own runtime
         // material and needs the asset's values by name — except that such a caller must first know WHICH
         // program to build. The UI path is the one that does: Render2D::UIMaterialCache pairs this with
-        // ResolveOverrides, and refuses by name when the program's domain is not UI.
-        [[nodiscard]] std::string ShaderNameOf( const Assets::AssetHandle& handle ) const;
+        // ResolveOverrides, and refuses when the program's domain is not UI.
+        struct MaterialTemplate
+        {
+            Assets::AssetHandle Shader = Assets::AssetHandle::Null();
+            std::string         CompileName;
+        };
+        [[nodiscard]] MaterialTemplate ShaderHandleOf( const Assets::AssetHandle& handle ) const;
 
         // For editor live-edit of a material-instance asset: entities rebuild their cached
         // runtime instances on the next tick (same mechanism as Invalidate, no graveyard needed —
@@ -275,7 +280,7 @@ namespace Desert::Runtime
 
         mutable uint32_t                                              m_InvalidationVersion = 0;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
-        // Mutable: discovery on a miss fills these from const lookups (Get, ShaderNameOf, ...), which is a
+        // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a
         // cache fill, not a change of what the service answers.
         mutable std::unordered_map<Common::UUID, Assets::AssetHandle> m_ExternalToInternal;
         mutable std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>> m_MaterialAssets;

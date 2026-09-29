@@ -187,8 +187,7 @@ namespace Desert::ECS
                                   !mesh.RuntimeMaterialInstances.empty() )
                              {
                                  auto& matc = registry.get<MaterialComponent>( entity );
-                                 if ( ( matc.ShaderName.empty() || matc.ShaderName == "StaticMeshPBR" ) &&
-                                      !matc.Params.empty() )
+                                 if ( matc.ShaderName.empty() && !matc.Params.empty() )
                                  {
                                      auto& inst = mesh.RuntimeMaterialInstances[0];
                                      for ( const auto& p : matc.Params )
@@ -254,8 +253,7 @@ namespace Desert::ECS
                          if ( registry.has<MaterialComponent>( entity ) )
                          {
                              const auto& matc = registry.get<MaterialComponent>( entity );
-                             if ( !matc.ShaderName.empty() && matc.ShaderName != "StaticMeshPBR" &&
-                                  matc.ShaderName != "SkinnedMeshPBR" )
+                             if ( !matc.ShaderName.empty() )
                              {
                                  std::vector<std::pair<std::string, glm::vec4>> overrides;
                                  overrides.reserve( matc.Params.size() );
