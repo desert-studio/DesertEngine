@@ -38,12 +38,12 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `ECS` — 17 files, 4,632 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
 - `ECS/System` — 24 files, 4,706 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
 - `Generated` — 1 files, 746 lines
-- `Geometry` — 71 files, 14,043 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+65)
+- `Geometry` — 71 files, 14,046 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+65)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,410 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
 - `Geometry/MeshCore/CompGeom` — 2 files, 204 lines
 - `Geometry/MeshCore/Distance` — 2 files, 339 lines: DistLine3Line3, DistPoint3Triangle3
-- `Geometry/MeshCore/DynamicMesh` — 22 files, 14,698 lines: AppendInfo, BoundaryConstraintFlags, ChangeStamp, CollapseEdgeOptions, Corner, DynamicAttributeBase, DynamicAttributeSetBase, DynamicMesh3, DynamicMeshAttributeSet, DynamicMeshOverlay, DynamicMeshScalarTriangleAttribute, DynamicMeshSingleTriangleAttribute, … (+29)
+- `Geometry/MeshCore/DynamicMesh` — 22 files, 14,780 lines: AppendInfo, BoundaryConstraintFlags, ChangeStamp, CollapseEdgeOptions, Corner, DynamicAttributeBase, DynamicAttributeSetBase, DynamicMesh3, DynamicMeshAttributeSet, DynamicMeshOverlay, DynamicMeshScalarTriangleAttribute, DynamicMeshSingleTriangleAttribute, … (+29)
 - `Geometry/MeshCore/DynamicMesh/Operations` — 27 files, 7,407 lines: ArcSplineCurve, BevelEdge, BevelLoop, BevelVertex, BevelVertex_InteriorVertex, EdgeLoopInsertionParams, GroupEdgeInserter, GroupEdgeInserterOptionalOutputParams, GroupEdgeInsertionParams, GroupEdgeSplitPoint, IHoleFiller, InsetInfo, … (+13)
 - `Geometry/MeshCore/DynamicMesh/Parameterization` — 2 files, 390 lines: DynamicMeshUVEditor, UVEditResult
 - `Geometry/MeshCore/Intersection` — 1 files, 393 lines: IntrTriangle3Triangle3
@@ -166,7 +166,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/Logs` — 2 files, 454 lines: LogEntry, LogsPanel
 - `Panels/LuaConsole` — 2 files, 234 lines: Line, LuaConsolePanel
 - `Panels/MaterialEditor` — 5 files, 4,151 lines: DirtyState, DropRefusal, MaterialEditorPanel, MaterialShaderRebuild, ParameterGroup, PushedIdentity
-- `Panels/Modeling` — 2 files, 1,169 lines: ModelingPanel
+- `Panels/Modeling` — 2 files, 1,173 lines: ModelingPanel
 - `Panels/NodeGraph` — 8 files, 2,906 lines: Loaded, NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Particles` — 2 files, 372 lines: ParticleEditorPanel
 - `Panels/Photogrammetry` — 2 files, 1,263 lines: PhotogrammetryPanel
