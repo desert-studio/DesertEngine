@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
@@ -5352,6 +5353,15 @@ namespace Desert::Editor
                                   auto& paint = Core::LandscapeSculptState::Get().Paint;
                                   if ( paint.Layer.empty() )
                                       paint.Layer = added.GetValue();
+                                  return PaletteCommandDone();
+                              } } );
+        // The Visibility target (UE's Visibility tool): paint cuts a hole, the lowering stroke (invert) fills it.
+        commands.push_back( { "Landscape", "Target layer: Visibility (holes)", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Paint;
+                                  Core::LandscapeSculptState::Get().Paint.Layer =
+                                       std::string( World::Landscape::kLandscapeVisibilityLayerName );
                                   return PaletteCommandDone();
                               } } );
         if ( m_MainScene )

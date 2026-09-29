@@ -1521,7 +1521,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
 //     a block that drifted would read a param at another offset than it was written at, in Deferred only;
 //   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the main
 //     camera's LOD) and the heightmap — and no Materials[] row or TerrainUB it is never given.
-TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyThePatch )
+TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyPatchAndHoles )
 {
     const auto parse = [&]( const char* file )
     { return Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( file ) ) ); };
@@ -1580,10 +1580,13 @@ TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOn
     EXPECT_TRUE( HasBinding( g, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
          << DescribeBindings( g ); // u_Weightmap
 
+    // The caster reads the patch and, since the landscape's visibility layer (L11a), the weightmap: a hole must
+    // cast no shadow, so the caster discards on the same channel the surface does. Still nothing that shades.
     const auto c = reflect( "Terrain/TerrainShadow.shader" );
-    EXPECT_EQ( c.size(), 2u ) << DescribeBindings( c );
-    EXPECT_TRUE( HasBinding( c, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
-    EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap
+    EXPECT_EQ( c.size(), 3u ) << DescribeBindings( c );
+    EXPECT_TRUE( HasBinding( c, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // TerrainInstances[]
+    EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_Heightmap
+    EXPECT_TRUE( HasBinding( c, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (holes)
 }
 
 // ---- The particle state: one layout, three statements of it, and the dispatch that divides by a fourth --

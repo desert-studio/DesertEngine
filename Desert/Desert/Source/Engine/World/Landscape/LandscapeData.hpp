@@ -205,6 +205,30 @@ namespace Desert::World::Landscape
     inline constexpr uint32_t kLandscapeMaxWeightLayerName = 64u;
 
     /**
+     * @brief The reserved name of a tile's VISIBILITY layer — UE's ALandscapeProxy::VisibilityLayer, whose
+     * LayerName is UMaterialExpressionLandscapeVisibilityMask::ParameterName.
+     *
+     * Ported from UE 5.8
+     * Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeVisibilityMask.cpp:20 and
+     * LandscapeProxy.cpp (VisibilityLayer: bNoWeightBlend = true), adapted: the layer is a plain
+     * LandscapeWeightLayer under this name rather than a ULandscapeLayerInfoObject, so it is stored, encoded
+     * and uploaded exactly as the paint layers are (one weightmap channel, no container change).
+     *
+     * It is NOT a paint layer: the root never lists it, it has no colour (ResolveLandscapeWeightChannels
+     * reports it as LandscapeWeightChannels::Visibility, never as Unknown), and it is NoWeightBlend — neither
+     * normalised nor counted in the others' sum (LandscapePaintStroke's rule for it). A weight of 0.5 or more
+     * is a hole: the surface, the G-buffer and the shadow caster all discard there
+     * (LandscapeIsHole in LandscapeWeights.glslh).
+     */
+    inline constexpr std::string_view kLandscapeVisibilityLayerName = "__LANDSCAPE_VISIBILITY__";
+    static_assert( kLandscapeVisibilityLayerName.size() <= kLandscapeMaxWeightLayerName );
+
+    /// Whether a sample whose visibility-layer weight is @p weight (0..255) is a hole: LandscapeIsHole
+    /// (Shaders/Common/LandscapeWeights.glslh) compiled as C++, so the collider and the CPU raycast cut the
+    /// hole where the terrain programs discard it — UE's mask 1 - w below the 0.3333 clip, i.e. 171 and up.
+    bool LandscapeWeightIsHole( uint8_t weight );
+
+    /**
      * @brief One layer's weights on one tile — UE's FWeightmapLayerAllocationInfo plus its channel of the
      * component's weightmap texture, stored as its own plane.
      *
@@ -321,6 +345,13 @@ namespace Desert::World::Landscape
         /// The index of the layer named @p name on this tile, or nullopt when the tile carries none.
         std::optional<size_t> FindWeightLayer( std::string_view name ) const;
 
+        /// The index of the tile's visibility layer (kLandscapeVisibilityLayerName), or nullopt when the tile
+        /// has no holes.
+        [[nodiscard]] std::optional<size_t> VisibilityLayer() const
+        {
+            return FindWeightLayer( kLandscapeVisibilityLayerName );
+        }
+
         /// Allocates @p name on this tile with every weight zero and returns its index (UE: a component gets
         /// a layer allocation on the first stroke that paints it). Adding a name already present returns
         /// that index. Refuses an empty or over-long name and a ninth layer, naming them.
@@ -333,13 +364,14 @@ namespace Desert::World::Landscape
         Common::ResultStr<std::vector<uint8_t>> ReadWeightRegion( size_t layer, const LandscapeRect& rect ) const;
 
         /// Writes @p values into layer @p layer over @p rect and marks the rectangle dirty for the Weights
-        /// consumer only. Same refusal and no-change rules as WriteRegion.
+        /// consumer — and for Physics too when the layer is the visibility layer (a hole has no collision).
+        /// Same refusal and no-change rules as WriteRegion.
         Common::BoolResultStr WriteWeightRegion( size_t layer, const LandscapeRect& rect,
                                                  std::span<const uint8_t> values );
 
         /// Replaces every weight layer at once (a paint stroke's undo/redo) and marks the whole tile dirty for
-        /// the Weights consumer. Refuses planes of the wrong size, a bad or repeated name, or a
-        /// ninth layer.
+        /// the Weights consumer, and for Physics when a visibility layer is replaced or removed or arrives.
+        /// Refuses planes of the wrong size, a bad or repeated name, or a ninth layer.
         Common::BoolResultStr SetWeightLayers( std::vector<LandscapeWeightLayer> layers );
 
     private:

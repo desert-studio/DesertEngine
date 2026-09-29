@@ -109,6 +109,12 @@ namespace Desert::World::Landscape
 
     const LandscapeLayerRule* LandscapePaintStroke::Rule( std::string_view name ) const
     {
+        // The visibility layer is no root layer, but a tile carrying it is not carrying an unknown layer: it
+        // is UE's VisibilityLayer, bNoWeightBlend, so painting any other layer neither moves it nor counts it.
+        static const LandscapeLayerRule kVisibilityRule{ std::string( kLandscapeVisibilityLayerName ), 0.5f,
+                                                         true };
+        if ( name == kLandscapeVisibilityLayerName )
+            return &kVisibilityRule;
         for ( const LandscapeLayerRule& rule : m_Rules )
             if ( rule.Name == name )
                 return &rule;
