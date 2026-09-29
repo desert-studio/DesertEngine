@@ -1,3 +1,4 @@
+#include <Editor/Core/Control/PointerDrag.hpp>
 #include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
 
 #include <Engine/Core/Application.hpp>
@@ -161,6 +162,15 @@ namespace Desert::Graphic::API::Vulkan
     {
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
+        // A control-channel drag: after the backend's own cursor event, so it is this frame's last word.
+        if ( const auto step = ::Desert::Editor::Control::PointerInjection::NextStep() )
+        {
+            ImGuiIO& io = ::ImGui::GetIO();
+            if ( io.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport )
+                io.AddMouseViewportEvent( ::Desert::Editor::Control::PointerInjection::ViewportId() );
+            io.AddMousePosEvent( step->X, step->Y );
+            io.AddMouseButtonEvent( ImGuiMouseButton_Left, step->Down );
+        }
         ::ImGui::NewFrame();
     }
 

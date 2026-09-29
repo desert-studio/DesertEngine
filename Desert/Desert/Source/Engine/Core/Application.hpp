@@ -16,6 +16,7 @@
 #include <Engine/Core/Window.hpp>
 #include <Engine/Core/Device.hpp>
 
+#include <Engine/Core/WindowCloseGate.hpp>
 #include <Engine/Graphic/RendererContext.hpp>
 
 // THE ENGINE CORE KNOWS NOTHING ABOUT ANY INTERFACE TOOLKIT. `<Engine/imgui/ImGuiLayer.hpp>` was
@@ -94,6 +95,12 @@ namespace Desert::Engine
             m_ExitCode             = exitCode;
         }
 
+        /// The owner of the OS frame's close (the editor's unsaved-changes question). See WindowCloseGate.
+        NO_DISCARD Core::WindowCloseGate& GetCloseGate()
+        {
+            return m_CloseGate;
+        }
+
         NO_DISCARD int ExitCode() const
         {
             return m_ExitCode;
@@ -122,7 +129,8 @@ namespace Desert::Engine
     private:
         NO_DISCARD bool OnClose( Common::EventWindowClose& /*e*/ )
         {
-            m_IsRunningApplication = false;
+            if ( m_CloseGate.StopsNow() )
+                m_IsRunningApplication = false;
             return true;
         }
         void ProcessEvents( Common::Event& e );
@@ -141,6 +149,7 @@ namespace Desert::Engine
         ApplicationInfo m_ApplicationInfo;
 
         bool m_IsRunningApplication = true;
+        Core::WindowCloseGate m_CloseGate;
         int  m_ExitCode             = 0;
         std::string m_StartupRefusal;
 

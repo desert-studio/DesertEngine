@@ -1,3 +1,5 @@
+#include <Editor/Core/GizmoIdScope.hpp>
+#include <Editor/Core/Control/PointerDrag.hpp>
 #include "AnimationEditorDocument.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
@@ -753,6 +755,9 @@ namespace Desert::Editor
                                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse ) )
         {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
+            Control::PointerInjection::PublishTarget( Control::Subject::Document,
+                                                      { origin.x, origin.y, view.x, view.y,
+                                                        ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
@@ -1043,6 +1048,7 @@ namespace Desert::Editor
         const glm::mat4 proj   = m_Preview->GetProjection();
         glm::mat4       world  = target * animator->GetBoneModelMatrix( bone );
 
+        const Core::GizmoIdScope gizmoId( "AnimationEditorBone" );
         ImGuizmo::SetOrthographic( false );
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect( origin.x, origin.y, size.x, size.y );

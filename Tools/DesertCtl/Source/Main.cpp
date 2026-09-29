@@ -380,6 +380,20 @@ static int RunTool( int argc, char** argv )
         const char* op = ( operation == "shot-window" ) ? "shot.window" : "shot.viewport";
         request        = std::string( R"({"id":1,"op":")" ) + op + R"(","path":")" + Escape( rest[1] ) + R"("})";
     }
+    else if ( operation == "drag" )
+    {
+        // drag <fromX,fromY> <toX,toY> [steps] — image pixels of --subject (document | viewport).
+        std::string from;
+        std::string to;
+        if ( rest.size() < 3 || !NumberArray( rest[1], from ) || !NumberArray( rest[2], to ) )
+        {
+            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image pixels.\n" );
+            return kNoEditor;
+        }
+        const std::string steps = ( rest.size() > 3 ) ? rest[3] : "8";
+        request = R"({"id":1,"op":"drag","value":[)" + from.substr( 1, from.size() - 2 ) + "," +
+                  to.substr( 1, to.size() - 2 ) + R"(],"steps":)" + steps + SubjectField( subject ) + "}";
+    }
     else if ( operation == "quit" )
     {
         const std::string code = ( rest.size() > 1 ) ? rest[1] : "0";

@@ -2,6 +2,7 @@
 // after, a dragged notify lands on the display grid inside the clip, and the marker lit while the clip plays
 // is the one the Animator fires (both read Animation::NotifyCrossed).
 
+#include <Engine/Core/WindowCloseGate.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/UnsavedClose.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
@@ -260,4 +261,24 @@ TEST( UnsavedClose, AsksOnlyADirtyDocumentThePersonClosedAndClosesPerAnswer )
     EXPECT_FALSE( CloseAfterAnswer( UnsavedCloseChoice::Save, false ) ) << "a failed save keeps the window";
     EXPECT_TRUE( CloseAfterAnswer( UnsavedCloseChoice::Discard, false ) );
     EXPECT_FALSE( CloseAfterAnswer( UnsavedCloseChoice::Cancel, true ) );
+}
+
+// ANV4: the OS frame's close is the editor's to decide -- the same question File > Exit asks.
+TEST( WindowCloseGate, WithoutAnOwnerTheFrameStopsTheRunAndWithOneTheOwnerDecides )
+{
+    Desert::Core::WindowCloseGate gate;
+    EXPECT_TRUE( gate.StopsNow() );
+
+    int asked = 0;
+    gate.Install( [&asked]() { ++asked; return false; } ); // questions raised: Cancel must be possible
+    EXPECT_FALSE( gate.StopsNow() );
+    EXPECT_EQ( asked, 1 );
+
+    gate.Install( [&asked]() { ++asked; return true; } );
+    EXPECT_TRUE( gate.StopsNow() );
+    EXPECT_EQ( asked, 2 );
+
+    gate.Uninstall();
+    EXPECT_TRUE( gate.StopsNow() );
+    EXPECT_EQ( asked, 2 );
 }

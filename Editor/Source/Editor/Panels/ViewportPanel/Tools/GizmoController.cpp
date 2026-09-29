@@ -1,3 +1,4 @@
+#include <Editor/Core/GizmoIdScope.hpp>
 #include "GizmoController.hpp"
 #include "GizmoTransformMath.hpp"
 
@@ -147,6 +148,7 @@ namespace Desert::Editor::Tools
         const glm::mat4 oldModelMatrix = modelMatrix;
 
         // SetRect MUST match the rendered scene-image rect (content region), NOT the raw window rect.
+        const Core::GizmoIdScope gizmoId( "LevelSelection" );
         ImGuizmo::SetOrthographic( false );
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect( viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y );
@@ -339,6 +341,7 @@ namespace Desert::Editor::Tools
 
         glm::mat4 gizmoWorld = entityWorld * chainGlobal.Get( static_cast<uint32_t>( boneIdx ) );
 
+        const Core::GizmoIdScope gizmoId( "LevelBone" );
         ImGuizmo::SetOrthographic( false );
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect( viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y );

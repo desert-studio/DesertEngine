@@ -1,5 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Editor/Core/Control/PointerDrag.hpp>
+#include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
@@ -718,6 +720,20 @@ namespace Desert::Editor
                  // layer is detached, the device goes idle. Two ways to end a session would drift.
                  [this]() { RequestEditorExit(); } );
         }
+
+        // THE OS FRAME'S CLOSE ASKS WHAT File -> Exit ASKS. The application no longer stops on the event
+        // itself: RequestEditorExit either closes at once (nothing dirty) or raises the Save / Don't Save /
+        // Cancel questions and closes after the last one; Cancel leaves the editor running, so the
+        // platform's should-close flag is cleared here rather than left set behind a live window.
+        m_Application->GetCloseGate().Install(
+             [this]()
+             {
+                 RequestEditorExit();
+                 if ( const auto& window = m_Application->GetWindow() )
+                     glfwSetWindowShouldClose(
+                          static_cast<GLFWwindow*>( const_cast<void*>( window->GetNativeWindow() ) ), GLFW_FALSE );
+                 return false;
+             } );
 
         // 1. Create ImGui Context first
         ::ImGui::CreateContext();
@@ -2197,6 +2213,7 @@ namespace Desert::Editor
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
+                                request.Operation == Control::Op::Drag ||
                                 Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
@@ -2273,6 +2290,7 @@ namespace Desert::Editor
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
         // draws it -- see Editor/Core/ControlNudgeRequest.hpp.
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
+        quiescence.Set( Control::PendingWork::PointerDrag, Control::PointerInjection::Playing() );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
@@ -2568,6 +2586,28 @@ namespace Desert::Editor
 
             case Control::Op::Quit:
                 return Control::Response::Success( request.Id );
+
+            case Control::Op::Drag:
+            {
+                const auto target =
+                     Control::PointerInjection::FreshTarget( request.Whose, ::ImGui::GetFrameCount() );
+                if ( !target )
+                {
+                    return Control::Response::Failure(
+                         request.Id, request.Whose == Control::Subject::Viewport
+                                          ? "no level viewport image was drawn in the last frame."
+                                          : "no document view (the Animation window's preview) was drawn in the "
+                                            "last frame; open and focus one first." );
+                }
+                const auto plan = Control::PointerDrag::Plan(
+                     *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
+                     request.Steps, ::ImGui::GetIO().DisplayFramebufferScale.x );
+                if ( !plan.IsSuccess() )
+                    return Control::Response::Failure( request.Id, plan.GetError() );
+                if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                    return Control::Response::Failure( request.Id, armed.GetError() );
+                return Control::Response::Success( request.Id );
+            }
         }
 
         // Unreachable while every Op is handled above, and stated rather than left to fall off the end:
@@ -10585,6 +10625,7 @@ namespace Desert::Editor
 
     Common::BoolResultStr EditorLayer::OnDetach()
     {
+        m_Application->GetCloseGate().Uninstall();
         // The socket goes first, and its file with it. A leftover path is not harmless: the next editor
         // to be given it PROBES what is there, and while a dead one only costs a log line, leaving the
         // file behind on every exit would train everybody to ignore that line.

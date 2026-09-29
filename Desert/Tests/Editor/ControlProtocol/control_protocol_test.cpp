@@ -23,6 +23,7 @@
 //   6. STATE SECTIONS. An unknown section is refused rather than omitted: omitted, it comes back empty,
 //      which reads exactly like a section that exists and is empty. One of those two readings is a lie.
 
+#include <Editor/Core/Control/PointerDrag.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Editor/Core/Control/ControlProtocol.hpp>
@@ -722,4 +723,68 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ANV4: a drag is parsed with its four numbers and its subject, and refused without them.
+TEST( ControlPointerDrag, TheRequestCarriesFourNumbersStepsAndAnImageSubject )
+{
+    namespace C  = Desert::Editor::Control;
+    const auto r = C::ParseRequest( R"({"id":3,"op":"drag","subject":"document","value":[1,2,30,40],"steps":5})" );
+    ASSERT_TRUE( r.IsSuccess() ) << r.GetError();
+    EXPECT_EQ( r.GetValue().Operation, C::Op::Drag );
+    EXPECT_EQ( r.GetValue().Whose, C::Subject::Document );
+    EXPECT_EQ( r.GetValue().Steps, 5u );
+    ASSERT_EQ( r.GetValue().Value.size(), 4u );
+    EXPECT_FLOAT_EQ( r.GetValue().Value[3], 40.0f );
+
+    EXPECT_FALSE( C::ParseRequest( R"({"id":3,"op":"drag","value":[1,2,30]})" ).IsSuccess() );
+    EXPECT_FALSE( C::ParseRequest( R"({"id":3,"op":"drag","value":[1,2,3,4],"steps":0})" ).IsSuccess() );
+    EXPECT_FALSE(
+         C::ParseRequest( R"({"id":3,"op":"drag","subject":"modeling","value":[1,2,3,4]})" ).IsSuccess() );
+}
+
+// Hover, press, N moves, release -- one event per frame, pixels converted to points, and the playback stays
+// pending for one extra frame so the release is drawn before the reply leaves.
+TEST( ControlPointerDrag, APlanHoversPressesMovesAndReleasesInImagePixels )
+{
+    namespace C = Desert::Editor::Control;
+    C::PointerInjection::Reset();
+    const C::PointerTargetRect rect{ 100.0f, 50.0f, 400.0f, 300.0f, 7u, 10 };
+    const auto plan = C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 220.0f, 40.0f }, 4, 2.0f );
+    ASSERT_TRUE( plan.IsSuccess() ) << plan.GetError();
+    const C::PointerDrag& drag = plan.GetValue();
+    ASSERT_EQ( drag.FrameCount(), 7u );
+    EXPECT_FALSE( drag.At( 0 ).Down );
+    EXPECT_FLOAT_EQ( drag.At( 0 ).X, 110.0f );
+    EXPECT_FLOAT_EQ( drag.At( 0 ).Y, 70.0f );
+    EXPECT_TRUE( drag.At( 1 ).Down );
+    EXPECT_FLOAT_EQ( drag.At( 1 ).X, 110.0f );
+    EXPECT_FLOAT_EQ( drag.At( 3 ).X, 160.0f );
+    EXPECT_TRUE( drag.At( 5 ).Down );
+    EXPECT_FLOAT_EQ( drag.At( 5 ).X, 210.0f );
+    EXPECT_FALSE( drag.At( 6 ).Down );
+    EXPECT_FLOAT_EQ( drag.At( 6 ).X, 210.0f );
+
+    EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 800.0f, 40.0f }, 4, 2.0f ).IsSuccess() );
+    EXPECT_FALSE( C::PointerDrag::Plan( rect, { 20.0f, 40.0f, 20.0f, 40.0f }, 0, 2.0f ).IsSuccess() );
+
+    ASSERT_TRUE( C::PointerInjection::Arm( drag ).IsSuccess() );
+    EXPECT_FALSE( C::PointerInjection::Arm( drag ).IsSuccess() );
+    EXPECT_EQ( C::PointerInjection::ViewportId(), 7u );
+    int events = 0;
+    while ( C::PointerInjection::NextStep() )
+        ++events;
+    EXPECT_EQ( events, 7 );
+    EXPECT_FALSE( C::PointerInjection::Playing() );
+}
+
+TEST( ControlPointerDrag, ATargetOlderThanOneFrameIsNotAimedAt )
+{
+    namespace C = Desert::Editor::Control;
+    C::PointerInjection::Reset();
+    EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Document, 5 ).has_value() );
+    C::PointerInjection::PublishTarget( C::Subject::Document, { 0.0f, 0.0f, 10.0f, 10.0f, 1u, 5 } );
+    EXPECT_TRUE( C::PointerInjection::FreshTarget( C::Subject::Document, 6 ).has_value() );
+    EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Document, 7 ).has_value() );
+    EXPECT_FALSE( C::PointerInjection::FreshTarget( C::Subject::Viewport, 5 ).has_value() );
 }
