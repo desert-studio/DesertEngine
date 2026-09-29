@@ -266,8 +266,9 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
     ASSERT_TRUE( record.IsSuccess() && record.GetValue() );
     Ser::ImportRecordData        stated = *record.GetValue();
     const Assets::ThumbnailOrbit yawed{ 10.0f, 180.0f, 0.25f };
-    stated.Thumbnail = std::map<std::string, Assets::ThumbnailOrbit>{
-         { tuftB.filename().string(), yawed }, { project.Source.filename().string(), { 0.0f, 90.0f, 0.0f } } };
+    stated.Thumbnail = std::map<std::string, Assets::ThumbnailOrbitRecord>{
+         { tuftB.filename().string(), Assets::ToRecord( yawed ) },
+         { project.Source.filename().string(), Assets::ThumbnailOrbitRecord{ .Yaw = 90.0f } } };
     const fs::path recordPath = Common::Content::ImportRecordPathFor( project.Source );
     std::ofstream( recordPath, std::ios::binary | std::ios::trunc ) << Ser::WriteImportRecord( stated );
 
@@ -289,7 +290,7 @@ TEST( NodeMeshSplit, EachImportedMeshReadsItsOrbitFromTheRecord )
     EXPECT_EQ( kept.GetValue(), yawed ) << "a re-import lost the orbit";
 
     // A stated default is refused by name.
-    stated.Thumbnail->at( tuftB.filename().string() ) = Assets::ThumbnailOrbit{};
+    stated.Thumbnail->at( tuftB.filename().string() ) = Assets::ThumbnailOrbitRecord{ .Pitch = 0.0f };
     const auto refused                                = Ser::ParseImportRecord( Ser::WriteImportRecord( stated ) );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "default" ), std::string::npos ) << refused.GetError();

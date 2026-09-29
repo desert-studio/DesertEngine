@@ -6,6 +6,7 @@
 // project-wide background sweep is gone (decision В4).
 
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Widgets/ThumbnailOutdated.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
 #include <gtest/gtest.h>
@@ -188,6 +189,51 @@ TEST( ThumbnailPrefetch, APictureACaptureRewroteGoesThroughAWorkerNotTheDraw )
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     EXPECT_NE( second.Pixels.value().DecodedOn, std::this_thread::get_id() );
     EXPECT_EQ( prefetch.DecodedOnTheTakingThread() - before, 0u ) << "decoded on main thread: N > 0";
+}
+
+// THM1l-c6: a capture landing on screen is decoded ONCE. The pixels say when their read began, and a picture
+// flagged rewritten is current once pixels read after the flag are cached — not after the stamp leaves the
+// racy window (that rule re-queued the same file on every draw for a second: 25 decodes of one material).
+TEST( ThumbnailPrefetch, PixelsSayWhenTheirReadBegan )
+{
+    const Fixture f;
+    f.WriteFreshPng();
+    const auto stamp    = fs::last_write_time( f.Png );
+    auto&      prefetch = ThumbnailPrefetch::Get();
+
+    const auto asked = std::chrono::steady_clock::now();
+    EXPECT_FALSE( prefetch.Acquire( f.Png.string(), stamp ).Pixels.has_value() );
+    prefetch.Drain();
+    const auto taken = prefetch.Acquire( f.Png.string(), stamp );
+    ASSERT_TRUE( taken.Pixels.has_value() );
+    EXPECT_GE( taken.ReadBegan, asked ) << "a read queued after the ask cannot have begun before it";
+    EXPECT_LE( taken.ReadBegan, std::chrono::steady_clock::now() );
+}
+
+TEST( ThumbnailOutdated, ARewriteIsSettledByTheFirstReadAfterItNotByTheClock )
+{
+    using Clock = ThumbnailOutdated::Clock;
+    ThumbnailOutdated outdated;
+    const std::string png  = "a.png";
+    const auto        seen = Clock::now();
+
+    EXPECT_TRUE( outdated.Settle( png, seen ) ) << "a path never flagged is current";
+    outdated.Flag( png, seen );
+    EXPECT_TRUE( outdated.Contains( png ) );
+
+    // Pixels a worker began reading before the rewrite was seen are the old file: still outdated, asked again.
+    EXPECT_FALSE( outdated.Settle( png, seen - std::chrono::milliseconds( 1 ) ) );
+    EXPECT_TRUE( outdated.Contains( png ) );
+
+    // The first read at or after the flag settles it — once; the next Get serves the cache, no decode.
+    EXPECT_TRUE( outdated.Settle( png, seen ) );
+    EXPECT_FALSE( outdated.Contains( png ) );
+
+    // A second rewrite flags it anew, and the later moment is the one a read must follow.
+    outdated.Flag( png, seen + std::chrono::milliseconds( 5 ) );
+    EXPECT_FALSE( outdated.Settle( png, seen + std::chrono::milliseconds( 1 ) ) );
+    outdated.Forget( png );
+    EXPECT_FALSE( outdated.Contains( png ) );
 }
 
 // A picture a worker could not decode is reported as such (so a generated one is deleted and re-captured),

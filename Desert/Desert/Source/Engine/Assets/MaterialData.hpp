@@ -73,23 +73,24 @@ namespace Desert::Assets
 
         // HOW THIS MATERIAL IS PHOTOGRAPHED (UE: UMaterial::ThumbnailInfo, a USceneThumbnailInfoWithPrimitive
         // stored in the package): the primitive, its own preview mesh instead of it, and the orbit — the one home
-        // of all three (ThumbnailInfo.hpp). Absent = the default info (the sphere, straight on). Its PreviewMesh
-        // is a stated dependency of the header like any other reference.
-        std::optional<ThumbnailInfo> Thumbnail;
+        // of all three (ThumbnailInfo.hpp). Absent = the default info (the sphere, straight on), and so is every
+        // absent member of it (ThumbnailInfoRecord). Its PreviewMesh is a stated dependency of the header like
+        // any other reference. Read it through ThumbnailOrDefault, write it through SetThumbnail.
+        std::optional<ThumbnailInfoRecord> Thumbnail;
 
         [[nodiscard]] ThumbnailInfo ThumbnailOrDefault() const
         {
-            return Thumbnail.value_or( ThumbnailInfo{} );
+            return Thumbnail.has_value() ? Resolve( *Thumbnail ) : ThumbnailInfo{};
         }
 
-        /// The one spelling of an edit of the info: the default info is written as no key (a stated default
-        /// would give one picture two spellings).
+        /// The one spelling of an edit of the info: the default info is written as no key, a default member of
+        /// it as no member (a stated default would give one picture two spellings).
         void SetThumbnail( const ThumbnailInfo& info )
         {
             if ( info == ThumbnailInfo{} )
                 Thumbnail.reset();
             else
-                Thumbnail = info;
+                Thumbnail = ToRecord( info );
         }
 
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this

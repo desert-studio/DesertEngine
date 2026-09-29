@@ -70,8 +70,9 @@ namespace Desert::Assets::Serialization
         // the record is kept by every re-import (EnsureImportRecord rewrites the parsed record). Keyed by the
         // mesh asset's file name beside the source: the source's own name ("base.fbx") for the combined mesh,
         // `<stem>_<node>.stmesh` for a node mesh (NodeMeshAssetPath). A mesh without an entry has the default
-        // orbit (ThumbnailInfo.hpp); a stated default is refused, so one picture has one spelling.
-        std::optional<std::map<std::string, ThumbnailOrbit>> Thumbnail;
+        // orbit (ThumbnailInfo.hpp); a stated default is refused, so one picture has one spelling. An entry is a
+        // ThumbnailOrbitRecord: a member it leaves out is that member's default (Resolve).
+        std::optional<std::map<std::string, ThumbnailOrbitRecord>> Thumbnail;
     };
 
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text );

@@ -21,6 +21,7 @@
 // draws the material. A Volume material's sky is not a user choice and this type does not offer it.
 #include <Engine/Assets/AssetGuidRef.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -37,6 +38,11 @@ namespace Desert::Assets
         Plane,
         Cylinder,
     };
+
+    // Every primitive, in the order the editor offers them.
+    inline constexpr std::array<ThumbnailPrimitive, 4> kThumbnailPrimitives = {
+         ThumbnailPrimitive::Sphere, ThumbnailPrimitive::Cube, ThumbnailPrimitive::Plane,
+         ThumbnailPrimitive::Cylinder };
 
     // The camera's orbit around the subject, in degrees (UE USceneThumbnailInfo). Pitch turns the view over the
     // subject's right axis (positive = looking from above), Yaw about the world up axis; Zoom moves the camera
@@ -72,6 +78,75 @@ namespace Desert::Assets
 
         bool operator==( const ThumbnailInfo& ) const = default;
     };
+
+    // THE STORED FORM OF BOTH (UE writes a ThumbnailInfo's properties only where they differ from the class
+    // default, and a package without one reads as the defaults). The records are what the file carries: every
+    // member may be absent, and an absent member IS the default above — a hand-written `"Thumbnail":
+    // {"Primitive":"Cube"}` is a complete statement, not a damaged one. The project's JSON door is strict
+    // (Common/Json/Json.hpp: a missing member is an error unless its type says it may be absent), so the
+    // optionality is spelled here, in the one pair of types that is read and written, and the rest of the
+    // engine keeps the resolved ThumbnailOrbit / ThumbnailInfo. ToRecord writes a member only when it differs
+    // from its default, so one picture has one spelling.
+    struct ThumbnailOrbitRecord
+    {
+        std::optional<float> Pitch;
+        std::optional<float> Yaw;
+        std::optional<float> Zoom;
+
+        bool operator==( const ThumbnailOrbitRecord& ) const = default;
+    };
+
+    struct ThumbnailInfoRecord
+    {
+        std::optional<ThumbnailPrimitive>   Primitive;
+        std::optional<AssetGuidRef>         PreviewMesh;
+        std::optional<ThumbnailOrbitRecord> Orbit;
+
+        bool operator==( const ThumbnailInfoRecord& ) const = default;
+    };
+
+    [[nodiscard]] inline ThumbnailOrbit Resolve( const ThumbnailOrbitRecord& record )
+    {
+        const ThumbnailOrbit fallback{};
+        return ThumbnailOrbit{ record.Pitch.value_or( fallback.Pitch ), record.Yaw.value_or( fallback.Yaw ),
+                               record.Zoom.value_or( fallback.Zoom ) };
+    }
+
+    [[nodiscard]] inline ThumbnailInfo Resolve( const ThumbnailInfoRecord& record )
+    {
+        ThumbnailInfo info;
+        if ( record.Primitive.has_value() )
+            info.Primitive = *record.Primitive;
+        info.PreviewMesh = record.PreviewMesh;
+        if ( record.Orbit.has_value() )
+            info.Orbit = Resolve( *record.Orbit );
+        return info;
+    }
+
+    [[nodiscard]] inline ThumbnailOrbitRecord ToRecord( const ThumbnailOrbit& orbit )
+    {
+        const ThumbnailOrbit fallback{};
+        ThumbnailOrbitRecord record;
+        if ( orbit.Pitch != fallback.Pitch )
+            record.Pitch = orbit.Pitch;
+        if ( orbit.Yaw != fallback.Yaw )
+            record.Yaw = orbit.Yaw;
+        if ( orbit.Zoom != fallback.Zoom )
+            record.Zoom = orbit.Zoom;
+        return record;
+    }
+
+    [[nodiscard]] inline ThumbnailInfoRecord ToRecord( const ThumbnailInfo& info )
+    {
+        const ThumbnailInfo fallback{};
+        ThumbnailInfoRecord record;
+        if ( info.Primitive != fallback.Primitive )
+            record.Primitive = info.Primitive;
+        record.PreviewMesh = info.PreviewMesh;
+        if ( info.Orbit != fallback.Orbit )
+            record.Orbit = ToRecord( info.Orbit );
+        return record;
+    }
 
     [[nodiscard]] constexpr std::string_view ThumbnailPrimitiveName( ThumbnailPrimitive primitive )
     {

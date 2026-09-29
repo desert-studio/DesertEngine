@@ -31,8 +31,9 @@ namespace Desert::Assets::Serialization
             if ( data.Thumbnail->empty() )
                 return Common::MakeFormattedError<ImportRecordData>(
                      "import record states an empty Thumbnail: no orbit for any mesh is written as no key" );
-            for ( const auto& [mesh, orbit] : *data.Thumbnail )
+            for ( const auto& [mesh, stated] : *data.Thumbnail )
             {
+                const ThumbnailOrbit orbit = Resolve( stated );
                 if ( !IsValidThumbnailOrbit( orbit ) )
                     return Common::MakeFormattedError<ImportRecordData>(
                          "import record: the Thumbnail orbit of '{}' is not finite or zooms to -1 or in", mesh );
@@ -159,7 +160,7 @@ namespace Desert::Assets::Serialization
         if ( !thumbnail )
             return Common::MakeSuccess( ThumbnailOrbit{} );
         const auto it = thumbnail->find( meshFile );
-        return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : it->second );
+        return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : Resolve( it->second ) );
     }
 
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                   source,
@@ -195,14 +196,14 @@ namespace Desert::Assets::Serialization
         if ( !data.GetValue() )
             return Common::MakeFormattedError<bool>( "'{}' does not exist, so the orbit of '{}' has no home",
                                                      record.string(), meshFile );
-        ImportRecordData                      out = *data.GetValue();
-        std::map<std::string, ThumbnailOrbit> entries =
-             out.Thumbnail.value_or( std::map<std::string, ThumbnailOrbit>{} );
+        ImportRecordData                            out = *data.GetValue();
+        std::map<std::string, ThumbnailOrbitRecord> entries =
+             out.Thumbnail.value_or( std::map<std::string, ThumbnailOrbitRecord>{} );
         if ( orbit == ThumbnailOrbit{} )
             entries.erase( meshFile );
         else
-            entries[meshFile] = orbit;
-        std::optional<std::map<std::string, ThumbnailOrbit>> next;
+            entries[meshFile] = ToRecord( orbit );
+        std::optional<std::map<std::string, ThumbnailOrbitRecord>> next;
         if ( !entries.empty() )
             next = std::move( entries );
         if ( out.Thumbnail == next )

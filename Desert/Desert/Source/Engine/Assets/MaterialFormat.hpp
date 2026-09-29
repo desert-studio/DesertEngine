@@ -181,7 +181,7 @@ namespace Desert::Assets
         // by stating none) and is named by the header like every other reference.
         if ( material.Thumbnail.has_value() )
         {
-            const ThumbnailInfo& thumb = *material.Thumbnail;
+            const ThumbnailInfo thumb = material.ThumbnailOrDefault();
             if ( !IsValidThumbnailOrbit( thumb.Orbit ) )
                 return Common::MakeError<MaterialData>(
                      "[Material] '" + std::string( source ) +

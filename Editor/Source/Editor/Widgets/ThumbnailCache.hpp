@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Image.hpp>
 
 #include <Common/Utilities/WriteWatch.hpp>
+#include <Editor/Widgets/ThumbnailOutdated.hpp>
 
 #include <memory>
 #include <string>
@@ -98,7 +99,7 @@ namespace Desert::Editor
 
         std::unordered_map<std::string, std::shared_ptr<Graphic::Image2D>> m_Cache;
         Common::Utils::WriteWatch                                          m_Watch; // the file as decoded
-        std::unordered_set<std::string> m_Outdated; // changed on disk, new picture not cached yet
+        ThumbnailOutdated m_Outdated;                                               // rewritten, not re-read yet
 
         // Every constructed cache, so ReleaseAll() can reach the ones no panel owns. Raw pointers to
         // objects that deregister themselves; this set outlives them all and holds nothing that needs a

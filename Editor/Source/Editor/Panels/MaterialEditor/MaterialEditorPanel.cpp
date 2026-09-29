@@ -896,7 +896,23 @@ namespace Desert::Editor
                                      m_Preview->ResetView();
                              } } );
         PreviewEnvironment::AppendActions( actions );
+        // The Thumbnail section's Primitive combo, reachable without the mouse (same function).
+        if ( m_WorkingCopy )
+            for ( const Assets::ThumbnailPrimitive primitive : Assets::kThumbnailPrimitives )
+                actions.push_back( { std::format( "Material Thumbnail: primitive {}",
+                                                  Assets::ThumbnailPrimitiveName( primitive ) ),
+                                     [this, primitive]() { SetThumbnailPrimitive( primitive ); } } );
         return actions;
+    }
+
+    void MaterialEditorPanel::SetThumbnailPrimitive( Assets::ThumbnailPrimitive primitive )
+    {
+        if ( !m_WorkingCopy )
+            return;
+        auto&                 data = m_WorkingCopy->Data();
+        Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+        info.Primitive             = primitive;
+        data.SetThumbnail( info );
     }
 
     void MaterialEditorPanel::DrawToolbar( Assets::SurfaceMaterialAsset* working, bool isInstance )
@@ -2217,14 +2233,12 @@ namespace Desert::Editor
                 if ( ImGui::BeginCombo( "Primitive##thumbnail_primitive",
                                         std::string( Assets::ThumbnailPrimitiveName( info.Primitive ) ).c_str() ) )
                 {
-                    for ( const Assets::ThumbnailPrimitive primitive :
-                          { Assets::ThumbnailPrimitive::Sphere, Assets::ThumbnailPrimitive::Cube,
-                            Assets::ThumbnailPrimitive::Plane, Assets::ThumbnailPrimitive::Cylinder } )
+                    for ( const Assets::ThumbnailPrimitive primitive : Assets::kThumbnailPrimitives )
                         if ( ImGui::Selectable( std::string( Assets::ThumbnailPrimitiveName( primitive ) ).c_str(),
                                                 primitive == info.Primitive ) )
                         {
+                            SetThumbnailPrimitive( primitive );
                             info.Primitive = primitive;
-                            changed        = true;
                         }
                     ImGui::EndCombo();
                 }
