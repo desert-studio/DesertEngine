@@ -320,7 +320,7 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         {
             const auto&    res          = resources.push_constant_buffers[0];
             auto&          type         = compiler.get_type( res.base_type_id );
-            const uint32_t declaredSize = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
+            const auto     declaredSize = static_cast<uint32_t>( compiler.get_declared_struct_size( type ) );
             if ( !data.PushConstantRanges )
             {
                 ShaderResources::ShaderLayout::PushConstantRange range;

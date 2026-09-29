@@ -369,8 +369,8 @@ namespace Desert::Core::Preprocess
                 {
                     if ( !param.IsTexture || param.IsCubeTexture )
                     {
-                        err = { c.Line,
-                                "Sampler(...) on '" + param.Name + "', which is not a Texture2D property" };
+                        err = { c.Line, std::format( "Sampler(...) on '{}', which is not a Texture2D property",
+                                                     param.Name ) };
                         return false;
                     }
                     if ( !Expect( c, '(', err, "after Sampler" ) )

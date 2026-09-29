@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <string_view>
 #include <vector>
@@ -37,8 +38,12 @@ namespace Desert::Editor
         Common::ResultStr<std::string> EncodedBytes( const aiTexture& texture )
         {
             if ( IsCompressed( texture ) )
-                return Common::MakeSuccess( std::string( reinterpret_cast<const char*>( texture.pcData ),
-                                                         static_cast<std::size_t>( texture.mWidth ) ) );
+            {
+                // A compressed texture's pcData is the encoded file, mWidth bytes long, typed as texels.
+                std::string bytes( static_cast<std::size_t>( texture.mWidth ), '\0' );
+                std::memcpy( bytes.data(), texture.pcData, bytes.size() );
+                return Common::MakeSuccess( std::move( bytes ) );
+            }
 
             // aiTexel is B,G,R,A; the PNG wants R,G,B,A.
             const std::size_t    texels = static_cast<std::size_t>( texture.mWidth ) * texture.mHeight;
@@ -77,9 +82,9 @@ namespace Desert::Editor
                                                                const std::string&           reference )
     {
         const auto [texture, index] = scene.GetEmbeddedTextureAndIndex( reference.c_str() );
-        if ( !texture )
+        if ( texture == nullptr )
             return Common::MakeSuccess(
-                 SourceTextureFile{ FindSourceTexture( sourcePath.parent_path(), reference ) } );
+                 SourceTextureFile{ FindSourceTexture( sourcePath.parent_path(), reference ), std::nullopt } );
 
         const std::filesystem::path out =
              EmbeddedTexturePath( sourcePath, static_cast<unsigned>( index ), *texture );

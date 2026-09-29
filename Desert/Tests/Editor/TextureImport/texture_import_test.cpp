@@ -665,9 +665,9 @@ TEST_F( TextureImport, AFileThatDoesNotDecodeCooksNothingAndSaysWhy )
 
     TextureImporter importer;
     std::string     text;
-    Common::UUID    handle = Common::UUID( 1ull );
+    auto            handle = Common::UUID( 1ull );
     {
-        LogCapture log;
+        const LogCapture log;
         handle = importer.Import( source );
         text   = log.Text();
     }
@@ -988,8 +988,8 @@ namespace
     void WriteExr( const fs::path& path, const std::vector<float>& rgba, int w, int h,
                    exr_compression_t compression = EXR_COMPRESSION_ZIP )
     {
-        exr_context_t             ctxt = nullptr;
-        exr_context_initializer_t init = EXR_DEFAULT_CONTEXT_INITIALIZER;
+        exr_context_t                   ctxt = nullptr;
+        const exr_context_initializer_t init = EXR_DEFAULT_CONTEXT_INITIALIZER;
         ASSERT_EQ( exr_start_write( &ctxt, path.string().c_str(), EXR_WRITE_FILE_DIRECTLY, &init ),
                    EXR_ERR_SUCCESS );
         int part = -1;
@@ -1005,6 +1005,9 @@ namespace
         exr_encode_pipeline_t encoder     = EXR_ENCODE_PIPELINE_INITIALIZER;
         bool                  encoderLive = false;
         const size_t          lineStride  = static_cast<size_t>( w ) * 4u * sizeof( float );
+        // The encoder reads bytes; the pixels are copied into a byte buffer instead of aliased through a cast.
+        std::vector<uint8_t> bytes( rgba.size() * sizeof( float ) );
+        std::memcpy( bytes.data(), rgba.data(), bytes.size() );
         for ( int y = 0; y < h; y += linesPerChunk )
         {
             exr_chunk_info_t chunk{};
@@ -1012,19 +1015,19 @@ namespace
             ASSERT_EQ( encoderLive ? exr_encoding_update( ctxt, part, &chunk, &encoder )
                                    : exr_encoding_initialize( ctxt, part, &chunk, &encoder ),
                        EXR_ERR_SUCCESS );
-            encoderLive = true;
-            const auto* row =
-                 reinterpret_cast<const uint8_t*>( rgba.data() ) + static_cast<size_t>( y ) * lineStride;
+            encoderLive        = true;
+            const uint8_t* row = bytes.data() + static_cast<size_t>( y ) * lineStride;
             for ( int16_t c = 0; c < encoder.channel_count; ++c )
             {
                 exr_coding_channel_info_t& ch   = encoder.channels[c];
                 const std::string_view     n    = ch.channel_name;
-                const size_t               slot = n == "R" ? 0u : n == "G" ? 1u : n == "B" ? 2u : 3u;
-                ch.encode_from_ptr              = row + slot * sizeof( float );
-                ch.user_pixel_stride            = static_cast<int32_t>( 4u * sizeof( float ) );
-                ch.user_line_stride             = static_cast<int32_t>( lineStride );
-                ch.user_data_type               = EXR_PIXEL_FLOAT;
-                ch.user_bytes_per_element       = static_cast<int16_t>( sizeof( float ) );
+                const size_t               slot = std::string_view( "RGBA" ).find( n.front() );
+                ASSERT_LT( slot, 4u ) << "unexpected channel " << n;
+                ch.encode_from_ptr        = row + slot * sizeof( float );
+                ch.user_pixel_stride      = static_cast<int32_t>( 4u * sizeof( float ) );
+                ch.user_line_stride       = static_cast<int32_t>( lineStride );
+                ch.user_data_type         = EXR_PIXEL_FLOAT;
+                ch.user_bytes_per_element = static_cast<int16_t>( sizeof( float ) );
             }
             ASSERT_EQ( exr_encoding_choose_default_routines( ctxt, part, &encoder ), EXR_ERR_SUCCESS );
             ASSERT_EQ( exr_encoding_run( ctxt, part, &encoder ), EXR_ERR_SUCCESS );
@@ -1159,9 +1162,9 @@ TEST_F( TextureImport, ABrokenExrCooksNothingAndSaysWhereAndWhy )
 
     TextureImporter importer;
     std::string     text;
-    Common::UUID    handle = Common::UUID( 1ull );
+    auto            handle = Common::UUID( 1ull );
     {
-        LogCapture log;
+        const LogCapture log;
         handle = importer.Import( source );
         text   = log.Text();
     }

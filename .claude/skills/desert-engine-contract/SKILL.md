@@ -33,6 +33,16 @@ how good the rest is. Everything else is judgement, and the contract says which 
 
 ---
 
+## 00. A R C H I T E C T U R E comes first (owner, 2026-09-29)
+
+The decision is **how it is structured correctly** (as UE does it or better: clear responsibilities, one source of truth, no legacy,
+no fallbacks) — not what is cheaper, faster or "enough for now". Not acceptable as a solution: a time budget instead of completeness,
+a reduced scope ("meshes only", "the scene only"), a guess ("the first pass", "if the texture is bigger than 1x1"), a bridge to the old
+path. A measurement PROVES the right structure works; it never selects a reduced one. Only the owner may reduce scope. Out of calls →
+hand over part of it with a REMAINDER, never a compromise in code.
+
+---
+
 ## 0. The rule the rest follow from
 
 **Unfinished code does not exist in a branch.** If a task needs a dependency to exist first, write

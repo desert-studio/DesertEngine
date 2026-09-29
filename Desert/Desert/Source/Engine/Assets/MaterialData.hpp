@@ -235,7 +235,7 @@ namespace Desert::Assets
         {
             const MaterialAssetRef* ref = FindRef( Textures, name );
             return Core::Formats::ResolveSlotSampler(
-                 templateDefault, ref ? ref->Sampler : std::optional<Core::Formats::SamplerState>{} );
+                 templateDefault, ref != nullptr ? ref->Sampler : std::optional<Core::Formats::SamplerState>{} );
         }
 
         uint64_t GetCloudAsset( std::string_view name ) const
