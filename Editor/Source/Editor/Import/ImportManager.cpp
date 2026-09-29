@@ -16,7 +16,9 @@
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "ImportedMeshAsset.hpp"
+#include "MeshDeriver.hpp"
 #include "NodeMeshSplit.hpp"
+#include "SourceToEngine.hpp"
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -237,15 +239,21 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
-        // A skinned import is not a MeshSourceAsset, so scale / axis / LOD options would reach nothing: refused
-        // by name instead of dropped.
-        if ( resolved.Mesh && resolved.Mesh->IsSkinned && settings.Mesh != Assets::MeshImportSettings{} )
-            record(
-                 Common::MakeFormattedError<bool>( "'{}' is skinned: Uniform Scale, Up Axis and LOD options apply "
-                                                   "to static meshes only; import it with the defaults",
-                                                   sourcePath.string() ) );
-        else if ( resolved.Mesh && resolved.Mesh->IsSkinned )
+        // IMPORT OPTIONS REACH EVERY MESH OF THE FILE (UE FBX Import Options): a static mesh carries them in its
+        // source and the deriver applies them; a skinned mesh, its skeleton and its clips are written in render
+        // form, so Uniform Scale / Up Axis are baked into all three here (SourceToEngine.hpp) and LOD Generate
+        // simplifies the skinned sections as the deriver does the static ones. A file with no static mesh
+        // (skinned, or skeleton + clips only) is the case: the static path never sees the skeleton.
+        const bool staticMesh = resolved.Mesh && !resolved.Mesh->IsSkinned;
+        if ( !staticMesh )
+            ApplySourceToEngine( settings.Mesh, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
+                                 resolved.Skeleton ? &resolved.Skeleton.value() : nullptr, resolved.Animations );
+        if ( resolved.Mesh && resolved.Mesh->IsSkinned )
+        {
+            if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
+                BakeMeshLODs( resolved.Mesh.value() );
             record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
+        }
         else if ( resolved.Mesh )
         {
             // The static mesh is a source asset beside its file (ImportedMeshAsset.hpp); its slots are named
