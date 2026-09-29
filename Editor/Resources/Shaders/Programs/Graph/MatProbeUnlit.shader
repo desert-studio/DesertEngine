@@ -18,6 +18,8 @@ Shader "MatProbeUnlit"
         ZWrite On
     }
 
+    ShadingModel Unlit
+
     Surface
     {
         SurfaceOutput EvaluateSurface( SurfaceInput i )

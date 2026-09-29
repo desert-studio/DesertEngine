@@ -83,6 +83,15 @@ namespace Desert::Core::Preprocess
     // A template has no program of its own besides its cells, so its DEFAULT program (the empty pass name,
     // what the boot content compiles and what a lookup by shader name returns) is this one cell, by name.
     inline constexpr std::string_view kSurfaceDefaultCell = "Static.Forward";
+    // THE DEFAULT PROGRAM AND THE DEFAULT CELL ARE ONE PROGRAM (UE: one FMaterialShaderMap entry per cell, not a
+    // copy for the lookup by name). Every consumer that enumerates a template's cells — ShaderService's
+    // registration, the boot content's shader maps, the package cook, the shader map key — compiles the default
+    // program once and answers "<Template>/<kSurfaceDefaultCell>" with it. @p isSurfaceTemplate is the caller's
+    // knowledge of the program (a parse's Surface.Cells, or MayDeclareSurface on its text).
+    constexpr bool IsSurfaceDefaultCell( const bool isSurfaceTemplate, const std::string_view passName )
+    {
+        return isSurfaceTemplate && passName == kSurfaceDefaultCell;
+    }
     // The pass whose opaque cells never evaluate the surface: their fragment stage is the pass header alone (no
     // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
     inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
@@ -93,13 +102,23 @@ namespace Desert::Core::Preprocess
         Masked, // the pass headers discard below u_Material.<kSurfaceMaskClipParam>
     };
 
+    // The shading model of a template, as UE's EMaterialShadingModel: a property of the TEMPLATE, read by the pass
+    // headers when the parser builds a cell. DefaultLit is the engine's lighting (Pass_Forward/Pass_GBuffer);
+    // Unlit emits s.Emissive and nothing else — its forward cell declares no lighting resource and its G-buffer
+    // cell writes emission only. The depth cell is the same for both.
+    enum class SurfaceShadingModel
+    {
+        DefaultLit,
+        Unlit,
+    };
+
     // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
     // Value); a Masked template that does not declare it is refused.
     inline constexpr std::string_view kSurfaceMaskClipParam = "OpacityMaskClipValue";
 
     std::string SurfaceCellName( std::string_view path, std::string_view pass );
     std::string SurfaceVertexInclude( std::string_view path );
-    std::string SurfacePassInclude( std::string_view pass );
+    std::string SurfacePassInclude( std::string_view pass, SurfaceShadingModel model );
     // Every engine header any cell of a surface template compiles: the key hashes all of them.
     std::vector<std::string> SurfaceTemplateIncludes();
 
@@ -108,6 +127,7 @@ namespace Desert::Core::Preprocess
     {
         bool                     TwoSided = false;
         SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
+        SurfaceShadingModel      Shading  = SurfaceShadingModel::DefaultLit;
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
     };
 

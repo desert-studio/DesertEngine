@@ -1390,6 +1390,10 @@ namespace Desert::Editor::ShaderGraph
         // generator writes no vertex stage, no main() and not one line of shading.
         out << "    State\n    {\n        Cull Back\n        ZTest LEqual\n        ZWrite On\n    }\n\n";
 
+        // The shading model is the TEMPLATE's (UE's EMaterialShadingModel): an unlit graph's cells are built from
+        // the Unlit pass headers, which name no lighting text and declare no lighting resource.
+        out << ( doc.Lit ? "    ShadingModel DefaultLit\n\n" : "    ShadingModel Unlit\n\n" );
+
         out << "    Surface\n    {\n";
         if ( usesTime )
             out << "        #include <Common/TimeUB.glslh>\n\n";

@@ -136,8 +136,9 @@ TEST( ShippedShaderPasses, EveryRasterPassCanWriteWhatItRendersInto )
 // none, and the pass is the thing to delete.
 namespace
 {
-    // Every program name the mesh passes ask ShaderService for, read off the one (path x pass) table.
-    const std::set<std::string>& CellsTheMeshPassesAskFor()
+    // Every surface cell the mesh passes draw with, read off the one (path x pass) table: "<Path>.<Pass>", on
+    // whichever surface template the material names.
+    const std::set<std::string>& CellsTheMeshPassesDrawWith()
     {
         static const std::set<std::string> names = []
         {
@@ -145,13 +146,14 @@ namespace
             std::set<std::string> out;
             for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
                 for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
-                    if ( const char* name =
-                              MeshShaderFor( static_cast<MeshVertexPath>( path ), static_cast<MeshPass>( pass ) ) )
-                        out.insert( name );
+                    if ( const char* cell =
+                              MeshCellFor( static_cast<MeshVertexPath>( path ), static_cast<MeshPass>( pass ) ) )
+                        out.insert( cell );
             return out;
         }();
         return names;
     }
+
 } // namespace
 
 TEST( ShippedShaderPasses, NoShippedShaderDeclaresAPassNothingCanAddress )
@@ -164,16 +166,16 @@ TEST( ShippedShaderPasses, NoShippedShaderDeclaresAPassNothingCanAddress )
         for ( const auto& passName : parsed.Meta.PassNames )
         {
             // A SURFACE CELL is addressed through the (path x pass) table, not a literal GetByName: the
-            // mesh passes ask for MeshShaderFor( path, pass ), which names "<Template>/<Path>.<Pass>".
-            // So a cell is reachable exactly when that table names it. The one expected exception is
+            // mesh passes draw MeshCellFor( path, pass ) of the material's template, "<Template>/<Path>.<Pass>",
+            // and ShaderService registers that name for every template. So a cell is reachable exactly when
+            // the table names it, whichever template declares it. The one expected exception is
             // the depth cell: shadow depth still draws with the three Shadow* programs until SURF1d
             // routes the cascade pass through the template's ShadowDepth cells.
             const bool isCell = std::find( parsed.Surface.Cells.begin(), parsed.Surface.Cells.end(), passName ) !=
                                 parsed.Surface.Cells.end();
             if ( isCell )
             {
-                const std::string program = parsed.Name + "/" + passName;
-                if ( CellsTheMeshPassesAskFor().count( program ) != 0 )
+                if ( CellsTheMeshPassesDrawWith().count( passName ) != 0 )
                     continue;
                 if ( passName.ends_with( std::string( ".") + std::string( Desert::Core::Preprocess::kSurfaceDepthPass ) ) )
                     continue; // SURF1d: the cascade pass is not on the template yet

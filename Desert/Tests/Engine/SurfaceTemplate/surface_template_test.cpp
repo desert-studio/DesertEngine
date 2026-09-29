@@ -107,7 +107,8 @@ TEST_F( SurfaceTemplateFixture, TheSurfaceBlockExpandsIntoTheNineNamedCells )
 
         const auto& fragment = cell->Stages.at( Desert::Core::Formats::ShaderStage::Fragment );
         const auto  pass     = name.substr( name.find( '.' ) + 1 );
-        EXPECT_NE( fragment.find( PP::SurfacePassInclude( pass ) ), std::string::npos ) << name;
+        EXPECT_NE( fragment.find( PP::SurfacePassInclude( pass, result.Surface.Shading ) ), std::string::npos )
+             << name;
         EXPECT_NE( fragment.find( "EvaluateSurface" ), std::string::npos ) << name;
         EXPECT_NE( fragment.find( "#define DESERT_SURFACE_MASKED" ), std::string::npos ) << name;
         const auto& vertex = cell->Stages.at( Desert::Core::Formats::ShaderStage::Vertex );
@@ -215,7 +216,9 @@ TEST_F( SurfaceTemplateFixture, EditingAnyCellHeaderMovesTheKeyOfEveryCell )
     };
 
     const auto headers = PP::SurfaceTemplateIncludes();
-    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + PP::kSurfaceCellPasses.size() );
+    // Types + one vertex header per path + one pass header per (pass x shading model), the depth pass shared by
+    // both models (SurfacePassInclude).
+    EXPECT_EQ( headers.size(), 1u + PP::kSurfaceVertexPaths.size() + 2u * PP::kSurfaceCellPasses.size() - 1u );
     for ( const auto& header : headers )
     {
         ASSERT_TRUE( std::filesystem::exists( shaders / header ) ) << header;

@@ -11,6 +11,8 @@ Shader "MatLitConst"
         ZWrite On
     }
 
+    ShadingModel DefaultLit
+
     Surface
     {
         SurfaceOutput EvaluateSurface( SurfaceInput i )

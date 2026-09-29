@@ -178,6 +178,12 @@ namespace Desert::Graphic
     // that silence is what defect (2) above was made of.
     const char* MeshShaderFor( MeshVertexPath path, MeshPass pass );
 
+    // The surface CELL a (path x pass) draws with, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or nullptr
+    // where the pass is not drawn through a surface template's cell (Glass, shadow depth). Template-independent:
+    // the program is "<Template>/<Cell>" for WHICHEVER surface template the material names, so every template's
+    // cells are addressable the same way. MeshShaderFor above is this cell on StandardSurface.
+    const char* MeshCellFor( MeshVertexPath path, MeshPass pass );
+
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's
     // `InstanceTransforms`; both are free in every other variant, which is what makes "same surface,

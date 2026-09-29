@@ -260,7 +260,12 @@ namespace Desert::Core
         FnvMix( key, kOptionsFingerprint );
         FnvMix( key, spirvDebugInfo ? "|debuginfo" : "|nodebuginfo" );
         FnvMix( key, "|pass:" );
-        FnvMix( key, passName );
+        // ONE KEY PER CELL: a surface template's default cell and its default program are one program
+        // (IsSurfaceDefaultCell), so asking by either name finds the same map.
+        FnvMix( key, Preprocess::IsSurfaceDefaultCell(
+                          Preprocess::DShaderParser::MayDeclareSurface( programSource ), passName )
+                          ? std::string_view()
+                          : std::string_view( passName ) );
         FnvMix( key, "|" );
         const uint64_t variantHash = variant.Hash();
         FnvMix( key, std::string_view( reinterpret_cast<const char*>( &variantHash ), sizeof variantHash ) );

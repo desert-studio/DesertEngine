@@ -1,5 +1,7 @@
 #include "MeshVertexPath.hpp"
 
+#include <string_view>
+
 namespace Desert::Graphic
 {
     namespace
@@ -18,6 +20,16 @@ namespace Desert::Graphic
                "Shadow_Instanced" },
         };
     } // namespace
+
+    const char* MeshCellFor( MeshVertexPath path, MeshPass pass )
+    {
+        // Read off the one table: the part after "<Template>/" of a StandardSurface entry is the cell.
+        constexpr std::string_view kTemplatePrefix = "StandardSurface/";
+        const char*                program         = MeshShaderFor( path, pass );
+        if ( program == nullptr || !std::string_view( program ).starts_with( kTemplatePrefix ) )
+            return nullptr;
+        return program + kTemplatePrefix.size();
+    }
 
     const char* MeshShaderFor( MeshVertexPath path, MeshPass pass )
     {
