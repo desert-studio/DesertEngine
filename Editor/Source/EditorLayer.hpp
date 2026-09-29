@@ -392,6 +392,13 @@ namespace Desert::Editor
         // have separate owners and separate close semantics — a tool passes &GetVisibility() to Begin, a
         // document passes a frame-local bool whose false is a CLOSE REQUEST, not a hidden window.
         void DrawDocuments();
+        // UE's major tabs: "Scene" plus one tab per open document that OpensAsMajorTab(); the one in front
+        // owns the whole dock area and the level's panels are not drawn.
+        void                DrawMajorTabStrip();
+        [[nodiscard]] bool MajorTabActive() const
+        {
+            return !m_ActiveMajorTab.IsNull();
+        }
         // The refusal, on screen. A seventh renderer consumer is refused; before this the refusal was a
         // line in the log and the click simply looked dead. The census text already existed — it had
         // nowhere to be shown.
@@ -640,6 +647,10 @@ namespace Desert::Editor
         // Documents whose opening has been placed. The placement is applied ONCE, on the first frame the
         // window exists; afterwards the window is the person's and is only observed.
         std::unordered_set<SubjectId> m_PlacedDocuments;
+        SubjectId                     m_ActiveMajorTab; // null = the level ("Scene") is in front
+        std::unordered_set<SubjectId> m_SeenMajorTabs;  // a tab not seen before comes to the front once
+        glm::vec2                     m_MajorTabOrigin{ 0.0f };
+        glm::vec2                     m_MajorTabSize{ 0.0f };
         void                          RegisterDocumentPlacementHandler();
 
         // A refused open, waiting to be shown (see DrawOpenRefusedPopup). Holds the census by value: the

@@ -173,3 +173,46 @@ TEST_F( NotifyTracks, ACurveKeyIsOneUndoRecordAndCreatesTheCurve )
     ASSERT_TRUE( CommandHistory::Get().Undo() );
     EXPECT_TRUE( clip.Curves.empty() );
 }
+
+// The rule behind "Save*": the clip in memory against the clip its FILE holds. A window reopened on an edited
+// clip compares with the file, so the edit is still dirty (ANV1c3 lost it by comparing with a reopen snapshot).
+TEST_F( NotifyTracks, AnEditIsDirtyAgainstTheFileAndUndoMakesItCleanAgain )
+{
+    const AnimationClip onDisk = ThreeNotifies();
+    AnimationClip       clip   = onDisk;
+    EXPECT_FALSE( Desert::Editor::ClipDiffersFromFile( clip, onDisk ) );
+
+    ASSERT_TRUE( Desert::Editor::SetNotifyDuration( clip, 0, FrameNumber{ 8000 }, CommandHistory::Get(), {} ) );
+    EXPECT_TRUE( Desert::Editor::ClipDiffersFromFile( clip, onDisk ) ) << "a state's LENGTH is authoring too";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_FALSE( Desert::Editor::ClipDiffersFromFile( clip, onDisk ) );
+
+    ASSERT_TRUE( Desert::Editor::SetCurveKey( clip, "Weight", FrameNumber{ 0 }, 0.5f,
+                                              Desert::Animation::KeyInterp::Linear, CommandHistory::Get(), {} ) );
+    EXPECT_TRUE( Desert::Editor::ClipDiffersFromFile( clip, onDisk ) ) << "a curve key is authoring too";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_FALSE( Desert::Editor::ClipDiffersFromFile( clip, onDisk ) );
+}
+
+TEST_F( NotifyTracks, DraggingAStateEdgeMovesOnlyThatEdgeAndKeepsOneTick )
+{
+    using Desert::Editor::DragNotifyStateEdge;
+    using Desert::Editor::NotifyStateEdge;
+    const AnimationNotify state{ "FootPlant", FrameNumber{ 8000 }, 0, FrameNumber{ 8000 } }; // [8000, 16000)
+    const FrameNumber     duration{ 48000 };
+
+    const auto endMoved = DragNotifyStateEdge( state, NotifyStateEdge::End, FrameNumber{ 20000 }, duration );
+    EXPECT_EQ( endMoved.Tick.Value, 8000 );
+    EXPECT_EQ( endMoved.DurationTicks.Value, 12000 );
+
+    const auto beginMoved = DragNotifyStateEdge( state, NotifyStateEdge::Begin, FrameNumber{ 4000 }, duration );
+    EXPECT_EQ( beginMoved.Tick.Value, 4000 );
+    EXPECT_EQ( beginMoved.DurationTicks.Value, 12000 ) << "the end stays at 16000";
+
+    const auto crushed = DragNotifyStateEdge( state, NotifyStateEdge::Begin, FrameNumber{ 30000 }, duration );
+    EXPECT_EQ( crushed.Tick.Value, 15999 );
+    EXPECT_EQ( crushed.DurationTicks.Value, 1 ) << "a state never collapses into an instant by a drag";
+
+    const auto past = DragNotifyStateEdge( state, NotifyStateEdge::End, FrameNumber{ 90000 }, duration );
+    EXPECT_EQ( past.Tick.Value + past.DurationTicks.Value, 48000 ) << "the span stays inside the clip";
+}

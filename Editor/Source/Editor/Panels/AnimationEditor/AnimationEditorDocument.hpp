@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Panels/AnimationEditor/AnimationEditorIdentity.hpp>
+#include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationTransport.hpp>
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
@@ -23,6 +24,11 @@ namespace Desert::Assets
     class AssetManager;
     class AnimationAsset;
     class SkinnedMeshAsset;
+}
+
+namespace Desert::Animation
+{
+    class AnimationLibrary;
 }
 
 namespace Desert::Editor::UI
@@ -63,7 +69,9 @@ namespace Desert::Editor
     class AnimationEditorDocument final : public AnimationEditorBase
     {
     public:
-        AnimationEditorDocument( const Assets::AssetHandle& clip, Assets::AssetManager* assets );
+        // @p library answers the Asset Browser (clips of the preview's rig); @p editors opens the one picked.
+        AnimationEditorDocument( const Assets::AssetHandle& clip, Assets::AssetManager* assets,
+                                 Animation::AnimationLibrary* library, const SubjectEditorRegistry* editors );
         ~AnimationEditorDocument() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -77,6 +85,11 @@ namespace Desert::Editor
         [[nodiscard]] bool IsSubjectAlive() const override;
 
         [[nodiscard]] bool HasPreview() const override
+        {
+            return true;
+        }
+        // UE: an asset editor is a major tab of its own, not a tab beside the level viewport.
+        [[nodiscard]] bool OpensAsMajorTab() const override
         {
             return true;
         }
@@ -102,20 +115,25 @@ namespace Desert::Editor
         void                      DrawBoneDetails() const;
         void                      DrawAssetDetails();
         void                      DrawPreviewSceneSettings();
+        void                      DrawAssetBrowser();
         void                      DrawBones( const glm::vec2& origin, const glm::vec2& size ) const;
         void                      SetPreviewMesh( size_t candidate );
         [[nodiscard]] std::string PanelTitle( const char* name ) const;
         void DrawTransport();
         void                DrawTimeline( float width, float height );
         void                DrawNotifyPopups( Animation::AnimationClip& clip );
+        void                DrawCurvePopups( Animation::AnimationClip& clip );
+        bool                EditCurveKey( const std::string& name, int32_t tick, float value );
         [[nodiscard]] float TimelineHeight() const;
 
         // The clip asset, found and loaded on first use (a palette entry can run before the first draw).
         [[nodiscard]] Assets::AnimationAsset* ClipAsset();
         bool EditNotifies( std::vector<Animation::AnimationNotify> edited, std::string label );
-        bool AddNotify( std::string name, double seconds, int32_t track );
+        bool AddNotify( std::string name, double seconds, int32_t track, int32_t durationTicks = 0 );
 
-        Assets::AssetManager*            m_Assets = nullptr;
+        Assets::AssetManager*            m_Assets  = nullptr;
+        Animation::AnimationLibrary*     m_Library = nullptr;
+        const SubjectEditorRegistry*     m_Editors = nullptr;
         std::unique_ptr<PreviewViewport> m_Preview;
         std::unique_ptr<UI::UIHelper>    m_UIHelper;
         bool                             m_DrewThisFrame = false;
@@ -135,8 +153,10 @@ namespace Desert::Editor
         Assets::AssetRootPin                    m_ClipPin;
         std::shared_ptr<Assets::AnimationAsset> m_ClipAsset;
         std::filesystem::path                   m_ClipPath;
-        bool                                    m_Tracked = false; // m_OnDiskNotifies is what the file holds
-        std::vector<Animation::AnimationNotify> m_OnDiskNotifies;
+        bool m_Tracked = false; // the clip came from a file, which m_OnDisk holds as read or last written
+        // What the FILE holds, read from it on open (never a snapshot of the shared asset, which outlives the
+        // window with its edits) — the "Save*" rule is ClipDiffersFromFile against it.
+        std::optional<Animation::AnimationClip> m_OnDisk;
         std::string                             m_SaveStatus;
         bool                                    m_SaveFailed      = false;
         int32_t                                 m_AddedNotifyRows = 0;
@@ -147,7 +167,22 @@ namespace Desert::Editor
         double                                  m_PopupSeconds = 0.0;
         std::array<char, 128>                   m_NameBuffer{};
         // Every registered skeletal mesh on the clip's rig, sorted by path; the preview shows m_MeshIndex.
-        std::vector<std::pair<std::string, std::shared_ptr<Assets::SkinnedMeshAsset>>> m_MeshCandidates;
+        // Candidates by the registry's Rig tag, NOT loaded: only the one shown is (ANV1c3 loaded every one).
+        std::vector<std::filesystem::path>                                             m_MeshCandidates;
+        std::shared_ptr<Assets::SkinnedMeshAsset>                                      m_Mesh;
+        // Notify State edge drag, curve key drag and the curve popups.
+        int32_t                                                                        m_DragState = -1;
+        NotifyStateEdge                                                                m_DragEdge  = NotifyStateEdge::End;
+        int32_t                                                                        m_DragCurve = -1;
+        int32_t                                                                        m_DragKey   = -1;
+        std::string                                                                    m_PopupCurve;
+        int32_t                                                                        m_PopupKeyTick   = 0;
+        float                                                                          m_PopupKeyValue  = 0.0f;
+        bool                                                                           m_PopupAddState  = false;
+        // Asset Browser: the clips of the preview's rig, listed once per mesh.
+        std::array<char, 64>                                                           m_BrowserFilter{};
+        std::vector<std::pair<std::string, Assets::AssetHandle>>                       m_BrowserClips;
+        bool                                                                           m_BrowserListed = false;
         size_t                                                                         m_MeshIndex = 0;
         std::optional<uint32_t>                                                        m_SelectedBone;
         std::vector<bool>                                                              m_CollapsedBones;
