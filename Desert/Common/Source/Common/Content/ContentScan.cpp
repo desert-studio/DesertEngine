@@ -268,6 +268,24 @@ namespace Common::Content
             return document ? document.GetValue().Signature : 0;
         }
 
+        // A clip's `SkeletonSignature` member: the rig its channels were baked against (AnimationAsset checks the
+        // skeleton it plays on against it). The Asset Browser lists a rig's clips from this tag, nothing loaded.
+        struct StatedClipRig
+        {
+            uint64_t SkeletonSignature = 0;
+        };
+        DESERT_JSON_LENIENT( StatedClipRig, "reads the one SkeletonSignature member of a whole clip document; the "
+                                            "channels, notifies and curves are the rest of that clip, not damage" )
+        uint64_t StatedClipRigSignature( const std::filesystem::path& file )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return 0;
+            const auto document = Json::Read<StatedClipRig>( text.GetValue() );
+            return document ? document.GetValue().SkeletonSignature : 0;
+        }
+
         ResultStr<MeshHeaderBounds> ReadStatedPrefabBounds( const std::filesystem::path& file )
         {
             const auto text =
@@ -337,6 +355,8 @@ namespace Common::Content
             described.DisplayName = StatedDisplayName( file, member );
         if ( kind == ContentKind::Skeleton )
             described.RigSignature = StatedRigSignature( file );
+        if ( kind == ContentKind::Animation )
+            described.RigSignature = StatedClipRigSignature( file );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );

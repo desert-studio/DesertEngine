@@ -16,7 +16,6 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
-#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Animator.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -96,16 +95,35 @@ namespace Desert::Editor
         }
     } // namespace
 
-    AnimationEditorDocument::AnimationEditorDocument( const Assets::AssetHandle& clip,
-                                                      Assets::AssetManager*      assets,
-                                                      Animation::AnimationLibrary* library,
+    AnimationEditorDocument::AnimationEditorDocument( const Assets::AssetHandle&   clip,
+                                                      Assets::AssetManager*        assets,
                                                       const SubjectEditorRegistry* editors )
          : AnimationEditorBase( AssetSubjectTitle( clip, assets, "Animation" ), clip ), m_Assets( assets ),
-           m_Library( library ), m_Editors( editors ), m_ClipPin( clip, "open in the Animation Editor" )
+           m_Editors( editors ), m_ClipPin( clip, "open in the Animation Editor" )
     {
     }
 
-    AnimationEditorDocument::~AnimationEditorDocument() = default;
+    AnimationEditorDocument::~AnimationEditorDocument()
+    {
+        // The undo records of this window write through a raw pointer into the clip's payload, which the
+        // manager may evict once m_ClipPin is gone: they leave the process-wide history with the window, so an
+        // Undo after the close never writes into a freed clip (ClipEditUndo, AClosedEditorsRecords...).
+        if ( m_ClipAsset )
+            CommandHistory::Get().DropFor( &m_ClipAsset->GetClip() );
+    }
+
+    bool AnimationEditorDocument::DiscardEdits()
+    {
+        // "Don't Save" on the close question: the shared asset outlives the window, so the file's notifies and
+        // curves go back into it - otherwise the next opening would show the discarded edits as unsaved.
+        if ( !m_ClipAsset || !m_OnDisk )
+            return false;
+        auto& clip    = m_ClipAsset->GetClipForAuthoring();
+        clip.Notifies = m_OnDisk->Notifies;
+        clip.Curves   = m_OnDisk->Curves;
+        CommandHistory::Get().DropFor( &clip );
+        return true;
+    }
 
     bool AnimationEditorDocument::IsSubjectAlive() const
     {
@@ -808,21 +826,22 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::DrawAssetBrowser()
     {
-        // UE's Asset Browser in Persona: the clips that play on the previewed rig (AnimationLibrary's one rule,
-        // ClipSkeletonMatch), a search, and a double click to open one.
-        const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
-        if ( animator == nullptr || m_Library == nullptr )
+        // UE's Asset Browser in Persona: the clips that play on the previewed rig, a search, and a double click to
+        // open one. Listed from the CONTENT REGISTRY by each clip's Rig tag (the scan reads a clip's stated
+        // SkeletonSignature, ContentScan.cpp) - nothing is loaded to list them, as UE's browser reads the
+        // registry's tags; AnimationLibrary holds only the clips something already loaded.
+        const uint64_t signature = m_ClipAsset ? m_ClipAsset->GetSkeletonSignature() : 0;
+        if ( signature == 0 )
         {
-            ImGui::TextDisabled( "No rig previewed yet: nothing to list clips for." );
+            ImGui::TextDisabled( "The clip names no skeleton: nothing to list clips for." );
             return;
         }
         if ( !m_BrowserListed )
         {
             m_BrowserClips.clear();
-            for ( const auto& clip : m_Library->GetForSkeleton( animator->GetSkeleton() ) )
-                if ( clip )
-                    m_BrowserClips.emplace_back( clip->GetMetadata().Filepath.filename().string(),
-                                                 clip->GetMetadata().Handle );
+            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
+                if ( row.RigSignature == signature )
+                    m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
             std::ranges::sort( m_BrowserClips );
             m_BrowserListed = true;
         }

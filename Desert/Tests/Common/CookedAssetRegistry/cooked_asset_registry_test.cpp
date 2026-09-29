@@ -747,3 +747,27 @@ TEST( CookedAssetRegistry, AVersionFiveCacheIsRefusedBecauseItsPrefabRowsHaveNoB
          "DesertAssetRegistryCache 5\nDesertAssetRegistry 5\n229 Material - - - - - assets:M.demat\n" );
     EXPECT_FALSE( old ) << "a version-5 registry cache was read";
 }
+
+// ANV1d2: A CLIP'S ROW CARRIES THE RIG ITS FILE STATES (SkeletonSignature), read beside the header and never by
+// loading the clip - the Animation Editor's Asset Browser lists a rig's clips from the registry alone.
+TEST( CookedAssetRegistry, AClipRowCarriesTheRigItsFileStates )
+{
+    namespace fs = std::filesystem;
+    const fs::path corpus =
+         Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Assets/Meshes/Skinned/TwoBoneProbe_Wave.anim";
+    ASSERT_TRUE( fs::exists( corpus ) ) << corpus.string();
+    const auto described = Common::Content::DescribeContentFile( corpus, Common::Content::ContentKind::Animation );
+    EXPECT_EQ( described.RigSignature, 13952148091082370875ULL ) << "the clip's stated SkeletonSignature";
+    const auto row = Common::Content::RegistryRowFor( "assets:Meshes/Skinned/TwoBoneProbe_Wave.anim", described );
+    ASSERT_TRUE( row ) << row.GetError();
+    EXPECT_EQ( row.GetValue().RigSignature, 13952148091082370875ULL ) << "the tag reaches the registry row";
+
+    const fs::path dir = fs::temp_directory_path() / "anv1d2_clip_rig";
+    fs::create_directories( dir );
+    const fs::path file = dir / "NoRig.anim";
+    std::ofstream( file ) << R"({ "Name": "NoRig", "Channels": [] })";
+    EXPECT_EQ( Common::Content::DescribeContentFile( file, Common::Content::ContentKind::Animation ).RigSignature,
+               0u )
+         << "a clip stating no rig lists under none";
+    fs::remove_all( dir );
+}

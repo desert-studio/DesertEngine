@@ -982,7 +982,7 @@ namespace Desert::Editor
                            {
                                return std::make_unique<Editor::AnimationEditorDocument>(
                                     Assets::AssetHandle( subject.Owner ), m_AssetManager.get(),
-                                    m_AnimationLibrary.get(), &m_SubjectEditors );
+                                    &m_SubjectEditors );
                            },
                            [this]( const SubjectId& subject )
                            {

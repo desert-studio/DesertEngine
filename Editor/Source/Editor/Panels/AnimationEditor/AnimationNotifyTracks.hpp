@@ -100,6 +100,10 @@ namespace Desert::Editor
         {
             return m_Label;
         }
+        [[nodiscard]] const void* EditedObject() const override
+        {
+            return m_Clip;
+        }
 
     private:
         bool Set( const std::vector<Animation::AnimationNotify>& notifies )
@@ -255,6 +259,10 @@ namespace Desert::Editor
         [[nodiscard]] std::string GetLabel() const override
         {
             return m_Label;
+        }
+        [[nodiscard]] const void* EditedObject() const override
+        {
+            return m_Clip;
         }
 
     private:

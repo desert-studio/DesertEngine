@@ -3,12 +3,14 @@
 // is the one the Animator fires (both read Animation::NotifyCrossed).
 
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/UnsavedClose.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <vector>
 
 using Desert::Animation::AnimationClip;
@@ -215,4 +217,47 @@ TEST_F( NotifyTracks, DraggingAStateEdgeMovesOnlyThatEdgeAndKeepsOneTick )
 
     const auto past = DragNotifyStateEdge( state, NotifyStateEdge::End, FrameNumber{ 90000 }, duration );
     EXPECT_EQ( past.Tick.Value + past.DurationTicks.Value, 48000 ) << "the span stays inside the clip";
+}
+
+// ANV1d2: A CLOSED ANIMATION EDITOR TAKES ITS UNDO RECORDS WITH IT. The history is process-wide; the clip's
+// payload is not (the window's root pin goes, the manager may evict it). Closing drops every record that writes
+// into that clip, so an Undo after the close walks past them and never reaches freed memory (ASan-clean).
+TEST_F( NotifyTracks, AClosedEditorsRecordsLeaveTheHistoryAndUndoNeverReachesItsClip )
+{
+    auto          closing = std::make_unique<AnimationClip>( ThreeNotifies() );
+    AnimationClip other   = ThreeNotifies();
+    auto          edited  = closing->Notifies;
+    edited[0].Tick        = FrameNumber{ 8000 };
+    ASSERT_TRUE( Desert::Editor::ApplyNotifyEdit( other, edited, "Move Notify", CommandHistory::Get(), {} ) );
+    ASSERT_TRUE( Desert::Editor::ApplyNotifyEdit( *closing, edited, "Move Notify", CommandHistory::Get(), {} ) );
+    ASSERT_TRUE( Desert::Editor::SetCurveKey( *closing, "Blink", FrameNumber{ 2400 }, 1.0F,
+                                              Desert::Animation::KeyInterp::Cubic, CommandHistory::Get(), {} ) );
+    ASSERT_TRUE( CommandHistory::Get().Undo() ); // the curve key, into the redo stack
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 2u );
+    EXPECT_EQ( CommandHistory::Get().RedoStack().size(), 1u );
+
+    CommandHistory::Get().DropFor( closing.get() );
+    closing.reset(); // the payload dies with the window
+
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1u ) << "only the other clip's record is left";
+    EXPECT_TRUE( CommandHistory::Get().RedoStack().empty() ) << "a redo into the dead clip is gone too";
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( other.Notifies[0].Tick.Value, 4000 ) << "the surviving record still undoes its own clip";
+    EXPECT_FALSE( CommandHistory::Get().Undo() );
+}
+
+// ANV1d2: the close question's rule - asked only of a dirty document the person closed; Save closes only when
+// the file was written, Don't Save always closes, Cancel never does.
+TEST( UnsavedClose, AsksOnlyADirtyDocumentThePersonClosedAndClosesPerAnswer )
+{
+    using Desert::Editor::CloseAfterAnswer;
+    using Desert::Editor::CloseAsksFirst;
+    using Desert::Editor::UnsavedCloseChoice;
+    EXPECT_TRUE( CloseAsksFirst( true, true ) );
+    EXPECT_FALSE( CloseAsksFirst( false, true ) ) << "a clean or untracked document closes without a question";
+    EXPECT_FALSE( CloseAsksFirst( true, false ) ) << "a close the editor makes itself cannot ask anyone";
+    EXPECT_TRUE( CloseAfterAnswer( UnsavedCloseChoice::Save, true ) );
+    EXPECT_FALSE( CloseAfterAnswer( UnsavedCloseChoice::Save, false ) ) << "a failed save keeps the window";
+    EXPECT_TRUE( CloseAfterAnswer( UnsavedCloseChoice::Discard, false ) );
+    EXPECT_FALSE( CloseAfterAnswer( UnsavedCloseChoice::Cancel, true ) );
 }

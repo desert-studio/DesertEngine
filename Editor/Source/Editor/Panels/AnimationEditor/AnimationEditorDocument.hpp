@@ -26,11 +26,6 @@ namespace Desert::Assets
     class SkinnedMeshAsset;
 }
 
-namespace Desert::Animation
-{
-    class AnimationLibrary;
-}
-
 namespace Desert::Editor::UI
 {
     class UIHelper;
@@ -69,9 +64,9 @@ namespace Desert::Editor
     class AnimationEditorDocument final : public AnimationEditorBase
     {
     public:
-        // @p library answers the Asset Browser (clips of the preview's rig); @p editors opens the one picked.
+        // @p editors opens the clip picked in the Asset Browser (which lists the content registry's rows).
         AnimationEditorDocument( const Assets::AssetHandle& clip, Assets::AssetManager* assets,
-                                 Animation::AnimationLibrary* library, const SubjectEditorRegistry* editors );
+                                 const SubjectEditorRegistry* editors );
         ~AnimationEditorDocument() override;
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -102,6 +97,8 @@ namespace Desert::Editor
 
         [[nodiscard]] DiskState GetDiskState() const override;
         bool                    SaveDocument() override;
+        // Puts the file's notifies and curves back into the shared clip ("Don't Save" on close).
+        bool DiscardEdits() override;
 
     protected:
         void DestroyPreview() override;
@@ -132,7 +129,6 @@ namespace Desert::Editor
         bool AddNotify( std::string name, double seconds, int32_t track, int32_t durationTicks = 0 );
 
         Assets::AssetManager*            m_Assets  = nullptr;
-        Animation::AnimationLibrary*     m_Library = nullptr;
         const SubjectEditorRegistry*     m_Editors = nullptr;
         std::unique_ptr<PreviewViewport> m_Preview;
         std::unique_ptr<UI::UIHelper>    m_UIHelper;
