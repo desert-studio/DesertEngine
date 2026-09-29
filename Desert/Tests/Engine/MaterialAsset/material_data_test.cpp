@@ -3,7 +3,6 @@
 
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
-#include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -11,7 +10,6 @@
 using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::MaterialData;
 using Desert::Assets::MaterialShaderParam;
-using Desert::Assets::PBRSurfaceParams;
 
 // ─── The unified protocol: MaterialData is the ONLY material storage ─────────────────────
 
@@ -81,45 +79,19 @@ TEST( MaterialData, PBRJsonRoundTripKeepsShaderAbsent )
     EXPECT_FALSE( back.GetValue().Shader.has_value() );
 }
 
-// ─── PBRSurfaceParams: the optimized backend's typed VIEW of the canon ───────────────────
+// ─── The canon stores what it states; the template's layout supplies the rest ────────────
 
-TEST( PBRSurfaceParams, TypedViewToCanonAndBack )
+TEST( MaterialData, AMinimalCanonStatesOnlyItsOwnValues )
 {
-    PBRSurfaceParams p;
-    p.AlbedoColor     = glm::vec4( 0.2f, 0.4f, 0.6f, 1.0f );
-    p.RoughnessFactor = 0.33f;
-    p.GlassTint       = glm::vec4( 0.9f, 0.8f, 0.7f, 0.5f );
-    p.AlbedoTexture   = Desert::Assets::AssetHandle( 777ull );
-    p.UVTiling        = glm::vec2( 3.0f, 5.0f );
-
-    const MaterialData canon = p.ToMaterialData();
-    EXPECT_FLOAT_EQ( canon.GetParam( "AlbedoColor" ).y, 0.4f );
-    EXPECT_FLOAT_EQ( canon.GetFloat( "RoughnessFactor" ), 0.33f );
-    EXPECT_FLOAT_EQ( canon.GetParam( "GlassTint" ).w, 0.5f );
-    EXPECT_FLOAT_EQ( canon.GetParam( "UVTiling" ).y, 5.0f );
-    // The typed view's handle is a fold, not an identity: it is NOT written back (MATL 3 names by GUID).
-    EXPECT_TRUE( canon.Textures.empty() );
-
-    const PBRSurfaceParams back = PBRSurfaceParams::FromMaterialData( canon );
-    EXPECT_FLOAT_EQ( back.AlbedoColor.y, 0.4f );
-    EXPECT_FLOAT_EQ( back.RoughnessFactor, 0.33f );
-    EXPECT_FLOAT_EQ( back.GlassTint.w, 0.5f );
-    ASSERT_TRUE( back.UVTiling.has_value() );
-    EXPECT_FLOAT_EQ( back.UVTiling->y, 5.0f );
-    EXPECT_EQ( static_cast<uint64_t>( back.AlbedoTexture ), 0ull );
-}
-
-TEST( PBRSurfaceParams, FromCanonUsesDefaultsForMissingParams )
-{
-    // A minimal canon (e.g. a hand-written .demat) -> the typed view falls back to schema defaults.
+    // No C++ view restates a template's defaults: a parameter the material does not state is ABSENT from the
+    // canon, and the template's MaterialLayout (its Properties block) answers its default at bind time.
     MaterialData m;
     m.SetParam( "AlbedoColor", glm::vec4( 0.1f, 0.2f, 0.3f, 1.0f ) );
 
-    const PBRSurfaceParams p = PBRSurfaceParams::FromMaterialData( m );
-    EXPECT_FLOAT_EQ( p.AlbedoColor.z, 0.3f );
-    EXPECT_FLOAT_EQ( p.RoughnessFactor, 0.5f ); // default
-    EXPECT_FLOAT_EQ( p.IOR, 1.5f );             // default
-    EXPECT_EQ( static_cast<uint64_t>( p.NormalTexture ), 0ull );
+    EXPECT_FLOAT_EQ( m.GetParam( "AlbedoColor" ).z, 0.3f );
+    EXPECT_EQ( m.FindParam( "RoughnessFactor" ), nullptr );
+    EXPECT_FLOAT_EQ( m.GetFloat( "RoughnessFactor", 0.5f ), 0.5f ); // the caller's default, i.e. the layout's
+    EXPECT_TRUE( m.Textures.empty() );
 }
 
 // ─── Migration: pre-protocol .demat layouts parse as the legacy reader shape ─────────────

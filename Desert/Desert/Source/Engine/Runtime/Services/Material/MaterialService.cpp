@@ -3,6 +3,8 @@
 
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Project/ProjectContext.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
@@ -167,13 +169,20 @@ namespace Desert::Runtime
         // material is legitimately built by the terrain, the Material Editor and the File Explorer; the
         // refusal lives in MeshRenderer::DrawGenericMeshes, which asks Core::Formats::DrawnByMeshPath().
         const std::string templateName = asset->GetShaderName();
-        const auto        cell         = Graphic::SurfaceCellShader( templateName, path, pass );
+        auto              cell         = Graphic::MeshShaderFor( templateName, path, pass );
+        // A template with no Surface block registers no cells: it is drawn by its own default program on the
+        // generic path, which is its (Static x Forward) and nothing else.
+        // (The glass program is no template's cell and is asked for as it is.)
+        if ( cell && Graphic::MeshCellPath( *cell ) && !ResourceRegistry::GetShaderService()->GetByName( *cell ) )
+            cell = ( path == Graphic::MeshVertexPath::Static && pass == Graphic::MeshPass::Forward )
+                        ? std::optional<std::string>( templateName )
+                        : std::nullopt;
         if ( !cell )
         {
-            LOG_WARN( "[Materials] Material '{}' uses the template '{}', which has no ({} x {}) cell — a DSL "
-                      "surface carries no skinning, instancing or G-buffer stage. The mesh asking for it "
-                      "falls back to the default surface material; assign a material whose template has "
-                      "that cell, or author one for '{}'.",
+            LOG_WARN( "[Materials] Material '{}' uses the template '{}', which has no ({} x {}) cell — a shader "
+                      "without a Surface block carries no skinning, instancing or G-buffer stage. The mesh asking "
+                      "for it falls back to the default surface material; assign a material whose template has "
+                      "that cell, or give '{}' a Surface block.",
                       asset->GetMetadata().Filepath.generic_string(), templateName,
                       Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ), templateName );
             return nullptr;
@@ -249,6 +258,36 @@ namespace Desert::Runtime
         // The mesh->material link resolves by EXTERNAL id, so the map must exist before any build.
         m_ExternalToInternal[materialAsset->GetMaterialUUID()] = handle;
         return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<std::string> MaterialService::DefaultSurfaceTemplate() const
+    {
+        const auto assets = m_Assets.lock();
+        if ( !assets )
+            return Common::MakeError<std::string>(
+                 std::string( "no asset manager is bound, so no template declares 'Default Surface' yet" ) );
+        const auto handle = Assets::FindDefaultSurfaceTemplate( *assets, Project::ProjectContext::DefaultSurfaceTemplate(),
+                                                                Project::ProjectContext::FilePath() );
+        if ( !handle )
+            return Common::MakeError<std::string>( handle.GetError() );
+        const auto shader = assets->FindByHandle<Assets::ShaderAsset>( handle.GetValue() );
+        if ( shader == nullptr )
+            return Common::MakeError<std::string>( std::string( "the 'Default Surface' template is not loaded" ) );
+        return Common::MakeSuccess( shader->GetMetadata().Filepath.stem().string() );
+    }
+
+    Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
+                                                                          Graphic::MeshPass       pass ) const
+    {
+        const auto templateName = DefaultSurfaceTemplate();
+        if ( !templateName )
+            return templateName;
+        auto shader = Graphic::MeshShaderFor( templateName.GetValue(), path, pass );
+        if ( !shader )
+            return Common::MakeError<std::string>( std::format(
+                 "the default surface template '{}' has no ({} x {}) cell — no mesh shader exists for that pair",
+                 templateName.GetValue(), Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) ) );
+        return Common::MakeSuccess( std::move( *shader ) );
     }
 
     void MaterialService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )

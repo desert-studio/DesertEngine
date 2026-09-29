@@ -151,18 +151,23 @@ namespace Desert::Graphic
 
     inline constexpr uint32_t kMeshPassCount = 4;
 
-    // (path x pass) -> the shader that draws it, or nullptr where the engine has no such variant.
+    // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
+    // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).
+    //
+    // THE TABLE NAMES NO TEMPLATE. It is the axis every surface template expands into (UE's
+    // FMeshMaterialShaderMap is taken from the MATERIAL: which template, those permutations), so the engine
+    // knows no concrete material's name; MeshShaderFor below joins a cell to the template the material names.
     //
     // THE HOLES ARE THE DIAGNOSIS. Before this table the two axes were implicit, so nobody could see
     // that (Skinned x ShadowDepth) did not exist — the cascade pass simply never mentioned skinned
     // meshes and a character stood in the sun casting nothing. The cell is filled now. The remaining
     // holes are deliberate and each has a reason:
     //
-    //   (Skinned  x GBuffer) is NOT a hole any more: Forward and GBuffer are cells of the one
-    //                          StandardSurface template, which has every path. The skinned mesh is still
-    //                          drawn forward (MeshRenderer::RenderSkinnedManual); the cell exists unused.
-    //   (* x Glass)          — transparency is a static-mesh feature; no skinned or instanced glass
-    //                          exists to draw.
+    //   (Skinned  x GBuffer) is NOT a hole any more: Forward and GBuffer are cells of every surface
+    //                          template, which has every path. The skinned mesh is still drawn forward
+    //                          (MeshRenderer::RenderSkinnedManual); the cell exists unused.
+    //   (* x Glass)          — transparency is a static-mesh feature drawn by its own program
+    //                          (kMeshGlassProgram); no skinned or instanced glass exists to draw.
     //
     // (Instanced x GBuffer) WAS A HOLE AND WAS NOT ONE. Its stated reason — "instancing is disabled in
     // the G-buffer pass, every static takes the per-object path there" — was true of the AUTO-BATCHED
@@ -171,26 +176,22 @@ namespace Desert::Graphic
     // to fall back to. So the G-buffer pass dropped the whole ISM queue with no line in the log, in the
     // render path 81 of the repository's 88 scenes state. The cell is filled (Г26); the comment is kept
     // because a hole justified by a half-true sentence is the failure this table exists to make visible.
-    //
-    // A hole answers nullptr and the caller must SAY so rather than silently drawing something else —
-    // that silence is what defect (2) above was made of.
-    const char* MeshShaderFor( MeshVertexPath path, MeshPass pass );
-
-    // The surface CELL a (path x pass) draws with, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or nullptr
-    // where the pass is not drawn through a surface template's cell (Glass, shadow depth). Template-independent:
-    // the program is "<Template>/<Cell>" for WHICHEVER surface template the material names, so every template's
-    // cells are addressable the same way. MeshShaderFor above is this cell on StandardSurface.
     const char* MeshCellFor( MeshVertexPath path, MeshPass pass );
 
-    // The compiled cell of a surface TEMPLATE for (path x pass): the shader a material built from a `.demat`
-    // naming @p templateName is allocated from. The template whose "<Template>/<MeshCellFor(Static, Forward)>"
-    // heads the table above has the table's row of cells; any other template is drawn by its own default
-    // program only, on the generic path. Empty = no such cell; the caller
-    // names the material it refuses. One rule for every template — no class, no role check.
-    std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass );
+    // The translucent domain's own program: (Static x Glass) whatever the material's template.
+    inline constexpr std::string_view kMeshGlassProgram = "StaticMeshGlass";
 
-    // The inverse of MeshShaderFor: which vertex path a compiled cell shader belongs to, or nothing for a
-    // shader that is no cell of the table (a DSL surface's own Static x Forward cell). This is the vertex
+    // THE SHADER a (path x pass) of a material built on the surface template @p templateName draws with:
+    // "<Template>/<MeshCellFor(path, pass)>" — the program ShaderService registers for every template that
+    // declares a Surface block — or kMeshGlassProgram for (Static x Glass). Empty = a hole (or no template
+    // named), and the caller must SAY so rather than silently drawing something else. The template name comes
+    // from the material (or, for the renderer's own draws, from the template declaring `Default Surface`,
+    // found by that role — MaterialService::DefaultSurfaceTemplate), never from a literal here.
+    std::optional<std::string> MeshShaderFor( std::string_view templateName, MeshVertexPath path, MeshPass pass );
+
+    // The inverse of MeshShaderFor: which vertex path a compiled cell shader ("<Template>/<Cell>", any
+    // template) belongs to, or nothing for a shader that is no cell of the table (a template without a
+    // Surface block, drawn by its own default program on the generic path). This is the vertex
     // factory question the mesh renderer asks of a material — "can you be drawn on the batched static /
     // skinned / instanced path" — answered by the SHADER the material was allocated from, never by its C++
     // class or its template's name.

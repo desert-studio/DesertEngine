@@ -271,7 +271,7 @@ namespace Desert::Editor
                  static_cast<uint64_t>( Common::AssetHandle::FromKey( "guid-lo:" + key ) ) };
     }
 
-    // Extract every source material into the unified, reflected PBRSurfaceParams (the .demat schema). Recovers
+    // Extract every source material into its source dictionary, bound to a template's layout at write. Recovers
     // NORMAL + OPACITY maps the old MaterialAssetData path silently dropped, and stamps a stable MaterialId.
     static std::vector<ImportedMaterial> ExtractMaterials( const aiScene*               scene,
                                                            const std::filesystem::path& sourcePath )

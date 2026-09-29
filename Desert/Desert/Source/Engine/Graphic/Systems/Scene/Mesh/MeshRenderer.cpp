@@ -10,6 +10,7 @@
 #include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 // MeshShaderFor / MeshVertexPath / MeshPass — the (path x pass) table this file asks for its pipelines.
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/InstancedRecorder.hpp>
@@ -145,20 +146,33 @@ namespace Desert::Graphic::System
             return nullptr;
         }
 
-        // A renderer-owned material of one (path x pass) cell of the mesh-shader table — the same
-        // DataDrivenMaterial every `.demat` builds, with the cell's default row. Names the pair when the
-        // table has a hole there, because "material failed to create" is unactionable.
+        // THE RENDERER'S OWN DRAWS take the (path x pass) cell of the DEFAULT SURFACE template, found by that
+        // role (MaterialService::DefaultSurfaceShader) and never by a name written here. Refused with the pair and
+        // the registry's reason, because "shader is missing" is unactionable.
+        std::optional<std::string> DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass )
+        {
+            const auto name = Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader( path, pass );
+            if ( !name )
+            {
+                LOG_ERROR( "[MeshRenderer] no default surface shader for vertex path '{}' in pass '{}': {}",
+                           MeshVertexPathName( path ), MeshPassName( pass ), name.GetError() );
+                return std::nullopt;
+            }
+            return name.GetValue();
+        }
+
+        std::shared_ptr<Shader> DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass )
+        {
+            const auto name = DefaultSurfaceShaderName( path, pass );
+            return name ? Runtime::ResourceRegistry::GetShaderService()->GetByName( *name ) : nullptr;
+        }
+
+        // A renderer-owned material of one (path x pass) cell of the default surface template — the same
+        // DataDrivenMaterial every `.demat` builds, with the cell's default row.
         std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path, MeshPass pass = MeshPass::Forward )
         {
-            const char* shaderName = MeshShaderFor( path, pass );
-            if ( !shaderName )
-            {
-                LOG_ERROR( "[MeshRenderer] No mesh shader exists for vertex path '{}' in pass '{}'; refusing to "
-                           "build a material for a combination the engine cannot draw.",
-                           MeshVertexPathName( path ), MeshPassName( pass ) );
-                return nullptr;
-            }
-            return std::make_shared<DataDrivenMaterial>( shaderName );
+            const auto shaderName = DefaultSurfaceShaderName( path, pass );
+            return shaderName ? std::make_shared<DataDrivenMaterial>( *shaderName ) : nullptr;
         }
     } // namespace
 
@@ -1593,7 +1607,7 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::SetupGeometryPass()
     {
-        m_GeometryShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward ) );
+        m_GeometryShader = DefaultSurfaceProgram( MeshVertexPath::Static, MeshPass::Forward );
 
         if ( !m_GeometryShader )
             return false;
@@ -1648,7 +1662,7 @@ namespace Desert::Graphic::System
         // matrix from the InstanceTransforms SSBO (binding 16) by gl_InstanceIndex. Drawn via one instanced
         // draw call (RenderMeshInstanced). Optional — if the shader is missing, instancing is just disabled.
         m_InstancedGeometryShader =
-             Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Instanced, MeshPass::Forward ) );
+             DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::Forward );
         if ( m_InstancedGeometryShader )
         {
             GraphicsPipelineSpecification ispec;
@@ -1675,7 +1689,7 @@ namespace Desert::Graphic::System
     {
         // Optional: only present when the deferred G-buffer shader exists and the scene renderer has a
         // G-buffer. Failure here does NOT fail Initialize — the forward path stays fully functional.
-        m_StaticGBufferShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Static, MeshPass::GBuffer ) );
+        m_StaticGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Static, MeshPass::GBuffer );
         if ( !m_StaticGBufferShader )
             return false;
 
@@ -1756,8 +1770,7 @@ namespace Desert::Graphic::System
         // dropped there in silence -- in the render path most of this repository's scenes state. Optional
         // like the rest of this pass: a refusal costs instancing in the G-buffer, and DrawStaticMeshes
         // logs what that costs rather than dropping the queue without a word.
-        m_InstancedGBufferShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ) );
+        m_InstancedGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::GBuffer );
         if ( m_InstancedGBufferShader )
         {
             GraphicsPipelineSpecification ispec;
@@ -1793,7 +1806,7 @@ namespace Desert::Graphic::System
         {
             LOG_ERROR( "[MeshRenderer] shader '{}' is missing; Instanced Static Meshes will not be drawn "
                        "while the scene renders deferred.",
-                       MeshShaderFor( MeshVertexPath::Instanced, MeshPass::GBuffer ) );
+                       DefaultSurfaceShaderName( MeshVertexPath::Instanced, MeshPass::GBuffer ).value_or( "?" ) );
         }
         return true;
     }
@@ -1848,7 +1861,7 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::SetupSkinnedGeometryPass()
     {
-        m_SkinnedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( MeshShaderFor( MeshVertexPath::Skinned, MeshPass::Forward ) );
+        m_SkinnedShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::Forward );
 
         if ( !m_SkinnedShader )
             return false;
@@ -2000,8 +2013,7 @@ namespace Desert::Graphic::System
             return true;
         }
 
-        m_ShadowShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             MeshShaderFor( MeshVertexPath::Static, MeshPass::ShadowDepth ) );
+        m_ShadowShader = DefaultSurfaceProgram( MeshVertexPath::Static, MeshPass::ShadowDepth );
         if ( !m_ShadowShader )
         {
             LOG_ERROR( "Failed to load shadow shader" );
@@ -2072,8 +2084,7 @@ namespace Desert::Graphic::System
         // Instanced shadow caster (optional): same depth-only state, but the vertex pulls per-instance model
         // matrices from the InstanceTransforms SSBO. One instanced material per cascade (each its own light
         // matrix UBO + SSBO). If the shader is missing, instanced shadows are simply disabled.
-        m_ShadowInstancedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             MeshShaderFor( MeshVertexPath::Instanced, MeshPass::ShadowDepth ) );
+        m_ShadowInstancedShader = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::ShadowDepth );
         if ( m_ShadowInstancedShader )
         {
             GraphicsPipelineSpecification ispec = spec;
@@ -2096,8 +2107,7 @@ namespace Desert::Graphic::System
         // skinned vertex layout and a vertex stage that skins before projecting. Without this cell the
         // cascade pass had nothing it could draw a skinned mesh WITH, which is half of why a character
         // cast no shadow; the other half is the queue the pass walks (RegisterShadowPass).
-        m_ShadowSkinnedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             MeshShaderFor( MeshVertexPath::Skinned, MeshPass::ShadowDepth ) );
+        m_ShadowSkinnedShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::ShadowDepth );
         if ( m_ShadowSkinnedShader )
         {
             GraphicsPipelineSpecification sspec = spec;

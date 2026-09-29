@@ -1,5 +1,6 @@
 #include "MeshVertexPath.hpp"
 
+#include <format>
 #include <string_view>
 
 namespace Desert::Graphic
@@ -8,60 +9,47 @@ namespace Desert::Graphic
     {
         // Indexed [path][pass]. Written out as a literal table rather than an if-chain so that a hole is
         // visible as a hole: the two defects this file exists for were both a missing cell nobody could
-        // see, because the combination was never named anywhere. Forward and GBuffer are cells of the ONE
-        // StandardSurface template ("<Template>/<Path>.<Pass>", DShaderParser's SurfaceCellName), and so is
-        // shadow depth: an opaque template's ShadowDepth cell is the path's vertex header plus
-        // Mesh/Surface/Pass_ShadowDepth, with no surface evaluated. Glass is still its own program (the
-        // translucent domain).
-        constexpr const char* kMeshShaders[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward                          GBuffer                            Glass              Shadow depth
-             { "StandardSurface/Static.Forward", "StandardSurface/Static.GBuffer", "StaticMeshGlass",
-               "StandardSurface/Static.ShadowDepth" },
-             { "StandardSurface/Skinned.Forward", "StandardSurface/Skinned.GBuffer", nullptr,
-               "StandardSurface/Skinned.ShadowDepth" },
-             { "StandardSurface/Instanced.Forward", "StandardSurface/Instanced.GBuffer", nullptr,
-               "StandardSurface/Instanced.ShadowDepth" },
+        // see, because the combination was never named anywhere. Every entry is a CELL of whichever surface
+        // template the material names ("<Path>.<Pass>", DShaderParser's SurfaceCellName); shadow depth too: an
+        // opaque template's ShadowDepth cell is the path's vertex header plus Mesh/Surface/Pass_ShadowDepth,
+        // with no surface evaluated. Glass is not a cell (kMeshGlassProgram, the translucent domain).
+        constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
+             // Forward             GBuffer              Glass    Shadow depth
+             { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth" },
+             { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth" },
+             { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth" },
         };
     } // namespace
 
     const char* MeshCellFor( MeshVertexPath path, MeshPass pass )
     {
-        // Read off the one table: the part after "<Template>/" of a StandardSurface entry is the cell.
-        constexpr std::string_view kTemplatePrefix = "StandardSurface/";
-        const char*                program         = MeshShaderFor( path, pass );
-        if ( program == nullptr || !std::string_view( program ).starts_with( kTemplatePrefix ) )
-            return nullptr;
-        return program + kTemplatePrefix.size();
+        return kMeshCells[static_cast<uint32_t>( path )][static_cast<uint32_t>( pass )];
     }
 
-    const char* MeshShaderFor( MeshVertexPath path, MeshPass pass )
+    std::optional<std::string> MeshShaderFor( std::string_view templateName, MeshVertexPath path, MeshPass pass )
     {
-        return kMeshShaders[static_cast<uint32_t>( path )][static_cast<uint32_t>( pass )];
-    }
-
-    std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass )
-    {
-        // The template that heads the table: its (Static x Forward) program is "<Template>/<that cell>".
-        const std::string_view head    = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
-        const std::string_view defCell = MeshCellFor( MeshVertexPath::Static, MeshPass::Forward );
-        if ( head.size() == templateName.size() + 1 + defCell.size() && head.starts_with( templateName ) &&
-             head[templateName.size()] == '/' && head.ends_with( defCell ) )
-        {
-            if ( const char* cell = MeshShaderFor( path, pass ) )
-                return std::string( cell );
+        if ( path == MeshVertexPath::Static && pass == MeshPass::Glass )
+            return std::string( kMeshGlassProgram );
+        const char* cell = MeshCellFor( path, pass );
+        if ( cell == nullptr || templateName.empty() )
             return std::nullopt;
-        }
-        if ( path == MeshVertexPath::Static && pass == MeshPass::Forward && !templateName.empty() )
-            return std::string( templateName );
-        return std::nullopt;
+        return std::format( "{}/{}", templateName, cell );
     }
 
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )
     {
         for ( uint32_t p = 0; p < kMeshVertexPathCount; ++p )
             for ( uint32_t s = 0; s < kMeshPassCount; ++s )
-                if ( kMeshShaders[p][s] && shaderName == kMeshShaders[p][s] )
+            {
+                // "<Template>/<Cell>": the part after the template's slash IS the cell, whichever template.
+                const char* cell = kMeshCells[p][s];
+                if ( cell == nullptr )
+                    continue;
+                const std::string_view c( cell );
+                if ( shaderName.size() > c.size() + 1 && shaderName.ends_with( c ) &&
+                     shaderName[shaderName.size() - c.size() - 1] == '/' )
                     return static_cast<MeshVertexPath>( p );
+            }
         return std::nullopt;
     }
 

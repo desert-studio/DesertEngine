@@ -5,7 +5,6 @@
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
-#include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Assets/Serialization/Material.hpp>
