@@ -20,6 +20,7 @@
 #include <functional>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -647,6 +648,7 @@ void main()
         }
         Common::BoolResultStr BeginRenderPass( const RDG::CompiledPass& pass ) override
         {
+            ++RenderPassesBegun;
             return m_Inner.BeginRenderPass( pass );
         }
         void EndRenderPass() override
@@ -673,6 +675,9 @@ void main()
         {
             return m_Inner.GetPhysicalBuffer( resource );
         }
+
+        // Every BeginRenderPass the graph asked for: one vkCmdBeginRenderPass each in the Vulkan backend.
+        int RenderPassesBegun = 0;
 
     private:
         VulkanRdgBackend& m_Inner;
@@ -762,6 +767,148 @@ TEST( RenderGraphVulkan, TheEngineInstanceEnablesSynchronizationValidation )
     ASSERT_NE( sync, std::string::npos );
     // In the same branch: within a few lines after the layers are requested.
     EXPECT_LT( sync - layers, 600u );
+}
+
+// An engine image imported as a framebuffer attachment: two consecutive Raster nodes on it (CLEAR, then
+// LOAD) share ONE render pass the graph opens, a copy reads it back, the layer says nothing, and the layout
+// handed to RecordFinalStates is the graph's final layout. The second frame imports the image from that
+// recorded layout, as the engine's next frame does.
+TEST( RenderGraphVulkan, AnImportedFramebufferSharesOneRenderPassAndWritesItsLayoutBack )
+{
+    Gpu& gpu = GetGpu();
+    ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
+    VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    info.imageType     = VK_IMAGE_TYPE_2D;
+    info.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    info.extent        = { kSize, kSize, 1 };
+    info.mipLevels     = 1;
+    info.arrayLayers   = 1;
+    info.samples       = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    info.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo memory{};
+    memory.usage             = VMA_MEMORY_USAGE_AUTO;
+    VkImage       image      = VK_NULL_HANDLE;
+    VmaAllocation allocation = nullptr;
+    ASSERT_EQ( vmaCreateImage( gpu.Allocator, &info, &memory, &image, &allocation, nullptr ), VK_SUCCESS );
+    VkImageLayout recorded = VK_IMAGE_LAYOUT_UNDEFINED; // the image's own layout record, as VulkanImage2D keeps it
+    {
+        VulkanRdgPool    pool( gpu.Rdg, 1 );
+        VulkanRdgBackend backend( gpu.Rdg, pool );
+        WeakenedBarriers counting( backend, "" ); // weakens no pass: it only counts the render passes
+        const std::shared_ptr<VulkanRdgTexture> wrapped =
+             VulkanRdgTexture::Wrap( gpu.Device.device, image, VK_FORMAT_R8G8B8A8_UNORM, Target() );
+        for ( int frame = 0; frame < 2; ++frame )
+        {
+            const std::optional<RDG::ImageLayout> from = RdgLayoutFromVulkan( recorded );
+            ASSERT_TRUE( from.has_value() ) << "frame " << frame;
+            RDG::ExternalTexture target;
+            target.Desc = Target();
+            target.SubresourceStates.assign( target.Desc.SubresourceCount(), RDG::RecordedLayoutState( *from ) );
+            target.Physical          = wrapped;
+            int writeBacks           = 0;
+            target.RecordFinalStates = [&]( const std::vector<RDG::AccessState>& states ) -> Common::BoolResultStr
+            {
+                ++writeBacks;
+                recorded = RdgVulkanLayout( states.front().Layout );
+                return Common::MakeSuccess( true );
+            };
+
+            VkCommandBuffer             cmd = VK_NULL_HANDLE;
+            VkCommandBufferAllocateInfo allocate{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            allocate.commandPool        = gpu.CommandPool;
+            allocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate.commandBufferCount = 1;
+            vkAllocateCommandBuffers( gpu.Device.device, &allocate, &cmd );
+            VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer( cmd, &begin );
+            pool.BeginFrame( 0 );
+            backend.SetCommandBuffer( cmd );
+
+            RDG::ExternalBuffer                        readback;
+            RDG::Builder                               graph( "imported-framebuffer" );
+            const std::array<RDG::ExternalTexture*, 1> colors = { &target };
+            const RDG::ImportedFramebuffer             fb = graph.ImportFramebuffer( colors, nullptr, "Scene" );
+            const RDG::BufferRef bytes = graph.CreateBuffer( RDG::BufferDesc{ kSize * kSize * 4 }, "Readback" );
+            ASSERT_EQ( fb.Colors.size(), 1u );
+            graph.AddPass(
+                 "Clear", RDG::PassFlags::Raster, [&]( RDG::PassBuilder& pass )
+                 { pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::ClearColor( 0.0f, 1.0f, 0.0f, 1.0f ) ); },
+                 []( RDG::PassContext& ) -> Common::BoolResultStr { return Common::MakeSuccess( true ); } );
+            graph.AddPass(
+                 "Overlay", RDG::PassFlags::Raster,
+                 [&]( RDG::PassBuilder& pass ) { pass.ColorTarget( 0, fb.Colors[0], RDG::LoadOp::Load() ); },
+                 []( RDG::PassContext& ) -> Common::BoolResultStr { return Common::MakeSuccess( true ); } );
+            graph.AddPass(
+                 "Readback", RDG::PassFlags::Copy,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Read( fb.Colors[0], RDG::Access::CopySrc );
+                     pass.Write( bytes, RDG::Access::CopyDst );
+                 },
+                 [&]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto source = context.GetTexture( fb.Colors[0], RDG::Access::CopySrc );
+                     auto dest   = context.GetBuffer( bytes, RDG::Access::CopyDst );
+                     if ( !source || !dest )
+                         return Fail( !source ? source.GetError() : dest.GetError() );
+                     auto sourceImage = VulkanRdgBackend::TextureOf( source.GetValue() );
+                     auto buffer      = VulkanRdgBackend::BufferOf( dest.GetValue() );
+                     if ( !sourceImage || !buffer )
+                         return Fail( "no Vulkan resource" );
+                     VkBufferImageCopy region{};
+                     region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+                     region.imageExtent      = { kSize, kSize, 1 };
+                     vkCmdCopyImageToBuffer( cmd, sourceImage.GetValue()->GetImage(),
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.GetValue()->GetBuffer(),
+                                             1, &region );
+                     return Common::MakeSuccess( true );
+                 } );
+            graph.Extract( bytes, readback, RDG::Access::HostRead );
+
+            const int                   before   = counting.RenderPassesBegun;
+            const Common::BoolResultStr executed = graph.Execute( counting );
+            vkEndCommandBuffer( cmd );
+            ASSERT_TRUE( executed ) << executed.GetError();
+            VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers    = &cmd;
+            vkQueueSubmit( gpu.Queue, 1, &submit, VK_NULL_HANDLE );
+            vkQueueWaitIdle( gpu.Queue );
+            vkFreeCommandBuffers( gpu.Device.device, gpu.CommandPool, 1, &cmd );
+
+            EXPECT_EQ( counting.RenderPassesBegun - before, 1 )
+                 << "frame " << frame << ": Clear and Overlay share one";
+            EXPECT_EQ( writeBacks, 1 ) << "frame " << frame;
+            EXPECT_EQ( recorded, RdgVulkanLayout( target.SubresourceStates.front().Layout ) ) << "frame " << frame;
+            EXPECT_EQ( recorded, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ) << "frame " << frame;
+            ASSERT_TRUE( readback.Physical && readback.Physical->GetBackendKind() == RDG::BackendKind::Vulkan );
+            const auto& buffer = static_cast<const VulkanRdgBuffer&>( *readback.Physical );
+            buffer.InvalidateForHost();
+            ASSERT_NE( buffer.GetMapped(), nullptr );
+            const auto* texel = static_cast<const uint8_t*>( buffer.GetMapped() );
+            EXPECT_EQ( std::vector<uint8_t>( texel, texel + 4 ), ( std::vector<uint8_t>{ 0, 255, 0, 255 } ) );
+        }
+        vkDeviceWaitIdle( gpu.Device.device );
+    }
+    vmaDestroyImage( gpu.Allocator, image, allocation );
+    const std::vector<Message> messages = TakeMessages();
+    EXPECT_TRUE( messages.empty() ) << messages.size() << " validation message(s):" << Join( messages );
+}
+
+// Every render-graph layout comes back from its Vulkan layout; a layout the graph cannot express is refused.
+TEST( RenderGraphVulkan, EveryGraphLayoutRoundTripsThroughItsVulkanLayout )
+{
+    for ( const RDG::ImageLayout layout :
+          { RDG::ImageLayout::Undefined, RDG::ImageLayout::General, RDG::ImageLayout::ColorAttachment,
+            RDG::ImageLayout::DepthStencilAttachment, RDG::ImageLayout::DepthStencilReadOnly,
+            RDG::ImageLayout::ShaderReadOnly, RDG::ImageLayout::TransferSrc, RDG::ImageLayout::TransferDst,
+            RDG::ImageLayout::Present } )
+        EXPECT_EQ( RdgLayoutFromVulkan( RdgVulkanLayout( layout ) ), std::optional<RDG::ImageLayout>( layout ) )
+             << static_cast<int>( layout );
+    EXPECT_FALSE( RdgLayoutFromVulkan( VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL ).has_value() );
 }
 
 int main( int argc, char** argv )

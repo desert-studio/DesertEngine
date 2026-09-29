@@ -25,6 +25,7 @@ namespace Desert::Graphic
     {
         class Builder;
         class IPhysicalTexture;
+        struct ExternalTexture;
     } // namespace RDG
 
     class Renderer : public Common::Singleton<Renderer>

@@ -907,7 +907,6 @@ namespace Desert::Graphic
         {
             AddFrameFXAA( graph );
         }
-        }
         else if ( m_AAMode == Common::Settings::AntiAliasingMode::SMAA )
         {
             AddFrameSMAA( graph );

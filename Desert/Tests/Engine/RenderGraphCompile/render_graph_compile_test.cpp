@@ -14,6 +14,7 @@
 #include <memory>
 #include <span>
 #include <format>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -1219,21 +1220,32 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
 {
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
-    ASSERT_TRUE( file ) << "SceneRenderer.cpp is gone";
+    // OnUpdate calls one AddFrame<Pass> member per pass; they live in SceneRendererFrame*.cpp and are
+    // followed in call order.
     std::string source;
-    std::string line;
-    while ( std::getline( file, line ) )
+    for ( const char* name : { "SceneRenderer.cpp", "SceneRendererFrameMesh.cpp", "SceneRendererFrameDeferred.cpp",
+                               "SceneRendererFrameAtmosphere.cpp", "SceneRendererFramePostFX.cpp" } )
     {
-        const size_t comment = line.find( "//" );
-        std::format_to( std::back_inserter( source ), "{}\n",
-                        comment == std::string::npos ? line : line.substr( 0, comment ) );
+        std::ifstream file( root / "Desert/Desert/Source/Engine/Graphic" / name );
+        ASSERT_TRUE( file ) << name << " is gone";
+        std::string line;
+        while ( std::getline( file, line ) )
+        {
+            const size_t comment = line.find( "//" );
+            std::format_to( std::back_inserter( source ), "{}\n",
+                            comment == std::string::npos ? line : line.substr( 0, comment ) );
+        }
     }
-    const size_t begin = source.find( "void SceneRenderer::OnUpdate(" );
-    ASSERT_NE( begin, std::string::npos );
-    const size_t end = source.find( "void SceneRenderer::", begin + 1 );
-    ASSERT_NE( end, std::string::npos );
-    const std::string body = source.substr( begin, end - begin );
+    const auto bodyOf = [&source]( std::string_view function ) -> std::string
+    {
+        const size_t begin = source.find( std::format( "void SceneRenderer::{}(", function ) );
+        if ( begin == std::string::npos )
+            return {};
+        const size_t end = source.find( "void SceneRenderer::", begin + 1 );
+        return source.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+    };
+    const std::string body = bodyOf( "OnUpdate" );
+    ASSERT_FALSE( body.empty() );
 
     const auto squeeze = []( std::string text )
     {
@@ -1242,30 +1254,45 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
              text.end() );
         return text;
     };
-    std::vector<std::string> added;
-    for ( size_t at = 0;; )
+    std::vector<std::string>                          added;
+    std::function<void( const std::string&, size_t )> collect = [&]( const std::string& text, size_t from )
     {
-        const size_t legacy = body.find( "AddLegacy(", at );
-        const size_t phases = body.find( "AddGraphPhasePasses(", at );
-        if ( legacy == std::string::npos && phases == std::string::npos )
-            break;
-        if ( legacy < phases )
+        for ( size_t at = from;; )
         {
-            const size_t open  = body.find( '"', legacy );
-            const size_t close = body.find( '"', open + 1 );
-            ASSERT_NE( close, std::string::npos );
-            added.push_back( body.substr( open + 1, close - open - 1 ) );
-            at = close + 1;
+            const size_t legacy = text.find( "AddLegacy(", at );
+            const size_t phases = text.find( "AddGraphPhasePasses(", at );
+            const size_t frame  = text.find( "AddFrame", at );
+            const size_t first  = std::min( { legacy, phases, frame } );
+            if ( first == std::string::npos )
+                return;
+            if ( first == frame )
+            {
+                const size_t      open   = text.find( '(', frame );
+                const std::string callee = text.substr( frame, open - frame );
+                const std::string called = bodyOf( callee );
+                ASSERT_FALSE( called.empty() ) << "no definition of SceneRenderer::" << callee;
+                collect( called, called.find( '(' ) + 1 );
+                at = open + 1;
+            }
+            else if ( first == legacy )
+            {
+                const size_t open  = text.find( '"', legacy );
+                const size_t close = text.find( '"', open + 1 );
+                ASSERT_NE( close, std::string::npos );
+                added.push_back( text.substr( open + 1, close - open - 1 ) );
+                at = close + 1;
+            }
+            else
+            {
+                const size_t ret  = text.find( "return ", phases );
+                const size_t semi = text.find( ';', ret );
+                ASSERT_NE( semi, std::string::npos );
+                added.push_back( std::format( "phases[{}]", squeeze( text.substr( ret + 7, semi - ret - 7 ) ) ) );
+                at = semi + 1;
+            }
         }
-        else
-        {
-            const size_t ret  = body.find( "return ", phases );
-            const size_t semi = body.find( ';', ret );
-            ASSERT_NE( semi, std::string::npos );
-            added.push_back( std::format( "phases[{}]", squeeze( body.substr( ret + 7, semi - ret - 7 ) ) ) );
-            at = semi + 1;
-        }
-    }
+    };
+    collect( body, 0 );
 
     const std::vector<std::string> legacyOrder = {
          "ClearMainFramebuffer",   "Particles: SimulateInFrame",

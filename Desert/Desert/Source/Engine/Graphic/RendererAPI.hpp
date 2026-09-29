@@ -20,6 +20,7 @@ namespace Desert::Graphic
     {
         class Builder;
         class IPhysicalTexture;
+        struct ExternalTexture;
     } // namespace RDG
 
     enum class RendererAPIType : uint8_t
