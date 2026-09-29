@@ -11,6 +11,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
+#include <Editor/Import/MaterialAdoption.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
@@ -199,4 +200,33 @@ TEST( ImportRecord, ARecordCopiedBesideAnotherSourceIsRefusedByName )
     const auto guid = Ser::ReadImportRecordGuid( other );
     ASSERT_FALSE( guid );
     EXPECT_NE( guid.GetError().find( "Rock.fbx" ), std::string::npos ) << guid.GetError();
+}
+
+// THM1a4: a fresh envelope does not make the import current while a material it names has no .demat. A deleted
+// material used to stay deleted for good (every later run skipped the import that writes it), and the mesh drew
+// the default material with nothing in the log.
+TEST( ImportRecord, AFreshEnvelopeIsNotCurrentWhileAMaterialItNamesHasNoFile )
+{
+    const Project                    project( "materials_present" );
+    const Common::Content::AssetGuid guid = Common::Content::AssetGuid::Generate();
+    auto                             quad = Quad();
+    quad.Submeshes[0].MaterialGuid        = guid;
+    const std::vector<Assets::MeshMaterialSlot> named{ { "model", guid } };
+    ASSERT_TRUE( Editor::WriteImportedMeshAsset( quad, named, project.Source ).IsSuccess() );
+    ASSERT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "the envelope was not cached";
+
+    const fs::path material = Editor::MaterialAdoption::MaterialAssetPath( project.Source, "model" );
+    EXPECT_FALSE( Editor::ImportedMaterialsPresent( project.Source ) ) << material.generic_string();
+    EXPECT_FALSE( Editor::ImportedMeshAssetIsCurrent( project.Source ) )
+         << "a fresh envelope skipped the import that writes " << material.generic_string();
+
+    std::error_code ec;
+    fs::create_directories( material.parent_path(), ec );
+    std::ofstream( material, std::ios::binary ) << "{}";
+    EXPECT_TRUE( Editor::ImportedMaterialsPresent( project.Source ) );
+    EXPECT_TRUE( Editor::ImportedMeshAssetIsCurrent( project.Source ) );
+
+    // Changed source bytes: the envelope is stale, so the import runs whatever the materials say.
+    project.Write( "rock v2" );
+    EXPECT_FALSE( Editor::ImportedMeshAssetIsCurrent( project.Source ) );
 }

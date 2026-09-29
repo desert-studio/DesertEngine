@@ -234,7 +234,8 @@ namespace Desert::Editor
                 // the asset's picture (Editor/Widgets/ThumbnailFreshness.hpp). When it says Capture the
                 // request above has already queued the replacement, so the decoded copy is dropped here —
                 // otherwise this cache would keep handing back the OLD render after the new one lands.
-                if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, source ) ) ==
+                if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                          png, ThumbnailFreshness::MeshFreshnessSource( source ) ) ) ==
                      ThumbnailFreshness::Verdict::Show )
                     thumb = s_Thumbnails.Get( png );
                 else

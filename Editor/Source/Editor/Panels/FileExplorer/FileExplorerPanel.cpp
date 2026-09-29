@@ -1855,7 +1855,8 @@ namespace Desert::Editor
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
         // Same shared rule as the material grid above (Editor/Widgets/ThumbnailFreshness.hpp).
-        const bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, cookedStr ) ) ==
+        const bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                                    pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
                                ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );

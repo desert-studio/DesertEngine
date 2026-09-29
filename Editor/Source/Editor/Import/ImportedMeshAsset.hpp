@@ -57,6 +57,11 @@ namespace Desert::Editor
     // missing material is logged by name and path.
     bool ImportedMaterialsPresent( const std::filesystem::path& source );
 
+    // THE IMPORT'S "UP TO DATE" FOR A STATIC MESH SOURCE (ImportManager::Import skips the re-parse on true): the
+    // envelope is cached for @p source's current bytes AND every material it names has its .demat. The one
+    // place both halves are asked together, so the decision is testable without Assimp.
+    bool ImportedMeshAssetIsCurrent( const std::filesystem::path& source );
+
     // THE GATE EVERY READER OF A STATIC MESH SOURCE NEEDS BEFORE TREATING IT AS "COOKED" (AF4h). @p cooked
     // existing on disk covers a hand-authored `.stmesh` (no import involved, so nothing else applies) and a
     // legacy beside-source file not yet overwritten by a re-import; @p source having a fresh DDC envelope

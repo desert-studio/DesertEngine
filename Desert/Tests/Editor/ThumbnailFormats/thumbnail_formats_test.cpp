@@ -27,6 +27,7 @@
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailFormats.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 
 #include <gtest/gtest.h>
@@ -595,4 +596,34 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THM1a4: an imported mesh has no `.stmesh` on disk (AF4h), so a picture judged against that path could never be
+// fresh - its hash was nullopt and every session re-rendered it. The raw source beside it is the freshness source;
+// a hand-authored `.stmesh` on disk is its own.
+TEST( ThumbnailFormats, AnImportedMeshPictureIsJudgedAgainstItsSourceAndStaysFreshAcrossSessions )
+{
+    namespace fs        = std::filesystem;
+    namespace TF        = Desert::Editor::ThumbnailFreshness;
+    const fs::path  dir = fs::temp_directory_path() / "desert_thm1a5_mesh_freshness";
+    std::error_code ec;
+    fs::remove_all( dir, ec );
+    fs::create_directories( dir, ec );
+    const fs::path cooked = dir / "grass.stmesh";
+    const fs::path source = dir / "grass.fbx";
+    const fs::path png    = dir / "grass.png";
+    std::ofstream( source, std::ios::binary ) << "fbx bytes";
+    std::ofstream( png, std::ios::binary ) << "png bytes";
+
+    ASSERT_EQ( TF::MeshFreshnessSource( cooked ), source ) << "no .stmesh on disk: the source beside it decides";
+    const auto hash = TF::ContentHash( TF::MeshFreshnessSource( cooked ) );
+    ASSERT_TRUE( hash.has_value() ) << "an imported mesh's picture could never be recorded as fresh";
+    ASSERT_TRUE( TF::Record( png, *hash ).IsSuccess() );
+    EXPECT_EQ( TF::Judge( TF::Observe( png, TF::MeshFreshnessSource( cooked ) ) ), TF::Verdict::Show )
+         << "the next session re-renders a picture of an unchanged mesh";
+
+    // A hand-authored `.stmesh` on disk is its own freshness source.
+    std::ofstream( cooked, std::ios::binary ) << "stmesh bytes";
+    EXPECT_EQ( TF::MeshFreshnessSource( cooked ), cooked );
+    fs::remove_all( dir, ec );
 }
