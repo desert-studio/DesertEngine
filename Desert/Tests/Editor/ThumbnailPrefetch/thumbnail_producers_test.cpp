@@ -11,8 +11,7 @@ using ThumbnailProducers::Producer;
 // row is a census failure here, not an icon nobody notices.
 TEST( ThumbnailProducers, EveryAssetKindHasExactlyOneRow )
 {
-    for ( int k = static_cast<int>( FileType::Unknown ); k <= static_cast<int>( FileType::LandscapeLayerInfo );
-          ++k )
+    for ( int k = static_cast<int>( FileType::Unknown ); k <= static_cast<int>( FileType::ImportSettings ); ++k )
     {
         const auto type  = static_cast<FileType>( k );
         const auto count = std::count_if( ThumbnailProducers::kTable.begin(), ThumbnailProducers::kTable.end(),

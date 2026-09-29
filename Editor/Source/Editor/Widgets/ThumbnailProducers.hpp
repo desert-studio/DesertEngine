@@ -1,12 +1,17 @@
 #pragma once
 
 #include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Widgets/ThumbnailFormats.hpp>
 
 #include <array>
 #include <optional>
 #include <string_view>
 
 // ONE TABLE: ASSET KIND -> WHAT MAKES ITS THUMBNAIL (THM1n), UE's UThumbnailRenderer-per-class registry.
+//
+// ONE CHAIN (THM1n-3): extension -> FileType (FileType.hpp, kFileExtensions) -> Producer (this table). The
+// per-extension producer table that ThumbnailFormats.hpp used to hold answered the same question a second
+// time and drifted from this one; it is gone, and ProducerOfPath below is the only way a path is asked.
 //
 // The browser used to answer this question in two hand-written copies of the same `if` chain (the tile and
 // the tooltip) plus two more in the folder prefetch and the splash warm-up, and a kind added to one copy
@@ -38,19 +43,22 @@ namespace Desert::Editor::ThumbnailProducers
          Row{ FileType::Unknown, Producer::TypeIcon, "nothing is known about the file" },
          Row{ FileType::Scene, Producer::NotYetProduced, "UE: the level's saved camera view" },
          Row{ FileType::Prefab, Producer::NotYetProduced, "UE (Blueprint): its components' meshes rendered" },
-         Row{ FileType::Script, Producer::TypeIcon, "source text" },
+         Row{ FileType::Script, Producer::TypeIcon, "source text; the preview pane shows its opening lines" },
          Row{ FileType::Audio, Producer::NotYetProduced, "UE (SoundWave): the waveform in 2D" },
-         Row{ FileType::Shader, Producer::TypeIcon, "source text" },
+         Row{ FileType::Shader, Producer::TypeIcon,
+              "a program has no appearance until a material supplies its parameters; the .demat has the picture" },
          Row{ FileType::Texture, Producer::Decoded, "the image itself" },
          Row{ FileType::Cubemap, Producer::Painted, "the HDR painted on a sphere (HdrSphereThumbnail)" },
          Row{ FileType::Model, Producer::RenderedMesh, "the cooked mesh photographed" },
          Row{ FileType::Material, Producer::RenderedMaterial, "the material on its preview" },
          Row{ FileType::ShaderGraph, Producer::TypeIcon, "a graph document; its material has the picture" },
          Row{ FileType::Ini, Producer::TypeIcon, "settings text" },
-         Row{ FileType::Font, Producer::TypeIcon, "a font file" },
+         Row{ FileType::Font, Producer::TypeIcon,
+              "at 64 px most faces are indistinguishable; the file name is the face name" },
          Row{ FileType::Cloud, Producer::Painted, "painted from its own bytes (CloudThumbnail)" },
          Row{ FileType::UITheme, Producer::Painted, "its palette painted" },
          Row{ FileType::LandscapeLayerInfo, Producer::TypeIcon, "a layer's settings; UE draws its colour swatch" },
+         Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
     };
 
     /// The kinds UE photographs that this editor still draws as an icon. Pinned by name so closing one is
@@ -66,5 +74,12 @@ namespace Desert::Editor::ThumbnailProducers
                 return row.How;
         }
         return std::nullopt;
+    }
+
+    /// The whole chain for one file: its extension, the kind the browser types it as, that kind's producer.
+    /// nullopt only for a kind with no row — the same census failure ProducerOf reports.
+    [[nodiscard]] inline std::optional<Producer> ProducerOfPath( std::string_view path )
+    {
+        return ProducerOf( FileTypeOf( ThumbnailFormats::ExtensionOf( path ) ) );
     }
 } // namespace Desert::Editor::ThumbnailProducers

@@ -160,64 +160,7 @@ namespace Desert::Editor
          { FileType::Font, "Font" },         { FileType::Cubemap, "Cubemap" },
          { FileType::Model, "Model" },       { FileType::Audio, "Audio" },
          { FileType::Material, "Material" }, { FileType::ShaderGraph, "Shader Graph" },
-         { FileType::Cloud, "Cloud" },
-    };
-
-    static const std::unordered_map<std::string, FileType> s_FileTypes = {
-         { "lsn", FileType::Scene },
-         { "deprefab", FileType::Prefab },
-         { "prefab", FileType::Prefab },
-         { "lprefab", FileType::Prefab },
-         { "cs", FileType::Script },
-         { "lua", FileType::Script },
-         { "glsl", FileType::Shader },
-         { "shader", FileType::Shader },
-         { "frag", FileType::Shader },
-         { "vert", FileType::Shader },
-         { "comp", FileType::Shader },
-         { "png", FileType::Texture },
-         { "jpg", FileType::Texture },
-         { "jpeg", FileType::Texture },
-         { "bmp", FileType::Texture },
-         { "gif", FileType::Texture },
-         { "tga", FileType::Texture },
-         { "ttf", FileType::Font },
-         { "hdr", FileType::Cubemap },
-         { "obj", FileType::Model },
-         { "fbx", FileType::Model },
-         { "gltf", FileType::Model },
-         { "glb", FileType::Model },
-         { "blend", FileType::Model },
-         { "mp3", FileType::Audio },
-         { "m4a", FileType::Audio },
-         { "wav", FileType::Audio },
-         { "ogg", FileType::Audio },
-         { "lmat", FileType::Material },
-         // Engine-native extensions (see Common::Constants::Extensions).
-         { "demat", FileType::Material },
-         { "desce", FileType::Scene },
-         { "demesh", FileType::Model },
-         // THM1k: a split import's node meshes are `.stmesh` files the browser lists (no source beside them);
-         // untyped they were Unknown, so they reached no thumbnail function and showed a grey glyph.
-         { "stmesh", FileType::Model },
-         { "dgraph", FileType::ShaderGraph },
-         // `.ini` is typed so the browser names it (type label, icon) instead of calling it Unknown.
-         { "ini", FileType::Ini },
-         // The four cloud formats. Typed here for the first time in M11 — they used to fall through to
-         // FileType::Unknown, which is why they had one grey glyph between them, no colour, no entry in
-         // the type filter and no thumbnail. THIS MAP IS THE CENSUS'S SUBJECT: every key in it must have
-         // a row in Editor/Widgets/ThumbnailFormats.hpp saying who makes its picture or why nobody does,
-         // and Desert/Tests/Editor/ThumbnailFormats reads this literal to check it.
-         { "dclayout", FileType::Cloud },
-         { "dcnv", FileType::Cloud },
-         { "dcmv", FileType::Cloud },
-         { "decloudtype", FileType::Cloud },
-         // The UI theme (Ю13). Typed here so it gets a colour, an icon and a row in the browser's type
-         // filter — and so the census above applies to it: it needs a row in ThumbnailFormats.hpp saying
-         // who makes its picture or why nobody does.
-         { "detheme", FileType::UITheme },
-         // The landscape layer info (LS-12b); ThumbnailFormats.hpp says why nobody paints its picture.
-         { "delayerinfo", FileType::LandscapeLayerInfo },
+         { FileType::Cloud, "Cloud" },       { FileType::ImportSettings, "Import Settings" },
     };
 
     static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
@@ -235,6 +178,7 @@ namespace Desert::Editor
          { FileType::Ini, { 0.65f, 0.65f, 0.68f, 1.00f } },
          { FileType::UITheme, { 0.95f, 0.72f, 0.30f, 1.00f } },
          { FileType::LandscapeLayerInfo, { 0.45f, 0.70f, 0.30f, 1.00f } },
+         { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
     };
 
     static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
@@ -255,6 +199,7 @@ namespace Desert::Editor
          { FileType::Ini, ICON_MDI_FILE_DOCUMENT },
          { FileType::UITheme, ICON_MDI_PALETTE },
          { FileType::LandscapeLayerInfo, ICON_MDI_LAYERS },
+         { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
     };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
@@ -995,10 +940,7 @@ namespace Desert::Editor
         }
         else
         {
-            auto        fileType   = FileType::Unknown;
-            const auto& fileTypeIt = s_FileTypes.find( extension );
-            if ( fileTypeIt != s_FileTypes.end() )
-                fileType = fileTypeIt->second;
+            const FileType fileType = FileTypeOf( extension );
 
             directoryInfo->IsFile = true;
             directoryInfo->Type   = fileType;
@@ -2064,8 +2006,7 @@ namespace Desert::Editor
         if ( !ext.empty() && ext[0] == '.' )
             ext = ext.substr( 1 );
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
-        const auto     it   = s_FileTypes.find( ext );
-        const FileType type = it != s_FileTypes.end() ? it->second : FileType::Unknown;
+        const FileType type = FileTypeOf( ext );
         if ( type == FileType::Texture || type == FileType::Cubemap )
             TextureDnD::ResolveOrImport( *m_AssetManager, dest.generic_string() );
 

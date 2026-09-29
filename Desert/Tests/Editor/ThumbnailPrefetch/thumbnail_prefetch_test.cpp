@@ -5,6 +5,8 @@
 // window is shown only uploads. Captures stay lazy: only a tile being drawn asks for one, and the
 // project-wide background sweep is gone (decision В4).
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
@@ -357,4 +359,49 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+namespace
+{
+    // A `.detex` as the importer writes one: an envelope stating the Texture kind, with (or without) the
+    // imported file's bytes as its SRCE section.
+    fs::path WriteTextureAsset( const fs::path& dir, bool withSource )
+    {
+        namespace CC = Common::Content;
+        CC::AssetEnvelope envelope;
+        envelope.Asset.Kind = CC::ContentKind::Texture;
+        envelope.Asset.Guid = CC::AssetGuid::Generate();
+        if ( withSource )
+        {
+            CC::EnvelopeSectionData source;
+            source.Tag = CC::EnvelopeSection::Source;
+            for ( const unsigned char byte : kOnePixelPng )
+                source.Bytes.push_back( static_cast<std::byte>( byte ) );
+            envelope.Sections.push_back( std::move( source ) );
+        }
+        const fs::path file    = dir / ( withSource ? "T_Source.detex" : "T_Cooked.detex" );
+        const auto     written = CC::WriteAssetEnvelopeFile( file, envelope );
+        EXPECT_TRUE( written.IsSuccess() ) << ( written.IsSuccess() ? "" : written.GetError() );
+        return file;
+    }
+} // namespace
+
+// THM1n-3. The imported texture asset is its source, wrapped: its picture is the SRCE section decoded, the
+// same pixels the loose .png would give. Before this the Textures folder showed a grey glyph per `.detex`.
+TEST( ThumbnailPrefetch, ATextureAssetIsDecodedFromTheSourceItCarries )
+{
+    const fs::path dir = fs::temp_directory_path() / "desert_thumbnail_detex";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+
+    const auto decoded = ThumbnailPixels::Decode( WriteTextureAsset( dir, true ).string() );
+    ASSERT_TRUE( decoded.has_value() ) << "a .detex with a source section produced no picture";
+    EXPECT_EQ( decoded->SourceWidth, 1 );
+    EXPECT_EQ( decoded->SourceHeight, 1 );
+    EXPECT_EQ( decoded->Rgba.size(), 4U );
+
+    // No source (a cooked texture keeps only its derived-data key): no picture, said by name — never a
+    // blank square passed off as the texture.
+    EXPECT_FALSE( ThumbnailPixels::Decode( WriteTextureAsset( dir, false ).string() ).has_value() );
+    fs::remove_all( dir );
 }

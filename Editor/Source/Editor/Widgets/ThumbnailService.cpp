@@ -22,12 +22,6 @@ namespace Desert::Editor
 {
     namespace
     {
-        // A capture takes two frames (render, then read back). If a request has not produced its PNG well
-        // past that, something is wrong with the asset — a .demat that fails to parse, a mesh the service
-        // never registers — and retrying it forever would keep the queue permanently busy. Generous enough
-        // that a slow first-time shader compile is not mistaken for a failure.
-        constexpr int kInFlightGiveUpTicks = 240;
-
         // How long the queue must stay empty before the renderer — and with it one of the six renderer
         // slots — is given back. ~5 s at 60 fps.
         //
@@ -283,7 +277,6 @@ namespace Desert::Editor
         m_Held.clear();
         m_SceneWarm.clear();
         m_Capture.Reset();
-        m_InFlightTicks = 0;
         m_Captured      = 0;
         m_Skipped       = 0;
         m_BudgetRefused = false;
@@ -474,19 +467,21 @@ namespace Desert::Editor
         m_Budget.Spend(
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - tickBegan ).count() );
 
-        // Settle the capture that was dispatched — the one still waited for, or one the give-up below
-        // stopped waiting for and whose PNG the renderer wrote anyway (ThumbnailFreshness::Capture, TH1c).
+        // Settle the capture that was dispatched. A CAPTURE ENDS ONLY BY THE RENDERER'S ANSWER (THM1n-3, UE's
+        // UThumbnailManager renders synchronously and has no timeout): the renderer goes idle having written
+        // the picture, or having refused with its reason already logged (AssetThumbnailRenderer::TickCapture
+        // — scene init refused, no final image, readback refused, encode failed — each drops its pending
+        // state). There used to be a 240-frame watchdog here that declared a slow capture "never completed";
+        // it was a time budget, and on a debug build it fired on healthy 8-11 s captures.
         if ( m_Capture.Outstanding() && !m_Renderer->HasPending() )
         {
             const std::optional<ThumbnailFreshness::Capture::Settled> settled = m_Capture.Settle();
-            m_InFlightTicks                                                   = 0;
             if ( !settled )
                 return;
             if ( settled->What == ThumbnailFreshness::Capture::Landed::NotWritten )
             {
                 // The renderer finished but produced nothing — the asset cannot be previewed. Remember
-                // it, or every frame from now on would re-queue the same doomed request. (A late capture
-                // is already in m_Failed from the give-up.)
+                // it, or every frame from now on would re-queue the same doomed request.
                 LOG_WARN( "[Thumbnails] no preview produced for '{}' — not retrying (the file at '{}' was "
                           "left unchanged or not written)",
                           settled->Identity, settled->Png.string() );
@@ -495,13 +490,6 @@ namespace Desert::Editor
             else
             {
                 ++m_Captured;
-                if ( settled->Late )
-                {
-                    // It did complete: the give-up's verdict was wrong, and the picture is recorded now.
-                    m_Failed.erase( settled->Identity );
-                    LOG_INFO( "[Thumbnails] '{}' completed after the wait was given up — recorded.",
-                              settled->Identity );
-                }
                 if ( settled->RecordError )
                     LOG_WARN( "[Thumbnails] '{}': {} — it will be captured again next session.", settled->Identity,
                               *settled->RecordError );
@@ -509,20 +497,8 @@ namespace Desert::Editor
             m_Queued.erase( settled->Identity );
             return; // one capture at a time — the renderer has a single slot
         }
-        if ( m_Capture.Waiting() )
-        {
-            if ( ++m_InFlightTicks > kInFlightGiveUpTicks )
-            {
-                LOG_WARN( "[Thumbnails] '{}' never completed — giving up so the queue can drain; a picture it "
-                          "still writes is recorded when it lands",
-                          m_Capture.Identity() );
-                m_Failed.insert( m_Capture.Identity() );
-                m_Queued.erase( m_Capture.Identity() );
-                m_Capture.GiveUp();
-                m_InFlightTicks = 0;
-            }
-            return;
-        }
+        if ( m_Capture.Outstanding() )
+            return; // the renderer is still working on it; its answer settles it above
 
         // The previous capture's main-thread cost is repaid before the next one starts — for at most
         // CaptureBudget::kMaxWaitFrames frames, so a queued request always progresses.
@@ -555,13 +531,12 @@ namespace Desert::Editor
         m_Queue.erase( m_Queue.begin() );
 
         // THE DISPATCH ANSWERS NOW. A refused request used to be indistinguishable from an accepted one:
-        // both returned void, so the service marked the asset in-flight and then waited out
-        // kInFlightGiveUpTicks (240 frames, four seconds of a blocked queue) before deciding it had
-        // "never completed" — with no idea why. The renderer knows why at the moment it says no, and the
-        // most common reason is one no amount of waiting fixes: a mesh whose geometry is not built, whose
-        // capture would have written a photograph of empty sky and called it the asset.
-        // A MATERIAL ON ITS PREVIEW MESH IS A MESH CAPTURE WEARING THAT MATERIAL: the mesh branch already
-        // frames by the mesh's bounds and puts one material on every slot, which is the whole picture.
+        // both returned void, so the service marked the asset in-flight and then waited out a 240-frame
+        // watchdog (removed in THM1n-3) before deciding it had "never completed" — with no idea why. The renderer
+        // knows why at the moment it says no, and the most common reason is one no amount of waiting fixes: a mesh
+        // whose geometry is not built, whose capture would have written a photograph of empty sky and called it
+        // the asset. A MATERIAL ON ITS PREVIEW MESH IS A MESH CAPTURE WEARING THAT MATERIAL: the mesh branch
+        // already frames by the mesh's bounds and puts one material on every slot, which is the whole picture.
         const auto queued = [&]() -> Common::BoolResultStr
         {
             if ( req.Type == Kind::Mesh )
@@ -600,7 +575,6 @@ namespace Desert::Editor
         }
 
         m_Capture.Begin( req.Identity, req.Png, req.Source );
-        m_InFlightTicks = 0;
         if ( !m_RunBegan )
             m_RunBegan = std::chrono::steady_clock::now();
     }

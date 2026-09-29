@@ -39,8 +39,9 @@ namespace Desert::Editor
      * PHOTOGRAPHED — an offscreen scene, a camera, one of six slots, ~370 ms. The four cloud formats are
      * PAINTED from their own bytes on a JobSystem worker (Editor/Widgets/CloudThumbnail.hpp), which needs
      * no device at all. Which of the two a format uses is not decided here and not decided at the call
-     * site either: it is a column of Editor/Widgets/ThumbnailFormats.hpp, the census that also makes a
-     * format with NO producer a red test rather than a silent grey icon.
+     * site either: it is the chain extension -> FileType -> ThumbnailProducers::Producer
+     * (Editor/Widgets/ThumbnailProducers.hpp), whose census makes a format with NO row a red test rather
+     * than a silent grey icon.
      *
      * ONLY WHAT IS ON SCREEN IS CAPTURED, as in UE's content browser. Requests arrive from the panels
      * that draw a tile and from nowhere else: there is no project-wide sweep any more (owner decision В4,
@@ -267,10 +268,10 @@ namespace Desert::Editor
         // Keyed on ThumbnailKey::Identity, not on a path spelling, so two panels naming one asset
         // differently cannot each hold their own entry (see Invalidate).
         std::unordered_set<std::string> m_Queued; // asset identities currently queued or in flight
-        std::unordered_set<std::string> m_Failed; // gave up: do not retry every frame
-        // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
+        std::unordered_set<std::string>
+             m_Failed; // the renderer refused or wrote nothing: do not retry every frame
+        // The dispatched capture, from dispatch until the renderer answers (ThumbnailFreshness::Capture).
         ThumbnailFreshness::Capture    m_Capture;
-        int                            m_InFlightTicks = 0;
         int                            m_IdleTicks     = 0; // consecutive frames with no work
         ThumbnailEncode::CaptureBudget m_Budget;            // paces dispatch by main-thread ms (TH3)
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
