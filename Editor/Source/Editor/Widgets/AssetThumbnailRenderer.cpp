@@ -458,6 +458,14 @@ namespace Desert::Editor
                 extent = frame.Extent;
             }
         }
+        // What the pose picture was staged from: an unresolved mesh or empty boxes frame a 1 cm subject.
+        const auto* staged = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle );
+        LOG_DEBUG(
+             "[Thumbnails] pose of mesh {}: resolved {}, skinned {}, {} submesh(es), {} slot(s), animator {}, "
+             "framed at ({:.1f}, {:.1f}, {:.1f}) extent {:.1f}",
+             static_cast<uint64_t>( m_PendingHandle ), staged != nullptr, staged != nullptr && staged->IsSkinned(),
+             staged != nullptr ? staged->GetSubmeshes().size() : 0, skinned.MaterialSlots.size(),
+             anim.Animator != nullptr, center.x, center.y, center.z, extent );
         FitTarget( center, extent );
     }
 
