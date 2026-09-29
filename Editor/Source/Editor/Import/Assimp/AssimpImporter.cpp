@@ -1,6 +1,7 @@
 #include "AssimpImporter.hpp"
 #include "../TextureImporter.hpp"
 #include "SourceAlphaMode.hpp"
+#include "SourceMaterialAdapter.hpp"
 #include "SourceTexturePath.hpp"
 
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -272,7 +273,6 @@ namespace Desert::Editor
     // NORMAL + OPACITY maps the old MaterialAssetData path silently dropped, and stamps a stable MaterialId.
     static std::vector<ImportedMaterial> ExtractMaterials( const aiScene*               scene,
                                                            const std::filesystem::path& basePath,
-                                                           ImportManager&               manager,
                                                            const std::filesystem::path& sourcePath )
     {
         std::vector<ImportedMaterial> result;
@@ -286,71 +286,18 @@ namespace Desert::Editor
             mat->Get( AI_MATKEY_NAME, name );
             out.Name = name.length > 0 ? std::string( name.C_Str() ) : ( "Material_" + std::to_string( i ) );
 
-            auto& d      = out.Data;
             // Keyed on the mesh's place in the project, NOT on its file stem — see CookPaths::MaterialKey
             // for what the stem-only key merged and why the repository is one same-named file away from it.
             out.Guid = StableMaterialGuid( CookPaths::MaterialKey( sourcePath, out.Name, i ) );
 
-            // Locate a material's texture FILE on disk. Where the texture a reference names lives:
-            // SourceTexturePath.hpp.
-            auto findTextureFile = [&]( const std::string& refText ) -> std::filesystem::path
-            { return FindSourceTexture( basePath, refText ); };
-
-            // Imports the source's texture of `type` and states it in the `sampler` slot by the imported
-            // asset's header GUID (MATL 3), with the asset's path as the locator.
-            // Returns the source file it found (empty when none), so the cut-out rule can read its header.
-            auto loadTex = [&]( aiTextureType type, const char* sampler ) -> std::filesystem::path
-            {
-                if ( mat->GetTextureCount( type ) == 0 )
-                    return {};
-
-                aiString path;
-                if ( mat->GetTexture( type, 0, &path ) != AI_SUCCESS )
-                    return {};
-
-                const std::filesystem::path found = findTextureFile( path.C_Str() );
-                if ( found.empty() )
-                {
-                    LOG_WARN( "[Import][Tex] type={} fbxRef='{}' NOT FOUND under '{}'", static_cast<int>( type ),
-                              path.C_Str(), basePath.generic_string() );
-                    return {};
-                }
-                if ( static_cast<uint64_t>( manager.ImportTexture( found.string() ) ) == 0 )
-                    return found; // the importer logged why
-                const std::filesystem::path asset = TextureImporter::AssetPathFor( found );
-                const auto                  key   = Assets::ReadTextureAssetKey( asset );
-                if ( !key.IsSuccess() || key.GetValue().Guid.IsNull() )
-                {
-                    LOG_ERROR( "[Import][Tex] '{}' was imported but states no identity ({}), so slot '{}' stays "
-                               "empty",
-                               asset.generic_string(), key.IsSuccess() ? "null GUID" : key.GetError(), sampler );
-                    return found;
-                }
-                LOG_INFO( "[Import][Tex] type={} fbxRef='{}' -> '{}'", static_cast<int>( type ), path.C_Str(),
-                          asset.generic_string() );
-                out.Textures.push_back( { sampler, Common::Content::AssetGuidToText( key.GetValue().Guid ),
-                                          Common::AssetHandle::StableKeyForPath( asset ) } );
-                return found;
-            };
-
-            const std::filesystem::path baseColourFile = loadTex( aiTextureType_DIFFUSE, "u_AlbedoTexture" );
-            loadTex( aiTextureType_NORMALS, "u_NormalTexture" );
-            loadTex( aiTextureType_METALNESS, "u_MetallicTexture" );
-            loadTex( aiTextureType_DIFFUSE_ROUGHNESS, "u_RoughnessTexture" );
-            loadTex( aiTextureType_AMBIENT_OCCLUSION, "u_AOTexture" );
-            loadTex( aiTextureType_EMISSIVE, "u_EmissiveTexture" );
-            loadTex( aiTextureType_OPACITY, "u_OpacityTexture" );
-
-            d.AlbedoColor     = GetColor( mat, AI_MATKEY_COLOR_DIFFUSE, glm::vec4( 1.0f ) );
-            d.MetallicFactor  = GetFloat( mat, AI_MATKEY_METALLIC_FACTOR, 0.0f );
-            d.RoughnessFactor = GetFloat( mat, AI_MATKEY_ROUGHNESS_FACTOR, 1.0f );
-            const glm::vec4 emissive = GetColor( mat, AI_MATKEY_COLOR_EMISSIVE, glm::vec4( 0.0f ) );
-            d.EmissiveColor          = glm::vec4( glm::vec3( emissive ), 1.0f );
-
-            // The cut-out as the SOURCE states it: an FBX opacity map, or glTF's alphaMode/alphaCutoff (whose
-            // mask is the albedo's alpha - the PBR passes pick it when no opacity map exists).
-            const SourceAlpha alpha = ResolveSourceAlpha( *mat, baseColourFile );
-            d.AlphaCutoff           = alpha.AlphaCutoff;
+            // The source's own dictionary (MAT1b adapters); which template takes it, and which of its keys land
+            // where, is decided at SerializeMaterialAsset by the templates' Import rows. Where the texture a
+            // reference names lives: SourceTexturePath.hpp.
+            SourceMaterialRead read  = ReadSourceMaterial( *mat, SourceFormatOf( sourcePath ), out.Name,
+                                                           [&]( const std::string& refText )
+                                                           { return FindSourceTexture( basePath, refText ); } );
+            out.Source               = std::move( read.Material );
+            const SourceAlpha& alpha = read.Alpha;
             if ( !alpha.Warning.empty() )
             {
                 LOG_WARN( "{} (in '{}')", alpha.Warning, sourcePath.generic_string() );
@@ -390,7 +337,7 @@ namespace Desert::Editor
         // Resolve the material's texture references RELATIVE TO THE SOURCE FILE's own folder (how FBX/glTF
         // store them, e.g. Poly Haven's "textures/<name>.jpg" sits next to the .fbx). The old code looked in
         // a hardcoded Resources/Assets/Textures/<stem>/ and never found them.
-        const auto materialData = ExtractMaterials( scene, sourcePath.parent_path(), manager, sourcePath );
+        const auto materialData = ExtractMaterials( scene, sourcePath.parent_path(), sourcePath );
 
         std::unordered_map<std::string, uint32_t> boneMapping;
 
