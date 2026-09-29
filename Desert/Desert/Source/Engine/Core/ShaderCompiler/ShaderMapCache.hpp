@@ -42,7 +42,7 @@ namespace Desert::Core
     };
 
     // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
-    inline constexpr uint32_t kShaderMapFormatVersion = 3;
+    inline constexpr uint32_t kShaderMapFormatVersion = 4;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the

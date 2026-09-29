@@ -137,10 +137,9 @@ namespace Desert::Graphic
     // shadow cascade, and which one it is has nothing to do with how its vertices were fetched.
     //
     // A PASS, not a shading model — the distinction matters and `Glass` is where it is easiest to blur.
-    // Glass is the same PBR surface with transmission, drawn in a blended pass over the composite; which
-    // objects go there is decided by the material's own `Transmission` value in
-    // MeshRenderer::DrawStaticMeshes, exactly as UE routes a Translucent blend mode into the translucency
-    // pass. Nothing about the shading model is encoded here.
+    // Glass is drawn in a blended pass over the composite; which objects go there is decided by the BLEND MODE
+    // of the template their material draws with (ShaderProgramMeta::Blend, `BlendMode Translucent`), exactly as
+    // UE routes a Translucent material into the translucency pass. Nothing about the shading model is encoded here.
     enum class MeshPass : uint8_t
     {
         Forward     = 0, // lit colour, the forward path and the over-composite draws

@@ -38,6 +38,7 @@ struct SurfaceOutput
     float ReceiveSunShadows;
     // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
     float SampledTextureCount;
+    float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -53,6 +54,7 @@ SurfaceOutput DefaultSurfaceOutput()
     s.AmbientOcclusion    = 1.0;
     s.ReceiveSunShadows   = 1.0;
     s.SampledTextureCount = 0.0;
+    s.Refraction          = 1.0;
     return s;
 }
 

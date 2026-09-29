@@ -5,17 +5,13 @@
         "Versions": {
             "MATL": 4
         },
-        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44"]
+        "Dependencies": ["2cd21e52ff88b0c7a42c25d9a6ab4238"]
     },
     "Shader": {
-        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
-        "Path": "engine:Shaders/Programs/PBR/StandardSurface.shader"
+        "Guid": "2cd21e52ff88b0c7a42c25d9a6ab4238",
+        "Path": "engine:Shaders/Programs/PBR/StaticMeshGlass.shader"
     },
     "Params": [
-        {
-            "Name": "Transmission",
-            "Value": [0.8999999761581421, 0.0, 0.0, 0.0]
-        },
         {
             "Name": "IOR",
             "Value": [1.5, 0.0, 0.0, 0.0]

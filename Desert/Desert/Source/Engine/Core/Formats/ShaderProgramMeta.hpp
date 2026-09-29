@@ -284,6 +284,16 @@ namespace Desert::Core::Formats
         bool operator==( const MaterialLayoutBindings& ) const = default;
     };
 
+    // A surface template's blend mode, as UE's EBlendMode: a property of the TEMPLATE, carried on its program's
+    // metadata so the mesh renderer routes an object by the material it draws with — a Translucent template's
+    // objects go to the translucency pass and nowhere else — and never by the value of one of its parameters.
+    enum class SurfaceBlendMode : uint8_t
+    {
+        Opaque,
+        Masked,      // the pass headers discard below u_Material.OpacityMaskClipValue
+        Translucent, // drawn over the composited scene by the translucency pass; Forward cells only
+    };
+
     struct ShaderProgramMeta
     {
         std::vector<ShaderParam> Params;
@@ -310,6 +320,9 @@ namespace Desert::Core::Formats
         std::string MediumSource;
 
         MaterialLayoutBindings LayoutBindings;
+
+        // The `BlendMode` of a `Domain Surface` template (Opaque for every other program).
+        SurfaceBlendMode Blend = SurfaceBlendMode::Opaque;
 
         // A program fragment and nothing else: no stages of its own, so it compiles to no modules and is
         // never used to build a pipeline. ShaderService registers it by name without complaining that it

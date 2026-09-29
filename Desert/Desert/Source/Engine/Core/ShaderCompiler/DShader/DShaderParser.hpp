@@ -97,11 +97,10 @@ namespace Desert::Core::Preprocess
     // surface function, no material row, no push block), so the cell's layout is the shadow shader's.
     inline constexpr std::string_view kSurfaceDepthPass = "ShadowDepth";
 
-    enum class SurfaceBlendMode
-    {
-        Opaque,
-        Masked, // the pass headers discard below u_Material.<kSurfaceMaskClipParam>
-    };
+    // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
+    // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:
+    // the template has Forward cells only, built on the translucency pass header (kSurfaceTranslucentPassInclude).
+    using SurfaceBlendMode = Formats::SurfaceBlendMode;
 
     // The shading model of a template, as UE's EMaterialShadingModel: a property of the TEMPLATE, read by the pass
     // headers when the parser builds a cell. DefaultLit is the engine's lighting (Pass_Forward/Pass_GBuffer);
@@ -138,7 +137,12 @@ namespace Desert::Core::Preprocess
 
     std::string SurfaceCellName( std::string_view path, std::string_view pass );
     std::string SurfaceVertexInclude( std::string_view path );
-    std::string SurfacePassInclude( std::string_view pass, SurfaceShadingModel model );
+    std::string SurfacePassInclude( std::string_view pass, SurfaceShadingModel model, SurfaceBlendMode blend );
+    // The translucency pass header: a Translucent template's Forward cells are lit and composited by it.
+    inline constexpr std::string_view kSurfaceTranslucentPassInclude = "Mesh/Surface/Pass_Forward_Translucent.glslh";
+    // Whether a template of this blend mode has a cell in @p pass: a Translucent surface is drawn by the
+    // translucency pass alone (UE: no depth or base-pass G-buffer write), so it has Forward cells only.
+    bool SurfaceBlendHasPass( SurfaceBlendMode blend, std::string_view pass );
     // Every engine header any cell of a surface template compiles: the key hashes all of them.
     std::vector<std::string> SurfaceTemplateIncludes();
 

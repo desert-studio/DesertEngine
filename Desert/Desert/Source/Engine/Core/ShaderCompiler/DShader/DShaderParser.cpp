@@ -1320,9 +1320,10 @@ namespace Desert::Core::Preprocess
         // the shadow pass's push block and no varyings, so the cell's layout is the shadow shader's.
         std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
                                               const RawBlock& surface, const RawBlock& include,
-                                              const std::string& autoDecls, const bool masked,
+                                              const std::string& autoDecls, const SurfaceBlendMode blend,
                                               const SurfaceShadingModel shading )
         {
+            const bool        masked  = blend == SurfaceBlendMode::Masked;
             const std::string defines = std::format( "#define DESERT_SURFACE_PASS_{} 1\n{}", pass,
                                                      masked ? "#define DESERT_SURFACE_MASKED 1\n" : "" );
             RawBlock          code;
@@ -1335,14 +1336,14 @@ namespace Desert::Core::Preprocess
                 // Reflection keeps a declared binding whether or not it is read, so an opaque depth cell must
                 // not declare the surface's bindings at all: the pass header alone, no material declarations.
                 code.Content = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
-                                            SurfacePassInclude( pass, shading ) );
+                                            SurfacePassInclude( pass, shading, blend ) );
                 return AssembleStage( stage, code, include, std::string() );
             }
             else
                 code.Content =
                      std::format( "{}#include <{}>\n#line {}\n{}\n#include <{}>\n", defines, kSurfaceTypesInclude,
                                   surface.StartLine > 0 ? surface.StartLine - 1 : 0, surface.Content,
-                                  SurfacePassInclude( pass, shading ) );
+                                  SurfacePassInclude( pass, shading, blend ) );
             return AssembleStage( stage, code, include, autoDecls );
         }
 
@@ -1408,8 +1409,18 @@ namespace Desert::Core::Preprocess
         return std::format( "Mesh/Surface/Vertex_{}.glslh", path );
     }
 
-    std::string SurfacePassInclude( const std::string_view pass, const SurfaceShadingModel model )
+    bool SurfaceBlendHasPass( const SurfaceBlendMode blend, const std::string_view pass )
     {
+        return blend != SurfaceBlendMode::Translucent || pass == "Forward";
+    }
+
+    std::string SurfacePassInclude( const std::string_view pass, const SurfaceShadingModel model,
+                                    const SurfaceBlendMode blend )
+    {
+        // The blend mode picks the pass before the shading model does: a translucent surface is shaded and
+        // composited over the scene by the translucency pass header (UE's translucency base pass).
+        if ( blend == SurfaceBlendMode::Translucent && pass == "Forward" )
+            return std::string( kSurfaceTranslucentPassInclude );
         // The shading model picks the pass header, so an Unlit cell does not even NAME the lighting texts (the
         // include collector is textual: an #ifdef inside one header would still pull them into the key and the
         // layout). Depth is shading-independent: one header for both models.
@@ -1425,9 +1436,10 @@ namespace Desert::Core::Preprocess
             includes.push_back( SurfaceVertexInclude( path ) );
         for ( const SurfaceShadingModelRow& row : kSurfaceShadingModels )
             for ( const std::string_view pass : kSurfaceCellPasses )
-                if ( std::string header = SurfacePassInclude( pass, row.Model );
+                if ( std::string header = SurfacePassInclude( pass, row.Model, SurfaceBlendMode::Opaque );
                      std::find( includes.begin(), includes.end(), header ) == includes.end() )
                     includes.push_back( std::move( header ) );
+        includes.emplace_back( kSurfaceTranslucentPassInclude );
         return includes;
     }
 
@@ -1656,9 +1668,11 @@ namespace Desert::Core::Preprocess
                     result.Surface.Blend = SurfaceBlendMode::Opaque;
                 else if ( v == "masked" )
                     result.Surface.Blend = SurfaceBlendMode::Masked;
+                else if ( v == "translucent" )
+                    result.Surface.Blend = SurfaceBlendMode::Translucent;
                 else
                 {
-                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked)", v ) };
+                    err = { line, std::format( "unknown BlendMode '{}' (Opaque | Masked | Translucent)", v ) };
                     return fail();
                 }
                 surfaceSettingLine = surfaceSettingLine ? surfaceSettingLine : line;
@@ -1805,6 +1819,15 @@ namespace Desert::Core::Preprocess
         if ( surfaceBlock )
         {
             const bool masked = result.Surface.Blend == SurfaceBlendMode::Masked;
+            // The translucency pass lights the surface itself (Pass_Forward_Translucent): it has no unlit form.
+            if ( result.Surface.Blend == SurfaceBlendMode::Translucent &&
+                 result.Surface.Shading != SurfaceShadingModel::DefaultLit )
+            {
+                err = { surfaceSettingLine, "BlendMode Translucent is lit by the translucency pass and needs "
+                                            "ShadingModel DefaultLit" };
+                return fail();
+            }
+            result.Meta.Blend = result.Surface.Blend;
             if ( masked )
             {
                 const auto clip =
@@ -1829,12 +1852,15 @@ namespace Desert::Core::Preprocess
             for ( const std::string_view path : kSurfaceVertexPaths )
                 for ( const std::string_view pass : kSurfaceCellPasses )
                 {
+                    if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
+                        continue;
                     DShaderPass cell;
                     cell.Name  = SurfaceCellName( path, pass );
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace( stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock,
-                                                                              includeBlock, autoDecls, masked,
+                                                                              includeBlock, autoDecls,
+                                                                              result.Surface.Blend,
                                                                               result.Surface.Shading ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );

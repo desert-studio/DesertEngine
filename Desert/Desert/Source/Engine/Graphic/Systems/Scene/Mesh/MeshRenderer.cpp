@@ -77,11 +77,12 @@ namespace Desert::Graphic::System
             return row;
         }
 
-        // Transmission > 0 sends an object to the glass pass. By name through the manifest like every param.
-        bool IsTransmissive( const DataDrivenMaterial* material, const Core::Formats::MaterialParamRow& row )
+        // UE routes by the material's BLEND MODE: a Translucent template's objects are drawn by the translucency
+        // pass and skipped by every opaque one. A property of the template the material draws with, read off its
+        // program — no parameter value of any material decides a pass.
+        bool IsTranslucent( const DataDrivenMaterial* material )
         {
-            const auto slot = Core::Formats::MaterialParamSlot( material->GetSchema(), "Transmission" );
-            return slot && *slot < row.size() && row[*slot].x > 0.001f;
+            return material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent;
         }
 
         // Appends one row to a buffer of rows laid end to end and returns its index there. Every PBR pass
@@ -769,7 +770,7 @@ namespace Desert::Graphic::System
         if ( !target || !camera )
             return;
 
-        // Collect the transparent (Transmission > 0) objects + their effective GPU material entries. Uses a
+        // Collect the translucent objects (their template's BlendMode) + their effective GPU material entries. Uses a
         // DEDICATED material so the opaque passes' per-frame UBs are untouched (the double-write-per-frame that
         // hung the GPU).
         const Core::Frustum frustum = camera->GetFrustum();
@@ -787,7 +788,7 @@ namespace Desert::Graphic::System
                 continue;
             auto*      mat = static_cast<DataDrivenMaterial*>( pbrInst->GetParentMaterial() );
             const auto row = EffectiveRow( mat, pbrInst );
-            if ( !IsTransmissive( mat, row ) )
+            if ( !IsTranslucent( mat ) )
                 continue; // opaque -> drawn by the opaque pass, not here
             glassObjs.push_back( &data );
             AppendRow( gpuMats, row );
@@ -856,7 +857,7 @@ namespace Desert::Graphic::System
                 continue;
             const auto* mat = static_cast<DataDrivenMaterial*>( pbrInst->GetParentMaterial() );
             const auto  row = EffectiveRow( mat, pbrInst );
-            if ( IsTransmissive( mat, row ) )
+            if ( IsTranslucent( mat ) )
                 continue;
             objs.push_back( &data );
             AppendRow( gpuMats, row );
@@ -1110,9 +1111,8 @@ namespace Desert::Graphic::System
 
             // The effective material is built ONCE per object here and reused for the glass split,
             // the batch entry and the per-object SSBO (it used to be rebuilt up to three times).
-            // Transparency split (per-object so instance-level Transmission overrides are honoured): a material
-            // with Transmission > 0 is GLASS — skipped by every opaque pass (forward + deferred G-buffer) and
-            // drawn ONLY by RenderGlassManual, which holds its own (Static x Glass) material and composites
+            // Translucency split: a material whose template is BlendMode Translucent is skipped by every
+            // opaque pass (forward + deferred G-buffer) and drawn ONLY by RenderGlassManual, which holds its own (Static x Glass) material and composites
             // forward over the scene with blending.
             for ( const auto* obj : objects )
             {
@@ -1120,7 +1120,7 @@ namespace Desert::Graphic::System
                 od.Obj  = obj;
                 od.Inst = FirstPBRSlot( obj->MaterialSlots->Slots, MeshVertexPath::Static );
                 od.Row  = EffectiveRow( mat, od.Inst );
-                if ( IsTransmissive( mat, od.Row ) )
+                if ( IsTranslucent( mat ) )
                     continue;
                 if ( od.Inst )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
@@ -1802,7 +1802,8 @@ namespace Desert::Graphic::System
     {
         // Optional (like the G-buffer pass): needs the glass shader + the scene target. Failure leaves the
         // rest fully functional — glass just won't draw.
-        m_StaticGlassShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "StaticMeshGlass" );
+        m_StaticGlassShader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
+             MeshShaderFor( MeshVertexPath::Static, MeshPass::Glass ) );
         if ( !m_StaticGlassShader )
             return false;
 

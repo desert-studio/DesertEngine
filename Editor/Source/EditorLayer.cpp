@@ -9729,8 +9729,7 @@ namespace Desert::Editor
 
         // Glass probe (refraction path) + emissive probe (bloom path — glows past the threshold).
         prim( "GlassSphere", Geometry::PrimitiveType::Sphere, { -2.5f, 1.0f, 0.5f }, glm::vec3( 1.2f ),
-              mat( "Starter_Glass", { { "Transmission", { 0.9f, 0, 0, 0 } },
-                                      { "IOR", { 1.5f, 0, 0, 0 } },
+              mat( "Starter_Glass", { { "IOR", { 1.5f, 0, 0, 0 } },
                                       { "GlassTint", { 0.8f, 0.95f, 1.0f, 1.0f } } } ) );
         prim( "EmissiveCube", Geometry::PrimitiveType::Cube, { 2.5f, 0.5f, 0.5f }, glm::vec3( 1.0f ),
               mat( "Starter_Emissive", { { "AlbedoColor", { 0.1f, 0.1f, 0.1f, 1.0f } },

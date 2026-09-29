@@ -49,8 +49,7 @@ namespace Desert::Editor::MaterialAssetUtils
                { { "AlbedoColor", { 0.95f, 0.50f, 0.08f, 1.0f } },
                  { "RoughnessFactor", { 0.9f, 0.0f, 0.0f, 0.0f } } } },
              { "CB_Glass",
-               { { "Transmission", { 0.9f, 0.0f, 0.0f, 0.0f } },
-                 { "IOR", { 1.5f, 0.0f, 0.0f, 0.0f } },
+               { { "IOR", { 1.5f, 0.0f, 0.0f, 0.0f } },
                  { "GlassTint", { 0.75f, 0.9f, 1.0f, 1.0f } } } },
         };
         return materials;
