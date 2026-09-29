@@ -115,6 +115,10 @@ namespace Desert::Geometry
                                                  int td ) const;
         [[nodiscard]] bool CreatesTinyTriangle( int vertex, int other, const glm::dvec3& newPosition, int tc,
                                                 int td ) const;
+        [[nodiscard]] bool           IsConstrainedEdge( int edge ) const;
+        [[nodiscard]] int            ConstrainedEdgeCount( int vertex ) const;
+        [[nodiscard]] bool CreatesFin( int vertex, int other, const glm::dvec3& newPosition, int c, int d, int tc,
+                                       int td ) const;
         void               UpdateNeighborhood( const DynamicMeshInfo::EdgeCollapseInfo& info );
         void               UpdateConstraintsAround( int edge );
 

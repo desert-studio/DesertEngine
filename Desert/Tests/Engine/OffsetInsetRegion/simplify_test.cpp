@@ -291,9 +291,10 @@ TEST( Simplify, ASecondSimplifyOfAHardEdgedSphereCollapsesAlongItsSeams )
         EXPECT_EQ( half.TriangleCount(), before.TriangleCount() / 2 ) << perTriangle;
         EXPECT_EQ( fourth.TriangleCount(), before.TriangleCount() / 4 ) << perTriangle;
         EXPECT_TRUE( Valid( half ) && Valid( fourth ) ) << perTriangle;
-        // Open (M18c remainder): 10 / 12 triangles of the quarter face inward - the same slivers along a kept line
-        // as KeptBordersLeaveNoSliverStandingAcrossTheSurface; no degenerate one (bPreventTinyTriangles).
-        EXPECT_EQ( InwardAndDegenerate( fourth ).second, 0 ) << perTriangle;
+        // M18d: without the fin rule 10 / 12 triangles of the quarter faced inward - ears cut off a seam line,
+        // three corners on one great circle; none is degenerate (bPreventTinyTriangles).
+        EXPECT_EQ( InwardAndDegenerate( half ), std::make_pair( 0, 0 ) ) << perTriangle;
+        EXPECT_EQ( InwardAndDegenerate( fourth ), std::make_pair( 0, 0 ) ) << perTriangle;
         if ( perTriangle )
         {
             // Every triangle keeps its own normal elements: every edge stays a seam.
@@ -309,9 +310,10 @@ TEST( Simplify, ASecondSimplifyOfAHardEdgedSphereCollapsesAlongItsSeams )
 }
 
 // M18c: with the polygroup borders kept, a collapse onto a border could leave a triangle whose three corners lie
-// on one border arc - a sliver standing across the surface (71 of 372 facing inward on this sphere).
-// Open (M18c remainder): 51 inward with the UE checks ported; needs a rule the flip check does not have.
-TEST( Simplify, DISABLED_KeptBordersLeaveNoSliverStandingAcrossTheSurface )
+// on one border arc - a sliver standing across the surface (71 of 372 facing inward on this sphere, 51 with the
+// UE checks ported). M18d: the fin rule (QemSimplification::CreatesFin) refuses it - 0 of 384; every face keeps
+// two more triangles than the pure triangulation of its 64-vertex border (62).
+TEST( Simplify, KeptBordersLeaveNoSliverStandingAcrossTheSurface )
 {
     const DynamicMesh3 before = CubeSphere( 16, true );
     SimplifySettings   settings;
@@ -320,6 +322,7 @@ TEST( Simplify, DISABLED_KeptBordersLeaveNoSliverStandingAcrossTheSurface )
     const DynamicMesh3 after         = Simplified( before, settings );
     std::printf( "kept borders 10%%: %d triangles, inward/degenerate %d/%d\n", after.TriangleCount(),
                  InwardAndDegenerate( after ).first, InwardAndDegenerate( after ).second );
+    EXPECT_EQ( after.TriangleCount(), 384 );
     EXPECT_TRUE( Valid( after ) );
     EXPECT_EQ( GroupBorders( after ), GroupBorders( before ) );
     EXPECT_EQ( InwardAndDegenerate( after ), std::make_pair( 0, 0 ) );
