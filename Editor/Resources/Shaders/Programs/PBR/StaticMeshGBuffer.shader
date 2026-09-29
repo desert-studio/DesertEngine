@@ -115,6 +115,8 @@ Shader "StaticMeshGBuffer"
         // binding in both. A sparse set is not a problem for Vulkan, and the gaps are the record of what
         // this pass does NOT need.
         #include <Common/TangentNormal.glslh>
+        // The source-to-surface arithmetic, the SAME text the forward StaticMeshPBR compiles.
+        #include <Common/PBRSurfaceInputs.glslh>
         Uniform(11) sampler2D  u_AlbedoTexture;
         Uniform(12) sampler2D  u_NormalTexture;
         Uniform(18) sampler2D  u_OpacityTexture;
@@ -126,24 +128,29 @@ Shader "StaticMeshGBuffer"
         	vec2 tiling = mat.ExtraParams.xy;
         	if (tiling.x <= 0.0) tiling.x = 1.0;
         	if (tiling.y <= 0.0) tiling.y = 1.0;
-        	vec2 uv = inVertex.Texcoord * tiling;
+        	// The transport (GpuMaterial) carries a scale only: offset/rotation at their identities, UV set 0.
+        	vec2 uv = PBRTransformUV(PBRSelectUV(inVertex.Texcoord, inVertex.Texcoord, 0), vec2(0.0), tiling, 0.0);
 
         	float alphaCutoff = mat.MetalRoughEmission.w;
         	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
         		discard;
 
-        	vec3 albedo = mat.AlbedoAO.rgb * pow(texture(u_AlbedoTexture, uv).rgb, vec3(2.2));
+        	// No vertex-colour input in this vertex layout: the vertex colour is white.
+        	vec3 albedo = PBRBaseColor(mat.AlbedoAO.rgb, pow(texture(u_AlbedoTexture, uv).rgb, vec3(2.2)), vec3(1.0));
 
         	vec3 N = normalize(inVertex.Normal);
         	const ivec2 nrmSize = textureSize(u_NormalTexture, 0);
         	if (nrmSize.x > 1 && nrmSize.y > 1)
         	{
-        		vec3 tangentNormal = SampleTangentNormal(u_NormalTexture, uv);
+        		// The transport carries no normal scale: glTF's default 1 changes nothing.
+        		vec3 tangentNormal = PBRScaleTangentNormal(SampleTangentNormal(u_NormalTexture, uv), 1.0);
         		N = normalize(inVertex.TBN * tangentNormal);
         	}
 
-        	const float metallic  = mat.MetalRoughEmission.x;
-        	const float roughness = max(mat.MetalRoughEmission.y, 0.04);
+        	// No ORM texture on this path: a white texel passes the factors through (occlusion is not a GBuffer channel).
+        	const vec3  orm       = PBRResolveORM(vec3(1.0), 1.0, mat.MetalRoughEmission.y, mat.MetalRoughEmission.x);
+        	const float metallic  = orm.z;
+        	const float roughness = max(orm.y, 0.04);
 
         	// Material-complexity proxy (heat-mapped by the DeferredLighting debug branch): count the textures
         	// this material actually samples — a bound map is a real texture, an absent one is a 1x1 dummy.
@@ -158,7 +165,8 @@ Shader "StaticMeshGBuffer"
         	oGBufferC = vec4(inVertex.WorldPosition, float(texCount));
         	// Emissive is view-independent self-illumination; the deferred lighting resolve ADDS it, matching the
         	// forward StaticMeshPBR path so emissive materials reach the HDR composite and bloom (values > 1).
-        	oGBufferEmissive = vec4(mat.EmissionColor.rgb * mat.MetalRoughEmission.z, 1.0);
+        	// No emissive texture is bound: its texel is white.
+        	oGBufferEmissive = vec4(PBREmission(vec3(1.0), mat.EmissionColor.rgb, mat.MetalRoughEmission.z), 1.0);
         }
     }
 }
