@@ -590,8 +590,9 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
+    // FORTY-FOUR since SURF1c added `DShaderParseResult::Surface` (read by the cell expansion in DShaderParser.cpp).
     // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
-    EXPECT_EQ( std::size( k_Census ), 43u )
+    EXPECT_EQ( std::size( k_Census ), 44u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 
