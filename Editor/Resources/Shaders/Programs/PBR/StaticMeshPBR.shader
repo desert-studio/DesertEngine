@@ -14,6 +14,8 @@ Shader "StaticMeshPBR"
     // for the optimized backend + older editor builds.
 
     Domain Surface
+    Role PBRSurface
+    Default Surface
 
     Properties
     {

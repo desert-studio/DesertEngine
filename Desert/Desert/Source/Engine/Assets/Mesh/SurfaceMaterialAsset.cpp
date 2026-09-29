@@ -42,7 +42,9 @@ namespace Desert::Assets
         auto copy = std::make_shared<SurfaceMaterialAsset>( source.m_Metadata.Filepath );
 
         copy->m_Data       = source.m_Data;
-        copy->m_ShaderName = source.m_ShaderName;
+        copy->m_ShaderName         = source.m_ShaderName;
+        copy->m_ShaderHandle       = source.m_ShaderHandle;
+        copy->m_ShaderIsPBRSurface = source.m_ShaderIsPBRSurface;
         // Carried over so a working copy of a material that is running on substituted defaults refuses to
         // save for the same reason its source does. Nothing saves the copy today, and this is what keeps
         // that true if something ever tries.
@@ -87,13 +89,12 @@ namespace Desert::Assets
 
     void SurfaceMaterialAsset::ResolveShader( const AssetManager* manager )
     {
-        if ( !m_Data.Shader.has_value() )
-        {
-            m_ShaderName = std::string( kDefaultShaderName );
-            return;
-        }
         m_ShaderName.clear();
-        if ( manager == nullptr )
+        m_ShaderHandle       = Common::AssetHandle::Null();
+        m_ShaderIsPBRSurface = false;
+        // No template stated: an instance takes its parent's (resolved through the chain by the callers);
+        // anything else was refused by Load — there is no default template to fall back on.
+        if ( !m_Data.Shader.has_value() || manager == nullptr )
             return;
         const std::string context = std::format( "material '{}'", m_Metadata.Filepath.generic_string() );
         const auto        name = FindShaderNameByRef( *manager, *m_Data.Shader, { "shader", "Shader", context } );
@@ -102,17 +103,16 @@ namespace Desert::Assets
             LOG_ERROR( "{}; the material draws nothing until it names one", name.GetError() );
             return;
         }
+        m_ShaderHandle =
+             Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Data.ShaderGuid() ) ) );
         m_ShaderName = name.GetValue();
+        if ( const auto shader = manager->FindByHandle<ShaderAsset>( m_ShaderHandle ) )
+            m_ShaderIsPBRSurface = shader->GetRole() == Common::Content::kPBRSurfaceRole;
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::StateShaderByName( MaterialData& data, const AssetManager& manager,
                                                                    std::string_view name )
     {
-        if ( name == kDefaultShaderName )
-        {
-            data.SetShader( {}, {} );
-            return BOOLSUCCESS;
-        }
         const auto ref = FindShaderRefByName( manager, name, { "shader", "Shader", "the edited material" } );
         if ( !ref )
             return Common::MakeError( ref.GetError() );
@@ -177,6 +177,13 @@ namespace Desert::Assets
         const auto parsed = ParseMaterialJson( m_Metadata.Filepath.generic_string(), raw.GetValue() );
         if ( parsed )
         {
+            // NO DEFAULT TEMPLATE. A material names its template by GUID, or is an instance naming its parent;
+            // a file that does neither is refused by path rather than drawn as a guessed surface.
+            if ( !parsed.GetValue().Shader.has_value() && !parsed.GetValue().InstanceParentId().has_value() )
+                return Common::MakeFormattedError<bool>(
+                     "material '{}' names no surface template: a material states \"Shader\": {{\"Guid\", "
+                     "\"Path\"}} (an instance states its \"Parent\"); there is no default template",
+                     m_Metadata.Filepath.generic_string() );
             m_Data                         = parsed.GetValue();
             m_RunningOnSubstitutedDefaults = false; // a reload that parses clears a previous failure
             finalize();

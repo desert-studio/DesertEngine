@@ -36,5 +36,22 @@ namespace Common::Content
     // so the two can never name different shaders. Refuses a source with no such line, naming what it found.
     ResultStr<std::string> ReadShaderDeclaredName( std::string_view source );
 
+    // The template manifest a shader declares in its body: `Role <Name>` (what engine code asks for — a role,
+    // never a shader name) and `Default Surface` (the template a material is created with when the project
+    // overrides nothing). The DSL parser reads the same two lines into ShaderProgramMeta. Refuses a second Role
+    // line or a `Default` that is not `Surface`, naming the line.
+    struct ShaderManifest
+    {
+        std::string Role;
+        bool        DefaultSurface = false;
+    };
+    ResultStr<ShaderManifest> ReadShaderManifest( std::string_view source );
+
+    // The roles engine code asks the template registry for. A role is declared by the shader file
+    // (`Role <Name>`), exactly one loaded shader per role; the asset registry carries it as the Role tag so
+    // the world cook knows a material's backend without loading the shader (WorldCells::CustomShaderFrom).
+    inline constexpr std::string_view kPBRSurfaceRole = "PBRSurface"; // the batched PBR backend (until MAT1a)
+    inline constexpr std::string_view kDebugColorRole = "DebugColor"; // the scripting flat-colour material
+
     const IAssetHeaderFormat& ShaderCommentHeaderFormat();
 } // namespace Common::Content

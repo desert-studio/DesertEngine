@@ -117,6 +117,9 @@ namespace Common::Utils
         // It is the soft reference between the two (UE: a USkeletalMesh names its USkeleton), so a mesh
         // finds its rig's row without reading every skeleton. 0 = the file states none.
         uint64_t RigSignature = 0;
+        // The Role tag: the template role a Shader row's manifest declares (`Role <Name>`, see
+        // Content::ReadShaderManifest); empty = the shader declares none. Only Shader rows carry it.
+        std::string Role;
 
         // The handle this file's PATH derives — `AssetHandle::FromKey( Key )`. A method rather than a
         // column, for the reason the header note gives.
