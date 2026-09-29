@@ -203,8 +203,8 @@ TEST( AnimationClipFormat, ANotifysTrackSurvivesTheFileAndTheBuild )
     EXPECT_EQ( read.value().Track, 2 );
 
     Ser::AnimationAssetData data;
-    data.Name     = "Tracked";
-    data.Notifies = { { "b", 4800, 1 }, { "a", 2400, 2 } };
+    data.Name        = "Tracked";
+    data.Notifies    = { { "b", 4800, 1 }, { "a", 2400, 2 } };
     const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
     ASSERT_TRUE( built ) << built.GetError();
     ASSERT_EQ( built.GetValue().Notifies.size(), 2u );
@@ -219,8 +219,8 @@ TEST( AnimationClipFormat, ANotifysTrackSurvivesTheFileAndTheBuild )
 TEST( AnimationClipFormat, ANegativeNotifyTrackIsRefusedByName )
 {
     Ser::AnimationAssetData data;
-    data.Name     = "Negative";
-    data.Notifies = { { "Hit", 2400, -1 } };
+    data.Name        = "Negative";
+    data.Notifies    = { { "Hit", 2400, -1 } };
     const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
     ASSERT_FALSE( built );
     EXPECT_NE( built.GetError().find( "Hit" ), std::string::npos ) << built.GetError();

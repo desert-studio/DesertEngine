@@ -178,7 +178,8 @@ namespace Desert::Assets::Serialization
                      "notify '{}' at tick {} states track {}; a notify track is a row index, 0 or more", n.Name,
                      n.Tick, n.Track );
             }
-            clip.Notifies.push_back( Animation::AnimationNotify{ n.Name, Animation::FrameNumber{ n.Tick }, n.Track } );
+            clip.Notifies.push_back(
+                 Animation::AnimationNotify{ n.Name, Animation::FrameNumber{ n.Tick }, n.Track } );
         }
         std::sort( clip.Notifies.begin(), clip.Notifies.end(),
                    []( const Animation::AnimationNotify& a, const Animation::AnimationNotify& b )
