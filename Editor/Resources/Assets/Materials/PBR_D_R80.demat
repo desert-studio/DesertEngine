@@ -5,7 +5,11 @@
         "Versions": {
             "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/PBR/StaticMeshPBR.shader"
     },
     "Params": [
         {

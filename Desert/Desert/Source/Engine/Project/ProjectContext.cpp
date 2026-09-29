@@ -190,6 +190,18 @@ namespace Desert::Project
         return s_FilePath;
     }
 
+    std::string ProjectContext::DefaultSurfaceTemplate()
+    {
+        if ( !s_Current )
+            return {};
+        const auto stated = s_Current->UnknownKeys.get( "DefaultSurfaceTemplate" );
+        if ( !stated )
+            return {};
+        const auto text = stated.value().to_string();
+        // A non-string value is returned as a spelling FindDefaultSurfaceTemplate refuses, never as "absent".
+        return text ? text.value() : std::string( "<not a string>" );
+    }
+
     std::string ProjectContext::DefaultScenePath()
     {
         if ( !s_Current || s_Current->DefaultScene.empty() )

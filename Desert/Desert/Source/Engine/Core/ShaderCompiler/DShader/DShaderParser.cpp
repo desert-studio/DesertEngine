@@ -1387,6 +1387,25 @@ namespace Desert::Core::Preprocess
                     return fail();
                 }
             }
+            else if ( lower == "role" )
+            {
+                result.Meta.Role = ReadIdent( c );
+                if ( result.Meta.Role.empty() )
+                {
+                    err = { line, "Role needs a name ('Role <Name>')" };
+                    return fail();
+                }
+            }
+            else if ( lower == "default" )
+            {
+                const std::string v = Lower( ReadIdent( c ) );
+                if ( v != "surface" )
+                {
+                    err = { line, "unknown Default '" + v + "' (the only one is 'Default Surface')" };
+                    return fail();
+                }
+                result.Meta.DefaultSurface = true;
+            }
             else if ( lower == "properties" )
             {
                 if ( !ParsePropertiesBlock( c, result.Meta, propInfo, err ) )

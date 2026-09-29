@@ -6,6 +6,7 @@
 Shader "Unlit"
 {
     Domain Surface
+    Role DebugColor
 
     Properties Binding(1) TextureBinding(2)
     {

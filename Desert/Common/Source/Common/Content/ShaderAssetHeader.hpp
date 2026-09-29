@@ -36,5 +36,16 @@ namespace Common::Content
     // so the two can never name different shaders. Refuses a source with no such line, naming what it found.
     ResultStr<std::string> ReadShaderDeclaredName( std::string_view source );
 
+    // The template manifest a shader declares in its body: `Role <Name>` (what engine code asks for — a role,
+    // never a shader name) and `Default Surface` (the template a material is created with when the project
+    // overrides nothing). The DSL parser reads the same two lines into ShaderProgramMeta. Refuses a second Role
+    // line or a `Default` that is not `Surface`, naming the line.
+    struct ShaderManifest
+    {
+        std::string Role;
+        bool        DefaultSurface = false;
+    };
+    ResultStr<ShaderManifest> ReadShaderManifest( std::string_view source );
+
     const IAssetHeaderFormat& ShaderCommentHeaderFormat();
 } // namespace Common::Content

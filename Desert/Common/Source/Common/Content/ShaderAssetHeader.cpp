@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <format>
+#include <optional>
 #include <sstream>
 
 namespace Common::Content
@@ -78,6 +80,47 @@ namespace Common::Content
         if ( !object )
             return MakeError<TextAssetHeaderSerialized>( object.GetError() );
         return ParseTextHeaderObject( object.GetValue() );
+    }
+
+    ResultStr<ShaderManifest> ReadShaderManifest( std::string_view source )
+    {
+        ShaderManifest manifest;
+        std::size_t    begin = 0;
+        while ( begin < source.size() )
+        {
+            const std::size_t end   = std::min( source.find( '\n', begin ), source.size() );
+            std::string_view  line  = source.substr( begin, end - begin );
+            begin                   = end + 1;
+            const std::size_t first = line.find_first_not_of( " \t\r" );
+            if ( first == std::string_view::npos )
+                continue;
+            line                   = line.substr( first );
+            const std::size_t last = line.find_last_not_of( " \t\r" );
+            line                   = line.substr( 0, last + 1 );
+            const auto word        = [&line]( std::string_view keyword ) -> std::optional<std::string_view>
+            {
+                if ( !line.starts_with( keyword ) || line.size() <= keyword.size() ||
+                     ( line[keyword.size()] != ' ' && line[keyword.size()] != '\t' ) )
+                    return std::nullopt;
+                const std::size_t at = line.find_first_not_of( " \t", keyword.size() );
+                return line.substr( at );
+            };
+            if ( const auto role = word( "Role" ) )
+            {
+                if ( !manifest.Role.empty() )
+                    return MakeError<ShaderManifest>( std::format(
+                         "a second 'Role {}' after 'Role {}': a template plays one role", *role, manifest.Role ) );
+                manifest.Role = std::string( *role );
+            }
+            else if ( const auto what = word( "Default" ) )
+            {
+                if ( *what != "Surface" )
+                    return MakeError<ShaderManifest>( std::format(
+                         "'Default {}': the only default a template declares is 'Default Surface'", *what ) );
+                manifest.DefaultSurface = true;
+            }
+        }
+        return MakeSuccess( std::move( manifest ) );
     }
 
     ResultStr<std::string> ReadShaderDeclaredName( std::string_view source )
