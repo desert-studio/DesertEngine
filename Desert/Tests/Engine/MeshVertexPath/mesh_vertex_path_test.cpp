@@ -640,7 +640,8 @@ TEST_F( ShaderRootFixture, AMockTemplatesLayoutIsItsPropertiesAndItsPushBlock )
     auto cell = Reconcile( MockTemplate( "", kTransportInclude, "" ), "LayoutMock" );
     EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
 
-    ASSERT_TRUE( cell.Layout.RowBinding.has_value() );
+    if ( !cell.Layout.RowBinding.has_value() )
+        FAIL() << "the layout has no row binding";
     EXPECT_EQ( *cell.Layout.RowBinding, 30u );
     ASSERT_NE( cell.Layout.FindParam( "Tiling" ), nullptr );
     EXPECT_EQ( cell.Layout.FindParam( "Tiling" )->Offset, 16u );
@@ -774,7 +775,7 @@ namespace
             Buffer.Release();
         }
         template <class T>
-        T At( uint32_t offset ) const
+        [[nodiscard]] T At( uint32_t offset ) const
         {
             T value{};
             std::memcpy( &value, static_cast<const std::byte*>( Buffer.Data ) + offset, sizeof( T ) );

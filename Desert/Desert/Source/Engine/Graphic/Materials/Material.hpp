@@ -71,7 +71,7 @@ namespace Desert::Graphic
 
         // The cell's reconciled layout (Graphic::Shader::GetMaterialLayout) — what the row, the textures and
         // the push fields are placed by (MaterialBinder). An empty layout when the shader failed to load.
-        const Core::Formats::MaterialLayout& GetMaterialLayout() const;
+        [[nodiscard]] const Core::Formats::MaterialLayout& GetMaterialLayout() const;
 
         // Writes one push field BY NAME through the shader's reconciled layout (MaterialBinder). False when
         // the cell does not declare the field — nothing is written then — or when `size` is not its size.

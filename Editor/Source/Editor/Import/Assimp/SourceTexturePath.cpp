@@ -9,7 +9,7 @@ namespace Desert::Editor
     std::filesystem::path NormalizeTextureReference( std::string reference )
     {
         std::replace( reference.begin(), reference.end(), '\\', '/' );
-        return std::filesystem::path( reference );
+        return { std::move( reference ) };
     }
 
     std::filesystem::path FindSourceTexture( const std::filesystem::path& basePath, const std::string& reference )
@@ -18,7 +18,7 @@ namespace Desert::Editor
         std::error_code ec;
         const fs::path  ref = NormalizeTextureReference( reference );
 
-        const fs::path literal = ref.is_absolute() ? ref : ( basePath / ref ).lexically_normal();
+        fs::path literal = ref.is_absolute() ? ref : ( basePath / ref ).lexically_normal();
         if ( fs::exists( literal, ec ) )
             return literal;
 

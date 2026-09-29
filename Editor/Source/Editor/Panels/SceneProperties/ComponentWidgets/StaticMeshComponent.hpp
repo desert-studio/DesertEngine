@@ -10,8 +10,7 @@ namespace Desert::Editor
     class StaticMeshComponentWidget final : public IComponentWidget
     {
     public:
-        StaticMeshComponentWidget( const Assets::AssetManager* assetManager,
-                                   const ComponentEditContext* ctx = nullptr );
+        StaticMeshComponentWidget( Assets::AssetManager* assetManager, const ComponentEditContext* ctx = nullptr );
 
         bool CanRemove() const override
         {
@@ -37,7 +36,7 @@ namespace Desert::Editor
                               const ECS::StaticMeshComponent& staticMesh ) const;
 
     private:
-        const Assets::AssetManager* m_AssetManager;
+        Assets::AssetManager* m_AssetManager;
         // The Details panel's shared preview, when it lent one — the mesh row draws it as a thumbnail.
         const ComponentEditContext* m_Ctx = nullptr;
     };

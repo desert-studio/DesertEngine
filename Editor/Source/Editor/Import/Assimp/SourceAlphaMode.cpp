@@ -14,7 +14,9 @@ namespace Desert::Editor
         // True only when the image header was read and states no alpha channel (grey or RGB).
         bool ImageLacksAlpha( const std::filesystem::path& file )
         {
-            int width = 0, height = 0, channels = 0;
+            int width    = 0;
+            int height   = 0;
+            int channels = 0;
             if ( file.empty() || stbi_info( file.string().c_str(), &width, &height, &channels ) == 0 )
                 return false;
             return channels == 1 || channels == 3;

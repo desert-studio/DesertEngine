@@ -119,7 +119,7 @@ namespace
         {
             return m_Meta;
         }
-        const Desert::Core::Formats::MaterialLayout& GetMaterialLayout() const override
+        [[nodiscard]] const Desert::Core::Formats::MaterialLayout& GetMaterialLayout() const override
         {
             return m_Layout;
         }

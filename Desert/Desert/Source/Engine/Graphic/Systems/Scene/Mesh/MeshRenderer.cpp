@@ -48,7 +48,7 @@ namespace Desert::Graphic::System
         Core::Formats::MaterialParamRow EffectiveRow( const MaterialPBR* material, MaterialInstance* instance )
         {
             Core::Formats::MaterialParamRow row = material->GetParamRow();
-            if ( !instance )
+            if ( instance == nullptr )
                 return row;
             for ( const auto& [name, prop] : instance->GetPropertySet().GetProperties() )
             {
@@ -140,6 +140,18 @@ namespace Desert::Graphic::System
                     return inst;
             }
             return nullptr;
+        }
+
+        // The PBR parent FirstPBRSlot chose the instance for. A parent that is not PBR (FirstPBRSlot never
+        // returns one, so this is a broken invariant) is refused by name: the object is skipped, not drawn wrong.
+        MaterialPBR* PBRParentOf( MaterialInstance& instance )
+        {
+            auto* pbr = dynamic_cast<MaterialPBR*>( instance.GetParentMaterial() );
+            if ( pbr == nullptr )
+                LOG_ERROR(
+                     "[MeshRenderer] material instance '{}' has no PBR parent material; the object is skipped",
+                     instance.GetName() );
+            return pbr;
         }
     } // namespace
 
@@ -766,7 +778,9 @@ namespace Desert::Graphic::System
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
                 continue;
-            auto*      mat = static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() );
+            auto* mat = PBRParentOf( *pbrInst );
+            if ( mat == nullptr )
+                continue;
             const auto row = EffectiveRow( mat, pbrInst );
             if ( !IsTransmissive( mat, row ) )
                 continue; // opaque -> drawn by the opaque pass, not here
@@ -835,8 +849,10 @@ namespace Desert::Graphic::System
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
             if ( !pbrInst )
                 continue;
-            const auto* mat = static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() );
-            const auto  row = EffectiveRow( mat, pbrInst );
+            const auto* mat = PBRParentOf( *pbrInst );
+            if ( mat == nullptr )
+                continue;
+            const auto row = EffectiveRow( mat, pbrInst );
             if ( IsTransmissive( mat, row ) )
                 continue;
             objs.push_back( &data );
@@ -956,7 +972,8 @@ namespace Desert::Graphic::System
             // path at submit and are masked out of this draw; an object with NO PBR slot at
             // all has nothing for this path to do.
             if ( MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static ) )
-                groupFor( static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() ) ).push_back( &data );
+                if ( auto* mat = PBRParentOf( *pbrInst ); mat != nullptr )
+                    groupFor( mat ).push_back( &data );
         }
 
         // Accumulators for the auto-instanced path (shared across ALL material groups). The shared instanced

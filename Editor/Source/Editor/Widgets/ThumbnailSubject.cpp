@@ -89,7 +89,11 @@ namespace Desert::Editor::ThumbnailSubject
         Common::AssetHandle previewMesh{ static_cast<uint64_t>( 0 ) };
         if ( route.GetValue() == Preview::Mesh )
         {
-            const auto& ref    = *asset->Data().PreviewMesh;
+            const auto& preview = asset->Data().PreviewMesh;
+            if ( !preview.has_value() )
+                return Common::MakeFormattedError<Material>( "'{}': its preview is its mesh, and it names none",
+                                                             assetPath );
+            const auto& ref    = *preview;
             const auto  stated = Assets::Serialization::ReadImportRecordGuid( ref.Path );
             if ( !stated )
                 return Common::MakeFormattedError<Material>( "'{}': its PreviewMesh '{}': {}", assetPath, ref.Path,

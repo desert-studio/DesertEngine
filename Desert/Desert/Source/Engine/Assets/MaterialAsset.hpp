@@ -22,7 +22,7 @@ namespace Desert::Assets
         // The surface template (shader asset) this material draws with, BY HANDLE — its identity.
         // MaterialFactory routes on it: the engine PBR templates get their C++ material, everything else a
         // generic DataDrivenMaterial. Null = no template resolved (the material draws nothing).
-        virtual Common::AssetHandle GetShaderHandle() const = 0;
+        [[nodiscard]] virtual Common::AssetHandle GetShaderHandle() const = 0;
 
         // The template's display name (the shader file's stem). Never a key: nothing decides on it.
         virtual std::string GetShaderName() const = 0;

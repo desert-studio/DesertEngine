@@ -179,8 +179,9 @@ TEST( StaticMeshOutput, TheColourLayerAndUVOneTravelAsStreams )
     std::vector<int>        uvOf( static_cast<size_t>( mesh.MaxVertexId() ), -1 );
     // Per vertex, values exact in 8 bits (k / 255) so the RGBA8 stream round-trips them bit for bit.
     const auto ColourOf = []( int v )
-    { return glm::vec4( glm::vec3( float( v * 20 % 256 ), 51.0f, 255.0f ), 102.0f ) / 255.0f; };
-    const auto UVOf = []( int v ) { return glm::vec2( 0.25f * float( v ), 1.0f - 0.5f * float( v ) ); };
+    { return glm::vec4( glm::vec3( static_cast<float>( v * 20 % 256 ), 51.0f, 255.0f ), 102.0f ) / 255.0f; };
+    const auto UVOf = []( int v )
+    { return glm::vec2( 0.25f * static_cast<float>( v ), 1.0f - 0.5f * static_cast<float>( v ) ); };
     for ( const int v : mesh.VertexIds() )
     {
         colourOf[static_cast<size_t>( v )] = colors.AppendElement( ColourOf( v ) );

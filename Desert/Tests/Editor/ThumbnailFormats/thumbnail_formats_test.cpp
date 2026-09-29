@@ -617,7 +617,8 @@ TEST( ThumbnailFormats, AnImportedMeshPictureIsJudgedAgainstItsSourceAndStaysFre
 
     ASSERT_EQ( TF::MeshFreshnessSource( cooked ), source ) << "no .stmesh on disk: the source beside it decides";
     const auto hash = TF::ContentHash( TF::MeshFreshnessSource( cooked ) );
-    ASSERT_TRUE( hash.has_value() ) << "an imported mesh's picture could never be recorded as fresh";
+    if ( !hash.has_value() )
+        FAIL() << "an imported mesh's picture could never be recorded as fresh";
     ASSERT_TRUE( TF::Record( png, *hash ).IsSuccess() );
     EXPECT_EQ( TF::Judge( TF::Observe( png, TF::MeshFreshnessSource( cooked ) ) ), TF::Verdict::Show )
          << "the next session re-renders a picture of an unchanged mesh";

@@ -40,7 +40,7 @@ namespace Desert::Editor
         std::string                                             Name;
         std::map<std::string, SourceMaterialEntry, std::less<>> Entries;
 
-        bool Has( std::string_view key ) const
+        [[nodiscard]] bool Has( std::string_view key ) const
         {
             return Entries.find( key ) != Entries.end();
         }
@@ -86,7 +86,7 @@ namespace Desert::Editor
         // The slot binds one source image AS IS only when one image fills every channel the template routes
         // here; otherwise the importer packs the parts into a derived image (a glTF occlusion map that is not
         // the metallic-roughness image, or a metallic-roughness image whose R is not occlusion at all).
-        bool NeedsPacking() const;
+        [[nodiscard]] bool NeedsPacking() const;
     };
     struct TemplateFill
     {

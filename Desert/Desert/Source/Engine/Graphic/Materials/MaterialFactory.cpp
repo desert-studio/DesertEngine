@@ -44,10 +44,17 @@ namespace Desert::Graphic
                      auto* textures = Runtime::ResourceRegistry::GetTextureService();
                      if ( auto* tex = textures->Get( Common::UUID( handle ) ) )
                      {
-                         if ( auto* img = static_cast<Graphic::Image2D*>(
-                                   Runtime::ResourceRegistry::GetImageService()->Resolve(
-                                        tex->GetImageHandle() ) ) )
+                         if ( auto* image =
+                                   Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() );
+                              image != nullptr )
                          {
+                             auto* img = dynamic_cast<Graphic::Image2D*>( image );
+                             if ( img == nullptr )
+                                 LOG_ERROR(
+                                      "[Materials] '{0}' binds texture handle {1} in its '{2}' slot, and that "
+                                      "texture's image is not a 2D image, so '{3}' samples the slot's "
+                                      "schema default instead.",
+                                      asset.GetMetadata().Filepath.string(), handle, param.Name, shaderName );
                              setSlot( param.Name, img );
                              return;
                          }
@@ -103,7 +110,7 @@ namespace Desert::Graphic
         BindManifestTextures( material.GetSchema(), asset, asset.GetShaderName(),
                               [&material]( const std::string& name, Graphic::Image2D* image )
                               {
-                                  if ( !image )
+                                  if ( image == nullptr )
                                       material.BindSchemaDefaultTexture( name );
                                   else if ( auto* prop = material.Get<Texture2DProperty>( name ) )
                                       prop->SetImage( image );

@@ -26,6 +26,8 @@
 
 #include <gtest/gtest.h>
 
+#include <Engine/Core/Formats/MaterialLayout.hpp>
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
@@ -196,6 +198,30 @@ namespace
         return names;
     }
 
+    // What the MATERIAL fills in set 0, derived from the template exactly as the engine derives it: its
+    // `Materials` row block when BuildMaterialLayout gives it a row, and every texture slot of the manifest
+    // that MaterialFactory::BindManifestTextures binds by name from the material asset — the same filter
+    // (2D, not an asset reference). The PBR templates declare their samplers by hand, so the layout's own
+    // Textures list is empty for them and the manifest is the one source. A slot added to or removed from a
+    // template is accounted here with no edit to this test. Cube slots are not: no mesh path binds one
+    // (MaterialSkybox does, for the sky), so a mesh shader declaring one stays a failure.
+    std::set<std::string> MaterialOwnedNames( const std::filesystem::path& shaderFile )
+    {
+        const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( shaderFile ) );
+        EXPECT_TRUE( parsed.IsSuccess() ) << shaderFile.string();
+        if ( !parsed.IsSuccess() )
+            return {};
+        const auto& meta = parsed.GetValue().Meta;
+
+        std::set<std::string> names;
+        if ( Desert::Core::Formats::BuildMaterialLayout( meta ).RowBinding.has_value() )
+            names.insert( Desert::Core::Formats::kMaterialRowBlockName );
+        for ( const auto& param : meta.Params )
+            if ( param.IsTexture && !param.IsCubeTexture && !param.IsAssetRef() )
+                names.insert( param.Name );
+        return names;
+    }
+
     std::string Describe( const std::set<std::string>& names )
     {
         std::ostringstream out;
@@ -323,12 +349,9 @@ TEST_F( ShaderRootFixture, EverySceneBindingTheOneApplierFillsIsDeclaredByEveryM
 // the shader sampled the fallbacks and read as unshadowed and blown-out white.
 TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
 {
-    // Everything in a mesh PBR set 0 that is genuinely per-OBJECT and is therefore filled by the material
-    // itself rather than by the frame snapshot: the GPU-scene material row and the surface maps
-    // (MaterialFactory::BindManifestTextures binds every Texture2D slot of the manifest by name from the
-    // material asset, the emissive and packed occlusion/roughness/metallic maps included).
-    const char* kPerObject[] = { "Materials",        "u_AlbedoTexture",   "u_NormalTexture",
-                                 "u_OpacityTexture", "u_EmissiveTexture", "u_ORMTexture" };
+    // Everything in a mesh PBR set 0 that is genuinely per-OBJECT is filled by the material itself rather
+    // than by the frame snapshot: the GPU-scene material row and the surface maps. That list is the
+    // template's own layout (MaterialOwnedNames), not a copy of it kept here.
     // The cloud-shadow pair, filled by Graphic::CloudShadowBind out of the same snapshot — see the note on
     // SceneBindingNames().
     const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };
@@ -341,7 +364,7 @@ TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
         std::set<std::string> accounted;
         for ( const auto& name : SceneBindingNames() )
             accounted.insert( name );
-        for ( const char* name : kPerObject )
+        for ( const auto& name : MaterialOwnedNames( ShaderPath( shader.Path ) ) )
             accounted.insert( name );
         for ( const char* name : kCloudShadow )
             accounted.insert( name );

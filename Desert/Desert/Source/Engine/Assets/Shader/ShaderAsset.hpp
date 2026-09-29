@@ -35,11 +35,11 @@ namespace Desert::Assets
         }
 
         // The template manifest the file declares (`Role <Name>`, `Default Surface`) — see ReadShaderManifest.
-        const std::string& GetRole() const
+        [[nodiscard]] const std::string& GetRole() const
         {
             return m_Role;
         }
-        bool IsDefaultSurface() const
+        [[nodiscard]] bool IsDefaultSurface() const
         {
             return m_DefaultSurface;
         }

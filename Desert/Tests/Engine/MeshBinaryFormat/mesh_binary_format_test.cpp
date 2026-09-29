@@ -405,8 +405,12 @@ namespace
     // neither stream has a v3 spelling.
     std::string AsVersionThree( const std::string& v4 )
     {
-        constexpr size_t kPrefix = Common::Content::kMeshBinaryPrefixV3, kRow = 24, kRowsV4 = 12, kDropped = 2;
-        uint32_t         version = 0, sections = 0;
+        constexpr size_t kPrefix  = Common::Content::kMeshBinaryPrefixV3;
+        constexpr size_t kRow     = 24;
+        constexpr size_t kRowsV4  = 12;
+        constexpr size_t kDropped = 2;
+        uint32_t         version  = 0;
+        uint32_t         sections = 0;
         uint64_t         fileSize = 0;
         std::memcpy( &version, v4.data() + 12, 4 );
         std::memcpy( &fileSize, v4.data() + 16, 8 );
@@ -488,7 +492,7 @@ namespace
             // Not derived from the index alone in one channel, so a reader that shifted by a vertex fails.
             data.Colors.push_back( { static_cast<uint8_t>( v * 37 ), static_cast<uint8_t>( 255 - v ),
                                      static_cast<uint8_t>( v * v ), static_cast<uint8_t>( 128 + v ) } );
-            data.UV1.push_back( glm::vec2( 0.125f * static_cast<float>( v ), -3.5f + static_cast<float>( v ) ) );
+            data.UV1.emplace_back( 0.125f * static_cast<float>( v ), -3.5f + static_cast<float>( v ) );
         }
         return data;
     }

@@ -98,7 +98,7 @@ namespace Common::Content
         {
             return !v.empty() &&
                    std::all_of( v.begin(), v.end(), []( char ch )
-                                { return std::isalnum( static_cast<unsigned char>( ch ) ) || ch == '_'; } );
+                                { return std::isalnum( static_cast<unsigned char>( ch ) ) != 0 || ch == '_'; } );
         }
 
         // `"<source>.<name>"` -> the key; the rest of the line is left in `rest`.

@@ -35,7 +35,7 @@ namespace Desert::Graphic::MaterialBinder
                                  uint32_t size )
     {
         const auto* f = layout.FindPush( field );
-        if ( !f )
+        if ( f == nullptr )
             return {};
         if ( f->Size != size )
             return { PushWrite::SizeMismatch, f->Offset };
@@ -72,7 +72,7 @@ namespace Desert::Graphic::MaterialBinder
                                std::string_view name, const glm::vec4& value )
     {
         const auto* p = layout.FindParam( name );
-        if ( !p )
+        if ( p == nullptr )
             return false;
         const uint32_t slot = p->Offset / Core::Formats::kMaterialParamSlotSize;
         if ( slot >= row.size() )

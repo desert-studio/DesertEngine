@@ -68,14 +68,14 @@ namespace Desert::Editor
             aiString path;
             if ( mat.GetTextureCount( type ) == 0 || mat.GetTexture( type, 0, &path ) != AI_SUCCESS )
                 return std::nullopt;
-            const std::filesystem::path found = findTexture( path.C_Str() );
+            std::filesystem::path found = findTexture( path.C_Str() );
             if ( found.empty() )
             {
                 LOG_WARN( "[Import][Tex] material '{}': texture '{}' (type {}) NOT FOUND", read.Material.Name,
                           path.C_Str(), static_cast<int>( type ) );
                 return std::nullopt;
             }
-            return SourceTexture{ found, samplerOf( type ) };
+            return SourceTexture{ std::move( found ), samplerOf( type ) };
         };
         const auto colour = [&]( const char* key, unsigned type, unsigned index ) -> std::optional<glm::vec4>
         {

@@ -58,7 +58,7 @@ namespace Desert::Graphic
         // THE layout every material filling this program writes through (Graphic/Materials/MaterialBinder.hpp):
         // row params and textures from the template, push fields read off the compiled stages. A program
         // whose stages disagree with it or with each other never loads, so what is here is what the GPU reads.
-        virtual const Core::Formats::MaterialLayout& GetMaterialLayout() const = 0;
+        [[nodiscard]] virtual const Core::Formats::MaterialLayout& GetMaterialLayout() const = 0;
 
         // False when this shader has never compiled successfully, i.e. it carries no stages at all.
         //
