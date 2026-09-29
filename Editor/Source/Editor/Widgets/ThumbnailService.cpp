@@ -111,6 +111,27 @@ namespace Desert::Editor
         return png;
     }
 
+    std::string
+    ThumbnailService::RequestLoadedMaterial( Assets::AssetManager&                                manager,
+                                             const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
+                                             const std::string&                                   assetPath )
+    {
+        const std::string identity = ThumbnailKey::Identity( assetPath );
+        const std::string png      = ThumbnailKey::DiskPath( assetPath );
+        if ( m_Failed.count( identity ) )
+            return std::string();
+        if ( !ShouldQueue( identity, png, assetPath ) )
+            return png;
+        const auto resolved = ThumbnailSubject::ResolveLoadedMaterial( manager, asset, assetPath );
+        if ( !resolved )
+        {
+            LOG_WARN( "[Thumbnails] no picture for '{}': {}", assetPath, resolved.GetError() );
+            m_Failed.insert( identity );
+            return std::string();
+        }
+        return RequestMaterial( resolved.GetValue(), assetPath );
+    }
+
     void ThumbnailService::WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath )
     {
         const std::string identity  = ThumbnailKey::Identity( assetPath );

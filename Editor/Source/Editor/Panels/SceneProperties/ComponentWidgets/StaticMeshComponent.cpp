@@ -220,11 +220,8 @@ namespace Desert::Editor
                     // WHICH PICTURE, from the one place that decides — this file used to hold its own
                     // copy of the cutout rule and to ask nothing at all about the domain. A refusal leaves
                     // `png` empty, which this row already reads as "no rendered thumbnail".
-                    if ( const auto route = ThumbnailSubject::PreviewRouteFor( *mat ) )
-                    {
-                        png = ThumbnailService::Get().RequestMaterial( mat->GetMetadata().Handle, source,
-                                                                       route.GetValue() );
-                    }
+                    png = ThumbnailService::Get().RequestLoadedMaterial(
+                         const_cast<Assets::AssetManager&>( *m_AssetManager ), mat, source );
                 }
             }
 

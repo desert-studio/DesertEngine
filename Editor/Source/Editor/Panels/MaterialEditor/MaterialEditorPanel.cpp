@@ -10,6 +10,7 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
@@ -2199,6 +2200,41 @@ namespace Desert::Editor
                 // work with a corner of yours in it.
                 ImGui::TextDisabled( "This material fills every slot of that mesh." );
             }
+        }
+
+        // THE THUMBNAIL'S MESH, SAVED WITH THE MATERIAL (UE ThumbnailInfo): MaterialData::PreviewMesh. Unlike the
+        // pane's mesh above (this session's view only), this one is authored — the browser, Details and every
+        // later session photograph the material on it. An import states it for the materials it writes.
+        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail Mesh", ImGuiTreeNodeFlags_DefaultOpen ) )
+        {
+            auto&             data  = m_WorkingCopy->Data();
+            const std::string label = data.PreviewMesh ? data.PreviewMesh->Path : std::string( "<sphere>" );
+            ImGui::Button( ( label + "##thumbnail_mesh" ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Drop an imported static mesh: the material's thumbnail is taken on it." );
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                const char* types[] = { ::Desert::Editor::DragPayloads::MeshAsset,
+                                        ::Desert::Editor::DragPayloads::AssetFile };
+                for ( const char* t : types )
+                {
+                    if ( const ImGuiPayload* pl = ImGui::AcceptDragDropPayload( t ) )
+                    {
+                        const std::string path( static_cast<const char*>( pl->Data ) );
+                        if ( auto ref = PreviewMeshRefFor( path ) )
+                            data.PreviewMesh = ref.GetValue();
+                        else
+                            LOG_WARN( "[MaterialEditor] '{}' cannot be the thumbnail mesh: {}", path,
+                                      ref.GetError() );
+                        break;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            ImGui::BeginDisabled( !data.PreviewMesh.has_value() );
+            if ( ImGui::Button( "Back to the sphere##thumbnail_mesh_clear" ) )
+                data.PreviewMesh.reset();
+            ImGui::EndDisabled();
         }
     }
 

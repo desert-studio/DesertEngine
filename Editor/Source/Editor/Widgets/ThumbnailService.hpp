@@ -95,6 +95,12 @@ namespace Desert::Editor
         // preview mesh, so the only one a Preview::Mesh material is photographed through. The three-argument
         // form with How == Mesh is refused at dispatch, by name.
         std::string RequestMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
+        // A material a panel already holds LOADED (Details slot, mesh row): the route and PreviewMesh are
+        // resolved (ThumbnailSubject::ResolveLoadedMaterial) only when a capture is owed, so a fresh picture
+        // costs no record read per frame. A refusal is logged once and answers "" (no rendered picture).
+        std::string RequestLoadedMaterial( Assets::AssetManager&                                manager,
+                                           const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
+                                           const std::string&                                   assetPath );
 
         // Queue a mesh preview, optionally with the material to apply to every slot.
         std::string

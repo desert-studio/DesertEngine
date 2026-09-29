@@ -325,6 +325,28 @@ namespace Desert::Editor
         return Common::MakeSuccess( true );
     }
 
+    namespace
+    {
+        // The mesh's own material slots, resolved through the material service. Empty when any slot is still
+        // unresolved: MeshECSSystem then retries every frame instead of freezing on a Null() slot.
+        std::vector<Assets::AssetHandle> MeshOwnSlots( const Assets::AssetHandle& meshHandle )
+        {
+            auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
+            if ( !asset )
+                return {};
+            std::vector<Assets::AssetHandle> slots;
+            for ( const auto& external : asset->GetMaterialHandles() )
+            {
+                const auto internal =
+                     Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( external );
+                if ( internal.IsNull() )
+                    return {};
+                slots.push_back( internal );
+            }
+            return slots;
+        }
+    } // namespace
+
     Common::BoolResultStr AssetThumbnailRenderer::RequestMesh( const Assets::AssetHandle& meshHandle,
                                                                const std::string&         outPng,
                                                                const Assets::AssetHandle& material )
@@ -456,12 +478,15 @@ namespace Desert::Editor
                     extent = frame.Extent;
                 }
 
-                // Slot count = submesh count; fill with the linked material (or leave default if none).
+                // Slot count = submesh count; a sidecar material wears every slot. Without one, THE MESH'S OWN
+                // SLOTS — the .demat each submesh names by GUID, as an imported mesh carries them and as the
+                // scene draws them (MeshECSSystem). Clearing them here photographed every import in the
+                // fallback grey. ResolveMesh waited for their closure, so they resolve now.
                 if ( static_cast<uint64_t>( m_PendingMaterial ) != 0 )
                     smc.MaterialSlots.assign( std::max<size_t>( 1, mesh->GetSubmeshes().size() ),
                                               m_PendingMaterial );
                 else
-                    smc.MaterialSlots.clear();
+                    smc.MaterialSlots = MeshOwnSlots( m_PendingHandle );
             }
             else
             {
