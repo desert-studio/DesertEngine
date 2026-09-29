@@ -3,6 +3,7 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include "CookPaths.hpp"
+#include "MaterialAdoption.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
@@ -161,6 +162,38 @@ namespace Desert::Editor
         // hash) that existed only because the file's own claims could otherwise drift from the truth.
         return Common::DDC::Get( Assets::kMeshSourceDeriver, Assets::MeshSourceDerivedDataKey( hash.GetValue() ) )
              .has_value();
+    }
+
+    bool ImportedMaterialsPresent( const std::filesystem::path& source )
+    {
+        const auto hash = Assets::HashMeshSourceFile( source );
+        if ( !hash )
+            return false;
+        const auto blob =
+             Common::DDC::Get( Assets::kMeshSourceDeriver, Assets::MeshSourceDerivedDataKey( hash.GetValue() ) );
+        if ( !blob )
+            return false;
+        const auto asset = Assets::DecodeMeshSourceAsset(
+             std::span<const std::byte>( reinterpret_cast<const std::byte*>( blob->data() ), blob->size() ) );
+        if ( !asset )
+        {
+            LOG_ERROR( "[Import] '{}': the cached import envelope does not decode ({}), so it is imported again",
+                       source.generic_string(), asset.GetError() );
+            return false;
+        }
+        bool present = true;
+        for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
+        {
+            const std::filesystem::path path = MaterialAdoption::MaterialAssetPath( source, slot.Name );
+            std::error_code             ec;
+            if ( std::filesystem::exists( path, ec ) )
+                continue;
+            LOG_WARN( "[Import] '{}': material '{}' is missing ('{}' is not on disk), so the source is imported "
+                      "again to write it",
+                      source.generic_string(), slot.Name, path.generic_string() );
+            present = false;
+        }
+        return present;
     }
 
     bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source )

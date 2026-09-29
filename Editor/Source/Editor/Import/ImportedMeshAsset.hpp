@@ -50,6 +50,13 @@ namespace Desert::Editor
     // Bytes, not times: a `touch` or a fresh checkout does not re-import.
     bool ImportedMeshAssetIsFresh( const std::filesystem::path& source );
 
+    // True when every material slot of @p source's cached envelope has its .demat on disk
+    // (MaterialAdoption::MaterialAssetPath). The envelope being fresh says nothing about the materials: they are
+    // editable content written beside it by the same import, and a deleted .demat left the mesh drawing the
+    // default material for good, because a fresh envelope skipped the import that writes it (THM1a4). Each
+    // missing material is logged by name and path.
+    bool ImportedMaterialsPresent( const std::filesystem::path& source );
+
     // THE GATE EVERY READER OF A STATIC MESH SOURCE NEEDS BEFORE TREATING IT AS "COOKED" (AF4h). @p cooked
     // existing on disk covers a hand-authored `.stmesh` (no import involved, so nothing else applies) and a
     // legacy beside-source file not yet overwritten by a re-import; @p source having a fresh DDC envelope
