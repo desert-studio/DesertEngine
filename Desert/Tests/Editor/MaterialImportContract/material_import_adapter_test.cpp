@@ -90,8 +90,11 @@ namespace
   "meshes": [ { "primitives": [ { "attributes": { "POSITION": 0, "TEXCOORD_0": 1 }, "indices": 2, "material": 0 } ] } ],
   "materials": [ { "name": "M", )"
              << materialBody << R"( } ],
-  "samplers": [ )" << ( samplers.empty() ? std::string( "{}" ) : samplers ) << R"( ],
-  "textures": [ { "source": 0)" << ( samplers.empty() ? "" : R"(, "sampler": 0)" ) << R"( }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 } ],
+  "samplers": [ )"
+             << ( samplers.empty() ? std::string( "{}" ) : samplers ) << R"( ],
+  "textures": [ { "source": 0)"
+             << ( samplers.empty() ? "" : R"(, "sampler": 0)" )
+             << R"( }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 } ],
   "images": [ { "uri": "base.png" }, { "uri": "mr.png" }, { "uri": "occ.png" }, { "uri": "nrm.png" }, { "uri": "emi.png" } ],
   "buffers": [ { "uri": "m.bin", "byteLength": 92 } ],
   "bufferViews": [ { "buffer": 0, "byteOffset": 0, "byteLength": 48 }, { "buffer": 0, "byteOffset": 48, "byteLength": 32 },
@@ -542,9 +545,9 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
 // texture with no sampler states none (the engine default is not written into every imported .demat).
 TEST( MaterialImportAdapter, AGltfSamplerReachesItsSlotAndADefaultOneStatesNothing )
 {
-    const fs::path   file = WriteGltf( "sampler", kFullMaterial, kFullExtensions,
-                                       R"({ "wrapS": 33071, "wrapT": 33648, "magFilter": 9728 })" );
-    Assimp::Importer importer;
+    const fs::path       file = WriteGltf( "sampler", kFullMaterial, kFullExtensions,
+                                           R"({ "wrapS": 33071, "wrapT": 33648, "magFilter": 9728 })" );
+    Assimp::Importer     importer;
     const SourceMaterial source = Read( file, importer );
 
     using Desert::Core::Formats::SamplerFilter;

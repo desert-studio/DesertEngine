@@ -97,7 +97,7 @@ namespace Desert::Graphic::API::Vulkan
             const bool forceLinear = policy == SamplerFilterPolicy::AlwaysLinear;
             const int  mode        = Graphic::RenderConfig::TextureFilter.load();
             const bool nearest     = !forceLinear && ( mode == static_cast<int>( FM::Nearest ) ||
-                                                    slot.Filter == Core::Formats::SamplerFilter::Nearest );
+                                                   slot.Filter == Core::Formats::SamplerFilter::Nearest );
             const bool linearMip   = forceLinear || mode == static_cast<int>( FM::Trilinear ) ||
                                    mode == static_cast<int>( FM::Anisotropic );
 
@@ -115,20 +115,19 @@ namespace Desert::Graphic::API::Vulkan
             const float maxAniso =
                  useAniso ? ( requestedAniso < deviceMaxAniso ? requestedAniso : deviceMaxAniso ) : 1.0f;
 
-            VkSamplerCreateInfo info = {
-                 .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                 .magFilter        = filter,
-                 .minFilter        = filter,
-                 .mipmapMode       = mipMode,
-                 .addressModeU     = AddressModeOf( slot.WrapU ),
-                 .addressModeV     = AddressModeOf( slot.WrapV ),
-                 .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                 .mipLodBias       = 0.0f,
-                 .anisotropyEnable = useAniso ? VK_TRUE : VK_FALSE,
-                 .maxAnisotropy    = maxAniso,
-                 .minLod           = 0.0f,
-                 .maxLod           = 100.0f,
-                 .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE };
+            VkSamplerCreateInfo info = { .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                         .magFilter        = filter,
+                                         .minFilter        = filter,
+                                         .mipmapMode       = mipMode,
+                                         .addressModeU     = AddressModeOf( slot.WrapU ),
+                                         .addressModeV     = AddressModeOf( slot.WrapV ),
+                                         .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                         .mipLodBias       = 0.0f,
+                                         .anisotropyEnable = useAniso ? VK_TRUE : VK_FALSE,
+                                         .maxAnisotropy    = maxAniso,
+                                         .minLod           = 0.0f,
+                                         .maxLod           = 100.0f,
+                                         .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE };
 
             // Guard the promise, not the branch: everything above is derived from several variables, and
             // a later edit that reintroduces the global filter into this path would otherwise be found
@@ -1495,7 +1494,6 @@ namespace Desert::Graphic::API::Vulkan
             RecreateSamplerImpl( m_Resource, Utils::SamplerFilterPolicy::AlwaysLinear );
     }
 
-
     // --- Slot sampler cache (MAT1s): one sampling state, one VkSampler ---
     //
     // A material slot that states a non-default SamplerState (clamp, mirror, nearest) does not use the
@@ -1531,7 +1529,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( const auto it = cache.Samplers.find( key ); it != cache.Samplers.end() )
             return it->second;
         VkSampler sampler = VK_NULL_HANDLE;
-        Utils::CreateSampler( SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice(), sampler, Utils::SamplerFilterPolicy::Global, state );
+        Utils::CreateSampler(
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice(),
+             sampler, Utils::SamplerFilterPolicy::Global, state );
         cache.Samplers.emplace( key, sampler );
         return sampler;
     }
@@ -1542,7 +1542,8 @@ namespace Desert::Graphic::API::Vulkan
         std::lock_guard<std::mutex> lock( cache.Mutex );
         if ( cache.Samplers.empty() )
             return;
-        const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        const VkDevice device =
+             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
         for ( const auto& [key, sampler] : cache.Samplers )
             vkDestroySampler( device, sampler, nullptr );
         cache.Samplers.clear();

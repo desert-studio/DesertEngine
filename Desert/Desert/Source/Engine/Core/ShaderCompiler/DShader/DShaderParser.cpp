@@ -361,14 +361,15 @@ namespace Desert::Core::Preprocess
                     if ( !Expect( c, ')', err, "closing Timing" ) )
                         return false;
                 }
-                // THE TEMPLATE'S SAMPLER FOR A TEXTURE SLOT — `Sampler(WrapU, WrapV, Filter)`, unquoted enumerators
-                // (Repeat|Clamp|Mirror, Linear|Nearest) for the same reason as Timing: a misspelling is a
-                // parse error at load, not a free-text field that silently means Repeat.
+                // THE TEMPLATE'S SAMPLER FOR A TEXTURE SLOT — `Sampler(WrapU, WrapV, Filter)`, unquoted
+                // enumerators (Repeat|Clamp|Mirror, Linear|Nearest) for the same reason as Timing: a misspelling
+                // is a parse error at load, not a free-text field that silently means Repeat.
                 else if ( attr == "sampler" )
                 {
                     if ( !param.IsTexture || param.IsCubeTexture )
                     {
-                        err = { c.Line, "Sampler(...) on '" + param.Name + "', which is not a Texture2D property" };
+                        err = { c.Line,
+                                "Sampler(...) on '" + param.Name + "', which is not a Texture2D property" };
                         return false;
                     }
                     if ( !Expect( c, '(', err, "after Sampler" ) )

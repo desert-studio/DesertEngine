@@ -1045,7 +1045,8 @@ Shader "SamplerProbe"
     ASSERT_TRUE( res.IsSuccess() ) << res.GetError();
     const auto& params = res.GetValue().Meta.Params;
     ASSERT_EQ( params.size(), 2u );
-    EXPECT_EQ( params[0].Sampler, ( SamplerState{ SamplerWrap::Clamp, SamplerWrap::Mirror, SamplerFilter::Nearest } ) );
+    EXPECT_EQ( params[0].Sampler,
+               ( SamplerState{ SamplerWrap::Clamp, SamplerWrap::Mirror, SamplerFilter::Nearest } ) );
     EXPECT_EQ( params[0].DefaultTexture, DefaultTextureKind::Black );
     EXPECT_EQ( params[1].Sampler, SamplerState{} ) << "no attribute: Repeat/Repeat/Linear";
 

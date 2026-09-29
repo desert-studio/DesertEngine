@@ -309,6 +309,7 @@ TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTem
 
     const SamplerState templateDefault{ SamplerWrap::Mirror, SamplerWrap::Repeat, SamplerFilter::Linear };
     EXPECT_EQ( r.SlotSampler( "u_AlbedoTexture", templateDefault ), clamp ) << "the slot's own state wins";
-    EXPECT_EQ( r.SlotSampler( "u_NormalTexture", templateDefault ), templateDefault ) << "no state: the template's";
+    EXPECT_EQ( r.SlotSampler( "u_NormalTexture", templateDefault ), templateDefault )
+         << "no state: the template's";
     EXPECT_EQ( r.SlotSampler( "u_Unnamed", templateDefault ), templateDefault ) << "no slot: the template's";
 }

@@ -28,7 +28,7 @@ namespace Desert::Editor
 
         struct SourceTexture
         {
-            std::filesystem::path                      File;
+            std::filesystem::path                                File;
             std::optional<::Desert::Core::Formats::SamplerState> Sampler;
         };
         // The source's sampler for the texture of @p type: assimp folds glTF wrapS/wrapT (and FBX's wrap
@@ -54,8 +54,8 @@ namespace Desert::Editor
                 }
             };
             ::Desert::Core::Formats::SamplerState state;
-            state.WrapU = wrapOf( AI_MATKEY_MAPPINGMODE_U( type, 0 ) );
-            state.WrapV = wrapOf( AI_MATKEY_MAPPINGMODE_V( type, 0 ) );
+            state.WrapU        = wrapOf( AI_MATKEY_MAPPINGMODE_U( type, 0 ) );
+            state.WrapV        = wrapOf( AI_MATKEY_MAPPINGMODE_V( type, 0 ) );
             unsigned magFilter = 0;
             if ( mat.Get( AI_MATKEY_GLTF_MAPPINGFILTER_MAG( type, 0 ), magFilter ) == AI_SUCCESS )
                 state.Filter = ::Desert::Core::Formats::SamplerFilterFromGltf( static_cast<int>( magFilter ) );
@@ -95,9 +95,9 @@ namespace Desert::Editor
                               const std::optional<SourceTexture>& file = std::nullopt )
         {
             if ( value || file )
-                entries[std::format( "{}.{}", format, key )] = {
-                     value, file ? std::optional( file->File ) : std::nullopt,
-                     file ? file->Sampler : std::nullopt };
+                entries[std::format( "{}.{}", format, key )] = { value,
+                                                                 file ? std::optional( file->File ) : std::nullopt,
+                                                                 file ? file->Sampler : std::nullopt };
         };
 
         // An FBX from Maya (Stingray/Standard Surface baseColor) or 3ds Max (Physical base_color_map) states its

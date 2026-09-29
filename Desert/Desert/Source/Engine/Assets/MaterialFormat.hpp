@@ -179,8 +179,8 @@ namespace Desert::Assets
         // A stated preview mesh is never empty: "draw the sphere" is said by stating none.
         if ( material.PreviewMesh.has_value() )
         {
-            const MaterialAssetRef meshRef{ "PreviewMesh", material.PreviewMesh->Guid,
-                                            material.PreviewMesh->Path, {} };
+            const MaterialAssetRef meshRef{
+                 "PreviewMesh", material.PreviewMesh->Guid, material.PreviewMesh->Path, {} };
             if ( material.PreviewMesh->Guid.empty() )
                 return Common::MakeError<MaterialData>(
                      std::format( "[Material] '{}': PreviewMesh states no GUID (path '{}'); leave PreviewMesh out "
