@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -111,6 +113,7 @@ namespace Desert::Editor
         /// the scene is shared between the three pictures and only one of them may be standing.
         [[nodiscard]] bool StageSubject(); // false: nothing measurable to frame, the capture is abandoned
         void StagePose(); // StageSubject's Subject::Pose branch
+        void PinDomeCamera(); // both dome kinds: pinned so Scene::OnUpdate cannot take the view back
 
         /// True while the dome must keep rendering without counting a warm-up frame: the modelling volume
         /// bakes on a worker and the march accumulates over frames, so an early readback photographs the
@@ -133,6 +136,13 @@ namespace Desert::Editor
         // and its first bake blocks a worker — so a project with no cloud material must not be paying for
         // one by existing. Same argument, and the same lazy creation, as PreviewViewport's layer.
         ECS::Entity m_CloudLayer;
+        // The dome of a SKYBOX-domain material: the HDR it binds, drawn as this scene's skybox. Created on the
+        // first such capture; its handle is cleared for every other one. m_SkyAtmosphere is switched off
+        // while it shows (an enabled atmosphere stays what shows: Graphic::ResolveSkyMode).
+        ECS::Entity m_SkyboxLayer;
+        ECS::Entity m_SkyAtmosphere;
+        // A SkyDome capture of a Skybox-domain material: its HDR skybox (ThumbnailSubject::DomeSkyboxOf).
+        std::optional<Assets::AssetHandle> m_PendingSky;
         // The dome does not orbit and has nothing to fit: it stands on a rise and LOOKS. That is a
         // different camera from the object capture's, not a different pose of it — 96 degrees of vertical
         // field and a 60 km far plane against a fitted subject at arm's length.
@@ -143,6 +153,10 @@ namespace Desert::Editor
 
         Assets::AssetHandle m_PendingHandle{ static_cast<uint64_t>( 0 ) };
         Assets::AssetHandle m_PendingMaterial{ static_cast<uint64_t>( 0 ) }; // mesh's linked material (0 = default)
+        // The mesh's OWN slots, resolved once when the capture was accepted (m_PendingMaterial == 0; Mesh, Pose).
+        // A slot no registered material answers to was refused THERE, with its index — never staged empty,
+        // which the scene draws with its default material: a picture of a material the mesh does not have.
+        std::vector<Assets::AssetHandle> m_PendingSlots;
         std::string         m_PendingPng;
         // WHAT IS BEING PHOTOGRAPHED. A named question rather than the bool this replaced: "not a mesh"
         // is not the same statement as "a material", and the branch that reads it should not have to know

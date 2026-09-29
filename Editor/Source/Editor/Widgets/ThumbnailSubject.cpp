@@ -15,6 +15,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <unordered_map>
 #include <utility>
@@ -70,11 +71,47 @@ namespace Desert::Editor::ThumbnailSubject
         // material. A black square the freshness rule then calls correct for ever.
         return Common::MakeFormattedError<Preview>(
              "its shader '{}' declares Domain {}, and no thumbnail producer draws that domain — the mesh "
-             "path executes only {} and the dome only {}. Photographing it would write an empty frame and "
+             "path executes only {} and the dome only {} and Skybox. Photographing it would write an empty frame and "
              "file it as the picture of this material",
              shaderName, Core::Formats::ShaderDomainName( domain ),
              Core::Formats::ShaderDomainName( Core::Formats::kMeshPathDomain ),
              Core::Formats::ShaderDomainName( Core::Formats::kVolumePathDomain ) );
+    }
+
+    Common::ResultStr<std::optional<Common::AssetHandle>> DomeSkyboxOf( const Common::AssetHandle& material )
+    {
+        using Answer    = std::optional<Common::AssetHandle>;
+        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+        auto* shaders   = Runtime::ResourceRegistry::GetShaderService();
+        if ( materials == nullptr || shaders == nullptr )
+            return Common::MakeFormattedError<Answer>( "there is no material or shader service to read its sky" );
+
+        const std::string shaderName = materials->ShaderHandleOf( Assets::AssetHandle( material ) ).CompileName;
+        const auto        shader     = shaders->GetByName( shaderName );
+        if ( !shader )
+            return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader", shaderName );
+        const auto& meta = shader->GetProgramMeta();
+        if ( meta.Domain != Core::Formats::ShaderDomain::Skybox )
+            return Common::MakeSuccess( Answer{} );
+
+        // The FIRST cube property, as the Material Editor's ball wraps it: any Skybox-domain shader names its
+        // own slot, and the schema is the contract.
+        const auto cube =
+             std::find_if( meta.Params.begin(), meta.Params.end(), []( const auto& p ) { return p.IsCubeTexture; } );
+        if ( cube == meta.Params.end() )
+            return Common::MakeFormattedError<Answer>(
+                 "its shader '{}' is Skybox-domain with no TextureCube property, so there is no sky to show",
+                 shaderName );
+
+        Graphic::MaterialOverrides slots;
+        if ( !materials->ResolveOverrides( Assets::AssetHandle( material ), slots ) )
+            return Common::MakeFormattedError<Answer>( "it resolves to no registered material" );
+        const auto bound = std::find_if( slots.Textures.begin(), slots.Textures.end(),
+                                         [&]( const auto& t ) { return t.first == cube->Name; } );
+        if ( bound == slots.Textures.end() || bound->second == 0 )
+            return Common::MakeFormattedError<Answer>(
+                 "nothing is bound to its cube slot '{}', so there is no sky to show", cube->DisplayName );
+        return Common::MakeSuccess( Answer{ Common::AssetHandle( bound->second ) } );
     }
 
     namespace
@@ -138,6 +175,14 @@ namespace Desert::Editor::ThumbnailSubject
                 return Common::MakeFormattedError<Material>( "'{}': its PreviewMesh: {}", assetPath,
                                                              mesh.GetError() );
             previewMesh = mesh.GetValue().Handle;
+        }
+
+        // A SKY WITH NOTHING TO SHOW is refused here, where the reason can still be said: a Skybox-domain
+        // material with no bound cube would photograph the default backdrop as its picture.
+        if ( route.GetValue() == Preview::SkyDome )
+        {
+            if ( const auto sky = DomeSkyboxOf( asset->GetMetadata().Handle ); !sky )
+                return Common::MakeFormattedError<Material>( "'{}': {}", assetPath, sky.GetError() );
         }
 
         Material out;

@@ -17,6 +17,7 @@
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -199,6 +200,7 @@ namespace Desert::Editor
         // a dark ground reads as muddy grey after tonemap and looked like "no sky" when it was in shot.
         // That is a property of the backdrop, and it survives the camera moving again.
         auto  skyEnt             = m_Scene->CreateNewEntity( "ThumbSky" );
+        m_SkyAtmosphere          = skyEnt;
         auto& skyC               = skyEnt.AddComponent<ECS::SkyAtmosphereComponent>();
         skyC.Data.ZenithColor    = { 0.26f, 0.46f, 0.78f };
         skyC.Data.HorizonColor   = { 0.62f, 0.73f, 0.87f };
@@ -314,6 +316,21 @@ namespace Desert::Editor
         // The cloud layer asks MaterialService::ResolveOverrides, which would then parse it inside the frame:
         // five `*_Clouds.demat` per Starter start. Read on a worker instead, with its closure.
         (void)Runtime::AwaitAssetClosure( materialHandle, Common::Content::ContentKind::Material );
+
+        // A SKYBOX-DOMAIN DOME shows the HDR its cube slot binds; required now (the loader delivers it while
+        // the dome settles), refused with the reason when there is none (the route already refused it).
+        m_PendingSky.reset();
+        if ( how == ThumbnailSubject::Preview::SkyDome )
+        {
+            auto sky = ThumbnailSubject::DomeSkyboxOf( materialHandle );
+            if ( !sky )
+                return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, sky.GetError() );
+            if ( sky.GetValue() )
+            {
+                m_PendingSky = Assets::AssetHandle( *sky.GetValue() );
+                (void)Runtime::RequireSkybox( *m_PendingSky );
+            }
+        }
         m_PendingHandle  = materialHandle;
         m_PendingPng     = outPng;
         m_PendingSubject = Subject::Material;
@@ -333,23 +350,37 @@ namespace Desert::Editor
 
     namespace
     {
-        // The mesh's own material slots, resolved through the material service. Empty when any slot is still
-        // unresolved: MeshECSSystem then retries every frame instead of freezing on a Null() slot.
-        std::vector<Assets::AssetHandle> MeshOwnSlots( const Assets::AssetHandle& meshHandle )
+        // The mesh's own material slots, resolved through the material service — or REFUSED, naming the slot.
+        // An unresolved slot used to empty the whole list, and an empty list is what the scene draws with its
+        // default material: the thumbnail then showed a material the mesh does not have, as its picture. The
+        // request is the moment to say so (ResolveMesh awaited the slots' closure, so a registered material
+        // answers now; one that does not will not answer on a later frame either).
+        Common::ResultStr<std::vector<Assets::AssetHandle>> MeshOwnSlots( const Assets::AssetHandle& meshHandle )
         {
+            using Slots = std::vector<Assets::AssetHandle>;
             auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
             if ( !asset )
-                return {};
-            std::vector<Assets::AssetHandle> slots;
-            for ( const auto& external : asset->GetMaterialHandles() )
+                return Common::MakeFormattedError<Slots>( "mesh {} has no asset in the MeshService to read its "
+                                                          "material slots from",
+                                                          static_cast<uint64_t>( meshHandle ) );
+            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+            if ( materials == nullptr )
+                return Common::MakeFormattedError<Slots>( "there is no material service to resolve mesh {}'s "
+                                                          "material slots",
+                                                          static_cast<uint64_t>( meshHandle ) );
+            Slots       slots;
+            const auto& externals = asset->GetMaterialHandles();
+            for ( std::size_t i = 0; i < externals.size(); ++i )
             {
-                const auto internal =
-                     Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( external );
+                const auto internal = materials->GetAssetHandleByExternal( externals[i] );
                 if ( internal.IsNull() )
-                    return {};
+                    return Common::MakeFormattedError<Slots>(
+                         "mesh {} slot {} names material {}, and no registered material answers to it — the "
+                         "scene would draw that slot with its default material, which is not this mesh's look",
+                         static_cast<uint64_t>( meshHandle ), i, externals[i].ToString() );
                 slots.push_back( internal );
             }
-            return slots;
+            return Common::MakeSuccess( std::move( slots ) );
         }
 
         /// The pose a skinned capture draws, built as PreviewViewport builds it: no clip -> the bind pose
@@ -412,6 +443,16 @@ namespace Desert::Editor
         }
         m_PendingFrame = frame;
 
+        // No material worn over every slot -> the mesh's OWN slots, every one resolved or the capture refused.
+        m_PendingSlots.clear();
+        if ( static_cast<uint64_t>( material ) == 0 )
+        {
+            auto slots = MeshOwnSlots( meshHandle );
+            if ( !slots )
+                return Common::MakeFormattedError( "'{}' was not queued: {}", outPng, slots.GetError() );
+            m_PendingSlots = std::move( slots.GetValue() );
+        }
+
         m_PendingHandle   = meshHandle;
         m_PendingMaterial = material;
         m_PendingPng      = outPng;
@@ -450,7 +491,11 @@ namespace Desert::Editor
             return Common::MakeFormattedError( "there is no material service to ask skinned mesh {}'s slots "
                                                "for a (Skinned x Forward) cell, for '{}'",
                                                static_cast<uint64_t>( meshHandle ), outPng );
-        for ( const auto& slot : MeshOwnSlots( meshHandle ) )
+        const auto ownSlots = MeshOwnSlots( meshHandle );
+        if ( !ownSlots )
+            return Common::MakeFormattedError( "skinned mesh {} cannot be photographed for '{}': {}",
+                                               static_cast<uint64_t>( meshHandle ), outPng, ownSlots.GetError() );
+        for ( const auto& slot : ownSlots.GetValue() )
         {
             if ( const auto cell =
                       materials->CellOf( slot, Graphic::MeshVertexPath::Skinned, Graphic::MeshPass::Forward );
@@ -501,7 +546,7 @@ namespace Desert::Editor
         // AnimationECSSystem either, so the animator is built here and evaluated once.
         auto& skinned         = m_Target.AddComponent<ECS::SkinnedMeshComponent>();
         skinned.MeshHandle    = m_PendingHandle;
-        skinned.MaterialSlots = MeshOwnSlots( m_PendingHandle );
+        skinned.MaterialSlots = m_PendingSlots; // resolved (or refused) at RequestMesh
         auto& anim            = m_Target.AddComponent<ECS::AnimationComponent>();
         anim.CurrentClip      = m_PendingClip ? m_PendingClip->GetClip().AnimationName : std::string();
         anim.Playing          = false;
@@ -514,6 +559,26 @@ namespace Desert::Editor
             anim.Animator = BuildPoseAnimator( *static_cast<Desert::SkinnedMesh*>( mesh ), m_PendingClip );
         }
         FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
+    }
+
+    void AssetThumbnailRenderer::PinDomeCamera()
+    {
+        if ( !m_DomeCamera )
+            m_DomeCamera = std::make_shared<::Desert::Core::GameplayCamera>();
+
+        // PINNED, not merely set active: Scene::OnUpdate re-picks the camera from the play state every
+        // frame, so a plain SetActiveCamera survives exactly one frame before the scene's own
+        // EditorCamera takes the view back.
+        //
+        // AND THE PIN IS WHY THE OBJECT CAMERA STOPS MOVING AFTERWARDS. PinActiveCamera also mutes the
+        // scene's EditorCamera, which until now polled the global mouse from inside this offscreen
+        // scene — so an object capture's subject was framed against wherever the person happened to be
+        // flying the real viewport. FitTarget reads the pose from the camera's own matrices, so the
+        // picture was right either way; from here it is also REPRODUCIBLE.
+        m_DomeCamera->SetFromTransform( glm::vec3( 0.0f, kDomeEyeHeight, 0.0f ),
+                                        glm::vec3( kDomePitch, kDomeYaw, 0.0f ), kDomeFov, kDomeNearPlane,
+                                        kDomeFarPlane, kRenderSize, kRenderSize );
+        m_Scene->PinActiveCamera( m_DomeCamera );
     }
 
     bool AssetThumbnailRenderer::StageSubject()
@@ -539,6 +604,22 @@ namespace Desert::Editor
             smc.RuntimeMaterialInstances.clear();
             ECS::ClearEditableMesh( smc );
 
+            if ( m_PendingSky )
+            {
+                // THE SKY IS THE MATERIAL'S HDR, drawn by the scene's skybox from the same ground camera.
+                if ( m_CloudLayer && m_CloudLayer.HasComponent<ECS::VolumetricCloudComponent>() )
+                    m_CloudLayer.GetComponent<ECS::VolumetricCloudComponent>().Data.Enabled = false;
+                if ( !m_SkyboxLayer )
+                {
+                    m_SkyboxLayer = m_Scene->CreateNewEntity( "ThumbSkybox" );
+                    m_SkyboxLayer.AddComponent<ECS::SkyboxComponent>();
+                }
+                m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle = *m_PendingSky;
+                m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = false;
+                PinDomeCamera();
+                return true;
+            }
+
             if ( !m_CloudLayer )
             {
                 m_CloudLayer = m_Scene->CreateNewEntity( "ThumbCloudLayer" );
@@ -556,22 +637,7 @@ namespace Desert::Editor
             cloud.Data.StopTransmittance = kDomeStopTransmittance;
             cloud.Data.VolumeResolution  = kDomeVolumeResolution;
 
-            if ( !m_DomeCamera )
-                m_DomeCamera = std::make_shared<::Desert::Core::GameplayCamera>();
-
-            // PINNED, not merely set active: Scene::OnUpdate re-picks the camera from the play state every
-            // frame, so a plain SetActiveCamera survives exactly one frame before the scene's own
-            // EditorCamera takes the view back.
-            //
-            // AND THE PIN IS WHY THE OBJECT CAMERA STOPS MOVING AFTERWARDS. PinActiveCamera also mutes the
-            // scene's EditorCamera, which until now polled the global mouse from inside this offscreen
-            // scene — so an object capture's subject was framed against wherever the person happened to be
-            // flying the real viewport. FitTarget reads the pose from the camera's own matrices, so the
-            // picture was right either way; from here it is also REPRODUCIBLE.
-            m_DomeCamera->SetFromTransform( glm::vec3( 0.0f, kDomeEyeHeight, 0.0f ),
-                                            glm::vec3( kDomePitch, kDomeYaw, 0.0f ), kDomeFov, kDomeNearPlane,
-                                            kDomeFarPlane, kRenderSize, kRenderSize );
-            m_Scene->PinActiveCamera( m_DomeCamera );
+            PinDomeCamera();
             return true;
         }
 
@@ -583,6 +649,10 @@ namespace Desert::Editor
         // 10 MiB and then pay for it again on the next cloud material, of which this project has 52.
         if ( m_CloudLayer && m_CloudLayer.HasComponent<ECS::VolumetricCloudComponent>() )
             m_CloudLayer.GetComponent<ECS::VolumetricCloudComponent>().Data.Enabled = false;
+        // And a skybox dome's HDR: the procedural backdrop is every other picture's sky.
+        if ( m_SkyboxLayer )
+            m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle = Assets::AssetHandle();
+        m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = true;
 
         // The camera Scene::Init made, by name. Unpinning alone would leave the DOME camera active until
         // the scene's next OnUpdate — which is after FitTarget has already framed against it.
@@ -611,12 +681,12 @@ namespace Desert::Editor
                 // Slot count = submesh count; a sidecar material wears every slot. Without one, THE MESH'S OWN
                 // SLOTS — the .demat each submesh names by GUID, as an imported mesh carries them and as the
                 // scene draws them (MeshECSSystem). Clearing them here photographed every import in the
-                // fallback grey. ResolveMesh waited for their closure, so they resolve now.
+                // fallback grey. Resolved once at the request, which refuses an unresolved slot by index.
                 if ( static_cast<uint64_t>( m_PendingMaterial ) != 0 )
                     smc.MaterialSlots.assign( std::max<size_t>( 1, mesh->GetSubmeshes().size() ),
                                               m_PendingMaterial );
                 else
-                    smc.MaterialSlots = MeshOwnSlots( m_PendingHandle );
+                    smc.MaterialSlots = m_PendingSlots; // resolved (or refused) at RequestMesh
             }
             else
             {
@@ -686,6 +756,13 @@ namespace Desert::Editor
         // in flight restarts the window rather than merely extending it.
         if ( m_Renderer->IsCloudVolumeBaking() )
             m_DomeSettle = kDomeSettleFrames;
+        // A skybox dome's HDR still on the loader: nothing to photograph yet, so the window restarts too.
+        if ( m_PendingSky )
+        {
+            auto* skies = Runtime::ResourceRegistry::GetSkyboxService();
+            if ( skies != nullptr && !skies->Get( *m_PendingSky ) )
+                m_DomeSettle = kDomeSettleFrames;
+        }
 
         if ( m_DomeSettle <= 0 )
             return false;

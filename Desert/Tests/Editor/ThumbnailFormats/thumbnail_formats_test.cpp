@@ -361,7 +361,10 @@ TEST( ThumbnailMaterialDomains, APictureExistsForExactlyTheDomainsADrawPathCanEx
 
     for ( const F::ShaderDomain domain : kAllDomains )
     {
-        const bool drawable = F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain );
+        // The cubemap domain has no draw-path predicate (no renderable slot takes it); its picture is the HDR
+        // it binds, drawn as the thumbnail scene's skybox — a producer named here so removing it is an edit.
+        const bool drawable = F::DrawnByMeshPath( domain ) || F::DrawnByVolumePath( domain ) ||
+                              domain == F::ShaderDomain::Skybox;
         EXPECT_EQ( TS::PreviewForDomain( domain ).has_value(), drawable )
              << "domain " << F::ShaderDomainName( domain )
              << ": the thumbnail router and the draw paths disagree about whether this can be drawn at "
@@ -381,6 +384,11 @@ TEST( ThumbnailMaterialDomains, EachDrawableDomainGetsThePictureItsOwnPathProduc
 
     // The volume path: the sky the material authors.
     EXPECT_EQ( TS::PreviewForDomain( F::kVolumePathDomain ), TS::Preview::SkyDome );
+
+    // The cubemap domain: the sky its bound HDR draws, from the same ground camera as a cloud material
+    // (THM1n-11; M_CubemapCheck was an icon with a refusal before). UE draws a sky material as the sky.
+    EXPECT_EQ( TS::PreviewForDomain( F::ShaderDomain::Skybox ), TS::Preview::SkyDome );
+    EXPECT_EQ( TS::PreviewForMaterial( F::ShaderDomain::Skybox, true ), TS::Preview::SkyDome );
 
     // The terrain path has its own renderer and no thumbnail producer. Named here rather than left to the
     // loop above so that adding one is a deliberate edit of this line.
