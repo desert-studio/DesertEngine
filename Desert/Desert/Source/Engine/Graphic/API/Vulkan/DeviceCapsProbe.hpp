@@ -23,6 +23,12 @@ namespace Desert::Graphic::API::Vulkan
         DeviceCaps                           Caps;
     };
 
+    // The instance must be created as VulkanContext creates it: apiVersion kMaximumApiVersion (a device's
+    // usable version is min(instance apiVersion, device), and routes are planned for min(device, 1.3), so a
+    // lower instance turns rows planned as core into extensions enabled without their dependencies) and
+    // with the window-system extensions (the required swapchain row depends on VK_KHR_surface).
+    // RenderGraphVulkan creates its device through here and fails on any vkCreateDevice validation message.
+    //
     // Probes every device the instance lists, keeps those that pass CheckRequired, and returns the best
     // by type (discrete > integrated > virtual > cpu). When none passes, the error names every device
     // and what each one lacks.

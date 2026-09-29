@@ -1,5 +1,5 @@
--- RenderGraphVulkan: the render graph's Vulkan executor on a REAL device (headless: no window, no
--- swapchain). Compiles the graph core, the Vulkan backend and the engine's own device judgement
+-- RenderGraphVulkan: the render graph's Vulkan executor on a REAL device (no window; the instance still
+-- carries the window-system extensions, as the engine's does, since the device's swapchain row needs them). Compiles the graph core, the Vulkan backend and the engine's own device judgement
 -- (DeviceCaps + DeviceCapsProbe) directly, with vk-bootstrap and VMA - no engine singleton - and runs
 -- clear -> sample -> compute -> copy under the validation layer with synchronization validation on.
 -- Needs a Vulkan device and the LunarG validation layer (VULKAN_SDK).

@@ -1,5 +1,5 @@
 // RenderGraphVulkan - the render graph's Vulkan executor on a real device (RDG2 acceptance). The graph
-// clear -> sample -> compute -> copy runs on a headless device picked by the engine's own DeviceCaps
+// clear -> sample -> compute -> copy runs on a windowless device picked by the engine's own DeviceCaps
 // judgement, under VK_LAYER_KHRONOS_validation WITH synchronization validation; the readback must match
 // byte for byte and the layer must say nothing. A control test weakens one pass's barriers and requires
 // synchronization validation to report the hazard - the proof that the silence above means something.
@@ -97,11 +97,16 @@ namespace
                 out.Error = "VK_LAYER_KHRONOS_validation is not installed; the suite's verdict needs it";
                 return out;
             }
+            // The instance is created as the engine's is (VulkanContext.cpp), because DeviceCaps plans the
+            // device's extensions for that instance: routes assume apiVersion kMaximumApiVersion (a 1.1
+            // instance caps the device at 1.1, so rows planned as 1.2/1.3 core - descriptor indexing, buffer
+            // device address, SPIR-V 1.4 - would be missing extensions), and the required swapchain row needs
+            // VK_KHR_surface, which a headless instance lacks. Both were 01387 at vkCreateDevice (VK-EXT1).
             vkb::InstanceBuilder builder( vkGetInstanceProcAddr );
             auto                 instance =
                  builder.set_app_name( "RenderGraphVulkan" )
-                      .require_api_version( 1, 1, 0 )
-                      .set_headless( true )
+                      .require_api_version( kMaximumApiVersion )
+                      .set_minimum_instance_version( kMinimumDeviceApiVersion )
                       .request_validation_layers( true )
                       // The same feature VulkanContext.cpp enables (census below).
                       .add_validation_feature_enable( VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT )
@@ -132,7 +137,15 @@ namespace
                 out.Error = std::format( "device: {}", device.error().message() );
                 return out;
             }
-            out.Device      = device.value();
+            out.Device = device.value();
+            // Creating the instance and the device must be validation-clean too (VK-EXT1: an extension
+            // enabled without its dependencies is VUID-vkCreateDevice-ppEnabledExtensionNames-01387).
+            if ( const std::vector<Message> messages = TakeMessages(); !messages.empty() )
+            {
+                out.Error = std::format( "{} validation message(s) while creating the device:{}", messages.size(),
+                                         Join( messages ) );
+                return out;
+            }
             out.Queue       = out.Device.get_queue( vkb::QueueType::graphics ).value();
             out.QueueFamily = out.Device.get_queue_index( vkb::QueueType::graphics ).value();
 
@@ -686,7 +699,6 @@ TEST( RenderGraphVulkan, ClearSampleComputeCopyIsByteExactAndValidationClean )
 {
     Gpu& gpu = GetGpu();
     ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
-    TakeMessages();
     {
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
@@ -716,7 +728,6 @@ TEST( RenderGraphVulkan, SynchronizationValidationReportsAWeakenedBarrier )
 {
     Gpu& gpu = GetGpu();
     ASSERT_TRUE( gpu.Error.empty() ) << gpu.Error;
-    TakeMessages();
     {
         Programs programs( gpu );
         ASSERT_TRUE( programs.Error.empty() ) << programs.Error;
