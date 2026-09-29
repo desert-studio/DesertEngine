@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailFoliage.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
@@ -438,7 +439,10 @@ namespace Desert::Editor
                     break;
                 case Producer::RenderedMesh:
                 {
-                    const std::string cooked = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
+                    const std::optional<std::string> source = MeshSourceFor( *entry );
+                    if ( !source )
+                        break;
+                    const std::string cooked = CookPaths::MeshAsset( *source ).generic_string();
                     items.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
                     break;
                 }
@@ -493,7 +497,10 @@ namespace Desert::Editor
                 if ( producer == ThumbnailProducers::Producer::RenderedMaterial )
                     folder.push_back( { entry->AssetPath, WarmKind::Material } );
                 else if ( producer == ThumbnailProducers::Producer::RenderedMesh )
-                    folder.push_back( { entry->AssetPath, WarmKind::Mesh } );
+                {
+                    if ( std::optional<std::string> source = MeshSourceFor( *entry ) )
+                        folder.push_back( { std::move( *source ), WarmKind::Mesh } );
+                }
             }
         }
         const std::vector<WarmItem> warm = ThumbnailWarmup::SplashWarmList(
@@ -1935,7 +1942,10 @@ namespace Desert::Editor
         // The mapping is a pure path computation (CookPaths::MeshAsset — an extension swap, no stat), so
         // hoisting it above the freshness check costs nothing; the `exists()` gate that decides "not cooked
         // -> icon" stays where it was, below, because that one IS a filesystem question.
-        const std::string cookedStr = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
+        const std::optional<std::string> source = MeshSourceFor( *entry ); // a model, or a foliage type's mesh
+        if ( !source )
+            return false;
+        const std::string cookedStr = CookPaths::MeshAsset( *source ).generic_string();
 
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
@@ -1959,7 +1969,7 @@ namespace Desert::Editor
         // permanent for the session here — an uncooked source, a cooked file that will not build, a mesh
         // with no drawable submeshes — so the blacklist keeps the (logging) retry from happening once per
         // frame, exactly as it did when the code was in this function.
-        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, entry->AssetPath );
+        const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, *source );
         if ( !subject )
         {
             // Once per asset (the blacklist stops the retry): a tile left on its type icon says why.
@@ -1976,6 +1986,30 @@ namespace Desert::Editor
 
         // No swatch for meshes — fall back to the type icon until the PNG is ready.
         return false;
+    }
+
+    std::optional<std::string> FileExplorerPanel::MeshSourceFor( const DirectoryInformation& entry )
+    {
+        if ( entry.Type != FileType::FoliageType )
+            return entry.AssetPath;
+        if ( m_FailedThumbs.count( entry.AssetPath ) )
+            return std::nullopt;
+        std::error_code                       ec;
+        const std::filesystem::file_time_type written = std::filesystem::last_write_time( entry.AssetPath, ec );
+        if ( const auto it = m_MeshSourceOf.find( entry.AssetPath );
+             it != m_MeshSourceOf.end() && !ec && it->second.Written == written )
+            return it->second.Source;
+        const auto source = ThumbnailFoliage::ReadMeshSource( entry.AssetPath, Common::Constants::Path::ASSETS_PATH );
+        if ( !source )
+        {
+            LOG_WARN( "[Thumbnail] '{}': {}", entry.AssetPath, source.GetError() );
+            m_FailedThumbs.insert( entry.AssetPath );
+            m_MeshSourceOf.erase( entry.AssetPath );
+            return std::nullopt;
+        }
+        std::string mesh                = source.GetValue().generic_string();
+        m_MeshSourceOf[entry.AssetPath] = { written, mesh };
+        return mesh;
     }
 
     bool FileExplorerPanel::DrawPaintedThumbnail( DirectoryInformation* entry, const ImVec2& size )

@@ -15,7 +15,9 @@
 #include <stack>
 #include <functional>
 #include <future>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -332,6 +334,18 @@ namespace Desert::Editor
 
         std::weak_ptr<::Desert::Core::Scene>     m_ViewportScene; // for "Capture Thumbnail from viewport"
         std::unordered_set<std::string>          m_FailedThumbs;  // assets that failed to load -> show icon, no retry spam
+
+        // THE FILE A RenderedMesh TILE PHOTOGRAPHS: a model's own path (CookPaths::MeshAsset maps it to its
+        // .stmesh), or the cooked mesh a .defoliage names (ThumbnailFoliage — UE: a foliage type's picture is
+        // its mesh's), so a type and its mesh share one key, one freshness source and one capture. The foliage
+        // read is cached per path and file time; a refusal is logged once and blacklisted in m_FailedThumbs.
+        std::optional<std::string> MeshSourceFor( const DirectoryInformation& entry );
+        struct MeshSourceRead
+        {
+            std::filesystem::file_time_type Written;
+            std::string                     Source;
+        };
+        std::unordered_map<std::string, MeshSourceRead> m_MeshSourceOf;
 
         // File watcher: cheap throttled poll of the current dir's entry signature -> QueueRefresh on change.
         int    m_PollCounter   = 0;
