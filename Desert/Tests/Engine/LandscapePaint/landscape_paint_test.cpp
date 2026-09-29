@@ -175,7 +175,7 @@ TEST( LandscapePaint, VersionOneBlobIsRefusedByItsNumber )
     auto v1 = DecodeLandscapeTile( blob );
     ASSERT_FALSE( v1.IsSuccess() );
     EXPECT_NE( v1.GetError().find( "version 1 " ), std::string::npos ) << v1.GetError();
-    EXPECT_NE( v1.GetError().find( "supported 2" ), std::string::npos ) << v1.GetError();
+    EXPECT_NE( v1.GetError().find( "supported 3" ), std::string::npos ) << v1.GetError();
 }
 
 TEST( LandscapePaint, NinthLayerIsRefusedByName )
@@ -733,4 +733,181 @@ TEST( LandscapePaint, OneStrokeUndoesAndRedoesBitForBitAcrossTiles )
         ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), false ).IsSuccess() );
         EXPECT_TRUE( same( snapshot(), after ) ) << "redo, round " << round;
     }
+}
+
+// ── The visibility layer (UE's Landscape Visibility Layer / Visibility Mask) ──────────────────────────
+
+TEST( LandscapePaint, VisibilityLayerIsNeitherDrawnNorReportedButNamed )
+{
+    LandscapeTileData tile = Tile( 3 );
+    Fill( tile, "Moss", 0u );
+    Fill( tile, std::string( kLandscapeVisibilityLayerName ), 255u );
+
+    const std::vector<RootLayer>  root     = { { "Moss", 0.5f, false, glm::vec3( 0.1f, 0.5f, 0.1f ) } };
+    const LandscapeWeightChannels channels = ResolveLandscapeWeightChannels( tile, root );
+    EXPECT_EQ( channels.Count, 2u );
+    EXPECT_EQ( channels.Visibility, 1 );
+    EXPECT_EQ( channels.Colors[1], vec4( 0.0f ) ) << "the holes are not a colour";
+    EXPECT_EQ( channels.AlphaBlend[1], 0.0f );
+    EXPECT_TRUE( channels.Unknown.empty() ) << "the visibility layer is not a layer the root forgot";
+
+    // Even a root layer carrying the reserved name does not turn the mask into a colour.
+    const std::vector<RootLayer> impostor = {
+         { std::string( kLandscapeVisibilityLayerName ), 0.5f, false, glm::vec3( 1.0f ) } };
+    EXPECT_EQ( ResolveLandscapeWeightChannels( tile, impostor ).Colors[1], vec4( 0.0f ) );
+
+    LandscapeTileData plain = Tile( 3 );
+    Fill( plain, "Moss", 0u );
+    EXPECT_EQ( ResolveLandscapeWeightChannels( plain, root ).Visibility, -1 );
+}
+
+TEST( LandscapePaint, PaintingOverAHoleNeitherMovesNorCountsTheVisibilityLayer )
+{
+    // The painter's normalisation is the one place a paint layer and the mask meet: a stroke of Grass over a
+    // tile of Rock (255) with a half-open hole must end with Grass + Rock = 255 and the mask exactly as it was.
+    LandscapeRoot root;
+    root.QuadsPerTile = 7;
+    root.SpacingCm    = 100.0f;
+    std::map<std::pair<int32_t, int32_t>, LandscapeTileData> tiles;
+    tiles.emplace( std::make_pair( 0, 0 ), Tile( 8 ) );
+    Fill( tiles.at( { 0, 0 } ), "Rock", 255u );
+    Fill( tiles.at( { 0, 0 } ), std::string( kLandscapeVisibilityLayerName ), 128u );
+    const LandscapeTileLookup lookup = [&]( int32_t x, int32_t z )
+    {
+        auto it = tiles.find( { x, z } );
+        if ( it == tiles.end() )
+            return LandscapeTileSlot{};
+        return LandscapeTileSlot{ LandscapeTileState::Present, &it->second };
+    };
+
+    // The root's rules name only the paint layers, as LandscapeComponent::Layers does.
+    LandscapePaintStroke   stroke( root, lookup, { { "Grass", 0.5f, false }, { "Rock", 0.5f, false } } );
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 300.0f;
+    brush.Strength = 1.0f;
+    const glm::vec2 at( 350.0f, 350.0f );
+    auto            weights = ComputeLandscapeBrush( root, brush, { &at, 1 } );
+    ASSERT_TRUE( weights.IsSuccess() );
+    LandscapePaintSettings paint;
+    paint.Layer = "Grass";
+    for ( int step = 0; step < 5; ++step )
+    {
+        const auto applied = stroke.Apply( weights.GetValue(), brush, paint, false );
+        ASSERT_TRUE( applied.IsSuccess() ) << applied.GetError();
+    }
+
+    const LandscapeTileData& tile = tiles.at( { 0, 0 } );
+
+    const auto grassLayer = tile.FindWeightLayer( "Grass" );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    ASSERT_TRUE( grassLayer.has_value() );
+    const size_t grass = *grassLayer;
+
+    const auto rockLayer = tile.FindWeightLayer( "Rock" );
+    ASSERT_TRUE( rockLayer.has_value() );
+    const size_t rock = *rockLayer;
+
+    const auto maskLayer = tile.VisibilityLayer();
+    ASSERT_TRUE( maskLayer.has_value() );
+    const size_t mask = *maskLayer;
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    EXPECT_EQ( tile.Weight( grass, 3, 3 ), 255 ) << "the stroke's centre was painted";
+    for ( uint32_t z = 0; z < tile.SamplesZ(); ++z )
+        for ( uint32_t x = 0; x < tile.SamplesX(); ++x )
+        {
+            EXPECT_EQ( tile.Weight( mask, x, z ), 128 ) << x << ", " << z;
+            EXPECT_EQ( tile.Weight( grass, x, z ) + tile.Weight( rock, x, z ), 255 ) << x << ", " << z;
+        }
+}
+
+TEST( LandscapePaint, VisibilityReadsItsOwnChannelOfEitherPage )
+{
+    const vec4 w0( 0.1f, 0.2f, 0.3f, 0.4f );
+    const vec4 w1( 0.5f, 0.6f, 0.7f, 0.8f );
+    EXPECT_EQ( LandscapeVisibility( w0, w1, 0.0f ), 0.0f ) << "no visibility layer: no hole anywhere";
+    for ( int layer = 0; layer < 8; ++layer )
+        EXPECT_EQ( LandscapeVisibility( w0, w1, static_cast<float>( layer + 1 ) ),
+                   layer < 4 ? w0[layer] : w1[layer - 4] )
+             << "layer " << layer;
+}
+
+TEST( LandscapePaint, HoleStartsWhereUEsVisibilityMaskFallsBelowItsClipValue )
+{
+    // UE: mask = 1 - w, clipped below OpacityMaskClipValue 0.3333 — a hole from w > 2/3, i.e. 171 of 255.
+    EXPECT_FALSE( LandscapeIsHole( 0.0f ) );
+    EXPECT_FALSE( LandscapeIsHole( 0.5f ) );
+    EXPECT_FALSE( LandscapeIsHole( 170.0f / 255.0f ) );
+    EXPECT_TRUE( LandscapeIsHole( 171.0f / 255.0f ) );
+    EXPECT_TRUE( LandscapeIsHole( 1.0f ) );
+    // The byte form the collider and the CPU raycast use is the same function.
+    for ( int w = 0; w < 256; ++w )
+        EXPECT_EQ( LandscapeWeightIsHole( static_cast<uint8_t>( w ) ),
+                   LandscapeIsHole( static_cast<float>( w ) / 255.0f ) )
+             << w;
+    EXPECT_FALSE( LandscapeWeightIsHole( 170u ) );
+    EXPECT_TRUE( LandscapeWeightIsHole( 171u ) );
+}
+
+TEST( LandscapePaint, TheVisibilityBrushCutsAHoleShiftFillsItAndPhysicsIsTold )
+{
+    // The editor's Visibility target: paint.Layer = the reserved name, no root layer needed (UE's Visibility
+    // tool paints 255, its erase 0). Its writes, unlike a paint layer's, are owed to the collider too.
+    LandscapeRoot root;
+    root.QuadsPerTile = 7;
+    root.SpacingCm    = 100.0f;
+    std::map<std::pair<int32_t, int32_t>, LandscapeTileData> tiles;
+    tiles.emplace( std::make_pair( 0, 0 ), Tile( 8 ) );
+    Fill( tiles.at( { 0, 0 } ), "Rock", 255u );
+    const LandscapeTileLookup lookup = [&]( int32_t x, int32_t z )
+    {
+        auto it = tiles.find( { x, z } );
+        if ( it == tiles.end() )
+            return LandscapeTileSlot{};
+        return LandscapeTileSlot{ LandscapeTileState::Present, &it->second };
+    };
+    LandscapeTileData& tile = tiles.at( { 0, 0 } );
+
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 300.0f;
+    brush.Strength = 1.0f;
+    const glm::vec2 at( 350.0f, 350.0f );
+    auto            weights = ComputeLandscapeBrush( root, brush, { &at, 1 } );
+    ASSERT_TRUE( weights.IsSuccess() );
+
+    // A paint layer's stroke is not the collider's business.
+    tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics );
+    {
+        LandscapePaintStroke   rock( root, lookup, { { "Rock", 0.5f, false } } );
+        LandscapePaintSettings paint;
+        paint.Layer = "Rock";
+        ASSERT_TRUE( rock.Apply( weights.GetValue(), brush, paint, true ).IsSuccess() );
+        EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Physics ).empty() );
+    }
+
+    LandscapePaintStroke   stroke( root, lookup, { { "Rock", 0.5f, false } } );
+    LandscapePaintSettings paint;
+    paint.Layer = std::string( kLandscapeVisibilityLayerName );
+    for ( int step = 0; step < 8; ++step )
+        ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
+    const auto maskLayer = tile.VisibilityLayer();
+    ASSERT_TRUE( maskLayer.has_value() );
+    // clang-tidy 18 does not see gtest's ASSERT as the check it is.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    const size_t mask = *maskLayer;
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    EXPECT_EQ( tile.Weight( mask, 3, 3 ), 255 ) << "the stroke's centre is a hole";
+    EXPECT_TRUE( LandscapeWeightIsHole( tile.Weight( mask, 3, 3 ) ) );
+    EXPECT_EQ( tile.Weight( mask, 7, 7 ), 0 ) << "outside the brush";
+    EXPECT_FALSE( tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics ).empty() )
+         << "a hole painted must reach the collider";
+
+    for ( int step = 0; step < 8; ++step )
+        ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, true ).IsSuccess() );
+    EXPECT_EQ( tile.Weight( mask, 3, 3 ), 0 ) << "Shift (invert) fills the hole back";
+    EXPECT_FALSE( tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics ).empty() );
+
+    // Undo/redo replaces the layers wholesale: the collider is told there too.
+    ASSERT_TRUE( tile.SetWeightLayers( tile.WeightLayers() ).IsSuccess() );
+    EXPECT_FALSE( tile.TakeDirtyRects( LandscapeDirtyConsumer::Physics ).empty() );
 }

@@ -311,10 +311,11 @@ namespace Desert::World::Landscape
         return Common::MakeSuccess( std::move( map ) );
     }
 
-    Common::ResultStr<LandscapeStrokeRecord> ImportLandscapeHeightmap( const LandscapeRoot&         root,
-                                                                       LandscapeTileLookup          lookup,
-                                                                       const LandscapeSampleBounds& rect,
-                                                                       const LandscapeHeightmap&    map )
+    Common::ResultStr<LandscapeStrokeRecord> ImportLandscapeHeightmap( const LandscapeRoot&            root,
+                                                                       LandscapeTileLookup             lookup,
+                                                                       const LandscapeSampleBounds&    rect,
+                                                                       const LandscapeHeightmap&       map,
+                                                                       const LandscapeEditLayerTarget& layer )
     {
         if ( auto ok = CheckMap( map, "import" ); !ok )
             return Common::MakeError<LandscapeStrokeRecord>( ok.GetError() );
@@ -327,7 +328,7 @@ namespace Desert::World::Landscape
                  SizeText( map.Width, map.Height ),
                  rect.Empty() ? std::string( "empty" ) : SizeText( width, height ) );
 
-        LandscapeHeightCache cache( root, std::move( lookup ) );
+        LandscapeHeightCache cache( root, std::move( lookup ), layer );
         if ( auto cached = cache.CacheData( rect.X1, rect.Z1, rect.X2, rect.Z2 ); !cached )
             return Common::MakeFormattedError<LandscapeStrokeRecord>( "heightmap import: {}", cached.GetError() );
         auto before = cache.GetCachedData( rect.X1, rect.Z1, rect.X2, rect.Z2 );

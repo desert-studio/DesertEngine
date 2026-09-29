@@ -107,6 +107,9 @@ namespace Desert::World::Landscape
         /// Row-major over the tile grid (Z then X), tiles (0, 0) .. (TilesX - 1, TilesZ - 1). Neighbouring tiles
         /// carry the same values on their shared edge row, cut from one map.
         std::vector<LandscapeGeneratedTile> Tiles;
+        /// The root's edit layer stack: one Base layer (kLandscapeBaseEditLayerGuid) whose data on every tile is
+        /// that tile's samples, so the tiles are already its merge.
+        LandscapeEditLayerStack EditLayers;
         /// Iterations the erosion passes actually ran (they stop early once nothing changes); 0 when off.
         int32_t ErosionIterations      = 0;
         int32_t HydroErosionIterations = 0;

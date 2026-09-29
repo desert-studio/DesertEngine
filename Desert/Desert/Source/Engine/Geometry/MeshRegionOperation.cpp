@@ -2,6 +2,7 @@
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/InsetMeshRegion.hpp"
@@ -377,6 +378,77 @@ namespace Desert::Geometry
         if ( before.Attributes() != nullptr && before.Attributes()->HasTangentSpace() )
             mesh->Attributes()->EnableTangents();
         if ( auto tangents = RecomputeTangentSpace( *mesh, "Subdivide" ); !tangents.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( tangents.GetError() );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
+    }
+
+    const char* ToString( SimplifyTarget target )
+    {
+        switch ( target )
+        {
+            case SimplifyTarget::Percentage:
+                return "Percentage";
+            case SimplifyTarget::VertexCount:
+                return "Vertex Count";
+        }
+        return "Unknown";
+    }
+
+    Common::ResultStr<RegionOutcome> SimplifyMesh( const DynamicMesh3& before, const SimplifySettings& settings,
+                                                   ElementMode mode )
+    {
+        const int triangles = before.TriangleCount();
+        const int vertices  = before.VertexCount();
+        if ( triangles == 0 )
+            return Common::MakeError<RegionOutcome>( "Mesh Simplify: the mesh has no triangle" );
+        const bool byVertices = settings.Target == SimplifyTarget::VertexCount;
+        if ( !byVertices && ( settings.Percentage <= 0.0f || settings.Percentage > 100.0f ) )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Simplify: the target percentage {} is outside (0, 100]", settings.Percentage );
+        if ( byVertices && settings.VertexCount < 3 )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Simplify: the target vertex count {} is below 3", settings.VertexCount );
+        if ( settings.PreserveGroupBoundaries && !before.HasTriangleGroups() )
+            return Common::MakeError<RegionOutcome>(
+                 "Mesh Simplify: Preserve PolyGroups is on but the mesh has no polygroups" );
+        const int target = byVertices ? settings.VertexCount
+                                      : std::max( 4, static_cast<int>( settings.Percentage / 100.0 *
+                                                                       static_cast<double>( triangles ) ) );
+        if ( ( byVertices ? vertices : triangles ) <= target )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Simplify: the mesh already has {} {} (target {})", byVertices ? vertices : triangles,
+                 byVertices ? "vertices" : "triangles", target );
+
+        auto mesh = std::make_shared<DynamicMesh3>( before );
+        // UE's Simplify (SimplifyMeshTool.cpp:248-249, SimplifyMeshOp.cpp:67-75): Preserve Sharp Edges off by
+        // default, so seams collapse along their line; on, a seam is NoCollapse and its vertices stay. The flip
+        // test compares unit normals at 1e-5 and bowties on the seams are split first.
+        BoundaryConstraintFlags flags;
+        flags.GroupBoundary =
+             settings.PreserveGroupBoundaries ? EdgeRefineFlags::FullyConstrained : EdgeRefineFlags::NoConstraint;
+        flags.AllowSeamCollapse = !settings.PreserveSharpEdges;
+        if ( mesh->HasAttributes() )
+            mesh->Attributes()->SplitAllBowties();
+        MeshConstraints constraints;
+        ConstrainAllBoundariesAndSeams( constraints, *mesh, flags );
+        const size_t      constrained = constraints.EdgeConstraintCount();
+        QemSimplification simplifier( *mesh );
+        simplifier.Boundaries = flags;
+        simplifier.SetEdgeFlipTolerance( 1e-5 );
+        // bPreventTinyTriangles on: unit normals at 1e-5 alone let a collapse leave a sliver of no area.
+        simplifier.PreventTinyTriangles = true;
+        simplifier.SetExternalConstraints( std::move( constraints ) );
+        if ( byVertices )
+            simplifier.SimplifyToVertexCount( target );
+        else
+            simplifier.SimplifyToTriangleCount( target );
+        // A command without an effect leaves no undo step (see WeldEdges).
+        if ( simplifier.CollapseCount() == 0 )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Simplify: no edge could collapse ({} of {} edges constrained by borders and seams)",
+                 constrained, before.EdgeCount() );
+        auto tangents = RecomputeTangentSpace( *mesh, "Mesh Simplify" );
+        if ( !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
     }

@@ -33,13 +33,19 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <iostream>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#if !defined( _WIN32 )
+#include <sys/wait.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -459,6 +465,61 @@ TEST( BuildScriptContract, GlfwIsIncludedOnlyThroughItsEntryHeaders )
     EXPECT_TRUE( undeclared.empty() ) << "sources calling glfwCreateWindowSurface without naming "
                                       << "<Engine/Core/GlfwVulkan.hpp>:" << callReport.str();
 }
+
+// THE GLUED-TEXT GATE, PINNED ON FIXTURES (FMT1). scripts/CI/CheckGluedText.sh gates CI's changed lines and the
+// hand-off; a regex that silently stopped matching would turn it into a gate that is always green, and one that
+// matched too much would redden every branch touching a path join. Each fixture is one line with a known verdict,
+// run through the script's --file mode, so the script itself — not a copy of its rule — is what is tested.
+#if !defined( _WIN32 )
+namespace
+{
+    int RunGluedTextGate( const std::string& root, const fs::path& fixture )
+    {
+        const std::string command = std::format(
+             "bash '{}scripts/CI/CheckGluedText.sh' --file '{}' >/dev/null 2>&1", root, fixture.string() );
+        // NOLINTNEXTLINE(concurrency-mt-unsafe): single-threaded test, runs the real script
+        const int status = std::system( command.c_str() );
+        return WIFEXITED( status ) ? WEXITSTATUS( status ) : -1;
+    }
+} // namespace
+
+TEST( BuildScriptContract, GluedTextGateSeparatesGlueFromFormat )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "could not locate the repository root";
+
+    struct Fixture
+    {
+        const char* Name;
+        const char* Line;
+        int         Expected;
+    };
+    const std::array<Fixture, 9> fixtures = { {
+         { "glued", R"(std::string a = "[" + id + "] " + text;)", 1 },
+         { "glued_right", R"(return prefix + ".bak";)", 1 },
+         { "glued_append", R"(out += "name=" + name;)", 1 },
+         { "format", R"(std::string a = std::format( "[{}] {}", id, text );)", 0 },
+         { "two_literals", R"(auto s = "one" "two"; auto t = "a" + "b";)", 0 },
+         { "path_join", R"(const auto p = root / "Assets" / name;)", 0 },
+         { "char_arith", R"(int d = '0' + digit; out += "literal"; // "x" + y)", 0 },
+         { "glued_ok", R"(auto a = "[" + id; // glued-ok: fixture of the escape itself)", 0 },
+         { "glued_ok_no_reason", R"(auto a = "[" + id; // glued-ok:)", 1 },
+    } };
+
+    const fs::path dir = fs::temp_directory_path() / "BuildScriptContract_GluedText";
+    fs::create_directories( dir );
+    for ( const auto& f : fixtures )
+    {
+        const fs::path file = dir / std::format( "{}.cpp", f.Name );
+        {
+            std::ofstream out( file, std::ios::binary );
+            out << f.Line << '\n';
+        }
+        EXPECT_EQ( RunGluedTextGate( root, file ), f.Expected ) << f.Name << ": " << f.Line;
+    }
+    fs::remove_all( dir );
+}
+#endif
 
 int main( int argc, char** argv )
 {

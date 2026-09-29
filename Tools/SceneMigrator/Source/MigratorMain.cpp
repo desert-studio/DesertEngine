@@ -707,10 +707,11 @@ namespace Desert::Migration
                 << Desert::Assets::kCloudModellingContainerVersion << "\n";
         }
 
-        // THE LANDSCAPE TILES: only the current 'DLHT' container (v2) is read, by the engine's own decoder, so
-        // a v1 tile FAILS by path and number - its raising step was deleted once it had raised the corpus
-        // (LS-15). Every line carries the heights' CRC-32C, so two runs over the corpus compare heights bit
-        // for bit.
+        // THE LANDSCAPE TILES: only the current 'DLHT' container (v3) is read, by the engine's own decoder, so
+        // a v1 or v2 tile FAILS by path and number - each raising step was deleted once it had raised the corpus
+        // (LS-15 v1 -> v2, L10a2 v2 -> v3). A tile with no edit layers FAILS by path too: every landscape has at
+        // least its Base layer, and the step that gave the corpus one (L10b3) is deleted. Every line carries the
+        // heights' CRC-32C, so two runs over the corpus compare heights bit for bit.
         for ( const auto& path : tiles )
         {
             const std::string bytes = ReadAll( path );
@@ -719,6 +720,13 @@ namespace Desert::Migration
             if ( !tile )
             {
                 err << "FAIL   " << path.string() << " — " << tile.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( tile.GetValue().EditLayers().empty() )
+            {
+                err << "FAIL   " << path.string()
+                    << " — the tile has no edit layers; every landscape tile carries at least the Base layer\n";
                 ++failed;
                 continue;
             }

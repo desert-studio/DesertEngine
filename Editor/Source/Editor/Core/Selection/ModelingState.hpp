@@ -247,6 +247,8 @@ namespace Desert::Editor::Core
         // Subdivide: UE's Subdivide tool settings with its defaults (level 3, Catmull-Clark, smooth corners,
         // generated normals).
         Geometry::SubdivideSettings ElementSubdivide{};
+        // Simplify: UE's Simplify tool settings with its defaults (50 %, polygroup borders kept).
+        Geometry::SimplifySettings ElementSimplify{};
         // Mirror: the plane is perpendicular to ElementMirrorAxis (0 = X, 1 = Y, 2 = Z) through the entity's
         // origin along its own axis, or - ElementMirrorWorld - through the world's origin along the world's.
         // Cut and Mirror keeps the positive side of that axis, the negative one with ElementMirrorKeepNegative.

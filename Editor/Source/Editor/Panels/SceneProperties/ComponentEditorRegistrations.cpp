@@ -377,8 +377,9 @@ namespace Desert::Editor
     // Collider fitting lives in Editor/Core/ColliderFit.hpp — the toolbar's Collision menu measures the
     // same mesh the same way, and a warning that disagrees with the button that silences it is worse than
     // no warning.
+    using ::Desert::Editor::Core::ColliderHalfSpan;
     using ::Desert::Editor::Core::FitColliderToMesh;
-    using ::Desert::Editor::Core::MeshHalfExtents;
+    using ::Desert::Editor::Core::FitEntityCollider;
 
     // Collider editor: same auto-built reflected UI as the one-liner, PLUS a one-time auto-fit on Add and
     // a manual "Fit to Mesh Bounds" button.
@@ -914,30 +915,27 @@ namespace Desert::Editor
 
             // A collider that disagrees with the mesh it is supposed to wrap is invisible until something
             // walks into thin air — the greybox house shipped with double-size colliders for exactly this
-            // reason (see the world-units commit). Say it here, next to the button that fixes it.
-            if ( !ctx.FieldFilter )
+            // reason (see the world-units commit). Say it here, next to the button that fixes it. A Mesh or
+            // ConvexHull collider is cut from that mesh, so it cannot disagree with it.
+            const bool fromMesh = c.Data.Shape == ::Desert::Physics::ShapeType::Mesh ||
+                                  c.Data.Shape == ::Desert::Physics::ShapeType::ConvexHull;
+            if ( ctx.FieldFilter == nullptr && !fromMesh )
             {
-                if ( const auto meshHalf = MeshHalfExtents( en ) )
+                if ( const auto fit = FitEntityCollider( en, c.Data.Shape ); fit.IsSuccess() )
                 {
-                    const glm::vec3 colliderHalf =
-                         c.Data.Shape == ::Desert::Physics::ShapeType::Box
-                              ? c.Data.HalfExtents
-                              : glm::vec3( c.Data.Radius,
-                                           c.Data.Shape == ::Desert::Physics::ShapeType::Capsule
-                                                ? c.Data.HalfHeight + c.Data.Radius
-                                                : c.Data.Radius,
-                                           c.Data.Radius );
+                    const glm::vec3 colliderHalf = ColliderHalfSpan( c.Data );
+                    const glm::vec3 meshHalf     = ColliderHalfSpan( fit.GetValue() );
 
                     // Relative on purpose: 5 cm matters on a doorknob and not on a hillside.
-                    const glm::vec3 ref   = glm::max( *meshHalf, glm::vec3( 1.0f ) );
-                    const glm::vec3 delta = glm::abs( colliderHalf - *meshHalf ) / ref;
+                    const glm::vec3 ref   = glm::max( meshHalf, glm::vec3( 1.0f ) );
+                    const glm::vec3 delta = glm::abs( colliderHalf - meshHalf ) / ref;
                     const float     worst = glm::max( delta.x, glm::max( delta.y, delta.z ) );
                     if ( worst > 0.25f )
                     {
                         ImGui::PushStyleColor( ImGuiCol_Text, ::Desert::Editor::ThemeManager::GetWarningColor() );
                         ImGui::TextWrapped( ICON_MDI_ALERT " Collision is %.0f%% off the mesh bounds "
-                                                           "(mesh half-extents %.0f x %.0f x %.0f cm)",
-                                            worst * 100.0f, meshHalf->x, meshHalf->y, meshHalf->z );
+                                                           "(fitted half-span %.0f x %.0f x %.0f cm)",
+                                            worst * 100.0f, meshHalf.x, meshHalf.y, meshHalf.z );
                         ImGui::PopStyleColor();
                     }
                 }

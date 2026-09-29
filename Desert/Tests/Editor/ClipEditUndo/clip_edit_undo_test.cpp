@@ -59,6 +59,7 @@ using Desert::Animation::LocalPose;
 using Desert::Animation::PROJECT_TICK_RATE;
 using Desert::Animation::SectionBlendType;
 using Desert::Animation::Skeleton;
+using Desert::Editor::BoneGizmoGesture;
 using Desert::Editor::ClipPoseCommand;
 using Desert::Editor::CommandHistory;
 using Desert::Editor::PoseEditTransaction;
@@ -1430,4 +1431,101 @@ TEST_F( ClipEditUndo, DroppingAPreviewAnimatorsRecordsKeepsEveryOtherRecord )
     ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "the unrelated record survives";
     ASSERT_TRUE( CommandHistory::Get().Undo() );
     EXPECT_EQ( value, 0.0f );
+}
+
+// ── THE ANIMATION EDITOR'S BONE GIZMO: THE DOCUMENT'S ORDER, THROUGH THE HELPER IT CALLS ─────────────
+
+namespace
+{
+    /// `AnimationEditorDocument::DrawBoneGizmo` per frame: the gesture steps on ImGuizmo's held bit, THEN
+    /// the frame's write lands through the authoring pose (`PoseSelectedBone( pose, false )`).
+    uint32_t GizmoFrame( Rig& rig, BoneGizmoGesture& gesture, bool held, std::optional<glm::mat4> write,
+                         int& posingCalls )
+    {
+        const auto stepped = gesture.Step(
+             rig.m_Transaction, held,
+             [&]()
+             {
+                 ++posingCalls;
+                 return &rig.m_Animator;
+             },
+             &rig.m_Clip );
+        EXPECT_TRUE( stepped.IsSuccess() ) << ( stepped.IsSuccess() ? "" : stepped.GetError() );
+        if ( write.has_value() && gesture.Active() )
+        {
+            const auto local = BoneTransform::FromMatrix( *write );
+            EXPECT_TRUE( local.IsSuccess() );
+            LocalPose edited = rig.m_Animator.GetAuthoringPose();
+            edited[kChild]   = local.GetValue();
+            EXPECT_TRUE( rig.m_Animator.SetAuthoringPose( edited ).IsSuccess() );
+            rig.m_Animator.ApplyLocalPose();
+        }
+        return stepped.IsSuccess() ? stepped.GetValue() : 0;
+    }
+
+    glm::mat4 Lifted( int frame )
+    {
+        return glm::translate( glm::mat4( 1.0f ),
+                               glm::vec3( 0.0f, 1.0f + 0.02f * static_cast<float>( frame ), 0.0f ) );
+    }
+} // namespace
+
+TEST_F( ClipEditUndo, ABoneGizmoDragOfFortyFramesIsOneUndoStep )
+{
+    Rig              rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    BoneGizmoGesture gesture;
+    int              posingCalls = 0;
+
+    uint32_t pushed = GizmoFrame( rig, gesture, false, std::nullopt, posingCalls );
+    for ( int i = 1; i <= 40; ++i )
+    {
+        pushed += GizmoFrame( rig, gesture, true, Lifted( i ), posingCalls );
+    }
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0u ) << "nothing may be recorded while the drag is held";
+    pushed += GizmoFrame( rig, gesture, false, std::nullopt, posingCalls );
+
+    EXPECT_EQ( pushed, 1u ) << "forty held frames must push one entry, not forty";
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1u );
+    EXPECT_EQ( posingCalls, 1 ) << "the preview is switched into posing on the press only";
+    EXPECT_FALSE( gesture.Active() );
+    EXPECT_FALSE( rig.m_Transaction.Open() );
+}
+
+TEST_F( ClipEditUndo, ABoneGizmoPressThatMovesNothingIsNoUndoStep )
+{
+    Rig              rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    BoneGizmoGesture gesture;
+    int              posingCalls = 0;
+
+    uint32_t pushed = GizmoFrame( rig, gesture, false, std::nullopt, posingCalls );
+    for ( int i = 1; i <= 10; ++i )
+    {
+        pushed += GizmoFrame( rig, gesture, true, std::nullopt, posingCalls );
+    }
+    pushed += GizmoFrame( rig, gesture, false, std::nullopt, posingCalls );
+
+    EXPECT_EQ( posingCalls, 1 ) << "the press happened, so the 0 below is not vacuous";
+    EXPECT_EQ( pushed, 0u );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 0u );
+    EXPECT_FALSE( rig.m_Transaction.Open() );
+}
+
+TEST_F( ClipEditUndo, UndoOfABoneGizmoDragReturnsTheBone )
+{
+    Rig              rig( MakeClipWithEndpoints(), AutoChangeMode::None );
+    BoneGizmoGesture gesture;
+    int              posingCalls = 0;
+
+    const LocalPose poseBefore = rig.m_Animator.GetAuthoringPose();
+    (void)GizmoFrame( rig, gesture, false, std::nullopt, posingCalls );
+    for ( int i = 1; i <= 40; ++i )
+    {
+        (void)GizmoFrame( rig, gesture, true, Lifted( i ), posingCalls );
+    }
+    ASSERT_EQ( GizmoFrame( rig, gesture, false, std::nullopt, posingCalls ), 1u );
+    ASSERT_FALSE( SameStoredValue( poseBefore, rig.m_Animator.GetAuthoringPose() ) ) << "the drag moved nothing";
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_TRUE( SameStoredValue( poseBefore, rig.m_Animator.GetAuthoringPose() ) )
+         << "undo did not return the bone to where the press found it";
 }

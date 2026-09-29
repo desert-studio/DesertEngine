@@ -1,5 +1,7 @@
+#include <Editor/Core/Control/PointerDrag.hpp>
 #include <Editor/ImGuiIntegration/VulkanImGuiLayer.hpp>
 
+#include <Common/Core/Events/MouseEvents.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -161,6 +163,24 @@ namespace Desert::Graphic::API::Vulkan
     {
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
+        // A control-channel drag: after the backend's own cursor event, so it is this frame's last word.
+        if ( const auto step = ::Desert::Editor::Control::PointerInjection::NextStep() )
+        {
+            ImGuiIO& io = ::ImGui::GetIO();
+            if ( ( io.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport ) != 0 )
+                io.AddMouseViewportEvent( ::Desert::Editor::Control::PointerInjection::ViewportId() );
+            io.AddMousePosEvent( step->X, step->Y );
+            io.AddMouseButtonEvent( ImGuiMouseButton_Left, step->Down );
+            // Picking (entity, UI element, bone) listens to the press EVENT, which only the OS callback
+            // emitted: a synthetic click reached the widgets and never selected anything. Sent before
+            // NewFrame, as the OS event arrives during polling; the hover step put the cursor here a frame
+            // earlier, so GetMousePos and the hover flags the listeners read are already this point.
+            if ( step->Press )
+            {
+                Common::MouseButtonPressedEvent press( Common::MouseButton::Left );
+                EngineContext::GetInstance().GetWindow()->DispatchEvent( press );
+            }
+        }
         ::ImGui::NewFrame();
     }
 

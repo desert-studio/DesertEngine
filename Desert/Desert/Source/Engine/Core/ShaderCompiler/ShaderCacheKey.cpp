@@ -213,7 +213,15 @@ namespace Desert::Core
         uint64_t key = kFnvOffset;
         FnvMix( key, kOptionsFingerprint );
         if ( spirvDebugInfo )
+        {
             FnvMix( key, "|debuginfo" ); // debug info changes the binary — keep configs apart
+            // ...and names the file it was compiled from (OpSource/OpString carry the path shaderc was
+            // given), so two files with the same stage text get different binaries. Without the path, the
+            // artifact under one key depended on which file compiled it first: a serial build and a job
+            // system build of the same programs disagreed (SHC1). Without debug info the path is not in
+            // the binary, and identical text keeps sharing one entry.
+            FnvMix( key, requestingFile.generic_string() );
+        }
         key ^= static_cast<uint64_t>( stage );
         key *= kFnvPrime;
         FnvMix( key, source );

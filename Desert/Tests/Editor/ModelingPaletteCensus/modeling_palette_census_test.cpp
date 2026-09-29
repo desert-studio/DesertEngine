@@ -139,6 +139,12 @@ namespace
         { "Combo", "\"##ElementSubdivideNormals\"", Reach::Palette, { "\"Subdivide normals: \"" } },
         { "Checkbox", "\"New PolyGroups\"", Reach::Palette, { "\"Subdivide: New PolyGroups\"" } },
         { "Button", "Core::ToString( MO::Subdivide )", Reach::Palette, { "Core::MeshOperation::Subdivide" } },
+        { "Combo", "\"##ElementSimplifyTarget\"", Reach::Palette, { "\"Simplify target: \"" } },
+        { "SliderFloat", "\"##ElementSimplifyPercentage\"", Reach::Set, { "Element.SimplifyPercentage" } },
+        { "DragInt", "\"##ElementSimplifyVertexCount\"", Reach::Set, { "Element.SimplifyVertexCount" } },
+        { "Checkbox", "\"Preserve Sharp Edges\"", Reach::Palette, { "\"Simplify: Preserve Sharp Edges\"" } },
+        { "Checkbox", "\"Preserve PolyGroups\"", Reach::Palette, { "\"Simplify: Preserve PolyGroups\"" } },
+        { "Button", "Core::ToString( MO::Simplify )", Reach::Palette, { "Core::MeshOperation::Simplify" } },
         { "Combo", "\"##ElementMirrorAxis\"", Reach::Palette, { "\"Mirror axis: \"" } },
         { "Checkbox", "\"World\"", Reach::Palette, { "\"Mirror: World\"" } },
         { "Checkbox", "\"Keep -\"", Reach::Palette, { "\"Mirror: Keep -\"" } },
@@ -182,6 +188,8 @@ namespace
         { "Checkbox", "\"Orient\"", Reach::Palette, { "\"Pattern: Orient\"" } },
         { "Checkbox", "\"Separate entities##Pattern\"", Reach::Palette, { "\"Pattern: Separate entities\"" } },
         { "Button", "Core::ToString( XO::Pattern )", Reach::Palette, { "Core::XformOperation::Pattern" } },
+        { "Combo", "\"##CollisionShape\"", Reach::Palette, { "\"Mesh To Collision \"" } },
+        { "Button", "\"Mesh To Collision\"", Reach::Palette, { "Editor::ModelingPanel::MeshToCollision" } },
     };
     // clang-format on
 

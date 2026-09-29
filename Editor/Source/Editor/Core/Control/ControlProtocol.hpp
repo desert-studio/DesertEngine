@@ -67,6 +67,7 @@ namespace Desert::Editor::Control
         ShotWindow,   ///< capture the WHOLE editor, interface included (swapchain readback)
         ShotViewport, ///< capture the 3D viewport only, no interface (the scene's final image)
         Quit,         ///< end the session with an exit status
+        Drag,         ///< press, move and release the mouse over a subject's image, through ImGui's input
     };
 
     /**
@@ -118,6 +119,7 @@ namespace Desert::Editor::Control
          { "shot.window", Op::ShotWindow, RequiresReady::Yes },
          { "shot.viewport", Op::ShotViewport, RequiresReady::Yes },
          { "quit", Op::Quit, RequiresReady::No },
+         { "drag", Op::Drag, RequiresReady::Yes },
     };
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
@@ -232,6 +234,10 @@ namespace Desert::Editor::Control
 
         /// Op::Quit — the process exit status.
         int32_t ExitCode = 0;
+
+        /// Op::Drag — how many frames the pointer takes from `from` to `to` (Value holds fromX, fromY,
+        /// toX, toY in the subject's image pixels).
+        uint32_t Steps = 8;
     };
 
     /// The known operations, comma separated, for the message a rejected one gets. Built from the table
@@ -425,7 +431,7 @@ namespace Desert::Editor::Control
         // because an unknown subject must be refused whatever else the request got right — a request that
         // named "viewpoint" and was answered about the focused document would be answered wrongly and
         // successfully, and the two replies are indistinguishable.
-        if ( spec->Operation == Op::Properties || spec->Operation == Op::Set )
+        if ( spec->Operation == Op::Properties || spec->Operation == Op::Set || spec->Operation == Op::Drag )
         {
             const std::string subjectName = ReadString( fields, "subject" );
             if ( !subjectName.empty() )
@@ -529,6 +535,27 @@ namespace Desert::Editor::Control
             case Op::Quit:
                 request.ExitCode = static_cast<int32_t>( ReadInt( fields, "code", 0 ) );
                 break;
+            case Op::Drag:
+            {
+                if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                     request.Value.size() != 4 )
+                {
+                    return Common::MakeError<Request>(
+                         "'drag' needs 'value' as four numbers [fromX, fromY, toX, toY] in the subject's "
+                         "image pixels." );
+                }
+                if ( request.Whose != Subject::Document && request.Whose != Subject::Viewport )
+                {
+                    return Common::MakeError<Request>(
+                         "'drag' aims at an image: subject 'document' (the focused document's view) or "
+                         "'viewport' (the level viewport)." );
+                }
+                const int64_t steps = ReadInt( fields, "steps", 8 );
+                if ( steps < 1 || steps > 240 )
+                    return Common::MakeFormattedError<Request>( "'drag' takes 1..240 steps, not {}.", steps );
+                request.Steps = static_cast<uint32_t>( steps );
+                break;
+            }
             case Op::Commands:
             case Op::Properties:
                 break;
