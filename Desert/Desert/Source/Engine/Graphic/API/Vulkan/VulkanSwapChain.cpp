@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
+#include <Engine/Core/GlfwVulkan.hpp> // glfwCreateWindowSurface: called here, so named here
 
 #include <Common/Core/DevInstruments.hpp>
 

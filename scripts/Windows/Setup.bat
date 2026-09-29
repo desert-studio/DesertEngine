@@ -30,7 +30,7 @@ set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 REM Must equal VULKAN_SDK_VERSION in .github/workflows/ci.yml. Desert/Tests/Tools/SetupScripts
 REM asserts the two agree, because a developer building against a different SDK than CI is how a
 REM link error becomes "works on my machine".
-set "VULKAN_SDK_VERSION=1.3.290.0"
+set "VULKAN_SDK_VERSION=1.3.296.0"
 set "PREMAKE_VERSION=5.0.0-beta8"
 
 REM The MSVC toolset the generated solution asks for. premake's vs2022 action emits

@@ -10,7 +10,7 @@
 #include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Profiler.hpp>
 
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 
 #include <chrono>
 #include <thread>
