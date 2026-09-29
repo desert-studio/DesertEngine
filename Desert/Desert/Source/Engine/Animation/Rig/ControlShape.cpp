@@ -256,9 +256,9 @@ namespace Desert::Animation
 
         // A BAND, NOT A ONE-PIXEL RING: UE's Circle_Thick is a flat annulus, and the two edges of that
         // annulus are what reads on screen as a thick control an animator can actually grab.
-        ControlShapePolyline inner = UnitCircle( x * 0.9F, y * 0.9F );
-        ControlShapePolyline outer = UnitCircle( x * 1.1F, y * 1.1F );
-        ControlShape         circleThick;
+        const ControlShapePolyline inner = UnitCircle( x * 0.9F, y * 0.9F );
+        const ControlShapePolyline outer = UnitCircle( x * 1.1F, y * 1.1F );
+        ControlShape               circleThick;
         circleThick.Polylines = { inner, outer };
 
         ControlShapeLibrary library;

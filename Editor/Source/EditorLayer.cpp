@@ -3502,7 +3502,7 @@ namespace Desert::Editor
     void EditorLayer::AskDocumentClose( const SubjectId& subject, std::string reason )
     {
         const ISubjectDocument* document = m_OpenDocuments.Find( subject );
-        if ( !document )
+        if ( document == nullptr )
             return;
 
         const bool dirty = document->GetDiskState() == ISubjectDocument::DiskState::Dirty;
@@ -3545,11 +3545,11 @@ namespace Desert::Editor
                            [&subject]( const PendingDocumentClose& p ) { return p.Subject == subject; } );
         if ( asked == m_CloseQuestions.end() )
             return false;
-        PendingDocumentClose question = std::move( *asked );
+        const PendingDocumentClose question = std::move( *asked );
         m_CloseQuestions.erase( asked );
 
         ISubjectDocument* document = m_OpenDocuments.Find( subject );
-        if ( !document )
+        if ( document == nullptr )
             return false; // closed some other way while the question was up: nothing left to answer for
 
         bool saved = false;
@@ -3620,7 +3620,7 @@ namespace Desert::Editor
             return;
         const SubjectId         subject  = m_CloseQuestions.front().Subject;
         const ISubjectDocument* document = m_OpenDocuments.Find( subject );
-        if ( !document )
+        if ( document == nullptr )
         {
             m_CloseQuestions.erase( m_CloseQuestions.begin() );
             return;
@@ -4625,7 +4625,7 @@ namespace Desert::Editor
             commands.push_back(
                  { "Document", DocumentDisplayName( document->GetName() ) + ": Close Discard", [this, subject]
                    {
-                       if ( !m_OpenDocuments.Find( subject ) )
+                       if ( m_OpenDocuments.Find( subject ) == nullptr )
                            return Common::MakeError<bool>( "the document to close is no longer "
                                                            "open." );
                        const bool asked = std::any_of( m_CloseQuestions.begin(), m_CloseQuestions.end(),
@@ -7093,10 +7093,11 @@ namespace Desert::Editor
         for ( ISubjectDocument* document : majors )
         {
             // A tab seen for the first time comes to the front: opening an asset editor shows it, as in UE.
-            const bool       fresh = m_SeenMajorTabs.insert( document->Subject() ).second;
-            const bool       asked = !m_FocusPanel.empty() && document->GetName() == m_FocusPanel;
-            bool             open  = true;
-            const ImGuiTabItemFlags flags = fresh || asked ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+            const bool              fresh = m_SeenMajorTabs.insert( document->Subject() ).second;
+            const bool              asked = !m_FocusPanel.empty() && document->GetName() == m_FocusPanel;
+            bool                    open  = true;
+            const ImGuiTabItemFlags flags =
+                 fresh || asked ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
             if ( ImGui::BeginTabItem( DocumentDisplayTitle( *document ).c_str(), &open, flags ) )
             {
                 selected = document->Subject();
@@ -7213,9 +7214,9 @@ namespace Desert::Editor
             // content is skipped, which is ImGui's own idiom, and the frames off screen are counted so the
             // slot can go back (ReleaseSlotsOfHiddenDocuments).
             // A major tab's close box is its tab in the strip (DrawMajorTabStrip); the window is the area.
-            constexpr ImGuiWindowFlags kMajorFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                                                     ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
-                                                     ImGuiWindowFlags_NoBringToFrontOnFocus;
+            constexpr ImGuiWindowFlags kMajorFlags =
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking |
+                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
             const bool visible = ImGui::Begin( DocumentDisplayTitle( *document ).c_str(), major ? nullptr : &open,
                                                major ? kMajorFlags : ImGuiWindowFlags_None );
             ImGui::PopStyleVar();

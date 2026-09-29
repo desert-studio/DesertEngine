@@ -560,7 +560,7 @@ TEST( ControlRigAssetTest, AnAbsentColourIsTheSideColourAndAPaintedOneSurvivesTh
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
     ControlRigStage stage;
     ASSERT_TRUE( RigFile::BuildControlRig( parsed.GetValue(), skeleton, stage ).IsSuccess() );
-    Animation::ControlHierarchy& rig = stage.GetHierarchy();
+    const Animation::ControlHierarchy& rig = stage.GetHierarchy();
     EXPECT_EQ( rig.Get( rig.Find( "Hand_L_CTRL" ) ).Color, Animation::ControlSideColor( "Hand_L_CTRL" ) );
     EXPECT_EQ( rig.Get( rig.Find( "Tail_CTRL" ) ).Color, glm::vec3( 0.0F, 1.0F, 0.0F ) );
 

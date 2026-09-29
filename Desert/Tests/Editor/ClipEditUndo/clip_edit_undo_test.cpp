@@ -990,7 +990,7 @@ namespace
     {
         auto bind = DA::LocalPose::FromBindPose( skeleton );
         EXPECT_TRUE( bind.IsSuccess() );
-        DA::LocalPose     pose = std::move( bind.GetValue() );
+        DA::LocalPose     pose = bind.GetValue();
         DA::ComponentPose component( skeleton, pose );
         const auto        evaluated = stage.Evaluate( skeleton, pose, component );
         EXPECT_TRUE( evaluated.IsSuccess() ) << evaluated.GetError();

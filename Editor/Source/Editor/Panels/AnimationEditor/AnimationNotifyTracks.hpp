@@ -172,9 +172,9 @@ namespace Desert::Editor
             return x.Tick == y.Tick && x.Value == y.Value && x.Interp == y.Interp && x.Mode == y.Mode &&
                    x.ArriveTangent == y.ArriveTangent && x.LeaveTangent == y.LeaveTangent;
         };
-        return std::ranges::equal( a, b,
-                                   [&sameKey]( const Animation::AnimationCurve& x, const Animation::AnimationCurve& y )
-                                   { return x.Name == y.Name && std::ranges::equal( x.Keys, y.Keys, sameKey ); } );
+        return std::ranges::equal(
+             a, b, [&sameKey]( const Animation::AnimationCurve& x, const Animation::AnimationCurve& y )
+             { return x.Name == y.Name && std::ranges::equal( x.Keys, y.Keys, sameKey ); } );
     }
 
     /// Two notify lists are the same authoring: name, tick, track AND length (a Notify State's span).
@@ -200,7 +200,8 @@ namespace Desert::Editor
     [[nodiscard]] inline bool ClipDiffersFromFile( const Animation::AnimationClip& inMemory,
                                                    const Animation::AnimationClip& onDisk )
     {
-        return !SameNotifies( inMemory.Notifies, onDisk.Notifies ) || !SameCurves( inMemory.Curves, onDisk.Curves );
+        return !SameNotifies( inMemory.Notifies, onDisk.Notifies ) ||
+               !SameCurves( inMemory.Curves, onDisk.Curves );
     }
 
     /// Which edge of a Notify State's bar a drag holds.
@@ -215,16 +216,16 @@ namespace Desert::Editor
      *        ends). The opposite edge stays put; the span keeps at least one tick and stays inside
      *        [0, @p clipDuration]. The document commits the result as ONE edit on release.
      */
-    [[nodiscard]] inline Animation::AnimationNotify DragNotifyStateEdge( Animation::AnimationNotify     notify,
-                                                                         const NotifyStateEdge          edge,
-                                                                         const Animation::FrameNumber   tick,
-                                                                         const Animation::FrameNumber   clipDuration )
+    [[nodiscard]] inline Animation::AnimationNotify
+    DragNotifyStateEdge( Animation::AnimationNotify notify, const NotifyStateEdge edge,
+                         const Animation::FrameNumber tick, const Animation::FrameNumber clipDuration )
     {
         const int64_t begin = notify.Tick.Value;
         const int64_t end   = begin + std::max<int64_t>( notify.DurationTicks.Value, 1 );
         if ( edge == NotifyStateEdge::End )
         {
-            const int64_t newEnd  = std::clamp<int64_t>( tick.Value, begin + 1, std::max<int64_t>( clipDuration.Value, begin + 1 ) );
+            const int64_t newEnd =
+                 std::clamp<int64_t>( tick.Value, begin + 1, std::max<int64_t>( clipDuration.Value, begin + 1 ) );
             notify.DurationTicks.Value = static_cast<decltype( notify.DurationTicks.Value )>( newEnd - begin );
         }
         else

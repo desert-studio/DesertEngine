@@ -227,6 +227,8 @@ namespace Desert::Editor
                 // The row wears the control's own colour, so the tree and the viewport agree on sides.
                 ImGui::PushStyleColor( ImGuiCol_Text,
                                        ImVec4( control.Color.r, control.Color.g, control.Color.b, 1.0f ) );
+                // ImGui's node id is a void*; the integer is an id and is never dereferenced.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
                 const bool open = ImGui::TreeNodeEx( reinterpret_cast<void*>( static_cast<uintptr_t>( i ) + 1U ),
                                                      flags, "%s", control.Name.c_str() );
                 ImGui::PopStyleColor();

@@ -414,7 +414,7 @@ namespace Desert::Editor
         void DrawDocuments();
         // UE's major tabs: "Scene" plus one tab per open document that OpensAsMajorTab(); the one in front
         // owns the whole dock area and the level's panels are not drawn.
-        void                DrawMajorTabStrip();
+        void               DrawMajorTabStrip();
         [[nodiscard]] bool MajorTabActive() const
         {
             return !m_ActiveMajorTab.IsNull();

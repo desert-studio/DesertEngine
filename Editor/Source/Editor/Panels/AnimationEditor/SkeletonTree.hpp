@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cstdint>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -40,8 +41,9 @@ namespace Desert::Editor
             return true;
         const auto lower = []( const char c )
         { return static_cast<char>( std::tolower( static_cast<unsigned char>( c ) ) ); };
-        const auto it = std::search( name.begin(), name.end(), filter.begin(), filter.end(),
-                                     [&]( const char a, const char b ) { return lower( a ) == lower( b ); } );
+        const auto* const it =
+             std::search( name.begin(), name.end(), filter.begin(), filter.end(),
+                          [&]( const char a, const char b ) { return lower( a ) == lower( b ); } );
         return it != name.end();
     }
 
@@ -73,8 +75,8 @@ namespace Desert::Editor
 
         std::vector<SkeletonTreeRow>               rows;
         std::vector<std::pair<uint32_t, uint32_t>> stack; // (bone, depth)
-        for ( auto it = roots.rbegin(); it != roots.rend(); ++it )
-            stack.emplace_back( *it, 0u );
+        for ( const uint32_t root : std::views::reverse( roots ) )
+            stack.emplace_back( root, 0u );
         while ( !stack.empty() )
         {
             const auto [bone, depth] = stack.back();
@@ -86,8 +88,8 @@ namespace Desert::Editor
             const bool open = !filter.empty() || bone >= collapsed.size() || !collapsed[bone];
             if ( !open )
                 continue;
-            for ( auto it = children[bone].rbegin(); it != children[bone].rend(); ++it )
-                stack.emplace_back( *it, depth + 1 );
+            for ( const uint32_t child : std::views::reverse( children[bone] ) )
+                stack.emplace_back( child, depth + 1 );
         }
         return rows;
     }
@@ -110,7 +112,9 @@ namespace Desert::Editor
 
     [[nodiscard]] inline BoneTransformRows DecomposeBoneTransform( const glm::mat4& local )
     {
-        glm::vec3 scale, translation, skew;
+        glm::vec3 scale;
+        glm::vec3 translation;
+        glm::vec3 skew;
         glm::vec4 perspective;
         glm::quat rotation;
         if ( !glm::decompose( local, scale, rotation, translation, skew, perspective ) )

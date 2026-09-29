@@ -44,6 +44,7 @@
 #include <glm/trigonometric.hpp>
 
 #include <algorithm>
+#include <ranges>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -2972,8 +2973,8 @@ namespace Desert::Editor
             {
                 if ( track.BoneName == name )
                 {
-                    ScopedPoseEdit edit( m_ClipEdit, animator, clip );
-                    const uint32_t removed =
+                    const ScopedPoseEdit edit( m_ClipEdit, animator, clip );
+                    const uint32_t       removed =
                          DeleteKeysAtTick( track, Animation::FrameNumber{ m_ControlKeyTick }, clip->TickRate );
                     LOG_INFO( "[Sequencer] deleted {} key(s) of '{}' at tick {}", removed, name,
                               m_ControlKeyTick );
@@ -2994,7 +2995,7 @@ namespace Desert::Editor
             return;
         }
         const Animation::ControlHierarchy& hierarchy = animator->GetRig()->GetHierarchy();
-        const uint32_t                     count     = static_cast<uint32_t>( hierarchy.Size() );
+        const auto                         count     = static_cast<uint32_t>( hierarchy.Size() );
         if ( count == 0 )
         {
             return;
@@ -3019,18 +3020,18 @@ namespace Desert::Editor
         }
         std::vector<std::pair<uint32_t, int>> rows;
         std::vector<std::pair<uint32_t, int>> stack;
-        for ( auto it = roots.rbegin(); it != roots.rend(); ++it )
+        for ( const uint32_t root : std::views::reverse( roots ) )
         {
-            stack.emplace_back( *it, 0 );
+            stack.emplace_back( root, 0 );
         }
         while ( !stack.empty() && rows.size() < count )
         {
             const auto [c, depth] = stack.back();
             stack.pop_back();
             rows.emplace_back( c, depth );
-            for ( auto it = children[c].rbegin(); it != children[c].rend(); ++it )
+            for ( const uint32_t child : std::views::reverse( children[c] ) )
             {
-                stack.emplace_back( *it, depth + 1 );
+                stack.emplace_back( child, depth + 1 );
             }
         }
 

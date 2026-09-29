@@ -23,15 +23,13 @@ namespace Desert::Assets
     class AssetRootPin final
     {
     public:
-        AssetRootPin( const Common::AssetHandle& handle, std::string why ) : m_Handle( handle )
+        AssetRootPin( const Common::AssetHandle& handle, std::string why )
+             : m_Handle( handle ), m_Id( Enrol( handle, std::move( why ) ) )
         {
-            std::scoped_lock lock( Mutex() );
-            m_Id = ++NextId();
-            Pins().emplace( m_Id, std::make_pair( handle, std::move( why ) ) );
         }
         ~AssetRootPin()
         {
-            std::scoped_lock lock( Mutex() );
+            const std::scoped_lock lock( Mutex() );
             Pins().erase( m_Id );
         }
         AssetRootPin( const AssetRootPin& )            = delete;
@@ -44,12 +42,20 @@ namespace Desert::Assets
 
         static void MarkAll( AssetRootSet& roots )
         {
-            std::scoped_lock lock( Mutex() );
+            const std::scoped_lock lock( Mutex() );
             for ( const auto& [id, pin] : Pins() )
                 roots.Mark( pin.first, pin.second );
         }
 
     private:
+        /// Draws the pin's id and registers it under one lock, so the id is ready for the member initializer.
+        static uint64_t Enrol( const Common::AssetHandle& handle, std::string why )
+        {
+            const std::scoped_lock lock( Mutex() );
+            const uint64_t         id = ++NextId();
+            Pins().emplace( id, std::make_pair( handle, std::move( why ) ) );
+            return id;
+        }
         static std::mutex& Mutex()
         {
             static std::mutex mutex;
@@ -67,6 +73,6 @@ namespace Desert::Assets
         }
 
         Common::AssetHandle m_Handle;
-        uint64_t            m_Id = 0;
+        uint64_t            m_Id;
     };
 } // namespace Desert::Assets

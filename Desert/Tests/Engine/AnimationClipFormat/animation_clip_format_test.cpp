@@ -22,7 +22,6 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -202,9 +201,9 @@ TEST( AnimationClipFormat, NotifiesComeOutSortedByTick )
 TEST( AnimationClipFormat, ANotifysTrackSurvivesTheFileAndTheBuild )
 {
     const Ser::NotifyData written{ "FootSync", 12000, 2 };
-    const auto            read = rfl::json::read<Ser::NotifyData>( rfl::json::write( written ) );
-    ASSERT_TRUE( read ) << read.error().what();
-    EXPECT_EQ( read.value().Track, 2 );
+    const auto            read = Common::Json::Read<Ser::NotifyData>( Common::Json::Write( written ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    EXPECT_EQ( read.GetValue().Track, 2 );
 
     Ser::AnimationAssetData data;
     data.Name        = "Tracked";
@@ -380,7 +379,7 @@ TEST( AnimationClipFormat, ASkeletonStillStatingTheOldBoneIndexIsRefusedByName )
 // Until Д35 this suite could only test the direction that READS a `.anim`. The direction that writes one
 // lived inside SequencerPanel::SaveClipToDisk — a member of an ImGui panel — so the format's round trip
 // was an assumption, and the row Д31-D called its WORST was in the part no test could reach: the panel
-// did `out << rfl::json::write( data )` with no check after it at all and returned the path as proof of
+// did `out << <the data written as JSON>` with no check after it at all and returned the path as proof of
 // a save.
 
 namespace
@@ -774,9 +773,9 @@ TEST( AnimationClipFormat, NotifyStatesAndCurvesSurviveTheFileRoundTrip )
                     { 24000, 0.0f, Ser::KeyShape{ 0, 0, 0.0f, 0.0f }, 0.0f, 0.0f } };
     data.Curves = { blink };
 
-    const auto read = rfl::json::read<Ser::AnimationAssetData>( rfl::json::write( data ) );
-    ASSERT_TRUE( read ) << read.error().what();
-    const auto built = Ser::BuildClipFromAssetData( read.value() );
+    const auto read = Common::Json::Read<Ser::AnimationAssetData>( Common::Json::Write( data ) );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const auto built = Ser::BuildClipFromAssetData( read.GetValue() );
     ASSERT_TRUE( built ) << built.GetError();
     const auto& clip = built.GetValue();
     ASSERT_EQ( clip.Notifies.size(), 2u );
@@ -793,7 +792,7 @@ TEST( AnimationClipFormat, NotifyStatesAndCurvesSurviveTheFileRoundTrip )
 
     const auto back = Ser::BuildAssetDataFromClip( clip );
     ASSERT_EQ( back.Curves.size(), 1u );
-    EXPECT_EQ( rfl::json::write( back.Curves[0] ), rfl::json::write( blink ) );
+    EXPECT_EQ( Common::Json::Write( back.Curves[0] ), Common::Json::Write( blink ) );
     ASSERT_EQ( back.Notifies.size(), 2u );
     EXPECT_EQ( back.Notifies[1].DurationTicks, 7200 );
 }

@@ -33,13 +33,13 @@ namespace Desert::Animation
         };
         if ( sideIs( 'l' ) )
         {
-            return glm::vec3( 0.1F, 0.35F, 1.0F );
+            return { 0.1F, 0.35F, 1.0F };
         }
         if ( sideIs( 'r' ) )
         {
-            return glm::vec3( 1.0F, 0.1F, 0.1F );
+            return { 1.0F, 0.1F, 0.1F };
         }
-        return glm::vec3( 1.0F, 0.85F, 0.1F );
+        return { 1.0F, 0.85F, 0.1F };
     }
 
     namespace

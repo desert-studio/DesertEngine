@@ -30,6 +30,7 @@ namespace
     std::vector<std::string> Names( const Animation::Skeleton& s, const std::vector<SkeletonTreeRow>& rows )
     {
         std::vector<std::string> out;
+        out.reserve( rows.size() );
         for ( const auto& row : rows )
             out.push_back( std::string( row.Depth, '.' ) + s.GetBones()[row.Bone].Name );
         return out;
@@ -43,7 +44,7 @@ TEST( SkeletonTree, NameSelectsItsIndexAndTheIndexNamesIt )
     {
         const auto found = BoneByName( skeleton, skeleton.GetBones()[i].Name );
         ASSERT_TRUE( found.has_value() ) << skeleton.GetBones()[i].Name;
-        EXPECT_EQ( *found, i );
+        EXPECT_EQ( found.value_or( ~0U ), i );
     }
     EXPECT_FALSE( BoneByName( skeleton, "lowerarm" ).has_value() ) << "a prefix is not a bone";
     EXPECT_FALSE( BoneByName( skeleton, "LOWERARM_L" ).has_value() ) << "names are exact";
@@ -72,9 +73,9 @@ TEST( SkeletonTree, CollapsedBoneHidesItsSubtreeOnly )
 
 TEST( SkeletonTree, FilterKeepsMatchesAndTheirAncestorsIgnoringCollapse )
 {
-    const auto        skeleton = MakeSkeleton();
-    std::vector<bool> collapsed( 6, true );
-    const auto        rows = BuildSkeletonTreeRows( skeleton, "LowerArm_L", collapsed );
+    const auto              skeleton = MakeSkeleton();
+    const std::vector<bool> collapsed( 6, true );
+    const auto              rows = BuildSkeletonTreeRows( skeleton, "LowerArm_L", collapsed );
     EXPECT_EQ( Names( skeleton, rows ),
                ( std::vector<std::string>{ "root", ".spine", "..upperarm_l", "...lowerarm_l" } ) );
     EXPECT_FALSE( rows[0].Matches );

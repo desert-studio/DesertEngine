@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using Common::Timestep;
 using Desert::Animation::AnimationClip;
@@ -584,7 +585,7 @@ namespace
 
     AnimationNotify State( const char* name, double from, double to )
     {
-        AnimationNotify notify{ name, At( from ) };
+        AnimationNotify notify{ name, At( from ), 0, Animation::FrameNumber{ 0 } };
         notify.DurationTicks = Animation::FrameNumber{ At( to ).Value - At( from ).Value };
         return notify;
     }
@@ -656,7 +657,7 @@ TEST( AnimatorBlending, AScrubBackwardsEndsAStateAndFiresNoInstantNotify )
     AnimationClip  clip =
          StaticClip( "Swing", "spine", glm::vec3( 0.0F, 30.0F, 0.0F ), glm::quat( 1, 0, 0, 0 ), 1.0F );
     clip.Notifies.push_back( State( "Trail", 0.3, 0.6 ) );
-    clip.Notifies.push_back( AnimationNotify{ "Hit", At( 0.45 ) } );
+    clip.Notifies.push_back( AnimationNotify{ "Hit", At( 0.45 ), 0, Animation::FrameNumber{ 0 } } );
     animator.Play( clip, /*loop=*/false );
 
     animator.SetTime( 0.5F );
@@ -733,13 +734,16 @@ TEST( AnimatorBlending, ACurveIsSampledBetweenKeysByTheLaterKeysInterpolation )
     animator.Play( clip, false );
     animator.SetTime( 0.25F );
 
+    // A missing curve reads as NaN here, so the EXPECT_NEAR below fails instead of dereferencing nothing.
+    const auto valueOf = [&animator]( const char* name )
+    { return animator.GetCurveValue( name ).value_or( std::numeric_limits<float>::quiet_NaN() ); };
     ASSERT_TRUE( animator.GetCurveValue( "Linear" ).has_value() );
-    EXPECT_NEAR( *animator.GetCurveValue( "Linear" ), 2.5F, 1e-4F );
-    EXPECT_NEAR( *animator.GetCurveValue( "Constant" ), 0.0F, 1e-6F ) << "constant holds the previous key";
+    EXPECT_NEAR( valueOf( "Linear" ), 2.5F, 1e-4F );
+    EXPECT_NEAR( valueOf( "Constant" ), 0.0F, 1e-6F ) << "constant holds the previous key";
     // Flat tangents at both ends: the cubic is the smoothstep 10 * (3t^2 - 2t^3) at t = 0.25.
-    EXPECT_NEAR( *animator.GetCurveValue( "Cubic" ), 1.5625F, 1e-3F );
+    EXPECT_NEAR( valueOf( "Cubic" ), 1.5625F, 1e-3F );
     EXPECT_FALSE( animator.GetCurveValue( "Missing" ).has_value() ) << "no curve is not the value 0";
 
     animator.SetTime( 1.0F );
-    EXPECT_NEAR( *animator.GetCurveValue( "Constant" ), 10.0F, 1e-6F );
+    EXPECT_NEAR( valueOf( "Constant" ), 10.0F, 1e-6F );
 }

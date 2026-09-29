@@ -186,7 +186,7 @@ namespace Desert::Scripting
         sol::environment* env = SlotEnv( m_Impl->Envs, entity, slot, false );
         if ( !env )
             return;
-        sol::protected_function fn = ( *env )[callback];
+        const sol::protected_function fn = ( *env )[callback];
         if ( !fn.valid() )
             return;
         m_Impl->CurrentOwner             = Impl::SlotKey( entity, slot ); // Timer.after ownership

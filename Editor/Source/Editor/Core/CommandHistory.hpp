@@ -215,12 +215,12 @@ namespace Desert::Editor
                 return first || second;
             }
 
-            bool IsVolatile() const override
+            [[nodiscard]] bool IsVolatile() const override
             {
                 return m_First->IsVolatile() || m_Second->IsVolatile();
             }
 
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_First->GetLabel() + " + " + m_Second->GetLabel();
             }

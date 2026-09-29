@@ -27,9 +27,9 @@ namespace
         clip.TickRate      = FrameRate{ 24000, 1 };
         clip.DisplayRate   = FrameRate{ 30, 1 };
         clip.DurationTicks = FrameNumber{ 48000 }; // 2 s
-        clip.Notifies      = { { "L", FrameNumber{ 4000 }, 0 },
-                               { "R", FrameNumber{ 24000 }, 0 },
-                               { "Sync", FrameNumber{ 40000 }, 1 } };
+        clip.Notifies      = { { "L", FrameNumber{ 4000 }, 0, FrameNumber{ 0 } },
+                               { "R", FrameNumber{ 24000 }, 0, FrameNumber{ 0 } },
+                               { "Sync", FrameNumber{ 40000 }, 1, FrameNumber{ 0 } } };
         return clip;
     }
 
@@ -83,7 +83,7 @@ TEST_F( NotifyTracks, AddRenameDeleteAreOneRecordEachAndANoOpIsNone )
 {
     AnimationClip clip  = ThreeNotifies();
     auto          added = clip.Notifies;
-    added.push_back( { "Hit", FrameNumber{ 800 }, 1 } );
+    added.push_back( { "Hit", FrameNumber{ 800 }, 1, FrameNumber{ 0 } } );
     ASSERT_TRUE( Desert::Editor::ApplyNotifyEdit( clip, added, "Add Notify", CommandHistory::Get(), {} ) );
     EXPECT_EQ( clip.Notifies.front().Name, "Hit" );
 

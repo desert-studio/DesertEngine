@@ -117,11 +117,11 @@ namespace Desert::Editor
         void                      SetPreviewMesh( size_t candidate );
         [[nodiscard]] std::string PanelTitle( const char* name ) const;
         void                      DrawTransport();
-        void                DrawTimeline( float width, float height );
-        void                DrawNotifyPopups( Animation::AnimationClip& clip );
-        void                DrawCurvePopups( Animation::AnimationClip& clip );
-        bool                EditCurveKey( const std::string& name, int32_t tick, float value );
-        [[nodiscard]] float TimelineHeight() const;
+        void                      DrawTimeline( float width, float height );
+        void                      DrawNotifyPopups( Animation::AnimationClip& clip );
+        void                      DrawCurvePopups( Animation::AnimationClip& clip );
+        bool                      EditCurveKey( const std::string& name, int32_t tick, float value );
+        [[nodiscard]] float       TimelineHeight() const;
 
         // The clip asset, found and loaded on first use (a palette entry can run before the first draw).
         [[nodiscard]] Assets::AnimationAsset* ClipAsset();
@@ -137,13 +137,13 @@ namespace Desert::Editor
         // A dock node's SelectedTabId set by the builder loses to the window focused LAST on creation (the
         // Preview Scene Settings tab), so the front tabs are focused once the windows exist — on every open,
         // which is what makes a reopened editor come back with the same tabs in front.
-        int                              m_FrontTabsFrames = 2;
-        glm::uvec2                       m_RenderSize{ 0u, 0u };
-        std::string                      m_Unavailable; // why there is no picture, in the words the pane shows
-        std::string                      m_ClipName;
-        std::string                      m_MeshName;
-        AnimationTransport               m_Transport;
-        std::unique_ptr<glm::vec2>       m_PendingOrbitDegrees;
+        int                        m_FrontTabsFrames = 2;
+        glm::uvec2                 m_RenderSize{ 0u, 0u };
+        std::string                m_Unavailable; // why there is no picture, in the words the pane shows
+        std::string                m_ClipName;
+        std::string                m_MeshName;
+        AnimationTransport         m_Transport;
+        std::unique_ptr<glm::vec2> m_PendingOrbitDegrees;
 
         // The clip is a sweep root while this window is open: unsaved notify edits live only in its payload.
         Assets::AssetRootPin                    m_ClipPin;
@@ -164,26 +164,26 @@ namespace Desert::Editor
         std::array<char, 128>                   m_NameBuffer{};
         // Every registered skeletal mesh on the clip's rig, sorted by path; the preview shows m_MeshIndex.
         // Candidates by the registry's Rig tag, NOT loaded: only the one shown is (ANV1c3 loaded every one).
-        std::vector<std::filesystem::path>                                             m_MeshCandidates;
-        std::shared_ptr<Assets::SkinnedMeshAsset>                                      m_Mesh;
+        std::vector<std::filesystem::path>        m_MeshCandidates;
+        std::shared_ptr<Assets::SkinnedMeshAsset> m_Mesh;
         // Notify State edge drag, curve key drag and the curve popups.
-        int32_t                                                                        m_DragState = -1;
-        NotifyStateEdge                                                                m_DragEdge  = NotifyStateEdge::End;
-        int32_t                                                                        m_DragCurve = -1;
-        int32_t                                                                        m_DragKey   = -1;
-        std::string                                                                    m_PopupCurve;
-        int32_t                                                                        m_PopupKeyTick   = 0;
-        float                                                                          m_PopupKeyValue  = 0.0f;
-        bool                                                                           m_PopupAddState  = false;
+        int32_t         m_DragState = -1;
+        NotifyStateEdge m_DragEdge  = NotifyStateEdge::End;
+        int32_t         m_DragCurve = -1;
+        int32_t         m_DragKey   = -1;
+        std::string     m_PopupCurve;
+        int32_t         m_PopupKeyTick  = 0;
+        float           m_PopupKeyValue = 0.0f;
+        bool            m_PopupAddState = false;
         // Asset Browser: the clips of the preview's rig, listed once per mesh.
-        std::array<char, 64>                                                           m_BrowserFilter{};
-        std::vector<std::pair<std::string, Assets::AssetHandle>>                       m_BrowserClips;
-        bool                                                                           m_BrowserListed = false;
-        size_t                                                                         m_MeshIndex = 0;
-        std::optional<uint32_t>                                                        m_SelectedBone;
-        std::vector<bool>                                                              m_CollapsedBones;
-        std::array<char, 64>                                                           m_BoneFilter{};
-        bool                                                                           m_ShowBones = false;
+        std::array<char, 64>                                     m_BrowserFilter{};
+        std::vector<std::pair<std::string, Assets::AssetHandle>> m_BrowserClips;
+        bool                                                     m_BrowserListed = false;
+        size_t                                                   m_MeshIndex     = 0;
+        std::optional<uint32_t>                                  m_SelectedBone;
+        std::vector<bool>                                        m_CollapsedBones;
+        std::array<char, 64>                                     m_BoneFilter{};
+        bool                                                     m_ShowBones = false;
     };
 
     // The `.anim` path opener: find-or-create the AnimationAsset, load it, then open it through the one handle

@@ -155,10 +155,11 @@ namespace Desert::ECS
                     {
                         for ( const auto& notify : anim.PendingNotifies )
                         {
-                            const char* callback =
-                                 notify.Kind == Animation::NotifyEventKind::Begin ? "OnAnimationNotifyBegin"
-                                 : notify.Kind == Animation::NotifyEventKind::End ? "OnAnimationNotifyEnd"
-                                                                                  : "OnAnimationNotify";
+                            const char* callback = "OnAnimationNotify";
+                            if ( notify.Kind == Animation::NotifyEventKind::Begin )
+                                callback = "OnAnimationNotifyBegin";
+                            else if ( notify.Kind == Animation::NotifyEventKind::End )
+                                callback = "OnAnimationNotifyEnd";
                             for ( uint32_t slot = 0; slot < sc.Scripts.size(); ++slot )
                                 if ( !sc.Scripts[slot].ScriptKey.empty() && sc.Scripts[slot].Started )
                                     m_Engine.CallAnimationNotify( id, slot, callback, notify.Name );

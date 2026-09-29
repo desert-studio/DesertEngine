@@ -947,15 +947,16 @@ namespace Desert::Editor
             // and every "Select Bone" command. The preview builds it itself, the same way the system does,
             // once the skinned mesh has resolved; until then the bind pose renders and the caller keeps
             // rendering.
-            Desert::Mesh* mesh =
-                 m_Target.HasComponent<ECS::SkinnedMeshComponent>()
-                      ? Runtime::ResourceRegistry::GetMeshService()->Get(
-                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
-                      : nullptr;
+            Desert::Mesh* mesh = m_Target.HasComponent<ECS::SkinnedMeshComponent>()
+                                      ? Runtime::ResourceRegistry::GetMeshService()->Get(
+                                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
+                                      : nullptr;
             if ( mesh == nullptr || !mesh->IsSkinned() )
                 return false;
-            anim.Animator = std::make_unique<Animation::Animator>(
-                 static_cast<Desert::SkinnedMesh*>( mesh )->GetSkeleton() );
+            // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            const auto* skinned = static_cast<Desert::SkinnedMesh*>( mesh );
+            anim.Animator       = std::make_unique<Animation::Animator>( skinned->GetSkeleton() );
         }
         const auto& clip    = m_Clip->GetClip();
         const auto* current = anim.Animator->GetCurrentClip();
