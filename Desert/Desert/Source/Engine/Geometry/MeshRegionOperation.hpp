@@ -106,4 +106,32 @@ namespace Desert::Geometry
     // SubdividePolyTool.cpp:230-235; here the user picks Loop), or SubdividePoly's own failure.
     [[nodiscard]] Common::ResultStr<RegionOutcome>
     SubdivideMesh( const DynamicMesh3& before, const SubdivideSettings& settings, ElementMode mode );
+
+    // Simplify, as UE's USimplifyMeshTool runs FSimplifyMeshOp with the QEM simplifier (SimplifyMeshOp.cpp:33-143,
+    // 261): Percentage keeps max(4, Percentage% of the triangles) (SimplifyMeshOp.cpp:119-123), VertexCount stops
+    // at that many vertices. PreserveGroupBoundaries is UE's GroupBoundaryConstraint = Fixed (every edge between
+    // two polygroups and its vertices stay exactly as they are); off, it is UE's Ignore. Open borders use UE's
+    // Free (they collapse along themselves only); seams never collapse (Preserve Sharp Edges). UE's own tool
+    // defaults to Ignore; the editor defaults to preserving, because a PolyEdit mesh without its group borders
+    // loses its faces. Mesh-wide; leaves an empty selection in @p mode. A tangent space is rebuilt.
+    // Refused, by name and numbers: an empty mesh, a percentage outside (0, 100], a vertex target below 3, a
+    // target the mesh already meets, PreserveGroupBoundaries on a mesh with no polygroups, or no edge that
+    // could collapse under the constraints.
+    enum class SimplifyTarget : uint8_t
+    {
+        Percentage,
+        VertexCount,
+    };
+    [[nodiscard]] const char* ToString( SimplifyTarget target );
+
+    struct SimplifySettings
+    {
+        SimplifyTarget Target                  = SimplifyTarget::Percentage;
+        float          Percentage              = 50.0f; // UE's TargetPercentage default
+        int            VertexCount             = 1000;  // UE's TargetVertexCount default
+        bool           PreserveGroupBoundaries = true;
+    };
+
+    [[nodiscard]] Common::ResultStr<RegionOutcome>
+    SimplifyMesh( const DynamicMesh3& before, const SimplifySettings& settings, ElementMode mode );
 } // namespace Desert::Geometry

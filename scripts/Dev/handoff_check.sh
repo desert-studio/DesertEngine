@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # handoff_check.sh [base=origin/dev] — everything a branch must pass before hand-off, in one call.
 # Runs every built test in build/Bin/Tests/Debug from the tree root (exit codes, 300 s cap, HANDOFF_JOBS=4 in
-# parallel, reds re-run alone), RepoOnlyIncludes --require-replacements, llvm@18 clang-format on changed lines,
+# parallel, reds re-run alone), RepoOnlyIncludes --require-replacements, llvm@18 clang-format + glued text on changed lines,
 # and the .claude guard; warns on test binaries older than their .o or linked libs; red if the suites left anything
 # new in the checkout (names the suite that wrote it). Exit 0 = all green.
 # On green with a clean tree, writes .cache/handoff/<full HEAD sha>.ok (the summary line); any red deletes it.
@@ -115,6 +115,8 @@ if bash scripts/CI/RepoOnlyIncludes.sh --require-replacements >"$LOG/includes.lo
 
 # (c) clang-format 18 on the changed lines (Homebrew v22 disagrees with CI; the gate names its binary)
 if PATH="/opt/homebrew/opt/llvm@18/bin:$PATH" bash scripts/CI/CheckFormat.sh "$BASE" >"$LOG/format.log" 2>&1; then fmt=ok; else fmt=RED; fail=1; fi
+# (c2) text is formatted, never glued: no `"..." + x` in the changed lines (FMT1; exit 2 = could not run, also RED)
+if bash scripts/CI/CheckGluedText.sh "$BASE" >"$LOG/glued.log" 2>&1; then glued=ok; else glued=RED; fail=1; fi
 # (g) clang-tidy on the changed lines, as CI runs it: the 09-24 batch reached dev with 13 tidy errors because no
 # gate before the merge ran it (agents never run tidy on their own — the one pass is here, once per hand-off).
 if PATH="/opt/homebrew/opt/llvm@18/bin:$PATH" bash scripts/CI/CheckTidy.sh "$(git merge-base "$BASE" HEAD)" >"$LOG/tidy.log" 2>&1; then tidy=ok; else tidy=RED; fail=1; fi
@@ -131,7 +133,7 @@ behind=""; git diff --quiet "$BASE" HEAD -- .claude || behind=" (.claude differs
 dirty=""; git diff --quiet HEAD -- . ':!.cache' || dirty=" DIRTY tree: no marker"
 
 secs=$(( $(date +%s) - start ))
-line="$passed/$total suites, includes $inc, format $fmt, tidy $tidy, .claude $cl — ${secs}s"
+line="$passed/$total suites, includes $inc, format $fmt, glued $glued, tidy $tidy, .claude $cl — ${secs}s"
 { echo "$line"; printf 'RED %s\n' "${red[@]:+${red[@]}}"; printf 'STALE %s\n' "${stale[@]:+${stale[@]}}"; } >"$LOG/summary.txt"
 echo "$line$behind$dirty; logs $LOG"
 i=0; for r in "${red[@]:+${red[@]}}"; do i=$((i + 1)); [ $i -le 6 ] && echo "  RED $r"; done

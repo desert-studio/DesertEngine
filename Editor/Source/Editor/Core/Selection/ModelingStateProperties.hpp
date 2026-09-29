@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 68> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 70> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -162,6 +162,10 @@ namespace Desert::Editor::Core
          { "Element.SubdivideLevels",   "Levels",             "Select Elements", 1, true, 1.0f,
            static_cast<float>( Geometry::kMaxSubdivisionLevel ), nullptr,
            []( ModelingState& s ) { return &s.ElementSubdivide.Level; } },
+         { "Element.SimplifyPercentage", "Percentage",        "Select Elements", 1, false, 1.0f, 100.0f,
+           []( ModelingState& s ) { return &s.ElementSimplify.Percentage; }, nullptr },
+         { "Element.SimplifyVertexCount", "Vertex Count",     "Select Elements", 1, true, 3.0f, 1.0e6f, nullptr,
+           []( ModelingState& s ) { return &s.ElementSimplify.VertexCount; } },
          { "PlaneCut.Offset",           "Offset",             "Plane Cut", 1, false, -100000.0f, 100000.0f,
            []( ModelingState& s ) { return &s.ElementPlaneCutOffset; }, nullptr },
          { "XForm.PivotWorldPoint",     "World Point",        "XForm", 3, false, -1.0e6f, 1.0e6f,

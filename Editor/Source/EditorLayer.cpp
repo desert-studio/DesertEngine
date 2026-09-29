@@ -404,12 +404,28 @@ namespace Desert::Editor
         }
     }
 
+    // THE TITLE OF A WINDOW WITH A GLYPH: "<icon>  <label>###<id>". One shape, one home: a panel and a document
+    // are both drawn with it, and the two call sites used to glue the same five pieces by hand.
+    static constexpr std::string_view kIconWindowTitleFormat = "{}  {}###{}";
+
+    static std::string IconWindowTitle( std::string_view icon, std::string_view label, std::string_view id )
+    {
+        return std::format( kIconWindowTitleFormat, icon, label, id );
+    }
+
+    // A scene window's ImGui title: the name a person reads, then the "###<kind><id>" identity that keeps two
+    // windows from merging and a closed window's imgui.ini entry from being inherited.
+    static std::string SceneWindowTitle( std::string_view name, std::string_view kind, std::uint64_t id )
+    {
+        return std::format( "{}###{}{}", name, kind, id );
+    }
+
     static std::string PanelDisplayTitle( const std::string& name )
     {
         std::string label = name;
         if ( const auto pos = label.find( "###" ); pos != std::string::npos )
             label.erase( pos ); // visible part only (drop any existing ###id)
-        return std::string( PanelIcon( name ) ) + "  " + label + "###" + name;
+        return IconWindowTitle( PanelIcon( name ), label, name );
     }
 
     // The name a person reads for a panel: the ImGui "##id" suffix dropped (the palette's Panel labels).
@@ -447,8 +463,8 @@ namespace Desert::Editor
     // up by a name that is an asset's and give every document the same fallback.
     std::string EditorLayer::DocumentDisplayTitle( const ISubjectDocument& document ) const
     {
-        return std::string( m_SubjectEditors.Icon( document.Subject(), kUnknownDocumentIcon ) ) + "  " +
-               DocumentDisplayName( document.GetName() ) + "###" + document.GetName();
+        return IconWindowTitle( m_SubjectEditors.Icon( document.Subject(), kUnknownDocumentIcon ),
+                                DocumentDisplayName( document.GetName() ), document.GetName() );
     }
 
     // Cognitive complexity 27 against a threshold of 19, PRE-EXISTING and reported for any edit inside
@@ -3012,7 +3028,7 @@ namespace Desert::Editor
         // Numbered by the id, not by the current count: with closing implemented, "Scene 3" reappearing as
         // the name of a fourth view after the third was closed would put two different documents under one
         // label across a session, and the log lines below are how a slot leak is read.
-        doc->Name = "Scene " + std::to_string( id + 1 ); // the main scene reads as "Scene 1"
+        doc->Name = std::format( "Scene {}", id + 1 ); // the main scene reads as "Scene 1"
 
         doc->Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
         doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
@@ -3027,7 +3043,7 @@ namespace Desert::Editor
         // Unique ImGui id per viewport — two windows sharing an id would merge into a single dockable window.
         // Keyed on the document id so a closed window's saved imgui.ini entry (position, dock node, size) is
         // never inherited by an unrelated later view.
-        const std::string title = doc->Name + "###sceneview" + std::to_string( id );
+        const std::string title = SceneWindowTitle( doc->Name, "sceneview", id );
         auto vp = std::make_unique<Editor::ViewportPanel>( doc->Scene, m_AssetManager.get(), title, id );
         // Captures the ID, never the index. See Editor/Core/SceneViewIdentity.hpp.
         vp->SetOnActivate( [this, id] { SetActiveScene( id ); } );
@@ -3146,7 +3162,7 @@ namespace Desert::Editor
 
         // Unique ImGui id per window, keyed on the id and not the index — a closed window's saved
         // imgui.ini entry must never be inherited by an unrelated later one.
-        const std::string title = view->Name + "###sceneviewport" + std::to_string( view->Id );
+        const std::string title = SceneWindowTitle( view->Name, "sceneviewport", view->Id );
         auto vp = std::make_unique<Editor::ViewportPanel>( scene, m_AssetManager.get(), title, view->Id,
                                                            renderer.get() );
         vp->GetVisibility() = true;
@@ -5525,7 +5541,7 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {
@@ -5823,6 +5839,15 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Subdivide: New PolyGroups",
                        []( MS& ms, bool on ) { ms.ElementSubdivide.NewPolyGroups = on; } );
+        for ( const auto target : { Geometry::SimplifyTarget::Percentage, Geometry::SimplifyTarget::VertexCount } )
+            commands.push_back( { "Modeling", std::string( "Simplify target: " ) + Geometry::ToString( target ),
+                                  [target]
+                                  {
+                                      MS::Get().ElementSimplify.Target = target;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Simplify: Preserve PolyGroups",
+                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveGroupBoundaries = on; } );
         static constexpr std::array<const char*, 3> kAxisNames = { "X", "Y", "Z" };
         for ( int axis = 0; axis < 3; ++axis )
         {

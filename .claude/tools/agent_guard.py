@@ -86,6 +86,7 @@ CHEAT_SHEET = """[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый �
 - тесты: scripts/Dev/suite.sh <Сюита…>. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
 - dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
 - сборка: build_quiet.sh в фоне + build_wait.sh; одна make на машине, -j≤4; sleep ≤ 270 с.
+- формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
 - CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
 
@@ -229,7 +230,7 @@ def subagent_stop(data):
 
 
 GIT_PUSH = re.compile(r"\bgit\b[^;&|]*\bpush\b")
-DEV_MERGE = re.compile(r"\bgit\b[^;&|]*\b(merge|pull)\b[^;&|]*\b(origin/dev|origin\s+dev|\bdev)\b")
+DEV_MERGE = re.compile(r"\bgit\b[^;&|]*\b(merge|pull)\b(?!-)[^;&|]*\b(origin/dev|origin\s+dev|\bdev)\b")
 MIGRATOR_RUN = re.compile(r"Bin/(Debug|Release)/SceneMigrator\b")
 TEST_LOOP = re.compile(r"RunTests\.sh|for\s+\w+\s+in\s+[^;]*Bin/Tests/")
 

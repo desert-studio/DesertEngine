@@ -22,6 +22,9 @@
 3. Кадр — рецептом FRAMES.md; на macOS нет `timeout`, ожидание — циклом `for i in $(seq N); do …; sleep 2; done`.
 4. Формат: `/opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <merge-base>` —
    только дифф, НЕ файлы целиком (ANV1f переформатировал 140 чужих строк).
+4a. Перед push — ОДИН раз `bash scripts/CI/CheckTidy.sh <merge-base>` (только изменённые строки, минуты) и
+   `bash scripts/CI/CheckGluedText.sh <merge-base>`; находки — чинить. 09-29: L11 и M18 прошли все сюиты и упали на tidy
+   (15 и 26 строк) — каждый такой хвост стоил отдельного агента и ещё одного handoff на 25 мин.
 5. На 45-м вызове — к границе шага; на 60-м хук закрывает: коммит «wip: …», push, REMAINDER.md (файл:строка, что доказано,
    что нет) в скретч. Продлений нет.
 
