@@ -96,6 +96,7 @@ CHEAT_SHEET = """[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ (в
 - сборка: ОДИН раз в конце — build_quiet.sh в фоне + build_wait.sh (общий пул сборок машины, очереди нет); sleep ≤ 270 с.
 - формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
 - долгое (> 4 мин: мигратор, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
+- конец работы: код готов → «wip: <КОД> код готов» + push → SendMessage to "main": CODE-READY <ветка> <SHA> → потом ОДНА компиляция (конвейер, 09-30); стартовал от чужого CODE-READY — перед компиляцией git merge origin/<ветка предшественника>.
 - CI не ждёшь: push → id прогона в отчёт → конец. Лимит 60 вызовов без продлений: остаток — REMAINDER.md в скретче."""
 
 
