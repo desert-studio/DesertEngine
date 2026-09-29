@@ -129,7 +129,7 @@ namespace Desert::Editor
             for ( auto& slot : fill.Textures )
                 if ( slot.Slot == property )
                     return slot;
-            ImportedTextureSlot slot{ property, {}, {} };
+            ImportedTextureSlot slot{ property, {}, {}, {} };
             bool                whole = false;
             for ( const auto& row : chosen.Manifest.Import )
                 if ( row.Property == property )
@@ -152,7 +152,12 @@ namespace Desert::Editor
             if ( chosen.TextureProperties.contains( row.Property ) )
             {
                 if ( entry->second.Texture )
-                    slotOf( row.Property ).Parts.push_back( { *entry->second.Texture, row.Channels } );
+                {
+                    ImportedTextureSlot& slot = slotOf( row.Property );
+                    if ( slot.Parts.empty() )
+                        slot.Sampler = entry->second.Sampler;
+                    slot.Parts.push_back( { *entry->second.Texture, row.Channels } );
+                }
             }
             else if ( entry->second.Value && std::ranges::none_of( fill.Params, [&]( const ImportedParam& p )
                                                                    { return p.Name == row.Property; } ) )

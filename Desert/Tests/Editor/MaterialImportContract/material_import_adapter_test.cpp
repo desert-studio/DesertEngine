@@ -62,8 +62,9 @@ namespace
     }
 
     // Images: base.png (albedo + mask), mr.png, occ.png (a DIFFERENT file: the ORM slot must be packed), nrm, emi.
+    // @p samplers: the body of one glTF sampler object; when given, texture 0 (base.png) samples through it.
     fs::path WriteGltf( const std::string& caseName, const std::string& materialBody,
-                        const std::string& extensionsUsed )
+                        const std::string& extensionsUsed, const std::string& samplers = {} )
     {
         const fs::path  dir = fs::temp_directory_path() / "DesertMaterialImportAdapter" / caseName;
         std::error_code ec;
@@ -89,7 +90,8 @@ namespace
   "meshes": [ { "primitives": [ { "attributes": { "POSITION": 0, "TEXCOORD_0": 1 }, "indices": 2, "material": 0 } ] } ],
   "materials": [ { "name": "M", )"
              << materialBody << R"( } ],
-  "textures": [ { "source": 0 }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 } ],
+  "samplers": [ )" << ( samplers.empty() ? std::string( "{}" ) : samplers ) << R"( ],
+  "textures": [ { "source": 0)" << ( samplers.empty() ? "" : R"(, "sampler": 0)" ) << R"( }, { "source": 1 }, { "source": 2 }, { "source": 3 }, { "source": 4 } ],
   "images": [ { "uri": "base.png" }, { "uri": "mr.png" }, { "uri": "occ.png" }, { "uri": "nrm.png" }, { "uri": "emi.png" } ],
   "buffers": [ { "uri": "m.bin", "byteLength": 92 } ],
   "bufferViews": [ { "buffer": 0, "byteOffset": 0, "byteLength": 48 }, { "buffer": 0, "byteOffset": 48, "byteLength": 32 },
@@ -534,4 +536,35 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
     ASSERT_NE( Slot( both, "u_AlbedoTexture" ), nullptr );
     ASSERT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.size(), 1u );
     EXPECT_EQ( Slot( both, "u_AlbedoTexture" )->Parts.front().Source, fs::path( "diffuse.png" ) );
+}
+
+// MAT1s: the glTF sampler of a texture (wrapS/wrapT/magFilter) rides on its key to the template's slot, and a
+// texture with no sampler states none (the engine default is not written into every imported .demat).
+TEST( MaterialImportAdapter, AGltfSamplerReachesItsSlotAndADefaultOneStatesNothing )
+{
+    const fs::path   file = WriteGltf( "sampler", kFullMaterial, kFullExtensions,
+                                       R"({ "wrapS": 33071, "wrapT": 33648, "magFilter": 9728 })" );
+    Assimp::Importer importer;
+    const SourceMaterial source = Read( file, importer );
+
+    using Desert::Core::Formats::SamplerFilter;
+    using Desert::Core::Formats::SamplerState;
+    using Desert::Core::Formats::SamplerWrap;
+    const SamplerState expected{ SamplerWrap::Clamp, SamplerWrap::Mirror, SamplerFilter::Nearest };
+
+    const auto base = source.Entries.find( "gltf.baseColorTexture" );
+    ASSERT_NE( base, source.Entries.end() );
+    ASSERT_TRUE( base->second.Sampler.has_value() ) << "the source sampler was not read";
+    EXPECT_EQ( *base->second.Sampler, expected );
+
+    const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ) };
+    const TemplateFill                fill      = FillFromTemplate( source, templates[0] );
+    const ImportedTextureSlot*        albedo    = Slot( fill, "u_AlbedoTexture" );
+    ASSERT_NE( albedo, nullptr );
+    ASSERT_TRUE( albedo->Sampler.has_value() ) << "the sampler did not reach the slot";
+    EXPECT_EQ( *albedo->Sampler, expected );
+
+    const ImportedTextureSlot* normal = Slot( fill, "u_NormalTexture" );
+    ASSERT_NE( normal, nullptr );
+    EXPECT_FALSE( normal->Sampler.has_value() ) << "a texture with no glTF sampler states the default: nothing";
 }

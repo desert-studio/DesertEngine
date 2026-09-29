@@ -42,17 +42,17 @@ namespace Desert::Core
     };
 
     // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
-    inline constexpr uint32_t kShaderMapFormatVersion = 2;
+    inline constexpr uint32_t kShaderMapFormatVersion = 3;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x59022c4c2838a6b1ULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x8d634902558c407eULL;
 
     // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself.
-    inline constexpr std::array<std::string_view, 8> kShaderMapProducerSources{
+    inline constexpr std::array<std::string_view, 9> kShaderMapProducerSources{
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp",
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp",
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp",
@@ -60,7 +60,8 @@ namespace Desert::Core
          "Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapCache.cpp",
          "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp",
          "Desert/Desert/Source/Engine/Core/Formats/Shader.hpp",
-         "Desert/Desert/Source/Engine/Core/Formats/DefaultTexture.hpp" };
+         "Desert/Desert/Source/Engine/Core/Formats/DefaultTexture.hpp",
+         "Desert/Desert/Source/Engine/Core/Formats/SamplerState.hpp" };
 
     std::string                  SerializeShaderMap( const ShaderMap& map );
     Common::ResultStr<ShaderMap> DeserializeShaderMap( std::string_view bytes );

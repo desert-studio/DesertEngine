@@ -286,6 +286,7 @@ namespace Desert::Graphic
         Runtime::ResourceRegistry::ClearAll();
         Geometry::PrimitiveMeshFactory::ReleaseShared();
 
+        API::Vulkan::ReleaseSlotSamplers();
         if ( const auto released = FallbackTextures::Get().Release(); !released )
         {
             LOG_ERROR( "[Renderer] fallback textures were not released: {}", released.GetError() );

@@ -74,6 +74,21 @@ namespace Desert::Graphic
                                 asset.GetMetadata().Filepath.string(), handle, param.Name, shaderName );
                  } );
         }
+
+        // Every Texture2D slot of the schema gets its sampling state on every application, for the same
+        // reason BindManifestTextures walks the schema: a .demat that stops stating a clamp must go back to
+        // the template's state on hot reload, not keep the clamp.
+        void BindManifestSamplers( const Core::Formats::ShaderProgramMeta& meta, const Assets::MaterialData& data,
+                                   const Material& material )
+        {
+            for ( const auto& param : meta.Params )
+            {
+                if ( !param.IsTexture || param.IsCubeTexture || param.IsAssetRef() )
+                    continue;
+                if ( auto* prop = material.Get<Texture2DProperty>( param.Name ) )
+                    prop->SetSamplerState( data.SlotSampler( param.Name, param.Sampler ) );
+            }
+        }
     } // namespace
 
     void MaterialFactory::ApplyPBRAsset( MaterialPBR& material, const Assets::SurfaceMaterialAsset& asset )
@@ -93,6 +108,7 @@ namespace Desert::Graphic
                                   else if ( auto* prop = material.Get<Texture2DProperty>( name ) )
                                       prop->SetImage( image );
                               } );
+        BindManifestSamplers( material.GetSchema(), asset.Data(), material );
     }
 
     void MaterialFactory::ApplyShaderAsset( DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset )
@@ -120,6 +136,7 @@ namespace Desert::Graphic
         BindManifestTextures( schema, asset, material.GetShaderName(),
                               [&material]( const std::string& name, Graphic::Image2D* image )
                               { material.SetTexture( name, image ); } );
+        BindManifestSamplers( schema, data, material );
 
         // The file's side of the same relation: a name the material carries that the shader no longer
         // declares. It cannot be found by the loop above (which only walks names the shader HAS), and it

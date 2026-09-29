@@ -1019,3 +1019,42 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// MAT1s: `Sampler(WrapU, WrapV, Filter)` on a Texture2D is the template's sampling state; a property without
+// it keeps Repeat/Repeat/Linear (the state every sampler had before), and a misspelling or a non-texture is
+// refused by name at parse time.
+TEST( DShaderParser, ATexturesSamplerAttributeIsTheTemplateStateAndABadOneIsRefused )
+{
+    const auto parse = []( const std::string& property )
+    {
+        return DShaderParser::Parse( R"(
+Shader "SamplerProbe"
+{
+    Domain Surface
+    Properties Binding(1) TextureBinding(2)
+    {
+        )" + property + R"(
+        Texture2D u_Plain ("Plain")
+    }
+    Fragment { void main() {} }
+}
+)" );
+    };
+
+    auto res = parse( R"(Texture2D u_Slot ("Slot", Category("T"), Sampler(Clamp, Mirror, Nearest)) = "black")" );
+    ASSERT_TRUE( res.IsSuccess() ) << res.GetError();
+    const auto& params = res.GetValue().Meta.Params;
+    ASSERT_EQ( params.size(), 2u );
+    EXPECT_EQ( params[0].Sampler, ( SamplerState{ SamplerWrap::Clamp, SamplerWrap::Mirror, SamplerFilter::Nearest } ) );
+    EXPECT_EQ( params[0].DefaultTexture, DefaultTextureKind::Black );
+    EXPECT_EQ( params[1].Sampler, SamplerState{} ) << "no attribute: Repeat/Repeat/Linear";
+
+    auto typo = parse( R"(Texture2D u_Slot ("Slot", Sampler(Clmap, Repeat, Linear)))" );
+    ASSERT_FALSE( typo.IsSuccess() );
+    EXPECT_NE( typo.GetError().find( "clmap" ), std::string::npos ) << typo.GetError();
+    EXPECT_NE( typo.GetError().find( "u_Slot" ), std::string::npos ) << typo.GetError();
+
+    auto notTexture = parse( R"(float u_F ("F", Sampler(Clamp, Clamp, Linear)) = 1.0)" );
+    ASSERT_FALSE( notTexture.IsSuccess() );
+    EXPECT_NE( notTexture.GetError().find( "not a Texture2D" ), std::string::npos ) << notTexture.GetError();
+}

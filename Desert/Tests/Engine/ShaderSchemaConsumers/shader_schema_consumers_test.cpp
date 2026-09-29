@@ -342,6 +342,11 @@ namespace
          // is what makes an empty texture slot expressible at all.
          { "ShaderParam", "DefaultTexture", kMaterial, nullptr },
 
+         // The template's sampler state for a Texture2D slot (wrap U/V, filter). Read by
+         // BindManifestSamplers, which hands it to MaterialData::SlotSampler as the default a .demat
+         // slot's own Sampler overrides.
+         { "ShaderParam", "Sampler", kFactory, nullptr },
+
          // ---- ShaderRenderState: all fifteen land in the pipeline specification ----------------------
          { "ShaderRenderState", "Cull", kPipeline, nullptr },
          { "ShaderRenderState", "DepthTest", kPipeline, nullptr },
@@ -586,7 +591,8 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
     // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
-    EXPECT_EQ( std::size( k_Census ), 43u )
+    // FORTY-FOUR since MAT1s added `ShaderParam::Sampler` (read by BindManifestSamplers).
+    EXPECT_EQ( std::size( k_Census ), 44u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 

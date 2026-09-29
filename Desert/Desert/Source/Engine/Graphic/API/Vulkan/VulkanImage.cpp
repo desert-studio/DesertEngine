@@ -13,6 +13,9 @@
 #include <Common/Utilities/String.hpp>
 
 #include <algorithm>
+#include <bit>
+#include <mutex>
+#include <unordered_map>
 #include <limits>
 #include <optional>
 #include <thread>
@@ -68,14 +71,33 @@ namespace Desert::Graphic::API::Vulkan
             AlwaysLinear
         };
 
-        static void CreateSampler( VkDevice device, VkSampler& outSampler, SamplerFilterPolicy policy )
+        static VkSamplerAddressMode AddressModeOf( Core::Formats::SamplerWrap wrap )
+        {
+            switch ( wrap )
+            {
+                case Core::Formats::SamplerWrap::Repeat:
+                    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                case Core::Formats::SamplerWrap::Clamp:
+                    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                case Core::Formats::SamplerWrap::Mirror:
+                    return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+            }
+            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        }
+
+        // @p slot is the material slot's state (Core::Formats::SamplerState); the default state is exactly
+        // the REPEAT/global-filter sampler every image carries, so an image's own sampler and a slot's
+        // default one are the same VkSamplerCreateInfo.
+        static void CreateSampler( VkDevice device, VkSampler& outSampler, SamplerFilterPolicy policy,
+                                   const Core::Formats::SamplerState& slot = {} )
         {
             // The machine's global filter (Common::Settings::MachineSettings, pushed into RenderConfig by
             // SceneRenderer): Nearest | Bilinear (linear, nearest mip) | Trilinear | Anisotropic.
             using FM               = Common::Settings::TextureFilter;
             const bool forceLinear = policy == SamplerFilterPolicy::AlwaysLinear;
             const int  mode        = Graphic::RenderConfig::TextureFilter.load();
-            const bool nearest     = !forceLinear && mode == static_cast<int>( FM::Nearest );
+            const bool nearest     = !forceLinear && ( mode == static_cast<int>( FM::Nearest ) ||
+                                                    slot.Filter == Core::Formats::SamplerFilter::Nearest );
             const bool linearMip   = forceLinear || mode == static_cast<int>( FM::Trilinear ) ||
                                    mode == static_cast<int>( FM::Anisotropic );
 
@@ -87,7 +109,7 @@ namespace Desert::Graphic::API::Vulkan
             // guaranteed for VK_IMAGE_TYPE_3D.
             const float deviceMaxAniso = Graphic::RenderConfig::MaxAnisotropy.load();
             const bool  useAniso =
-                 !forceLinear && mode == static_cast<int>( FM::Anisotropic ) && deviceMaxAniso > 1.0f;
+                 !forceLinear && !nearest && mode == static_cast<int>( FM::Anisotropic ) && deviceMaxAniso > 1.0f;
             // User-selected level (4/8/16x), clamped to what the device supports.
             const float requestedAniso = static_cast<float>( Graphic::RenderConfig::AnisotropyLevel.load() );
             const float maxAniso =
@@ -98,8 +120,8 @@ namespace Desert::Graphic::API::Vulkan
                  .magFilter        = filter,
                  .minFilter        = filter,
                  .mipmapMode       = mipMode,
-                 .addressModeU     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                 .addressModeV     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                 .addressModeU     = AddressModeOf( slot.WrapU ),
+                 .addressModeV     = AddressModeOf( slot.WrapV ),
                  .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
                  .mipLodBias       = 0.0f,
                  .anisotropyEnable = useAniso ? VK_TRUE : VK_FALSE,
@@ -113,6 +135,7 @@ namespace Desert::Graphic::API::Vulkan
             // only by looking at a voxelised sky.
             if ( forceLinear )
             {
+                DESERT_VERIFY( slot == Core::Formats::SamplerState{}, "A volume sampler takes no slot state" );
                 DESERT_VERIFY( info.magFilter == VK_FILTER_LINEAR && info.minFilter == VK_FILTER_LINEAR &&
                                     info.addressModeU == VK_SAMPLER_ADDRESS_MODE_REPEAT &&
                                     info.addressModeV == VK_SAMPLER_ADDRESS_MODE_REPEAT &&
@@ -1472,4 +1495,56 @@ namespace Desert::Graphic::API::Vulkan
             RecreateSamplerImpl( m_Resource, Utils::SamplerFilterPolicy::AlwaysLinear );
     }
 
+
+    // --- Slot sampler cache (MAT1s): one sampling state, one VkSampler ---
+    //
+    // A material slot that states a non-default SamplerState (clamp, mirror, nearest) does not use the
+    // image's own sampler; it takes one from here. The key carries the global texture-filter setting too,
+    // so a filter change mints new samplers instead of recreating ones a descriptor may still point at; the
+    // superseded ones live until ReleaseSlotSamplers at device teardown (a handful at most: 3*3*2 states
+    // times the settings a session visits).
+    namespace
+    {
+        struct SlotSamplerCache
+        {
+            std::mutex                              Mutex;
+            std::unordered_map<uint64_t, VkSampler> Samplers;
+        };
+
+        SlotSamplerCache& SlotSamplers()
+        {
+            static SlotSamplerCache cache;
+            return cache;
+        }
+    } // namespace
+
+    VkSampler AcquireSlotSampler( const Core::Formats::SamplerState& state )
+    {
+        const float    maxAniso = Graphic::RenderConfig::MaxAnisotropy.load();
+        const uint64_t key =
+             static_cast<uint64_t>( state.Key() ) |
+             ( static_cast<uint64_t>( Graphic::RenderConfig::TextureFilter.load() & 0xFF ) << 16 ) |
+             ( static_cast<uint64_t>( Graphic::RenderConfig::AnisotropyLevel.load() & 0xFF ) << 24 ) |
+             ( static_cast<uint64_t>( std::bit_cast<uint32_t>( maxAniso ) ) << 32 );
+        auto&                       cache = SlotSamplers();
+        std::lock_guard<std::mutex> lock( cache.Mutex );
+        if ( const auto it = cache.Samplers.find( key ); it != cache.Samplers.end() )
+            return it->second;
+        VkSampler sampler = VK_NULL_HANDLE;
+        Utils::CreateSampler( SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice(), sampler, Utils::SamplerFilterPolicy::Global, state );
+        cache.Samplers.emplace( key, sampler );
+        return sampler;
+    }
+
+    void ReleaseSlotSamplers()
+    {
+        auto&                       cache = SlotSamplers();
+        std::lock_guard<std::mutex> lock( cache.Mutex );
+        if ( cache.Samplers.empty() )
+            return;
+        const VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        for ( const auto& [key, sampler] : cache.Samplers )
+            vkDestroySampler( device, sampler, nullptr );
+        cache.Samplers.clear();
+    }
 } // namespace Desert::Graphic::API::Vulkan

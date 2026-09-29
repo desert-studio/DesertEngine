@@ -427,7 +427,7 @@ namespace Desert::Editor
                                                              material.Name, asset.generic_string(),
                                                              key.IsSuccess() ? "null GUID" : key.GetError() ) );
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
-                                       Common::AssetHandle::StableKeyForPath( asset ) } );
+                                       Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
         }
         data.PreviewMesh = previewMesh;
         data.Header      = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
