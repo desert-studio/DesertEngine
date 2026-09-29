@@ -327,8 +327,9 @@ namespace Desert::Editor
 
         // A SHADER change is not a re-valuing. The runtime material's CLASS follows the shader, so the
         // cached one cannot be handed the new values — it has to be dropped and rebuilt from the asset.
-        // Read BEFORE the copy, because afterwards the two names agree by construction.
-        const bool shaderChanged = subject->GetShaderName() != m_WorkingCopy->GetShaderName();
+        // Read BEFORE the copy, because afterwards the two templates agree by construction. By HANDLE: the
+        // template's identity; its name is display text.
+        const bool shaderChanged = subject->GetShaderHandle() != m_WorkingCopy->GetShaderHandle();
 
         MaterialEdit::CopyAuthoredValues( subject->Data(), m_WorkingCopy->Data() );
         subject->ResolveDependencies( *m_AssetManager );
@@ -351,7 +352,7 @@ namespace Desert::Editor
         if ( !m_WorkingCopy || !subject )
             return false;
 
-        const bool shaderChanged = subject->GetShaderName() != m_WorkingCopy->GetShaderName();
+        const bool shaderChanged = subject->GetShaderHandle() != m_WorkingCopy->GetShaderHandle();
 
         MaterialEdit::CopyAuthoredValues( m_WorkingCopy->Data(), subject->Data() );
         m_WorkingCopy->ResolveDependencies( *m_AssetManager );
@@ -376,9 +377,9 @@ namespace Desert::Editor
         if ( !asset )
             return {};
 
-        // Through the parent for an instance — see the header. SurfaceMaterialAsset::GetShaderName() answers
-        // "StaticMeshPBR" for a material that names none, which is right for a base asset and wrong for a
-        // child, whose shader is simply somewhere else.
+        // Through the parent for an instance — see the header: a child states no template, its template is
+        // the parent's. The answer is the ShaderService compile key of the drawn template (display and
+        // program lookup only; the template's identity is its handle).
         if ( auto parent = ResolveParent( *asset ) )
             return parent->GetShaderName();
         return asset->GetShaderName();
@@ -1015,7 +1016,10 @@ namespace Desert::Editor
             return false;
         }
 
-        const std::string current = asset.GetShaderName();
+        // The template's identity is its HANDLE; `current` (its file stem) is the display text and the
+        // ShaderService compile key the domain is read through.
+        const Common::AssetHandle currentHandle = asset.GetShaderHandle();
+        const std::string         current       = asset.GetShaderName();
 
         // THE DOMAIN COMES FROM THE MATERIAL, and everything below follows from it. See the header for
         // what the hardcoded `Surface` filter did to a Terrain material.
@@ -1058,11 +1062,15 @@ namespace Desert::Editor
                                 DomainName( domain ) );
         }
 
-        // Sorted, because GetAllNames() walks an unordered_map: without this the same project shows the
-        // same shaders in a different order every run, and the entry under the cursor moves between
+        // The rows are the loaded shader ASSETS — a row is picked by its handle, the name is its label.
+        // Sorted by label, because the manager walks an unordered_map: without this the same project shows
+        // the same shaders in a different order every run, and the entry under the cursor moves between
         // sessions.
-        std::vector<std::string> names = shaderService->GetAllNames();
-        std::sort( names.begin(), names.end() );
+        std::vector<std::pair<std::string, Common::AssetHandle>> rows;
+        if ( m_AssetManager != nullptr )
+            for ( const auto& [handle, shaderAsset] : m_AssetManager->FindAllByType<Assets::ShaderAsset>() )
+                rows.emplace_back( shaderAsset->GetMetadata().Filepath.stem().string(), handle );
+        std::sort( rows.begin(), rows.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
 
         bool shaderChanged = false;
         ImGui::SetNextItemWidth( -FLT_MIN );
@@ -1070,7 +1078,7 @@ namespace Desert::Editor
         const bool hovered = ImGui::IsItemHovered(); // the combo itself; after EndCombo this is the popup
         if ( open )
         {
-            for ( const auto& name : names )
+            for ( const auto& [name, handle] : rows )
             {
                 auto candidate = shaderService->GetByName( name );
                 if ( !candidate )
@@ -1080,27 +1088,26 @@ namespace Desert::Editor
                 // Same domain when the material has one; every assignable domain when it does not, which
                 // is the only way out of a material pointing at an engine shader.
                 const bool offer = assignable ? ( meta.Domain == domain ) : meta.IsUserAssignable();
-                if ( !offer && name != current )
+                if ( !offer && handle != currentHandle )
                     continue;
 
                 // The current entry is listed even when it would not otherwise qualify. A combo that
                 // cannot reproduce the value it is displaying is the defect this function was rewritten
                 // for, and a shader that fails to compile keeps its name precisely so it stays visible.
-                const bool selected = ( name == current );
+                const bool        selected = ( handle == currentHandle );
                 const std::string label    = candidate->IsCompiled() ? name : name + "  (does not compile)";
 
                 if ( ImGui::Selectable( label.c_str(), selected ) && !selected )
                 {
                     // Params always belong to a shader's schema — a switch clears them; the
                     // schema editor reseeds defaults on the next draw.
-                    // By GUID (MATL 4): the picked shader's header GUID and stable path, resolved back to the
-                    // name GetShaderName answers.
+                    // By HANDLE: the picked row's shader, stated by its header GUID and stable path.
                     if ( m_AssetManager == nullptr )
                     {
                         LOG_ERROR( "[MaterialEditor] cannot state shader '{}': no asset manager", name );
                     }
-                    else if ( const auto stated = Assets::SurfaceMaterialAsset::StateShaderByName(
-                                   asset.Data(), *m_AssetManager, name );
+                    else if ( const auto stated = Assets::SurfaceMaterialAsset::StateShader(
+                                   asset.Data(), *m_AssetManager, handle );
                               !stated )
                     {
                         LOG_ERROR( "[MaterialEditor] cannot state shader: {}", stated.GetError() );

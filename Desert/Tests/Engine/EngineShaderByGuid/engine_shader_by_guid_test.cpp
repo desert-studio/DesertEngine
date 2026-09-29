@@ -22,6 +22,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <format>
@@ -304,4 +305,122 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// CENSUS: no decision in the sources takes a material TEMPLATE by its name. A template is a `.shader` under
+// Editor/Resources/Shaders that declares a material domain (`Domain Surface`/`Domain Terrain`) or a
+// template manifest line (`Role …`, `Default Surface`); its identity is its handle, found by role or by the
+// project's default (FindTemplateByRole / FindDefaultSurfaceTemplate). A quoted template name in a code
+// line is a decision by name unless it is listed below, BY FILE AND NAME, with the reason it may stay —
+// never a count. Comment lines are not code and are skipped.
+namespace
+{
+    struct AllowedTemplateName
+    {
+        const char* File; // repo-relative, generic separators
+        const char* Name;
+        const char* Why;
+    };
+
+    constexpr AllowedTemplateName kAllowedTemplateNames[] = {
+         { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp", "Terrain",
+           "the Terrain template declares no Role yet; found by compile key for a new landscape material "
+           "(MAT1g follow-up: `Role Terrain`)" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "StaticMeshPBR",
+           "ShaderService compile key of the batched PBR backend's geometry program (MAT1a-T1 owns it)" },
+         { "Desert/Desert/Source/Engine/Graphic/Materials/Mesh/MeshVertexPath.cpp", "StaticMeshPBR",
+           "ShaderService compile-key table of the PBR backend's per-pass programs (MAT1a-T1 owns it)" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp", "DefaultSurface",
+           "compile key of the renderer's fallback surface program (MAT1a-T1 owns it)" },
+         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp", "Terrain",
+           "compile key of the terrain renderer's own program, not a material's template" },
+         { "Desert/Desert/Source/Engine/ECS/System/TextECSSystem.hpp", "TextSDF",
+           "compile key of the text system's own program, not a material's template" },
+         { "Desert/Desert/Source/Engine/Core/Formats/ShaderProgramMeta.hpp", "Terrain",
+           "the DOMAIN's spelling (`Domain Terrain`), which shares the word with the template" },
+         { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp", "Terrain",
+           "the DOMAIN's display label, which shares the word with the template" },
+         { "Desert/Desert/Source/Engine/Geometry/PrimitiveType.hpp", "Terrain",
+           "a primitive type's display name, which shares the word with the template" },
+         { "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp", "NewShaderGraph",
+           "the file name a NEW graph document is saved under; the graph compiles to a shader of its own name" },
+    };
+
+    std::vector<std::string> TemplateStems( const std::filesystem::path& shadersDir )
+    {
+        std::vector<std::string> stems;
+        std::error_code          ec;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( shadersDir, ec ) )
+        {
+            if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
+                continue;
+            std::ifstream in( entry.path() );
+            for ( std::string line; std::getline( in, line ); )
+            {
+                const auto first = line.find_first_not_of( " \t" );
+                if ( first == std::string::npos )
+                    continue;
+                const std::string_view text = std::string_view( line ).substr( first );
+                if ( text.starts_with( "Domain Surface" ) || text.starts_with( "Domain Terrain" ) ||
+                     text.starts_with( "Role " ) || text.starts_with( "Default Surface" ) )
+                {
+                    stems.push_back( entry.path().stem().string() );
+                    break;
+                }
+            }
+        }
+        return stems;
+    }
+} // namespace
+
+TEST( EngineShaderByGuid, NoDecisionNamesATemplate )
+{
+    const std::filesystem::path editorDir = EditorDirectory();
+    const std::filesystem::path repo      = editorDir.parent_path();
+    const auto                  stems     = TemplateStems( editorDir / "Resources" / "Shaders" );
+    ASSERT_GE( stems.size(), 3u ) << "the template census found too few templates to mean anything";
+    for ( const char* expected : { "Unlit", "StaticMeshPBR", "Terrain" } )
+        EXPECT_NE( std::find( stems.begin(), stems.end(), expected ), stems.end() ) << expected;
+
+    std::vector<std::string> offenders;
+    for ( const char* root :
+          { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source" } )
+    {
+        std::error_code ec;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( repo / root, ec ) )
+        {
+            const auto ext = entry.path().extension();
+            if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" && ext != ".h" ) )
+                continue;
+            const std::string rel = entry.path().lexically_relative( repo ).generic_string();
+            std::ifstream     in( entry.path() );
+            int               number = 0;
+            for ( std::string line; std::getline( in, line ); )
+            {
+                ++number;
+                const auto first = line.find_first_not_of( " \t" );
+                if ( first == std::string::npos )
+                    continue;
+                const std::string_view text = std::string_view( line ).substr( first );
+                if ( text.starts_with( "//" ) || text.starts_with( "*" ) || text.starts_with( "/*" ) )
+                    continue;
+                for ( const auto& stem : stems )
+                {
+                    if ( line.find( "\"" + stem + "\"" ) == std::string::npos )
+                        continue;
+                    const bool allowed = std::any_of(
+                         std::begin( kAllowedTemplateNames ), std::end( kAllowedTemplateNames ),
+                         [&]( const AllowedTemplateName& a ) { return rel == a.File && stem == a.Name; } );
+                    if ( !allowed )
+                        offenders.push_back( std::format( "{}:{}: \"{}\"", rel, number, stem ) );
+                }
+            }
+        }
+    }
+    std::string list;
+    for ( const auto& o : offenders )
+        list += o + "\n";
+    EXPECT_TRUE( offenders.empty() ) << "a template chosen by name (use its handle / role, or allow-list it by "
+                                        "file with a reason):\n"
+                                     << list;
 }

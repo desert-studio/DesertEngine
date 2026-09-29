@@ -342,6 +342,10 @@ namespace Desert::ECS
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
     // parameters edited generically in Details (built from the shader's #pragma param schema). The
     // renderer builds a DataDrivenMaterial from ShaderName and applies these overrides.
+    // ShaderName is the ShaderService COMPILE KEY of a template that is NOT `Role PBRSurface`, resolved from
+    // the template's handle by whoever sets it (scene load, a role lookup); empty = no override, the mesh
+    // draws its PBR material slots and Params are only the slot-0 hand-off buffer. No decision compares it
+    // to a template's name.
     struct MaterialComponent
     {
         std::string                          ShaderName;

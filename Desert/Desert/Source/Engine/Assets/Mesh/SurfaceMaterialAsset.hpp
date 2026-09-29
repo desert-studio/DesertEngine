@@ -103,12 +103,12 @@ namespace Desert::Assets
         // answering the shader the data no longer names.
         void ResolveDependencies( AssetManager& manager ) override;
 
-        // States in @p data the shader an editor action names BY NAME (a picker row, a graph, a component's
-        // default): the loaded ShaderAsset whose file stem is @p name, by its header GUID and stable path.
-        // Every name is stated explicitly — there is no default said by absence. A name no loaded shader
-        // has, or a shader file with no header GUID, is refused by name and @p data is left untouched.
-        static Common::BoolResultStr StateShaderByName( MaterialData& data, const AssetManager& manager,
-                                                        std::string_view name );
+        // States in @p data the template an editor action CHOSE BY HANDLE (a picker row, the project's
+        // default surface, a role lookup): by the shader's header GUID and stable path. Every template is
+        // stated explicitly — there is no default said by absence. A handle no loaded shader has, or a
+        // shader file with no header GUID, is refused and @p data is left untouched.
+        static Common::BoolResultStr StateShader( MaterialData& data, const AssetManager& manager,
+                                                  Common::AssetHandle shader );
 
         virtual Common::UUID GetMaterialUUID() const override
         {

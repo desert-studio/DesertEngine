@@ -1477,12 +1477,26 @@ namespace Desert::Core::Serialize
                 if ( data.Shader.has_value() )
                 {
                     const std::string context = EntityContext( entity );
-                    if ( auto name = Assets::FindShaderNameByRef( assetManager, *data.Shader,
-                                                                  { "shader", "Material.Shader", context } ) )
-                        mc.ShaderName = name.ExtractValue();
-                    else
+                    auto              name    = Assets::FindShaderNameByRef( assetManager, *data.Shader,
+                                                                             { "shader", "Material.Shader", context } );
+                    if ( !name )
+                    {
                         LOG_ERROR( "[Scene] {} - the entity draws with no shader until it names one",
                                    name.GetError() );
+                    }
+                    else
+                    {
+                        // A component naming the PBR surface template is no override: the mesh draws its
+                        // material slots, and Params are the slot-0 hand-off buffer (see MaterialComponent).
+                        const auto guid = Common::Content::AssetGuidFromText( data.Shader->Guid );
+                        const bool pbrSurface =
+                             guid &&
+                             Assets::IsPBRSurfaceTemplate(
+                                  assetManager, Common::AssetHandle( static_cast<uint64_t>(
+                                                     Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
+                        if ( !pbrSurface )
+                            mc.ShaderName = name.ExtractValue();
+                    }
                 }
 
                 if ( data.Params.has_value() )

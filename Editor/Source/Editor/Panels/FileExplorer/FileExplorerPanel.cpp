@@ -11,6 +11,7 @@
 #include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
 #include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
 #include <Editor/Core/AssetFileOps.hpp>
+#include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/EditorPreferences.hpp> // the pinned folders live in editor.json (К5)
@@ -632,13 +633,22 @@ namespace Desert::Editor
              "NewMaterial", ext, [&]( const std::string& n )
              { return std::filesystem::exists( std::filesystem::path( m_CurrentDir->AssetPath ) / n ); } );
         const auto path = std::filesystem::path( m_CurrentDir->AssetPath ) / name;
-        // Minimal valid material: no params, no textures — the engine derives a stable id from the path.
-        // The refresh below is what puts the new material in front of the user, so it runs only when
-        // there is a file to show: a refresh over a failed write just redraws the old listing and the
+        // A new material states the project's default surface template (never a default by absence);
+        // no params, no textures. The refresh below is what puts the new material in front of the user, so it runs
+        // only when there is a file to show: a refresh over a failed write just redraws the old listing and the
         // user is left believing the "New Material" menu item did nothing at all.
-        if ( const auto written =
-                  Common::Utils::FileSystem::WriteContentToFileAtomic( path, R"({"Params":[],"Textures":[]})" );
-             !written )
+        Assets::MaterialData data;
+        if ( m_AssetManager == nullptr )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: no asset manager is bound", path.generic_string() );
+            return;
+        }
+        if ( const auto stated = MaterialAssetUtils::StateDefaultSurface( data, *m_AssetManager ); !stated )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), stated.GetError() );
+            return;
+        }
+        if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
         {
             LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), written.GetError() );
             return;

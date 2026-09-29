@@ -93,6 +93,33 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
+    Common::ResultStr<AssetGuidRef> FindShaderRefByHandle( const AssetManager& manager, Common::AssetHandle shader,
+                                                           const AssetRefSite& site )
+    {
+        const auto asset = manager.FindByHandle<ShaderAsset>( shader );
+        if ( asset == nullptr )
+            return Common::MakeError<AssetGuidRef>( std::format( "{} on {}: no loaded shader has handle {}",
+                                                                 site.Field, site.Context,
+                                                                 static_cast<uint64_t>( shader ) ) );
+        const Common::Filepath& file = asset->GetMetadata().Filepath;
+        return WriteAssetGuidRef( ReadShaderHeaderGuid( file ), file, site );
+    }
+
+    std::optional<Common::AssetHandle> FindShaderHandleByCompileName( const AssetManager& manager,
+                                                                      std::string_view    compileName )
+    {
+        for ( const auto& [handle, shader] : manager.FindAllByType<ShaderAsset>() )
+            if ( shader->GetMetadata().Filepath.stem().string() == compileName )
+                return handle;
+        return std::nullopt;
+    }
+
+    bool IsPBRSurfaceTemplate( const AssetManager& manager, Common::AssetHandle shader )
+    {
+        const auto asset = manager.FindByHandle<ShaderAsset>( shader );
+        return asset != nullptr && asset->GetRole() == Common::Content::kPBRSurfaceRole;
+    }
+
     Common::ResultStr<AssetGuidRef> FindShaderRefByName( const AssetManager& manager, std::string_view name,
                                                          const AssetRefSite& site )
     {

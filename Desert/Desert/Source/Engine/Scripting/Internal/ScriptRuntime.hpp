@@ -256,8 +256,7 @@ namespace Desert::Scripting
                 if ( Reg().has<ECS::MaterialComponent>( handle ) )
                 {
                     auto& mc = Reg().get<ECS::MaterialComponent>( handle );
-                    if ( !mc.ShaderName.empty() && mc.ShaderName != "StaticMeshPBR" &&
-                         mc.ShaderName != "SkinnedMeshPBR" )
+                    if ( !mc.ShaderName.empty() )
                     {
                         UpsertComponentParam( mc, name, v );
                         return;

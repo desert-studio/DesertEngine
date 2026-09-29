@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Assets/AssetRefSerialization.hpp>
@@ -61,6 +63,20 @@ namespace Desert::Assets
     FindShaderRefByName( const AssetManager& manager, std::string_view name, const AssetRefSite& site );
     [[nodiscard]] Common::ResultStr<std::string>
     FindShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref, const AssetRefSite& site );
+
+    // The same reference, for a shader chosen BY HANDLE (a template picker row, a role lookup). Refuses by
+    // `site` a handle no loaded shader has and a shader file with no header GUID.
+    [[nodiscard]] Common::ResultStr<AssetGuidRef>
+    FindShaderRefByHandle( const AssetManager& manager, Common::AssetHandle shader, const AssetRefSite& site );
+
+    // The loaded shader whose file stem — the ShaderService compile key — is @p compileName. Only for a caller
+    // that CREATES a shader under a name (the node-graph editor compiles its graph to `<Name>.dshader`) and
+    // must then find the asset it made; a template is never chosen by name.
+    [[nodiscard]] std::optional<Common::AssetHandle> FindShaderHandleByCompileName( const AssetManager& manager,
+                                                                                    std::string_view compileName );
+
+    // Whether @p shader is a loaded template declaring `Role PBRSurface` (the batched PBR backend).
+    [[nodiscard]] bool IsPBRSurfaceTemplate( const AssetManager& manager, Common::AssetHandle shader );
 
     // THE TEMPLATE REGISTRY, over the loaded shaders' manifests. Exactly one shader declares @p role; none or
     // several is a refusal listing every declaring path (none: the role and "no loaded shader declares it").

@@ -15,6 +15,7 @@
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -205,8 +206,11 @@ namespace Desert::Editor
         // the one every future editor run resolves to.
         {
             ::Desert::Assets::MaterialData data;
+            // The Terrain template has no manifest Role yet: found by its compile key (census allow-list).
+            const auto terrain = ::Desert::Assets::FindShaderHandleByCompileName( *assetMgr, "Terrain" );
             if ( const auto stated =
-                      ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName( data, *assetMgr, "Terrain" );
+                      terrain ? ::Desert::Assets::SurfaceMaterialAsset::StateShader( data, *assetMgr, *terrain )
+                              : Common::MakeError( std::string( "no loaded shader is named 'Terrain'" ) );
                  !stated )
             {
                 LOG_ERROR( "[Landscape] material '{}': {}", path.string(), stated.GetError() );
@@ -672,8 +676,12 @@ namespace Desert::Editor
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated = ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName(
-                      data, *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
+            const auto                     cloud = ::Desert::Assets::FindShaderHandleByCompileName(
+                 *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
+            if ( const auto stated =
+                      cloud ? ::Desert::Assets::SurfaceMaterialAsset::StateShader( data, *assetMgr, *cloud )
+                            : Common::MakeError( std::format( "no loaded shader is named '{}'",
+                                                              ::Desert::Graphic::kCloudMaterialShaderName ) );
                  !stated )
             {
                 LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );

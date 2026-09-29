@@ -43,8 +43,8 @@ namespace Desert::Editor::MaterialEdit
     // positionally would report a document as permanently unapplied after a Discard.
     //
     // The shader is compared by its GUID, so a stale path locator beside the same GUID is not an authored
-    // difference. The standard surface is only ever stated by absence (StateShaderByName), so an absent
-    // shader and a stated one are different materials.
+    // difference. A template is always stated (SurfaceMaterialAsset::StateShader), so an absent shader
+    // and a stated one are different materials.
     [[nodiscard]] inline bool AuthoredValuesEqual( const Assets::MaterialData& a, const Assets::MaterialData& b )
     {
         if ( a.ShaderGuid() != b.ShaderGuid() )
