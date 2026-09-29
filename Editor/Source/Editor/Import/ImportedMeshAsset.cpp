@@ -75,6 +75,14 @@ namespace Desert::Editor
         };
 
         const bool groupsPerFace = imported.PolyGroups.size() == imported.Indices.size();
+        // The optional streams (MeshBinary v4) are one per vertex or absent; a stream of any other length is
+        // not sliced by guess but refused.
+        const size_t vertexTotal = imported.StaticVertices.size();
+        if ( ( !imported.Colors.empty() && imported.Colors.size() != vertexTotal ) ||
+             ( !imported.UV1.empty() && imported.UV1.size() != vertexTotal ) )
+            return Common::MakeFormattedError<Result>(
+                 "'{}' carries {} colours and {} UV1 entries for {} vertices", name, imported.Colors.size(),
+                 imported.UV1.size(), vertexTotal );
         for ( const auto& [level, submeshes] : levels )
         {
             Ser::MeshAssetData part;
@@ -100,6 +108,12 @@ namespace Desert::Editor
                 part.StaticVertices.insert( part.StaticVertices.end(),
                                             imported.StaticVertices.begin() + vertexBegin,
                                             imported.StaticVertices.begin() + vertexEnd );
+                if ( !imported.Colors.empty() )
+                    part.Colors.insert( part.Colors.end(), imported.Colors.begin() + vertexBegin,
+                                        imported.Colors.begin() + vertexEnd );
+                if ( !imported.UV1.empty() )
+                    part.UV1.insert( part.UV1.end(), imported.UV1.begin() + vertexBegin,
+                                     imported.UV1.begin() + vertexEnd );
                 part.Indices.insert( part.Indices.end(), imported.Indices.begin() + faceBegin,
                                      imported.Indices.begin() + faceEnd );
                 if ( groupsPerFace )

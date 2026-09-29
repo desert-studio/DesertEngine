@@ -160,17 +160,72 @@ TEST( StaticMeshOutput, AFileWithoutGroupsLiftsWithEveryFaceInGroupZero )
 
 TEST( StaticMeshOutput, ALayerTheFileCannotHoldIsRefusedByName )
 {
-    Geometry::EditMesh coloured = TwoMaterialBox();
-    coloured.Attributes().EnableColors();
-    auto refused = Geometry::ToMeshAssetData( coloured, kSlots );
-    ASSERT_FALSE( refused.IsSuccess() );
-    EXPECT_NE( refused.GetError().find( "colour" ), std::string::npos ) << refused.GetError();
-
-    Geometry::EditMesh twoUV = TwoMaterialBox();
-    ASSERT_TRUE( twoUV.Attributes().SetUVLayerCount( 2 ) );
-    auto refusedUV = Geometry::ToMeshAssetData( twoUV, kSlots );
+    Geometry::EditMesh threeUV = TwoMaterialBox();
+    ASSERT_TRUE( threeUV.Attributes().SetUVLayerCount( 3 ) );
+    auto refusedUV = Geometry::ToMeshAssetData( threeUV, kSlots );
     ASSERT_FALSE( refusedUV.IsSuccess() );
-    EXPECT_NE( refusedUV.GetError().find( "2 UV layers" ), std::string::npos ) << refusedUV.GetError();
+    EXPECT_NE( refusedUV.GetError().find( "3 UV layers" ), std::string::npos ) << refusedUV.GetError();
+}
+
+// MAT1v: the colour layer and UV layer 1 are the file's optional streams, so they go out and come back.
+TEST( StaticMeshOutput, TheColourLayerAndUVOneTravelAsStreams )
+{
+    Geometry::EditMesh mesh = TwoMaterialBox();
+    mesh.Attributes().EnableColors();
+    ASSERT_TRUE( mesh.Attributes().SetUVLayerCount( 2 ) );
+    Geometry::ColorOverlay& colors = *mesh.Attributes().Colors();
+    Geometry::UVOverlay&    uv1    = *mesh.Attributes().UV( 1 );
+    std::vector<int>        colourOf( static_cast<size_t>( mesh.MaxVertexId() ), -1 );
+    std::vector<int>        uvOf( static_cast<size_t>( mesh.MaxVertexId() ), -1 );
+    // Per vertex, values exact in 8 bits (k / 255) so the RGBA8 stream round-trips them bit for bit.
+    const auto ColourOf = []( int v )
+    { return glm::vec4( glm::vec3( float( v * 20 % 256 ), 51.0f, 255.0f ), 102.0f ) / 255.0f; };
+    const auto UVOf = []( int v ) { return glm::vec2( 0.25f * float( v ), 1.0f - 0.5f * float( v ) ); };
+    for ( const int v : mesh.VertexIds() )
+    {
+        colourOf[static_cast<size_t>( v )] = colors.AppendElement( ColourOf( v ) );
+        uvOf[static_cast<size_t>( v )]     = uv1.AppendElement( UVOf( v ) );
+    }
+    for ( const int t : mesh.TriangleIds() )
+    {
+        const auto& tri = mesh.GetTriangle( t );
+        ASSERT_EQ( colors.SetTriangle(
+                        mesh, t,
+                        { colourOf[size_t( tri[0] )], colourOf[size_t( tri[1] )], colourOf[size_t( tri[2] )] } ),
+                   Geometry::EditResult::Ok );
+        ASSERT_EQ( uv1.SetTriangle( mesh, t,
+                                    { uvOf[size_t( tri[0] )], uvOf[size_t( tri[1] )], uvOf[size_t( tri[2] )] } ),
+                   Geometry::EditResult::Ok );
+    }
+
+    auto data = Geometry::ToMeshAssetData( mesh, kSlots );
+    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
+    const auto& asset = data.GetValue();
+    ASSERT_EQ( asset.Colors.size(), asset.StaticVertices.size() );
+    ASSERT_EQ( asset.UV1.size(), asset.StaticVertices.size() );
+
+    auto lifted = Geometry::FromMeshAssetData( asset );
+    ASSERT_TRUE( lifted.IsSuccess() ) << lifted.GetError();
+    const Geometry::EditMesh& back = lifted.GetValue().Mesh;
+    ASSERT_NE( back.Attributes().Colors(), nullptr );
+    ASSERT_EQ( back.Attributes().UVLayerCount(), 2 );
+    // Positions identify the corner: the lifted mesh numbers its vertices anew.
+    for ( const int t : back.TriangleIds() )
+        for ( int j = 0; j < 3; ++j )
+        {
+            const glm::vec3 p     = back.GetPosition( back.GetTriangle( t )[j] );
+            int             match = -1;
+            for ( const int v : mesh.VertexIds() )
+                if ( glm::all( glm::equal( mesh.GetPosition( v ), p ) ) )
+                    match = v;
+            ASSERT_NE( match, -1 );
+            const glm::vec4 c =
+                 back.Attributes().Colors()->GetElement( back.Attributes().Colors()->GetTriangle( t )[j] );
+            const glm::vec2 u =
+                 back.Attributes().UV( 1 )->GetElement( back.Attributes().UV( 1 )->GetTriangle( t )[j] );
+            EXPECT_LT( glm::length( c - ColourOf( match ) ), 1e-6f );
+            EXPECT_EQ( u, UVOf( match ) );
+        }
 }
 
 TEST_F( ScratchProject, TheWriteLeavesARegistryRowWithTheMeshBox )

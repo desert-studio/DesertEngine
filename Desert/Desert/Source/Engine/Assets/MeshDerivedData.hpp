@@ -33,7 +33,8 @@ namespace Desert::Assets
     // editor that runs the builder: the runtime computes the same key to find the entry. Bump it whenever the
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
-    inline constexpr uint32_t kMeshBuilderVersion = 2; // 2: sections are named by their material slot
+    inline constexpr uint32_t kMeshBuilderVersion =
+         3; // 3: vertex colour and UV1 streams; 2: sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings
