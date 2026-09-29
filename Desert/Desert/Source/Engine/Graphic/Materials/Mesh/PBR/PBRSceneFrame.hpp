@@ -3,7 +3,8 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
-#include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBRBase.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
@@ -53,13 +54,13 @@ namespace Desert::Graphic
         const ShaderProtocols::SpotLight*      SpotLights      = nullptr;
         const ShaderProtocols::DirectionLight* DirectionLights = nullptr;
 
-        const glm::mat4* CascadeViewProj = nullptr; // MaterialPBRBase::kMaxCascades entries
-        Image2D*         CascadeMaps[MaterialPBRBase::kMaxCascades] = {};
+        const glm::mat4* CascadeViewProj = nullptr; // SceneResources::kMaxCascades entries
+        Image2D*         CascadeMaps[SceneResources::kMaxCascades] = {};
         // How many of the two above are REAL. The producing renderer's own shadow budget
         // (Graphic::ShadowQuality), not the ceiling: an asset preview allocates one cascade, and the
         // shader's cascade loop is driven by this number. It defaults to the ceiling so a snapshot built
         // by hand behaves as every snapshot did before the budget existed.
-        uint32_t         CascadeCount = MaterialPBRBase::kMaxCascades;
+        uint32_t         CascadeCount = SceneResources::kMaxCascades;
         glm::vec4        CascadeTexelWorld{ 0.0f };
         float            ShadowBias      = 0.0f;
         bool             ShadowsEnabled  = true;
@@ -95,7 +96,16 @@ namespace Desert::Graphic
         // handed the snapshot at all, and hand-filled three of its blocks and none of the rest. That is
         // why a custom-shader mesh had no environment, no cloud shadow and no punctual lights however
         // its shader was written.
+        //
+        // WHAT IS WRITTEN IS WHAT THE TEMPLATE DECLARES. Each group is written only when the material's
+        // reconciled layout lists it in SceneReads (classified from the template's own resources, see
+        // SceneResources.hpp) — a capability of whatever template the material was built from, not of a
+        // C++ class. Groups() is that decision, pure, so a test holds it with no device.
         void ApplyTo( Material* material ) const;
+        static Core::Formats::SceneRead Groups( const Core::Formats::MaterialLayout& layout )
+        {
+            return layout.SceneReads;
+        }
         void ApplyTo( MaterialInstance* instance ) const;
     };
 } // namespace Desert::Graphic

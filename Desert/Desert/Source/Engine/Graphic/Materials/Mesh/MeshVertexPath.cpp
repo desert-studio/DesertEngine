@@ -20,6 +20,28 @@ namespace Desert::Graphic
         return kMeshShaders[static_cast<uint32_t>( path )][static_cast<uint32_t>( pass )];
     }
 
+    std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass )
+    {
+        if ( templateName == MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward ) )
+        {
+            if ( const char* cell = MeshShaderFor( path, pass ) )
+                return std::string( cell );
+            return std::nullopt;
+        }
+        if ( path == MeshVertexPath::Static && pass == MeshPass::Forward && !templateName.empty() )
+            return std::string( templateName );
+        return std::nullopt;
+    }
+
+    std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )
+    {
+        for ( uint32_t p = 0; p < kMeshVertexPathCount; ++p )
+            for ( uint32_t s = 0; s < kMeshPassCount; ++s )
+                if ( kMeshShaders[p][s] && shaderName == kMeshShaders[p][s] )
+                    return static_cast<MeshVertexPath>( p );
+        return std::nullopt;
+    }
+
     std::optional<uint32_t> MeshPathOwnBinding( MeshVertexPath path )
     {
         switch ( path )

@@ -2,13 +2,15 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace Desert::Graphic
 {
     // ── THE THREE AXES OF A MESH DRAW ───────────────────────────────────────────────────────────────
     //
     // A mesh draw is a PERMUTATION of three independent things, and the class hierarchy that stood here
-    // was their cartesian product spelled out in C++ — `MaterialGlass` inherited from `StaticMaterialPBR`,
+    // was their cartesian product spelled out in C++ — `MaterialGlass` inherited from the static PBR class,
     // so a SHADING MODEL was a subclass of a (shading model x vertex path) pair.
     //
     //   1. the SHADING MODEL — PBR, glass, a node graph, unlit. What the fragment stage does with the
@@ -31,20 +33,16 @@ namespace Desert::Graphic
     //   | scene binding  | PBRSceneFrame + SceneLightingBinding| 1, already shared |
     //
     // `MaterialGlass` and `MaterialRSM` are gone entirely: they were a shader name and nothing else, so
-    // they are `MaterialPBR::Create(Static, Glass)` and `(Static, GBuffer)`. And glass was never chosen
+    // they are the renderer's own cell materials for (Static, Glass) and (Static, GBuffer). And glass was never chosen
     // by a class in the first place — `MeshRenderer::DrawStaticMeshes` splits it out by the material's
     // own `Transmission` value, i.e. by DATA, which is what makes deleting the class safe.
     //
-    // WHAT IS STILL A C++ SPLIT, AND WHY IT IS NOT THE SHADING-MODEL AXIS. `MaterialPBR` and
-    // `DataDrivenMaterial` remain two types, and it is tempting to read that as "PBR is privileged". It is
-    // not a shading-model distinction, and it is no longer a TRANSPORT distinction either: both take a
-    // shader name, both shade whatever it says, and both deliver their parameters as a row of a shared
-    // `Materials[]` storage buffer named by a push constant. What is left is the SHAPE of the payload —
-    // MaterialPBR holds a reflected `Assets::PBRSurfaceParams` that the whole engine understands (glass
-    // splits on its Transmission, the G-buffer packs it, the deferred composite unpacks it), while a
-    // DataDrivenMaterial holds an opaque vector of vec4s it cannot interpret at all. That is a real
-    // difference and it is data, not a class hierarchy.
-    //
+    // THERE IS NO C++ SPLIT LEFT. Every surface material — a `.demat` of any template, and the renderer's
+    // own glass / RSM / instanced cells — is a DataDrivenMaterial of one cell: the shader of that cell, its
+    // descriptor sets, and a row of the shared `Materials[]` storage buffer named by a push constant. What
+    // a draw needs beyond that belongs to the vertex path (the skinned bone palette and offset,
+    // Material::UploadSkinnedBones / SetSkinnedBoneOffset) or to the scene (PBRSceneFrame), never to a class.
+
     // THE TRANSPORT USED TO BE TWO, AND THE SECOND ONE IS GONE. `Properties Binding(n)` generated a
     // per-material `uniform MaterialUB` block. Measured 2026-09-04 in Debug, reading the mesh pass's own
     // GPU-timestamp line and taking the minimum of interleaved runs: on 1024 cubes sharing one material,
@@ -77,13 +75,13 @@ namespace Desert::Graphic
     // None of the three lets a material belong to a vertex path, and none of the three has a C++ class
     // per shading model.
     //
-    // This engine had both. `StaticMaterialPBR`, `SkinnedMaterialPBR` and `StaticMaterialPBRInstanced`
+    // This engine had both. A static, a skinned and an instanced PBR class
     // were three C++ CLASSES for one surface model, one per path, and `MaterialService` resolved a
     // `.demat` into exactly one of them. The consequences were all one defect wearing different clothes:
     //
     //   1. an imported character with its own materials did not draw AT ALL — MeshRenderer looked for a
-    //      slot whose parent was a `SkinnedMaterialPBR`, and MaterialFactory could not build one from an
-    //      asset under any circumstances (it answered `StaticMaterialPBR` even for a `.demat` naming the
+    //      slot whose parent was the skinned PBR class, and MaterialFactory could not build one from an
+    //      asset under any circumstances (it answered the static class even for a `.demat` naming the
     //      skinned shader);
     //   2. a skinned mesh cast NO SHADOW — the cascade pass walked the static queue by name;
     //   3. a skinned mesh ignored per-instance material overrides — its Bind built the GPU material from
@@ -176,6 +174,20 @@ namespace Desert::Graphic
     // A hole answers nullptr and the caller must SAY so rather than silently drawing something else —
     // that silence is what defect (2) above was made of.
     const char* MeshShaderFor( MeshVertexPath path, MeshPass pass );
+
+    // The compiled cell of a surface TEMPLATE for (path x pass): the shader a material built from a `.demat`
+    // naming @p templateName is allocated from. A template whose (Static x Forward) cell heads the table
+    // above has the table's row of cells; any other template has only its own (Static x Forward) cell
+    // (a DSL surface carries no skinning, instancing or G-buffer stage). Empty = no such cell; the caller
+    // names the material it refuses. One rule for every template — no class, no role check.
+    std::optional<std::string> SurfaceCellShader( std::string_view templateName, MeshVertexPath path, MeshPass pass );
+
+    // The inverse of MeshShaderFor: which vertex path a compiled cell shader belongs to, or nothing for a
+    // shader that is no cell of the table (a DSL surface's own Static x Forward cell). This is the vertex
+    // factory question the mesh renderer asks of a material — "can you be drawn on the batched static /
+    // skinned / instanced path" — answered by the SHADER the material was allocated from, never by its C++
+    // class or its template's name.
+    std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName );
 
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's

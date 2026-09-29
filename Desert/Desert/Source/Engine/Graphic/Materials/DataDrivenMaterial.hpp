@@ -23,7 +23,7 @@ namespace Desert::Graphic
     // one set of values — and the renderer keys ONE material per shader, so several objects drawn with
     // one graph shader all rendered the values of whichever draw wrote last. It now holds a ROW instead,
     // and the renderer packs every draw's row into one `Materials[]` storage buffer and names each draw's
-    // row with a push constant, exactly as MaterialPBR has always done. See
+    // row with a push constant, exactly as the old PBR class did. See
     // Engine/Core/Formats/MaterialParamRow.hpp for the measurement, the probe scene and the layout rule.
     //
     // A CONSEQUENCE WORTH STATING: the row is plain CPU memory, so none of the frame-in-flight machinery

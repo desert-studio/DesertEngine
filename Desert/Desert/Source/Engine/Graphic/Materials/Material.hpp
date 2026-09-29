@@ -69,6 +69,16 @@ namespace Desert::Graphic
         // Every instanced draw writes it, a still one with zeros (FO-7); a cell without them writes nothing.
         void SetInstancedWind( const InstanceWindPush& wind );
 
+        // The SKINNED vertex path's two inputs — the vertex factory's, not the surface's, so they live here
+        // on every material and not on a surface class: the packed bone palette of every skinned draw this
+        // frame, in the path's `Bones` storage buffer (MeshPathOwnBinding(Skinned)), and where THIS draw's
+        // bones start in it, the push field `BoneOffset`. The offset is a PUSH value, written straight into
+        // the push block like the index: Vulkan snapshots it at record time, so the next draw's offset
+        // cannot clobber this one before the GPU runs it. A cell without the buffer or the field (static,
+        // instanced) is a caller bug and says so — a pose uploaded there would vanish without a trace.
+        void UploadSkinnedBones( const glm::mat4* matrices, size_t count );
+        void SetSkinnedBoneOffset( uint32_t firstBone );
+
         // The cell's reconciled layout (Graphic::Shader::GetMaterialLayout) — what the row, the textures and
         // the push fields are placed by (MaterialBinder). An empty layout when the shader failed to load.
         [[nodiscard]] const Core::Formats::MaterialLayout& GetMaterialLayout() const;

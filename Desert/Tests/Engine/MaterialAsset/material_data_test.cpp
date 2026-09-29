@@ -289,7 +289,7 @@ TEST( MaterialData, PreviewMeshRoundTripsAsAStatedDependency )
 }
 
 // MAT1s: a slot's sampler is the .demat's when the slot states one, the template's otherwise - through the one
-// resolver MaterialFactory hands to Texture2DProperty, after a write/read of the file.
+// resolver ApplySurfaceAsset hands to Texture2DProperty, after a write/read of the file.
 TEST( MaterialData, ASlotSamplerOverridesTheTemplateAndAnUnstatedSlotKeepsTheTemplates )
 {
     using Desert::Core::Formats::SamplerFilter;

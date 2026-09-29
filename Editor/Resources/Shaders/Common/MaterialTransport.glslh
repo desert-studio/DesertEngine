@@ -25,7 +25,7 @@ PushConstant PushConstants
 {
     mat4 Transform;     // offset 0
     uint MaterialIndex; // offset 64 — the row in Materials[]
-    uint BoneOffset;    // offset 68 — skinned vertex only: first bone of THIS draw in BoneMatrices[] (MaterialPBR)
+    uint BoneOffset;    // offset 68 — skinned vertex only: first bone of THIS draw in BoneMatrices[] (Material::SetSkinnedBoneOffset)
     vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
     vec4 WindB;         // offset 96
 }

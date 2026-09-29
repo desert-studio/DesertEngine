@@ -298,7 +298,7 @@ namespace
     };
 
     constexpr const char* kParamRow  = "Desert/Desert/Source/Engine/Core/Formats/MaterialParamRow.hpp";
-    constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Graphic/Materials/MaterialFactory.cpp";
+    constexpr const char* kFactory   = "Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp";
     constexpr const char* kMaterial  = "Desert/Desert/Source/Engine/Graphic/Materials/Material.cpp";
     constexpr const char* kPipeline  = "Desert/Desert/Source/Engine/Graphic/PipelineCache.hpp";
     constexpr const char* kMeshRend  = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp";

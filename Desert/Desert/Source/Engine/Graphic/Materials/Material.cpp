@@ -1,6 +1,7 @@
 #include "Material.hpp"
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
 
@@ -51,6 +52,21 @@ namespace Desert::Graphic
     {
         WritePushField( "WindA", &wind.A, sizeof( glm::vec4 ) );
         WritePushField( "WindB", &wind.B, sizeof( glm::vec4 ) );
+    }
+
+    void Material::UploadSkinnedBones( const glm::mat4* matrices, size_t count )
+    {
+        if ( !matrices || count == 0 )
+            return;
+        auto* bones = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Name );
+        DESERT_VERIFY( bones, "UploadSkinnedBones on a cell with no skinned vertex stage (no Bones buffer)" );
+        bones->SetRawData( matrices, static_cast<uint32_t>( count * sizeof( glm::mat4 ) ) );
+    }
+
+    void Material::SetSkinnedBoneOffset( uint32_t firstBone )
+    {
+        const bool written = WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
+        DESERT_VERIFY( written, "SetSkinnedBoneOffset on a cell with no skinned vertex stage (no BoneOffset)" );
     }
 
     Material::Material( std::string&& debugName, std::string&& shaderName )
