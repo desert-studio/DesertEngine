@@ -37,6 +37,7 @@ namespace Desert::Core::Formats
         ShaderValueType Type   = ShaderValueType::Float;
         uint32_t        Offset = 0; // bytes into the row; slot i sits at kMaterialParamSlotSize * i
         uint32_t        Size   = 0; // bytes of VALUE; the rest of the slot is the generated padding
+        glm::vec4       Default{ 0.0f }; // the `Properties ... = default` value the row starts from
     };
 
     struct MaterialLayoutTexture
@@ -128,8 +129,9 @@ namespace Desert::Core::Formats
         }
     }
 
-    // THE builder. Params are the numeric properties in schema order (the same walk MaterialParamSlot
-    // does), textures every texture property from FirstTexture upward.
+    // THE builder. Params are the numeric properties in schema order (the walk MaterialParamSlot
+    // repeats for MeshRenderer's instance overrides; ShippedShaderPasses holds the two equal), textures every
+    // texture property from FirstTexture upward.
     inline MaterialLayout BuildMaterialLayout( const ShaderProgramMeta& meta )
     {
         const MaterialLayoutBindings& bindings = meta.LayoutBindings;
@@ -142,7 +144,7 @@ namespace Desert::Core::Formats
                     continue;
                 layout.Params.push_back( { p.Name, p.Type,
                                            kMaterialParamSlotSize * static_cast<uint32_t>( layout.Params.size() ),
-                                           MaterialParamValueSize( p.Type ) } );
+                                           MaterialParamValueSize( p.Type ), p.Default } );
             }
             if ( !layout.Params.empty() )
             {

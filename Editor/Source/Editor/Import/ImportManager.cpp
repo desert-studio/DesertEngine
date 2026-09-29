@@ -8,6 +8,8 @@
 #include "CookPaths.hpp"
 #include "CookedJsonWrite.hpp"
 #include "MaterialAdoption.hpp"
+#include "MaterialImportContract.hpp"
+#include "TextureChannelPack.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -20,12 +22,17 @@
 
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 
 #include <chrono>
+#include <format>
+#include <fstream>
+#include <memory>
+#include <mutex>
 
 namespace Desert::Editor
 {
@@ -96,8 +103,8 @@ namespace Desert::Editor
         // only an explicit re-import may replace the edit (UE: a changed .fbx is offered for re-import, never
         // re-imported behind the user's back), and that re-import says so (RemoveBesideSourceFile).
         if ( !force &&
-             ( ImportedMeshAssetIsFresh( path ) || Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) ||
-               SkinnedImportIsFresh( path ) ) )
+             ( ImportedMeshAssetIsCurrent( path ) ||
+               Assets::IsEditedImportedMesh( CookPaths::MeshAsset( path ) ) || SkinnedImportIsFresh( path ) ) )
             return CookVerdict::UpToDate;
 
         auto result = m_Importers[ext]->Import( path, *this );
@@ -200,9 +207,6 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
-        for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath ) );
-
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
             record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
         else if ( resolved.Mesh )
@@ -217,6 +221,21 @@ namespace Desert::Editor
                  !written )
                 record( Common::MakeError<bool>( written.GetError() ) );
         }
+
+        // THE MATERIALS AFTER THE MESH: a static mesh's import record (its GUID) exists only once the mesh is
+        // written, and each material names that mesh as its PreviewMesh - the tuft a grass atlas was authored
+        // for, which its thumbnail then draws (ThumbnailSubject::Preview::Mesh). A skinned mesh is not drawn
+        // by the mesh path, so its materials name none and keep the sphere.
+        std::optional<Assets::AssetGuidRef> previewMesh;
+        if ( resolved.Mesh && !resolved.Mesh->IsSkinned )
+        {
+            if ( auto ref = PreviewMeshRefFor( sourcePath ) )
+                previewMesh = ref.GetValue();
+            else
+                record( Common::MakeError<bool>( ref.GetError() ) );
+        }
+        for ( const auto& material : resolved.Materials )
+            record( SerializeMaterialAsset( material, sourcePath, previewMesh ) );
 
         if ( resolved.Skeleton )
             record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
@@ -295,8 +314,53 @@ namespace Desert::Editor
         return WriteCookedJson( stamped, cookedPath );
     }
 
-    Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,
-                                                                 const std::filesystem::path& sourcePath )
+    namespace
+    {
+        // THE IMPORT TEMPLATES ARE THE ASSET REGISTRY'S SHADERS (MAT1b), not a second scan of the shader
+        // directory: whatever the editor loaded as a ShaderAsset, and only that, can take an imported material.
+        // Published once the shaders are loaded (EditorLayer, after CompileEngineShaders) and read by every
+        // importer — the background cook's per-thread ones included — so the snapshot is swapped under a lock.
+        std::mutex                                         s_TemplatesMutex;
+        std::shared_ptr<const std::vector<ImportTemplate>> s_Templates;
+
+        std::shared_ptr<const std::vector<ImportTemplate>> ImportTemplates()
+        {
+            std::scoped_lock lock( s_TemplatesMutex );
+            return s_Templates;
+        }
+    } // namespace
+
+    std::size_t ImportManager::PublishImportTemplates( const Assets::AssetManager& manager )
+    {
+        const std::filesystem::path resources =
+             std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ).parent_path().parent_path();
+        auto templates = std::make_shared<std::vector<ImportTemplate>>();
+        for ( const auto& [handle, shader] : manager.FindAllByType<Assets::ShaderAsset>() )
+        {
+            if ( !shader->IsReadyForUse() )
+                continue;
+            const std::filesystem::path& file = shader->GetMetadata().Filepath;
+            auto                         read =
+                 ReadImportTemplate( shader->GetShaderContent(),
+                                     "engine:" + std::filesystem::relative( file, resources ).generic_string() );
+            // A shader the readers refuse cannot take a material, and saying so is the refusal.
+            if ( !read )
+            {
+                LOG_ERROR( "[Import] {}", read.GetError() );
+            }
+            else if ( read.GetValue().Manifest.DeclaresImport )
+                templates->push_back( std::move( read.GetValue() ) );
+        }
+        const std::size_t count = templates->size();
+        std::scoped_lock  lock( s_TemplatesMutex );
+        s_Templates = std::move( templates );
+        return count;
+    }
+
+    Common::BoolResultStr
+    ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
+                                           const std::filesystem::path&               sourcePath,
+                                           const std::optional<Assets::AssetGuidRef>& previewMesh )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -316,12 +380,58 @@ namespace Desert::Editor
         std::error_code ec;
         if ( std::filesystem::exists( path, ec ) )
             return BOOLSUCCESS; // deliberately kept, not a failure to write
-        // Typed extraction -> unified canon (the only on-disk material format), under the GUID the importer
-        // derived, so the file states the identity the mesh's submeshes already reference.
-        auto data       = material.Data.ToMaterialData();
-        data.Textures   = material.Textures;
-        data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
-                                                           Assets::MaterialTextSubsystems() );
+        // THE TEMPLATE CHOOSES ITSELF (MAT1b): every shipped shader with an Import block is a candidate, the
+        // core picks the one whose Requires the source satisfies most, and that template's rows say which
+        // source key fills which Property. No taker is a refusal naming the material and the file.
+        const auto published = ImportTemplates();
+        if ( !published )
+            return Common::MakeError<bool>( std::format(
+                 "material '{}' in '{}': no import templates are published (the shaders are not loaded yet; "
+                 "ImportManager::PublishImportTemplates runs after they are)",
+                 material.Name, sourcePath.generic_string() ) );
+        const std::vector<ImportTemplate>& templates = *published;
+        const auto choice = ChooseImportTemplate( material.Source, templates, sourcePath.generic_string() );
+        if ( !choice )
+            return Common::MakeError<bool>( choice.GetError() );
+        const ImportTemplate& chosen = templates[choice.GetValue()];
+        const TemplateFill    fill   = FillFromTemplate( material.Source, chosen );
+        for ( const std::string& key : fill.UnreadKeys )
+            LOG_WARN( "[Import][Material] '{}' in '{}': template '{}' has no Import row for '{}', so it is NOT "
+                      "imported",
+                      material.Name, sourcePath.generic_string(), chosen.ShaderName, key );
+
+        Assets::MaterialData data;
+        data.Shader = Assets::AssetGuidRef{ chosen.Guid, chosen.Locator };
+        for ( const ImportedParam& param : fill.Params )
+            data.Params.push_back( { param.Name, param.Value } );
+        for ( const ImportedTextureSlot& slot : fill.Textures )
+        {
+            std::filesystem::path image = slot.Parts.front().Source;
+            if ( slot.NeedsPacking() )
+            {
+                image = PackedTexturePath( slot );
+                if ( const auto packed = PackTextureChannels( slot, image ); !packed )
+                    return Common::MakeError<bool>( std::format( "material '{}' in '{}': {}", material.Name,
+                                                                 sourcePath.generic_string(),
+                                                                 packed.GetError() ) );
+            }
+            if ( static_cast<uint64_t>( ImportTexture( image.string() ) ) == 0 )
+                return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}' for slot '{}' "
+                                                             "was not imported (the texture importer logged why)",
+                                                             material.Name, sourcePath.generic_string(),
+                                                             image.generic_string(), slot.Slot ) );
+            const std::filesystem::path asset = TextureImporter::AssetPathFor( image );
+            const auto                  key   = Assets::ReadTextureAssetKey( asset );
+            if ( !key.IsSuccess() || key.GetValue().Guid.IsNull() )
+                return Common::MakeError<bool>( std::format( "material '{}': texture '{}' states no identity ({})",
+                                                             material.Name, asset.generic_string(),
+                                                             key.IsSuccess() ? "null GUID" : key.GetError() ) );
+            data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
+                                       Common::AssetHandle::StableKeyForPath( asset ) } );
+        }
+        data.PreviewMesh = previewMesh;
+        data.Header      = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+                                                            Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );
         if ( !text )
             return Common::MakeFormattedError<bool>( "material '{}' refused: {}", path.string(), text.GetError() );

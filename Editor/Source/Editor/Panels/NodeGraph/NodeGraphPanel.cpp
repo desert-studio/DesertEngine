@@ -504,8 +504,17 @@ namespace Desert::Editor
 
         // Shader is the ONLY thing that makes this material the graph's; a material left over from an
         // earlier compile keeps whatever shader it had, so state it every time (by GUID, MATL 4).
+        // The graph compiles to a shader under its own name, so the asset it made is found by that compile
+        // key; the material then states it by handle.
+        const auto graphShader = Assets::FindShaderHandleByCompileName( *m_AssetManager, m_Doc.Name );
+        if ( !graphShader )
+        {
+            LOG_ERROR( "[NodeGraph] preview material '{}': no loaded shader is compiled from graph '{}'",
+                       path.string(), m_Doc.Name );
+            return {};
+        }
         if ( const auto stated =
-                  Assets::SurfaceMaterialAsset::StateShaderByName( asset->Data(), *m_AssetManager, m_Doc.Name );
+                  Assets::SurfaceMaterialAsset::StateShader( asset->Data(), *m_AssetManager, *graphShader );
              !stated )
         {
             LOG_ERROR( "[NodeGraph] preview material '{}': {}", path.string(), stated.GetError() );

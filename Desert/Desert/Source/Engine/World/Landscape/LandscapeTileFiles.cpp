@@ -43,6 +43,12 @@ namespace Desert::World::Landscape
         if ( !decoded )
             return Common::MakeFormattedError<LandscapeTileData>( "landscape tile {} is not a valid tile: {}",
                                                                   path.generic_string(), decoded.GetError() );
+        // Every landscape tile carries at least the Base edit layer (the corpus was given one by the migrator's
+        // L10b3 step); a layerless file is refused by path, not read as its samples.
+        if ( decoded.GetValue().EditLayers().empty() )
+            return Common::MakeFormattedError<LandscapeTileData>(
+                 "landscape tile {} has no edit layers; every tile carries at least the Base layer",
+                 path.generic_string() );
         return decoded;
     }
 } // namespace Desert::World::Landscape

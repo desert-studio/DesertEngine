@@ -20,6 +20,7 @@
 #include <Common/Core/AssetHandle.hpp>
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <algorithm>
@@ -761,7 +762,8 @@ TEST( ShippedShaderPasses, AnAuthoredPBRParamReachesItsBytesInTheRowByManifestNa
     const std::vector<MockParam> demat = { { "EmissiveIntensity", glm::vec4( 7.0f, 0, 0, 0 ) },
                                            { "UVTiling", glm::vec4( 3.0f, 4.0f, 0, 0 ) },
                                            { "UVRotation", glm::vec4( 0.5f, 0, 0, 0 ) } };
-    const auto                   row   = Desert::Core::Formats::BuildMaterialParamRow( meta, demat );
+    const auto                   layout = Desert::Core::Formats::BuildMaterialLayout( meta );
+    const auto                   row    = Desert::Graphic::MaterialBinder::BuildRow( layout, demat );
     ASSERT_EQ( row.size(), members.size() );
     const auto* bytes = reinterpret_cast<const float*>( row.data() );
 
@@ -832,4 +834,27 @@ TEST( ShippedShaderPasses, EveryPBRTextureSlotIsBoundByManifestNameAndAnEmptyOne
         EXPECT_EQ( defaults["u_EmissiveTexture"], Desert::Core::Formats::DefaultTextureKind::White ) << name;
         EXPECT_EQ( defaults["u_NormalTexture"], Desert::Core::Formats::DefaultTextureKind::FlatNormal ) << name;
     }
+}
+
+TEST( ShippedShaderPasses, MeshRendererSlotLookupAgreesWithTheCellLayoutForEveryShippedParameter )
+{
+    // MeshRenderer's instance overrides still find a slot by the schema walk (MaterialParamSlot); the
+    // materials place their row through MaterialBinder by the layout. Two statements of one offset, held here.
+    size_t checked = 0;
+    for ( const auto& shader : ShippedShaders() )
+    {
+        if ( !shader.Parsed.IsSuccess() )
+            continue;
+        const auto& meta   = shader.Parsed.GetValue().Meta;
+        const auto  path   = shader.File.filename().string();
+        const auto  layout = Desert::Core::Formats::BuildMaterialLayout( meta );
+        for ( const auto& p : layout.Params )
+        {
+            const auto slot = Desert::Core::Formats::MaterialParamSlot( meta, p.Name );
+            ASSERT_TRUE( slot.has_value() ) << path << ": " << p.Name;
+            EXPECT_EQ( *slot * Desert::Core::Formats::kMaterialParamSlotSize, p.Offset ) << path << ": " << p.Name;
+            ++checked;
+        }
+    }
+    EXPECT_GT( checked, 0u );
 }

@@ -29,13 +29,13 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core` — 43 files, 6,751 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CellHLOD, CookedWorldStart, Device, DeviceCapabilities, DeviceMemoryHeap, DeviceMemoryReport, … (+32)
 - `Core/Formats` — 9 files, 2,671 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MipLevelSpan, ShaderParam, ShaderProgramMeta, ShaderRenderState, TexelBlock
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 38 files, 10,112 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
+- `Core/Serialize` — 38 files, 10,177 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
 - `Core/ShaderCompiler` — 13 files, 1,644 lines: ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
 - `Core/ShaderCompiler/DShader` — 2 files, 1,670 lines: DShaderParseResult, DShaderParser, DShaderPass
 - `Core/ShaderCompiler/Includer` — 2 files, 244 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 138 lines: PreprocessedPass, ShaderPreprocess
 - `Core/Traits` — 1 files, 17 lines
-- `ECS` — 17 files, 4,640 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
+- `ECS` — 17 files, 4,676 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
 - `ECS/System` — 25 files, 4,807 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
 - `Generated` — 1 files, 748 lines
 - `Geometry` — 71 files, 14,046 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+65)
@@ -120,7 +120,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `UI` — 19 files, 7,293 lines: CanvasStyle, Change, ElementStyle, Entry, IUIMaterialSource, IUIRenderTextureSource, LayoutGroupParams, ListBindingSeen, ListWindow, Rect, Request, StyleSlotInfo, … (+17)
 - `Vector` — 4 files, 1,108 lines: BakedIcon, BakedIconLayer, Shape, Vec2, VectorImage
 - `World/Foliage` — 5 files, 430 lines: FoliageCellField, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan
-- `World/Landscape` — 20 files, 5,859 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeErosionField, LandscapeErosionSettings, LandscapeFlattenSettings, LandscapeFrame, LandscapeGenerateJob, LandscapeGenerateProgress, … (+33)
+- `World/Landscape` — 23 files, 6,670 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeErosionField, LandscapeErosionSettings, … (+37)
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 26 files, 5,178 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, ChunkFolderRow, ChunkPlan, ChunkRule, ChunkScheme, ChunkSchemeSession, … (+18)
@@ -140,13 +140,13 @@ compile each engine source -- run exactly those after touching it, and add a new
 ## Editor — `Editor/Source/Editor`
 - `Builtin` — 2 files, 136 lines: BuiltinMeshRegistry
 - `Core` — 76 files, 18,005 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+60)
-- `Core/Commands` — 11 files, 4,669 lines: AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, BoneGizmoGesture, ClipPoseCommand, ControlAutoKey, ControlEdit, ControlGizmoGesture, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, … (+11)
+- `Core/Commands` — 13 files, 5,164 lines: AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, BoneGizmoGesture, ClipPoseCommand, ControlAutoKey, ControlEdit, ControlGizmoGesture, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, … (+12)
 - `Core/Control` — 8 files, 2,379 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, OpSpec, PanelSnapshot, … (+10)
 - `Core/GraphCanvas` — 4 files, 620 lines: CanvasPlan, DeferredFrameAll, ElementIdMap, ElementLedger, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 281 lines: Bone, RigBuilder
-- `Core/Selection` — 21 files, 4,103 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, FoliagePaint, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+10)
+- `Core/Selection` — 21 files, 4,106 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BooleanToolArgs, FoliagePaint, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+10)
 - `ImGuiIntegration` — 5 files, 352 lines: ImGuiLayer, VulkanImGui
-- `Import` — 30 files, 4,026 lines: AsyncMeshLoader, BackgroundCookQueue, Completed, Done, IAssetImporter, ImportManager, ImportResult, ImportedMaterial, ImportedMeshSource, LandscapeHeightmap, LandscapeHeightmapSize, ResolvedMesh, … (+5)
+- `Import` — 30 files, 4,033 lines: AsyncMeshLoader, BackgroundCookQueue, Completed, Done, IAssetImporter, ImportManager, ImportResult, ImportedMaterial, ImportedMeshSource, LandscapeHeightmap, LandscapeHeightmapSize, ResolvedMesh, … (+5)
 - `Import/Assimp` — 2 files, 1,002 lines: AssimpImporter
 - `Import/Blend` — 2 files, 224 lines: BlendImporter
 - `Packaging` — 8 files, 2,099 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
@@ -161,7 +161,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/FileExplorer` — 5 files, 3,438 lines: DirectoryInformation, FileExplorerPanel, Rect
 - `Panels/Foliage` — 3 files, 902 lines: FoliageFootprint, FoliageTypeCost, PalettePresetEntry
 - `Panels/History` — 2 files, 103 lines: HistoryPanel
-- `Panels/Landscape` — 2 files, 640 lines: LandscapePanel
+- `Panels/Landscape` — 2 files, 790 lines: LandscapePanel
 - `Panels/Localization` — 2 files, 184 lines: LocalizationPanel
 - `Panels/Logs` — 2 files, 454 lines: LogEntry, LogsPanel
 - `Panels/LuaConsole` — 2 files, 234 lines: Line, LuaConsolePanel
@@ -183,7 +183,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/UI` — 5 files, 1,108 lines: UIEditorPanel, UIElementEntry
 - `Panels/Validation` — 2 files, 156 lines: Issue, SceneValidationPanel
 - `Panels/ViewportPanel` — 11 files, 5,597 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportData, ViewportPanel
-- `Panels/ViewportPanel/Tools` — 25 files, 7,117 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, FoliageReapplyResult, … (+12)
+- `Panels/ViewportPanel/Tools` — 25 files, 7,150 lines: ActiveToolLabel, CameraFrustumGizmo, CreateShapeTool, CubeGridTool, ElementSelectTool, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFillTriangle, FoliagePaintTool, FoliagePick, FoliageReapplyResult, … (+12)
 - `Panels/WorldPartition` — 4 files, 938 lines: LegendRow, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 150 lines: WorldSettingsPanel
 - `RenderSystems` — 2 files, 86 lines: RenderRegistry
@@ -263,7 +263,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `PakTool` — 1 files, 40 lines
 - `PakTool/Source` — 1 files, 297 lines
 - `SceneMigrator` — 1 files, 110 lines
-- `SceneMigrator/Source` — 7 files, 3,544 lines: BlockCanonicalisationReport, FileMigrationReport, FoliageTypesMigrationReport, InstanceTransformsReport, MeshGuidsMigrationReport, PlayerViewFlagReport, PrefabData, PrefabMigrationOutcome, ScanExclusion, SceneCanonicalisationReport, SceneSerialized, SceneSettingsHomesReport, … (+1)
+- `SceneMigrator/Source` — 7 files, 3,552 lines: BlockCanonicalisationReport, FileMigrationReport, FoliageTypesMigrationReport, InstanceTransformsReport, MeshGuidsMigrationReport, PlayerViewFlagReport, PrefabData, PrefabMigrationOutcome, ScanExclusion, SceneCanonicalisationReport, SceneSerialized, SceneSettingsHomesReport, … (+1)
 - `Shared` — 1 files, 49 lines
 - `TextureCook` — 1 files, 80 lines
 - `TextureCook/Source` — 1 files, 141 lines
@@ -478,13 +478,15 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Vector/VectorImage.cpp` — 4: GamePackager, GizmoIconSet, PackagedContent, VectorImage
 - `Desert/Desert/Source/Engine/World/Foliage/FoliageCells.cpp` — 2: PrefabFoliage, WorldPartition
 - `Desert/Desert/Source/Engine/World/Foliage/FoliagePrefabs.cpp` — 1: PrefabFoliage
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapeBrush.cpp` — 5: LandscapeBrush, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeSculpt
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeBrush.cpp` — 6: LandscapeBrush, LandscapeEditLayers, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeSculpt
 - `Desert/Desert/Source/Engine/World/Landscape/LandscapeComponentTools.cpp` — 3: LandscapeGenerator, LandscapeHeightmapIO, LandscapeSculpt
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp` — 26: FoliageBrush, FoliageTypeMigration, GamePackager, LandscapeBrush, LandscapeData, LandscapeEditCache, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeRaycast, LandscapeScene, LandscapeSculpt, PackagedContent, PrefabFoliage, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionMap, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapeEditCache.cpp` — 4: LandscapeEditCache, LandscapeGenerator, LandscapeHeightmapIO, LandscapeSculpt
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp` — 27: FoliageBrush, FoliageTypeMigration, GamePackager, LandscapeBrush, LandscapeData, LandscapeEditCache, LandscapeEditLayers, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeRaycast, LandscapeScene, LandscapeSculpt, PackagedContent, PrefabFoliage, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionMap, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeEditCache.cpp` — 5: LandscapeEditCache, LandscapeEditLayers, LandscapeGenerator, LandscapeHeightmapIO, LandscapeSculpt
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayerStack.cpp` — 8: AuthoredComponentRoundTrip, LandscapeEditCache, LandscapeEditLayers, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeScene, LandscapeSculpt
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayers.cpp` — 7: LandscapeEditCache, LandscapeEditLayers, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeScene, LandscapeSculpt
 - `Desert/Desert/Source/Engine/World/Landscape/LandscapeGenerator.cpp` — 2: LandscapeGenerator, LandscapeHeightmapIO
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp` — 21: FoliageTypeMigration, GamePackager, LandscapeBrush, LandscapeEditCache, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeRaycast, LandscapeScene, LandscapeSculpt, PackagedContent, SceneMeshGuidMigration, SceneSettingsHomes, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionMap, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
-- `Desert/Desert/Source/Engine/World/Landscape/LandscapePaint.cpp` — 1: LandscapePaint
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp` — 22: FoliageTypeMigration, GamePackager, LandscapeBrush, LandscapeEditCache, LandscapeEditLayers, LandscapeGenerator, LandscapeHeightmapIO, LandscapePaint, LandscapeRaycast, LandscapeScene, LandscapeSculpt, PackagedContent, SceneMeshGuidMigration, SceneSettingsHomes, WorldCells, WorldCook, WorldGen, WorldPartition, WorldPartitionMap, WorldPartitionStreamer, WorldPartitionStreaming, WorldSceneGenerator
+- `Desert/Desert/Source/Engine/World/Landscape/LandscapePaint.cpp` — 2: LandscapeEditLayers, LandscapePaint
 - `Desert/Desert/Source/Engine/World/Landscape/LandscapeRaycast.cpp` — 3: FoliageBrush, LandscapeRaycast, PrefabFoliage
 - `Desert/Desert/Source/Engine/World/Landscape/LandscapeSculpt.cpp` — 3: LandscapeGenerator, LandscapeHeightmapIO, LandscapeSculpt
 - `Desert/Desert/Source/Engine/World/Landscape/LandscapeTileFiles.cpp` — 1: LandscapeScene
@@ -492,6 +494,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Editor/Source/Editor/Core/AssetReferences.cpp` — 3: AssetClosure, AssetReferences, BuildScriptContract
 - `Editor/Source/Editor/Core/AssetReferencesScan.cpp` — 2: AssetClosure, BuildScriptContract
 - `Editor/Source/Editor/Core/Commands/InstanceFold.cpp` — 1: InstanceFold
+- `Editor/Source/Editor/Core/Commands/LandscapeEditLayerEdits.cpp` — 1: LandscapeScene
 - `Editor/Source/Editor/Core/Commands/PoseEditTransaction.cpp` — 1: ClipEditUndo
 - `Editor/Source/Editor/Core/Commands/UIClipEdit.cpp` — 1: UIClipUndo
 - `Editor/Source/Editor/Core/Control/ControlSocket.cpp` — 1: ControlTransport

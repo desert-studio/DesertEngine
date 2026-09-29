@@ -4,6 +4,7 @@
 #include <Engine/World/Landscape/LandscapeEditCache.hpp>
 
 #include <algorithm>
+#include <format>
 #include <string>
 #include <utility>
 
@@ -37,6 +38,12 @@ namespace Desert::World::Landscape
 
     LandscapeHeightCache::LandscapeHeightCache( const LandscapeRoot& root, LandscapeTileLookup lookup )
          : m_Root( root ), m_Lookup( std::move( lookup ) )
+    {
+    }
+
+    LandscapeHeightCache::LandscapeHeightCache( const LandscapeRoot& root, LandscapeTileLookup lookup,
+                                                LandscapeEditLayerTarget layer )
+         : m_Root( root ), m_Lookup( std::move( lookup ) ), m_Layer( std::move( layer ) )
     {
     }
 
@@ -78,15 +85,20 @@ namespace Desert::World::Landscape
             if ( slot.State != LandscapeTileState::Present )
                 continue;
             if ( auto match = CheckTileMatchesRoot( *slot.Data, m_Root ); !match.IsSuccess() )
-                return Common::MakeError( "landscape edit cache: tile " + TileName( span.TileX, span.TileZ ) +
-                                          ": " + match.GetError() );
+                return Common::MakeError( std::format( "landscape edit cache: tile {}: {}",
+                                                       TileName( span.TileX, span.TileZ ), match.GetError() ) );
+            if ( m_Layer && slot.Data->EditLayers().empty() )
+                return Common::MakeError(
+                     std::format( "landscape edit cache: tile {} carries no edit layers to edit",
+                                  TileName( span.TileX, span.TileZ ) ) );
             for ( uint32_t lz = span.Local.Z0; lz < span.Local.Z1; ++lz )
                 for ( uint32_t lx = span.Local.X0; lx < span.Local.X1; ++lx )
                 {
                     const int32_t gx = span.TileX * q + static_cast<int32_t>( lx );
                     const int32_t gz = span.TileZ * q + static_cast<int32_t>( lz );
                     cache[static_cast<size_t>( ( gz - cz1 ) * stride + ( gx - cx1 ) )] =
-                         slot.Data->Sample( lx, lz );
+                         m_Layer ? LandscapeEditLayerHeight( *slot.Data, m_Layer->Layer, lx, lz )
+                                 : slot.Data->Sample( lx, lz );
                     read[static_cast<size_t>( ( gz - z1 ) * width + ( gx - x1 ) )] = true;
                 }
         }
@@ -109,7 +121,8 @@ namespace Desert::World::Landscape
     Common::BoolResultStr LandscapeHeightCache::CacheData( int32_t x1, int32_t z1, int32_t x2, int32_t z2 )
     {
         if ( x1 > x2 || z1 > z2 )
-            return Common::MakeError( "landscape edit cache: inverted rectangle " + RectName( x1, z1, x2, z2 ) );
+            return Common::MakeError(
+                 std::format( "landscape edit cache: inverted rectangle {}", RectName( x1, z1, x2, z2 ) ) );
         if ( Covers( x1, z1, x2, z2 ) )
             return Common::MakeSuccess( true );
 
@@ -161,18 +174,23 @@ namespace Desert::World::Landscape
                                                                std::span<const uint16_t> values )
     {
         if ( x1 > x2 || z1 > z2 )
-            return Common::MakeError( "landscape edit cache: inverted rectangle " + RectName( x1, z1, x2, z2 ) );
+            return Common::MakeError(
+                 std::format( "landscape edit cache: inverted rectangle {}", RectName( x1, z1, x2, z2 ) ) );
         if ( !Covers( x1, z1, x2, z2 ) )
-            return Common::MakeError( "landscape edit cache: " + RectName( x1, z1, x2, z2 ) +
-                                      " is not inside the cached region " + RectName( m_X1, m_Z1, m_X2, m_Z2 ) );
+            return Common::MakeError( std::format( "landscape edit cache: {} is not inside the cached region {}",
+                                                   RectName( x1, z1, x2, z2 ),
+                                                   RectName( m_X1, m_Z1, m_X2, m_Z2 ) ) );
         const int32_t width = x2 - x1 + 1;
         const size_t  count = static_cast<size_t>( width ) * static_cast<size_t>( z2 - z1 + 1 );
         if ( values.size() != count )
-            return Common::MakeError( "landscape edit cache: " + std::to_string( values.size() ) + " values for " +
-                                      std::to_string( count ) + " samples" );
+            return Common::MakeError(
+                 std::format( "landscape edit cache: {} values for {} samples", values.size(), count ) );
 
         // Validate everything before writing anything: a stroke half-applied would leave a seam whose two
         // copies disagree, the one outcome this cache exists to prevent.
+        if ( m_Layer )
+            if ( auto layer = CheckLandscapeEditLayerTarget( *m_Layer ); !layer )
+                return Common::MakeError( std::format( "landscape edit cache: {}", layer.GetError() ) );
         std::vector<std::pair<TileSpan, LandscapeTileData*>> targets;
         std::vector<bool>                                    written( count, false );
         const int32_t                                        q = static_cast<int32_t>( m_Root.QuadsPerTile );
@@ -180,14 +198,18 @@ namespace Desert::World::Landscape
         {
             const LandscapeTileSlot slot = m_Lookup( span.TileX, span.TileZ );
             if ( slot.State == LandscapeTileState::Unloaded )
-                return Common::MakeError( "landscape edit cache: refusing to write " + RectName( x1, z1, x2, z2 ) +
-                                          ": tile " + TileName( span.TileX, span.TileZ ) +
-                                          " shares these samples and is not loaded" );
+                return Common::MakeError( std::format(
+                     "landscape edit cache: refusing to write {}: tile {} shares these samples and is not loaded",
+                     RectName( x1, z1, x2, z2 ), TileName( span.TileX, span.TileZ ) ) );
             if ( slot.State == LandscapeTileState::Absent )
                 continue;
             if ( auto match = CheckTileMatchesRoot( *slot.Data, m_Root ); !match.IsSuccess() )
-                return Common::MakeError( "landscape edit cache: tile " + TileName( span.TileX, span.TileZ ) +
-                                          ": " + match.GetError() );
+                return Common::MakeError( std::format( "landscape edit cache: tile {}: {}",
+                                                       TileName( span.TileX, span.TileZ ), match.GetError() ) );
+            if ( m_Layer && slot.Data->EditLayers().empty() )
+                return Common::MakeError(
+                     std::format( "landscape edit cache: tile {} carries no edit layers to edit",
+                                  TileName( span.TileX, span.TileZ ) ) );
             for ( uint32_t lz = span.Local.Z0; lz < span.Local.Z1; ++lz )
                 for ( uint32_t lx = span.Local.X0; lx < span.Local.X1; ++lx )
                     written[static_cast<size_t>( ( span.TileZ * q + static_cast<int32_t>( lz ) - z1 ) * width +
@@ -217,7 +239,9 @@ namespace Desert::World::Landscape
                     local.push_back(
                          values[static_cast<size_t>( ( span.TileZ * q + static_cast<int32_t>( lz ) - z1 ) * width +
                                                      ( span.TileX * q + static_cast<int32_t>( lx ) - x1 ) )] );
-            auto write = tile->WriteRegion( span.Local, local );
+            // An edit-layer cache writes the layer and re-merges; the tile's samples are the merge's alone.
+            auto write = m_Layer ? WriteLandscapeEditLayerHeights( *m_Layer, span.Local, local, *tile )
+                                 : tile->WriteRegion( span.Local, local );
             // Every precondition WriteRegion checks was checked above; a refusal here is a defect in this file.
             if ( !write.IsSuccess() )
                 return Common::MakeError( "landscape edit cache: internal: tile " +

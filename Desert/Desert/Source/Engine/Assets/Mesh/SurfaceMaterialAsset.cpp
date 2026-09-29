@@ -110,10 +110,10 @@ namespace Desert::Assets
             m_ShaderIsPBRSurface = shader->GetRole() == Common::Content::kPBRSurfaceRole;
     }
 
-    Common::BoolResultStr SurfaceMaterialAsset::StateShaderByName( MaterialData& data, const AssetManager& manager,
-                                                                   std::string_view name )
+    Common::BoolResultStr SurfaceMaterialAsset::StateShader( MaterialData& data, const AssetManager& manager,
+                                                             Common::AssetHandle shader )
     {
-        const auto ref = FindShaderRefByName( manager, name, { "shader", "Shader", "the edited material" } );
+        const auto ref = FindShaderRefByHandle( manager, shader, { "shader", "Shader", "the edited material" } );
         if ( !ref )
             return Common::MakeError( ref.GetError() );
         const auto guid = Common::Content::AssetGuidFromText( ref.GetValue().Guid );

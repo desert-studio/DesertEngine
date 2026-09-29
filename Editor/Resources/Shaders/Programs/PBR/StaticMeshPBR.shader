@@ -17,6 +17,45 @@ Shader "StaticMeshPBR"
     Role PBRSurface
     Default Surface
 
+    // THE IMPORT CONTRACT (MAT1 adapters): the importer carries a source material as the source's own
+    // dictionary and never names a template; this block says which source keys feed which Property here
+    // (a texture row may name the source channels it takes, glTF packing roughness in G and metal in B).
+    // A key may be both a value and a texture (FBX binds maps to its colour properties): the Property's
+    // kind says which half it takes. The DSL parser refuses a row whose Property is not declared below.
+    Import
+    {
+        "gltf.baseColorFactor"          -> AlbedoColor
+        "gltf.baseColorTexture"         -> u_AlbedoTexture
+        "gltf.metallicFactor"           -> MetallicFactor
+        "gltf.roughnessFactor"          -> RoughnessFactor
+        "gltf.metallicRoughnessTexture" -> u_ORMTexture.gb
+        "gltf.normalTexture"            -> u_NormalTexture
+        "gltf.occlusionTexture"         -> u_ORMTexture.r
+        "gltf.occlusionStrength"        -> OcclusionStrength
+        "gltf.normalScale"              -> NormalScale
+        "gltf.emissiveFactor"           -> EmissiveColor
+        "gltf.emissiveTexture"          -> u_EmissiveTexture
+        "gltf.emissiveStrength"         -> EmissiveIntensity
+        "gltf.alphaCutoff"              -> AlphaCutoff
+        "gltf.alphaMask"                -> u_OpacityTexture
+        "gltf.alphaMask"                -> OpacityChannel
+        "gltf.uvOffset"                 -> UVOffset
+        "gltf.uvScale"                  -> UVTiling
+        "gltf.uvRotation"               -> UVRotation
+        "fbx.DiffuseColor"              -> AlbedoColor
+        "fbx.DiffuseColor"              -> u_AlbedoTexture
+        "fbx.NormalMap"                 -> u_NormalTexture
+        "fbx.EmissiveColor"             -> EmissiveColor
+        "fbx.EmissiveColor"             -> u_EmissiveTexture
+        "fbx.TransparentColor"          -> u_OpacityTexture
+        "fbx.Metalness"                 -> MetallicFactor
+        "fbx.Metalness"                 -> u_ORMTexture.b
+        "fbx.Roughness"                 -> RoughnessFactor
+        "fbx.Roughness"                 -> u_ORMTexture.g
+        "fbx.AmbientOcclusion"          -> u_ORMTexture.r
+        "fbx.alphaCutoff"               -> AlphaCutoff
+    }
+
     // ONE parameter layout for every PBR pass (forward, instanced, GBuffer, skinned, glass): the renderer
     // writes one Materials[] row per object from the forward material and every pass reads it, so these
     // rows are identical by contract — ShippedShaderPasses.EveryPBRPassDeclaresTheOneRowLayout holds them equal.
@@ -37,6 +76,9 @@ Shader "StaticMeshPBR"
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
         Float       OcclusionStrength ("Occlusion Strength", Range(0,1), Category("Surface")) = 1
+        // Which channel of u_OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
+        // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
+        Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
@@ -52,9 +94,6 @@ Shader "StaticMeshPBR"
         Texture2D   u_OpacityTexture ("Opacity Map", Category("Textures"))
         // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
         Texture2D   u_ORMTexture ("ORM Map", Category("Textures"))
-        Texture2D   u_MetallicTexture ("Metallic Map", Category("Textures"))
-        Texture2D   u_RoughnessTexture ("Roughness Map", Category("Textures"))
-        Texture2D   u_AOTexture ("AO Map", Category("Textures"))
         Texture2D   u_EmissiveTexture ("Emissive Map", Category("Textures"))
     }
 
@@ -255,7 +294,9 @@ Shader "StaticMeshPBR"
         	// Alpha cutout (foliage/cards): discard transparent texels per the Opacity Map. MetalRoughEmission.w is
         	// the cutoff (0 = disabled, so opaque materials are unaffected). Done first to skip lighting on discards.
         	float alphaCutoff = u_Material.AlphaCutoff;
-        	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
+        	// The ONE mask source: the channel OpacityChannel names of u_OpacityTexture (an empty slot is white, so no cut).
+        	float mask = texture(u_OpacityTexture, uv)[int(u_Material.OpacityChannel)];
+        	if (alphaCutoff > 0.0 && mask < alphaCutoff)
         		discard;
 
         	// Albedo maps are authored in sRGB (gamma) space; lighting must run in LINEAR space. The engine loads

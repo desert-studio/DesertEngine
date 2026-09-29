@@ -43,7 +43,7 @@ namespace Common::Content
     /// Version 2 (M4) appends the PolyGroups section; see MeshBinary.hpp for the history. The bounds flag
     /// is NOT a version: an older reader ignores an unknown flag bit and a newer one reads an older file
     /// as "states no box", so both directions keep loading.
-    inline constexpr uint32_t kMeshBinaryVersion = 3;
+    inline constexpr uint32_t kMeshBinaryVersion = 4; // 4: optional Colors/UV1 streams
 
     // THE MESH'S IDENTITY (version 3, AF7). The 64-byte header above was full, so the asset GUID follows it
     // as {Hi u64, Lo u64} at byte 64 and the section table starts at byte 80. Versions 1 and 2 state no

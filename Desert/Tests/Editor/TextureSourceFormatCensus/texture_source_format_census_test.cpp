@@ -156,7 +156,7 @@ TEST( TextureSourceFormatCensus, BothConsumersIncludeTheSharedList )
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the working directory";
 
     const char* consumers[] = {
-         "Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp",
+         "Editor/Source/Editor/Import/Assimp/SourceTexturePath.cpp", // AssimpImporter's texture search
          "Tools/FbxMeshSplitter/FbxMeshSplitter.cpp",
     };
     for ( const char* consumer : consumers )

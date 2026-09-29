@@ -175,7 +175,7 @@ TEST( LandscapePaint, VersionOneBlobIsRefusedByItsNumber )
     auto v1 = DecodeLandscapeTile( blob );
     ASSERT_FALSE( v1.IsSuccess() );
     EXPECT_NE( v1.GetError().find( "version 1 " ), std::string::npos ) << v1.GetError();
-    EXPECT_NE( v1.GetError().find( "supported 2" ), std::string::npos ) << v1.GetError();
+    EXPECT_NE( v1.GetError().find( "supported 3" ), std::string::npos ) << v1.GetError();
 }
 
 TEST( LandscapePaint, NinthLayerIsRefusedByName )

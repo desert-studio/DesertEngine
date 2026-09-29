@@ -91,6 +91,16 @@ namespace Desert::Editor
         // startup log. `ThumbnailSubject::PreviewRouteFor` is the one place that answers it.
         std::string RequestMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
                                      ThumbnailSubject::Preview how );
+        // The resolved subject whole (ThumbnailSubject::ResolveMaterial): the only form that can carry a
+        // preview mesh, so the only one a Preview::Mesh material is photographed through. The three-argument
+        // form with How == Mesh is refused at dispatch, by name.
+        std::string RequestMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
+        // A material a panel already holds LOADED (Details slot, mesh row): the route and PreviewMesh are
+        // resolved (ThumbnailSubject::ResolveLoadedMaterial) only when a capture is owed, so a fresh picture
+        // costs no record read per frame. A refusal is logged once and answers "" (no rendered picture).
+        std::string RequestLoadedMaterial( Assets::AssetManager&                                manager,
+                                           const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
+                                           const std::string&                                   assetPath );
 
         // Queue a mesh preview, optionally with the material to apply to every slot.
         std::string
@@ -134,8 +144,7 @@ namespace Desert::Editor
         /// Queue a capture of a material the OPEN SCENE uses, ahead of everything the browser asked for
         /// (THUMB3; UE renders what is on screen first). Already queued -> moved forward; already fresh on
         /// disk, failed or in flight -> nothing. These are the only captures the splash may run.
-        void WarmMaterial( const Assets::AssetHandle& material, const std::string& assetPath,
-                           ThumbnailSubject::Preview how );
+        void WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath );
         /// Scene-warm captures still queued or in flight: what holds the hand-over within its budget.
         [[nodiscard]] std::size_t SceneWarmPending() const;
 
@@ -199,6 +208,8 @@ namespace Desert::Editor
             std::string Png;
             // Materials only: which of the three pictures this is. See ThumbnailSubject::Preview.
             ThumbnailSubject::Preview How = ThumbnailSubject::Preview::Sphere;
+            // Materials with How == Mesh only: the mesh they are photographed on (ThumbnailSubject::Material).
+            Assets::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
         };
 
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the

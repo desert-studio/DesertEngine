@@ -16,7 +16,7 @@ namespace Desert::Core::Formats
     // Every material in this engine, whatever built it, delivers its parameters as a ROW of a shared
     // `Materials[]` storage buffer, and each draw names its own row with a push constant. This header is
     // the contract between the two halves of that: DShaderParser emits the GLSL struct, and
-    // Graphic::DataDrivenMaterial fills the bytes.
+    // Graphic/Materials/MaterialBinder.hpp places the bytes by the cell's MaterialLayout.
     //
     // WHY THERE IS ONLY ONE TRANSPORT NOW. There used to be two. `MaterialPBR` used the storage buffer;
     // everything born from the DSL's `Properties Binding(n)` — graph materials, the terrain and the SDF
@@ -57,16 +57,11 @@ namespace Desert::Core::Formats
     // Core::Formats::MaterialLayout (ReconcileMaterialLayout), and every writer finds them by name through
     // Graphic/Materials/MaterialBinder.hpp.
 
-    // Parameters that occupy a slot. Textures are descriptors, not row bytes, so they are not counted.
-    inline uint32_t MaterialParamSlotCount( const ShaderProgramMeta& meta )
-    {
-        uint32_t count = 0;
-        for ( const auto& p : meta.Params )
-            if ( !p.IsTexture )
-                ++count;
-        return count;
-    }
-
+    // MeshRenderer's instance overrides only (it is Windows L1's file; the materials themselves fill their row
+    // through Graphic/Materials/MaterialBinder.hpp by the cell's MaterialLayout). The same schema-order walk as
+    // BuildMaterialLayout, and ShippedShaderPasses holds slot * kMaterialParamSlotSize == the layout's offset
+    // for every parameter of every shipped cell.
+    //
     // Which slot a named parameter occupies, or nothing when the shader has no such parameter. OPTIONAL
     // and not "count means absent": a caller that treats a miss as slot 0 would write one parameter's
     // value over another's, which is precisely the class of failure this whole header exists to remove.
@@ -84,22 +79,12 @@ namespace Desert::Core::Formats
         return std::nullopt;
     }
 
-    // The bytes one draw reads. Sized by MaterialParamSlotCount and indexed by MaterialParamSlot.
+    // The bytes one draw reads: RowStride / kMaterialParamSlotSize slots (MaterialBinder::DefaultRow).
     using MaterialParamRow = std::vector<glm::vec4>;
 
-    // Every numeric param at its `Properties ... = default` value, in slot order.
-    inline MaterialParamRow MaterialParamDefaultRow( const ShaderProgramMeta& meta )
-    {
-        MaterialParamRow row;
-        row.reserve( MaterialParamSlotCount( meta ) );
-        for ( const auto& p : meta.Params )
-            if ( !p.IsTexture )
-                row.push_back( p.Default );
-        return row;
-    }
-
     // Write a param by name into its whole slot (the components past its width are the generated struct's
-    // padding). False when the shader has no such numeric param; the row is then untouched.
+    // padding). False when the shader has no such numeric param; the row is then untouched. MeshRenderer's
+    // only, like MaterialParamSlot above.
     inline bool SetMaterialParam( const ShaderProgramMeta& meta, MaterialParamRow& row, std::string_view name,
                                   const glm::vec4& value )
     {
@@ -108,18 +93,6 @@ namespace Desert::Core::Formats
             return false;
         row[*slot] = value;
         return true;
-    }
-
-    // The row a material asset asks for: schema defaults, then every persisted `{Name, Value}` the schema
-    // knows. The ONE builder behind DataDrivenMaterial and MaterialPBR alike, so an authored value reaches
-    // the same bytes whichever class draws it.
-    template <class NamedValues>
-    MaterialParamRow BuildMaterialParamRow( const ShaderProgramMeta& meta, const NamedValues& values )
-    {
-        MaterialParamRow row = MaterialParamDefaultRow( meta );
-        for ( const auto& v : values )
-            SetMaterialParam( meta, row, v.Name, v.Value );
-        return row;
     }
 
     // The 2D texture slots a material asset fills, BY THE MANIFEST: every `Texture2D` the schema declares,

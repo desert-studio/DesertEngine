@@ -107,6 +107,12 @@ namespace Desert::World::Landscape
     {
     }
 
+    LandscapePaintStroke::LandscapePaintStroke( const LandscapeRoot& root, LandscapeTileLookup lookup,
+                                                LandscapeEditLayerTarget layer )
+         : m_Root( root ), m_Lookup( std::move( lookup ) ), m_Rules( layer.Rules ), m_Layer( std::move( layer ) )
+    {
+    }
+
     const LandscapeLayerRule* LandscapePaintStroke::Rule( std::string_view name ) const
     {
         // The visibility layer is no root layer, but a tile carrying it is not carrying an unknown layer: it
@@ -130,7 +136,19 @@ namespace Desert::World::Landscape
         TileState state;
         state.TileX    = tileX;
         state.TileZ    = tileZ;
-        state.Original = tile.WeightLayers();
+        if ( m_Layer )
+        {
+            // The layer's planes are painted on a scratch tile of the same size, so every step below is the
+            // one a tile without edit layers takes; only the write-back differs.
+            const LandscapeEditLayerTileData* data = tile.FindEditLayer( m_Layer->Layer );
+            auto scratch = LandscapeTileData::Create( tile.SamplesX(), tile.SamplesZ() ); // the tile's own size
+            state.Layer  = scratch.ExtractValue();
+            if ( data != nullptr )
+                (void)state.Layer->SetWeightLayers( data->Weights ); // SetEditLayer validated these planes
+            state.Original = state.Layer->WeightLayers();
+        }
+        else
+            state.Original = tile.WeightLayers();
         state.Influence.assign( static_cast<size_t>( tile.SamplesX() ) * tile.SamplesZ(), 0.0f );
         m_Tiles.push_back( std::move( state ) );
         return m_Tiles.back();
@@ -161,14 +179,22 @@ namespace Desert::World::Landscape
             const LandscapeTileSlot slot = m_Lookup( piece.TileX, piece.TileZ );
             if ( slot.State != LandscapeTileState::Present )
                 continue;
-            LandscapeTileData& tile = *slot.Data;
+            if ( m_Layer )
+            {
+                if ( auto ok = CheckLandscapeEditLayerTarget( *m_Layer ); !ok )
+                    return ok;
+                if ( slot.Data->EditLayers().empty() )
+                    return Common::MakeFormattedError<bool>( "Tile ({}, {}) carries no edit layers to paint",
+                                                             piece.TileX, piece.TileZ );
+            }
+            TileState&         state = StateFor( piece.TileX, piece.TileZ, *slot.Data );
+            LandscapeTileData& tile  = m_Layer ? *state.Layer : *slot.Data;
             for ( const LandscapeWeightLayer& layer : tile.WeightLayers() )
                 if ( Rule( layer.Name ) == nullptr )
                     return Common::MakeFormattedError<bool>( "Tile ({}, {}) carries weight layer '{}', which the "
                                                              "landscape no longer names",
                                                              piece.TileX, piece.TileZ, layer.Name );
-            TileState& state = StateFor( piece.TileX, piece.TileZ, tile );
-            auto       added = tile.AddWeightLayer( paint.Layer );
+            auto added = tile.AddWeightLayer( paint.Layer );
             if ( !added )
                 return Common::MakeError<bool>( added.GetError() );
             const size_t target = added.GetValue();
@@ -242,6 +268,11 @@ namespace Desert::World::Landscape
             for ( size_t l = 0; l < layerCount; ++l )
                 if ( auto written = tile.WriteWeightRegion( l, piece.Samples, planes[l] ); !written )
                     return written;
+            if ( m_Layer )
+                if ( auto written = WriteLandscapeEditLayerWeights( *m_Layer, tile.WeightLayers(), piece.Samples,
+                                                                    *slot.Data );
+                     !written )
+                    return written;
         }
         return Common::MakeSuccess( true );
     }
@@ -258,7 +289,8 @@ namespace Desert::World::Landscape
                 return Common::MakeFormattedError<LandscapePaintRecord>( "Tile ({}, {}) was unloaded during the "
                                                                          "stroke",
                                                                          state.TileX, state.TileZ );
-            record.Tiles.push_back( { state.TileX, state.TileZ, state.Original, slot.Data->WeightLayers() } );
+            record.Tiles.push_back( { state.TileX, state.TileZ, state.Original,
+                                      state.Layer ? state.Layer->WeightLayers() : slot.Data->WeightLayers() } );
         }
         return Common::MakeSuccess( std::move( record ) );
     }
@@ -275,6 +307,25 @@ namespace Desert::World::Landscape
                       lookup( tile.TileX, tile.TileZ ).Data->SetWeightLayers( before ? tile.Before : tile.After );
                  !set )
                 return set;
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr ApplyLandscapePaintRecord( const LandscapeTileLookup&  lookup,
+                                                     const LandscapePaintRecord& record, bool before,
+                                                     const LandscapeEditLayerTarget& layer )
+    {
+        for ( const LandscapePaintTileRecord& tile : record.Tiles )
+            if ( lookup( tile.TileX, tile.TileZ ).State != LandscapeTileState::Present )
+                return Common::MakeFormattedError<bool>( "Paint undo needs tile ({}, {}), which is not loaded",
+                                                         tile.TileX, tile.TileZ );
+        for ( const LandscapePaintTileRecord& tile : record.Tiles )
+        {
+            LandscapeTileData&  data = *lookup( tile.TileX, tile.TileZ ).Data;
+            const LandscapeRect all{ 0u, 0u, data.SamplesX(), data.SamplesZ() };
+            if ( auto set = WriteLandscapeEditLayerWeights( layer, before ? tile.Before : tile.After, all, data );
+                 !set )
+                return set;
+        }
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::World::Landscape

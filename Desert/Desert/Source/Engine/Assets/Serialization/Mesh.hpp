@@ -85,6 +85,12 @@ namespace Desert::Assets::Serialization
         // One polygroup per FACE of Indices, or empty (a mesh cooked before MeshBinary v2, or with no groups).
         // What an EditMesh lifted from this mesh needs beyond the render arrays (MeshBinary.hpp, version 2).
         std::vector<int32_t> PolyGroups;
+        // THE OPTIONAL VERTEX STREAMS (MeshBinary v4, UE FColorVertexBuffer / the second UV channel): each is
+        // EMPTY or holds exactly one entry per vertex of StaticVertices (or SkinnedVertices), in that array's
+        // order. They are streams beside the vertex, not fields of it, so a mesh without them pays nothing.
+        // Colors are LINEAR RGBA8 (glTF COLOR_0 is linear; UE's FColor vertex colours are 8-bit as well).
+        std::vector<std::array<uint8_t, 4>> Colors; // R, G, B, A
+        std::vector<glm::vec2>              UV1;
     };
 
     // THE MESH'S BOX AROUND ITS OWN ORIGIN, as the cook knows it: the union of the submesh boxes the file

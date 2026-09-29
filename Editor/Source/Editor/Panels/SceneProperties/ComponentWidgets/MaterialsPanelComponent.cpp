@@ -1,3 +1,4 @@
+#include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include "MaterialsPanelComponent.hpp"
 #include <Common/Content/CanonicalText.hpp>
@@ -106,8 +107,7 @@ namespace Desert::Editor
         if ( entity.HasComponent<ECS::MaterialComponent>() )
         {
             const auto& matc = entity.GetComponent<ECS::MaterialComponent>();
-            if ( !matc.ShaderName.empty() && matc.ShaderName != "StaticMeshPBR" &&
-                 matc.ShaderName != "SkinnedMeshPBR" )
+            if ( !matc.ShaderName.empty() )
                 overriddenBy = matc.ShaderName;
         }
 
@@ -310,6 +310,12 @@ namespace Desert::Editor
         // AssetManager/MaterialService register under is the same one every future editor run gets.
         {
             Assets::MaterialData defaults;
+            if ( const auto stated = MaterialAssetUtils::StateDefaultSurface( defaults, *m_AssetManager );
+                 !stated )
+            {
+                LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), stated.GetError() );
+                return {};
+            }
             // Checked because the create-with-load below DEPENDS on the file: without it the asset
             // adopts no in-file GUID, so the handle registered here is not the one a later run
             // resolves, and the mesh slot points at a material that will not come back.
@@ -462,10 +468,15 @@ namespace Desert::Editor
             // HOW it is photographed comes from the ONE place that decides — the material's shader domain,
             // plus the cutout rule this file used to hold its own copy of. A refusal (a domain no producer
             // draws) leaves `png` empty, and the swatch below is then the true statement about it.
-            const auto        route = ThumbnailSubject::PreviewRouteFor( *asset );
-            const std::string png   = route ? ThumbnailService::Get().RequestMaterial( asset->GetMetadata().Handle,
-                                                                                       path, route.GetValue() )
-                                            : std::string();
+            // (THM1f) Through the resolved-subject form: the only one that carries a PreviewMesh, so a
+            // material whose preview is its own mesh is photographed on it rather than refused at dispatch.
+            std::string png;
+            if ( m_AssetManager )
+            {
+                auto& manager = const_cast<Assets::AssetManager&>( *m_AssetManager );
+                if ( auto held = manager.FindByPath<Assets::SurfaceMaterialAsset>( path ) )
+                    png = ThumbnailService::Get().RequestLoadedMaterial( manager, held, path );
+            }
 
             // THE SAME RULE THE SERVICE APPLIES, out of the same header, and that is the point: the
             // RequestMaterial above asked Judge whether a capture is owed and queued it; Choose says what

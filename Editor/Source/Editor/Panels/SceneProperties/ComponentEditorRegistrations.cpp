@@ -15,6 +15,7 @@
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -27,7 +28,6 @@
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UIStyleResolver.hpp>
-#include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -205,8 +205,10 @@ namespace Desert::Editor
         // the one every future editor run resolves to.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated =
-                      ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName( data, *assetMgr, "Terrain" );
+            const auto terrain = ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kTerrainRole );
+            if ( const auto stated = terrain ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                    data, *assetMgr, terrain.GetValue() )
+                                             : Common::MakeError( terrain.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Landscape] material '{}': {}", path.string(), stated.GetError() );
@@ -672,8 +674,11 @@ namespace Desert::Editor
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated = ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName(
-                      data, *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
+            const auto                     cloud =
+                 ::Desert::Assets::FindTemplateByRole( *assetMgr, Common::Content::kCloudMaterialRole );
+            if ( const auto stated = cloud ? ::Desert::Assets::SurfaceMaterialAsset::StateShader(
+                                                  data, *assetMgr, cloud.GetValue() )
+                                           : Common::MakeError( cloud.GetError() );
                  !stated )
             {
                 LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );

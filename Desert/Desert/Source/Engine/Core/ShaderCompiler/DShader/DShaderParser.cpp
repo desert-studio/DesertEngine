@@ -1,5 +1,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <Common/Content/ShaderAssetHeader.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -434,6 +436,79 @@ namespace Desert::Core::Preprocess
             if ( !ReadNumber( c, v, err ) )
                 return false;
             param.Default[0] = v;
+            return true;
+        }
+
+        // One `Import` row with the line it came from; checked against Properties once the whole file is read
+        // (the block may come before Properties).
+        struct PendingImport
+        {
+            uint32_t                          Line = 0;
+            Common::Content::ShaderImportLine Row;
+        };
+
+        // `Import { <row per line> }` — the template's import contract. The row grammar has ONE home,
+        // Common::Content::ParseShaderImportLine, which ReadShaderManifest also reads the block with.
+        bool ParseImportBlock( Cursor& c, std::vector<PendingImport>& out, ParseError& err )
+        {
+            if ( !Expect( c, '{', err, "opening the Import block" ) )
+                return false;
+            while ( true )
+            {
+                if ( c.AtEnd() )
+                {
+                    err = { c.Line, "unterminated Import block" };
+                    return false;
+                }
+                const uint32_t line = c.Line;
+                std::string    text;
+                while ( !c.AtEnd() && c.Peek() != '\n' )
+                    text.push_back( c.Advance() );
+                if ( !c.AtEnd() )
+                    c.Advance();
+                if ( const auto comment = text.find( "//" ); comment != std::string::npos )
+                    text.erase( comment );
+                const auto first = text.find_first_not_of( " \t\r" );
+                if ( first == std::string::npos )
+                    continue;
+                text = text.substr( first, text.find_last_not_of( " \t\r" ) - first + 1 );
+                if ( text == "}" )
+                    return true;
+                auto row = Common::Content::ParseShaderImportLine( text );
+                if ( !row )
+                {
+                    err = { line, row.GetError() };
+                    return false;
+                }
+                out.push_back( { line, row.GetValue() } );
+            }
+        }
+
+        // Every mapped Property must be one this shader declares, and only a texture takes source channels.
+        bool CheckImportRows( const std::vector<PendingImport>& rows, const ShaderProgramMeta& meta,
+                              ParseError& err )
+        {
+            for ( const auto& pending : rows )
+            {
+                if ( pending.Row.IsRequires )
+                    continue;
+                const auto& row   = pending.Row.Row;
+                const auto  param = std::find_if( meta.Params.begin(), meta.Params.end(),
+                                                  [&]( const ShaderParam& p ) { return p.Name == row.Property; } );
+                if ( param == meta.Params.end() )
+                {
+                    err = { pending.Line, "Import maps \"" + row.SourceKey + "\" to '" + row.Property +
+                                               "', which this shader's Properties do not declare" };
+                    return false;
+                }
+                if ( !row.Channels.empty() && !param->IsTexture )
+                {
+                    err = { pending.Line, "Import maps \"" + row.SourceKey + "\" to '" + row.Property + "." +
+                                               row.Channels + "', but '" + row.Property +
+                                               "' is not a texture: only a texture takes source channels" };
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -1339,6 +1414,8 @@ namespace Desert::Core::Preprocess
         };
 
         PropertiesInfo           propInfo;
+        std::vector<PendingImport> importRows;
+        bool                       sawImport = false;
         RawBlock                 includeBlock;
         PendingPass              defaultPass; // top-level stage blocks
         std::vector<PendingPass> namedPasses;
@@ -1428,6 +1505,17 @@ namespace Desert::Core::Preprocess
                     err = { line, "unknown Default '" + v + "' (the only one is 'Default Surface')" };
                     return fail();
                 }
+            }
+            else if ( lower == "import" )
+            {
+                if ( sawImport )
+                {
+                    err = { line, "a second Import block: a template has one import contract" };
+                    return fail();
+                }
+                sawImport = true;
+                if ( !ParseImportBlock( c, importRows, err ) )
+                    return fail();
             }
             else if ( lower == "properties" )
             {
@@ -1593,6 +1681,9 @@ namespace Desert::Core::Preprocess
                 return fail();
             }
         }
+
+        if ( !CheckImportRows( importRows, result.Meta, err ) )
+            return fail();
 
         // A MEDIUM-ONLY SHADER IS LEGAL AND IS THE ONE EXCEPTION. It has no stages because it is not a
         // program: it is the body compiled into four other programs. Every other file without a stage

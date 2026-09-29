@@ -300,3 +300,27 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// UE: a new ALandscape starts with one edit layer. The root's stack is [Base], every tile carries the Base's
+// plane, and merging the stack gives back the samples the map was cut into.
+TEST( LandscapeGenerator, ANewLandscapeHasABaseLayerWhoseMergeIsTheSamples )
+{
+    LandscapeGenerateSettings s = Eroded( 11u );
+    s.Erosion                   = false;
+    s.HydroErosion              = false;
+    auto made                   = GenerateLandscape( s );
+    ASSERT_TRUE( made.IsSuccess() ) << made.GetError();
+    auto g = made.ExtractValue();
+    ASSERT_EQ( g.EditLayers.Layers.size(), 1u );
+    EXPECT_EQ( g.EditLayers.Layers[0].Name, "Base" );
+    EXPECT_EQ( static_cast<uint64_t>( g.EditLayers.Layers[0].Guid ), kLandscapeBaseEditLayerGuid );
+    ASSERT_EQ( g.Tiles.size(), 6u );
+    for ( auto& tile : g.Tiles )
+    {
+        ASSERT_EQ( tile.Heights.EditLayers().size(), 1u );
+        const auto samples = tile.Heights.Samples();
+        EXPECT_EQ( tile.Heights.FindEditLayer( g.EditLayers.Layers[0].Guid )->Heights, samples );
+        ASSERT_TRUE( MergeLandscapeEditLayers( g.EditLayers, {}, tile.Heights.Bounds(), tile.Heights ) );
+        EXPECT_EQ( tile.Heights.Samples(), samples ) << tile.TileX << ", " << tile.TileZ;
+    }
+}

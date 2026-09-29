@@ -20,6 +20,7 @@ project(test_name)
 
     files {
         test_files,
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayerStack.cpp",
     }
 
     includedirs {

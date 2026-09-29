@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -195,6 +196,21 @@ namespace Desert::Editor::ThumbnailFreshness
     [[nodiscard]] inline std::optional<uint64_t> ContentHash( const std::filesystem::path& source )
     {
         return Detail::Memoised( source, Detail::HashFile );
+    }
+
+    /// THE FILE A MESH PICTURE IS JUDGED AGAINST, for the mesh asset path @p cooked (the picture's identity):
+    /// @p cooked itself when it is on disk (a hand-authored `.stmesh`), else the raw source beside it. An
+    /// import since AF4h never writes @p cooked (its envelope is in the DDC, keyed by the source's bytes), so
+    /// hashing @p cooked gave nullopt and every session re-rendered every imported mesh (THM1a4). The ONE
+    /// place this is decided: ThumbnailService::RequestMesh and every Observe of a mesh picture call it.
+    [[nodiscard]] inline std::filesystem::path MeshFreshnessSource( const std::filesystem::path& cooked )
+    {
+        std::error_code ec;
+        if ( std::filesystem::exists( cooked, ec ) )
+            return cooked;
+        if ( auto source = Common::Content::MeshSourceBeside( cooked ) )
+            return *source;
+        return cooked;
     }
 
     /**
