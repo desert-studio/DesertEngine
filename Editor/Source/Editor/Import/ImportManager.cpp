@@ -146,7 +146,7 @@ namespace Desert::Editor
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
         ImportOutcome outcome{ CookVerdict::Cooked, {} };
-        if ( const auto cooked = CreateAssetsFromImport( result, path, settings, outcome.WrittenMeshes ); !cooked )
+        if ( const auto cooked = CreateAssetsFromImport( result, path, settings, outcome ); !cooked )
         {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
                        cooked.GetError() );
@@ -222,11 +222,12 @@ namespace Desert::Editor
     // make one unwritable material hide a mesh that could have been cooked. Only the first reason
     // travels up — the caller acts on "this cook is incomplete", not on the list — and every reason
     // names its own file, so the one that arrives is enough to find the cause.
-    Common::BoolResultStr
-    ImportManager::CreateAssetsFromImport( const ImportResult& result, const std::filesystem::path& sourcePath,
-                                           const Assets::SourceImportSettings& settings,
-                                           std::vector<std::filesystem::path>& writtenMeshes )
+    Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&                 result,
+                                                                 const std::filesystem::path&        sourcePath,
+                                                                 const Assets::SourceImportSettings& settings,
+                                                                 ImportOutcome&                      written )
     {
+        std::vector<std::filesystem::path>& writtenMeshes = written.WrittenMeshes;
         std::string firstFailure;
         const auto  record = [&firstFailure]( const Common::BoolResultStr& outcome )
         {
@@ -292,10 +293,20 @@ namespace Desert::Editor
             record( SerializeMaterialAsset( material, sourcePath, std::nullopt ) );
 
         if ( resolved.Skeleton )
-            record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
+        {
+            const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );
+            if ( serialized )
+                written.WrittenSkeletons.push_back( SkinnedAssetPath( sourcePath, ".skeleton" ) );
+            record( serialized );
+        }
 
         for ( const auto& anim : resolved.Animations )
-            record( SerializeAnimationAsset( anim, sourcePath ) );
+        {
+            const auto serialized = SerializeAnimationAsset( anim, sourcePath );
+            if ( serialized )
+                written.WrittenClips.push_back( SkinnedAssetPath( sourcePath, "_" + anim.Name + ".anim" ) );
+            record( serialized );
+        }
 
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );

@@ -14,13 +14,17 @@
 
 namespace Desert::Editor
 {
-    // What an import with options wrote: its verdict, and every mesh file (a static node mesh, the combined
-    // mesh, a `.skmesh`) that now holds new content — the caller refreshes whoever draws them (Reimport, UE's
-    // FReimportManager -> PostReimport). A partly failed import still lists the meshes it did write.
+    // What an import with options wrote: its verdict, and every asset file derived from the source that now
+    // holds new content - each mesh (a static node mesh, the combined mesh, a `.skmesh`), the `.skeleton` and
+    // every `.anim` - so the caller refreshes whoever uses them (Reimport, UE's FReimportManager ->
+    // PostReimport, which reimports the mesh, its skeleton and its animations together). A partly failed import
+    // still lists what it did write.
     struct ImportOutcome
     {
         CookVerdict                        Verdict = CookVerdict::Failed;
         std::vector<std::filesystem::path> WrittenMeshes;
+        std::vector<std::filesystem::path> WrittenSkeletons;
+        std::vector<std::filesystem::path> WrittenClips;
     };
 
     class ImportManager
@@ -67,11 +71,11 @@ namespace Desert::Editor
         // WriteCookedJson (Editor/Import/CookedJsonWrite.hpp), which closes before it decides.
         [[nodiscard]] ImportOutcome ImportParsed( const std::filesystem::path&        path,
                                                   const Assets::SourceImportSettings& settings );
-        // @p writtenMeshes receives every mesh file actually written, also when a later write fails.
-        [[nodiscard]] Common::BoolResultStr
-        CreateAssetsFromImport( const ImportResult& result, const std::filesystem::path& sourcePath,
-                                const Assets::SourceImportSettings& settings,
-                                std::vector<std::filesystem::path>& writtenMeshes );
+        // @p written receives every mesh, skeleton and clip file actually written, also when a later write fails.
+        [[nodiscard]] Common::BoolResultStr CreateAssetsFromImport( const ImportResult&                 result,
+                                                                    const std::filesystem::path&        sourcePath,
+                                                                    const Assets::SourceImportSettings& settings,
+                                                                    ImportOutcome&                      written );
 
     private:
         [[nodiscard]] Common::BoolResultStr

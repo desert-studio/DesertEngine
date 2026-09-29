@@ -17,6 +17,8 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Editor/Import/ImportOptionsDialog.hpp>
+#include <Common/Content/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/AsyncMeshLoader.hpp>
 #include <filesystem>
@@ -308,6 +310,24 @@ namespace Desert::Editor
         if ( !m_Scene || m_AssetManager == nullptr || !m_AsyncLoader )
             return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
                                                      path );
+
+        // A FILE NEVER IMPORTED (no import record) asks for its options first, as UE's drop runs the FBX
+        // factory and its options window before the actor exists: nothing is placed now, and the confirmed
+        // import places it at the same point (a cancelled one places nothing). This is the one entrance for
+        // every door - the mouse, the palette, the control channel.
+        if ( std::error_code ec;
+             !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( path ), ec ) )
+        {
+            ImportOptions::Request( path,
+                                    [path, at]
+                                    {
+                                        if ( const auto placed = DropMeshIntoActiveViewport( path, at ); !placed )
+                                            LOG_ERROR( "[Viewport] '{}' imported but not placed: {}", path,
+                                                       placed.GetError() );
+                                    } );
+            LOG_INFO( "[Viewport] '{}' is new: confirm the Import Options window to place it", path );
+            return BOOLSUCCESS;
+        }
 
         // ASYNC spawn: create the (empty) entity NOW and cook the mesh on a worker thread so a heavy FBX
         // doesn't hitch the editor. UpdateAsyncLoads() assigns the mesh once the cook finishes.

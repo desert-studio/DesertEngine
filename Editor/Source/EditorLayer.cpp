@@ -6173,6 +6173,19 @@ namespace Desert::Editor
                    } } );
             // NOLINTEND(bugprone-exception-escape)
         }
+        // THE IMPORT OPTIONS WINDOW WITHOUT A MOUSE: its three buttons, each running the button's own body.
+        const auto importOptionsCommand = [&commands]( const char* label, Common::BoolResultStr ( *answer )() )
+        {
+            commands.push_back( { "Assets", label, [answer]
+                                  {
+                                      if ( const auto answered = answer(); !answered )
+                                          return Common::MakeError<bool>( answered.GetError() );
+                                      return PaletteCommandDone();
+                                  } } );
+        };
+        importOptionsCommand( "Import Options: Import", [] { return ImportOptions::ConfirmImport( false ); } );
+        importOptionsCommand( "Import Options: Import All", [] { return ImportOptions::ConfirmImport( true ); } );
+        importOptionsCommand( "Import Options: Cancel", [] { return ImportOptions::CancelImport(); } );
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
         commands.push_back( { "Foliage", "Foliage mode", []

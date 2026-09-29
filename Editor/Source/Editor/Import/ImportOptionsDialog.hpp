@@ -7,6 +7,7 @@
 #include <Engine/Assets/MeshSourceAsset.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 
 namespace Desert::Editor
@@ -20,10 +21,20 @@ namespace Desert::Editor
         ImportManager& SharedImporter();
 
         // Queues @p source for the Import Options window: the window opens on the next frame and imports it
-        // with the options the user confirms. Queued twice = shown once.
-        void Request( const std::filesystem::path& source );
+        // with the options the user confirms. Queued twice = shown once. @p onImported (optional) runs after
+        // the source imported with the confirmed options - how a viewport drop of a new file places it once the
+        // window is confirmed (UE: the drop's factory import, then the actor); a cancelled or failed import
+        // runs none. Every request's continuation runs, a repeated source's included.
+        void Request( const std::filesystem::path& source, std::function<void()> onImported = {} );
         // True while a source waits for, or is shown in, the window.
         bool Pending();
+
+        // THE WINDOW'S BUTTONS, one body each: the buttons call them, and so does the command palette (which is
+        // how the control channel confirms the modal without a mouse). Import = the shown source with the shown
+        // options; Import All = every queued source with them; Cancel = the shown source is not imported. Each
+        // refuses when no source waits.
+        Common::BoolResultStr ConfirmImport( bool all );
+        Common::BoolResultStr CancelImport();
 
         // Draws the window (one modal, one source at a time: Import, Import All = the rest of the queue with the
         // same options, Cancel = this source is not imported). Call once per frame from the editor's UI pass.

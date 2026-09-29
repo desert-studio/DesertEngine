@@ -8,6 +8,8 @@
 #include <Common/Json/Json.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
@@ -31,11 +33,19 @@ namespace Desert::Editor::ImportOptions
 
         // The window's state: the sources waiting, and the options shown (seeded from the project's last
         // confirmed ones when the window opens for a queue, then carried from source to source like UE's).
+        struct QueuedSource
+        {
+            std::filesystem::path              Source;
+            std::vector<std::function<void()>> OnImported; // run after it imported (Request's continuations)
+        };
         struct WindowState
         {
-            std::deque<std::filesystem::path> Queue;
-            Assets::SourceImportSettings      Shown;
-            bool                              Open = false;
+            std::deque<QueuedSource>     Queue;
+            Assets::SourceImportSettings Shown;
+            bool                         Open = false;
+            // The shown source was answered (a button or the palette): the modal closes on its next draw, which
+            // is the only place ImGui lets it close.
+            bool Answered = false;
         };
 
         WindowState& Window()
@@ -90,25 +100,47 @@ namespace Desert::Editor::ImportOptions
             }
         }
 
-        void ImportOne( const std::filesystem::path& source, const Assets::SourceImportSettings& settings )
+        // THE SKELETON AND THE CLIPS A REIMPORT REWROTE ARE RE-READ IN PLACE (UE: Reimport updates the skeleton
+        // and the animation sequences with the mesh). In place because their consumers hold the asset itself: a
+        // skinned mesh caches its rig asset (SkinnedMeshAsset's skeleton dependency, the MeshService entry's
+        // Rig), an Animator binds the clip's AnimationClip, which Load rebuilds at the same address and stamps
+        // with a new track revision. Every live manager that loaded one refreshes it; one nobody loaded has
+        // nothing to refresh.
+        template <typename AssetType>
+        void ReloadLoaded( const std::vector<std::filesystem::path>& written )
         {
-            const ImportOutcome outcome = SharedImporter().ImportWithSettings( source, settings );
-            if ( outcome.Verdict == CookVerdict::Failed || outcome.Verdict == CookVerdict::NotCookable )
-                LOG_ERROR( "[Import] '{}' was not imported with the chosen options (see the error above)",
-                           source.generic_string() );
-            RefreshLoadedMeshes( outcome.WrittenMeshes );
+            for ( const std::filesystem::path& path : written )
+                for ( Assets::AssetManager* manager : Assets::AssetManager::LiveManagers() )
+                {
+                    const auto asset = manager->FindByPath<AssetType>( path );
+                    if ( !asset || !asset->IsReadyForUse() )
+                        continue;
+                    if ( const auto unloaded = asset->Unload(); !unloaded )
+                    {
+                        LOG_ERROR( "[Import] '{}' was reimported but the loaded asset was not reset: {}",
+                                   path.generic_string(), unloaded.GetError() );
+                        continue;
+                    }
+                    if ( const auto loaded = asset->Load(); !loaded )
+                        LOG_ERROR( "[Import] '{}' was reimported but not read again: {}", path.generic_string(),
+                                   loaded.GetError() );
+                }
         }
 
-        void ConfirmAndImport( const std::size_t count )
+        bool ImportOne( const std::filesystem::path& source, const Assets::SourceImportSettings& settings )
         {
-            WindowState& w = Window();
-            if ( auto saved = SaveLastUsed( w.Shown ); !saved )
-                LOG_ERROR( "[Import] the options were not remembered for this project: {}", saved.GetError() );
-            for ( std::size_t i = 0; i < count && !w.Queue.empty(); ++i )
+            const ImportOutcome outcome = SharedImporter().ImportWithSettings( source, settings );
+            // The rig first: the skinned meshes rebuilt below read it.
+            ReloadLoaded<Assets::SkeletonAsset>( outcome.WrittenSkeletons );
+            ReloadLoaded<Assets::AnimationAsset>( outcome.WrittenClips );
+            RefreshLoadedMeshes( outcome.WrittenMeshes );
+            if ( outcome.Verdict == CookVerdict::Failed || outcome.Verdict == CookVerdict::NotCookable )
             {
-                ImportOne( w.Queue.front(), w.Shown );
-                w.Queue.pop_front();
+                LOG_ERROR( "[Import] '{}' was not imported with the chosen options (see the error above)",
+                           source.generic_string() );
+                return false;
             }
+            return true;
         }
     } // namespace
 
@@ -118,13 +150,53 @@ namespace Desert::Editor::ImportOptions
         return s_Importer;
     }
 
-    void Request( const std::filesystem::path& source )
+    void Request( const std::filesystem::path& source, std::function<void()> onImported )
     {
         WindowState& w = Window();
-        for ( const auto& queued : w.Queue )
-            if ( queued == source )
+        for ( auto& queued : w.Queue )
+            if ( queued.Source == source )
+            {
+                if ( onImported )
+                    queued.OnImported.push_back( std::move( onImported ) );
                 return;
-        w.Queue.push_back( source );
+            }
+        QueuedSource entry{ source, {} };
+        if ( onImported )
+            entry.OnImported.push_back( std::move( onImported ) );
+        w.Queue.push_back( std::move( entry ) );
+    }
+
+    Common::BoolResultStr ConfirmImport( const bool all )
+    {
+        WindowState& w = Window();
+        if ( w.Queue.empty() || w.Answered )
+            return Common::MakeError<bool>( "no source waits in the Import Options window" );
+        if ( auto saved = SaveLastUsed( w.Shown ); !saved )
+            LOG_ERROR( "[Import] the options were not remembered for this project: {}", saved.GetError() );
+        const std::size_t count = all ? w.Queue.size() : 1;
+        for ( std::size_t i = 0; i < count && !w.Queue.empty(); ++i )
+        {
+            // Popped before its continuations run: a continuation may queue again (a drop of another new file).
+            QueuedSource entry = std::move( w.Queue.front() );
+            w.Queue.pop_front();
+            if ( ImportOne( entry.Source, w.Shown ) )
+                for ( const auto& then : entry.OnImported )
+                    then();
+        }
+        w.Answered = true;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr CancelImport()
+    {
+        WindowState& w = Window();
+        if ( w.Queue.empty() || w.Answered )
+            return Common::MakeError<bool>( "no source waits in the Import Options window" );
+        LOG_INFO( "[Import] '{}' was not imported (Import Options cancelled)",
+                  w.Queue.front().Source.generic_string() );
+        w.Queue.pop_front();
+        w.Answered = true;
+        return BOOLSUCCESS;
     }
 
     bool Pending()
@@ -214,10 +286,11 @@ namespace Desert::Editor::ImportOptions
     void DrawWindow()
     {
         WindowState& w = Window();
-        if ( w.Queue.empty() )
-            return;
         if ( !w.Open )
         {
+            w.Answered = false;
+            if ( w.Queue.empty() )
+                return;
             // A new queue starts from the project's last confirmed options (UE: the import UI's saved config).
             auto last = LoadLastUsed();
             if ( !last )
@@ -233,8 +306,17 @@ namespace Desert::Editor::ImportOptions
             w.Open = false;
             return;
         }
+        // Answered from the palette since the last draw: close here, where ImGui allows it. The next source, if
+        // any, opens its own window on the next frame, from the options just confirmed.
+        if ( w.Answered || w.Queue.empty() )
+        {
+            ImGui::CloseCurrentPopup();
+            w.Open = false;
+            ImGui::EndPopup();
+            return;
+        }
 
-        const std::filesystem::path& source = w.Queue.front();
+        const std::filesystem::path source = w.Queue.front().Source;
         ImGui::TextUnformatted( ICON_MDI_FILE_IMPORT_OUTLINE "  Static Mesh import" );
         ImGui::Separator();
         ImGui::TextUnformatted( std::format( "File: {}", source.filename().string() ).c_str() );
@@ -253,28 +335,16 @@ namespace Desert::Editor::ImportOptions
         ImGui::Spacing();
         ImGui::Separator();
 
-        bool close = false;
         if ( ImGui::Button( "Import", ImVec2( 110.0f, 0.0f ) ) )
-        {
-            ConfirmAndImport( 1 );
-            close = true;
-        }
+            (void)ConfirmImport( false );
         ImGui::SameLine();
         if ( ImGui::Button( "Import All", ImVec2( 110.0f, 0.0f ) ) )
-        {
-            ConfirmAndImport( w.Queue.size() );
-            close = true;
-        }
+            (void)ConfirmImport( true );
         ImGui::SameLine();
         if ( ImGui::Button( "Cancel", ImVec2( 110.0f, 0.0f ) ) )
+            (void)CancelImport();
+        if ( w.Answered )
         {
-            LOG_INFO( "[Import] '{}' was not imported (Import Options cancelled)", source.generic_string() );
-            w.Queue.pop_front();
-            close = true;
-        }
-        if ( close )
-        {
-            // The next source, if any, opens its own window on the next frame, from the options just confirmed.
             ImGui::CloseCurrentPopup();
             w.Open = false;
         }
