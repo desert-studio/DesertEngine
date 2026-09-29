@@ -6900,10 +6900,20 @@ namespace Desert::Editor
                 const auto* remembered     = it != m_RememberedPlacement.end() ? &it->second : nullptr;
                 const bool  rememberedLive = remembered != nullptr && remembered->DockId != 0 &&
                                             ImGui::DockBuilderGetNode( remembered->DockId ) != nullptr;
-                const DocumentPlacement::Resolution resolved = DocumentPlacement::Resolve(
-                     m_SubjectEditors.TypeName( subject ), remembered, mainDockId, sceneLive, rememberedLive,
-                     glm::vec2( work->WorkPos.x, work->WorkPos.y ),
-                     glm::vec2( work->WorkSize.x, work->WorkSize.y ) );
+                const glm::vec2 workPos( work->WorkPos.x, work->WorkPos.y );
+                const glm::vec2 workSize( work->WorkSize.x, work->WorkSize.y );
+                // The drawer is wherever the Assets browser is docked today, read back like the scene's node.
+                ImGuiID drawerDockId = 0;
+                if ( const ::ImGuiWindow* assets = ImGui::FindWindowByName( PanelDisplayTitle( "Assets" ).c_str() ) )
+                    drawerDockId = assets->DockId;
+                const bool drawerLive = drawerDockId != 0 && ImGui::DockBuilderGetNode( drawerDockId ) != nullptr;
+                const DocumentPlacement::Resolution resolved =
+                     document->IsLevelTimeline()
+                          ? DocumentPlacement::ResolveTimeline( m_SubjectEditors.TypeName( subject ), remembered,
+                                                                drawerDockId, drawerLive, mainDockId, sceneLive,
+                                                                rememberedLive, workPos, workSize )
+                          : DocumentPlacement::Resolve( m_SubjectEditors.TypeName( subject ), remembered,
+                                                        mainDockId, sceneLive, rememberedLive, workPos, workSize );
                 if ( !resolved.Report.empty() )
                     LOG_WARN( "[Documents] {}: {}", document->GetName(), resolved.Report );
                 ImGui::SetNextWindowDockID( resolved.Place.DockId, ImGuiCond_Always );

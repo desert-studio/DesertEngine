@@ -131,6 +131,10 @@ namespace Desert::Editor
         {
             return { 980.0f, 320.0f };
         }
+        [[nodiscard]] bool IsLevelTimeline() const override
+        {
+            return true;
+        }
         void OnUIRender() override;
 
         // The entity, in the scene this document was opened over, still carrying what this timeline is
