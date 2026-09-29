@@ -11,6 +11,8 @@
 #include <limits>
 #include <functional>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include <assimp/Importer.hpp>
 #include <assimp/LogStream.hpp>
 #include <assimp/DefaultLogger.hpp>
@@ -237,6 +239,106 @@ namespace Desert::Editor
 
             bone.LocalBindTransform = GetFullLocalTransform( node, boneMapping );
         }
+    }
+
+    // THE SOURCE'S NODE HIERARCHY IS APPLIED ONCE, HERE (THM1l-b12). A skinned vertex is drawn as
+    // jointGlobal * inverseBind * v (glTF 2.0 skins; assimp's mOffsetMatrix is the inverse bind) and the mesh
+    // node's own transform is ignored, so the stored vertices are NOT the rest shape whenever the joints sit
+    // under non-joint nodes that turn them — CesiumMan's Z_UP and Armature nodes: its vertices lie along Z
+    // while the character drawn stands along Y, so its bounds, its Approx Size and its placement all read a
+    // body lying down. UE's import bakes the same into the reference pose. The rest shape is
+    // sum(w * G_b * O_b) * v; baking it into the vertices and stating O_b = inverse(G_b) makes the stored
+    // vertices the drawn shape, and every animated pose is unchanged: G(t) * inverse(G_b) * v' = G(t) * O_b * v
+    // wherever the bones under a vertex agree on G_b * O_b, which a bound skin does.
+    static void BakeBindPose( SkeletonAssetData& skeleton, MeshAssetData& mesh )
+    {
+        const std::size_t                       n = skeleton.Bones.size();
+        std::vector<glm::mat4>                  global( n, glm::mat4( 1.0f ) );
+        std::vector<char>                       known( n, 0 );
+        std::function<glm::mat4( std::size_t )> globalOf = [&]( std::size_t i ) -> glm::mat4
+        {
+            if ( known[i] == 0 )
+            {
+                const auto& bone = skeleton.Bones[i];
+                global[i]        = bone.ParentBoneID && *bone.ParentBoneID < n
+                                        ? globalOf( *bone.ParentBoneID ) * bone.LocalBindTransform
+                                        : bone.LocalBindTransform;
+                known[i]         = 1;
+            }
+            return global[i];
+        };
+        std::vector<glm::mat4> rest( n );
+        for ( std::size_t i = 0; i < n; ++i )
+            rest[i] = globalOf( i ) * skeleton.Bones[i].OffsetMatrix;
+
+        for ( std::size_t vi = 0; vi < mesh.SkinnedVertices.size(); ++vi )
+        {
+            auto&     v = mesh.SkinnedVertices[vi];
+            glm::mat4 m( 0.0f );
+            float     sum = 0.0f;
+            for ( int k = 0; k < 4; ++k )
+                if ( v.BoneWeights[k] > 0.0f && v.BoneIDs[k] < n )
+                {
+                    m += v.BoneWeights[k] * rest[v.BoneIDs[k]];
+                    sum += v.BoneWeights[k];
+                }
+            if ( sum <= 0.0f )
+                continue;
+            m /= sum;
+            const glm::mat3 r      = glm::mat3( m );
+            const glm::mat3 normal = glm::transpose( glm::inverse( r ) );
+            const auto      unit   = []( const glm::vec3& d )
+            { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
+            v.Position  = glm::vec3( m * glm::vec4( v.Position, 1.0f ) );
+            v.Normal    = unit( normal * v.Normal );
+            v.Tangent   = unit( r * v.Tangent );
+            v.Bitangent = unit( r * v.Bitangent );
+            for ( auto& morph : mesh.MorphTargets )
+            {
+                if ( vi < morph.DeltaPositions.size() )
+                    morph.DeltaPositions[vi] = r * morph.DeltaPositions[vi];
+                if ( vi < morph.DeltaNormals.size() )
+                    morph.DeltaNormals[vi] = normal * morph.DeltaNormals[vi];
+            }
+        }
+        for ( std::size_t i = 0; i < n; ++i )
+            skeleton.Bones[i].OffsetMatrix = glm::inverse( globalOf( i ) );
+
+        for ( auto& sub : mesh.Submeshes )
+        {
+            if ( sub.VertexCount == 0 || sub.VertexOffset + sub.VertexCount > mesh.SkinnedVertices.size() )
+                continue;
+            glm::vec3 mn( std::numeric_limits<float>::max() );
+            glm::vec3 mx( std::numeric_limits<float>::lowest() );
+            for ( std::size_t i = sub.VertexOffset; i < sub.VertexOffset + sub.VertexCount; ++i )
+            {
+                mn = glm::min( mn, mesh.SkinnedVertices[i].Position );
+                mx = glm::max( mx, mesh.SkinnedVertices[i].Position );
+            }
+            sub.BoundingBox = { mn, mx };
+        }
+    }
+
+    // A BONE'S CHANNEL IS LOCAL TO ITS NODE'S PARENT, and the skeleton's local bind (GetFullLocalTransform)
+    // folds the non-bone nodes between the bone and its parent bone into it. The keys must be stated in the
+    // same frame, or a clip drops those nodes the moment it plays (CesiumMan's root turn). Rigid transforms
+    // with a uniform scale — what a node chain above a rig is — keep TRS keys TRS.
+    static void FoldNonBoneAncestors( const glm::mat4& pre, ChannelData& channel )
+    {
+        if ( pre == glm::mat4( 1.0f ) )
+            return;
+        const float     scale = glm::length( glm::vec3( pre[0] ) );
+        const glm::quat turn  = glm::quat_cast( glm::mat3( pre ) / ( scale > 0.0f ? scale : 1.0f ) );
+        for ( auto& key : channel.Positions )
+        {
+            key.Value         = glm::vec3( pre * glm::vec4( key.Value, 1.0f ) );
+            key.ArriveTangent = glm::vec3( pre * glm::vec4( key.ArriveTangent, 0.0f ) );
+            key.LeaveTangent  = glm::vec3( pre * glm::vec4( key.LeaveTangent, 0.0f ) );
+        }
+        for ( auto& key : channel.Rotations )
+            key.Value = turn * key.Value;
+        for ( auto& key : channel.Scales )
+            key.Value *= scale;
     }
 
     static glm::vec4 GetColor( aiMaterial* mat, const char* key, unsigned type, unsigned idx, glm::vec4 def )
@@ -679,6 +781,7 @@ namespace Desert::Editor
         {
 
             BuildSkeletonHierarchy( scene->mRootNode, boneMapping, skeletonData );
+            BakeBindPose( skeletonData, meshData );
 
             skeletonData.Signature     = Animation::Skeleton::ComputeSignature( skeletonData.Bones );
             meshData.SkeletonSignature = skeletonData.Signature;
@@ -811,6 +914,10 @@ namespace Desert::Editor
                                              channel->mScalingKeys[s].mValue.z } } );
                 }
 
+                if ( aiNode* node = FindNodeRecursive( scene->mRootNode, ch.BoneName ) )
+                    FoldNonBoneAncestors( GetFullLocalTransform( node, boneMapping ) *
+                                               glm::inverse( ConvertMatrix( node->mTransformation ) ),
+                                          ch );
                 animData.Channels.push_back( ch );
             }
 
