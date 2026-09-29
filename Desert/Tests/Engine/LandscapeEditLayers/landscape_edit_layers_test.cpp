@@ -404,7 +404,9 @@ TEST( LandscapeEditLayers, ASculptStrokeInTheTopLayerChangesOnlyItsDataAndTheTil
     LandscapeHeightCache cache( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
     ASSERT_TRUE( cache.CacheData( 2, 2, 4, 4 ) );
     // The cache reads the LAYER (mid + 5), not the merge (mid + 55).
-    EXPECT_EQ( cache.GetCachedData( 3, 3, 3, 3 ).GetValue()[0], kMid + 5 );
+    const auto layerHeight = cache.GetCachedData( 3, 3, 3, 3 );
+    ASSERT_TRUE( layerHeight ) << layerHeight.GetError();
+    EXPECT_EQ( layerHeight.GetValue()[0], kMid + 5 );
     auto raised = Raise( cache, 30 );
     ASSERT_TRUE( raised ) << raised.GetError();
 
@@ -430,7 +432,9 @@ TEST( LandscapeEditLayers, UndoingASculptStrokeGivesTheLayerBackByteForByte )
 
     LandscapeHeightCache stroke( BrushRoot(), OneTile( tile ), Editing( stack, kTopGuid ) );
     ASSERT_TRUE( stroke.CacheData( 2, 2, 4, 4 ) );
-    const auto before = stroke.GetCachedData( 2, 2, 4, 4 ).GetValue(); // the record's Before: layer data
+    const auto read = stroke.GetCachedData( 2, 2, 4, 4 ); // the record's Before: layer data
+    ASSERT_TRUE( read ) << read.GetError();
+    const auto before = read.GetValue();
     ASSERT_TRUE( Raise( stroke, 400 ) );
     ASSERT_NE( tile.FindEditLayer( UUID( kTopGuid ) )->Heights, top );
 

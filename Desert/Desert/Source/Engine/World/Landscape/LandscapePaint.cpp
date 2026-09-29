@@ -141,7 +141,8 @@ namespace Desert::World::Landscape
             // The layer's planes are painted on a scratch tile of the same size, so every step below is the
             // one a tile without edit layers takes; only the write-back differs.
             const LandscapeEditLayerTileData* data = tile.FindEditLayer( m_Layer->Layer );
-            state.Layer = LandscapeTileData::Create( tile.SamplesX(), tile.SamplesZ() ).ExtractValue();
+            auto scratch = LandscapeTileData::Create( tile.SamplesX(), tile.SamplesZ() ); // the tile's own size
+            state.Layer  = scratch.ExtractValue();
             if ( data != nullptr )
                 (void)state.Layer->SetWeightLayers( data->Weights ); // SetEditLayer validated these planes
             state.Original = state.Layer->WeightLayers();
