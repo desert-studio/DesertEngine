@@ -38,6 +38,11 @@ namespace Desert::Assets
 
         std::optional<glm::vec2> UVTiling;
 
+        // THE MASK HAS ONE SOURCE (UE Interchange's glTF rule: OpacityMask = BaseColor.a unless the material
+        // names a mask of its own): a bound OpacityTexture is read by its red channel, and without one the PBR
+        // passes read the albedo texture's ALPHA (glTF `alphaMode: MASK` keeps it there). The choice is made in
+        // the shader from the slot itself (an empty slot is the 1x1 default), so no field here restates it.
+
         static PBRSurfaceParams FromMaterialData( const MaterialData& m )
         {
             PBRSurfaceParams p;

@@ -250,7 +250,12 @@ Shader "StaticMeshPBR"
         	// Alpha cutout (foliage/cards): discard transparent texels per the Opacity Map. MetalRoughEmission.w is
         	// the cutoff (0 = disabled, so opaque materials are unaffected). Done first to skip lighting on discards.
         	float alphaCutoff = u_Material.AlphaCutoff;
-        	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
+        	// The ONE mask source (UE Interchange's glTF rule, PBRSurfaceParams::MaskFromAlbedoAlpha): the opacity
+        	// map's red when one is bound, else the albedo's ALPHA. An empty slot holds the 1x1 default - the same
+        	// `textureSize > 1` test the normal map uses - so the choice needs no parameter of its own.
+        	float mask = textureSize(u_OpacityTexture, 0).x > 1 ? texture(u_OpacityTexture, uv).r
+        	                                                     : texture(u_AlbedoTexture, uv).a;
+        	if (alphaCutoff > 0.0 && mask < alphaCutoff)
         		discard;
 
         	// Albedo maps are authored in sRGB (gamma) space; lighting must run in LINEAR space. The engine loads

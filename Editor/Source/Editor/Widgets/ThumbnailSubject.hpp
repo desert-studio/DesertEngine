@@ -55,12 +55,15 @@ namespace Desert::Editor::ThumbnailSubject
      */
     enum class Preview
     {
-        /// The material on a sphere. Surface domain, the ordinary case.
+        /// The material on a sphere. Every Surface-domain material, a masked (AlphaCutoff > 0) one
+        /// included: the mask is honoured by the mesh path's own discard, so a grass atlas previews as
+        /// blades cut out of the ball with the backdrop between them — the picture UE's editor draws.
         Sphere,
 
-        /// The material on a camera-facing card. Surface domain and a CUTOUT: a foliage atlas wraps and
-        /// garbles on a ball, which is a picture of the sphere rather than of the leaf.
-        Card,
+        /// The material on the mesh it names as its PreviewMesh (UE: UMaterial's ThumbnailInfo). A grass
+        /// atlas imported with its tuft is photographed AS the tuft — the picture polyhaven shows — framed
+        /// by that mesh's own bounds. Surface domain only: the mesh path is what draws it.
+        Mesh,
 
         /// The SKY this material authors, seen from the ground — Volume domain. A cloud material describes
         /// a medium, not a surface: its weather cells are kilometres across and its profile is base and
@@ -78,24 +81,37 @@ namespace Desert::Editor::ThumbnailSubject
      * `Desert/Tests/Editor/ThumbnailFormats` asserts the RELATION that matters: this routing and the draw
      * paths' own predicates must agree about which domains can be photographed at all.
      *
-     * @p cutout picks the card over the ball inside the mesh path.
-     *
      * FULLY QUALIFIED, and it is not decoration: a `Desert::Editor::Core` namespace also exists
      * (ViewportMode, FoliagePaint), so an unqualified `Core::Formats` resolves THERE and fails to compile
      * in every translation unit that has seen it — which is most of the editor's panels, and NOT this
      * header's own .cpp, so the mistake builds until a panel is recompiled. The same trap
      * AssetThumbnailRenderer.hpp names over `::Desert::Core::Scene`.
      */
-    [[nodiscard]] constexpr std::optional<Preview> PreviewForDomain( ::Desert::Core::Formats::ShaderDomain domain,
-                                                                     bool                                  cutout )
+    [[nodiscard]] constexpr std::optional<Preview> PreviewForDomain( ::Desert::Core::Formats::ShaderDomain domain )
     {
         // THE DRAW PATHS' OWN PREDICATES, never `IsUserAssignable()` — that is their union, and asking a
         // union is exactly the mistake ShaderProgramMeta.hpp warns about above it.
         if ( ::Desert::Core::Formats::DrawnByMeshPath( domain ) )
-            return cutout ? Preview::Card : Preview::Sphere;
+            return Preview::Sphere;
         if ( ::Desert::Core::Formats::DrawnByVolumePath( domain ) )
             return Preview::SkyDome;
         return std::nullopt;
+    }
+
+    /**
+     * @brief The picture a MATERIAL gets from its domain and whether it names a preview mesh. PURE, for the
+     *        same reason PreviewForDomain is: the suite asserts the rule without a device.
+     *
+     * A preview mesh counts only where the mesh path draws the material; a Volume material naming one is
+     * still photographed as its sky (the mesh path would refuse it by name).
+     */
+    [[nodiscard]] constexpr std::optional<Preview>
+    PreviewForMaterial( ::Desert::Core::Formats::ShaderDomain domain, bool namesPreviewMesh )
+    {
+        const auto how = PreviewForDomain( domain );
+        if ( how == Preview::Sphere && namesPreviewMesh )
+            return Preview::Mesh;
+        return how;
     }
 
     /// A material ready to be captured.
@@ -104,6 +120,9 @@ namespace Desert::Editor::ThumbnailSubject
         Common::AssetHandle Handle{ static_cast<uint64_t>( 0 ) };
 
         Preview How = Preview::Sphere;
+
+        /// How == Mesh only: the preview mesh, registered and drawable (ResolveMesh). Zero otherwise.
+        Common::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
     };
 
     /**

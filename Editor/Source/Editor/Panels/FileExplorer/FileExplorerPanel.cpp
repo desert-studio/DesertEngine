@@ -493,8 +493,7 @@ namespace Desert::Editor
                  []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
                  {
                      if ( resolved )
-                         ThumbnailService::Get().WarmMaterial( resolved.GetValue().Handle, assetPath,
-                                                               resolved.GetValue().How );
+                         ThumbnailService::Get().WarmMaterial( resolved.GetValue(), assetPath );
                  } );
             if ( !subject )
             {
@@ -502,7 +501,7 @@ namespace Desert::Editor
                 continue;
             }
             if ( const auto& material = subject.GetValue() )
-                ThumbnailService::Get().WarmMaterial( material->Handle, path, material->How );
+                ThumbnailService::Get().WarmMaterial( *material, path );
         }
         std::vector<ThumbnailPrefetch::Item> items = m_PrefetchItems;
         items.insert( items.end(), m_ScenePrefetchItems.begin(), m_ScenePrefetchItems.end() );
@@ -1795,8 +1794,7 @@ namespace Desert::Editor
              []( const std::string& assetPath, const Common::ResultStr<ThumbnailSubject::Material>& resolved )
              {
                  if ( resolved )
-                     ThumbnailService::Get().RequestMaterial( resolved.GetValue().Handle, assetPath,
-                                                              resolved.GetValue().How );
+                     ThumbnailService::Get().RequestMaterial( resolved.GetValue(), assetPath );
              } );
         if ( !subject )
             return drew;
@@ -1810,7 +1808,7 @@ namespace Desert::Editor
 
         // Queue through the editor-wide service: it owns the one renderer, deduplicates against what other
         // panels already asked for, skips anything already on disk and never retries an asset that failed.
-        ThumbnailService::Get().RequestMaterial( material->Handle, entry->AssetPath, material->How );
+        ThumbnailService::Get().RequestMaterial( *material, entry->AssetPath );
 
         // No picture of this material exists yet: the albedo colour is the placeholder.
         const glm::vec3 albedo =
@@ -1855,7 +1853,8 @@ namespace Desert::Editor
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
         // Same shared rule as the material grid above (Editor/Widgets/ThumbnailFreshness.hpp).
-        const bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, cookedStr ) ) ==
+        const bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe(
+                                    pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
                                ThumbnailFreshness::Verdict::Show;
         if ( !haveFresh )
             m_Thumbnails->Invalidate( pngPath );

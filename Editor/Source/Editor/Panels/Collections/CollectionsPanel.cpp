@@ -636,7 +636,8 @@ namespace Desert::Editor
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
         // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, cookedStr ) ) ==
+             ThumbnailFreshness::Judge(
+                  ThumbnailFreshness::Observe( pngPath, ThumbnailFreshness::MeshFreshnessSource( cookedStr ) ) ) ==
                   ThumbnailFreshness::Verdict::Show )
         {
             if ( auto image = m_Thumbs->Get( pngPath ) )

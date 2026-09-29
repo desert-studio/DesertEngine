@@ -275,33 +275,6 @@ TEST( ThumbnailFraming, SubjectFillsTheFrameForEveryCamera )
     }
 }
 
-// The flat preview (cutout/foliage) is a card, and a card that is not facing the camera previews nothing.
-// The rule must aim it at where the camera IS, from where the card was PLACED -- the version this replaces
-// yawed toward the world origin using a hardcoded eye, which is only right when the subject sits at the
-// origin, and PlaceInView is precisely what stopped putting it there.
-//
-// No asset in the project sets AlphaCutoff, so this branch never renders here and cannot be checked by
-// looking at a PNG. That is the argument for the assertion, not against it.
-TEST( ThumbnailFraming, FlatCardFacesTheCameraForEveryCamera )
-{
-    for ( const TestCamera& cam : CameraFamily() )
-    {
-        SCOPED_TRACE( cam.Name );
-        const auto placement = TF::PlaceInView( cam.View, cam.Projection, kPrimitiveExtent, glm::vec3( 0.0f ) );
-
-        const float     yaw = TF::FacingYaw( cam.Eye, placement.Translation );
-        const glm::mat4 rot = glm::rotate( glm::mat4( 1.0f ), yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-        const glm::vec3 normal( rot * glm::vec4( 0.0f, 0.0f, 1.0f, 0.0f ) ); // the card's +Z, yawed
-
-        // The card stays upright, so only the horizontal bearing is the rule's to get right: compare in
-        // the XZ plane. A card yawed 180 degrees wrong shows its back and this dot is -1.
-        glm::vec3 toEye = cam.Eye - placement.Translation;
-        toEye.y         = 0.0f;
-        ASSERT_GT( glm::length( toEye ), 1e-3f );
-        EXPECT_GT( glm::dot( glm::normalize( toEye ), glm::normalize( normal ) ), 0.999f );
-    }
-}
-
 // The degenerate guard: a subject with no measurable extent must not divide the framing by ~zero. It is
 // placed on the view axis at unit scale -- visible, centred, not a NaN.
 TEST( ThumbnailFraming, DegenerateExtentStaysFinite )

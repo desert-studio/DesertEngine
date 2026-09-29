@@ -89,6 +89,8 @@ namespace Desert::Graphic
 
         bindTexture( material.Data().AlbedoTexture, "u_AlbedoTexture" );
         bindTexture( material.Data().NormalTexture, "u_NormalTexture" );
+        // An empty opacity slot keeps its 1x1 default, which is how the PBR passes know to read the mask
+        // from the albedo's alpha instead (PBRSurfaceParams::MaskFromAlbedoAlpha).
         bindTexture( material.Data().OpacityTexture, "u_OpacityTexture" );
     }
 

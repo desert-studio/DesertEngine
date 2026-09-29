@@ -133,7 +133,8 @@ namespace Desert::Editor::Tools
             const std::string png    = ThumbnailService::Get().RequestMesh( mesh, source );
             if ( png.empty() )
                 return nullptr;
-            if ( ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, source ) ) !=
+            if ( ThumbnailFreshness::Judge(
+                      ThumbnailFreshness::Observe( png, ThumbnailFreshness::MeshFreshnessSource( source ) ) ) !=
                  ThumbnailFreshness::Verdict::Show )
             {
                 s_Thumbnails.Invalidate( png );
