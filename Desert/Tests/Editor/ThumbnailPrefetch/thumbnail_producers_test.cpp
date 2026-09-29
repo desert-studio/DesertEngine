@@ -11,7 +11,7 @@ using ThumbnailProducers::Producer;
 // row is a census failure here, not an icon nobody notices.
 TEST( ThumbnailProducers, EveryAssetKindHasExactlyOneRow )
 {
-    for ( int k = static_cast<int>( FileType::Unknown ); k <= static_cast<int>( FileType::ImportSettings ); ++k )
+    for ( int k = static_cast<int>( FileType::Unknown ); k <= static_cast<int>( kLastFileType ); ++k )
     {
         const auto type  = static_cast<FileType>( k );
         const auto count = std::count_if( ThumbnailProducers::kTable.begin(), ThumbnailProducers::kTable.end(),
@@ -43,4 +43,16 @@ TEST( ThumbnailProducers, ThePicturedKindsKeepTheirProducers )
     EXPECT_EQ( ThumbnailProducers::ProducerOf( FileType::Cubemap ), Producer::Painted );
     EXPECT_EQ( ThumbnailProducers::ProducerOf( FileType::Cloud ), Producer::Painted );
     EXPECT_EQ( ThumbnailProducers::ProducerOf( FileType::UITheme ), Producer::Painted );
+    // Typed (THM1n-4) and still owed a picture: pinned through the whole chain from the extension.
+    for ( const char* path : { "Assets/Hero/Hero.skmesh", "Assets/Hero/Hero.skeleton", "Assets/Hero/Run.anim",
+                               "Assets/Foliage/Grass.defoliage" } )
+        EXPECT_EQ( ThumbnailProducers::ProducerOfPath( path ), Producer::NotYetProduced ) << path;
+}
+
+// The documents UE draws with their class icon are rows too — "no renderer" is an answer, never a gap.
+TEST( ThumbnailProducers, TheIconKindsAreRowsToo )
+{
+    for ( const char* path : { "A/Rig.derig", "A/Graph.danimgraph", "A/Map.retarget", "A/UI.destrings",
+                               "W.dwworld/0_0.dwcell", "W.dwworld/Index.dwindex" } )
+        EXPECT_EQ( ThumbnailProducers::ProducerOfPath( path ), Producer::TypeIcon ) << path;
 }

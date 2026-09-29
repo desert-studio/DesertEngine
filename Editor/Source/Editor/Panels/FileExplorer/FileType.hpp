@@ -51,8 +51,30 @@ namespace Desert::Editor
 
         /// An import settings sidecar (`.deimport`) written beside a source file by the importer: it states
         /// HOW the source is brought in, so the browser names it instead of calling it Unknown.
-        ImportSettings
+        ImportSettings,
+
+        // THE ANIMATION ASSETS (THM1n-4). Each is its own kind because each has its own class colour, icon,
+        // filter entry and — for the first three — its own picture (UE: USkeletalMesh, USkeleton,
+        // UAnimSequence thumbnail renderers).
+        SkinnedMesh, // `.skmesh`: photographed in its bind pose
+        Skeleton,    // `.skeleton`: its preview mesh photographed in the bind pose
+        Animation,   // `.anim`: its skeleton's preview mesh photographed at the clip's middle
+        ControlRig,  // `.derig`: a rig document
+        AnimGraph,   // `.danimgraph`: UE's AnimBlueprint
+        Retarget,    // `.retarget`: a retarget document
+
+        FoliageType, // `.defoliage`: UE's UFoliageType
+        StringTable, // `.destrings`: a localisation table
+
+        /// A partitioned world's cooked cells and index (`.dwcell`, `.dwindex`). ONE kind for two extensions
+        /// for the reason Cloud is: one colour, one icon, one producer, and neither is authored — both are
+        /// written by the streaming cook beside their scene.
+        CookedWorld
     };
+
+    /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
+    /// is one edit of this line rather than a bound hidden in each suite.
+    inline constexpr FileType kLastFileType = FileType::CookedWorld;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -112,6 +134,16 @@ namespace Desert::Editor
          { "detheme", FileType::UITheme },
          { "delayerinfo", FileType::LandscapeLayerInfo },
          { "deimport", FileType::ImportSettings },
+         { "skmesh", FileType::SkinnedMesh },
+         { "skeleton", FileType::Skeleton },
+         { "anim", FileType::Animation },
+         { "derig", FileType::ControlRig },
+         { "danimgraph", FileType::AnimGraph },
+         { "retarget", FileType::Retarget },
+         { "defoliage", FileType::FoliageType },
+         { "destrings", FileType::StringTable },
+         { "dwcell", FileType::CookedWorld },
+         { "dwindex", FileType::CookedWorld },
     };
 
     /// The kind of a file with @p extension (lower case, no dot); Unknown for one the map does not name.

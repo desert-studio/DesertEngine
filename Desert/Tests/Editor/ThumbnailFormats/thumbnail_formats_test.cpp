@@ -40,7 +40,6 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
-#include <map>
 #include <set>
 #include <sstream>
 #include <string>
@@ -145,42 +144,26 @@ TEST( ThumbnailFormats, EveryExtensionTheBrowserTypesReachesAProducer )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 2. EVERY ENGINE ASSET FORMAT IS TYPED BY THE BROWSER — or named in the register below.
+// 2. EVERY ENGINE ASSET FORMAT IS TYPED BY THE BROWSER.
 //
-// The subject list is Common's ContentKinds, the engine's own list of asset formats. The register pins
-// each kind the browser still shows as Unknown BY NAME (a count could be satisfied by editing the count);
-// closing one is an edit there and here, and a register row the browser has since typed is red too.
+// The subject list is Common's ContentKinds, the engine's own list of asset formats. There is no excuse
+// register any more (THM1n-4 typed the last ten kinds): an engine format the browser draws as Unknown is red.
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailFormats, EveryEngineAssetFormatIsTypedByTheBrowser )
 {
-    // Kind name -> why the browser does not type it yet. Each is a kind UE's Content Browser shows with its
-    // own class colour and icon; the typing (FileType row, colour, icon, producer) is the next task's.
-    const std::map<std::string_view, std::string_view> kNotYetTyped = {
-         { "SkinnedMesh", "skeletal mesh thumbnail renderer: next task" },
-         { "Skeleton", "skeleton thumbnail renderer: next task" },
-         { "Animation", "animation sequence thumbnail renderer: next task" },
-         { "ControlRig", "a rig document; kind not yet typed by the browser" },
-         { "AnimGraph", "an anim graph document; kind not yet typed by the browser" },
-         { "Retarget", "a retarget document; kind not yet typed by the browser" },
-         { "FoliageType", "a foliage type; kind not yet typed by the browser" },
-         { "StringTable", "a string table; kind not yet typed by the browser" },
-         { "WorldCell", "a world partition cell: written by the streaming build, not authored" },
-         { "WorldIndex", "a world partition index: written by the streaming build, not authored" },
-    };
-
     for ( const auto& spec : Common::Content::ContentKinds() )
     {
         if ( spec.Extension.empty() )
             continue; // stated only inside another file (Redirector): there is no file to show
         ASSERT_EQ( spec.Extension.front(), '.' ) << spec.Name;
-        const std::string_view extension = spec.Extension.substr( 1 );
-        const bool             typed     = FileTypeOf( extension ) != FileType::Unknown;
-        const bool             excused   = kNotYetTyped.contains( spec.Name );
-        EXPECT_TRUE( typed || excused )
+        const FileType type = FileTypeOf( spec.Extension.substr( 1 ) );
+        EXPECT_NE( type, FileType::Unknown )
              << "the engine asset kind " << spec.Name << " ('" << spec.Extension
              << "') is in no row of FileType.hpp's kFileExtensions, so the browser draws it as Unknown with "
                 "a grey glyph. Type it there (and give its kind a ThumbnailProducers row).";
-        EXPECT_FALSE( typed && excused ) << spec.Name << " is typed now — remove it from the register";
+        EXPECT_TRUE( TP::ProducerOfPath( std::string( "Assets/x" ) + std::string( spec.Extension ) )
+                          .has_value() )
+             << spec.Name << ": typed, but its kind has no producer row";
     }
 }
 

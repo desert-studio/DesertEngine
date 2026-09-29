@@ -161,6 +161,13 @@ namespace Desert::Editor
          { FileType::Model, "Model" },       { FileType::Audio, "Audio" },
          { FileType::Material, "Material" }, { FileType::ShaderGraph, "Shader Graph" },
          { FileType::Cloud, "Cloud" },       { FileType::ImportSettings, "Import Settings" },
+         { FileType::UITheme, "UI Theme" },  { FileType::LandscapeLayerInfo, "Landscape Layer Info" },
+         { FileType::Ini, "Settings" },
+         { FileType::SkinnedMesh, "Skeletal Mesh" }, { FileType::Skeleton, "Skeleton" },
+         { FileType::Animation, "Animation" },       { FileType::ControlRig, "Control Rig" },
+         { FileType::AnimGraph, "Anim Graph" },      { FileType::Retarget, "Retarget" },
+         { FileType::FoliageType, "Foliage Type" },  { FileType::StringTable, "String Table" },
+         { FileType::CookedWorld, "Cooked World" },
     };
 
     static const std::unordered_map<FileType, ImVec4> s_TypeColors = {
@@ -179,6 +186,16 @@ namespace Desert::Editor
          { FileType::UITheme, { 0.95f, 0.72f, 0.30f, 1.00f } },
          { FileType::LandscapeLayerInfo, { 0.45f, 0.70f, 0.30f, 1.00f } },
          { FileType::ImportSettings, { 0.65f, 0.65f, 0.68f, 1.00f } },
+         // UE's class colours for the animation family, so a folder of rig content reads as one family.
+         { FileType::SkinnedMesh, { 0.90f, 0.35f, 0.90f, 1.00f } },
+         { FileType::Skeleton, { 0.41f, 0.71f, 0.80f, 1.00f } },
+         { FileType::Animation, { 0.31f, 0.70f, 0.28f, 1.00f } },
+         { FileType::ControlRig, { 0.20f, 0.45f, 0.95f, 1.00f } },
+         { FileType::AnimGraph, { 0.80f, 0.55f, 0.20f, 1.00f } },
+         { FileType::Retarget, { 0.95f, 0.50f, 0.60f, 1.00f } },
+         { FileType::FoliageType, { 0.30f, 0.75f, 0.35f, 1.00f } },
+         { FileType::StringTable, { 0.60f, 0.60f, 0.85f, 1.00f } },
+         { FileType::CookedWorld, { 0.50f, 0.50f, 0.55f, 1.00f } },
     };
 
     static const std::unordered_map<FileType, const char*> s_FileTypesToIcon = {
@@ -200,6 +217,15 @@ namespace Desert::Editor
          { FileType::UITheme, ICON_MDI_PALETTE },
          { FileType::LandscapeLayerInfo, ICON_MDI_LAYERS },
          { FileType::ImportSettings, ICON_MDI_FILE_DOCUMENT },
+         { FileType::SkinnedMesh, ICON_MDI_HUMAN },
+         { FileType::Skeleton, ICON_MDI_BONE },
+         { FileType::Animation, ICON_MDI_RUN },
+         { FileType::ControlRig, ICON_MDI_HUMAN_HANDSUP },
+         { FileType::AnimGraph, ICON_MDI_SITEMAP },
+         { FileType::Retarget, ICON_MDI_SWAP_HORIZONTAL },
+         { FileType::FoliageType, ICON_MDI_TREE },
+         { FileType::StringTable, ICON_MDI_TRANSLATE },
+         { FileType::CookedWorld, ICON_MDI_MAP },
     };
 
     FileExplorerPanel::FileExplorerPanel( const std::filesystem::path&         rootPath,
@@ -1301,6 +1327,10 @@ namespace Desert::Editor
                          { "Shader Graphs", static_cast<int>( FileType::ShaderGraph ) },
                          { "Audio", static_cast<int>( FileType::Audio ) },
                          { "Clouds", static_cast<int>( FileType::Cloud ) },
+                         { "Skeletal Meshes", static_cast<int>( FileType::SkinnedMesh ) },
+                         { "Skeletons", static_cast<int>( FileType::Skeleton ) },
+                         { "Animations", static_cast<int>( FileType::Animation ) },
+                         { "Foliage Types", static_cast<int>( FileType::FoliageType ) },
                     };
                     const char* currentFilter = "All Types";
                     for ( const auto& f : kTypeFilters )
