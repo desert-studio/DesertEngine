@@ -14,7 +14,9 @@ namespace Desert::Animation
      * A reimport re-reads a skeleton AT THE SAME ADDRESS (SkeletonAsset::LoadFromFile — UE's Reimport rewrites
      * the USkeleton in its own UObject), so the Animator's `const Skeleton&` stays valid while its bind pose,
      * pose buffers and clip bindings were sized from the OLD bone list. The address cannot tell the two rigs
-     * apart; the signature can (UE re-initialises the anim instance when the skeleton changes).
+     * apart; the CONTENT signature can (UE re-initialises the anim instance when the skeleton changes). Not the
+     * name signature: a reimport at another Uniform Scale keeps every bone name and moves every bind, and an
+     * Animator kept across it posed the new mesh with the old binds (THM1l-b19, Fox.glb at Scale 10: a torn star).
      *
      * `builtSignature` is the caller's stamp (AnimationComponent::BuiltSkeletonSignature). Returns true when
      * it built a new Animator, so the caller can drop whatever it had attached to the old one. Both callers —
@@ -23,10 +25,10 @@ namespace Desert::Animation
     inline bool EnsureAnimatorFor( std::unique_ptr<Animator>& animator, uint64_t& builtSignature,
                                    const Skeleton& skeleton )
     {
-        if ( animator && builtSignature == skeleton.GetSignature() )
+        if ( animator && builtSignature == skeleton.GetContentSignature() )
             return false;
         animator       = std::make_unique<Animator>( skeleton );
-        builtSignature = skeleton.GetSignature();
+        builtSignature = skeleton.GetContentSignature();
         return true;
     }
 } // namespace Desert::Animation

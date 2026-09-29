@@ -90,6 +90,7 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/SourceToEngine.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureChannelPack.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/Assimp/EmbeddedSourceTexture.cpp", -- the file's embedded textures
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
@@ -106,6 +107,9 @@ project(test_name)
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/",
         "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
         "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/openexr/src/lib/OpenEXRCore", -- <openexr.h>, for the texture import
+        "%{_MAIN_SCRIPT_DIR}/build/generated/openexr/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -128,7 +132,7 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    links { "Common", "Optick", "MeshOptimizer", "Assimp" }
+    links { "Common", "Optick", "MeshOptimizer", "Assimp", "OpenEXRCore" }
 
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }

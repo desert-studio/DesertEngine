@@ -67,6 +67,10 @@ namespace
         return out;
     }
 
+    // A 1x1 PNG: the mock's base colour is EMBEDDED in the file, as Fox.glb's and CesiumMan.glb's are.
+    constexpr const char* OnePixelPng =
+         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
     // The buffer: positions (0), joints (36), weights (48), inverse binds (96), key times (224), key turns (232).
     std::string MockGltf()
     {
@@ -99,7 +103,11 @@ namespace
  {"name":"Tip","translation":[0,0,1]},
  {"name":"Body","mesh":0,"skin":0}],
 "skins":[{"joints":[1,2],"inverseBindMatrices":3,"skeleton":1}],
-"meshes":[{"name":"Body","primitives":[{"attributes":{"POSITION":0,"JOINTS_0":1,"WEIGHTS_0":2}}]}],
+"meshes":[{"name":"Body","primitives":[{"attributes":{"POSITION":0,"JOINTS_0":1,"WEIGHTS_0":2},"material":0}]}],
+"materials":[{"name":"Skin","pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}],
+"textures":[{"source":0}],
+"images":[{"mimeType":"image/png","uri":"data:image/png;base64,)" +
+               std::string( OnePixelPng ) + R"("}],
 "animations":[{"name":"Turn","samplers":[{"input":4,"output":5,"interpolation":"LINEAR"}],
  "channels":[{"sampler":0,"target":{"node":1,"path":"rotation"}}]}],
 "accessors":[
@@ -250,6 +258,124 @@ TEST_F( SkinnedImport, TheRigAndItsClipAreWrittenBeforeTheMeshAndTheRecordSaysSk
     const auto kind = Ser::ReadImportRecordKind( m_Source );
     ASSERT_TRUE( kind.IsSuccess() ) << kind.GetError();
     EXPECT_EQ( kind.GetValue(), ContentKind::SkinnedMesh );
+}
+
+// THM1l-b19: the texture EMBEDDED in the file ("*0" to assimp, a data-URI image here, a bufferView image in a
+// .glb) is written out beside the source as a texture of its own and the material names it. Live on Fox.glb:
+// "texture '*0' (type 1) NOT FOUND" and the fox drew white.
+TEST_F( SkinnedImport, TheEmbeddedBaseColourIsWrittenBesideTheSource )
+{
+    const std::filesystem::path extracted = m_Source.parent_path() / ( m_Source.stem().string() + "_0.png" );
+    EXPECT_TRUE( std::filesystem::exists( extracted ) ) << extracted.string();
+}
+
+namespace
+{
+    struct Cooked
+    {
+        Ser::MeshAssetData      Mesh;
+        Ser::SkeletonAssetData  Rig;
+        Ser::AnimationAssetData Clip;
+    };
+
+    Cooked ReadCooked( const Editor::ImportOutcome& outcome )
+    {
+        Cooked     out;
+        const auto mesh = Ser::ReadMeshAssetData( Read( outcome.WrittenMeshes.front() ),
+                                                  outcome.WrittenMeshes.front().string() );
+        EXPECT_TRUE( mesh.IsSuccess() ) << mesh.GetError();
+        const auto rig = Ser::ReadSkeletonJson( Read( outcome.WrittenSkeletons.front() ) );
+        EXPECT_TRUE( rig.IsSuccess() ) << rig.GetError();
+        const auto clip = Ser::ReadAnimationJson( Read( outcome.WrittenClips.front() ) );
+        EXPECT_TRUE( clip.IsSuccess() ) << clip.GetError();
+        if ( mesh.IsSuccess() )
+            out.Mesh = mesh.GetValue();
+        if ( rig.IsSuccess() )
+            out.Rig = rig.GetValue();
+        if ( clip.IsSuccess() )
+            out.Clip = clip.GetValue();
+        return out;
+    }
+
+    // Every bone's model-space bind, from the local binds down the parents.
+    std::vector<glm::mat4> GlobalBinds( const Ser::SkeletonAssetData& rig )
+    {
+        std::vector<glm::mat4> global( rig.Bones.size(), glm::mat4( 1.0f ) );
+        std::vector<bool>      done( rig.Bones.size(), false );
+        for ( std::size_t pass = 0; pass < rig.Bones.size(); ++pass )
+            for ( std::size_t i = 0; i < rig.Bones.size(); ++i )
+            {
+                const auto& bone = rig.Bones[i];
+                if ( done[i] || ( bone.ParentBoneID && !done[*bone.ParentBoneID] ) )
+                    continue;
+                global[i] = bone.ParentBoneID ? global[*bone.ParentBoneID] * bone.LocalBindTransform
+                                              : bone.LocalBindTransform;
+                done[i]   = true;
+            }
+        return global;
+    }
+} // namespace
+
+// THM1l-b19: REIMPORT WITH ANOTHER UNIFORM SCALE rescales the mesh, the rig's bind AND inverse bind, and the clips
+// by ONE transform (UE's reimport of a skeletal mesh), so the mesh skinned in its bind pose is the mesh unskinned.
+// Live on Fox.glb: Scale 10 -> Reimport drew a torn star.
+TEST_F( SkinnedImport, AReimportAtTenTimesTheScaleScalesMeshRigAndClipTogether )
+{
+    const Cooked before = ReadCooked( m_Outcome );
+
+    Assets::SourceImportSettings tenfold;
+    tenfold.Mesh.UniformScale         = 10.0f;
+    const Editor::ImportOutcome again = ImportManager().ImportWithSettings( m_Source, tenfold );
+    ASSERT_EQ( again.Verdict, Editor::CookVerdict::Cooked );
+    ASSERT_EQ( again.WrittenMeshes.size(), 1u );
+    ASSERT_EQ( again.WrittenSkeletons.size(), 1u );
+    ASSERT_EQ( again.WrittenClips.size(), 1u );
+    const Cooked after = ReadCooked( again );
+
+    ASSERT_EQ( after.Mesh.SkinnedVertices.size(), before.Mesh.SkinnedVertices.size() );
+    ASSERT_EQ( after.Rig.Bones.size(), before.Rig.Bones.size() );
+    for ( std::size_t v = 0; v < after.Mesh.SkinnedVertices.size(); ++v )
+    {
+        const glm::vec3 was = before.Mesh.SkinnedVertices[v].Position;
+        const glm::vec3 now = after.Mesh.SkinnedVertices[v].Position;
+        EXPECT_NEAR( glm::length( now - 10.0f * was ), 0.0f, 1e-3f ) << "vertex " << v;
+    }
+    const auto& boxWas = before.Mesh.Submeshes.front().BoundingBox;
+    const auto& boxNow = after.Mesh.Submeshes.front().BoundingBox;
+    EXPECT_NEAR( glm::length( ( boxNow.Max - boxNow.Min ) - 10.0f * ( boxWas.Max - boxWas.Min ) ), 0.0f, 1e-3f );
+
+    // The rig: bind translations x10, and the skin in the bind pose is the identity on every vertex.
+    for ( std::size_t b = 0; b < after.Rig.Bones.size(); ++b )
+        EXPECT_NEAR( glm::length( glm::vec3( after.Rig.Bones[b].LocalBindTransform[3] ) -
+                                  10.0f * glm::vec3( before.Rig.Bones[b].LocalBindTransform[3] ) ),
+                     0.0f, 1e-3f )
+             << after.Rig.Bones[b].Name;
+    const std::vector<glm::mat4> global = GlobalBinds( after.Rig );
+    for ( const auto& vertex : after.Mesh.SkinnedVertices )
+    {
+        glm::vec4 skinned( 0.0f );
+        for ( std::size_t k = 0; k < 4; ++k )
+            if ( vertex.BoneWeights[k] > 0.0f )
+                skinned += vertex.BoneWeights[k] *
+                           ( global[vertex.BoneIDs[k]] * after.Rig.Bones[vertex.BoneIDs[k]].OffsetMatrix *
+                             glm::vec4( vertex.Position, 1.0f ) );
+        EXPECT_NEAR( glm::length( glm::vec3( skinned ) - vertex.Position ), 0.0f, 1e-3f )
+             << vertex.Position.x << " " << vertex.Position.y << " " << vertex.Position.z;
+    }
+
+    // The clip: rotations are scale-free, translations x10.
+    ASSERT_EQ( after.Clip.Channels.size(), before.Clip.Channels.size() );
+    for ( std::size_t c = 0; c < after.Clip.Channels.size(); ++c )
+    {
+        const auto& was = before.Clip.Channels[c];
+        const auto& now = after.Clip.Channels[c];
+        ASSERT_EQ( now.Rotations.size(), was.Rotations.size() );
+        for ( std::size_t k = 0; k < now.Rotations.size(); ++k )
+            EXPECT_NEAR( std::abs( glm::dot( now.Rotations[k].Value, was.Rotations[k].Value ) ), 1.0f, 1e-4f );
+        ASSERT_EQ( now.Positions.size(), was.Positions.size() );
+        for ( std::size_t k = 0; k < now.Positions.size(); ++k )
+            EXPECT_NEAR( glm::length( now.Positions[k].Value - 10.0f * was.Positions[k].Value ), 0.0f, 1e-3f );
+    }
 }
 
 int main( int argc, char** argv )

@@ -259,6 +259,31 @@ TEST( AnimatorPose, AnAnimatorIsRebuiltWhenItsSkeletonIsRewrittenWithAnExtraBone
     EXPECT_EQ( animator->GetLocalPose().Size(), 2U );
 }
 
+// THM1l-b19: A RIG REREAD WITH THE SAME BONE NAMES AND OTHER BINDS (a reimport at another Uniform Scale) is
+// another rig to the Animator: the name signature stays, the content signature moves, and EnsureAnimatorFor
+// builds a new Animator. Kept across it, the old one posed Fox.glb's rescaled mesh with the old binds.
+TEST( AnimatorPose, ARigRereadWithOtherBindsRebuildsTheAnimator )
+{
+    Skeleton                                     skeleton = MakeChain();
+    std::unique_ptr<Desert::Animation::Animator> animator;
+    uint64_t                                     built = 0;
+    ASSERT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) );
+    EXPECT_FALSE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) )
+         << "an unchanged rig rebuilt";
+
+    std::vector<BoneInfo> scaled = skeleton.GetBones();
+    for ( auto& bone : scaled )
+    {
+        bone.LocalBindTransform[3] = glm::vec4( 10.0f * glm::vec3( bone.LocalBindTransform[3] ), 1.0f );
+        bone.OffsetMatrix[3]       = glm::vec4( 10.0f * glm::vec3( bone.OffsetMatrix[3] ), 1.0f );
+    }
+    const uint64_t names = skeleton.GetSignature();
+    skeleton             = Skeleton( std::move( scaled ) ); // SkeletonAsset::LoadFromFile: the same address
+    EXPECT_EQ( skeleton.GetSignature(), names );
+    EXPECT_TRUE( Desert::Animation::EnsureAnimatorFor( animator, built, skeleton ) )
+         << "the Animator kept the old binds across a reread";
+}
+
 int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
