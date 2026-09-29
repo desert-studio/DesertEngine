@@ -264,18 +264,23 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
-// THM1e: PreviewMesh round-trips and is a stated dependency; a file naming it outside the header is refused.
-TEST( MaterialData, PreviewMeshRoundTripsAsAStatedDependency )
+// THM1e/THM1l: the thumbnail info (primitive, PreviewMesh, orbit) round-trips, its PreviewMesh is a stated
+// dependency; a file naming it outside the header is refused.
+TEST( MaterialData, ThumbnailInfoRoundTripsWithItsPreviewMeshAStatedDependency )
 {
-    Desert::Assets::MaterialData m;
-    m.PreviewMesh =
+    Desert::Assets::MaterialData  m;
+    Desert::Assets::ThumbnailInfo info;
+    info.Primitive = Desert::Assets::ThumbnailPrimitive::Cube;
+    info.PreviewMesh =
          Desert::Assets::AssetGuidRef{ "45d579b03cc0d0a8df2e4cb025d6bea5", "Resources/Assets/Meshes/G.fbx" };
+    info.Orbit      = Desert::Assets::ThumbnailOrbit{ -11.25f, 90.0f, 0.25f };
+    m.Thumbnail     = info;
     const auto text = Desert::Assets::WriteMaterialJson( m );
     ASSERT_TRUE( text ) << text.GetError();
     const auto back = Desert::Assets::ParseMaterialJson( "g.demat", text.GetValue() );
     ASSERT_TRUE( back ) << back.GetError();
-    ASSERT_TRUE( back.GetValue().PreviewMesh.has_value() );
-    EXPECT_EQ( *back.GetValue().PreviewMesh, *m.PreviewMesh );
+    ASSERT_TRUE( back.GetValue().Thumbnail.has_value() );
+    EXPECT_EQ( *back.GetValue().Thumbnail, info );
 
     std::string unstated = text.GetValue();
     const auto  at       = unstated.find( "\"Dependencies\"" );
@@ -283,4 +288,21 @@ TEST( MaterialData, PreviewMeshRoundTripsAsAStatedDependency )
     const auto open = unstated.find( '[', at ), close = unstated.find( ']', at );
     unstated.replace( open, close - open + 1, "[]" );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "g.demat", unstated ) ) << "PreviewMesh outside the header";
+}
+
+// No Thumbnail block = the default info (the sphere, straight on): the format's meaning of absent. The retired
+// top-level key is refused by name (NoExtraFields), never read and dropped.
+TEST( MaterialData, AbsentThumbnailIsTheDefaultAndTheOldKeyIsRefused )
+{
+    const auto text = Desert::Assets::WriteMaterialJson( Desert::Assets::MaterialData{} );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto back = Desert::Assets::ParseMaterialJson( "d.demat", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+    EXPECT_FALSE( back.GetValue().Thumbnail.has_value() );
+    EXPECT_EQ( back.GetValue().ThumbnailOrDefault(), Desert::Assets::ThumbnailInfo{} );
+
+    std::string old = text.GetValue();
+    old.insert( old.rfind( '}' ),
+                ",\"PreviewMesh\":{\"Guid\":\"45d579b03cc0d0a8df2e4cb025d6bea5\",\"Path\":\"G.fbx\"}" );
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "d.demat", old ) ) << "the pre-THM1l key was accepted";
 }

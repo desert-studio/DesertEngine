@@ -106,6 +106,7 @@ namespace Desert::Editor
                          identity,       assetPath,       png,
                          material.How };
             req.PreviewMesh = material.PreviewMesh;
+            req.Thumbnail   = material.Thumbnail;
             m_Queue.push_back( req );
             m_Queued.insert( identity );
             HoldSubjects();
@@ -144,6 +145,7 @@ namespace Desert::Editor
                      ThumbnailKey::DiskPath( assetPath ),
                      material.How };
         req.PreviewMesh = material.PreviewMesh;
+        req.Thumbnail   = material.Thumbnail;
         Warm( std::move( req ) );
     }
 
@@ -565,14 +567,14 @@ namespace Desert::Editor
         const auto queued = [&]() -> Common::BoolResultStr
         {
             if ( req.Type == Kind::Mesh )
-                return m_Renderer->RequestMesh( req.Handle, req.Png, req.Material );
+                return m_Renderer->RequestMesh( req.Handle, req.Png, req.Thumbnail.Orbit, req.Material );
             if ( req.How != ThumbnailSubject::Preview::Mesh )
-                return m_Renderer->RequestMaterial( req.Handle, req.Png, req.How );
+                return m_Renderer->RequestMaterial( req.Handle, req.Png, req.How, req.Thumbnail );
             if ( static_cast<uint64_t>( req.PreviewMesh ) == 0 )
                 return Common::MakeError<bool>( "the material names a PreviewMesh, and this request came through "
                                                 "the form that cannot carry it — ask RequestMaterial with the "
                                                 "resolved ThumbnailSubject::Material" );
-            return m_Renderer->RequestMesh( req.PreviewMesh, req.Png, req.Handle );
+            return m_Renderer->RequestMesh( req.PreviewMesh, req.Png, req.Thumbnail.Orbit, req.Handle );
         }();
         if ( !queued.IsSuccess() )
         {

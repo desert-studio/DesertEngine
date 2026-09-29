@@ -131,6 +131,7 @@ namespace Common::Content
         Meta       = FourCC( "META" ), // name, tags, bounds — EnvelopeMeta below
         ImportInfo = FourCC( "IMPT" ), // editor only: how the asset was imported
         Source     = FourCC( "SRCE" ), // editor only: the source data the asset is rebuilt from
+        Thumbnail  = FourCC( "THMB" ), // editor only: how the asset is photographed (UE UThumbnailInfo)
         Payload    = FourCC( "PAYL" ), // the kind's own bytes, in the codec the kind already uses
     };
 

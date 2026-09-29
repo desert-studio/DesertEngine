@@ -51,9 +51,10 @@ namespace Desert::Editor
          * express the third picture, so every Volume-domain material in the project was queued as a mesh
          * draw and photographed as an empty sphere.
          */
-        [[nodiscard]] Common::BoolResultStr RequestMaterial( const Assets::AssetHandle& materialHandle,
-                                                             const std::string&         outPng,
-                                                             ThumbnailSubject::Preview  how );
+        [[nodiscard]] Common::BoolResultStr RequestMaterial( const Assets::AssetHandle&   materialHandle,
+                                                             const std::string&           outPng,
+                                                             ThumbnailSubject::Preview    how,
+                                                             const Assets::ThumbnailInfo& thumbnail );
 
         /**
          * @brief Queue a mesh, auto-framed by its bounds, to outPng. If `material` is non-null it is applied
@@ -73,7 +74,8 @@ namespace Desert::Editor
          */
         [[nodiscard]] Common::BoolResultStr
         RequestMesh( const Assets::AssetHandle& meshHandle, const std::string& outPng,
-                     const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
+                     const Assets::ThumbnailOrbit& orbit,
+                     const Assets::AssetHandle&    material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
 
         // Is a capture in flight? Gates requests to one at a time.
         // Pending until the picture is ON DISK: the GPU copy and the worker's encode are part of the capture.
@@ -140,6 +142,9 @@ namespace Desert::Editor
         Subject m_PendingSubject = Subject::Material;
         // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
         ThumbnailSubject::Preview m_PendingPreview = ThumbnailSubject::Preview::Sphere;
+        // THE ASSET'S THUMBNAIL INFO for the pending capture (UE: the renderer reads only UThumbnailInfo): the
+        // primitive a material is drawn on and the orbit FitTarget frames from. Set by both Request* entries.
+        Assets::ThumbnailInfo m_PendingThumbnail;
         int                 m_Phase = 0; // 0 = idle, else = remaining render frames (capture on the last)
 
         // THE CAPTURE AFTER THE LAST RENDER FRAME, off the frame (TH3). The copy is submitted and polled by

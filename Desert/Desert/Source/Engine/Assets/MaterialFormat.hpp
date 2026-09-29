@@ -175,17 +175,26 @@ namespace Desert::Assets
         for ( const auto& ref : material.CloudAssets )
             if ( const auto ok = Detail::CheckStatedRef( source, "cloud asset", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
-        // A stated preview mesh is never empty: "draw the sphere" is said by stating none.
-        if ( material.PreviewMesh.has_value() )
+        // A stated thumbnail: a valid orbit, and a preview mesh that is never empty ("draw the primitive" is said
+        // by stating none) and is named by the header like every other reference.
+        if ( material.Thumbnail.has_value() )
         {
-            const MaterialAssetRef meshRef{ "PreviewMesh", material.PreviewMesh->Guid,
-                                            material.PreviewMesh->Path };
-            if ( material.PreviewMesh->Guid.empty() )
+            const ThumbnailInfo& thumb = *material.Thumbnail;
+            if ( !IsValidThumbnailOrbit( thumb.Orbit ) )
                 return Common::MakeError<MaterialData>(
-                     "[Material] '" + std::string( source ) + "': PreviewMesh states no GUID (path '" +
-                     material.PreviewMesh->Path + "'); leave PreviewMesh out for the sphere" );
-            if ( const auto ok = Detail::CheckStatedRef( source, "preview mesh", meshRef, deps ); !ok )
-                return Common::MakeError<MaterialData>( ok.GetError() );
+                     "[Material] '" + std::string( source ) +
+                     "': Thumbnail.Orbit is not finite or its Zoom is not above -1" );
+            if ( thumb.PreviewMesh.has_value() )
+            {
+                const MaterialAssetRef meshRef{ "PreviewMesh", thumb.PreviewMesh->Guid, thumb.PreviewMesh->Path };
+                if ( thumb.PreviewMesh->Guid.empty() )
+                    return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
+                                                            "': Thumbnail.PreviewMesh states no GUID (path '" +
+                                                            thumb.PreviewMesh->Path +
+                                                            "'); leave PreviewMesh out for the primitive" );
+                if ( const auto ok = Detail::CheckStatedRef( source, "preview mesh", meshRef, deps ); !ok )
+                    return Common::MakeError<MaterialData>( ok.GetError() );
+            }
         }
         return Common::MakeSuccess( parsed.ExtractValue() );
     }

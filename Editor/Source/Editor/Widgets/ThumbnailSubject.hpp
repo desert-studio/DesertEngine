@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/ThumbnailInfo.hpp>
+
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -124,6 +126,10 @@ namespace Desert::Editor::ThumbnailSubject
 
         /// How == Mesh only: the preview mesh, registered and drawable (ResolveMesh). Zero otherwise.
         Common::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
+
+        /// THE MATERIAL'S OWN THUMBNAIL INFO (MaterialData::ThumbnailOrDefault): the primitive a Sphere route
+        /// is drawn on and the orbit every mesh-path route is seen from. The renderer reads them only here.
+        Assets::ThumbnailInfo Thumbnail;
     };
 
     /**
@@ -153,6 +159,9 @@ namespace Desert::Editor::ThumbnailSubject
         /// `StaticMeshAsset` loads cooked JSON and never opens the FBX, so the cook is the recipe for
         /// this picture and the only file whose modification time means anything about it.
         std::string CookedPath;
+
+        /// THE MESH'S OWN ORBIT (its THMB section; MeshSourceAsset::Thumbnail). Default = straight on.
+        Assets::ThumbnailOrbit Orbit;
 
         /// The sidecar material to apply to every submesh, or a zero handle when the mesh has none. It
         /// is resolved from the SOURCE, because a sidecar `.demat` is what an artist leaves beside the

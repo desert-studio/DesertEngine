@@ -12,6 +12,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/ThumbnailInfo.hpp>
 
 namespace Desert::Assets
 {
@@ -70,12 +71,16 @@ namespace Desert::Assets
         // the handle a shader registers under.
         std::vector<MaterialAssetRef> CloudAssets;
 
-        // THE MESH THIS MATERIAL IS PHOTOGRAPHED ON (UE: UMaterial's ThumbnailInfo / PreviewMesh), by the mesh's
-        // header GUID (its `.deimport` or `.stmesh` header); `Path` is the mesh SOURCE relative to the assets
-        // root, a locator only. Absent -> the thumbnail draws the sphere. An import states the mesh it came
-        // from, so a grass atlas previews as the tuft it was authored for rather than cut out of a ball.
-        // Optional and additive: a file without it is the same MATL 4 material, so no schema step.
-        std::optional<AssetGuidRef> PreviewMesh;
+        // HOW THIS MATERIAL IS PHOTOGRAPHED (UE: UMaterial::ThumbnailInfo, a USceneThumbnailInfoWithPrimitive
+        // stored in the package): the primitive, its own preview mesh instead of it, and the orbit — the one home
+        // of all three (ThumbnailInfo.hpp). Absent = the default info (the sphere, straight on). Its PreviewMesh
+        // is a stated dependency of the header like any other reference.
+        std::optional<ThumbnailInfo> Thumbnail;
+
+        [[nodiscard]] ThumbnailInfo ThumbnailOrDefault() const
+        {
+            return Thumbnail.value_or( ThumbnailInfo{} );
+        }
 
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this
         // names (32 hex digits, AssetGuidToText), and Params/Textures hold ONLY the overridden values - the
@@ -281,8 +286,8 @@ namespace Desert::Assets
                 add( r.Guid );
             for ( const auto& r : CloudAssets )
                 add( r.Guid );
-            if ( PreviewMesh.has_value() )
-                add( PreviewMesh->Guid );
+            if ( Thumbnail.has_value() && Thumbnail->PreviewMesh.has_value() )
+                add( Thumbnail->PreviewMesh->Guid );
             return out;
         }
 

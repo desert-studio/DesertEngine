@@ -135,7 +135,7 @@ TEST( MaterialImportContract, AnImportedMaterialNamesNoPreviewMesh )
     fill.Params.push_back( { "BaseColor", glm::vec4( 0.5f ) } );
 
     const auto data = ImportedMaterialDocument( chosen, fill );
-    EXPECT_FALSE( data.PreviewMesh.has_value() ) << "an import named a thumbnail mesh; the ball is the owner's rule";
+    EXPECT_FALSE( data.Thumbnail.has_value() ) << "an import named a thumbnail mesh; the ball is the owner's rule";
     ASSERT_TRUE( data.Shader.has_value() );
     EXPECT_EQ( data.Shader->Guid, chosen.Guid );
     EXPECT_EQ( data.Shader->Path, chosen.Locator );

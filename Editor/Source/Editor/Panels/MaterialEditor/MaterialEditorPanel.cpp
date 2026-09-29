@@ -2208,7 +2208,9 @@ namespace Desert::Editor
         if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail Mesh", ImGuiTreeNodeFlags_DefaultOpen ) )
         {
             auto&             data  = m_WorkingCopy->Data();
-            const std::string label = data.PreviewMesh ? data.PreviewMesh->Path : std::string( "<sphere>" );
+            const std::string label = data.ThumbnailOrDefault().PreviewMesh
+                                           ? data.ThumbnailOrDefault().PreviewMesh->Path
+                                           : std::string( "<sphere>" );
             ImGui::Button( ( label + "##thumbnail_mesh" ).c_str(), ImVec2( -FLT_MIN, 0.0f ) );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Drop an imported static mesh: the material's thumbnail is taken on it." );
@@ -2222,7 +2224,11 @@ namespace Desert::Editor
                     {
                         const std::string path( static_cast<const char*>( pl->Data ) );
                         if ( auto ref = PreviewMeshRefFor( path ) )
-                            data.PreviewMesh = ref.GetValue();
+                        {
+                            Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+                            info.PreviewMesh           = ref.GetValue();
+                            data.Thumbnail             = info;
+                        }
                         else
                             LOG_WARN( "[MaterialEditor] '{}' cannot be the thumbnail mesh: {}", path,
                                       ref.GetError() );
@@ -2231,9 +2237,13 @@ namespace Desert::Editor
                 }
                 ImGui::EndDragDropTarget();
             }
-            ImGui::BeginDisabled( !data.PreviewMesh.has_value() );
+            ImGui::BeginDisabled( !data.ThumbnailOrDefault().PreviewMesh.has_value() );
             if ( ImGui::Button( "Back to the sphere##thumbnail_mesh_clear" ) )
-                data.PreviewMesh.reset();
+            {
+                Assets::ThumbnailInfo info = data.ThumbnailOrDefault();
+                info.PreviewMesh.reset();
+                data.Thumbnail = info;
+            }
             ImGui::EndDisabled();
         }
     }

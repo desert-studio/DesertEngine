@@ -216,6 +216,9 @@ namespace Desert::Editor
             ThumbnailSubject::Preview How = ThumbnailSubject::Preview::Sphere;
             // Materials with How == Mesh only: the mesh they are photographed on (ThumbnailSubject::Material).
             Assets::AssetHandle PreviewMesh{ static_cast<uint64_t>( 0 ) };
+            // THE ASSET'S THUMBNAIL INFO, carried to the renderer (the only thing it frames by): a material's
+            // whole info, a mesh's orbit in Thumbnail.Orbit (its primitive and PreviewMesh unused).
+            Assets::ThumbnailInfo Thumbnail;
         };
 
         // Shared by both Request* entry points: decides whether the work is needed at all. Takes the

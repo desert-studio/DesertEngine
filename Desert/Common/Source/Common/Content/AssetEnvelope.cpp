@@ -158,6 +158,7 @@ namespace Common::Content
                 case EnvelopeSection::Meta:
                 case EnvelopeSection::ImportInfo:
                 case EnvelopeSection::Source:
+                case EnvelopeSection::Thumbnail:
                 case EnvelopeSection::Payload:
                     return true;
             }
