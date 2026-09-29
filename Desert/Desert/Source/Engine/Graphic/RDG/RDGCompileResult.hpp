@@ -131,7 +131,7 @@ namespace Desert::Graphic::RDG
         std::vector<ExternalFinalState> ExternalFinalStates;
         AliasingPlan                    Aliasing;
 
-        const CompiledPass* FindPass( std::string_view name ) const
+        [[nodiscard]] const CompiledPass* FindPass( std::string_view name ) const
         {
             for ( const CompiledPass& pass : Passes )
             {
@@ -141,7 +141,7 @@ namespace Desert::Graphic::RDG
             return nullptr;
         }
 
-        const Allocation* FindAllocation( uint32_t resource ) const
+        [[nodiscard]] const Allocation* FindAllocation( uint32_t resource ) const
         {
             for ( const Allocation& allocation : Aliasing.Allocations )
             {

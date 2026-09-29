@@ -21,7 +21,7 @@ namespace Desert::Graphic::System
         // the same textures in a different order are the same texture set and must batch as one.
         std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g )
         {
-            if ( g.SlotMaterial )
+            if ( g.SlotMaterial != nullptr )
                 return {}; // the material IS the asset; it is already its own key
 
             std::vector<std::string> parts;
@@ -29,7 +29,7 @@ namespace Desert::Graphic::System
             for ( const auto& [name, handle] : g.Overrides.Textures )
                 if ( handle != 0 )
                     parts.push_back( std::format( "{}={}", name, handle ) );
-            if ( g.DirectTexture && !g.DirectTextureSampler.empty() )
+            if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() )
                 parts.push_back( std::format( "{}=@{}", g.DirectTextureSampler,
                                               static_cast<const void*>( g.DirectTexture ) ) );
             std::sort( parts.begin(), parts.end() );
@@ -45,7 +45,7 @@ namespace Desert::Graphic::System
     {
         const auto  targetFb = m_TargetFramebuffer.lock();
         const auto* camera   = m_SceneRenderer->GetMainCamera();
-        if ( !targetFb || !camera )
+        if ( !targetFb || camera == nullptr )
             return;
 
         PrecacheRequestedMaterials( targetFb, useLoadPass );
@@ -102,7 +102,7 @@ namespace Desert::Graphic::System
             // Shader Override draws use a shader-keyed shared material + per-frame overrides.
             DataDrivenMaterial* material   = nullptr;
             std::string         shaderName = g.ShaderName;
-            if ( g.SlotMaterial )
+            if ( g.SlotMaterial != nullptr )
             {
                 material = dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial );
                 if ( material != nullptr )
@@ -113,7 +113,8 @@ namespace Desert::Graphic::System
             // A shader whose first compile failed is still registered under its name, so GetByName hands
             // it back like any other. Skip its draws silently: the compilation error was already logged
             // once, with the file and line, and repeating it every frame for every mesh would bury it.
-            if ( !shader || !shader->IsCompiled() || !g.Mesh || ( g.SlotMaterial && !material ) )
+            if ( !shader || !shader->IsCompiled() || g.Mesh == nullptr ||
+                 ( g.SlotMaterial != nullptr && material == nullptr ) )
                 continue;
 
             // ── The domain gate ────────────────────────────────────────────────────────────────
@@ -176,7 +177,7 @@ namespace Desert::Graphic::System
                 continue;
             }
 
-            if ( !material )
+            if ( material == nullptr )
             {
                 // ONE MATERIAL PER (SHADER x TEXTURE SET), not per shader. The parameters of the draws
                 // that share it are separate rows now, so they no longer collide — but a SAMPLER is a
@@ -259,17 +260,17 @@ namespace Desert::Graphic::System
                     if ( handle == 0 )
                         continue;
                     auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
-                    if ( !tex )
+                    if ( tex == nullptr )
                         continue;
                     auto* img = static_cast<Image2D*>(
                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
-                    if ( img )
+                    if ( img != nullptr )
                         material->SetTexture( name, img );
                 }
 
                 // Runtime-owned texture (no asset handle) bound straight to its sampler — the text
                 // SDF atlas takes this path.
-                if ( g.DirectTexture && !g.DirectTextureSampler.empty() )
+                if ( g.DirectTexture != nullptr && !g.DirectTextureSampler.empty() )
                     material->SetTexture( g.DirectTextureSampler, g.DirectTexture );
             }
 
@@ -434,8 +435,8 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::RenderGenericManual()
     {
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        if ( !target || !m_SceneRenderer->GetMainCamera() )
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         if ( m_GenericQueue.empty() )
         {
@@ -459,9 +460,9 @@ namespace Desert::Graphic::System
     {
         if ( !m_StaticGlassPipeline || !m_GlassMaterial || !m_GlassInstance || m_StaticQueue.empty() )
             return;
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        const auto  camera = m_SceneRenderer ? m_SceneRenderer->GetMainCamera() : nullptr;
-        if ( !target || !camera )
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        auto* const camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( !target || camera == nullptr )
             return;
 
         // Collect the transparent (Transmission > 0) objects + their effective GPU material entries. Uses a
@@ -473,15 +474,15 @@ namespace Desert::Graphic::System
         std::vector<PBRGpuMaterial>              gpuMats;
         for ( const auto& data : m_StaticQueue )
         {
-            if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
-            if ( !pbrInst )
+            if ( pbrInst == nullptr )
                 continue;
-            auto*          mat = static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() );
-            PBRGpuMaterial gm  = BuildEffectiveMaterial( mat, pbrInst );
+            auto*                mat = static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() );
+            const PBRGpuMaterial gm  = BuildEffectiveMaterial( mat, pbrInst );
             if ( gm.GlassTint.a <= 0.001f )
                 continue; // opaque -> drawn by the opaque pass, not here
             glassObjs.push_back( &data );
@@ -554,9 +555,9 @@ namespace Desert::Graphic::System
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
             return;
 
-        auto&      renderer = Renderer::GetInstance();
-        const auto camera   = m_SceneRenderer->GetMainCamera();
-        if ( !camera )
+        auto&       renderer = Renderer::GetInstance();
+        auto* const camera   = m_SceneRenderer->GetMainCamera();
+        if ( camera == nullptr )
             return;
 
         // The scene's whole contribution to a lit draw, gathered ONCE (camera, lights, shadow cascades and
@@ -591,7 +592,7 @@ namespace Desert::Graphic::System
 
         for ( const auto& data : m_StaticQueue )
         {
-            if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
+            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() ||
                  !data.MaterialSlots->Slots[0] )
                 continue;
 
@@ -662,7 +663,7 @@ namespace Desert::Graphic::System
         // material, an instance and a bucket.
         const auto setForGroup = [&]( MaterialPBR* group ) -> InstancedBatchSet*
         {
-            if ( !instancingOn || !group )
+            if ( !instancingOn || group == nullptr )
                 return nullptr;
 
             auto*        materials = Runtime::ResourceRegistry::GetMaterialService();
@@ -750,7 +751,7 @@ namespace Desert::Graphic::System
                 od.Gm   = BuildEffectiveMaterial( mat, od.Inst );
                 if ( od.Gm.GlassTint.a > 0.001f )
                     continue;
-                if ( od.Inst )
+                if ( od.Inst != nullptr )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
                         if ( prop.bIsOverridden )
                         {
@@ -864,7 +865,7 @@ namespace Desert::Graphic::System
                     // MeshECSSystem's default, standing in for a mesh whose slot did not resolve. It has
                     // no asset, so the service has no sibling of it; this pass keeps one of its own. See
                     // SetupGBufferPass for why one is enough, and this is the check that says so.
-                    if ( unownedServed && unownedServed != mat )
+                    if ( unownedServed != nullptr && unownedServed != mat )
                     {
                         static bool s_WarnedSecondUnowned = false;
                         if ( !s_WarnedSecondUnowned )
@@ -882,7 +883,7 @@ namespace Desert::Graphic::System
                     drawMat       = m_GBufferUnownedMaterial.get();
                 }
 
-                if ( !drawMat )
+                if ( drawMat == nullptr )
                 {
                     // Not a quiet skip: the objects in this group simply would not appear in a deferred
                     // scene, which reads as "my mesh is invisible" and not as "one material has no
@@ -989,10 +990,10 @@ namespace Desert::Graphic::System
             m_IsmInstancesDrawn = 0;
             for ( const auto& ism : m_InstancedQueue )
             {
-                if ( !ism.Mesh || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
+                if ( ism.Mesh == nullptr || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
                     continue;
                 auto* mat = static_cast<MaterialPBR*>( ism.Material->GetParentMaterial() );
-                if ( !mat )
+                if ( mat == nullptr )
                     continue;
 
                 // THE SAME QUESTION THE AUTO-BATCHED GROUPS ASK, and it has to be asked here too: an ISM
@@ -1000,7 +1001,7 @@ namespace Desert::Graphic::System
                 // the pass's spare would draw a forest of forty thousand trees with a white 1x1 where its
                 // bark map should be. setForGroup names the refusal when the cell does not exist.
                 InstancedBatchSet* ismSet = setForGroup( mat );
-                if ( !ismSet )
+                if ( ismSet == nullptr )
                     continue;
 
                 // PER-INSTANCE, and that is the whole point of culling an ISM at all. A batch is ONE draw
@@ -1098,8 +1099,8 @@ namespace Desert::Graphic::System
         if ( m_SkinnedQueue.empty() )
             return;
 
-        auto&      renderer = Renderer::GetInstance();
-        const auto camera   = m_SceneRenderer->GetMainCamera();
+        auto&       renderer = Renderer::GetInstance();
+        auto* const camera   = m_SceneRenderer->GetMainCamera();
 
         // The SAME snapshot, from the SAME gather, that lights every static mesh in this frame — the
         // cascades and the environment cubes included. Skinned meshes have no G-buffer variant, so in a
@@ -1155,7 +1156,7 @@ namespace Desert::Graphic::System
             return groups.back().second;
         };
         for ( const auto& data : m_SkinnedQueue )
-            if ( data.Mesh && data.Material && data.Instance )
+            if ( data.Mesh != nullptr && data.Material != nullptr && data.Instance != nullptr )
                 groupFor( data.Material ).push_back( &data );
 
         auto& bones        = m_ScratchBones;
@@ -1203,8 +1204,8 @@ namespace Desert::Graphic::System
     {
         if ( m_SkinnedQueue.empty() )
             return;
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        if ( !target || !m_SceneRenderer->GetMainCamera() )
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        if ( !target || m_SceneRenderer->GetMainCamera() == nullptr )
             return;
 
         auto& renderer = Renderer::GetInstance();
@@ -1307,7 +1308,7 @@ namespace Desert::Graphic::System
         if ( !m_StaticGlassShader )
             return false;
 
-        const auto& target = m_SceneRenderer ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
+        const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
         if ( !target )
             return false;
 

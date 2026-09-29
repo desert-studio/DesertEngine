@@ -31,7 +31,7 @@ namespace Desert::Graphic::System
         // own (standard-Z, see SetupDeferredPass) and so is the camera.
         if ( !m_RSMPipeline || !m_RSMMaterial || !m_RSMInstance || m_StaticQueue.empty() )
             return;
-        const auto& rsm = m_SceneRenderer ? m_SceneRenderer->GetRSMBuffer() : nullptr;
+        const auto& rsm = m_SceneRenderer != nullptr ? m_SceneRenderer->GetRSMBuffer() : nullptr;
         if ( !rsm )
             return;
 
@@ -42,12 +42,12 @@ namespace Desert::Graphic::System
         std::vector<PBRGpuMaterial>              gpuMats;
         for ( const auto& data : m_StaticQueue )
         {
-            if ( !data.Mesh || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
                 continue;
             MaterialInstance* pbrInst = FirstPBRSlot( data.MaterialSlots->Slots, MeshVertexPath::Static );
-            if ( !pbrInst )
+            if ( pbrInst == nullptr )
                 continue;
-            PBRGpuMaterial gm =
+            const PBRGpuMaterial gm =
                  BuildEffectiveMaterial( static_cast<MaterialPBR*>( pbrInst->GetParentMaterial() ), pbrInst );
             if ( gm.GlassTint.a > 0.001f )
                 continue;
@@ -271,8 +271,8 @@ namespace Desert::Graphic::System
         // "inside cascade 0" and are sampled from a map nothing rendered. Nothing reports any of it.
         m_FittedCascades = 0;
 
-        const auto camera = m_SceneRenderer->GetMainCamera();
-        if ( !camera )
+        auto* const camera = m_SceneRenderer->GetMainCamera();
+        if ( camera == nullptr )
             return;
 
         const auto& dirLights = m_SceneRenderer->GetDirectionLights();
@@ -551,7 +551,7 @@ namespace Desert::Graphic::System
                          std::vector<std::pair<const SkinnedMeshRenderData*, uint32_t>> casters;
                          for ( const auto& sd : m_SkinnedQueue )
                          {
-                             if ( !sd.Mesh || !sd.CastShadows || sd.BoneMatrices.empty() )
+                             if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
                                  continue;
                              casters.emplace_back( &sd, static_cast<uint32_t>( skinBones.size() ) );
                              skinBones.insert( skinBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );

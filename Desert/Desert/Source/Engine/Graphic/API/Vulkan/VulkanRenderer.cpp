@@ -761,7 +761,7 @@ namespace Desert::Graphic::API::Vulkan
         desc.Format = image.GetImageSpecification().Format;
         desc.Mips   = resource.MipLevels;
         desc.Layers = resource.LayerCount;
-        const VkDevice device =
+        VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
         return VulkanRdgTexture::Wrap( device, resource.Image, resource.Format, desc );
     }

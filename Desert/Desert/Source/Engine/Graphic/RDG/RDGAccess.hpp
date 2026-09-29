@@ -116,7 +116,7 @@ namespace Desert::Graphic::RDG
         MemoryAccessFlags  Memory = MemoryAccess_None;
         ImageLayout        Layout = ImageLayout::Undefined;
 
-        constexpr bool IsReadOnly() const
+        [[nodiscard]] constexpr bool IsReadOnly() const
         {
             return ( Memory & kWriteAccessMask ) == 0;
         }

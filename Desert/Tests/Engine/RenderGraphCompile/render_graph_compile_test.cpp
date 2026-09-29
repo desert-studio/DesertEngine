@@ -59,8 +59,8 @@ namespace
     class FixedEstimate final : public IMemoryRequirementsProvider
     {
     public:
-        Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc& desc,
-                                                                      uint32_t ) const override
+        [[nodiscard]] Common::ResultStr<MemoryRequirements> GetTextureRequirements( const TextureDesc& desc,
+                                                                                    uint32_t ) const override
         {
             uint64_t bytes = 0;
             for ( uint32_t mip = 0; mip < desc.Mips; ++mip )
@@ -74,8 +74,8 @@ namespace
             return Common::MakeSuccess(
                  MemoryRequirements{ AlignUp( bytes, kTextureAlignment ), kTextureAlignment, ~0u } );
         }
-        Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc,
-                                                                     uint32_t ) const override
+        [[nodiscard]] Common::ResultStr<MemoryRequirements> GetBufferRequirements( const BufferDesc& desc,
+                                                                                   uint32_t ) const override
         {
             return Common::MakeSuccess(
                  MemoryRequirements{ AlignUp( desc.Bytes, kBufferAlignment ), kBufferAlignment, ~0u } );
@@ -95,11 +95,11 @@ namespace
         {
         }
 
-        BackendKind GetKind() const override
+        [[nodiscard]] BackendKind GetKind() const override
         {
             return BackendKind::Recording;
         }
-        const IMemoryRequirementsProvider& GetMemoryRequirements() const override
+        [[nodiscard]] const IMemoryRequirementsProvider& GetMemoryRequirements() const override
         {
             return m_Memory;
         }
@@ -144,11 +144,11 @@ namespace
         {
             Calls.push_back( "AbandonGraph" );
         }
-        std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
+        [[nodiscard]] std::shared_ptr<IPhysicalTexture> GetPhysicalTexture( uint32_t ) const override
         {
             return nullptr;
         }
-        std::shared_ptr<IPhysicalBuffer> GetPhysicalBuffer( uint32_t ) const override
+        [[nodiscard]] std::shared_ptr<IPhysicalBuffer> GetPhysicalBuffer( uint32_t ) const override
         {
             return nullptr;
         }
@@ -178,7 +178,7 @@ namespace
 
     CompileResult CompileOrFail( const Builder& builder )
     {
-        Common::ResultStr<CompileResult> result = builder.Compile( kEstimate );
+        const Common::ResultStr<CompileResult> result = builder.Compile( kEstimate );
         EXPECT_TRUE( result.IsSuccess() ) << result.GetError();
         return result ? result.GetValue() : CompileResult{};
     }
@@ -186,7 +186,7 @@ namespace
     std::vector<Barrier> BarriersOn( const CompiledPass* pass, uint32_t resource )
     {
         std::vector<Barrier> out;
-        if ( !pass )
+        if ( pass == nullptr )
             return out;
         for ( const Barrier& barrier : pass->Barriers )
         {
@@ -1065,8 +1065,8 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
          },
          Ok );
 
-    TypedProvider                    provider;
-    Common::ResultStr<CompileResult> compiled = graph.Compile( provider );
+    TypedProvider                          provider;
+    const Common::ResultStr<CompileResult> compiled = graph.Compile( provider );
     ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
     const CompileResult& result = compiled.GetValue();
     const Allocation*    allocA = result.FindAllocation( a.Index );
@@ -1105,7 +1105,7 @@ TEST( RenderGraphCompile, AliasingPlanUsesTheProvidersRequirements )
              pass.Write( target, Access::CopyDst );
          },
          Ok );
-    Common::ResultStr<CompileResult> refused = buffers.Compile( provider );
+    const Common::ResultStr<CompileResult> refused = buffers.Compile( provider );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Scratch" ), std::string::npos ) << refused.GetError();
 }
@@ -1164,7 +1164,7 @@ TEST( RenderGraphCompile, LegacyPassSeesShaderReadOnlyAndLeavesItThere )
     const TextureRef t = misuse.CreateTexture( Tex2D( 8, 8, ImageFormat::RGBA8F ), "T" );
     misuse.AddPass(
          "Sneaky", PassFlags::Raster, [&]( PassBuilder& pass ) { pass.Read( t, Access::LegacyRead ); }, Ok );
-    Common::ResultStr<CompileResult> refused = misuse.Compile( kEstimate );
+    const Common::ResultStr<CompileResult> refused = misuse.Compile( kEstimate );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Sneaky" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "raster" ), std::string::npos ) << refused.GetError();

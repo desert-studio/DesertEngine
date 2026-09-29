@@ -39,12 +39,12 @@ namespace Desert::Graphic::RDG
         uint32_t                   Layers = 1;
         TextureDim                 Dim    = TextureDim::Tex2D;
 
-        constexpr uint32_t SubresourceCount() const
+        [[nodiscard]] constexpr uint32_t SubresourceCount() const
         {
             return Mips * Layers;
         }
         // Subresources are numbered layer-major, the order a per-layer (cascade) walk visits them.
-        constexpr uint32_t SubresourceIndex( uint32_t mip, uint32_t layer ) const
+        [[nodiscard]] constexpr uint32_t SubresourceIndex( uint32_t mip, uint32_t layer ) const
         {
             return layer * Mips + mip;
         }
@@ -94,7 +94,7 @@ namespace Desert::Graphic::RDG
     {
         uint32_t Index = kInvalidResource;
 
-        constexpr bool IsValid() const
+        [[nodiscard]] constexpr bool IsValid() const
         {
             return Index != kInvalidResource;
         }
@@ -105,7 +105,7 @@ namespace Desert::Graphic::RDG
     {
         uint32_t Index = kInvalidResource;
 
-        constexpr bool IsValid() const
+        [[nodiscard]] constexpr bool IsValid() const
         {
             return Index != kInvalidResource;
         }
@@ -124,15 +124,15 @@ namespace Desert::Graphic::RDG
     class IPhysicalTexture
     {
     public:
-        virtual ~IPhysicalTexture()                = default;
-        virtual BackendKind GetBackendKind() const = 0;
+        virtual ~IPhysicalTexture()                              = default;
+        [[nodiscard]] virtual BackendKind GetBackendKind() const = 0;
     };
 
     class IPhysicalBuffer
     {
     public:
-        virtual ~IPhysicalBuffer()                 = default;
-        virtual BackendKind GetBackendKind() const = 0;
+        virtual ~IPhysicalBuffer()                               = default;
+        [[nodiscard]] virtual BackendKind GetBackendKind() const = 0;
     };
 
     // A texture that outlives the graph (swapchain image, history buffer, a baked cube). It carries its

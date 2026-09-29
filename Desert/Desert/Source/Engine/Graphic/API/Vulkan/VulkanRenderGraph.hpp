@@ -94,7 +94,7 @@ namespace Desert::Graphic::API::Vulkan
                                                        const RDG::TextureDesc& desc );
         ~VulkanRdgTexture() override;
 
-        RDG::BackendKind GetBackendKind() const override
+        [[nodiscard]] RDG::BackendKind GetBackendKind() const override
         {
             return RDG::BackendKind::Vulkan;
         }
@@ -105,23 +105,23 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkImageView> GetView( RDG::SubresourceRange range         = RDG::SubresourceRange::All(),
                                                 bool                  forAttachment = false );
 
-        VkImage GetImage() const
+        [[nodiscard]] VkImage GetImage() const
         {
             return m_Image;
         }
-        VkFormat GetFormat() const
+        [[nodiscard]] VkFormat GetFormat() const
         {
             return m_Format;
         }
-        VkImageAspectFlags GetAspect() const
+        [[nodiscard]] VkImageAspectFlags GetAspect() const
         {
             return m_Aspect;
         }
-        const RDG::TextureDesc& GetDesc() const
+        [[nodiscard]] const RDG::TextureDesc& GetDesc() const
         {
             return m_Desc;
         }
-        uint32_t GetAccessMask() const
+        [[nodiscard]] uint32_t GetAccessMask() const
         {
             return m_AccessMask;
         }
@@ -150,25 +150,25 @@ namespace Desert::Graphic::API::Vulkan
                                                                            std::string_view       name );
         ~VulkanRdgBuffer() override;
 
-        RDG::BackendKind GetBackendKind() const override
+        [[nodiscard]] RDG::BackendKind GetBackendKind() const override
         {
             return RDG::BackendKind::Vulkan;
         }
 
-        VkBuffer GetBuffer() const
+        [[nodiscard]] VkBuffer GetBuffer() const
         {
             return m_Buffer;
         }
-        uint64_t GetSize() const
+        [[nodiscard]] uint64_t GetSize() const
         {
             return m_Size;
         }
-        uint32_t GetAccessMask() const
+        [[nodiscard]] uint32_t GetAccessMask() const
         {
             return m_AccessMask;
         }
         // Null unless host-visible. Reading it is only meaningful after the submission's fence.
-        const void* GetMapped() const
+        [[nodiscard]] const void* GetMapped() const
         {
             return m_Mapped;
         }
@@ -208,8 +208,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<std::shared_ptr<VulkanRdgBuffer>>
         AcquireBuffer( const RDG::BufferDesc& desc, uint32_t accessMask, std::string_view name );
 
-        size_t GetTextureCount() const;
-        size_t GetBufferCount() const;
+        [[nodiscard]] size_t GetTextureCount() const;
+        [[nodiscard]] size_t GetBufferCount() const;
 
     private:
         template <class T>

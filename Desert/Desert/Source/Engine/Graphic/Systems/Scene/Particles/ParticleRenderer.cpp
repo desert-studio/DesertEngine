@@ -277,7 +277,7 @@ namespace Desert::Graphic::System
         // "the time spent with emitters present".
         const float dt = std::clamp( frameSeconds, 0.0f, 0.1f );
         m_SimSeconds += dt;
-        const float time = static_cast<float>( m_SimSeconds );
+        const auto time = static_cast<float>( m_SimSeconds );
 
         if ( !m_SimPipeline || m_FrameEmitters.empty() )
             return;
@@ -286,7 +286,7 @@ namespace Desert::Graphic::System
         {
             // Spawn budget for this frame (fractional carry so low rates still emit).
             fe.Gpu->SpawnAccum += fe.SpawnRate * dt;
-            uint32_t budget = static_cast<uint32_t>( fe.Gpu->SpawnAccum );
+            auto budget = static_cast<uint32_t>( fe.Gpu->SpawnAccum );
             fe.Gpu->SpawnAccum -= static_cast<float>( budget );
             if ( !fe.Looping )
                 budget = 0; // one-shot bursts are a follow-up; looping emits continuously

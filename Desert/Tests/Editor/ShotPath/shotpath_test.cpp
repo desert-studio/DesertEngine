@@ -292,12 +292,12 @@ TEST( ShotPath, BeforeTheCountStartsPlayTimeStandsStill )
     ShotOptions shot;
     shot.Play   = true;
     shot.Output = "/tmp/out.png";
-    for ( float wall : { 0.0f, 1.0f / 60.0f, 0.25f } )
+    for ( const float wall : { 0.0f, 1.0f / 60.0f, 0.25f } )
         EXPECT_EQ( shot.FrameSeconds( wall, false ), 0.0f );
 
     ShotOptions still;
     still.Output = "/tmp/out.png";
-    for ( float wall : { 0.0f, 0.013913f, 0.5f } )
+    for ( const float wall : { 0.0f, 0.013913f, 0.5f } )
         EXPECT_EQ( still.FrameSeconds( wall, false ), wall );
 }
 
