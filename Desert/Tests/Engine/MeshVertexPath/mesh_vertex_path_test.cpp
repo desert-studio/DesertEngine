@@ -72,7 +72,7 @@ namespace
     // rather than listed beside it: a second list of the same shaders is exactly the drift this suite is
     // about, so the only thing recorded here is the directory a family lives in.
     //
-    // A table entry is either a program ("Shadow") or a CELL of a surface template
+    // A table entry is either a program ("StaticMeshGlass") or a CELL of a surface template
     // ("StandardSurface/Static.Forward", DShaderParser's SurfaceCellName): the file is named by the part
     // before the slash, the cell by the part after it.
     std::string TemplateOf( const char* tableName )
@@ -92,7 +92,7 @@ namespace
     {
         const std::string           name = TemplateOf( shaderName );
         const std::filesystem::path programs( "Resources/Shaders/Programs" );
-        for ( const char* dir : { "PBR", "Shadow", "Silhouette" } )
+        for ( const char* dir : { "PBR", "Silhouette" } )
         {
             const auto candidate = programs / dir / ( name + ".shader" );
             if ( std::filesystem::exists( candidate ) )

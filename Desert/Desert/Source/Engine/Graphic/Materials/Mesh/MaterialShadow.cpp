@@ -58,7 +58,7 @@ namespace Desert::Graphic
 
     void MaterialShadowSkinned::SetBoneOffset( uint32_t firstBone )
     {
-        // `BoneOffset` in Shadow_Skinned's push block, found by name in the cell's layout.
+        // `BoneOffset` in the Skinned.ShadowDepth cell's push block (Vertex_Skinned.glslh), found by name.
         WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
     }
 } // namespace Desert::Graphic
