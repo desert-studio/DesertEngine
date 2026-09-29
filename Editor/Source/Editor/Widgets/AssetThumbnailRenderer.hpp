@@ -9,6 +9,7 @@
 #include <Engine/Assets/Common.hpp>
 
 #include <Common/Core/ResultStr.hpp>
+#include <Editor/Widgets/ThumbnailFraming.hpp>
 
 #include <chrono>
 #include <future>
@@ -108,7 +109,7 @@ namespace Desert::Editor
         /// Put the scene into the shape this capture needs — the object on its ball, or the cloud layer
         /// under the dome camera — and take the other one down. Called every tick of a capture, because
         /// the scene is shared between the three pictures and only one of them may be standing.
-        void StageSubject();
+        [[nodiscard]] bool StageSubject(); // false: nothing measurable to frame, the capture is abandoned
         void StagePose(); // StageSubject's Subject::Pose branch
 
         /// True while the dome must keep rendering without counting a warm-up frame: the modelling volume
@@ -153,6 +154,8 @@ namespace Desert::Editor
             Pose // a skinned mesh posed: m_PendingHandle + m_PendingClip (null = the bind pose)
         };
         Subject                               m_PendingSubject = Subject::Material;
+        // The subject's frame, measured from the asset's own bounds when the capture was accepted (Mesh, Pose).
+        ThumbnailFraming::Frame               m_PendingFrame;
         Assets::Asset<Assets::AnimationAsset> m_PendingClip;
         // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
         ThumbnailSubject::Preview m_PendingPreview = ThumbnailSubject::Preview::Sphere;

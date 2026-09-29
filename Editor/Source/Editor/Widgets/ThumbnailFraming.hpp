@@ -53,6 +53,23 @@ namespace Desert::Editor::ThumbnailFraming
         bool      Valid  = false;
     };
 
+    /// The frame of one mesh-space box. An empty box (min above max: no submeshes, no vertices) is NOT a
+    /// frame: Valid stays false and the capture is REFUSED with the reason (AssetThumbnailRenderer::Request*).
+    /// There is no stand-in extent — a made-up 1-unit subject put the camera inside the real one and
+    /// photographed the sky as if it were the asset.
+    inline Frame FrameOfBox( const glm::vec3& mn, const glm::vec3& mx )
+    {
+        Frame frame;
+        if ( mx.x < mn.x )
+            return frame;
+
+        frame.Center         = ( mn + mx ) * 0.5f;
+        const glm::vec3 size = mx - mn;
+        frame.Extent         = std::max( size.x, std::max( size.y, size.z ) );
+        frame.Valid          = frame.Extent > 0.0f;
+        return frame;
+    }
+
     /**
      * @brief Union of the submeshes' AABBs in mesh space: each submesh transform applied to its box's 8
      *        corners. Meshes with per-submesh transforms frame correctly this way (an axis-aligned union
@@ -78,15 +95,7 @@ namespace Desert::Editor::ThumbnailFraming
             }
         }
 
-        Frame frame;
-        if ( mx.x < mn.x )
-            return frame; // empty range / empty boxes: caller keeps its fallback framing
-
-        frame.Center         = ( mn + mx ) * 0.5f;
-        const glm::vec3 size = mx - mn;
-        frame.Extent         = std::max( size.x, std::max( size.y, size.z ) );
-        frame.Valid          = true;
-        return frame;
+        return FrameOfBox( mn, mx );
     }
 
     // The world transform (uniform scale + translation) that frames a subject of the given extent/center

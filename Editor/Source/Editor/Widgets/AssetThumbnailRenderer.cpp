@@ -1,5 +1,7 @@
 #include "AssetThumbnailRenderer.hpp"
 
+#include <Engine/Geometry/PosedBounds.hpp>
+
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFraming.hpp>
 
@@ -348,6 +350,26 @@ namespace Desert::Editor
             }
             return slots;
         }
+
+        /// The pose a skinned capture draws, built as PreviewViewport builds it: no clip -> the bind pose
+        /// evaluated by a zero step, a clip -> its middle frame. One builder for the frame measured at the
+        /// request and the animator staged for the draw, so the two cannot disagree.
+        std::unique_ptr<Animation::Animator> BuildPoseAnimator( const Desert::SkinnedMesh&                   mesh,
+                                                                const Assets::Asset<Assets::AnimationAsset>& clip )
+        {
+            auto animator = std::make_unique<Animation::Animator>( mesh.GetSkeleton() );
+            if ( clip )
+            {
+                const auto& c = clip->GetClip();
+                animator->Play( c, true );
+                animator->SetTick( Animation::FrameTime{ Animation::FrameNumber{ c.DurationTicks.Value / 2 } } );
+            }
+            else
+            {
+                animator->Update( Common::Timestep( 0.0f ) ); // the bind pose into the skinning matrices
+            }
+            return animator;
+        }
     } // namespace
 
     Common::BoolResultStr AssetThumbnailRenderer::RequestMesh( const Assets::AssetHandle& meshHandle,
@@ -377,6 +399,17 @@ namespace Desert::Editor
                  "mesh {} is built but has no submeshes, so there is nothing to photograph for '{}'",
                  static_cast<uint64_t>( meshHandle ), outPng );
         }
+        // THE FRAME IS THE ASSET'S OWN BOUNDS, measured here where a refusal can still be told (UE frames a
+        // thumbnail by the asset's Bounds and takes no picture of an object that has none).
+        const auto frame = ThumbnailFraming::MeasureSubmeshes( mesh->GetSubmeshes() );
+        if ( !frame.Valid )
+        {
+            return Common::MakeFormattedError(
+                 "mesh {} has {} submesh(es) but every bounding box is empty, so there is no frame to put a "
+                 "camera on for '{}'",
+                 static_cast<uint64_t>( meshHandle ), mesh->GetSubmeshes().size(), outPng );
+        }
+        m_PendingFrame = frame;
 
         m_PendingHandle   = meshHandle;
         m_PendingMaterial = material;
@@ -408,6 +441,27 @@ namespace Desert::Editor
         auto queued = RequestMesh( meshHandle, outPng );
         if ( !queued.IsSuccess() )
             return queued;
+
+        // A SKINNED MESH IS FRAMED AS IT IS DRAWN. Its submesh boxes are raw-vertex space, which is the drawn
+        // mesh only when the bind is identity; TwoJointProbe's boxes said 80 cm while the bind drew it at a
+        // different size, and the camera photographed the sky from inside it. The posed vertices cannot lie.
+        const auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( meshHandle );
+        // IsSkinned() is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+        const auto* skinnedMesh = static_cast<const Desert::SkinnedMesh*>( mesh );
+        const auto  animator    = BuildPoseAnimator( *skinnedMesh, clip );
+        const auto  box =
+             Geometry::MeasurePosedVertices( skinnedMesh->GetVertices(), animator->GetPose().Matrices );
+        const auto frame = ThumbnailFraming::FrameOfBox( box.Min, box.Max );
+        if ( !frame.Valid )
+        {
+            m_Phase = 0; // withdrawn: the request above queued it before the pose could be measured
+            return Common::MakeFormattedError(
+                 "skinned mesh {} keeps no CPU vertices to measure its pose by, so there is no frame to put a "
+                 "camera on for '{}'",
+                 static_cast<uint64_t>( meshHandle ), outPng );
+        }
+        m_PendingFrame   = frame;
         m_PendingSubject = Subject::Pose;
         m_PendingClip    = std::move( clip );
         return queued;
@@ -432,44 +486,16 @@ namespace Desert::Editor
         anim.Playing          = false;
         anim.Loop             = true;
 
-        glm::vec3 center( 0.0f );
-        float     extent = 1.0f;
         if ( auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle );
              mesh != nullptr && mesh->IsSkinned() )
         {
-            // IsSkinned() above is the mesh's own type tag: a skinned mesh IS a SkinnedMesh.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-            const auto* skinnedMesh = static_cast<Desert::SkinnedMesh*>( mesh );
-            anim.Animator           = std::make_unique<Animation::Animator>( skinnedMesh->GetSkeleton() );
-            if ( m_PendingClip )
-            {
-                const auto& clip = m_PendingClip->GetClip();
-                anim.Animator->Play( clip, true );
-                anim.Animator->SetTick(
-                     Animation::FrameTime{ Animation::FrameNumber{ clip.DurationTicks.Value / 2 } } );
-            }
-            else
-            {
-                anim.Animator->Update( Common::Timestep( 0.0f ) ); // the bind pose into the skinning matrices
-            }
-            if ( const auto frame = ThumbnailFraming::MeasureSubmeshes( mesh->GetSubmeshes() ); frame.Valid )
-            {
-                center = frame.Center;
-                extent = frame.Extent;
-            }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) -- IsSkinned() is the type tag
+            anim.Animator = BuildPoseAnimator( *static_cast<Desert::SkinnedMesh*>( mesh ), m_PendingClip );
         }
-        // What the pose picture was staged from: an unresolved mesh or empty boxes frame a 1 cm subject.
-        const auto* staged = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle );
-        LOG_DEBUG(
-             "[Thumbnails] pose of mesh {}: resolved {}, skinned {}, {} submesh(es), {} slot(s), animator {}, "
-             "framed at ({:.1f}, {:.1f}, {:.1f}) extent {:.1f}",
-             static_cast<uint64_t>( m_PendingHandle ), staged != nullptr, staged != nullptr && staged->IsSkinned(),
-             staged != nullptr ? staged->GetSubmeshes().size() : 0, skinned.MaterialSlots.size(),
-             anim.Animator != nullptr, center.x, center.y, center.z, extent );
-        FitTarget( center, extent );
+        FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
     }
 
-    void AssetThumbnailRenderer::StageSubject()
+    bool AssetThumbnailRenderer::StageSubject()
     {
         // A pose capture leaves its two components behind; every other subject is one static mesh component.
         if ( m_Target.HasComponent<ECS::AnimationComponent>() )
@@ -525,7 +551,7 @@ namespace Desert::Editor
                                             glm::vec3( kDomePitch, kDomeYaw, 0.0f ), kDomeFov, kDomeNearPlane,
                                             kDomeFarPlane, kRenderSize, kRenderSize );
             m_Scene->PinActiveCamera( m_DomeCamera );
-            return;
+            return true;
         }
 
         // ── NOT THE DOME: TAKE IT DOWN ────────────────────────────────────────────────────────────────
@@ -558,18 +584,9 @@ namespace Desert::Editor
             smc.RuntimeMaterialInstances.clear();
             smc.MeshHandle = m_PendingHandle;
 
-            glm::vec3 center( 0.0f );
-            float     extent = 1.0f;
+            // Framed by the asset's bounds measured at the request (RequestMesh refused a mesh without them).
             if ( auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( m_PendingHandle ) )
             {
-                // Union of the submesh AABBs in MESH space — ThumbnailFraming::MeasureSubmeshes, shared
-                // with the material branch below so both frame what is actually drawn.
-                if ( const auto frame = ThumbnailFraming::MeasureSubmeshes( mesh->GetSubmeshes() ); frame.Valid )
-                {
-                    center = frame.Center;
-                    extent = frame.Extent;
-                }
-
                 // Slot count = submesh count; a sidecar material wears every slot. Without one, THE MESH'S OWN
                 // SLOTS — the .demat each submesh names by GUID, as an imported mesh carries them and as the
                 // scene draws them (MeshECSSystem). Clearing them here photographed every import in the
@@ -584,7 +601,7 @@ namespace Desert::Editor
             {
                 smc.MaterialSlots.clear();
             }
-            FitTarget( center, extent );
+            FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
         }
         else
         {
@@ -606,18 +623,20 @@ namespace Desert::Editor
             // the migrated camera no longer looks at), the capture came out as the flank of a 400-unit
             // sphere the camera was practically resting on: a wall of albedo under sky, with no sphere in
             // it. See ThumbnailFraming for the framing rule and the measured geometry.
-            glm::vec3 matCenter( 0.0f );
-            float     matExtent = 1.0f;
-            if ( auto* prim = Geometry::PrimitiveMeshFactory::GetShared( *smc.Primitive ) )
+            // No stand-in: a sphere that cannot be measured is not photographed (TickCapture abandons it).
+            const auto* prim  = Geometry::PrimitiveMeshFactory::GetShared( *smc.Primitive );
+            const auto  frame = prim != nullptr ? ThumbnailFraming::MeasureSubmeshes( prim->GetSubmeshes() )
+                                                : ThumbnailFraming::Frame{};
+            if ( !frame.Valid )
             {
-                if ( const auto frame = ThumbnailFraming::MeasureSubmeshes( prim->GetSubmeshes() ); frame.Valid )
-                {
-                    matCenter = frame.Center;
-                    matExtent = frame.Extent;
-                }
+                LOG_ERROR( "[AssetThumbnailRenderer] the preview sphere has no measurable bounds, so '{}' is not "
+                           "captured",
+                           m_PendingPng );
+                return false;
             }
-            FitTarget( matCenter, matExtent );
+            FitTarget( frame.Center, frame.Extent );
         }
+        return true;
     }
 
     bool AssetThumbnailRenderer::DomeIsStillSettling()
@@ -692,7 +711,13 @@ namespace Desert::Editor
         // the two paths resolve a material differently, so a preview taken on one proves nothing about the
         // other (Docs/MaterialEditor/STAGE1_END_TO_END.md). Every capture below now goes through
         // MaterialSlots, the per-slot route the scene itself uses.
-        StageSubject();
+        if ( !StageSubject() )
+        {
+            // Nothing measurable to frame, and StageSubject said so: abandoned like a scene that would not
+            // initialise, so no picture of the backdrop is written as the asset.
+            m_Phase = 0;
+            return;
+        }
 
         // Render this frame (recorded into the editor's in-flight frame, submitted at frame end).
         RecordRender();

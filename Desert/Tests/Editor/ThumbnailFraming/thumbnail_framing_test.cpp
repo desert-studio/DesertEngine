@@ -31,6 +31,7 @@
 #include <gtest/gtest.h>
 
 #include <Editor/Widgets/ThumbnailFraming.hpp>
+#include <Engine/Geometry/PosedBounds.hpp>
 
 #include <Common/Core/Units.hpp>
 
@@ -291,6 +292,45 @@ TEST( ThumbnailFraming, DegenerateExtentStaysFinite )
     const glm::vec2 ndc = ProjectToNdc( cam, placement.Translation );
     EXPECT_NEAR( ndc.x, 0.0f, 0.02f );
     EXPECT_NEAR( ndc.y, 0.0f, 0.02f );
+}
+
+// THM1n-8: no stand-in frame. Nothing to measure -> not a frame (the capture is refused), never a 1-unit subject.
+TEST( ThumbnailFraming, EmptyBoundsAreNotAFrame )
+{
+    EXPECT_FALSE( TF::MeasureSubmeshes( std::vector<StubSubmesh>{} ).Valid );
+    EXPECT_FALSE( TF::FrameOfBox( glm::vec3( 1e9f ), glm::vec3( -1e9f ) ).Valid );
+    EXPECT_FALSE( TF::FrameOfBox( glm::vec3( 5.0f ), glm::vec3( 5.0f ) ).Valid ); // a point has no extent
+}
+
+namespace
+{
+    struct StubVertexPosition
+    {
+        glm::vec3 Position{ 0.0f };
+    };
+    struct StubSkinnedVertex
+    {
+        StubVertexPosition      StaticVertex;
+        std::array<uint32_t, 4> BoneIDs{ 0, 0, 0, 0 };
+        std::array<float, 4>    BoneWeights{ 1.0f, 0.0f, 0.0f, 0.0f };
+    };
+} // namespace
+
+// THM1n-8: a skinned mesh is framed as DRAWN. Raw vertices span 0..80 on Y, the bind scales by 100: the frame
+// is 8000 units, not the 80 the raw (submesh-box) space claims -- which put the camera inside the mesh.
+TEST( ThumbnailFraming, SkinnedMeshIsFramedByItsPosedVertices )
+{
+    std::vector<StubSkinnedVertex> verts( 2 );
+    verts[1].StaticVertex.Position = glm::vec3( 0.0f, 80.0f, 0.0f );
+    const std::vector<glm::mat4> skin{ glm::scale( glm::mat4( 1.0f ), glm::vec3( 100.0f ) ) };
+
+    const auto box   = Desert::Geometry::MeasurePosedVertices( verts, skin );
+    const auto frame = TF::FrameOfBox( box.Min, box.Max );
+    ASSERT_TRUE( frame.Valid );
+    EXPECT_FLOAT_EQ( frame.Extent, 8000.0f );
+    EXPECT_FLOAT_EQ( frame.Center.y, 4000.0f );
+
+    EXPECT_FALSE( Desert::Geometry::MeasurePosedVertices( std::vector<StubSkinnedVertex>{}, skin ).Valid() );
 }
 
 int main( int argc, char** argv )
