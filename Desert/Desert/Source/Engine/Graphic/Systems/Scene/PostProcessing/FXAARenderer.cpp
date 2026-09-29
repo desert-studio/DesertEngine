@@ -41,32 +41,18 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void FXAARenderer::Execute()
-    {
-        auto& renderer = Renderer::GetInstance();
-
-        auto renderPass = RenderPass::Create( {
-             .TargetFramebuffer = m_Framebuffer,
-             .DebugName         = "FXAAPass",
-        } );
-
-        renderer.BeginRenderPass( renderPass.get() );
-        Render();
-        renderer.EndRenderPass();
-    }
-
     void FXAARenderer::Resize( uint32_t width, uint32_t height )
     {
         if ( m_Framebuffer )
             m_Framebuffer->Resize( width, height );
     }
 
-    void FXAARenderer::Render()
+    void FXAARenderer::Record()
     {
         const auto& inputFramebuffer = m_TargetFramebuffer.lock();
         if ( !inputFramebuffer )
         {
-            LOG_ERROR( "FXAARenderer::Render: input framebuffer was destroyed or not set up" );
+            LOG_ERROR( "FXAARenderer::Record: input framebuffer was destroyed or not set up" );
             return;
         }
 

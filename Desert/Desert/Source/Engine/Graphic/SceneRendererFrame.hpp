@@ -79,7 +79,6 @@ namespace Desert::Graphic
             return refs;
         }
 
-    private:
         // An attachment the engine keeps outside SHADER_READ_ONLY (a depth, a multisampled colour), imported with
         // the layout its image records; Execute writes the layout the graph leaves back into the image. An image
         // that cannot be imported gets an invalid ref, and the error is logged.
@@ -100,6 +99,7 @@ namespace Desert::Graphic
             return ref;
         }
 
+    private:
         RDG::TextureRef Get( const std::shared_ptr<Image2D>& image, std::string_view name )
         {
             if ( !image )

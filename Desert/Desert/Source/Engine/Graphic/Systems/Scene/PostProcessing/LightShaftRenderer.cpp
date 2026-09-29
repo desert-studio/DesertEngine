@@ -83,7 +83,7 @@ namespace Desert::Graphic::System
 
         m_PingImage  = make( "LightShaftPing" );
         m_PongImage  = make( "LightShaftPong" );
-        m_ShaftImage = m_PongImage; // 3 passes: mask->ping, ping->pong, pong->ping, ping->pong
+        m_ShaftImage = GetBlurTarget( kBlurPasses - 1 ); // mask->ping, ping->pong, pong->ping, ping->pong
 
         return m_PingImage && m_PongImage;
     }
@@ -122,62 +122,44 @@ namespace Desert::Graphic::System
         CreateImages( width, height );
     }
 
-    void LightShaftRenderer::Execute( const glm::vec2& sunScreenUv, float screenFade )
+    bool LightShaftRenderer::Prepare() const
     {
-        // When the effect contributes nothing this frame the dispatches are skipped entirely; the
-        // tonemap's shaft INTENSITY is zero in exactly the same frames (SceneRenderer derives both from
-        // the same params), so the stale image contents are multiplied away — the bloom image works the
-        // same way when bloom is off.
-        if ( !m_Params.Enabled || screenFade <= 0.0f || m_Params.BloomScale <= 0.0f )
-            return;
+        return GetSceneColorImage() && m_PingImage && m_PongImage && m_MaskPipeline && m_BlurPipeline;
+    }
 
-        const auto& scene = m_TargetFramebuffer.lock();
-        if ( !scene || !m_PingImage || !m_PongImage || !m_MaskPipeline || !m_BlurPipeline )
+    // When the effect contributes nothing this frame the dispatches are skipped entirely; the tonemap's shaft
+    // INTENSITY is zero in exactly the same frames (SceneRenderer derives both from the same params), so the
+    // stale image contents are multiplied away — the bloom image works the same way when bloom is off.
+    void LightShaftRenderer::RecordMask( const glm::vec2& sunScreenUv, float screenFade )
+    {
+        if ( !IsActive( screenFade ) )
             return;
-
-        Image2D* sceneColor = scene->GetColorAttachmentImage().get();
+        const auto sceneColor = GetSceneColorImage();
         if ( !sceneColor )
             return;
-
-        const uint32_t sw = m_PingImage->GetWidth();
-        const uint32_t sh = m_PingImage->GetHeight();
-
-        auto& renderer = Renderer::GetInstance();
-
-        // --- Mask: scene HDR -> ping -------------------------------------------------------------
-        renderer.ComputeImageBeginWrite( m_PingImage.get() );
-
         MaskPush maskPush{ sunScreenUv, m_Params.Threshold, m_Params.MaxBrightness, kMaskWindow };
-        m_MaskPipeline->SetInput( 0, sceneColor );
+        m_MaskPipeline->SetInput( 0, sceneColor.get() );
         m_MaskPipeline->SetOutput( 1, m_PingImage.get() );
         m_MaskPipeline->SetPushConstants( &maskPush, sizeof( maskPush ) );
-        renderer.DispatchComputeInFrame( m_MaskPipeline.get(), GroupCount( sw ), GroupCount( sh ), 1 );
+        Renderer::GetInstance().DispatchComputeInFrame( m_MaskPipeline.get(),
+                                                        GroupCount( m_PingImage->GetWidth() ),
+                                                        GroupCount( m_PingImage->GetHeight() ), 1 );
+    }
 
-        renderer.ComputeImageEndWrite( m_PingImage.get() );
-
-        // --- Radial blur, ping-pong, reach growing kTaps-fold per pass ---------------------------
-        Image2D* src = m_PingImage.get();
-        Image2D* dst = m_PongImage.get();
-
-        float reach = kBaseReach;
-        for ( uint32_t pass = 0; pass < kBlurPasses; ++pass )
-        {
-            renderer.ComputeImageBeginWrite( dst );
-
-            BlurPush blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
-            m_BlurPipeline->SetInput( 0, src );
-            m_BlurPipeline->SetOutput( 1, dst );
-            m_BlurPipeline->SetPushConstants( &blurPush, sizeof( blurPush ) );
-            renderer.DispatchComputeInFrame( m_BlurPipeline.get(), GroupCount( sw ), GroupCount( sh ), 1 );
-
-            renderer.ComputeImageEndWrite( dst );
-
-            std::swap( src, dst );
+    // Radial blur pass @p pass of the ping-pong; the reach grows kPassScale-fold per pass.
+    void LightShaftRenderer::RecordBlur( uint32_t pass, const glm::vec2& sunScreenUv, float screenFade )
+    {
+        if ( !IsActive( screenFade ) || pass >= kBlurPasses )
+            return;
+        float reach = kBaseReach; // grown by repeated multiplication, as the single loop did
+        for ( uint32_t i = 0; i < pass; ++i )
             reach *= kPassScale;
-        }
-
-        // After an odd/even dance, `src` holds the last output. Three passes: mask->ping, ping->pong,
-        // pong->ping, ping->pong — the loop swapped after the last write, so src points at it.
-        m_ShaftImage = ( src == m_PingImage.get() ) ? m_PingImage : m_PongImage;
+        BlurPush blurPush{ sunScreenUv, std::min( reach, 1.0f ), kBlurDecay };
+        m_BlurPipeline->SetInput( 0, GetBlurSource( pass ).get() );
+        m_BlurPipeline->SetOutput( 1, GetBlurTarget( pass ).get() );
+        m_BlurPipeline->SetPushConstants( &blurPush, sizeof( blurPush ) );
+        Renderer::GetInstance().DispatchComputeInFrame( m_BlurPipeline.get(),
+                                                        GroupCount( m_PingImage->GetWidth() ),
+                                                        GroupCount( m_PingImage->GetHeight() ), 1 );
     }
 } // namespace Desert::Graphic::System

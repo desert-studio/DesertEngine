@@ -572,15 +572,18 @@ namespace Desert::Graphic
         void AddFrameAtmosphericFog( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameVolumetricClouds( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameJumpFlood( RDG::Builder& graph );
-        void AddFrameAutoExposure( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
-        void AddFrameBloom( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
-        void AddFrameLightShafts( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+        void AddFrameAutoExposure( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                   const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameBloom( RDG::Builder& graph, LegacyFrameTextures& textures,
+                            const std::vector<RDG::TextureRef>& sceneColor );
+        void AddFrameLightShafts( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                  const std::vector<RDG::TextureRef>&       sceneColor,
                                   const std::shared_ptr<LegacyFrameValues>& values );
         void AddFrameLensFlare( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<LegacyFrameValues>& values );
-        void AddFrameTonemap( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
-        void AddFrameFXAA( RDG::Builder& graph );
-        void AddFrameSMAA( RDG::Builder& graph );
+        void AddFrameTonemap( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameFXAA( RDG::Builder& graph, LegacyFrameTextures& textures );
+        void AddFrameSMAA( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor );
 

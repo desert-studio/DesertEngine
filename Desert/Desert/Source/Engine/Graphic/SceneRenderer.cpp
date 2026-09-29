@@ -894,22 +894,22 @@ namespace Desert::Graphic
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
 
         AddFrameJumpFlood( graph );
-        AddFrameAutoExposure( graph, sceneColor() );
+        AddFrameAutoExposure( graph, textures, sceneColor() );
         if ( m_BloomEnabled )
         {
-            AddFrameBloom( graph, sceneColor() );
+            AddFrameBloom( graph, textures, sceneColor() );
         }
-        AddFrameLightShafts( graph, sceneColor(), values );
+        AddFrameLightShafts( graph, textures, sceneColor(), values );
         AddFrameLensFlare( graph, sceneColor(), values );
-        AddFrameTonemap( graph, sceneColor() );
+        AddFrameTonemap( graph, textures );
 
         if ( m_AAMode == Common::Settings::AntiAliasingMode::FXAA )
         {
-            AddFrameFXAA( graph );
+            AddFrameFXAA( graph, textures );
         }
         else if ( m_AAMode == Common::Settings::AntiAliasingMode::SMAA )
         {
-            AddFrameSMAA( graph );
+            AddFrameSMAA( graph, textures );
         }
 
         if ( const auto executed = Renderer::GetInstance().ExecuteGraph( graph ); !executed )

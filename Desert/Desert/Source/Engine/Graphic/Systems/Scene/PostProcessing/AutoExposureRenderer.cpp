@@ -116,41 +116,37 @@ namespace Desert::Graphic::System
                m_AveragePipeline;
     }
 
-    void AutoExposureRenderer::Execute()
+    bool AutoExposureRenderer::Prepare()
+    {
+        if ( !GetSceneColorImage() || !m_Histogram || !m_ClearPipeline || !m_HistogramPipeline ||
+             !m_AveragePipeline )
+            return false;
+        m_ReadIndex = 1 - m_ReadIndex; // this frame writes the other image and adapts from the last one
+        return true;
+    }
+
+    void AutoExposureRenderer::RecordClear()
+    {
+        m_ClearPipeline->SetStorageBuffer( 1, m_Histogram.get() );
+        Renderer::GetInstance().DispatchComputeInFrame( m_ClearPipeline.get(), 1, 1, 1 );
+    }
+
+    void AutoExposureRenderer::RecordHistogram()
     {
         const auto& scene = m_TargetFramebuffer.lock();
-        if ( !scene || !m_Histogram || !m_ClearPipeline || !m_HistogramPipeline || !m_AveragePipeline )
+        if ( !scene )
             return;
-
-        Image2D* sceneColor = scene->GetColorAttachmentImage().get();
-        if ( !sceneColor )
-            return;
-
-        const uint32_t sceneW = scene->GetFramebufferWidth();
-        const uint32_t sceneH = scene->GetFramebufferHeight();
-
-        const int prev  = m_ReadIndex;     // last frame's adapted luminance (sampled)
-        const int write = 1 - m_ReadIndex; // new value written here
-        Image2D*  prevLum = m_LumImage[prev].get();
-        Image2D*  newLum  = m_LumImage[write].get();
-
-        auto& renderer = Renderer::GetInstance();
-
-        // newLum -> GENERAL + a graphics->compute barrier so the scene color (and prevLum) are visible.
-        renderer.ComputeImageBeginWrite( newLum );
-
-        // 1) Zero the histogram.
-        m_ClearPipeline->SetStorageBuffer( 1, m_Histogram.get() );
-        renderer.DispatchComputeInFrame( m_ClearPipeline.get(), 1, 1, 1 );
-
-        // 2) Build the histogram from the full scene (one thread per texel, atomic adds).
         HistogramPush hp{ kWindow.MinLogLum, 1.0f / kWindow.Range() };
-        m_HistogramPipeline->SetInput( 0, sceneColor );
+        m_HistogramPipeline->SetInput( 0, scene->GetColorAttachmentImage().get() );
         m_HistogramPipeline->SetStorageBuffer( 1, m_Histogram.get() );
         m_HistogramPipeline->SetPushConstants( &hp, sizeof( hp ) );
-        renderer.DispatchComputeInFrame( m_HistogramPipeline.get(), GroupCount( sceneW ),
-                                         GroupCount( sceneH ), 1 );
+        Renderer::GetInstance().DispatchComputeInFrame( m_HistogramPipeline.get(),
+                                                        GroupCount( scene->GetFramebufferWidth() ),
+                                                        GroupCount( scene->GetFramebufferHeight() ), 1 );
+    }
 
+    void AutoExposureRenderer::RecordAverage()
+    {
         // 3) Resolve: percentile-clipped weighted average + temporal adaptation -> newLum (1x1).
         //
         // kSnapAdaptSpeed makes `1 - exp(-dt * speed)` exactly 1 in float for any dt this engine produces,
@@ -167,14 +163,9 @@ namespace Desert::Graphic::System
         AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
                         kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
         m_AveragePipeline->SetStorageBuffer( 0, m_Histogram.get() );
-        m_AveragePipeline->SetInput( 1, prevLum );
-        m_AveragePipeline->SetOutput( 2, newLum, 0 );
+        m_AveragePipeline->SetInput( 1, GetPreviousLuminanceImage().get() );
+        m_AveragePipeline->SetOutput( 2, GetAdaptedLuminanceImage().get(), 0 );
         m_AveragePipeline->SetPushConstants( &ap, sizeof( ap ) );
-        renderer.DispatchComputeInFrame( m_AveragePipeline.get(), 1, 1, 1 );
-
-        // newLum -> SHADER_READ_ONLY so tonemap can sample it.
-        renderer.ComputeImageEndWrite( newLum );
-
-        m_ReadIndex = write; // the freshly written buffer is now the latest
+        Renderer::GetInstance().DispatchComputeInFrame( m_AveragePipeline.get(), 1, 1, 1 );
     }
 } // namespace Desert::Graphic::System

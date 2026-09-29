@@ -41,9 +41,42 @@ namespace Desert::Graphic::System
         {
         }
 
+        // The mask and every blur pass are compute nodes of the frame graph (SceneRendererFramePostFX.cpp
+        // "PostFX: LightShaft*"): the mask samples GetSceneColorImage() and writes GetPingImage(); blur pass p
+        // samples GetBlurSource( p ) and writes GetBlurTarget( p ). The last pass writes GetShaftImage().
+        // False: nothing to record (no scene colour, images or pipelines).
+        bool Prepare() const;
         // @p sunScreenUv is the sun's position in [0,1] screen UV; @p screenFade is the CPU-computed
-        // fade for a sun leaving the view (0 = fully off-screen or behind, dispatches are skipped).
-        void Execute( const glm::vec2& sunScreenUv, float screenFade );
+        // fade for a sun leaving the view (0 = fully off-screen or behind: the dispatches are skipped).
+        bool IsActive( float screenFade ) const
+        {
+            return m_Params.Enabled && screenFade > 0.0f && m_Params.BloomScale > 0.0f;
+        }
+        void RecordMask( const glm::vec2& sunScreenUv, float screenFade );
+        void RecordBlur( uint32_t pass, const glm::vec2& sunScreenUv, float screenFade );
+
+        static constexpr uint32_t GetBlurPassCount()
+        {
+            return kBlurPasses;
+        }
+        std::shared_ptr<Image2D> GetSceneColorImage() const
+        {
+            const auto scene = m_TargetFramebuffer.lock();
+            return scene ? scene->GetColorAttachmentImage() : nullptr;
+        }
+        const std::shared_ptr<Image2D>& GetPingImage() const
+        {
+            return m_PingImage;
+        }
+        // Mask -> ping, then ping -> pong, pong -> ping, ping -> pong.
+        const std::shared_ptr<Image2D>& GetBlurSource( uint32_t pass ) const
+        {
+            return pass % 2 == 0 ? m_PingImage : m_PongImage;
+        }
+        const std::shared_ptr<Image2D>& GetBlurTarget( uint32_t pass ) const
+        {
+            return pass % 2 == 0 ? m_PongImage : m_PingImage;
+        }
         void Resize( uint32_t width, uint32_t height );
 
         void SetParams( const Params& params )
@@ -72,7 +105,7 @@ namespace Desert::Graphic::System
 
         static constexpr uint32_t kBlurPasses = 3;
 
-        // Ping-pong pair at half resolution; m_ShaftImage aliases whichever held the last blur output.
+        // Ping-pong pair at half resolution; m_ShaftImage aliases the last blur pass's target.
         std::shared_ptr<Image2D> m_PingImage;
         std::shared_ptr<Image2D> m_PongImage;
         std::shared_ptr<Image2D> m_ShaftImage;

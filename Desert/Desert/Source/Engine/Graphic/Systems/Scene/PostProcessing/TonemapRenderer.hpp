@@ -16,14 +16,36 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        // Tonemap runs as part of the explicit post-process chain (after the Jump Flood outline),
-        // not through the render graph.
+        // Tonemap is a raster node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: Tonemap"), after
+        // the Jump Flood outline; it is not registered through RegisterPasses.
         void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
         {
         }
 
-        // Reads the configured source framebuffer and writes the tonemapped final image.
-        void Execute();
+        // Every image the tonemap samples, as bound this frame: the frame graph declares each one as a read of
+        // the tonemap node. A null image is one no pass has handed over (yet).
+        struct Inputs
+        {
+            std::shared_ptr<Image2D> Source; // the configured source framebuffer's colour 0
+            std::shared_ptr<Image2D> Bloom;
+            std::shared_ptr<Image2D> AutoExposure;
+            std::shared_ptr<Image2D> LightShafts;
+            std::shared_ptr<Image2D> LensFlare;
+        };
+        Inputs GetInputs() const
+        {
+            const auto source = m_TargetFramebuffer.lock();
+            return { source ? source->GetColorAttachmentImage() : nullptr, m_BloomImage.lock(),
+                     m_AutoExposureImage.lock(), m_LightShaftImage.lock(), m_LensFlareImage.lock() };
+        }
+        // The tonemapped image, colour 0 of GetSystemFramebuffer(): the node's ColorTarget.
+        std::shared_ptr<Image2D> GetOutputImage() const
+        {
+            return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+
+        // Records the fullscreen tonemap inside the render pass the frame graph opens on GetOutputImage().
+        void Record();
 
         void Resize( uint32_t width, uint32_t height );
 
@@ -103,8 +125,6 @@ namespace Desert::Graphic::System
             m_LensFlareTint      = tint;
         }
 
-    private:
-        void Render();
     private:
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         std::shared_ptr<Shader>   m_Shader;

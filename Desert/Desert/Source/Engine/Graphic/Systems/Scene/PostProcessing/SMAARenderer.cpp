@@ -134,46 +134,32 @@ namespace Desert::Graphic::System
         }
     }
 
-    void SMAARenderer::Execute()
+    bool SMAARenderer::Prepare() const
     {
-        const auto& input = m_TargetFramebuffer.lock();
-        if ( !input || !m_AreaTex || !m_SearchTex )
-        {
-            LOG_ERROR( "SMAARenderer::Execute: missing input framebuffer or LUTs" );
-            return;
-        }
+        if ( GetInputImage() && m_AreaTex && m_SearchTex )
+            return true;
+        LOG_ERROR( "SMAARenderer::Prepare: missing input framebuffer or LUTs" );
+        return false;
+    }
 
-        auto&      renderer   = Renderer::GetInstance();
-        const auto inputColor = input->GetColorAttachmentImage();
+    void SMAARenderer::RecordEdges()
+    {
+        m_MatEdges->BindInputs( GetInputImage() );
+        Renderer::GetInstance().SubmitFullscreenQuad( m_EdgesPipeline.get(), m_MatEdges->GetMaterialExecutor() );
+    }
 
-        // Pass 1 — edge detection: scene color -> edges.
-        {
-            auto rp = RenderPass::Create( { .TargetFramebuffer = m_EdgesFB, .DebugName = "SMAAEdgesPass" } );
-            renderer.BeginRenderPass( rp.get() );
-            m_MatEdges->BindInputs( inputColor );
-            renderer.SubmitFullscreenQuad( m_EdgesPipeline.get(), m_MatEdges->GetMaterialExecutor() );
-            renderer.EndRenderPass();
-        }
+    void SMAARenderer::RecordWeights()
+    {
+        m_MatWeights->BindInputs( m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get(), m_SearchTex.get() );
+        Renderer::GetInstance().SubmitFullscreenQuad( m_WeightsPipeline.get(),
+                                                      m_MatWeights->GetMaterialExecutor() );
+    }
 
-        // Pass 2 — blend weights: edges + AreaTex + SearchTex -> weights.
-        {
-            auto rp = RenderPass::Create( { .TargetFramebuffer = m_WeightsFB, .DebugName = "SMAAWeightsPass" } );
-            renderer.BeginRenderPass( rp.get() );
-            m_MatWeights->BindInputs( m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get(),
-                                      m_SearchTex.get() );
-            renderer.SubmitFullscreenQuad( m_WeightsPipeline.get(), m_MatWeights->GetMaterialExecutor() );
-            renderer.EndRenderPass();
-        }
-
-        // Pass 3 — neighborhood blending: scene color + weights -> final.
-        {
-            auto rp = RenderPass::Create( { .TargetFramebuffer = m_Framebuffer, .DebugName = "SMAABlendPass" } );
-            renderer.BeginRenderPass( rp.get() );
-            m_MatBlend->BindInputs( inputColor, m_WeightsFB->GetColorAttachmentImage().get(),
-                                    m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get() );
-            renderer.SubmitFullscreenQuad( m_BlendPipeline.get(), m_MatBlend->GetMaterialExecutor() );
-            renderer.EndRenderPass();
-        }
+    void SMAARenderer::RecordBlend()
+    {
+        m_MatBlend->BindInputs( GetInputImage(), m_WeightsFB->GetColorAttachmentImage().get(),
+                                m_EdgesFB->GetColorAttachmentImage().get(), m_AreaTex.get() );
+        Renderer::GetInstance().SubmitFullscreenQuad( m_BlendPipeline.get(), m_MatBlend->GetMaterialExecutor() );
     }
 
     void SMAARenderer::Resize( uint32_t width, uint32_t height )

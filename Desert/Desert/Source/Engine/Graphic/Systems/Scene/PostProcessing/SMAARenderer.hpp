@@ -23,7 +23,42 @@ namespace Desert::Graphic::System
         {
         }
 
-        void Execute();
+        // Each pass is a raster node of the frame graph (SceneRendererFramePostFX.cpp "PostFX: SMAA*"), which
+        // opens the render pass on the step's output. False: the input or a LUT is missing.
+        bool Prepare() const;
+        // Pass 1, into GetEdgesImage(): edge detection on GetInputImage().
+        void RecordEdges();
+        // Pass 2, into GetWeightsImage(): blend weights from the edges + AreaTex + SearchTex.
+        void RecordWeights();
+        // Pass 3, into GetOutputImage(): neighbourhood blending of the input with the weights.
+        void RecordBlend();
+
+        std::shared_ptr<Image2D> GetInputImage() const
+        {
+            const auto input = m_TargetFramebuffer.lock();
+            return input ? input->GetColorAttachmentImage() : nullptr;
+        }
+        std::shared_ptr<Image2D> GetEdgesImage() const
+        {
+            return m_EdgesFB ? m_EdgesFB->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+        std::shared_ptr<Image2D> GetWeightsImage() const
+        {
+            return m_WeightsFB ? m_WeightsFB->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+        std::shared_ptr<Image2D> GetOutputImage() const
+        {
+            return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage( 0 ) : nullptr;
+        }
+        const std::shared_ptr<Image2D>& GetAreaTex() const
+        {
+            return m_AreaTex;
+        }
+        const std::shared_ptr<Image2D>& GetSearchTex() const
+        {
+            return m_SearchTex;
+        }
+
         void Resize( uint32_t width, uint32_t height );
 
     private:
