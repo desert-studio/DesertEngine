@@ -10,6 +10,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Import/CookPaths.hpp>
+#include <Editor/Import/ImportSettingsEdits.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/MaterialAdoption.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -162,6 +163,50 @@ TEST( ImportRecord, TheRecordStatesTheImportedBoxAndTheRegistryReadsItWithoutThe
     const auto row = RowOf( project.Asset() );
     ASSERT_TRUE( row.has_value() && row->Bounds.has_value() ) << "the registry row carries no box";
     EXPECT_EQ( row->Bounds->Max, expected->Max );
+}
+
+// THM1l-b11: THE DETAILS' WORKING COPY IS KEPT WITH ITS RECORD. Live, on a real rig: UniformScale edited 10 -> 1
+// in the .deimport, then Reimport - and the record came back as 10, rewritten from the copy the section had read
+// once for the session. Reimport takes EditOf's copy, so the copy must be the record's whenever the record is
+// newer, and must keep an edit not yet applied while the record has not moved.
+TEST( ImportRecord, TheDetailsCopyIsReadAgainWhenTheRecordOnDiskIsNewer )
+{
+    const Project project( "details_copy" );
+    const auto    box = Ser::MeshDataBounds( Quad() );
+    ASSERT_TRUE( box.has_value() );
+    Assets::SourceImportSettings imported;
+    imported.Mesh.UniformScale = 10.0f;
+    ASSERT_TRUE(
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box, imported ) );
+
+    const auto first = Editor::ImportOptions::EditOf( project.Source );
+    ASSERT_TRUE( first ) << first.GetError();
+    EXPECT_EQ( first.GetValue()->Edit.Mesh.UniformScale, 10.0f );
+    first.GetValue()->Edit.Mesh.UpAxis = Assets::MeshSourceUpAxis::Z; // an edit in the section, not applied
+    const auto kept                    = Editor::ImportOptions::EditOf( project.Source );
+    ASSERT_TRUE( kept );
+    EXPECT_EQ( kept.GetValue()->Edit.Mesh.UpAxis, Assets::MeshSourceUpAxis::Z )
+         << "an edit was dropped although the record did not change";
+
+    // The record is edited on disk (a person, a tool, another editor): the next ask - the one Reimport makes - is
+    // it.
+    Assets::SourceImportSettings onDisk;
+    onDisk.Mesh.UniformScale = 1.0f;
+    ASSERT_TRUE(
+         Ser::EnsureImportRecord( project.Source, Common::Content::ContentKind::StaticMesh, *box, onDisk ) );
+    const fs::path record = Common::Content::ImportRecordPathFor( project.Source );
+    fs::last_write_time( record, fs::last_write_time( record ) + std::chrono::seconds( 2 ) );
+    const auto again = Editor::ImportOptions::EditOf( project.Source );
+    ASSERT_TRUE( again ) << again.GetError();
+    EXPECT_EQ( again.GetValue()->Edit.Mesh.UniformScale, 1.0f )
+         << "Reimport would import with the copy read before the record was edited, and write it back";
+    EXPECT_EQ( again.GetValue()->Recorded.Mesh.UniformScale, 1.0f );
+    EXPECT_EQ( again.GetValue()->Edit.Mesh.UpAxis, onDisk.Mesh.UpAxis );
+
+    Editor::ImportOptions::DropEdit( project.Source );
+    fs::remove( record );
+    EXPECT_FALSE( Editor::ImportOptions::EditOf( project.Source ) )
+         << "a source with no record has no copy to import with";
 }
 
 // No legacy: a version-1 record (no box) is refused, naming the record, and is re-imported - never read.

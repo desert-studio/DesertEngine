@@ -17,6 +17,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Assets
@@ -168,7 +169,20 @@ namespace Desert::Assets
                 std::mutex                   Mutex;
                 Common::Utils::AssetRegistry Registry;
                 bool                         Dirty = false;
+                // THE WRITE JOURNAL (UE: IAssetRegistry::OnAssetAdded / OnAssetUpdated). Every file the cook
+                // or an import writes is stamped with the next serial, keyed by its row; an index built over
+                // the rows (the animation library's clips by rig) asks `WrittenSince` for what it has not seen
+                // instead of being rebuilt, so a clip an import has just written is offered without a rescan.
+                // One entry per row, so it is bounded by the registry; the serial never goes back.
+                uint64_t                                  WriteSerial = 0;
+                std::unordered_map<std::string, uint64_t> WrittenAt;
             };
+
+            // Called under the state's lock, on every path of NoteFile that leaves the file with a row.
+            inline void MarkWritten_( State& state, const std::string& key )
+            {
+                state.WrittenAt[key] = ++state.WriteSerial;
+            }
 
             // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
             // `AssetManager::CreateAsset`, which a translation unit's static initialiser can reach, and a
@@ -463,7 +477,12 @@ namespace Desert::Assets
                      updated.Identity == known->Identity && updated.Dependencies == known->Dependencies &&
                      updated.Versions == known->Versions &&
                      Common::Utils::SameBounds( updated.Bounds, known->Bounds ) )
+                {
+                    // The row did not change, the bytes may have (a clip re-cooked at the same size):
+                    // what indexes the body must still be told.
+                    Detail::MarkWritten_( state, key );
                     return;
+                }
                 state.Registry.Remove( key );
                 if ( const auto inserted = state.Registry.Insert( std::move( updated ) ); !inserted )
                 {
@@ -471,6 +490,7 @@ namespace Desert::Assets
                                inserted.GetError() );
                     return;
                 }
+                Detail::MarkWritten_( state, key );
                 state.Dirty = true;
                 return;
             }
@@ -489,6 +509,7 @@ namespace Desert::Assets
                            inserted.GetError() );
                 return;
             }
+            Detail::MarkWritten_( state, key );
             state.Dirty = true;
         }
 
@@ -548,6 +569,46 @@ namespace Desert::Assets
                               row->DisplayName,
                               row->Skinned,
                               row->RigSignature };
+        }
+
+        // THE LAST WRITE SERIAL. An index that has just read `Rows` takes this FIRST, so a write racing the
+        // read is seen again by `WrittenSince` rather than lost.
+        inline uint64_t WriteSerial()
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            return state.WriteSerial;
+        }
+
+        // THE ROWS OF ONE KIND WRITTEN (created or rewritten through `NoteFile`) AFTER @p serial, with the
+        // serial they bring the caller up to. UE's OnAssetAdded/OnAssetUpdated, pulled rather than pushed:
+        // the cook runs on loader workers too, and an index asked on its own thread cannot be edited under it.
+        struct WrittenRows
+        {
+            std::vector<PickerRow> Rows;
+            uint64_t               Serial = 0;
+        };
+        inline WrittenRows WrittenSince( Common::Content::ContentKind kind, uint64_t serial )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            WrittenRows written;
+            written.Serial = state.WriteSerial;
+            if ( serial >= state.WriteSerial )
+                return written;
+            for ( const auto& [key, at] : state.WrittenAt )
+            {
+                if ( at <= serial )
+                    continue;
+                const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByKey( key );
+                if ( row == nullptr || row->Kind != Common::Content::KindName( kind ) )
+                    continue;
+                written.Rows.push_back( { Common::AssetHandle( row->EffectiveHandle() ), row->Key,
+                                          Common::AssetHandle::PathForStableKey( row->Key ), row->Guid,
+                                          row->DisplayName, row->Skinned, row->RigSignature } );
+            }
+            return written;
         }
 
         // THE ROW OF ONE FILE, AS A KIND: what a dropped file or a path-spelled reference resolves through.
@@ -862,6 +923,7 @@ namespace Desert::Assets
 
             state.Registry = Common::Utils::AssetRegistry();
             state.Dirty    = false;
+            state.WrittenAt.clear(); // the serial stays: an index's remembered serial must never exceed it
         }
     } // namespace ContentRegistry
 } // namespace Desert::Assets

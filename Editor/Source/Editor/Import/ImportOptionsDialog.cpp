@@ -1,6 +1,7 @@
 #include "ImportOptionsDialog.hpp"
 
 #include "ImportManager.hpp"
+#include "ImportSettingsEdits.hpp"
 
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -56,18 +57,30 @@ namespace Desert::Editor::ImportOptions
             return s_State;
         }
 
-        // The Details section's edits in progress, by source: read from the record when the section first
-        // shows the source, dropped by Reimport (the record then states them) and by Revert.
-        struct SectionEdit
+        // Which fields a record's Kind shows: StaticMesh, SkinnedMesh -> SkeletalMesh, Skeleton / Animation ->
+        // Animation (ReadImportRecordKind admits only the kinds an import writes).
+        ImportContentKind ImportKindOf( const Common::Content::ContentKind kind )
         {
-            Assets::SourceImportSettings Recorded; // what the record states (read once, not every frame)
-            Assets::SourceImportSettings Edit;     // what the section shows
-            ImportContentKind            Kind;     // what the record says the source imports as (its fields)
-        };
-        std::unordered_map<std::string, SectionEdit>& Edits()
+            switch ( kind )
+            {
+                case Common::Content::ContentKind::SkinnedMesh:
+                    return ImportContentKind::SkeletalMesh;
+                case Common::Content::ContentKind::Skeleton:
+                case Common::Content::ContentKind::Animation:
+                    return ImportContentKind::Animation;
+                default:
+                    return ImportContentKind::StaticMesh;
+            }
+        }
+
+        // The Details section's working copy of the mesh asset at @p assetPath's source (ImportSettingsEdits).
+        Common::ResultStr<ImportSettingsEdit*> SectionEditOf( const std::filesystem::path& assetPath )
         {
-            static std::unordered_map<std::string, SectionEdit> s_Edits;
-            return s_Edits;
+            const auto source = ImportSourceOfMeshAsset( assetPath );
+            if ( !source )
+                return Common::MakeFormattedError<ImportSettingsEdit*>( "'{}' has no import source",
+                                                                        assetPath.generic_string() );
+            return EditOf( *source );
         }
 
         constexpr std::array<Assets::MeshSourceUpAxis, 3> kAxes = {
@@ -477,16 +490,7 @@ namespace Desert::Editor::ImportOptions
         const auto kind = Ser::ReadImportRecordKind( source );
         if ( !kind )
             return Common::MakeError<ImportContentKind>( kind.GetError() );
-        switch ( kind.GetValue() )
-        {
-            case Common::Content::ContentKind::SkinnedMesh:
-                return Common::MakeSuccess( ImportContentKind::SkeletalMesh );
-            case Common::Content::ContentKind::Skeleton:
-            case Common::Content::ContentKind::Animation:
-                return Common::MakeSuccess( ImportContentKind::Animation );
-            default: // StaticMesh: ReadImportRecordKind admits only the kinds an import writes
-                return Common::MakeSuccess( ImportContentKind::StaticMesh );
-        }
+        return Common::MakeSuccess( ImportKindOf( kind.GetValue() ) );
     }
 
     void DrawImportSettingsSection( const std::filesystem::path& assetPath )
@@ -495,21 +499,14 @@ namespace Desert::Editor::ImportOptions
         if ( !source )
             return;
         const std::string key   = source->generic_string();
-        auto&             edits = Edits();
-        auto              it    = edits.find( key );
-        if ( it == edits.end() )
+        const auto        found = EditOf( *source );
+        if ( !found )
         {
-            auto recorded = Ser::ReadImportRecordSettings( *source );
-            auto kind     = RecordedImportKind( *source );
-            if ( !recorded || !kind )
-            {
-                if ( Utils::ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Import Settings" ) )
-                    ImGui::TextWrapped( "%s", ( !recorded ? recorded.GetError() : kind.GetError() ).c_str() );
-                return;
-            }
-            it = edits.emplace( key, SectionEdit{ recorded.GetValue(), recorded.GetValue(), kind.GetValue() } )
-                       .first;
+            if ( Utils::ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Import Settings" ) )
+                ImGui::TextWrapped( "%s", found.GetError().c_str() );
+            return;
         }
+        ImportSettingsEdit& edit = *found.GetValue();
 
         if ( !Utils::ImGuiUtilities::SectionHeader( ICON_MDI_FILE_IMPORT_OUTLINE "  Import Settings" ) )
             return;
@@ -520,9 +517,9 @@ namespace Desert::Editor::ImportOptions
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( "%s", key.c_str() );
         Utils::ImGuiUtilities::EndPropertyRow();
-        (void)DrawImportSettingsFields( it->second.Edit, it->second.Kind );
+        (void)DrawImportSettingsFields( edit.Edit, ImportKindOf( edit.Kind ) );
 
-        const bool edited = it->second.Recorded != it->second.Edit;
+        const bool edited = edit.Recorded != edit.Edit;
         if ( ImGui::Button( ICON_MDI_RELOAD "  Reimport" ) )
         {
             if ( const auto reimported = Reimport( assetPath ); !reimported )
@@ -537,7 +534,7 @@ namespace Desert::Editor::ImportOptions
         {
             ImGui::SameLine();
             if ( ImGui::Button( "Revert" ) )
-                it->second.Edit = it->second.Recorded;
+                edit.Edit = edit.Recorded;
         }
         ImGui::PopID();
     }
@@ -548,24 +545,33 @@ namespace Desert::Editor::ImportOptions
         if ( !source )
             return Common::MakeFormattedError<bool>( "'{}' has no import source to reimport from",
                                                      assetPath.generic_string() );
-        // The Details' edit when the section shows one, the record's options otherwise.
-        auto&                        edits = Edits();
-        const auto                   it    = edits.find( source->generic_string() );
-        Assets::SourceImportSettings settings;
-        if ( it != edits.end() )
-            settings = it->second.Edit;
-        else
-        {
-            auto recorded = Ser::ReadImportRecordSettings( *source );
-            if ( !recorded )
-                return Common::MakeError<bool>( recorded.GetError() );
-            settings = recorded.GetValue();
-        }
+        // The ONE working copy, read again when the record on disk is newer than it (ImportSettingsEdits).
+        const auto edit = EditOf( *source );
+        if ( !edit )
+            return Common::MakeError<bool>( edit.GetError() );
+        const Assets::SourceImportSettings settings = edit.GetValue()->Edit;
         if ( !ImportOne( *source, settings ) )
             return Common::MakeFormattedError<bool>( "'{}' was not reimported (see the error above)",
                                                      source->generic_string() );
-        if ( it != edits.end() )
-            edits.erase( it ); // the record states what was imported now; the next frame reads it
+        DropEdit( *source ); // the record states what was imported now; the next ask reads it
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetSectionUniformScale( const std::filesystem::path& assetPath, const float scale )
+    {
+        const auto edit = SectionEditOf( assetPath );
+        if ( !edit )
+            return Common::MakeError<bool>( edit.GetError() );
+        return SetUniformScale( edit.GetValue()->Edit, scale );
+    }
+
+    Common::BoolResultStr SetSectionUpAxis( const std::filesystem::path&   assetPath,
+                                            const Assets::MeshSourceUpAxis axis )
+    {
+        const auto edit = SectionEditOf( assetPath );
+        if ( !edit )
+            return Common::MakeError<bool>( edit.GetError() );
+        SetUpAxis( edit.GetValue()->Edit, axis );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::ImportOptions

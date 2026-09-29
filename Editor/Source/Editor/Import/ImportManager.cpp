@@ -274,6 +274,27 @@ namespace Desert::Editor
             ApplySourceToEngine( settings.Mesh, resolved.Mesh ? &resolved.Mesh.value() : nullptr,
                                  resolved.Skeleton ? &resolved.Skeleton.value() : nullptr, resolved.Animations );
         }
+        // THE RIG AND ITS CLIPS ENTER THE REGISTRY BEFORE THE MESH THAT NAMES THEM (UE creates the USkeleton
+        // before the USkeletalMesh). Each write is registered the moment it exists (CookedJsonWrite.hpp), and a
+        // skinned mesh is resolved through the Skeleton row its signature names (MeshService::Arrived): with the
+        // mesh written first, a draw or thumbnail between the two writes failed the mesh for the session - live on
+        // Fox.glb, "no Skeleton row of the content registry states it".
+        if ( resolved.Skeleton )
+        {
+            const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );
+            if ( serialized )
+                written.WrittenSkeletons.push_back( SkinnedAssetPath( sourcePath, ".skeleton" ) );
+            record( serialized );
+        }
+
+        for ( const auto& anim : resolved.Animations )
+        {
+            const auto serialized = SerializeAnimationAsset( anim, sourcePath );
+            if ( serialized )
+                written.WrittenClips.push_back( SkinnedAssetPath( sourcePath, "_" + anim.Name + ".anim" ) );
+            record( serialized );
+        }
+
         if ( resolved.Mesh && resolved.Mesh->IsSkinned )
         {
             if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
@@ -314,22 +335,6 @@ namespace Desert::Editor
         // thumbnails.
         for ( const auto& material : resolved.Materials )
             record( SerializeMaterialAsset( material, sourcePath, std::nullopt ) );
-
-        if ( resolved.Skeleton )
-        {
-            const auto serialized = SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath );
-            if ( serialized )
-                written.WrittenSkeletons.push_back( SkinnedAssetPath( sourcePath, ".skeleton" ) );
-            record( serialized );
-        }
-
-        for ( const auto& anim : resolved.Animations )
-        {
-            const auto serialized = SerializeAnimationAsset( anim, sourcePath );
-            if ( serialized )
-                written.WrittenClips.push_back( SkinnedAssetPath( sourcePath, "_" + anim.Name + ".anim" ) );
-            record( serialized );
-        }
 
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );

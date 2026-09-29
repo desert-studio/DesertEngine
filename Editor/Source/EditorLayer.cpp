@@ -6202,28 +6202,64 @@ namespace Desert::Editor
         // The Details' Import Settings Reimport, for the selected entity's mesh - static or skinned (UE: Reimport
         // on a skeletal mesh actor reimports its USkeletalMesh with the skeleton and the clips): the button's own
         // body.
-        commands.push_back( { "Assets", "Reimport selected", [this]() -> Common::BoolResultStr
+        // The selected entity's mesh asset, static or skinned: what the Details' Import Settings section shows.
+        const auto selectedMeshAsset = [this]() -> Common::ResultStr<std::filesystem::path>
+        {
+            const auto selected = Core::SelectionManager::GetSelected();
+            if ( !m_MainScene || !selected.has_value() )
+                return Common::MakeError<std::filesystem::path>( "no entity is selected" );
+            auto ref = m_MainScene->FindEntityByID( *selected );
+            if ( !ref )
+                return Common::MakeError<std::filesystem::path>( "the selected entity is not in the scene" );
+            Assets::AssetHandle handle;
+            if ( ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                handle = ref->get().GetComponent<ECS::StaticMeshComponent>().MeshHandle;
+            else if ( ref->get().HasComponent<ECS::SkinnedMeshComponent>() )
+                handle = ref->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
+            else
+                return Common::MakeError<std::filesystem::path>(
+                     "the selected entity has no static or skinned mesh" );
+            const auto asset = handle ? m_AssetManager->FindByHandle<Assets::MeshAsset>( handle ) : nullptr;
+            if ( !asset )
+                return Common::MakeError<std::filesystem::path>( "the selected entity's mesh is not loaded" );
+            return Common::MakeSuccess( asset->GetMetadata().Filepath );
+        };
+        commands.push_back( { "Assets", "Reimport selected", [selectedMeshAsset]() -> Common::BoolResultStr
                               {
-                                  const auto selected = Core::SelectionManager::GetSelected();
-                                  if ( !m_MainScene || !selected.has_value() )
-                                      return Common::MakeError<bool>( "no entity is selected" );
-                                  auto ref = m_MainScene->FindEntityByID( *selected );
-                                  if ( !ref )
-                                      return Common::MakeError<bool>( "the selected entity is not in the scene" );
-                                  Assets::AssetHandle handle;
-                                  if ( ref->get().HasComponent<ECS::StaticMeshComponent>() )
-                                      handle = ref->get().GetComponent<ECS::StaticMeshComponent>().MeshHandle;
-                                  else if ( ref->get().HasComponent<ECS::SkinnedMeshComponent>() )
-                                      handle = ref->get().GetComponent<ECS::SkinnedMeshComponent>().MeshHandle;
-                                  else
-                                      return Common::MakeError<bool>(
-                                           "the selected entity has no static or skinned mesh" );
-                                  const auto asset =
-                                       handle ? m_AssetManager->FindByHandle<Assets::MeshAsset>( handle ) : nullptr;
+                                  const auto asset = selectedMeshAsset();
                                   if ( !asset )
-                                      return Common::MakeError<bool>( "the selected entity's mesh is not loaded" );
-                                  return ImportOptions::Reimport( asset->GetMetadata().Filepath );
+                                      return Common::MakeError<bool>( asset.GetError() );
+                                  return ImportOptions::Reimport( asset.GetValue() );
                               } } );
+        // THE SECTION'S FIELDS WITHOUT A MOUSE (UE: the Import Settings category's properties): the fields' own
+        // edits on the working copy Reimport imports with, for the selected entity's mesh.
+        for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )
+            commands.push_back( { "Details", std::format( "Import Settings: Uniform Scale {}", scale ),
+                                  [selectedMeshAsset, scale]() -> Common::BoolResultStr
+                                  {
+                                      const auto asset = selectedMeshAsset();
+                                      if ( !asset )
+                                          return Common::MakeError<bool>( asset.GetError() );
+                                      if ( const auto set =
+                                                ImportOptions::SetSectionUniformScale( asset.GetValue(), scale );
+                                           !set )
+                                          return set;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto& [label, axis] :
+              { std::pair{ "From File", Assets::MeshSourceUpAxis::FromFile },
+                std::pair{ "Y", Assets::MeshSourceUpAxis::Y }, std::pair{ "Z", Assets::MeshSourceUpAxis::Z } } )
+            commands.push_back(
+                 { "Details", std::format( "Import Settings: Up Axis {}", label ),
+                   [selectedMeshAsset, axis]() -> Common::BoolResultStr
+                   {
+                       const auto asset = selectedMeshAsset();
+                       if ( !asset )
+                           return Common::MakeError<bool>( asset.GetError() );
+                       if ( const auto set = ImportOptions::SetSectionUpAxis( asset.GetValue(), axis ); !set )
+                           return set;
+                       return PaletteCommandDone();
+                   } } );
         // THE FOLIAGE PALETTE WITHOUT A MOUSE: the mode, and one entry per collection running the palette's own
         // collection drop (FO-2), so a frame can show types that came from a collection unattended.
         commands.push_back( { "Foliage", "Foliage mode", []
