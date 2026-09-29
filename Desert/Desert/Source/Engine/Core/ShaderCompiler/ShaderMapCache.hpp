@@ -49,7 +49,7 @@ namespace Desert::Core
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x35dc0883735ee84bULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0xb478f46bb1158f46ULL;
 
     // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself.
     inline constexpr std::array<std::string_view, 9> kShaderMapProducerSources{

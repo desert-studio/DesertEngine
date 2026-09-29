@@ -115,19 +115,24 @@ namespace Desert::Graphic::API::Vulkan
             const float maxAniso =
                  useAniso ? ( requestedAniso < deviceMaxAniso ? requestedAniso : deviceMaxAniso ) : 1.0f;
 
-            VkSamplerCreateInfo info = { .sType            = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                                         .magFilter        = filter,
-                                         .minFilter        = filter,
-                                         .mipmapMode       = mipMode,
-                                         .addressModeU     = AddressModeOf( slot.WrapU ),
-                                         .addressModeV     = AddressModeOf( slot.WrapV ),
-                                         .addressModeW     = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                         .mipLodBias       = 0.0f,
-                                         .anisotropyEnable = useAniso ? VK_TRUE : VK_FALSE,
-                                         .maxAnisotropy    = maxAniso,
-                                         .minLod           = 0.0f,
-                                         .maxLod           = 100.0f,
-                                         .borderColor      = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE };
+            const VkSamplerCreateInfo info = { .sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                               .pNext                   = nullptr,
+                                               .flags                   = 0,
+                                               .magFilter               = filter,
+                                               .minFilter               = filter,
+                                               .mipmapMode              = mipMode,
+                                               .addressModeU            = AddressModeOf( slot.WrapU ),
+                                               .addressModeV            = AddressModeOf( slot.WrapV ),
+                                               .addressModeW            = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                               .mipLodBias              = 0.0f,
+                                               .anisotropyEnable        = useAniso ? VK_TRUE : VK_FALSE,
+                                               .maxAnisotropy           = maxAniso,
+                                               .compareEnable           = VK_FALSE,
+                                               .compareOp               = VK_COMPARE_OP_NEVER,
+                                               .minLod                  = 0.0f,
+                                               .maxLod                  = 100.0f,
+                                               .borderColor             = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
+                                               .unnormalizedCoordinates = VK_FALSE };
 
             // Guard the promise, not the branch: everything above is derived from several variables, and
             // a later edit that reintroduces the global filter into this path would otherwise be found
@@ -1524,8 +1529,8 @@ namespace Desert::Graphic::API::Vulkan
              ( static_cast<uint64_t>( Graphic::RenderConfig::TextureFilter.load() & 0xFF ) << 16 ) |
              ( static_cast<uint64_t>( Graphic::RenderConfig::AnisotropyLevel.load() & 0xFF ) << 24 ) |
              ( static_cast<uint64_t>( std::bit_cast<uint32_t>( maxAniso ) ) << 32 );
-        auto&                       cache = SlotSamplers();
-        std::lock_guard<std::mutex> lock( cache.Mutex );
+        auto&                             cache = SlotSamplers();
+        const std::lock_guard<std::mutex> lock( cache.Mutex );
         if ( const auto it = cache.Samplers.find( key ); it != cache.Samplers.end() )
             return it->second;
         VkSampler sampler = VK_NULL_HANDLE;
@@ -1538,11 +1543,11 @@ namespace Desert::Graphic::API::Vulkan
 
     void ReleaseSlotSamplers()
     {
-        auto&                       cache = SlotSamplers();
-        std::lock_guard<std::mutex> lock( cache.Mutex );
+        auto&                             cache = SlotSamplers();
+        const std::lock_guard<std::mutex> lock( cache.Mutex );
         if ( cache.Samplers.empty() )
             return;
-        const VkDevice device =
+        VkDevice device =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
         for ( const auto& [key, sampler] : cache.Samplers )
             vkDestroySampler( device, sampler, nullptr );

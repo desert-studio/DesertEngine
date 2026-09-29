@@ -29,7 +29,7 @@ namespace
     SourceMaterial Material( const std::vector<std::string>& keys )
     {
         SourceMaterial m{ "Leaves", {} };
-        for ( auto& k : keys )
+        for ( const auto& k : keys )
             m.Entries[k] = {};
         return m;
     }

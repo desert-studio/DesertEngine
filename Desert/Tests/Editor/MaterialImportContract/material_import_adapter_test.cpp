@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <iterator>
 #include <map>
@@ -410,7 +411,10 @@ namespace
         while ( json.size() % 4 != 0 )
             json.push_back( ' ' );
         const auto u32 = []( std::ofstream& out, uint32_t v )
-        { out.write( reinterpret_cast<const char*>( &v ), 4 ); };
+        {
+            const auto bytes = std::bit_cast<std::array<char, 4>>( v );
+            out.write( bytes.data(), bytes.size() );
+        };
         const fs::path file = dir / "helmet.glb";
         std::ofstream  out( file, std::ios::binary );
         out.write( "glTF", 4 );
@@ -431,7 +435,7 @@ namespace
     {
         const aiScene* scene = importer.ReadFile( file.string(), aiProcess_Triangulate );
         EXPECT_NE( scene, nullptr ) << importer.GetErrorString();
-        if ( !scene )
+        if ( scene == nullptr )
             return {};
         const aiMaterial& mat = *scene->mMaterials[scene->mMeshes[0]->mMaterialIndex];
         return ReadSourceMaterial( mat, SourceFormatOf( file ), "M",
@@ -469,7 +473,7 @@ TEST( MaterialImportAdapter, AnEmbeddedTextureIsDerivedBesideTheSourceAndRewritt
         std::ifstream in( derived, std::ios::binary );
         return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
     };
-    EXPECT_EQ( bytes(), std::string( reinterpret_cast<const char*>( kPng.data() ), kPng.size() ) )
+    EXPECT_EQ( bytes(), std::string( kPng.begin(), kPng.end() ) )
          << "a compressed embedded image is kept byte for byte";
 
     // A second import of the same source names the same file and leaves it alone.
@@ -508,7 +512,9 @@ TEST( MaterialImportAdapter, AnUncompressedEmbeddedTextureIsEncodedToPng )
     texture.pcData      = nullptr;
     ASSERT_TRUE( resolved.IsSuccess() ) << resolved.GetError();
     EXPECT_EQ( resolved.GetValue().Path, dir / "chair_0.png" );
-    int      w = 0, h = 0, n = 0;
+    int      w    = 0;
+    int      h    = 0;
+    int      n    = 0;
     uint8_t* rgba = stbi_load( ( dir / "chair_0.png" ).string().c_str(), &w, &h, &n, 4 );
     ASSERT_NE( rgba, nullptr );
     EXPECT_EQ( w, 2 );
@@ -523,7 +529,8 @@ TEST( MaterialImportAdapter, AnFbxBaseColorMapIsTheAlbedoWhenNoDiffuseIsStated )
     const auto read = []( bool withDiffuse )
     {
         aiMaterial     mat;
-        const aiString base( "base.png" ), diffuse( "diffuse.png" );
+        const aiString base( "base.png" );
+        const aiString diffuse( "diffuse.png" );
         mat.AddProperty( &base, AI_MATKEY_TEXTURE( aiTextureType_BASE_COLOR, 0 ) );
         if ( withDiffuse )
             mat.AddProperty( &diffuse, AI_MATKEY_TEXTURE( aiTextureType_DIFFUSE, 0 ) );
@@ -558,14 +565,14 @@ TEST( MaterialImportAdapter, AGltfSamplerReachesItsSlotAndADefaultOneStatesNothi
     const auto base = source.Entries.find( "gltf.baseColorTexture" );
     ASSERT_NE( base, source.Entries.end() );
     ASSERT_TRUE( base->second.Sampler.has_value() ) << "the source sampler was not read";
-    EXPECT_EQ( *base->second.Sampler, expected );
+    EXPECT_EQ( base->second.Sampler, std::optional<SamplerState>( expected ) );
 
     const std::vector<ImportTemplate> templates = { Template( "PBR/StaticMeshPBR.shader" ) };
     const TemplateFill                fill      = FillFromTemplate( source, templates[0] );
     const ImportedTextureSlot*        albedo    = Slot( fill, "u_AlbedoTexture" );
     ASSERT_NE( albedo, nullptr );
     ASSERT_TRUE( albedo->Sampler.has_value() ) << "the sampler did not reach the slot";
-    EXPECT_EQ( *albedo->Sampler, expected );
+    EXPECT_EQ( albedo->Sampler, std::optional<SamplerState>( expected ) );
 
     const ImportedTextureSlot* normal = Slot( fill, "u_NormalTexture" );
     ASSERT_NE( normal, nullptr );

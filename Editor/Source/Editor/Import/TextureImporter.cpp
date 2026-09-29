@@ -318,12 +318,13 @@ namespace Desert::Editor
         void ExrRecordError( exr_const_context_t ctxt, exr_result_t code, const char* message )
         {
             void* userdata = nullptr;
-            if ( exr_get_user_data( ctxt, &userdata ) != EXR_ERR_SUCCESS || !userdata )
+            if ( exr_get_user_data( ctxt, &userdata ) != EXR_ERR_SUCCESS || userdata == nullptr )
                 return;
             auto& stream = *static_cast<ExrMemoryStream*>( userdata );
             if ( stream.FirstError.empty() )
-                stream.FirstError = std::format( "{}: {}", exr_get_error_code_as_string( code ),
-                                                 message ? message : exr_get_default_error_message( code ) );
+                stream.FirstError =
+                     std::format( "{}: {}", exr_get_error_code_as_string( code ),
+                                  message != nullptr ? message : exr_get_default_error_message( code ) );
         }
 
         /// Which RGBA slot a channel feeds: the name after the last '.', so a layered `diffuse.R` is R.
@@ -380,7 +381,8 @@ namespace Desert::Editor
                 return fail( rc, "header read" );
 
             exr_storage_t storage = EXR_STORAGE_LAST_TYPE;
-            if ( ( rc = exr_get_storage( ctxt, 0, &storage ) ) != EXR_ERR_SUCCESS )
+            rc                    = exr_get_storage( ctxt, 0, &storage );
+            if ( rc != EXR_ERR_SUCCESS )
                 return fail( rc, "storage query" );
             if ( storage != EXR_STORAGE_SCANLINE )
             {
@@ -390,13 +392,15 @@ namespace Desert::Editor
             }
 
             exr_attr_box2i_t window{};
-            if ( ( rc = exr_get_data_window( ctxt, 0, &window ) ) != EXR_ERR_SUCCESS )
+            rc = exr_get_data_window( ctxt, 0, &window );
+            if ( rc != EXR_ERR_SUCCESS )
                 return fail( rc, "data window query" );
             out.w = window.max.x - window.min.x + 1;
             out.h = window.max.y - window.min.y + 1;
 
             const exr_attr_chlist_t* channels = nullptr;
-            if ( ( rc = exr_get_channels( ctxt, 0, &channels ) ) != EXR_ERR_SUCCESS )
+            rc                                = exr_get_channels( ctxt, 0, &channels );
+            if ( rc != EXR_ERR_SUCCESS )
                 return fail( rc, "channel list query" );
             bool hasColour = false;
             bool hasRgb    = false;
@@ -419,14 +423,19 @@ namespace Desert::Editor
             const bool lumaOnly = !hasRgb;
 
             int32_t linesPerChunk = 0;
-            if ( ( rc = exr_get_scanlines_per_chunk( ctxt, 0, &linesPerChunk ) ) != EXR_ERR_SUCCESS )
+            rc                    = exr_get_scanlines_per_chunk( ctxt, 0, &linesPerChunk );
+            if ( rc != EXR_ERR_SUCCESS )
                 return fail( rc, "chunk size query" );
 
             const size_t lineStride = static_cast<size_t>( out.w ) * 4u * sizeof( float );
+            // The decoder writes bytes; it decodes into a byte image that is copied into the floats once.
+            std::vector<uint8_t> decoded( out.Rgba.size() * sizeof( float ) );
+            std::memcpy( decoded.data(), out.Rgba.data(), decoded.size() );
             for ( int y = window.min.y; y <= window.max.y; y += linesPerChunk )
             {
                 exr_chunk_info_t chunk{};
-                if ( ( rc = exr_read_scanline_chunk_info( ctxt, 0, y, &chunk ) ) != EXR_ERR_SUCCESS )
+                rc = exr_read_scanline_chunk_info( ctxt, 0, y, &chunk );
+                if ( rc != EXR_ERR_SUCCESS )
                     return fail( rc, std::format( "chunk read at line {}", y ) );
                 rc = decoderLive ? exr_decoding_update( ctxt, 0, &chunk, &decoder )
                                  : exr_decoding_initialize( ctxt, 0, &chunk, &decoder );
@@ -434,8 +443,7 @@ namespace Desert::Editor
                     return fail( rc, std::format( "decoder setup at line {}", y ) );
                 decoderLive = true;
 
-                auto* row = reinterpret_cast<uint8_t*>( out.Rgba.data() ) +
-                            static_cast<size_t>( chunk.start_y - window.min.y ) * lineStride;
+                uint8_t* row = decoded.data() + static_cast<size_t>( chunk.start_y - window.min.y ) * lineStride;
                 for ( int16_t c = 0; c < decoder.channel_count; ++c )
                 {
                     exr_coding_channel_info_t& ch   = decoder.channels[c];
@@ -453,11 +461,14 @@ namespace Desert::Editor
                     ch.user_data_type         = EXR_PIXEL_FLOAT;
                     ch.user_bytes_per_element = static_cast<int16_t>( sizeof( float ) );
                 }
-                if ( ( rc = exr_decoding_choose_default_routines( ctxt, 0, &decoder ) ) != EXR_ERR_SUCCESS )
+                rc = exr_decoding_choose_default_routines( ctxt, 0, &decoder );
+                if ( rc != EXR_ERR_SUCCESS )
                     return fail( rc, std::format( "decoder choice at line {}", y ) );
-                if ( ( rc = exr_decoding_run( ctxt, 0, &decoder ) ) != EXR_ERR_SUCCESS )
+                rc = exr_decoding_run( ctxt, 0, &decoder );
+                if ( rc != EXR_ERR_SUCCESS )
                     return fail( rc, std::format( "decode at line {}", y ) );
             }
+            std::memcpy( out.Rgba.data(), decoded.data(), decoded.size() );
             if ( decoderLive )
                 exr_decoding_destroy( ctxt, &decoder );
             exr_finish( &ctxt );
@@ -529,6 +540,9 @@ namespace Desert::Editor
         const std::string                 sourceKey = asset.Import.SourceFile;
         const std::string                 sourceBytesStorage( reinterpret_cast<const char*>( asset.Source.data() ),
                                                               asset.Source.size() );
+        // stb reads unsigned chars: the source is copied into that type rather than aliased through a cast.
+        std::vector<stbi_uc> stbSource( asset.Source.size() );
+        std::memcpy( stbSource.data(), asset.Source.data(), stbSource.size() );
         const uint64_t                    sourceHash = asset.Import.SourceHash;
         TextureIntentRead                 authored;
         authored.Intent = asset.Import.Settings.Intent;
@@ -559,9 +573,8 @@ namespace Desert::Editor
             return { handle, TextureCookOutcome::Fresh };
         }
         const bool isEXR = IsExrSource( sourceBytesStorage, sourceKey );
-        const bool isHDR =
-             !isEXR && stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
-                                                static_cast<int>( sourceBytesStorage.size() ) ) != 0;
+        const bool isHDR = !isEXR && stbi_is_hdr_from_memory( stbSource.data(),
+                                                              static_cast<int>( sourceBytesStorage.size() ) ) != 0;
 
         int                                w = 0, h = 0, ch = 0;
         std::vector<unsigned char>         base;
@@ -594,9 +607,8 @@ namespace Desert::Editor
         }
         else if ( isHDR )
         {
-            float* pixels =
-                 stbi_loadf_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
-                                         static_cast<int>( sourceBytesStorage.size() ), &w, &h, &ch, 4 );
+            float* pixels = stbi_loadf_from_memory(
+                 stbSource.data(), static_cast<int>( sourceBytesStorage.size() ), &w, &h, &ch, 4 );
             if ( !pixels )
             {
                 const char* reason = stbi_failure_reason();
@@ -612,9 +624,8 @@ namespace Desert::Editor
         }
         else
         {
-            stbi_uc* pixels =
-                 stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
-                                        static_cast<int>( sourceBytesStorage.size() ), &w, &h, &ch, 4 );
+            stbi_uc* pixels = stbi_load_from_memory(
+                 stbSource.data(), static_cast<int>( sourceBytesStorage.size() ), &w, &h, &ch, 4 );
             if ( !pixels )
             {
                 // No `.tex` is written and the null handle is returned: a failed decode used to fall

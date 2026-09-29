@@ -100,9 +100,11 @@ namespace
            "ever, and no message said so" },
 
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.cpp",
-           "MaterialComponentWidget::DrawSlotPreview", Role::Shows, "RequestMaterial",
+           "MaterialComponentWidget::DrawSlotPreview", Role::Shows, "RequestLoadedMaterial",
            "the Details material slot — the row ThumbnailService was built for, and the one the mesh slot "
-           "beside it was supposed to have been copying" },
+           "beside it was supposed to have been copying. It holds the material LOADED, so it queues through "
+           "RequestLoadedMaterial (THM1f), which resolves the preview route and mesh only when a capture is "
+           "owed and then hands the resolved subject to RequestMaterial" },
 
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "FileExplorerPanel::DrawRenderedMaterialThumbnail", Role::Shows, "RequestMaterial",
