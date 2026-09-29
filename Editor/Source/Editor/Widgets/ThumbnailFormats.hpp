@@ -115,6 +115,9 @@ namespace Desert::Editor::ThumbnailFormats
          { "glb", Producer::RenderedMesh, "the mesh framed by its own bounds" },
          { "blend", Producer::RenderedMesh, "the mesh framed by its own bounds" },
          { "demesh", Producer::RenderedMesh, "the mesh framed by its own bounds" },
+         // A node mesh of a split import (THM1j) is a `.stmesh` on disk with no source of its own: it is its own
+         // cooked form, photographed as is.
+         { "stmesh", Producer::RenderedMesh, "the mesh framed by its own bounds" },
 
          // ── Painted on the CPU from the file's own payload ─────────────────────────────────────────
          //

@@ -123,3 +123,22 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// THM1k (owner): AN IMPORT WRITES NO PreviewMesh - every imported material's thumbnail is the ball, as in UE.
+// The document is the chosen template and the fill's values, nothing that names a mesh.
+TEST( MaterialImportContract, AnImportedMaterialNamesNoPreviewMesh )
+{
+    ImportTemplate chosen = Template( "StaticMeshPBR", true, {}, { "gltf.baseColorFactor" } );
+    chosen.Guid           = "0123456789abcdef0123456789abcdef";
+    chosen.Locator        = "engine:Shaders/StaticMeshPBR.dshader";
+    TemplateFill fill;
+    fill.Params.push_back( { "BaseColor", glm::vec4( 0.5f ) } );
+
+    const auto data = ImportedMaterialDocument( chosen, fill );
+    EXPECT_FALSE( data.PreviewMesh.has_value() ) << "an import named a thumbnail mesh; the ball is the owner's rule";
+    ASSERT_TRUE( data.Shader.has_value() );
+    EXPECT_EQ( data.Shader->Guid, chosen.Guid );
+    EXPECT_EQ( data.Shader->Path, chosen.Locator );
+    ASSERT_EQ( data.Params.size(), 1u );
+    EXPECT_EQ( data.Params[0].Name, "BaseColor" );
+}

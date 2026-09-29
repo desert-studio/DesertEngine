@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Content/ShaderAssetHeader.hpp>
+#include <Engine/Assets/MaterialData.hpp>
 
 #include <glm/vec4.hpp>
 
@@ -91,6 +92,12 @@ namespace Desert::Editor
         std::vector<std::string> UnreadKeys;
     };
     TemplateFill FillFromTemplate( const SourceMaterial& material, const ImportTemplate& chosen );
+
+    // THE DOCUMENT AN IMPORT WRITES, before its textures: the chosen template as the Shader and the fill's
+    // Params - and NOTHING ELSE. In particular NO PreviewMesh (owner, THM1j/k): every imported material's
+    // thumbnail is the ball, as in UE, masked ones included; PreviewMesh is only ever authored in the Material
+    // Editor. The importer adds the texture references (they need the textures imported) and the header.
+    Assets::MaterialData ImportedMaterialDocument( const ImportTemplate& chosen, const TemplateFill& fill );
 
     // THE CHOICE, and the only one. A template TAKES a source material when it declares an Import block, the
     // material carries every key the template `Requires`, and at least one of the template's rows reads a key

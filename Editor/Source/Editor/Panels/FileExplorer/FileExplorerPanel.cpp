@@ -197,6 +197,9 @@ namespace Desert::Editor
          { "demat", FileType::Material },
          { "desce", FileType::Scene },
          { "demesh", FileType::Model },
+         // THM1k: a split import's node meshes are `.stmesh` files the browser lists (no source beside them);
+         // untyped they were Unknown, so they reached no thumbnail function and showed a grey glyph.
+         { "stmesh", FileType::Model },
          { "dgraph", FileType::ShaderGraph },
          // `.ini` is typed so the browser names it (type label, icon) instead of calling it Unknown.
          { "ini", FileType::Ini },
@@ -1885,6 +1888,8 @@ namespace Desert::Editor
         const auto subject = ThumbnailSubject::ResolveMesh( *m_AssetManager, entry->AssetPath );
         if ( !subject )
         {
+            // Once per asset (the blacklist stops the retry): a tile left on its type icon says why.
+            LOG_WARN( "[Thumbnail] '{}': {}", entry->AssetPath, subject.GetError() );
             m_FailedThumbs.insert( entry->AssetPath );
             return false;
         }

@@ -2204,7 +2204,7 @@ namespace Desert::Editor
 
         // THE THUMBNAIL'S MESH, SAVED WITH THE MATERIAL (UE ThumbnailInfo): MaterialData::PreviewMesh. Unlike the
         // pane's mesh above (this session's view only), this one is authored — the browser, Details and every
-        // later session photograph the material on it. An import states it for the materials it writes.
+        // later session photograph the material on it. Only authored here: an import writes none (the ball).
         if ( m_WorkingCopy && ImGui::CollapsingHeader( "Thumbnail Mesh", ImGuiTreeNodeFlags_DefaultOpen ) )
         {
             auto&             data  = m_WorkingCopy->Data();

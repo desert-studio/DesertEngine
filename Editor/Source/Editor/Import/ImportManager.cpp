@@ -240,7 +240,7 @@ namespace Desert::Editor
         // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
         // thumbnails.
         for ( const auto& material : resolved.Materials )
-            record( SerializeMaterialAsset( material, sourcePath, std::nullopt ) );
+            record( SerializeMaterialAsset( material, sourcePath ) );
 
         if ( resolved.Skeleton )
             record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
@@ -364,8 +364,7 @@ namespace Desert::Editor
 
     Common::BoolResultStr
     ImportManager::SerializeMaterialAsset( const ImportedMaterial&                    material,
-                                           const std::filesystem::path&               sourcePath,
-                                           const std::optional<Assets::AssetGuidRef>& previewMesh )
+                                           const std::filesystem::path&               sourcePath )
     {
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
@@ -405,10 +404,7 @@ namespace Desert::Editor
                       "imported",
                       material.Name, sourcePath.generic_string(), chosen.ShaderName, key );
 
-        Assets::MaterialData data;
-        data.Shader = Assets::AssetGuidRef{ chosen.Guid, chosen.Locator };
-        for ( const ImportedParam& param : fill.Params )
-            data.Params.push_back( { param.Name, param.Value } );
+        Assets::MaterialData data = ImportedMaterialDocument( chosen, fill );
         for ( const ImportedTextureSlot& slot : fill.Textures )
         {
             std::filesystem::path image = slot.Parts.front().Source;
@@ -434,8 +430,7 @@ namespace Desert::Editor
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
                                        Common::AssetHandle::StableKeyForPath( asset ) } );
         }
-        data.PreviewMesh = previewMesh;
-        data.Header      = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+        data.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
                                                             Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );
         if ( !text )

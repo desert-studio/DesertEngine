@@ -231,9 +231,10 @@ TEST( ImportRecord, AFreshEnvelopeIsNotCurrentWhileAMaterialItNamesHasNoFile )
     EXPECT_FALSE( Editor::ImportedMeshAssetIsCurrent( project.Source ) );
 }
 
-// THM1e: AN IMPORTED MATERIAL NAMES THE MESH IT CAME WITH as its PreviewMesh, by the GUID the mesh's record
-// states - so its thumbnail draws the tuft, not a sphere. No record, no reference: never a GUID from the path.
-TEST( ImportRecord, ThePreviewMeshAnImportedMaterialNamesIsTheRecordsGuid )
+// THE THUMBNAIL MESH DROPPED ON A MATERIAL (Material Editor "Thumbnail Mesh", the only writer of PreviewMesh since
+// THM1j - an import writes none) is named by the GUID the mesh's import record states. No record, no reference:
+// never a GUID from the path.
+TEST( ImportRecord, ADroppedThumbnailMeshIsNamedByTheRecordsGuid )
 {
     const Project project( "preview" );
     ASSERT_FALSE( Editor::PreviewMeshRefFor( project.Source ) ) << "a reference with no record behind it";
