@@ -463,6 +463,82 @@ namespace Desert::Geometry
         return false;
     }
 
+    bool QemSimplification::IsConstrainedEdge( int edge ) const
+    {
+        return m_Constraints && edge != DynamicMesh3::InvalidID &&
+               !m_Constraints->GetEdgeConstraint( edge ).IsUnconstrained();
+    }
+
+    int QemSimplification::ConstrainedEdgeCount( int vertex ) const
+    {
+        int count = 0;
+        for ( const int edge : m_Mesh.VtxEdgesItr( vertex ) )
+            count += IsConstrainedEdge( edge ) ? 1 : 0;
+        return count;
+    }
+
+    // OUR rule - UE has no check that catches this (flip tolerance 1e-5, tiny = area only). A moved triangle whose
+    // two sides are constrained edges meeting at vertex m is an ear cut off a constrained line (a kept polygroup
+    // border or a seam). When the line runs straight on through m - m has no third constrained edge, or the two
+    // sides open wider than kStraightCos - its three corners lie on one line of a curved surface, so it stands
+    // across the surface: a fin. Its normal turns by about 90 degrees (the flip check wants 180) and it has area
+    // (the tiny check wants none), so it is refused here. A true corner may still be cut off.
+    bool QemSimplification::CreatesFin( int vertex, int other, const glm::dvec3& newPosition, int c, int d, int tc,
+                                        int td ) const
+    {
+        // cos of the angle between the two constrained sides, below which m counts as straight (about 143 deg).
+        // Measured on the per-triangle cube-sphere (every edge a seam): -0.7 .. -0.85 leave 0 fins and reach the
+        // target; -0.9 leaves 2 fins, -0.6 stalls at 198 of 192 triangles.
+        constexpr double kStraightCos = -0.8;
+        if ( !m_Constraints )
+            return false;
+        const auto merged = [&]( int x ) { return x == c || x == d; };
+        // The side (vertex, x) after the collapse: at c and d it is merged with (other, x).
+        const auto sideAfter = [&]( int x )
+        {
+            return IsConstrainedEdge( m_Mesh.FindEdge( vertex, x ) ) ||
+                   ( merged( x ) && IsConstrainedEdge( m_Mesh.FindEdge( other, x ) ) );
+        };
+        const auto bothSides = [&]( int x )
+        {
+            return merged( x ) && IsConstrainedEdge( m_Mesh.FindEdge( vertex, x ) ) &&
+                   IsConstrainedEdge( m_Mesh.FindEdge( other, x ) );
+        };
+        // Constrained edges at x after the collapse: the two merged into one count once.
+        const auto countAfter = [&]( int x ) { return ConstrainedEdgeCount( x ) - ( bothSides( x ) ? 1 : 0 ); };
+        int        keptCount  = ConstrainedEdgeCount( vertex ) + ConstrainedEdgeCount( other ) -
+                        ( IsConstrainedEdge( m_Mesh.FindEdge( vertex, other ) ) ? 2 : 0 );
+        for ( const int x : { c, d } )
+            if ( x != DynamicMesh3::InvalidID && bothSides( x ) )
+                --keptCount;
+        const auto straight = [&]( const glm::dvec3& m, const glm::dvec3& p, const glm::dvec3& q )
+        {
+            const glm::dvec3 u = p - m;
+            const glm::dvec3 w = q - m;
+            const double     l = glm::length( u ) * glm::length( w );
+            return l > 0.0 && glm::dot( u, w ) / l < kStraightCos;
+        };
+        // NOLINTNEXTLINE(readability-use-anyofallof): VtxTrianglesItr is no std range (std::ranges::any_of fails).
+        for ( const int tri : m_Mesh.VtxTrianglesItr( vertex ) )
+        {
+            if ( tri == tc || tri == td )
+                continue;
+            const Index3i    t  = m_Mesh.GetTriangle( tri );
+            const int        x  = t.A == vertex ? t.B : t.A;
+            const int        y  = t.C == vertex ? t.B : t.C;
+            const bool       vx = sideAfter( x );
+            const bool       vy = sideAfter( y );
+            const bool       xy = IsConstrainedEdge( m_Mesh.FindEdge( x, y ) );
+            const glm::dvec3 px = m_Mesh.GetVertex( x );
+            const glm::dvec3 py = m_Mesh.GetVertex( y );
+            if ( ( vx && vy && ( keptCount == 2 || straight( newPosition, px, py ) ) ) ||
+                 ( vx && xy && ( countAfter( x ) == 2 || straight( px, newPosition, py ) ) ) ||
+                 ( vy && xy && ( countAfter( y ) == 2 || straight( py, newPosition, px ) ) ) )
+                return true;
+        }
+        return false;
+    }
+
     void QemSimplification::UpdateConstraintsAround( int edge )
     {
         if ( !m_Constraints )
@@ -536,6 +612,8 @@ namespace Desert::Geometry
         }
         if ( CreatesFlipOrInvalid( a, b, newPosition, t0, t1 ) ||
              CreatesFlipOrInvalid( b, a, newPosition, t0, t1 ) )
+            return CollapseResult::Ignored;
+        if ( CreatesFin( a, b, newPosition, c, d, t0, t1 ) || CreatesFin( b, a, newPosition, c, d, t0, t1 ) )
             return CollapseResult::Ignored;
         if ( PreventTinyTriangles && ( CreatesTinyTriangle( a, b, newPosition, t0, t1 ) ||
                                        CreatesTinyTriangle( b, a, newPosition, t0, t1 ) ) )

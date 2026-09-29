@@ -142,6 +142,7 @@ namespace
         { "Combo", "\"##ElementSimplifyTarget\"", Reach::Palette, { "\"Simplify target: \"" } },
         { "SliderFloat", "\"##ElementSimplifyPercentage\"", Reach::Set, { "Element.SimplifyPercentage" } },
         { "DragInt", "\"##ElementSimplifyVertexCount\"", Reach::Set, { "Element.SimplifyVertexCount" } },
+        { "Checkbox", "\"Preserve Sharp Edges\"", Reach::Palette, { "\"Simplify: Preserve Sharp Edges\"" } },
         { "Checkbox", "\"Preserve PolyGroups\"", Reach::Palette, { "\"Simplify: Preserve PolyGroups\"" } },
         { "Button", "Core::ToString( MO::Simplify )", Reach::Palette, { "Core::MeshOperation::Simplify" } },
         { "Combo", "\"##ElementMirrorAxis\"", Reach::Palette, { "\"Mirror axis: \"" } },
