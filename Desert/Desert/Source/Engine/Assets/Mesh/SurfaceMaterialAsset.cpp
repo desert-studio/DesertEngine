@@ -220,6 +220,18 @@ namespace Desert::Assets
                  "file first.",
                  m_Metadata.Filepath.string() );
 
+        // AN UNLOADED SHELL IS NOT A MATERIAL (UE: a package is saved only while its objects are loaded). An
+        // evicted or never-read asset holds an empty MaterialData — no parameters and NO HEADER — so writing it
+        // would replace the authored file with defaults and mint the file a NEW GUID (StampMaterialHeader keeps
+        // only a GUID it was loaded with), cutting every scene and mesh that names this material by GUID. A new
+        // material (no file yet) is loaded-as-empty and ready, so it still saves and is minted its first GUID.
+        if ( !m_ReadyForUse )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' is not loaded (evicted or never read), so it holds no authored values and not the GUID its "
+                 "file states; writing it would replace the file with an empty material under a new identity. "
+                 "Load it first (EnsureLoaded).",
+                 m_Metadata.Filepath.string() );
+
         // A NUMBER THAT IS NOT A NUMBER IS REFUSED HERE, BY NAME, AND THE ALTERNATIVE IS NOT A BAD FILE.
         //
         // `rfl::json::write` is `std::string( yyjson_mut_write( … ) )` and yyjson with no write flags

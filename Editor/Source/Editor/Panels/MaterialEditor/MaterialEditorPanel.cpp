@@ -170,7 +170,7 @@ namespace Desert::Editor
                                               const std::shared_ptr<Assets::AssetManager>& assetManager )
          : ISubjectDocument( MaterialDocumentName( material, assetManager ),
                              AssetSubject( material, static_cast<uint32_t>( Assets::AssetTypeID::Material ) ) ),
-           m_AssetManager( assetManager )
+           m_AssetManager( assetManager ), m_SubjectPin( material, "open in the Material Editor" )
     {
         // Start level with the world: a rebuild that happened before this window existed left nothing here to
         // invalidate, and treating it as pending would drop pipelines that were never built.
