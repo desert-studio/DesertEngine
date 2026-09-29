@@ -111,6 +111,12 @@ namespace Desert::Editor
         /// Put the scene into the shape this capture needs — the object on its ball, or the cloud layer
         /// under the dome camera — and take the other one down. Called every tick of a capture, because
         /// the scene is shared between the three pictures and only one of them may be standing.
+        // THE PREVIEW SCENE AT ITS BASE: no subject on the target, no cloud deck, no skybox HDR, the procedural
+        // atmosphere on, the object camera active and unpinned. Called ONCE at the start of every capture
+        // (UE: one clean FThumbnailPreviewScene per picture), so nothing one capture staged can reach the next
+        // one's picture — a branch that forgets to take its predecessor's layer down has nothing to forget.
+        void ResetPreviewScene();
+        // Once per capture, after ResetPreviewScene: puts this capture's subject into the base scene.
         [[nodiscard]] bool StageSubject(); // false: nothing measurable to frame, the capture is abandoned
         void StagePose(); // StageSubject's Subject::Pose branch
         void PinDomeCamera(); // both dome kinds: pinned so Scene::OnUpdate cannot take the view back
@@ -156,7 +162,17 @@ namespace Desert::Editor
         // The mesh's OWN slots, resolved once when the capture was accepted (m_PendingMaterial == 0; Mesh, Pose).
         // A slot no registered material answers to was refused THERE, with its index — never staged empty,
         // which the scene draws with its default material: a picture of a material the mesh does not have.
+        // A null handle is an UNASSIGNED slot and is drawn with the engine's default surface material (the
+        // scene's own rule, UE's UMaterial::GetDefaultMaterial); only a slot naming a material no registered
+        // material answers to is refused.
         std::vector<Assets::AssetHandle> m_PendingSlots;
+        // False from the request until the first tick has reset the scene and staged the subject; staging
+        // is once per capture, not once per frame (re-adding a skinned subject every frame rebuilt its
+        // components under every warm-up frame).
+        bool m_Staged = false;
+        // The frame an object capture is re-fitted to on every warm-up tick (the camera's matrices are read
+        // each frame); empty for a dome, whose camera is pinned.
+        std::optional<ThumbnailFraming::Frame> m_FitFrame;
         std::string         m_PendingPng;
         // WHAT IS BEING PHOTOGRAPHED. A named question rather than the bool this replaced: "not a mesh"
         // is not the same statement as "a material", and the branch that reads it should not have to know

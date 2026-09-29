@@ -31,6 +31,7 @@
 #include <gtest/gtest.h>
 
 #include <Editor/Widgets/ThumbnailFraming.hpp>
+#include <Editor/Widgets/ThumbnailSlots.hpp>
 #include <Engine/Geometry/PosedBounds.hpp>
 
 #include <Common/Core/Units.hpp>
@@ -337,4 +338,35 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THM1n-14: an UNASSIGNED slot (reference 0) is drawn with the engine's default material, as the scene draws
+// it — never a refusal; only a reference no registered material answers to refuses the picture, by index.
+TEST( ThumbnailSlots, AnUnassignedSlotIsTheEngineDefaultNotARefusal )
+{
+    bool       asked = false;
+    const auto slot  = Desert::Editor::ThumbnailSlots::SlotMaterial( Common::UUID( static_cast<uint64_t>( 0 ) ), 0,
+                                                                     [&]( const Common::UUID& )
+                                                                     {
+                                                                        asked = true;
+                                                                        return Common::AssetHandle();
+                                                                    } );
+    ASSERT_TRUE( slot.IsSuccess() );
+    EXPECT_TRUE( slot.GetValue().IsNull() ); // staged null -> MeshECSSystem's default material
+    EXPECT_FALSE( asked );                   // nothing to resolve
+}
+
+TEST( ThumbnailSlots, ABrokenReferenceRefusesByIndexAndAResolvedOneIsStaged )
+{
+    const auto broken = Desert::Editor::ThumbnailSlots::SlotMaterial(
+         Common::UUID( static_cast<uint64_t>( 77 ) ), 3,
+         []( const Common::UUID& ) { return Common::AssetHandle( static_cast<uint64_t>( 0 ) ); } );
+    ASSERT_FALSE( broken.IsSuccess() );
+    EXPECT_NE( broken.GetError().find( "slot 3" ), std::string::npos );
+
+    const auto resolved = Desert::Editor::ThumbnailSlots::SlotMaterial(
+         Common::UUID( static_cast<uint64_t>( 77 ) ), 0,
+         []( const Common::UUID& ) { return Common::AssetHandle( static_cast<uint64_t>( 99 ) ); } );
+    ASSERT_TRUE( resolved.IsSuccess() );
+    EXPECT_EQ( static_cast<uint64_t>( resolved.GetValue() ), 99u );
 }

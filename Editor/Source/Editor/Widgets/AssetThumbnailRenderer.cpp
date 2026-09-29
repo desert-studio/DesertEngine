@@ -1,4 +1,5 @@
 #include "AssetThumbnailRenderer.hpp"
+#include <Editor/Widgets/ThumbnailSlots.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 #include <Engine/Geometry/PosedBounds.hpp>
@@ -345,6 +346,7 @@ namespace Desert::Editor
         // The dome needs its own, much longer window on top of that warm-up — see DomeIsStillSettling.
         m_DomeSettle = ( how == ThumbnailSubject::Preview::SkyDome ) ? kDomeSettleFrames : 0;
         m_DomeFrames = 0;
+        m_Staged     = false;
         return Common::MakeSuccess( true );
     }
 
@@ -372,13 +374,13 @@ namespace Desert::Editor
             const auto& externals = asset->GetMaterialHandles();
             for ( std::size_t i = 0; i < externals.size(); ++i )
             {
-                const auto internal = materials->GetAssetHandleByExternal( externals[i] );
-                if ( internal.IsNull() )
-                    return Common::MakeFormattedError<Slots>(
-                         "mesh {} slot {} names material {}, and no registered material answers to it — the "
-                         "scene would draw that slot with its default material, which is not this mesh's look",
-                         static_cast<uint64_t>( meshHandle ), i, externals[i].ToString() );
-                slots.push_back( internal );
+                // Unassigned -> the engine default (null staged); a broken reference -> refused by index.
+                auto slot = ThumbnailSlots::SlotMaterial( externals[i], i, [&]( const Common::UUID& ref )
+                                                          { return materials->GetAssetHandleByExternal( ref ); } );
+                if ( !slot )
+                    return Common::MakeFormattedError<Slots>( "mesh {} {}", static_cast<uint64_t>( meshHandle ),
+                                                              slot.GetError() );
+                slots.push_back( slot.GetValue() );
             }
             return Common::MakeSuccess( std::move( slots ) );
         }
@@ -463,6 +465,7 @@ namespace Desert::Editor
         m_CaptureTicks    = 0;
         m_DomeSettle      = 0;
         m_DomeFrames      = 0;
+        m_Staged          = false;
         return Common::MakeSuccess( true );
     }
 
@@ -497,6 +500,8 @@ namespace Desert::Editor
                                                static_cast<uint64_t>( meshHandle ), outPng, ownSlots.GetError() );
         for ( const auto& slot : ownSlots.GetValue() )
         {
+            if ( slot.IsNull() )
+                continue; // unassigned: the engine's default skinned material, which every path has
             if ( const auto cell =
                       materials->CellOf( slot, Graphic::MeshVertexPath::Skinned, Graphic::MeshPass::Forward );
                  !cell )
@@ -558,6 +563,7 @@ namespace Desert::Editor
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) -- IsSkinned() is the type tag
             anim.Animator = BuildPoseAnimator( *static_cast<Desert::SkinnedMesh*>( mesh ), m_PendingClip );
         }
+        m_FitFrame = m_PendingFrame;
         FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
     }
 
@@ -581,14 +587,40 @@ namespace Desert::Editor
         m_Scene->PinActiveCamera( m_DomeCamera );
     }
 
-    bool AssetThumbnailRenderer::StageSubject()
+    void AssetThumbnailRenderer::ResetPreviewScene()
     {
-        // A pose capture leaves its two components behind; every other subject is one static mesh component.
+        // The subject: a pose capture's two components go, the static mesh component is emptied.
         if ( m_Target.HasComponent<ECS::AnimationComponent>() )
             m_Target.RemoveComponent<ECS::AnimationComponent>();
         if ( m_Target.HasComponent<ECS::SkinnedMeshComponent>() )
             m_Target.RemoveComponent<ECS::SkinnedMeshComponent>();
+        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        smc.Primitive.reset();
+        smc.MaterialSlots.clear();
+        smc.RuntimeMaterialInstances.clear();
+        ECS::ClearEditableMesh( smc );
 
+        // The layers: switched OFF rather than destroyed — destroying the deck would give back its 10 MiB
+        // and pay for it again on the next cloud material, of which this project has 52.
+        if ( m_CloudLayer && m_CloudLayer.HasComponent<ECS::VolumetricCloudComponent>() )
+            m_CloudLayer.GetComponent<ECS::VolumetricCloudComponent>().Data.Enabled = false;
+        if ( m_SkyboxLayer )
+            m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle = Assets::AssetHandle();
+        m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = true;
+
+        // The camera Scene::Init made, by name. Unpinning alone would leave the DOME camera active until
+        // the scene's next OnUpdate — which is after FitTarget has already framed against it.
+        if ( m_DomeCamera && m_ObjectCamera )
+        {
+            m_Scene->PinActiveCamera( nullptr );
+            m_Scene->SetActiveCamera( m_ObjectCamera );
+        }
+        m_FitFrame.reset();
+    }
+
+    bool AssetThumbnailRenderer::StageSubject()
+    {
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
 
         // ── THE DOME: A MEDIUM, NOT A SURFACE ─────────────────────────────────────────────────────────
@@ -607,8 +639,6 @@ namespace Desert::Editor
             if ( m_PendingSky )
             {
                 // THE SKY IS THE MATERIAL'S HDR, drawn by the scene's skybox from the same ground camera.
-                if ( m_CloudLayer && m_CloudLayer.HasComponent<ECS::VolumetricCloudComponent>() )
-                    m_CloudLayer.GetComponent<ECS::VolumetricCloudComponent>().Data.Enabled = false;
                 if ( !m_SkyboxLayer )
                 {
                     m_SkyboxLayer = m_Scene->CreateNewEntity( "ThumbSkybox" );
@@ -641,27 +671,7 @@ namespace Desert::Editor
             return true;
         }
 
-        // ── NOT THE DOME: TAKE IT DOWN ────────────────────────────────────────────────────────────────
-        //
-        // The scene is shared between the three pictures, so the layer has to be switched off rather than
-        // merely not switched on: a live deck would otherwise sit over every material and mesh captured
-        // after the first cloud one. Off rather than destroyed, because destroying it would give back the
-        // 10 MiB and then pay for it again on the next cloud material, of which this project has 52.
-        if ( m_CloudLayer && m_CloudLayer.HasComponent<ECS::VolumetricCloudComponent>() )
-            m_CloudLayer.GetComponent<ECS::VolumetricCloudComponent>().Data.Enabled = false;
-        // And a skybox dome's HDR: the procedural backdrop is every other picture's sky.
-        if ( m_SkyboxLayer )
-            m_SkyboxLayer.GetComponent<ECS::SkyboxComponent>().SkyboxHandle = Assets::AssetHandle();
-        m_SkyAtmosphere.GetComponent<ECS::SkyAtmosphereComponent>().Data.Enabled = true;
-
-        // The camera Scene::Init made, by name. Unpinning alone would leave the DOME camera active until
-        // the scene's next OnUpdate — which is after FitTarget has already framed against it.
-        if ( m_DomeCamera && m_ObjectCamera )
-        {
-            m_Scene->PinActiveCamera( nullptr );
-            m_Scene->SetActiveCamera( m_ObjectCamera );
-        }
-
+        // ── NOT THE DOME: the base scene ResetPreviewScene left is already the object scene ─────────────
         if ( m_PendingSubject == Subject::Pose )
         {
             StagePose();
@@ -692,6 +702,7 @@ namespace Desert::Editor
             {
                 smc.MaterialSlots.clear();
             }
+            m_FitFrame = m_PendingFrame;
             FitTarget( m_PendingFrame.Center, m_PendingFrame.Extent );
         }
         else
@@ -725,6 +736,7 @@ namespace Desert::Editor
                            m_PendingPng );
                 return false;
             }
+            m_FitFrame = frame;
             FitTarget( frame.Center, frame.Extent );
         }
         return true;
@@ -809,12 +821,23 @@ namespace Desert::Editor
         // the two paths resolve a material differently, so a preview taken on one proves nothing about the
         // other (Docs/MaterialEditor/STAGE1_END_TO_END.md). Every capture below now goes through
         // MaterialSlots, the per-slot route the scene itself uses.
-        if ( !StageSubject() )
+        // ONCE PER CAPTURE: the scene back to its base, then this capture's subject into it. Every later
+        // warm-up tick only re-fits the object to the camera's current matrices.
+        if ( !m_Staged )
         {
-            // Nothing measurable to frame, and StageSubject said so: abandoned like a scene that would not
-            // initialise, so no picture of the backdrop is written as the asset.
-            m_Phase = 0;
-            return;
+            ResetPreviewScene();
+            if ( !StageSubject() )
+            {
+                // Nothing measurable to frame, and StageSubject said so: abandoned like a scene that would
+                // not initialise, so no picture of the backdrop is written as the asset.
+                m_Phase = 0;
+                return;
+            }
+            m_Staged = true;
+        }
+        else if ( m_FitFrame )
+        {
+            FitTarget( m_FitFrame->Center, m_FitFrame->Extent );
         }
 
         // Render this frame (recorded into the editor's in-flight frame, submitted at frame end).
