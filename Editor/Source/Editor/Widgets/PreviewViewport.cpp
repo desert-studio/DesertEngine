@@ -203,7 +203,7 @@ namespace Desert::Editor
         // outright, and the reason was memory rather than taste: four 2048 cascades are 335 MB of
         // attachments per renderer and this editor allows six live ones. See Graphic::ShadowQuality.
         m_Renderer        = std::make_unique<Graphic::SceneRenderer>( extent, Graphic::kPreviewViewProfile );
-        m_Scene           = std::make_shared<::Desert::Core::Scene>( "DetailsPreview", m_Renderer.get() );
+        m_Scene    = std::make_shared<::Desert::Core::Scene>( "DetailsPreview", m_Renderer.get() );
         const auto inited = m_Scene->Init();
         if ( !inited.IsSuccess() )
         {
@@ -533,10 +533,10 @@ namespace Desert::Editor
         if ( m_CubemapPass )
             m_CubemapPass->ClearSource();
 
-        m_MeshHandle      = mesh;
+        m_MeshHandle  = mesh;
         m_Fill            = Fill::Object;
-        m_HasContent      = true;
-        m_Focus           = glm::vec3( 0.0f );
+        m_HasContent  = true;
+        m_Focus       = glm::vec3( 0.0f );
         m_FrameHalfExtent = glm::vec3( 50.0f ); // stand-in until the bounds are known (see TryFrameMesh)
         m_FrameRadius     = RadiusOfHalfExtent( m_FrameHalfExtent );
         ResetView();
@@ -672,14 +672,14 @@ namespace Desert::Editor
         auto& tc    = m_Target.GetComponent<ECS::TransformComponent>();
         tc.Rotation = glm::vec3( 0.0f );
 
-        m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        m_Framed          = true; // a primitive's size is known up front
-        m_Focus           = glm::vec3( 0.0f );
+        m_MeshHandle  = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        m_Framed      = true; // a primitive's size is known up front
+        m_Focus       = glm::vec3( 0.0f );
         m_FrameHalfExtent = HalfExtentOfPrimitive( shape );
         m_FrameRadius     = RadiusOfPrimitive( shape );
         m_FrameIsRound    = ( shape == Shape::Sphere );
         m_Fill            = Fill::Object;
-        m_HasContent      = true;
+        m_HasContent  = true;
 
         // One kind of content at a time: a window whose material moved from the cubemap domain to the
         // surface one must not keep the ball behind its new primitive.
@@ -1048,9 +1048,9 @@ namespace Desert::Editor
         // "reset view" quietly putting the observer 1.8 m above a 20 km ground plane.
         if ( m_Fill == Fill::SkyDome )
         {
-            m_Yaw   = kDomeDefaultYaw;
-            m_Pitch = kDomeDefaultPitch;
-            m_Focus = glm::vec3( 0.0f, kDomeEyeHeight, 0.0f );
+            m_Yaw      = kDomeDefaultYaw;
+            m_Pitch    = kDomeDefaultPitch;
+            m_Focus    = glm::vec3( 0.0f, kDomeEyeHeight, 0.0f );
             LOG_TRACE( "[Preview] dome view reset: yaw {:.1f} deg, elevation {:.1f} deg, {:.0f} deg vertical "
                        "field (horizon, mid and zenith in one frame)",
                        glm::degrees( m_Yaw ), glm::degrees( m_Pitch ), kDomeFov );
@@ -1150,15 +1150,15 @@ namespace Desert::Editor
         // read still in flight anywhere (a texture of this material streaming in) counts as time-dependent:
         // the picture changes when it lands, and nothing this widget holds would say so.
         PreviewRenderGate::Inputs in;
-        in.Subject    = m_ContentRevision;
-        in.Parameters = m_ContentFingerprint;
-        in.Setup      = m_SetupRevision;
-        in.Yaw        = m_Yaw;
-        in.Pitch      = m_Pitch;
-        in.Zoom       = m_Zoom;
-        in.Focus      = m_Focus;
-        in.Width      = m_Width;
-        in.Height     = m_Height;
+        in.Subject         = m_ContentRevision;
+        in.Parameters      = m_ContentFingerprint;
+        in.Setup           = m_SetupRevision;
+        in.Yaw             = m_Yaw;
+        in.Pitch           = m_Pitch;
+        in.Zoom            = m_Zoom;
+        in.Focus           = m_Focus;
+        in.Width           = m_Width;
+        in.Height          = m_Height;
         // A skinned preview whose animator does not exist yet renders the bind pose; keep rendering until the
         // pose is the one asked for.
         const bool posing  = !ApplyAnimationTime();

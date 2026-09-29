@@ -343,59 +343,65 @@ namespace Desert::Editor
               { Core::PersonaMode::Skeleton, Core::PersonaMode::Mesh, Core::PersonaMode::Animation } )
             actions.push_back(
                  { std::format( "Mode {}", PersonaModeName( mode ) ), [this, mode]() { OpenMode( mode ); } } );
-        actions.push_back( { "Play/Pause", [this]() { m_Transport.TogglePlay(); } } );
-        actions.push_back( { "Next Frame", [this]() { m_Transport.StepFrames( 1 ); } } );
-        actions.push_back( { "Previous Frame", [this]() { m_Transport.StepFrames( -1 ); } } );
-        static constexpr std::array kPercents = { 0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100 };
-        for ( const int percent : kPercents )
-            actions.push_back( { std::format( "Set Time {}%", percent ), [this, percent]()
-                                 {
-                                     m_Transport.Playing = false;
-                                     m_Transport.SetTime( m_Transport.DurationSeconds * percent / 100.0 );
-                                 } } );
-        actions.push_back( { "Add Notify Track", [this]()
-                             {
-                                 if ( auto* asset = ClipAsset() )
-                                     m_AddedNotifyRows =
-                                          NotifyTrackCount( asset->GetClip().Notifies, m_AddedNotifyRows ) + 1;
-                             } } );
-        for ( const int percent : kPercents )
-            actions.push_back( { std::format( "Add Notify at {}%", percent ), [this, percent]()
-                                 {
-                                     auto* asset = ClipAsset();
-                                     if ( asset == nullptr )
-                                         return;
-                                     const auto& clip = asset->GetClip();
-                                     (void)AddNotify( std::format( "Notify {}", clip.Notifies.size() + 1 ),
-                                                      clip.DurationSeconds() * percent / 100.0,
-                                                      NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) - 1 );
-                                 } } );
-        // The palette's (and DesertCtl's) way to the same edits the timeline's right-click menus make.
-        for ( const int percent : kPercents )
+        // The transport, the notifies and the curves are about a clip: the Skeleton and Mesh modes have none,
+        // so their palette does not offer edits that could only fail.
+        if ( Mode() == Core::PersonaMode::Animation )
         {
-            actions.push_back( { std::format( "Add Notify State at {}%", percent ), [this, percent]()
+            actions.push_back( { "Play/Pause", [this]() { m_Transport.TogglePlay(); } } );
+            actions.push_back( { "Next Frame", [this]() { m_Transport.StepFrames( 1 ); } } );
+            actions.push_back( { "Previous Frame", [this]() { m_Transport.StepFrames( -1 ); } } );
+            static constexpr std::array kPercents = { 0, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100 };
+            for ( const int percent : kPercents )
+                actions.push_back( { std::format( "Set Time {}%", percent ), [this, percent]()
+                                     {
+                                         m_Transport.Playing = false;
+                                         m_Transport.SetTime( m_Transport.DurationSeconds * percent / 100.0 );
+                                     } } );
+            actions.push_back( { "Add Notify Track", [this]()
                                  {
-                                     auto* asset = ClipAsset();
-                                     if ( asset == nullptr )
-                                         return;
-                                     const auto& clip = asset->GetClip();
-                                     (void)AddNotify( std::format( "State {}", clip.Notifies.size() + 1 ),
-                                                      clip.DurationSeconds() * percent / 100.0,
-                                                      NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) - 1,
-                                                      std::max( clip.DurationTicks.Value / 4, 1 ) );
+                                     if ( auto* asset = ClipAsset() )
+                                         m_AddedNotifyRows =
+                                              NotifyTrackCount( asset->GetClip().Notifies, m_AddedNotifyRows ) + 1;
                                  } } );
-            // A key on the clip's first curve ("Curve 1" when it has none), valued by the percent.
-            actions.push_back( { std::format( "Add Curve Key at {}%", percent ), [this, percent]()
-                                 {
-                                     auto* asset = ClipAsset();
-                                     if ( asset == nullptr )
-                                         return;
-                                     const auto&       clip = asset->GetClip();
-                                     const std::string name = clip.Curves.empty() ? std::string( "Curve 1" )
-                                                                                  : clip.Curves.front().Name;
-                                     (void)EditCurveKey( name, clip.DurationTicks.Value * percent / 100,
-                                                         static_cast<float>( percent ) / 100.0f );
-                                 } } );
+            for ( const int percent : kPercents )
+                actions.push_back( { std::format( "Add Notify at {}%", percent ), [this, percent]()
+                                     {
+                                         auto* asset = ClipAsset();
+                                         if ( asset == nullptr )
+                                             return;
+                                         const auto& clip = asset->GetClip();
+                                         (void)AddNotify( std::format( "Notify {}", clip.Notifies.size() + 1 ),
+                                                          clip.DurationSeconds() * percent / 100.0,
+                                                          NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) -
+                                                               1 );
+                                     } } );
+            // The palette's (and DesertCtl's) way to the same edits the timeline's right-click menus make.
+            for ( const int percent : kPercents )
+            {
+                actions.push_back( { std::format( "Add Notify State at {}%", percent ), [this, percent]()
+                                     {
+                                         auto* asset = ClipAsset();
+                                         if ( asset == nullptr )
+                                             return;
+                                         const auto& clip = asset->GetClip();
+                                         (void)AddNotify( std::format( "State {}", clip.Notifies.size() + 1 ),
+                                                          clip.DurationSeconds() * percent / 100.0,
+                                                          NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) - 1,
+                                                          std::max( clip.DurationTicks.Value / 4, 1 ) );
+                                     } } );
+                // A key on the clip's first curve ("Curve 1" when it has none), valued by the percent.
+                actions.push_back( { std::format( "Add Curve Key at {}%", percent ), [this, percent]()
+                                     {
+                                         auto* asset = ClipAsset();
+                                         if ( asset == nullptr )
+                                             return;
+                                         const auto&       clip = asset->GetClip();
+                                         const std::string name = clip.Curves.empty() ? std::string( "Curve 1" )
+                                                                                      : clip.Curves.front().Name;
+                                         (void)EditCurveKey( name, clip.DurationTicks.Value * percent / 100,
+                                                             static_cast<float>( percent ) / 100.0f );
+                                     } } );
+            }
         }
         actions.push_back( { "Save", [this]() { (void)SaveDocument(); } } );
         actions.push_back( { "Show Bones On", [this]() { m_ShowBones = true; } } );
@@ -425,7 +431,8 @@ namespace Desert::Editor
                                                  glm::angleAxis( glm::radians( 30.0f ), glm::vec3( 0, 0, 1 ) );
                                  (void)PoseSelectedBone( pose, true );
                              } } );
-        actions.push_back( { "Key Bone", [this]() { (void)KeySelectedBone(); } } );
+        if ( Mode() == Core::PersonaMode::Animation )
+            actions.push_back( { "Key Bone", [this]() { (void)KeySelectedBone(); } } );
         PreviewEnvironment::AppendActions( actions );
         return actions;
     }
@@ -579,8 +586,11 @@ namespace Desert::Editor
         };
         if ( Mode() != Core::PersonaMode::Animation )
         {
+            // The document name carries its ImGui "###" identity; a person reads only the part before it.
+            const std::string_view name = GetName();
             line( 0, std::format( "Previewing {} {}", PersonaModeName( Mode() ),
-                                  Mode() == Core::PersonaMode::Mesh ? m_MeshName : std::string( GetName() ) ) );
+                                  Mode() == Core::PersonaMode::Mesh ? std::string_view( m_MeshName )
+                                                                    : name.substr( 0, name.find( "###" ) ) ) );
             line( 1, std::format( "Bind pose   mesh {}   skeleton {:016x}", m_MeshName, m_Signature ) );
             return;
         }
@@ -673,7 +683,9 @@ namespace Desert::Editor
         ImGui::DockBuilderDockWindow( PanelTitle( "Asset Browser" ).c_str(), browser );
         ImGui::DockBuilderDockWindow( PanelTitle( "Viewport" ).c_str(), center );
         // The tree and the bone's Details are the tabs in front, as in Persona.
-        ImGui::DockBuilderGetNode( left )->SelectedTabId  = ImHashStr( skeletonTree.c_str() );
+        // Mesh mode is about the asset (vertices, material slots), so Asset Details leads there.
+        ImGui::DockBuilderGetNode( left )->SelectedTabId =
+             ImHashStr( Mode() == Core::PersonaMode::Mesh ? assetDetails.c_str() : skeletonTree.c_str() );
         ImGui::DockBuilderGetNode( right )->SelectedTabId = ImHashStr( details.c_str() );
         ImGui::DockBuilderGetNode( center )->LocalFlags |= ImGuiDockNodeFlags_HiddenTabBar;
         ImGui::DockBuilderFinish( dockId );
@@ -718,7 +730,8 @@ namespace Desert::Editor
         if ( frontTabsNow )
         {
             // Focusing a docked window selects its tab; Details last, so the bone's properties hold focus.
-            ImGui::SetWindowFocus( PanelTitle( "Skeleton Tree" ).c_str() );
+            ImGui::SetWindowFocus(
+                 PanelTitle( Mode() == Core::PersonaMode::Mesh ? "Asset Details" : "Skeleton Tree" ).c_str() );
             ImGui::SetWindowFocus( PanelTitle( "Details" ).c_str() );
         }
     }
@@ -1684,8 +1697,10 @@ namespace Desert::Editor
         for ( const auto mode : kModes )
         {
             const bool active = mode == Mode();
+            // The theme's accent (the checkmark colour): ButtonActive is darker than Button in this theme, so the
+            // current mode read as the one NOT selected.
             if ( active )
-                ImGui::PushStyleColor( ImGuiCol_Button, ImGui::GetStyleColorVec4( ImGuiCol_ButtonActive ) );
+                ImGui::PushStyleColor( ImGuiCol_Button, ImGui::GetStyleColorVec4( ImGuiCol_CheckMark ) );
             if ( ImGui::Button( PersonaModeName( mode ) ) )
                 OpenMode( mode );
             if ( active )
@@ -1734,11 +1749,13 @@ namespace Desert::Editor
             const auto& slots = mesh.GetMaterialHandles();
             for ( size_t i = 0; i < slots.size(); ++i )
             {
-                const auto* meta = m_Assets != nullptr ? m_Assets->FindMetadataByHandle( slots[i] ) : nullptr;
+                // Handle 0 is an empty slot, not a lost asset.
+                const auto  handle = static_cast<uint64_t>( slots[i] );
+                const auto* meta   = m_Assets != nullptr ? m_Assets->FindMetadataByHandle( slots[i] ) : nullptr;
                 row( std::format( "Slot {}", i ).c_str(),
-                     meta != nullptr
-                          ? meta->Filepath.filename().string()
-                          : std::format( "{:016x} (not registered)", static_cast<uint64_t>( slots[i] ) ) );
+                     meta != nullptr ? meta->Filepath.filename().string()
+                     : handle == 0   ? std::string( "None" )
+                                     : std::format( "{:016x} (not registered)", handle ) );
             }
             ImGui::EndTable();
         }

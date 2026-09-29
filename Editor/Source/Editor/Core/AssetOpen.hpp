@@ -62,6 +62,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::AnimGraph:
             case Assets::AssetTypeID::Retarget:
             case Assets::AssetTypeID::LandscapeLayerInfo: // edited in the landscape panel's layer list
+            case Assets::AssetTypeID::FoliageType:        // edited in the foliage panel
                 return kNoEditor;
             case Assets::AssetTypeID::Count:
                 return "AssetTypeID::Count is the number of types, not a type";
@@ -70,7 +71,7 @@ namespace Desert::Editor::Core
     }
 
     // UE's PERSONA: one character editor with three modes, each about one asset of a skeleton — the Skeleton
-    // (`.deskel`), a Skeletal Mesh (`.skmesh`) and an Animation (`.anim`). The mode is a property of the asset
+    // (`.skeleton`), a Skeletal Mesh (`.skmesh`) and an Animation (`.anim`). The mode is a property of the asset
     // opened, so it is decided here from the metadata and nowhere else: EditorLayer's Mesh registration asks it
     // which window a Mesh subject gets, because AssetTypeID::Mesh names both `.stmesh` and `.skmesh`.
     enum class PersonaMode : uint8_t
