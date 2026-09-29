@@ -19,7 +19,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Animation/Retarget` — 8 files, 1,505 lines: BonePairing, ModelPose, ResolvedChain, RetargetChain, RetargetPose, RetargetSetup, RetargetSource, Retargeter
 - `Animation/Rig` — 12 files, 4,320 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, ControlSpace, … (+15)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
-- `Assets` — 91 files, 20,280 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+85)
+- `Assets` — 91 files, 20,332 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+85)
 - `Assets/Mesh` — 14 files, 1,518 lines: AnimationAsset, MeshAsset, PBRSurfaceParams, SkeletonAsset, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
 - `Assets/Prefab` — 9 files, 1,434 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+8)
 - `Assets/Serialization` — 28 files, 7,647 lines: AnimationAssetData, AnimationMigrationReport, Box, ChannelData, ControlDriveData, ControlElementData, ControlRigData, ControlSpaceData, CookedPanorama, CurveData, Document, FoliageFloatInterval, … (+43)
@@ -30,7 +30,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Formats` — 9 files, 2,671 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MipLevelSpan, ShaderParam, ShaderProgramMeta, ShaderRenderState, TexelBlock
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
 - `Core/Serialize` — 38 files, 10,112 lines: AxisSpan, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, CookedWorld, DanglingContainment, … (+56)
-- `Core/ShaderCompiler` — 11 files, 1,438 lines: ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
+- `Core/ShaderCompiler` — 13 files, 1,644 lines: ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, ShaderVirtualSource
 - `Core/ShaderCompiler/DShader` — 2 files, 1,670 lines: DShaderParseResult, DShaderParser, DShaderPass
 - `Core/ShaderCompiler/Includer` — 2 files, 244 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 138 lines: PreprocessedPass, ShaderPreprocess
@@ -54,7 +54,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,101 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
 - `Graphic` — 91 files, 13,684 lines: ActiveViewScope, AllocationLedger, AtmosphereEnv, CallerCost, CascadeFit, CascadeSetup, ComputeImages, ComputeImagesSpecification, ComputePipeline, ComputePipelineSpecification, CookedTexture2D, DebugViewState, … (+109)
-- `Graphic/API/Vulkan` — 49 files, 12,554 lines: AllocatedData, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CommandBufferAllocator, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, ExternalAttachmentInfo, FallbackImageBinding, FrameQueries, FramebufferDeletionEntry, … (+38)
+- `Graphic/API/Vulkan` — 49 files, 12,511 lines: AllocatedData, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CommandBufferAllocator, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, ExternalAttachmentInfo, FallbackImageBinding, FrameQueries, FramebufferDeletionEntry, … (+38)
 - `Graphic/API/Vulkan/VulkanUtils` — 4 files, 556 lines: DescriptorSetBuilder
 - `Graphic/Clouds` — 11 files, 3,371 lines: CloudAuthoredInstanceGpu, CloudAuthoredPackResult, CloudAuthoredPayload, CloudBakeBinding, CloudBakeLayerInputs, CloudEnvelopeKm, CloudEnvironmentBake, CloudGpuPayload, CloudMaterialValues, CloudMediumValues, CloudNearFadeKm, CloudNoiseResolution, … (+13)
 - `Graphic/Environment` — 6 files, 1,111 lines: Environment, EnvironmentCacheEntry, EnvironmentCacheWriter, EnvironmentManager, OwnedEnvironment, SampledCube, SkyLook, SkyLookGPU, Write
@@ -368,13 +368,14 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Desert/Desert/Source/Engine/Core/Serialize/TextureSlot.cpp` — 1: TextureSlotRoundTrip
 - `Desert/Desert/Source/Engine/Core/Serialize/WorldCellLoader.cpp` — 1: WorldCells
 - `Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp` — 4: GamePackager, PackagedContent, WorldCells, WorldCook
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp` — 14: CloudControlCensus, CloudMaterialSchema, CloudMaterialTiming, DShaderParser, DShaderTool, GamePackager, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey, ShaderDomainRouting, ShaderGraphCompiler, ShaderIncluderOwnership, ShippedShaderPasses
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp` — 3: GamePackager, PackagedContent, ShaderIncluderOwnership
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp` — 5: GamePackager, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp` — 2: GamePackager, PackagedContent
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapCache.cpp` — 1: ShaderCacheKey
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp` — 3: GamePackager, PackagedContent, ShaderCacheKey
-- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderSpirvCache.cpp` — 2: GamePackager, PackagedContent
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/DShader/DShaderParser.cpp` — 15: CloudControlCensus, CloudMaterialSchema, CloudMaterialTiming, DShaderParser, DShaderTool, GamePackager, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey, ShaderDomainRouting, ShaderGraphCompiler, ShaderIncluderOwnership, ShaderMapBuild, ShippedShaderPasses
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/Includer/ShaderIncluder.cpp` — 4: GamePackager, PackagedContent, ShaderIncluderOwnership, ShaderMapBuild
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp` — 6: GamePackager, MeshVertexPath, PBRSceneFrame, PackagedContent, ShaderCacheKey, ShaderMapBuild
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp` — 3: GamePackager, PackagedContent, ShaderMapBuild
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapBuild.cpp` — 1: ShaderMapBuild
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderMapCache.cpp` — 2: ShaderCacheKey, ShaderMapBuild
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.cpp` — 4: GamePackager, PackagedContent, ShaderCacheKey, ShaderMapBuild
+- `Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderSpirvCache.cpp` — 3: GamePackager, PackagedContent, ShaderMapBuild
 - `Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp` — 1: LandscapeRaycast
 - `Desert/Desert/Source/Engine/ECS/System/PhysicsBodyLifetime.cpp` — 1: EntityDestroy
 - `Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp` — 21: AssetResolverCensus, CloudControlCensus, CloudProtocolScene, ComponentReflection, ConfigOwnership, FoliageTypeMigration, SceneCloudLayoutDefault, SceneDebugFields, SceneForeignKeys, SceneMeshGuidMigration, SceneMigrator, SceneMigratorWritePath, SceneSettingsHomes, SettingConsumers, SkyPresets, UIClipUndo, UIComponentRoundTrip, UIEventRouting, UIOverlays, WorldGen, WorldSceneGenerator
