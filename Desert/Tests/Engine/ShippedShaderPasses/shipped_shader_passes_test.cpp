@@ -22,12 +22,14 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <regex>
@@ -132,17 +134,58 @@ TEST( ShippedShaderPasses, EveryRasterPassCanWriteWhatItRendersInto )
 // WHEN THIS FAILS, THE FIX IS NOT TO RELAX IT. Either the pass has a consumer — then this test names the
 // call site that must exist, and the pass belongs in an expected set added here beside it — or it has
 // none, and the pass is the thing to delete.
+namespace
+{
+    // Every program name the mesh passes ask ShaderService for, read off the one (path x pass) table.
+    const std::set<std::string>& CellsTheMeshPassesAskFor()
+    {
+        static const std::set<std::string> names = []
+        {
+            using namespace Desert::Graphic;
+            std::set<std::string> out;
+            for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
+                for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
+                    if ( const char* name =
+                              MeshShaderFor( static_cast<MeshVertexPath>( path ), static_cast<MeshPass>( pass ) ) )
+                        out.insert( name );
+            return out;
+        }();
+        return names;
+    }
+} // namespace
+
 TEST( ShippedShaderPasses, NoShippedShaderDeclaresAPassNothingCanAddress )
 {
     for ( const auto& shader : ShippedShaders() )
     {
         ASSERT_TRUE( shader.Parsed.IsSuccess() ) << shader.File.string() << ": " << shader.Parsed.GetError();
 
-        for ( const auto& passName : shader.Parsed.GetValue().Meta.PassNames )
+        const DShaderParseResult& parsed = shader.Parsed.GetValue();
+        for ( const auto& passName : parsed.Meta.PassNames )
+        {
+            // A SURFACE CELL is addressed through the (path x pass) table, not a literal GetByName: the
+            // mesh passes ask for MeshShaderFor( path, pass ), which names "<Template>/<Path>.<Pass>".
+            // So a cell is reachable exactly when that table names it. The one expected exception is
+            // the depth cell: shadow depth still draws with the three Shadow* programs until SURF1d
+            // routes the cascade pass through the template's ShadowDepth cells.
+            const bool isCell = std::find( parsed.Surface.Cells.begin(), parsed.Surface.Cells.end(), passName ) !=
+                                parsed.Surface.Cells.end();
+            if ( isCell )
+            {
+                const std::string program = parsed.Name + "/" + passName;
+                if ( CellsTheMeshPassesAskFor().count( program ) != 0 )
+                    continue;
+                if ( passName.ends_with( std::string( ".") + std::string( Desert::Core::Preprocess::kSurfaceDepthPass ) ) )
+                    continue; // SURF1d: the cascade pass is not on the template yet
+                ADD_FAILURE() << shader.File.string() << ": surface cell \"" << passName
+                              << "\" is not named by MeshShaderFor, so no mesh pass ever draws with it";
+                continue;
+            }
             ADD_FAILURE() << shader.File.string() << ": declares Pass \"" << passName
                           << "\", which registers a program named \""
                           << shader.Parsed.GetValue().Name + "/" + passName
                           << "\" that no GetByName call in the engine ever asks for";
+        }
     }
 }
 
@@ -500,16 +543,31 @@ TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedRec
             continue;
         ++readers;
 
-        EXPECT_NE( text.find( "#include <Common/TangentNormal.glslh>" ), std::string::npos )
+        // A surface template includes nothing itself: every cell is built around the engine's
+        // SurfaceTypes header, so for a template the shared reconstruction must come in through THAT file.
+        ASSERT_TRUE( shader.Parsed.IsSuccess() ) << shader.File.string();
+        const bool isTemplate = !shader.Parsed.GetValue().Surface.Cells.empty();
+        const std::string includer =
+             isTemplate ? ReadFile( shader.File.parent_path().parent_path().parent_path() /
+                                    std::string( Desert::Core::Preprocess::kSurfaceTypesInclude ) )
+                        : text;
+        EXPECT_NE( includer.find( "#include <Common/TangentNormal.glslh>" ), std::string::npos )
              << shader.File.filename().string()
-             << " samples a normal map without including the shared reconstruction";
-        EXPECT_NE( text.find( "SampleTangentNormal(u_NormalTexture" ), std::string::npos )
+             << " samples a normal map without including the shared reconstruction"
+             << ( isTemplate ? " (through Mesh/Surface/SurfaceTypes.glslh)" : "" );
+
+        // Spelled without whitespace, so `SampleTangentNormal( u_NormalTexture` and `texture (u_NormalTexture`
+        // are held to the same rule as the compact spelling.
+        std::string compact;
+        std::copy_if( text.begin(), text.end(), std::back_inserter( compact ),
+                      []( char c ) { return c != ' ' && c != '\t'; } );
+        EXPECT_NE( compact.find( "SampleTangentNormal(u_NormalTexture" ), std::string::npos )
              << shader.File.filename().string() << " does not read its normal map through "
              << "SampleTangentNormal; a BC5 normal map decodes to a Z of -1 through any other reading";
 
         // THE OLD SPELLING, BY NAME. `.rgb` off a normal-map sampler is the defect, whatever the
         // arithmetic around it looks like, because the third channel is not there to read.
-        const std::size_t sampled = text.find( "texture(u_NormalTexture" );
+        const std::size_t sampled = compact.find( "texture(u_NormalTexture" );
         EXPECT_EQ( sampled, std::string::npos )
              << shader.File.filename().string()
              << " samples u_NormalTexture directly instead of through SampleTangentNormal";
