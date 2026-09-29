@@ -9,6 +9,8 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <ImGui/imgui.h>
 
 #include <array>
@@ -17,6 +19,7 @@
 #include <format>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Desert::Editor::ImportOptions
 {
@@ -61,12 +64,39 @@ namespace Desert::Editor::ImportOptions
                                                                  Assets::MeshLodPolicy::None };
         constexpr std::array<const char*, 2> kLodLabels = { "Generate (authored, else simplified)", "LOD 0 only" };
 
+        // EVERY ENTITY THAT DRAWS A REIMPORTED MESH DRAWS THE NEW CONTENT FROM THE NEXT FRAME (UE:
+        // FReimportManager
+        // -> PostReimport recreates the render resources). A loaded mesh drops its parsed payload and its built
+        // GPU mesh; the next Get re-reads the file through the path a first use takes (as a committed modeling
+        // edit does, ModelingToolTargetAsset.cpp). A mesh nobody loaded has nothing to refresh. A node mesh that
+        // this import no longer writes (Combine Meshes switched) is not deleted: entities placed from it keep it,
+        // as UE keeps the old assets until they are deleted by hand.
+        void RefreshLoadedMeshes( const std::vector<std::filesystem::path>& written )
+        {
+            auto* service = Runtime::ResourceRegistry::GetMeshService();
+            for ( const std::filesystem::path& path : written )
+            {
+                const Assets::AssetHandle handle = Assets::AssetHandle::FromCookedPath( path );
+                if ( !service->HasAsset( handle ) )
+                    continue;
+                if ( auto* asset = service->GetAsset( handle ) )
+                    if ( const auto unloaded = asset->Unload(); !unloaded )
+                    {
+                        LOG_ERROR( "[Import] '{}' was reimported but the loaded mesh was not reset: {}",
+                                   path.generic_string(), unloaded.GetError() );
+                        continue;
+                    }
+                (void)service->EvictBuilt( handle );
+            }
+        }
+
         void ImportOne( const std::filesystem::path& source, const Assets::SourceImportSettings& settings )
         {
-            const CookVerdict verdict = SharedImporter().ImportWithSettings( source, settings );
-            if ( verdict == CookVerdict::Failed || verdict == CookVerdict::NotCookable )
+            const ImportOutcome outcome = SharedImporter().ImportWithSettings( source, settings );
+            if ( outcome.Verdict == CookVerdict::Failed || outcome.Verdict == CookVerdict::NotCookable )
                 LOG_ERROR( "[Import] '{}' was not imported with the chosen options (see the error above)",
                            source.generic_string() );
+            RefreshLoadedMeshes( outcome.WrittenMeshes );
         }
 
         void ConfirmAndImport( const std::size_t count )

@@ -14,6 +14,15 @@
 
 namespace Desert::Editor
 {
+    // What an import with options wrote: its verdict, and every mesh file (a static node mesh, the combined
+    // mesh, a `.skmesh`) that now holds new content — the caller refreshes whoever draws them (Reimport, UE's
+    // FReimportManager -> PostReimport). A partly failed import still lists the meshes it did write.
+    struct ImportOutcome
+    {
+        CookVerdict                        Verdict = CookVerdict::Failed;
+        std::vector<std::filesystem::path> WrittenMeshes;
+    };
+
     class ImportManager
     {
     public:
@@ -26,8 +35,8 @@ namespace Desert::Editor
         // Always imports (a changed option must reach the meshes even when the file's bytes did not change);
         // @p settings are written into the source's import record, the options' one home, which every later
         // Import reads.
-        CookVerdict ImportWithSettings( const std::filesystem::path&        path,
-                                        const Assets::SourceImportSettings& settings );
+        ImportOutcome ImportWithSettings( const std::filesystem::path&        path,
+                                          const Assets::SourceImportSettings& settings );
         // The mesh sources under `root` the bulk cook reaches (`.blend` excluded: a headless Blender run is
         // imported on demand only).
         static std::vector<std::filesystem::path> MeshSources( const std::filesystem::path& root );
@@ -56,11 +65,13 @@ namespace Desert::Editor
         // disk or a read-only Cooked/ produced an import that looked exactly like a successful one, and
         // the missing `.stmesh` surfaced later as an asset that would not resolve. The write itself is
         // WriteCookedJson (Editor/Import/CookedJsonWrite.hpp), which closes before it decides.
-        [[nodiscard]] CookVerdict           ImportParsed( const std::filesystem::path&        path,
-                                                          const Assets::SourceImportSettings& settings );
-        [[nodiscard]] Common::BoolResultStr CreateAssetsFromImport( const ImportResult&                 result,
-                                                                    const std::filesystem::path&        sourcePath,
-                                                                    const Assets::SourceImportSettings& settings );
+        [[nodiscard]] ImportOutcome ImportParsed( const std::filesystem::path&        path,
+                                                  const Assets::SourceImportSettings& settings );
+        // @p writtenMeshes receives every mesh file actually written, also when a later write fails.
+        [[nodiscard]] Common::BoolResultStr
+        CreateAssetsFromImport( const ImportResult& result, const std::filesystem::path& sourcePath,
+                                const Assets::SourceImportSettings& settings,
+                                std::vector<std::filesystem::path>& writtenMeshes );
 
     private:
         [[nodiscard]] Common::BoolResultStr

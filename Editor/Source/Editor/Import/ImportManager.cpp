@@ -120,21 +120,21 @@ namespace Desert::Editor
             LOG_ERROR( "[Import] '{}' was not imported: {}", path.string(), settings.GetError() );
             return CookVerdict::Failed;
         }
-        return ImportParsed( path, settings.GetValue() );
+        return ImportParsed( path, settings.GetValue() ).Verdict;
     }
 
-    CookVerdict ImportManager::ImportWithSettings( const std::filesystem::path&        path,
-                                                   const Assets::SourceImportSettings& settings )
+    ImportOutcome ImportManager::ImportWithSettings( const std::filesystem::path&        path,
+                                                     const Assets::SourceImportSettings& settings )
     {
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
         if ( !m_Importers.contains( ext ) )
-            return CookVerdict::NotCookable;
+            return { CookVerdict::NotCookable, {} };
         return ImportParsed( path, settings );
     }
 
-    CookVerdict ImportManager::ImportParsed( const std::filesystem::path&        path,
-                                             const Assets::SourceImportSettings& settings )
+    ImportOutcome ImportManager::ImportParsed( const std::filesystem::path&        path,
+                                               const Assets::SourceImportSettings& settings )
     {
         auto ext = path.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
@@ -145,13 +145,14 @@ namespace Desert::Editor
         // JobSystem workers) and drag-and-drop. Widening it into a result would oblige every one of
         // those to grow an answer nobody is waiting for. What Д31-D asked for is that a cooked file
         // that was never written stops being INDISTINGUISHABLE from one that was; it now is.
-        if ( const auto cooked = CreateAssetsFromImport( result, path, settings ); !cooked )
+        ImportOutcome outcome{ CookVerdict::Cooked, {} };
+        if ( const auto cooked = CreateAssetsFromImport( result, path, settings, outcome.WrittenMeshes ); !cooked )
         {
             LOG_ERROR( "[Import] '{}' was parsed but its cooked output is incomplete: {}", path.string(),
                        cooked.GetError() );
-            return CookVerdict::Failed;
+            outcome.Verdict = CookVerdict::Failed;
         }
-        return CookVerdict::Cooked;
+        return outcome;
     }
 
     std::vector<std::filesystem::path> ImportManager::MeshSources( const std::filesystem::path& root )
@@ -221,9 +222,10 @@ namespace Desert::Editor
     // make one unwritable material hide a mesh that could have been cooked. Only the first reason
     // travels up — the caller acts on "this cook is incomplete", not on the list — and every reason
     // names its own file, so the one that arrives is enough to find the cause.
-    Common::BoolResultStr ImportManager::CreateAssetsFromImport( const ImportResult&                 result,
-                                                                 const std::filesystem::path&        sourcePath,
-                                                                 const Assets::SourceImportSettings& settings )
+    Common::BoolResultStr
+    ImportManager::CreateAssetsFromImport( const ImportResult& result, const std::filesystem::path& sourcePath,
+                                           const Assets::SourceImportSettings& settings,
+                                           std::vector<std::filesystem::path>& writtenMeshes )
     {
         std::string firstFailure;
         const auto  record = [&firstFailure]( const Common::BoolResultStr& outcome )
@@ -252,7 +254,10 @@ namespace Desert::Editor
         {
             if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
                 BakeMeshLODs( resolved.Mesh.value() );
-            record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
+            const auto serialized = SerializeMeshAsset( resolved.Mesh.value(), sourcePath );
+            if ( serialized )
+                writtenMeshes.push_back( SkinnedAssetPath( sourcePath, ".skmesh" ) );
+            record( serialized );
         }
         else if ( resolved.Mesh )
         {
@@ -272,7 +277,10 @@ namespace Desert::Editor
             else
             {
                 for ( const auto& [node, path] : written.GetValue() )
+                {
                     Assets::ContentRegistry::NoteFile( path );
+                    writtenMeshes.push_back( path );
+                }
             }
         }
 
