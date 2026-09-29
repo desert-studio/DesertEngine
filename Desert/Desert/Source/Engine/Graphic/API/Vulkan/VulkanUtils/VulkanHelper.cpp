@@ -72,6 +72,83 @@ namespace Desert::Graphic::API::Vulkan
                               &imageMemoryBarrier );
     }
 
+    namespace
+    {
+        struct LayoutAccess
+        {
+            VkPipelineStageFlags Stage;
+            VkAccessFlags        Access;
+        };
+
+        // A layout that names one kind of access (transfer, attachment) gets that access's stage. One that
+        // does not (GENERAL: storage or anything else; the read-only layouts: any shader stage) keeps
+        // ALL_COMMANDS, the stage this barrier always used there, now with the access masks it lacked.
+        constexpr VkPipelineStageFlags kDepthTests =
+             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+
+        // What may still be in flight on an image while it sits in `layout`. Only writes need to be made
+        // available; a read before a later write is covered by the execution dependency alone.
+        LayoutAccess LayoutAccessLeaving( VkImageLayout layout )
+        {
+            switch ( layout )
+            {
+                case VK_IMAGE_LAYOUT_UNDEFINED:
+                case VK_IMAGE_LAYOUT_PREINITIALIZED:
+                    return { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0 };
+                case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT };
+                case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_TRANSFER_BIT, 0 };
+                case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT };
+                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+                case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL:
+                    return { kDepthTests, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
+                case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
+                case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL:
+                case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                    return { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0 };
+                default: // GENERAL and anything unnamed: any stage may have written it.
+                    return { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_MEMORY_WRITE_BIT };
+            }
+        }
+
+        // What will touch an image once it is in `layout`.
+        LayoutAccess LayoutAccessEntering( VkImageLayout layout )
+        {
+            switch ( layout )
+            {
+                case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT };
+                case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT };
+                case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT };
+                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:
+                case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL:
+                    return { kDepthTests, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT };
+                case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_SHADER_READ_BIT };
+                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
+                case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL:
+                    return { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT };
+                case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                    return { VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0 };
+                default: // GENERAL and anything unnamed: any stage may read or write it next.
+                    return { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
+            }
+        }
+    } // namespace
+
     void Utils::InsertImageMemoryBarrier( VkCommandBuffer cmdBuf, VkImage Image, VkFormat Format,
                                           VkImageLayout OldLayout, VkImageLayout NewLayout, uint32_t layers,
                                           uint32_t mipLevels )
@@ -91,9 +168,6 @@ namespace Desert::Graphic::API::Vulkan
                                                                        .levelCount     = mipLevels,
                                                                        .baseArrayLayer = 0,
                                                                        .layerCount     = layers } };
-
-        VkPipelineStageFlags sourceStage      = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        VkPipelineStageFlags destinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 
         // THE ASPECT IS A PROPERTY OF THE FORMAT AND OF NOTHING ELSE. The depth-only formats are tested
         // FIRST and the layout is not consulted at all: this used to read
@@ -115,30 +189,20 @@ namespace Desert::Graphic::API::Vulkan
             barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         }
 
-        if ( OldLayout == VK_IMAGE_LAYOUT_UNDEFINED && NewLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL )
-        {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            sourceStage           = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            destinationStage      = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        }
-        else if ( OldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && NewLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL )
-        {
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            sourceStage           = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            destinationStage      = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        }
-        else if ( OldLayout == VK_IMAGE_LAYOUT_UNDEFINED && NewLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL )
-        {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            sourceStage           = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            destinationStage      = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        }
-        // Fallback stages are already set to ALL_COMMANDS
+        // BOTH SIDES OF THE BARRIER COME FROM THE LAYOUTS. The layout an image leaves names the access that
+        // may still be in flight on it, and the layout it enters names the access that follows. This used to
+        // special-case three transitions and send every other one with ALL_COMMANDS stages and ZERO access
+        // masks: an execution dependency with no memory dependency. Such a barrier orders a write before the
+        // layout transition but never makes it available, which is a write-after-write on the transition
+        // itself (a storage image cleared at creation, then moved to GENERAL: BloomChain, LightShaftPing/Pong,
+        // LensFlare*) and, on the far side, a transition not made visible to the copy that follows it (the
+        // G-buffer depth copied into the scene target's depth every frame, CopyDepthImage).
+        const LayoutAccess src = LayoutAccessLeaving( OldLayout );
+        const LayoutAccess dst = LayoutAccessEntering( NewLayout );
+        barrier.srcAccessMask  = src.Access;
+        barrier.dstAccessMask  = dst.Access;
 
-        vkCmdPipelineBarrier( cmdBuf, sourceStage, destinationStage, 0, 0, NULL, 0, NULL, 1, &barrier );
+        vkCmdPipelineBarrier( cmdBuf, src.Stage, dst.Stage, 0, 0, NULL, 0, NULL, 1, &barrier );
     }
 
     Common::ResultStr<VkImageView> Utils::CreateImageView( VkDevice device, VkImage image, VkFormat format,
