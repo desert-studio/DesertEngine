@@ -18,6 +18,11 @@
 #include <optional>
 #include <vector>
 
+namespace Desert::Animation
+{
+    class Animator;
+}
+
 namespace Desert::Editor::UI
 {
     class UIHelper;
@@ -235,6 +240,13 @@ namespace Desert::Editor
         // Pose the skinned mesh at `seconds` into its clip (Animator::SetTime, applied in Update before the
         // scene records). A changed time re-renders the pane; the same time does not.
         void SetAnimationTime( double seconds );
+
+        // The skinned target's animator (nullptr without SetSkinnedMesh), the camera's view-projection and the
+        // target's world transform: what an owner needs to draw bones over the picture Draw() shows. The
+        // pose is the one the last Update rendered.
+        [[nodiscard]] const Animation::Animator* GetAnimator() const;
+        [[nodiscard]] glm::mat4                  GetViewProjection() const;
+        [[nodiscard]] glm::mat4                  GetTargetTransform() const;
 
         // Show a material on a primitive.
         void SetMaterial( const Assets::AssetHandle& material, Shape shape = Shape::Sphere );

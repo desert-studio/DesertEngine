@@ -8,6 +8,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include "UIHelper/ImGuiUI.hpp"
 
@@ -886,9 +887,9 @@ namespace Desert::Editor
         skinned.MeshHandle    = mesh;
         skinned.MaterialSlots = materials;
 
-        // THE SCENE'S CLOCK IS STOPPED: Playing = false keeps AnimationECSSystem from calling Update on the
-        // animator, so the only writer of the playhead is SetAnimationTime. CurrentClip names the clip so the
-        // system's own pick (the rig's first clip when none is named) cannot replace it.
+        // THE SCENE'S CLOCK IS STOPPED: the preview scene runs no AnimationECSSystem, so the only writer of
+        // the playhead is SetAnimationTime, and ApplyAnimationTime builds the animator (Playing = false and
+        // CurrentClip keep that true should the component ever reach a scene that does run the system).
         auto& anim       = m_Target.AddComponent<ECS::AnimationComponent>();
         anim.CurrentClip = clip->GetClip().AnimationName;
         anim.Playing     = false;
@@ -908,6 +909,23 @@ namespace Desert::Editor
         ++m_ContentRevision;
     }
 
+    const Animation::Animator* PreviewViewport::GetAnimator() const
+    {
+        if ( !m_Target || !m_Target.HasComponent<ECS::AnimationComponent>() )
+            return nullptr;
+        return m_Target.GetComponent<ECS::AnimationComponent>().Animator.get();
+    }
+
+    glm::mat4 PreviewViewport::GetViewProjection() const
+    {
+        return m_Camera ? m_Camera->GetProjectionMatrix() * m_Camera->GetViewMatrix() : glm::mat4( 1.0f );
+    }
+
+    glm::mat4 PreviewViewport::GetTargetTransform() const
+    {
+        return m_Target ? m_Target.GetComponent<ECS::TransformComponent>().GetTransform() : glm::mat4( 1.0f );
+    }
+
     void PreviewViewport::SetAnimationTime( const double seconds )
     {
         if ( seconds == m_AnimationTime )
@@ -922,7 +940,23 @@ namespace Desert::Editor
             return true;
         auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
         if ( !anim.Animator )
-            return false; // built by AnimationECSSystem on the scene's next update
+        {
+            // THIS SCENE HAS NO AnimationECSSystem (it needs the editor's AnimationLibrary and AssetManager,
+            // and its clock would fight the scrub), so nothing else ever builds the animator: waiting for "the
+            // system's next update" left GetAnimator() null forever, which hid the bones, the Skeleton Tree
+            // and every "Select Bone" command. The preview builds it itself, the same way the system does,
+            // once the skinned mesh has resolved; until then the bind pose renders and the caller keeps
+            // rendering.
+            Desert::Mesh* mesh =
+                 m_Target.HasComponent<ECS::SkinnedMeshComponent>()
+                      ? Runtime::ResourceRegistry::GetMeshService()->Get(
+                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
+                      : nullptr;
+            if ( mesh == nullptr || !mesh->IsSkinned() )
+                return false;
+            anim.Animator = std::make_unique<Animation::Animator>(
+                 static_cast<Desert::SkinnedMesh*>( mesh )->GetSkeleton() );
+        }
         const auto& clip    = m_Clip->GetClip();
         const auto* current = anim.Animator->GetCurrentClip();
         if ( current != &clip )

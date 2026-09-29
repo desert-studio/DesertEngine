@@ -5,6 +5,7 @@
 #include <Editor/Core/PreviewViewpoints.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Panels/AnimationEditor/AnimationNotifyTracks.hpp>
+#include <Editor/Panels/AnimationEditor/SkeletonTree.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
@@ -15,11 +16,13 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
+#include <Engine/Animation/Animator.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
+#include <ImGui/imgui_internal.h>
 
 #include <algorithm>
 #include <array>
@@ -44,6 +47,14 @@ namespace Desert::Editor
                          ImVec2( c.x - r, c.y ), IM_COL32( 20, 20, 20, 255 ) );
         }
 
+        // A titled rule (ImGui 1.89.4's SeparatorText; this tree has 1.89 WIP).
+        void SectionHeader( const char* label )
+        {
+            ImGui::Spacing();
+            ImGui::TextUnformatted( label );
+            ImGui::Separator();
+        }
+
         void CopyName( std::array<char, 128>& buffer, const std::string& name )
         {
             buffer.fill( '\0' );
@@ -53,7 +64,8 @@ namespace Desert::Editor
 
     AnimationEditorDocument::AnimationEditorDocument( const Assets::AssetHandle& clip,
                                                       Assets::AssetManager*      assets )
-         : AnimationEditorBase( AssetSubjectTitle( clip, assets, "Animation" ), clip ), m_Assets( assets )
+         : AnimationEditorBase( AssetSubjectTitle( clip, assets, "Animation" ), clip ), m_Assets( assets ),
+           m_ClipPin( clip, "open in the Animation Editor" )
     {
     }
 
@@ -124,11 +136,11 @@ namespace Desert::Editor
             return;
         }
         std::ranges::sort( candidates, {}, &decltype( candidates )::value_type::first );
-        const auto& mesh = candidates.front().second;
+        m_MeshCandidates = std::move( candidates );
+        m_MeshIndex      = 0;
 
         const auto& animClip        = clip->GetClip();
         m_ClipName                  = animClip.AnimationName.empty() ? name : animClip.AnimationName;
-        m_MeshName                  = std::filesystem::path( candidates.front().first ).filename().string();
         m_Transport.DurationSeconds = animClip.DurationSeconds();
         m_Transport.DisplayRate =
              animClip.DisplayRate.IsValid() ? animClip.DisplayRate : Animation::DEFAULT_DISPLAY_RATE;
@@ -138,9 +150,7 @@ namespace Desert::Editor
         m_UIHelper->Init();
         m_PreviewLive = true;
 
-        const auto& slots = mesh->GetMaterialHandles();
-        m_Preview->SetSkinnedMesh( mesh->GetMetadata().Handle,
-                                   std::vector<Assets::AssetHandle>( slots.begin(), slots.end() ), clip );
+        SetPreviewMesh( 0 );
         // The pose changes every frame the clip plays; the gate still skips a paused, unmoved pane.
         if ( m_PendingOrbitDegrees )
         {
@@ -148,6 +158,18 @@ namespace Desert::Editor
                                  glm::radians( m_PendingOrbitDegrees->y ) );
             m_PendingOrbitDegrees.reset();
         }
+    }
+
+    void AnimationEditorDocument::SetPreviewMesh( const size_t candidate )
+    {
+        if ( !m_Preview || candidate >= m_MeshCandidates.size() || !m_ClipAsset )
+            return;
+        const auto& [path, mesh] = m_MeshCandidates[candidate];
+        m_MeshIndex              = candidate;
+        m_MeshName               = std::filesystem::path( path ).filename().string();
+        const auto& slots        = mesh->GetMaterialHandles();
+        m_Preview->SetSkinnedMesh( mesh->GetMetadata().Handle,
+                                   std::vector<Assets::AssetHandle>( slots.begin(), slots.end() ), m_ClipAsset );
     }
 
     void AnimationEditorDocument::DestroyPreview()
@@ -197,6 +219,16 @@ namespace Desert::Editor
                                                       NotifyTrackCount( clip.Notifies, m_AddedNotifyRows ) - 1 );
                                  } } );
         actions.push_back( { "Save", [this]() { (void)SaveDocument(); } } );
+        actions.push_back( { "Show Bones On", [this]() { m_ShowBones = true; } } );
+        actions.push_back( { "Show Bones Off", [this]() { m_ShowBones = false; } } );
+        // One entry per bone of the rig the preview plays: "<clip>: Select Bone <name>" in the palette.
+        if ( const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr )
+            for ( const auto& bone : animator->GetSkeleton().GetBones() )
+                actions.push_back( { std::format( "Select Bone {}", bone.Name ), [this, name = bone.Name]()
+                                     {
+                                         if ( const auto* rig = m_Preview ? m_Preview->GetAnimator() : nullptr )
+                                             m_SelectedBone = BoneByName( rig->GetSkeleton(), name );
+                                     } } );
         PreviewEnvironment::AppendActions( actions );
         return actions;
     }
@@ -242,10 +274,8 @@ namespace Desert::Editor
     {
         if ( m_Assets == nullptr )
             return nullptr;
-        // THE EVICTION SWEEP RELEASES THIS CLIP while the window is open (AssetEviction: an open document's
-        // subject is not a root). The first ANV1b2 frame drew every notify at tick 0 and a ruler of one frame,
-        // because the payload had been Unload()ed to DurationTicks 0. Read it back from the file; an unsaved
-        // notify edit does not survive that - REMAINDER: an open document's subject has to be a root.
+        // The sweep keeps this clip while the window is open (m_ClipPin). The reload below is for a clip some
+        // other path unloaded (a reimport); it re-reads the file.
         if ( m_ClipAsset )
         {
             if ( !m_ClipAsset->IsReadyForUse() && !m_ClipAsset->EnsureLoaded( *m_Assets ) )
@@ -384,9 +414,42 @@ namespace Desert::Editor
         }
     }
 
+    std::string AnimationEditorDocument::PanelTitle( const char* name ) const
+    {
+        // "###" + the subject: two open clips must not share one "Skeleton Tree" window.
+        return std::format( "{}###{}{}", name, name, static_cast<uint64_t>( Subject().Owner ) );
+    }
+
+    void AnimationEditorDocument::BuildLayout( const unsigned int dockId ) const
+    {
+        // UE Persona: Asset Details | Skeleton Tree left, the viewport centre, Details | Preview Scene Settings
+        // right. The shares are Persona's defaults at a 1200 px window, not measured from a screenshot.
+        ImGui::DockBuilderRemoveNode( dockId );
+        ImGui::DockBuilderAddNode( dockId, ImGuiDockNodeFlags_DockSpace );
+        ImGui::DockBuilderSetNodeSize( dockId, ImGui::GetContentRegionAvail() );
+        ImGuiID           center = dockId;
+        const ImGuiID     left   = ImGui::DockBuilderSplitNode( center, ImGuiDir_Left, 0.22f, nullptr, &center );
+        const ImGuiID     right  = ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.30f, nullptr, &center );
+        const std::string assetDetails = PanelTitle( "Asset Details" );
+        const std::string skeletonTree = PanelTitle( "Skeleton Tree" );
+        const std::string details      = PanelTitle( "Details" );
+        const std::string previewScene = PanelTitle( "Preview Scene Settings" );
+        ImGui::DockBuilderDockWindow( assetDetails.c_str(), left );
+        ImGui::DockBuilderDockWindow( skeletonTree.c_str(), left );
+        ImGui::DockBuilderDockWindow( details.c_str(), right );
+        ImGui::DockBuilderDockWindow( previewScene.c_str(), right );
+        ImGui::DockBuilderDockWindow( PanelTitle( "Viewport" ).c_str(), center );
+        // The tree and the bone's Details are the tabs in front, as in Persona.
+        ImGui::DockBuilderGetNode( left )->SelectedTabId  = ImHashStr( skeletonTree.c_str() );
+        ImGui::DockBuilderGetNode( right )->SelectedTabId = ImHashStr( details.c_str() );
+        ImGui::DockBuilderGetNode( center )->LocalFlags |= ImGuiDockNodeFlags_HiddenTabBar;
+        ImGui::DockBuilderFinish( dockId );
+    }
+
     void AnimationEditorDocument::OnUIRender()
     {
-        // No ImGui::Begin: EditorLayer's document loop wraps this in Begin/End.
+        // No ImGui::Begin: EditorLayer's document loop wraps this in Begin/End. The panels are windows of
+        // their own, docked into this window's DockSpace (a nested Begin is legal).
         m_DrewThisFrame = true;
 
         if ( !m_Unavailable.empty() )
@@ -395,45 +458,254 @@ namespace Desert::Editor
             return;
         }
 
-        // Room on the right for the Skeleton Tree / Details that follow (ANV1c); the preview takes the rest.
-        constexpr float kSideWidth   = 260.0f;
+        const ImGuiID        dockId = ImGui::GetID( "AnimDock" );
+        const ImGuiDockNode* node   = ImGui::DockBuilderGetNode( dockId );
+        if ( node == nullptr || node->IsLeafNode() )
+            BuildLayout( dockId );
+        ImGui::DockSpace( dockId, ImVec2( 0.0f, 0.0f ) );
+
+        const auto panel = [this]( const char* name, const ImGuiWindowFlags flags, auto&& draw )
+        {
+            if ( ImGui::Begin( PanelTitle( name ).c_str(), nullptr, flags ) )
+                draw();
+            ImGui::End();
+        };
+        panel( "Viewport", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse,
+               [this]() { DrawViewportPanel(); } );
+        panel( "Asset Details", 0, [this]() { DrawAssetDetails(); } );
+        panel( "Skeleton Tree", 0, [this]() { DrawSkeletonTree(); } );
+        panel( "Details", 0, [this]() { DrawBoneDetails(); } );
+        panel( "Preview Scene Settings", 0, [this]() { DrawPreviewSceneSettings(); } );
+        if ( m_FrontTabsFrames > 0 && --m_FrontTabsFrames == 0 )
+        {
+            // Focusing a docked window selects its tab; Details last, so the bone's properties hold focus.
+            ImGui::SetWindowFocus( PanelTitle( "Skeleton Tree" ).c_str() );
+            ImGui::SetWindowFocus( PanelTitle( "Details" ).c_str() );
+        }
+    }
+
+    void AnimationEditorDocument::DrawViewportPanel()
+    {
         const float  transportHeight = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetStyle().ItemSpacing.y;
         const ImVec2 avail           = ImGui::GetContentRegionAvail();
         const float  timelineHeight  = TimelineHeight();
         const ImVec2 view(
-             std::max( avail.x - kSideWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f ),
+             std::max( avail.x, 1.0f ),
              std::max( avail.y - transportHeight - timelineHeight - ImGui::GetStyle().ItemSpacing.y, 1.0f ) );
-
-        // Ctrl+S on this window writes the clip (UE's Save Asset in the asset editor).
-        if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) && ImGui::GetIO().KeyCtrl &&
-             ImGui::IsKeyPressed( ImGuiKey_S, false ) )
-            (void)SaveDocument();
         m_RenderSize = glm::uvec2( static_cast<uint32_t>( view.x ), static_cast<uint32_t>( view.y ) );
 
-        ImGui::BeginGroup();
-        if ( ImGui::BeginChild( "##animview", view ) )
+        if ( ImGui::BeginChild( "##animview", view, false,
+                                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse ) )
         {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
                 (void)m_Preview->Draw( *m_UIHelper, view, PreviewInteraction::Interactive );
+            DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             DrawOverlay( glm::vec2( origin.x, origin.y ) );
         }
         ImGui::EndChild();
         DrawTransport();
         DrawTimeline( view.x, timelineHeight );
-        ImGui::EndGroup();
+    }
 
-        ImGui::SameLine();
-        if ( ImGui::BeginChild( "##animside", ImVec2( kSideWidth, avail.y ) ) )
+    void AnimationEditorDocument::DrawBones( const glm::vec2& origin, const glm::vec2& size ) const
+    {
+        const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
+        if ( animator == nullptr || ( !m_ShowBones && !m_SelectedBone ) )
+            return;
+        const auto&     skeleton = animator->GetSkeleton();
+        const auto      count    = static_cast<uint32_t>( skeleton.GetBones().size() );
+        const glm::mat4 viewProj = m_Preview->GetViewProjection();
+        const glm::mat4 model    = m_Preview->GetTargetTransform();
+        // The same projection the level viewport's tools use (CreateShapeTool's WorldToScreen): NDC y up.
+        const auto project = [&]( const uint32_t bone, ImVec2& out )
         {
-            ImGui::TextUnformatted( "Preview Scene" );
-            ImGui::Separator();
-            PreviewEnvironment::DrawEnvironmentRows();
-            PreviewEnvironment::DrawShowFloor( "Show Floor" );
+            const glm::vec4 world = model * animator->GetBoneModelMatrix( bone ) * glm::vec4( 0, 0, 0, 1 );
+            const glm::vec4 clip  = viewProj * world;
+            if ( clip.w <= 0.0001f )
+                return false;
+            const glm::vec3 ndc = glm::vec3( clip ) / clip.w;
+            out                 = ImVec2( origin.x + ( ndc.x * 0.5f + 0.5f ) * size.x,
+                                          origin.y + ( 1.0f - ( ndc.y * 0.5f + 0.5f ) ) * size.y );
+            return true;
+        };
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const auto  bone = [&]( const uint32_t i, const ImU32 colour, const float thickness )
+        {
+            ImVec2 at;
+            if ( !project( i, at ) )
+                return;
+            draw->AddCircleFilled( at, thickness + 1.5f, colour );
+            ImVec2         parentAt;
+            const uint32_t parent = skeleton.ResolveParent( i );
+            if ( parent < count && project( parent, parentAt ) )
+                draw->AddLine( parentAt, at, colour, thickness );
+        };
+        if ( m_ShowBones )
+            for ( uint32_t i = 0; i < count; ++i )
+                bone( i, IM_COL32( 220, 220, 220, 200 ), 1.5f );
+        if ( m_SelectedBone && *m_SelectedBone < count )
+        {
+            bone( *m_SelectedBone, IM_COL32( 255, 170, 30, 255 ), 3.0f );
+            if ( ImVec2 at; project( *m_SelectedBone, at ) )
+            {
+                const std::string& name = skeleton.GetBones()[*m_SelectedBone].Name;
+                draw->AddText( ImVec2( at.x + 9.0f, at.y - 7.0f ), IM_COL32( 0, 0, 0, 220 ), name.c_str() );
+                draw->AddText( ImVec2( at.x + 8.0f, at.y - 8.0f ), IM_COL32( 255, 200, 90, 255 ), name.c_str() );
+            }
+        }
+    }
+
+    void AnimationEditorDocument::DrawSkeletonTree()
+    {
+        const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
+        if ( animator == nullptr )
+        {
+            ImGui::TextDisabled( "Starting the preview..." );
+            return;
+        }
+        const auto& skeleton = animator->GetSkeleton();
+        const auto& bones    = skeleton.GetBones();
+        m_CollapsedBones.resize( bones.size(), false );
+
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::InputTextWithHint( "##bonefilter", "Search Bones", m_BoneFilter.data(), m_BoneFilter.size() );
+        ImGui::Checkbox( "Show Bones", &m_ShowBones );
+        ImGui::Separator();
+
+        if ( !ImGui::BeginChild( "##bonerows" ) )
+        {
+            ImGui::EndChild();
+            return;
+        }
+        const float indent = ImGui::GetStyle().IndentSpacing;
+        const float arrow  = ImGui::GetFontSize();
+        for ( const SkeletonTreeRow& row :
+              BuildSkeletonTreeRows( skeleton, m_BoneFilter.data(), m_CollapsedBones ) )
+        {
+            ImGui::PushID( static_cast<int>( row.Bone ) );
+            ImGui::SetCursorPosX( ImGui::GetCursorPosX() + indent * static_cast<float>( row.Depth ) );
+            if ( row.HasChildren )
+            {
+                const bool collapsed = m_CollapsedBones[row.Bone];
+                ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0, 0, 0, 0 ) );
+                if ( ImGui::ArrowButtonEx( "##fold", collapsed ? ImGuiDir_Right : ImGuiDir_Down,
+                                           ImVec2( arrow, arrow ) ) )
+                    m_CollapsedBones[row.Bone] = !collapsed;
+                ImGui::PopStyleColor();
+            }
+            else
+                ImGui::Dummy( ImVec2( arrow, arrow ) );
+            ImGui::SameLine();
+            // A row shown only as the ancestor of a search hit is dimmed, as in UE's filtered tree.
+            if ( !row.Matches )
+                ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
+            if ( ImGui::Selectable( bones[row.Bone].Name.c_str(), m_SelectedBone == row.Bone ) )
+                m_SelectedBone = row.Bone;
+            if ( !row.Matches )
+                ImGui::PopStyleColor();
+            ImGui::PopID();
         }
         ImGui::EndChild();
+    }
+
+    void AnimationEditorDocument::DrawBoneDetails() const
+    {
+        const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
+        if ( animator == nullptr || !m_SelectedBone ||
+             *m_SelectedBone >= animator->GetSkeleton().GetBones().size() )
+        {
+            ImGui::TextDisabled( "Select a bone in the Skeleton Tree." );
+            return;
+        }
+        const auto&    skeleton = animator->GetSkeleton();
+        const uint32_t index    = *m_SelectedBone;
+        const auto&    bone     = skeleton.GetBones()[index];
+        const uint32_t parent   = skeleton.ResolveParent( index );
+        ImGui::Text( "Bone  %s", bone.Name.c_str() );
+        ImGui::TextDisabled( "Index %u   Parent %s", index,
+                             parent < skeleton.GetBones().size() ? skeleton.GetBones()[parent].Name.c_str()
+                                                                 : "(root)" );
+
+        // Read-only: the pose is the clip's at the playhead, the reference is the rig's rest pose.
+        const auto section = [index]( const char* label, const BoneTransformRows& rows )
+        {
+            SectionHeader( label );
+            const auto row = [index]( const char* name, glm::vec3 value )
+            {
+                ImGui::PushID( name );
+                ImGui::PushID( static_cast<int>( index ) );
+                ImGui::SetNextItemWidth( -80.0f );
+                ImGui::InputFloat3( name, &value.x, "%.3f", ImGuiInputTextFlags_ReadOnly );
+                ImGui::PopID();
+                ImGui::PopID();
+            };
+            row( "Location", rows.Location );
+            row( "Rotation", rows.RotationDegrees );
+            row( "Scale", rows.Scale );
+        };
+        section( std::format( "Bone (frame {})", m_Transport.FrameIndex() ).c_str(),
+                 DecomposeBoneTransform( animator->GetBoneLocalPose( index ) ) );
+        section( "Reference Pose", DecomposeBoneTransform( bone.LocalBindTransform ) );
+    }
+
+    void AnimationEditorDocument::DrawAssetDetails()
+    {
+        const auto* asset = ClipAsset();
+        if ( asset == nullptr )
+        {
+            ImGui::TextDisabled( "The clip is not loaded." );
+            return;
+        }
+        // Only what an AnimationClip holds: UE's Rate Scale, compression and additive settings have no field
+        // here, so they are not shown.
+        const auto& clip = asset->GetClip();
+        size_t      keys = 0;
+        for ( const auto& track : clip.Tracks )
+            keys += track.PositionKeys.size() + track.RotationKeys.size() + track.ScaleKeys.size();
+        if ( !ImGui::BeginTable( "##clipdetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+            return;
+        const auto row = []( const char* label, const std::string& value )
+        {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled( "%s", label );
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted( value.c_str() );
+        };
+        row( "Animation", clip.AnimationName.empty() ? m_ClipName : clip.AnimationName );
+        row( "File", m_ClipPath.empty() ? std::string( "(none)" ) : m_ClipPath.filename().string() );
+        row( "Skeleton", std::format( "{:016x}", clip.SkeletonSignature ) );
+        row( "Length", std::format( "{:.3f} s", clip.DurationSeconds() ) );
+        row( "Frames", std::format( "{}", m_Transport.LastFrame() + 1 ) );
+        row( "Display Rate",
+             std::format( "{}/{} fps", clip.DisplayRate.Numerator, clip.DisplayRate.Denominator ) );
+        row( "Tick Rate", std::format( "{}/{} ({} ticks)", clip.TickRate.Numerator, clip.TickRate.Denominator,
+                                       clip.DurationTicks.Value ) );
+        row( "Bone Tracks", std::format( "{}", clip.Tracks.size() ) );
+        row( "Keys", std::format( "{}", keys ) );
+        row( "Notifies", std::format( "{}", clip.Notifies.size() ) );
+        row( "Sections", std::format( "{}", clip.Sections.size() ) );
+        ImGui::EndTable();
+    }
+
+    void AnimationEditorDocument::DrawPreviewSceneSettings()
+    {
+        // UE's Preview Mesh: any registered skeletal mesh on the clip's rig (same skeleton signature).
+        SectionHeader( "Mesh" );
+        ImGui::SetNextItemWidth( -1.0f );
+        if ( ImGui::BeginCombo( "##previewmesh", m_MeshName.c_str() ) )
+        {
+            for ( size_t i = 0; i < m_MeshCandidates.size(); ++i )
+                if ( ImGui::Selectable( m_MeshCandidates[i].first.c_str(), i == m_MeshIndex ) && i != m_MeshIndex )
+                    SetPreviewMesh( i );
+            ImGui::EndCombo();
+        }
+        SectionHeader( "Environment" );
+        PreviewEnvironment::DrawEnvironmentRows();
+        PreviewEnvironment::DrawShowFloor( "Show Floor" );
     }
 
     float AnimationEditorDocument::TimelineHeight() const

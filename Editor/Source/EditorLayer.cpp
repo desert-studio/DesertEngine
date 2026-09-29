@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/Core/PlayerStart.hpp>
+#include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
@@ -3783,8 +3784,20 @@ namespace Desert::Editor
                 {
                     // Deliberately discarded HERE and only here: Ctrl+S destroys nothing, so there is
                     // no next step to gate. SaveOpenScene has already put the star back on and told the
-                    // user why if the write failed.
-                    (void)SaveOpenScene();
+                    // user why if the write failed. A focused document saves its own asset instead, and
+                    // reports its own failure in its window.
+                    ISubjectDocument* document = m_OpenDocuments.Find( m_FocusedDocument );
+                    switch ( ResolveSaveShortcut( m_DocumentHasFocus, document ) )
+                    {
+                        case SaveShortcutTarget::Scene:
+                            (void)SaveOpenScene();
+                            break;
+                        case SaveShortcutTarget::FocusedDocument:
+                            (void)document->SaveDocument();
+                            break;
+                        case SaveShortcutTarget::Nothing:
+                            break;
+                    }
                 }
             }
 
@@ -6971,7 +6984,10 @@ namespace Desert::Editor
             }
             if ( visible )
             {
-                if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) )
+                // DockHierarchy: a document with its own DockSpace (the Animation Editor's Persona layout) has
+                // its panels as docked windows, which RootAndChildWindows alone does not count as its own.
+                if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows |
+                                             ImGuiFocusedFlags_DockHierarchy ) )
                     focused = subject;
                 {
                     DESERT_PROFILE_SCOPE_DYNAMIC( document->GetName().c_str() );
@@ -6993,6 +7009,7 @@ namespace Desert::Editor
         // The focus is only MOVED by a document that actually has it. A frame in which the keyboard is on a
         // tool leaves the last focused document standing, so Ctrl+Tab resumes from where the user was
         // editing rather than from nothing.
+        m_DocumentHasFocus = !focused.IsNull();
         if ( !focused.IsNull() )
         {
             // CLICKING A DOCUMENT COMMITS THE RING, cycling to one does not. Both are "focus", so without

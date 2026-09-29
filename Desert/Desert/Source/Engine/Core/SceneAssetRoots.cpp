@@ -1,3 +1,4 @@
+#include <Engine/Assets/AssetRootPin.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -185,6 +186,9 @@ namespace Desert::Core
         // root set happens: a genuinely small scene, and a walk that visited the wrong worlds. Without it
         // "17 roots, then 5 roots, same scene name" is unreadable, which is exactly the state the first
         // measured session left this in.
+        // Open asset editors' subjects first: no scene names them (AssetRootPin).
+        Assets::AssetRootPin::MarkAll( roots );
+
         std::string census;
         for ( Scene* scene : Scene::LiveScenes() )
         {
