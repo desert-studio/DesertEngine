@@ -52,22 +52,10 @@ namespace Desert::Core::Formats
     // string is what makes "one transport" true at the CPU as well as in the shader.
     inline constexpr const char* kMaterialRowBlockName = "Materials";
 
-    // THE PUSH BLOCK'S NUMBERS ARE NOT DECIDED HERE. The block is Common/MaterialTransport.glslh, and its
-    // layout is what Core/Formats/MaterialLayout.hpp reads off each compiled stage (ReconcileMaterialLayout).
-    // The three constants below are what the renderer still writes by number; MeshVertexPath's
-    // EveryShippedForwardCellReconcilesAndPinsTheTransportConstants holds each one equal to the reconciled
-    // layout of every shipped forward cell, so a changed block fails there rather than beside them.
-    //
-    // Where the row index rides. The mesh push block is `mat4 Transform; uint MaterialIndex;`, so 64 —
-    // and MaterialPBR::kPushMaterialIndexOffset is defined FROM this rather than beside it, because a
-    // second copy of the number is how the two transports would drift apart again.
-    inline constexpr uint32_t kMaterialTransformPushOffset = 0;
-    inline constexpr uint32_t kMaterialIndexPushOffset     = 64; // sizeof( glm::mat4 )
-    // The length of THE push block (Common/MaterialTransport.glslh) in every stage of every pipeline that
-    // carries a row: Transform, MaterialIndex, the skinned BoneOffset at 68 and the instanced wind tail at
-    // 80..112. One length because the parser injects that header into the fragment stage, so a vertex stage
-    // with a longer block of its own would leave one pipeline with two.
-    inline constexpr uint32_t kMaterialTransportPushSize = 112;
+    // THE PUSH BLOCK'S NUMBERS ARE NOT DECIDED HERE, AND NOT SPELLED HERE. The block is
+    // Common/MaterialTransport.glslh; its fields are read off each compiled stage into the cell's
+    // Core::Formats::MaterialLayout (ReconcileMaterialLayout), and every writer finds them by name through
+    // Graphic/Materials/MaterialBinder.hpp.
 
     // Parameters that occupy a slot. Textures are descriptors, not row bytes, so they are not counted.
     inline uint32_t MaterialParamSlotCount( const ShaderProgramMeta& meta )

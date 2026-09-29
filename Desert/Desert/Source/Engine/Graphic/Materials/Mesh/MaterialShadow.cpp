@@ -58,7 +58,7 @@ namespace Desert::Graphic
 
     void MaterialShadowSkinned::SetBoneOffset( uint32_t firstBone )
     {
-        if ( m_MaterialExecutor )
-            m_MaterialExecutor->PushConstant( &firstBone, sizeof( uint32_t ), kBoneOffsetPushOffset );
+        // `BoneOffset` in Shadow_Skinned's push block, found by name in the cell's layout.
+        WritePushField( "BoneOffset", &firstBone, sizeof( uint32_t ) );
     }
 } // namespace Desert::Graphic

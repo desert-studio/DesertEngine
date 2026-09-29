@@ -55,13 +55,6 @@ namespace Desert::Core::Formats
         ShaderStage Stages = ShaderStage::None;
     };
 
-    // What a template's `Properties Binding(n) TextureBinding(n)` asked for.
-    struct MaterialLayoutBindings
-    {
-        std::optional<uint32_t> Row;          // Binding(n): the Materials[] storage buffer
-        std::optional<uint32_t> FirstTexture; // TextureBinding(n): the first generated sampler
-    };
-
     struct MaterialLayout
     {
         std::optional<uint32_t>          RowBinding; // empty = the template carries no row
@@ -137,10 +130,10 @@ namespace Desert::Core::Formats
 
     // THE builder. Params are the numeric properties in schema order (the same walk MaterialParamSlot
     // does), textures every texture property from FirstTexture upward.
-    inline MaterialLayout BuildMaterialLayout( const ShaderProgramMeta&      meta,
-                                               const MaterialLayoutBindings& bindings )
+    inline MaterialLayout BuildMaterialLayout( const ShaderProgramMeta& meta )
     {
-        MaterialLayout layout;
+        const MaterialLayoutBindings& bindings = meta.LayoutBindings;
+        MaterialLayout                layout;
         if ( bindings.Row )
         {
             for ( const auto& p : meta.Params )

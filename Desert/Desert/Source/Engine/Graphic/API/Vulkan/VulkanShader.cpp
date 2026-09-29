@@ -123,6 +123,22 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
+        // The cell's material layout: the template's row/textures and the push block every stage declares,
+        // held to each other. A disagreement is a load failure naming the template and the cell — the
+        // pipeline would otherwise be built with one stage reading bytes another stage does not lay out.
+        auto cell = ShaderReflection::ReconcileCellLayout( m_ProgramMeta, stages, m_ShaderPath.stem().string(),
+                                                           m_PassName );
+        if ( !cell.Errors.empty() )
+        {
+            for ( const auto& message : cell.Errors )
+                LOG_ERROR( "Shader '{}': {}", m_ShaderName, message );
+            discard();
+            return Common::MakeFormattedError( "Shader '{}': {} material-layout disagreement(s); first: {}",
+                                               m_ShaderName, cell.Errors.size(), cell.Errors.front() );
+        }
+        if ( reflection.PushConstantRanges )
+            reflection.PushConstantRanges->Size = cell.Layout.PushSize;
+
         // Past this line the compile has succeeded, so the old state may go. The modules are ours alone
         // (a pipeline copies what it needs at creation) and are destroyed; the layouts are only
         // RELEASED, because a pipeline layout, a descriptor pool or an allocated set built from one is
@@ -135,6 +151,7 @@ namespace Desert::Graphic::API::Vulkan
         m_ShaderModules                  = std::move( modules );
         m_PipelineShaderStageCreateInfos = std::move( stageInfos );
         m_ReflectionData                 = std::move( reflection );
+        m_MaterialLayout                 = std::move( cell.Layout );
         m_DescriptorSetLayouts.clear();
 
         const Core::ScopedShaderPhase layoutTimer( Core::ShaderPhase::Reflect );

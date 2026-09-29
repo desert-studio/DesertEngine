@@ -4,9 +4,9 @@
 // draw, which is the property a per-material uniform block does not have and the reason it was deleted
 // (Engine/Core/Formats/MaterialParamRow.hpp has the measurement and the probe scene).
 //
-// SHARED, not repeated per shader, so the offsets cannot drift: the CPU writes MaterialIndex at 64
-// (Core::Formats::kMaterialIndexPushOffset) for the hand-written mesh PBR shaders and for every shader
-// the DSL generates alike. A stage that only needs Transform still declares the whole block — Vulkan
+// SHARED, not repeated per shader, so the offsets cannot drift: the CPU finds every field BY NAME in the
+// layout reflected from this block (Core/Formats/MaterialLayout.hpp, Graphic/Materials/MaterialBinder.hpp)
+// for the hand-written mesh PBR shaders and for every shader the DSL generates alike. A stage that only needs Transform still declares the whole block — Vulkan
 // takes ONE push range per pipeline, and two stages disagreeing about its length is a layout mismatch.
 //
 // ONE BLOCK FOR EVERY PIPELINE, the per-path tails included. The parser injects this header into the

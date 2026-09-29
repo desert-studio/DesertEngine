@@ -369,6 +369,10 @@ namespace
          // ShaderService is the consumer: it recognises a medium at registration, keeps its text, and
          // hands it to the cloud renderer as the substitution for one virtual include.
          { "ShaderProgramMeta", "MediumSource", kShaderSvc, nullptr },
+         // Binding(n)/TextureBinding(n): BuildMaterialLayout derives the row and texture layout from them,
+         // on a shader-map cache hit as on a parse (MAT1h-2).
+         { "ShaderProgramMeta", "LayoutBindings", "Desert/Desert/Source/Engine/Core/Formats/MaterialLayout.hpp",
+           nullptr },
 
          // ---- The parser's own result ---------------------------------------------------------------
 
@@ -581,7 +585,8 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
-    EXPECT_EQ( std::size( k_Census ), 42u )
+    // FORTY-THREE since MAT1h-2 added `ShaderProgramMeta::LayoutBindings` (read by BuildMaterialLayout).
+    EXPECT_EQ( std::size( k_Census ), 43u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 

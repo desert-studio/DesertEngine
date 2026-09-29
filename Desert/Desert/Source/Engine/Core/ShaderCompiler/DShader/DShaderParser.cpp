@@ -1482,8 +1482,8 @@ namespace Desert::Core::Preprocess
             return fail();
         }
 
-        result.Layout = BuildMaterialLayout(
-             result.Meta, MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding } );
+        result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
+        result.Layout               = BuildMaterialLayout( result.Meta );
         const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )

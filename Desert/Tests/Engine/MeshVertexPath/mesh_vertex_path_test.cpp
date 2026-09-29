@@ -33,6 +33,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
+#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/Mesh/PBR/MaterialPBR.hpp>
@@ -41,6 +42,7 @@
 
 #include <shaderc/shaderc.hpp>
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -503,72 +505,6 @@ TEST_F( ShaderRootFixture, TheCasterVariantsAreOneCasterPlusExactlyThePathsOwnBi
     }
 }
 
-// ---- The push block against the offsets the C++ writes at -------------------------------------------
-
-// Reflection reports a push block's total SIZE but not its members, so this is the strongest statement
-// available about the layout — and it is enough. Insert a field before BoneOffset and the block grows,
-// which fires here; delete BoneOffset and it shrinks, which fires here; and either way the alternative is
-// a renderer writing the bone offset over the material index and a character rendered with somebody
-// else's albedo, silently.
-//
-// EACH STAGE ON ITS OWN. The mesh PBR cells carry a generated material row, so the parser injects
-// Common/MaterialTransport.glslh into their FRAGMENT stage; a vertex stage that declared a longer block of
-// its own (skinned 72, instanced 112) left the fragment at 68 — one pipeline, two lengths — and the merged
-// reflection (the larger wins) hid it. So both stages are reflected separately and must agree.
-TEST_F( ShaderRootFixture, EachPushBlockIsAsLongAsTheLastFieldTheRendererWritesIntoIt )
-{
-    struct Expectation
-    {
-        MeshVertexPath Path;
-        MeshPass       Pass;
-        uint32_t       Size;
-    };
-
-    // The row-carrying cells all declare THE block; every field the renderer writes must end inside it.
-    static_assert( MaterialPBR::kPushSizeWithoutBones <= Desert::Core::Formats::kMaterialTransportPushSize );
-    static_assert( MaterialPBR::kPushSizeWithBones <= Desert::Core::Formats::kMaterialTransportPushSize );
-    static_assert( Desert::Graphic::kInstancedPushSize == Desert::Core::Formats::kMaterialTransportPushSize,
-                   "the wind tail is the last field of the one block" );
-    constexpr uint32_t kTransport = Desert::Core::Formats::kMaterialTransportPushSize;
-
-    const Expectation expectations[] = {
-         { MeshVertexPath::Static, MeshPass::Forward, kTransport },
-         { MeshVertexPath::Static, MeshPass::GBuffer, kTransport },
-         { MeshVertexPath::Static, MeshPass::Glass, kTransport },
-         // The instanced cells carry the wind tail after the shared block (FO-7, Graphic/InstanceWind.hpp).
-         { MeshVertexPath::Instanced, MeshPass::Forward, kTransport },
-         { MeshVertexPath::Instanced, MeshPass::GBuffer, kTransport },
-         { MeshVertexPath::Instanced, MeshPass::ShadowDepth, Desert::Graphic::kInstancedPushSize },
-         { MeshVertexPath::Skinned, MeshPass::Forward, kTransport },
-         { MeshVertexPath::Skinned, MeshPass::ShadowDepth, MaterialShadowSkinned::kPushSize },
-    };
-
-    for ( const auto& expected : expectations )
-    {
-        const char* name = MeshShaderFor( expected.Path, expected.Pass );
-        ASSERT_NE( name, nullptr );
-
-        const auto file = ShaderFileFor( name );
-        for ( const auto [stage, kind] : { std::pair{ ShaderStage::Vertex, shaderc_vertex_shader },
-                                           std::pair{ ShaderStage::Fragment, shaderc_fragment_shader } } )
-        {
-            const auto spirv = CompileStage( StageSource( file, stage ), file, kind );
-            ASSERT_FALSE( spirv.empty() ) << name;
-            ShaderResource::ReflectionData data;
-            const auto                     diagnostics = ShaderReflection::ReflectStage( spirv, stage, data );
-            EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
-            if ( !data.PushConstantRanges )
-                continue; // a stage that reads nothing from the block (a depth-only fragment) declares none
-            EXPECT_EQ( data.PushConstantRanges->Size, expected.Size )
-                 << name << "'s " << ( stage == ShaderStage::Vertex ? "vertex" : "fragment" ) << " push block is "
-                 << data.PushConstantRanges->Size << " bytes; every stage of the pipeline "
-                 << "must declare " << expected.Size;
-        }
-        const auto merged = ReflectGraphics( file );
-        ASSERT_TRUE( merged.PushConstantRanges.has_value() ) << name << " declares no push constant block";
-    }
-}
-
 // ---- Foliage wind: one offset for every pass that draws an instance (FO-7) --------------------------
 
 // The shadow and the depth a swaying plant leaves must be the shadow and the depth of the plant that is
@@ -609,8 +545,6 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
 namespace
 {
     using Desert::Core::Formats::MaterialLayout;
-    using Desert::Core::Formats::ReconcileMaterialLayout;
-    using Desert::Core::Formats::ReflectedMaterialStage;
 
     struct ReconciledCell
     {
@@ -626,20 +560,20 @@ namespace
         EXPECT_TRUE( parsed.IsSuccess() ) << label;
         if ( !parsed.IsSuccess() )
             return {};
-        std::vector<ReflectedMaterialStage> stages;
+        std::vector<Desert::Core::ShaderMapStage> stages;
         for ( const auto [stage, kind] : { std::pair{ ShaderStage::Vertex, shaderc_vertex_shader },
                                            std::pair{ ShaderStage::Fragment, shaderc_fragment_shader } } )
         {
             const auto it = parsed.GetValue().Stages.find( stage );
             if ( it == parsed.GetValue().Stages.end() )
                 continue;
-            const auto spirv = CompileStage( it->second, label, kind );
-            EXPECT_FALSE( spirv.empty() ) << label;
-            stages.push_back( ShaderReflection::ReflectMaterialStage( spirv, stage ) );
+            stages.push_back( { stage, CompileStage( it->second, label, kind ) } );
+            EXPECT_FALSE( stages.back().Spirv.empty() ) << label;
         }
-        ReconciledCell cell{ parsed.GetValue().Layout, {} };
-        cell.Errors = ReconcileMaterialLayout( cell.Layout, parsed.GetValue().Name, "", stages );
-        return cell;
+        // THE LOAD PATH: VulkanShader::BuildFromSpirv calls exactly this, and refuses the cell on any error.
+        auto reconciled =
+             ShaderReflection::ReconcileCellLayout( parsed.GetValue().Meta, stages, parsed.GetValue().Name, "" );
+        return { std::move( reconciled.Layout ), std::move( reconciled.Errors ) };
     }
 
     std::string MockTemplate( const std::string& extraProperties, const std::string& vertexPush,
@@ -763,27 +697,153 @@ TEST_F( ShaderRootFixture, StagesWhosePushBlocksDifferInLengthAreRefused )
     EXPECT_NE( cell.Errors.front().find( "68" ), std::string::npos ) << cell.Errors.front();
 }
 
-// Every shipped forward cell reconciles, and the numbers the renderer still writes by constant are the
-// numbers the layout reads off the SPIR-V — so those constants are pinned to the one layout, not beside it.
-TEST_F( ShaderRootFixture, EveryShippedForwardCellReconcilesAndPinsTheTransportConstants )
+// ---- Every mesh cell declares the fields its writers name ----------------------------------------------
+
+// The renderer writes push fields BY NAME (Graphic/Materials/MaterialBinder.hpp), so the offsets are the
+// layout's and cannot be written wrong; what can still go wrong is a cell that stops DECLARING a field its
+// writer names — the write would then be dropped as Absent. Each cell is loaded the way the runtime loads it
+// (ReconcileCellLayout), which also refuses a pipeline whose stages disagree about the block (the T1b
+// regression: a 72-byte vertex block beside a 68-byte fragment one).
+TEST_F( ShaderRootFixture, EveryMeshCellDeclaresEachPushFieldTheRendererWritesByName )
+{
+    struct Expectation
+    {
+        MeshVertexPath           Path;
+        MeshPass                 Pass;
+        std::vector<std::string> Fields;
+    };
+
+    // The fields each cell's writers name (Material::SetPushMatrix/SetMaterialIndex/SetInstancedWind,
+    // MaterialPBR::Bind, MaterialShadowSkinned::SetBoneOffset). A cell that lost one would silently drop the
+    // write (MaterialBinder: Absent), so the cell must declare it; the layout, not C++, says where it sits.
+    const Expectation expectations[] = {
+         { MeshVertexPath::Static, MeshPass::Forward, { "Transform", "MaterialIndex" } },
+         { MeshVertexPath::Static, MeshPass::GBuffer, { "Transform", "MaterialIndex" } },
+         { MeshVertexPath::Static, MeshPass::Glass, { "Transform", "MaterialIndex" } },
+         { MeshVertexPath::Instanced, MeshPass::Forward, { "Transform", "MaterialIndex", "WindA", "WindB" } },
+         { MeshVertexPath::Instanced, MeshPass::GBuffer, { "Transform", "MaterialIndex", "WindA", "WindB" } },
+         { MeshVertexPath::Instanced, MeshPass::ShadowDepth, { "Transform", "WindA", "WindB" } },
+         { MeshVertexPath::Skinned, MeshPass::Forward, { "Transform", "MaterialIndex", "BoneOffset" } },
+         { MeshVertexPath::Skinned, MeshPass::ShadowDepth, { "Transform", "BoneOffset" } },
+    };
+
+    for ( const auto& expected : expectations )
+    {
+        const char* name = MeshShaderFor( expected.Path, expected.Pass );
+        ASSERT_NE( name, nullptr );
+        auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name );
+        EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
+        for ( const auto& field : expected.Fields )
+        {
+            const auto* f = cell.Layout.FindPush( field );
+            ASSERT_NE( f, nullptr ) << name << " declares no push field '" << field << "'";
+            EXPECT_LE( f->Offset + f->Size, cell.Layout.PushSize ) << name << " " << field;
+        }
+    }
+}
+
+// Every shipped forward cell loads (reconciles), carries a row, and declares the two fields every draw writes.
+TEST_F( ShaderRootFixture, EveryShippedForwardCellReconcilesWithTheTransportFields )
 {
     for ( const auto path : kAllPaths )
     {
         const char* name = MeshShaderFor( path, MeshPass::Forward );
         ASSERT_NE( name, nullptr );
-        const auto file = ShaderFileFor( name );
-        auto       cell = Reconcile( ReadFile( file ), name );
+        auto cell = Reconcile( ReadFile( ShaderFileFor( name ) ), name );
         EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
-
-        const auto* transform = cell.Layout.FindPush( "Transform" );
-        const auto* index     = cell.Layout.FindPush( "MaterialIndex" );
-        ASSERT_NE( transform, nullptr ) << name;
-        ASSERT_NE( index, nullptr ) << name;
-        EXPECT_EQ( transform->Offset, Desert::Core::Formats::kMaterialTransformPushOffset ) << name;
-        EXPECT_EQ( index->Offset, Desert::Core::Formats::kMaterialIndexPushOffset ) << name;
-        EXPECT_EQ( cell.Layout.PushSize, Desert::Core::Formats::kMaterialTransportPushSize ) << name;
+        EXPECT_NE( cell.Layout.FindPush( "Transform" ), nullptr ) << name;
+        EXPECT_NE( cell.Layout.FindPush( "MaterialIndex" ), nullptr ) << name;
         EXPECT_TRUE( cell.Layout.RowBinding.has_value() ) << name;
     }
+}
+
+// ---- MaterialBinder: the push bytes are placed by name (MAT1h-2) ---------------------------------------
+
+namespace
+{
+    struct PushBytes
+    {
+        Common::Memory::Buffer Buffer;
+        explicit PushBytes( uint32_t size )
+        {
+            Buffer.Allocate( size );
+            Buffer.ZeroInitialize();
+        }
+        ~PushBytes()
+        {
+            Buffer.Release();
+        }
+        template <class T>
+        T At( uint32_t offset ) const
+        {
+            T value{};
+            std::memcpy( &value, static_cast<const std::byte*>( Buffer.Data ) + offset, sizeof( T ) );
+            return value;
+        }
+    };
+} // namespace
+
+// A push field written only into the shader reaches the push BYTES: the binder finds it in the reconciled
+// layout, and no C++ spells its offset.
+TEST_F( ShaderRootFixture, ANewPushFieldReachesThePushBytesWithoutACppEdit )
+{
+    const std::string wider =
+         "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; "
+         "uint BoneOffset; vec4 NewField; } m_PushConstants;";
+    auto cell = Reconcile( PushMockTemplate( wider, wider ), "PushMock" );
+    ASSERT_TRUE( cell.Errors.empty() ) << cell.Errors.front();
+
+    PushBytes       push( cell.Layout.PushSize );
+    const glm::vec4 value( 1.0f, 2.0f, 3.0f, 4.0f );
+    EXPECT_EQ( Desert::Graphic::MaterialBinder::WritePush( push.Buffer, cell.Layout, "NewField", &value,
+                                                           sizeof( value ) ),
+               Desert::Graphic::MaterialBinder::PushWrite::Written );
+    EXPECT_EQ( push.At<glm::vec4>( cell.Layout.FindPush( "NewField" )->Offset ), value );
+}
+
+// THE MUTATION TARGET. A block with a field inserted before MaterialIndex moves it off 64; the index must
+// land where the layout says, and 64 — the old constant — must stay untouched.
+TEST_F( ShaderRootFixture, MaterialIndexLandsWhereTheLayoutPutsItNotAtTheOldOffset )
+{
+    const std::string shifted = "layout( push_constant ) uniform PushConstants { mat4 Transform; vec4 Inserted; "
+                                "uint MaterialIndex; } m_PushConstants;";
+    auto              cell    = Reconcile( PushMockTemplate( shifted, shifted ), "PushMock" );
+    ASSERT_TRUE( cell.Errors.empty() ) << cell.Errors.front();
+    const auto* index = cell.Layout.FindPush( "MaterialIndex" );
+    ASSERT_NE( index, nullptr );
+    ASSERT_EQ( index->Offset, 80u );
+
+    PushBytes      push( cell.Layout.PushSize );
+    const uint32_t row = 7;
+    EXPECT_EQ( Desert::Graphic::MaterialBinder::WritePush( push.Buffer, cell.Layout, "MaterialIndex", &row,
+                                                           sizeof( row ) ),
+               Desert::Graphic::MaterialBinder::PushWrite::Written );
+    EXPECT_EQ( push.At<uint32_t>( 80 ), row );
+    EXPECT_EQ( push.At<uint32_t>( 64 ), 0u ) << "MaterialIndex was written at the retired offset 64";
+}
+
+// A field the cell does not declare is not written — explicitly, by the layout — and a value of the wrong
+// size is refused rather than spilled over the next field.
+TEST_F( ShaderRootFixture, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsRefused )
+{
+    const std::string noBones =
+         "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; } m_PushConstants;";
+    auto cell = Reconcile( PushMockTemplate( noBones, noBones ), "PushMock" );
+    ASSERT_TRUE( cell.Errors.empty() ) << cell.Errors.front();
+
+    PushBytes      push( 128 );
+    const uint32_t bone = 0xABCDu;
+    EXPECT_EQ( Desert::Graphic::MaterialBinder::WritePush( push.Buffer, cell.Layout, "BoneOffset", &bone,
+                                                           sizeof( bone ) ),
+               Desert::Graphic::MaterialBinder::PushWrite::Absent );
+    for ( uint32_t offset = 0; offset < 128; offset += 4 )
+        EXPECT_EQ( push.At<uint32_t>( offset ), 0u ) << offset;
+
+    const glm::vec4 tooWide( 1.0f );
+    EXPECT_EQ( Desert::Graphic::MaterialBinder::WritePush( push.Buffer, cell.Layout, "MaterialIndex", &tooWide,
+                                                           sizeof( tooWide ) ),
+               Desert::Graphic::MaterialBinder::PushWrite::SizeMismatch );
+    EXPECT_EQ( push.At<uint32_t>( 64 ), 0u );
 }
 
 int main( int argc, char** argv )

@@ -41,8 +41,9 @@ namespace Desert::Graphic
         //
         // ON `Material` AND NOT ON ITS SUBCLASSES BECAUSE THERE IS ONE TRANSPORT. A PBR surface, a shader
         // graph, the terrain and the SDF text all deliver their parameters as a row indexed by a push
-        // constant at Core::Formats::kMaterialIndexPushOffset — so this writes that one offset for all of
-        // them, and there is no second place a second offset could be written. (There used to be a second
+        // constant — the push field `MaterialIndex`, found BY NAME in the shader's reconciled MaterialLayout
+        // (Graphic/Materials/MaterialBinder.hpp) — so this writes that one field for all of them, and there
+        // is no second place a second offset could be written. (There used to be a second
         // transport, a uniform block per material, and it could not give two objects different values at
         // all; MaterialParamRow.hpp records what that cost and how it was measured.)
         //
@@ -53,7 +54,7 @@ namespace Desert::Graphic
         void SetMaterialIndex( uint32_t index );
 
         // The MATRIX half of that same push block — the slot Common/MaterialTransport.glslh declares as
-        // `mat4 Transform` at Core::Formats::kMaterialTransformPushOffset. What the matrix MEANS belongs
+        // `mat4 Transform`, written by name like the index. What the matrix MEANS belongs
         // to the drawing path, not to the material: a model matrix on the mesh path, the batcher's
         // pixel -> clip projection on the UI path (Common/UIVertex.glslh).
         //
@@ -64,9 +65,13 @@ namespace Desert::Graphic
         // had nowhere else to write it from.
         void SetPushMatrix( const glm::mat4& matrix );
 
-        // The instanced vertex stages' wind tail (Graphic/InstanceWind.hpp, at kInstancedWindPushOffset after
-        // the 68-byte block above). Every instanced draw writes it, a still one with zeros (FO-7).
+        // The instanced vertex stages' wind tail (Graphic/InstanceWind.hpp): the push fields WindA/WindB.
+        // Every instanced draw writes it, a still one with zeros (FO-7); a cell without them writes nothing.
         void SetInstancedWind( const InstanceWindPush& wind );
+
+        // Writes one push field BY NAME through the shader's reconciled layout (MaterialBinder). False when
+        // the cell does not declare the field — nothing is written then — or when `size` is not its size.
+        bool WritePushField( std::string_view field, const void* value, uint32_t size );
 
         // Public for editor introspection (PropertyEditorBuilder reads reflected properties to build UI).
         const std::vector<IProperty*>& GetRegisteredProperties() const

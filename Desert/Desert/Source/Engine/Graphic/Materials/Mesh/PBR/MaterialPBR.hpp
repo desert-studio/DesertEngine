@@ -44,23 +44,6 @@ namespace Desert::Graphic
 
         ~MaterialPBR() override = default;
 
-        // Byte offsets inside the shared mesh push-constant block, PUBLIC because they are one half of a
-        // pair whose other half is GLSL. Reflection gives a push block's total SIZE but not its members,
-        // so the check a test can make is that the block is exactly as long as the last field this code
-        // writes — which is what fires if a field is inserted before BoneOffset and this code starts
-        // writing the bone offset into MaterialIndex. Desert/Tests/Engine/MeshVertexPath makes it.
-        //
-        // DEFINED FROM Core::Formats, not beside it. Those two constants are the same numbers the DSL
-        // emits into every generated material block, and a second spelling of them here is exactly how
-        // the two transports would drift apart after being collapsed into one.
-        static constexpr uint32_t kPushTransformOffset     = Core::Formats::kMaterialTransformPushOffset;
-        static constexpr uint32_t kPushMaterialIndexOffset = Core::Formats::kMaterialIndexPushOffset; // 64
-        static constexpr uint32_t kPushBoneOffsetOffset    = kPushMaterialIndexOffset + 4; // 68, skinned only
-        static constexpr uint32_t kPushSizeWithoutBones    = kPushMaterialIndexOffset + 4;
-        static constexpr uint32_t kPushSizeWithBones       = kPushBoneOffsetOffset + 4;
-        static_assert( kPushSizeWithBones <= Core::Formats::kMaterialTransportPushSize,
-                       "BoneOffset must lie inside the one push block (Common/MaterialTransport.glslh)" );
-
         MeshVertexPath VertexPath() const
         {
             return m_Path;

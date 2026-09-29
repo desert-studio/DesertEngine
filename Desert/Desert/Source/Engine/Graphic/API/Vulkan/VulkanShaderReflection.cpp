@@ -331,15 +331,12 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             }
             else
             {
+                // One pipeline, one block: the SIZE is not merged here. ReconcileCellLayout refuses a cell
+                // whose stages declare different blocks, and VulkanShader::BuildFromSpirv sets the range to
+                // the reconciled MaterialLayout::PushSize — there is no "the larger wins" to hide a stage
+                // that declared a shorter block (the T1b 72-vs-68 regression).
                 data.PushConstantRanges->ShaderStage = ( Core::Formats::ShaderStage )(
                      (uint32_t)data.PushConstantRanges->ShaderStage | (uint32_t)stage );
-                // Different stages may declare the same push-constant block but glslang strips members
-                // a stage doesn't use, so each reports a different declared size. The pipeline-layout
-                // range must span the largest, or a stage's access lands outside the range.
-                if ( declaredSize > data.PushConstantRanges->Size )
-                {
-                    data.PushConstantRanges->Size = declaredSize;
-                }
             }
         }
 
@@ -442,6 +439,19 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             out.PushSize     = (uint32_t)compiler.get_declared_struct_size( type );
             out.PushMembers  = membersOf( type, res.base_type_id );
         }
+        return out;
+    }
+
+    ReconciledCellLayout ReconcileCellLayout( const Core::Formats::ShaderProgramMeta&  meta,
+                                              const std::vector<Core::ShaderMapStage>& stages,
+                                              std::string_view templateName, std::string_view cellName )
+    {
+        ReconciledCellLayout                               out{ Core::Formats::BuildMaterialLayout( meta ), {} };
+        std::vector<Core::Formats::ReflectedMaterialStage> reflected;
+        reflected.reserve( stages.size() );
+        for ( const auto& stage : stages )
+            reflected.push_back( ReflectMaterialStage( stage.Spirv, stage.Stage ) );
+        out.Errors = Core::Formats::ReconcileMaterialLayout( out.Layout, templateName, cellName, reflected );
         return out;
     }
 
