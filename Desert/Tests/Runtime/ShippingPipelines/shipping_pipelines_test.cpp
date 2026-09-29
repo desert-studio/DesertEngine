@@ -252,10 +252,23 @@ namespace
             const size_t eq = lines[i].find( '=', key );
             if ( eq == std::string::npos )
                 continue;
-            std::string  value = lines[i].substr( eq + 1 );
-            const size_t cut   = value.find_first_of( ",;}" );
-            if ( cut != std::string::npos )
-                value = value.substr( 0, cut );
+            // The expression ends at the first `,` `;` `}` outside parentheses, so a call such as
+            // `std::format( kFormat, name )` is kept whole rather than cut at its argument comma.
+            std::string value = lines[i].substr( eq + 1 );
+            int         depth = 0;
+            for ( size_t c = 0; c < value.size(); ++c )
+            {
+                const char ch = value[c];
+                if ( ch == '(' )
+                    ++depth;
+                else if ( ch == ')' && depth > 0 )
+                    --depth;
+                else if ( depth == 0 && ( ch == ',' || ch == ';' || ch == '}' ) )
+                {
+                    value.resize( c );
+                    break;
+                }
+            }
             return Trim( value );
         }
         return {};
@@ -374,7 +387,7 @@ namespace
 
              // ── mesh geometry, shadows and the selection outline ────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
-               "\"GenericMesh_\" + shader->GetName()", Verdict::Shipped,
+               "std::format( kGenericMeshNameFormat, shader->GetName() )", Verdict::Shipped,
                "a material's own pipeline, requested when the material loads and compiled on a worker; "
                "the reveal draws with DefaultSurfaceFallback below until it is ready" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
