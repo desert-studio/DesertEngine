@@ -44,6 +44,9 @@ FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 # grep -r over a build log directory or the scratch is reading logs, not searching the tree (09-29: L10b refused)
 LOG_SEARCH = re.compile(r"grep\s+-[A-Za-z]*[rR][A-Za-z]*\s+(\S+\s+)?[\"']?(\S*build/DevLogs|/private/tmp/|/tmp/)")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
+BRIEF_PATH = re.compile(r"/[^\s'\";|&]*BRIEF\.md")
+# the body of a heredoc (python/C++ written to a file) is data, not shell: `str.find(` is not a tree search
+HEREDOC_BODY = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\b", re.S)
 EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
 SINGLE_TU = re.compile(r"\.o\b|\s-n\b|--dry-run")
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
@@ -419,7 +422,8 @@ def main():
              data, agent)
 
     # The build tree is shared state and costs a full rebuild (~10 min, a dozen calls of waiting) to recreate.
-    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd):
+    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd) \
+            and not re.search(r"\brm\s+-[a-zA-Z]*\s+[^;&|]*build/Tests/Intermediates/\w+/\w+/\w+", cmd):
         save_state(state, path)
         deny("[agent_guard] Дерево сборки не чистится: make clean / rm -rf build стоит полной пересборки. Устаревший "
              "объект — пересобери один файл (touch источника) или удали один .o.", data, agent)
@@ -435,6 +439,15 @@ def main():
     if (tool == "Bash" and "CODEMAP.md" in cmd and re.search(r"sed\s+-n\s+'?\d+,\d+p", cmd)) or \
             (tool == "Read" and (tin.get("file_path") or "").endswith("CODEMAP.md") and tin.get("offset")):
         state["map_read"] = True
+    # The lead's pre-scan puts a «## Карта» into the brief (LEAD_PROTOCOL §000 step 2): reading THAT brief is reading the
+    # map — refusing the first code read then only cost a call (09-29: L10b2, PRJ1a).
+    brief = BRIEF_PATH.search(cmd if tool == "Bash" else (tin.get("file_path") or ""))
+    if brief and not state.get("map_read"):
+        try:
+            if "## Карта" in open(brief.group(0), encoding="utf-8").read():
+                state["map_read"] = True
+        except OSError:
+            pass
     reading_code = (tool == "Read" and CODE_FILE.search(tin.get("file_path") or "")) or \
                    (tool == "Bash" and CODE_READ.search(cmd) and CODE_FILE.search(cmd))
     if reading_code and not state.get("map_read") and not state.get("explored"):
@@ -475,14 +488,15 @@ def main():
              "git restore --staged .claude && git checkout -- .claude", data, agent)
 
     if tool == "Bash":
+        shell = HEREDOC_BODY.sub("", cmd)
         for rx in TREE_SEARCH:
-            if rx.search(cmd) and not LOG_SEARCH.search(cmd):
+            if rx.search(shell) and not LOG_SEARCH.search(shell):
                 save_state(state, path)
                 deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Где определено имя — "
                      "scripts/Dev/sym.sh <Имя> (1–2 с), где используется — sym.sh --refs <Имя>. Вопрос шире — "
                      "субагенту: Agent(subagent_type: \"Explore\", prompt: \"<что найти, ответ ≤60 строк>\"). "
                      "Сам ищи только внутри уже известных файлов: grep -n <шаблон> <файл>.", data, agent)
-        if FIND.search(cmd) and "-maxdepth" not in cmd:
+        if FIND.search(shell) and "-maxdepth" not in shell:
             save_state(state, path)
             deny("[agent_guard] `find` без -maxdepth — это поиск по дереву; используй Explore или "
                  "`find <папка> -maxdepth 2 ...`.", data, agent)
