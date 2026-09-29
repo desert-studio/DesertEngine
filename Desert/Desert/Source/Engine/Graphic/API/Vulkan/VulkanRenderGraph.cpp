@@ -50,7 +50,7 @@ namespace Desert::Graphic::API::Vulkan
                             desc.Dim == RDG::TextureDim::Tex3D ? desc.Size.Depth : 1u };
             info.mipLevels     = desc.Mips;
             info.arrayLayers   = desc.Layers;
-            info.samples       = VK_SAMPLE_COUNT_1_BIT;
+            info.samples       = static_cast<VkSampleCountFlagBits>( std::max( 1u, desc.Samples ) );
             info.tiling        = VK_IMAGE_TILING_OPTIMAL;
             info.usage         = RdgImageUsage( accessMask, depth );
             info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
@@ -271,11 +271,12 @@ namespace Desert::Graphic::API::Vulkan
         const VkSampleCountFlagBits samples = static_cast<VkSampleCountFlagBits>( std::max( 1u, key.Samples ) );
         std::vector<VkAttachmentDescription> attachments;
         std::vector<VkAttachmentReference>   colourRefs;
-        auto                                 describe = [&]( const RdgAttachmentKey& attachment, bool stencil )
+        std::vector<VkAttachmentReference>   resolveRefs;
+        auto describe = [&]( const RdgAttachmentKey& attachment, bool stencil, VkSampleCountFlagBits count )
         {
             VkAttachmentDescription description{};
             description.format         = attachment.Format;
-            description.samples        = samples;
+            description.samples        = count;
             description.loadOp         = attachment.Load;
             description.storeOp        = attachment.Store;
             description.stencilLoadOp  = stencil ? attachment.Load : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -292,36 +293,27 @@ namespace Desert::Graphic::API::Vulkan
         {
             colourRefs.push_back( colour.Format == VK_FORMAT_UNDEFINED
                                        ? VkAttachmentReference{ VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_UNDEFINED }
-                                       : describe( colour, false ) );
+                                       : describe( colour, false, samples ) );
         }
+        // Attachment order: colours, depth, resolves (BeginRenderPass hands the views in the same order).
         VkAttachmentReference depthRef{};
         if ( key.Depth )
-            depthRef = describe( *key.Depth, key.HasStencil );
+            depthRef = describe( *key.Depth, key.HasStencil, samples );
+        if ( !key.Resolves.empty() && key.Resolves.size() != key.Colours.size() )
+            return Common::MakeFormattedError<VkRenderPass>( "render pass with {} colour(s) and {} resolve(s)",
+                                                             key.Colours.size(), key.Resolves.size() );
+        for ( const RdgAttachmentKey& resolve : key.Resolves )
+        {
+            resolveRefs.push_back( resolve.Format == VK_FORMAT_UNDEFINED
+                                        ? VkAttachmentReference{ VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_UNDEFINED }
+                                        : describe( resolve, false, VK_SAMPLE_COUNT_1_BIT ) );
+        }
 
-        VkSubpassDescription subpass{};
-        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount    = static_cast<uint32_t>( colourRefs.size() );
-        subpass.pColorAttachments       = colourRefs.data();
-        subpass.pDepthStencilAttachment = key.Depth ? &depthRef : nullptr;
-
-        // The engine's own dependencies, so a pipeline built against a framebuffer's render pass (or against
-        // RdgCompatibleRenderPassKey) is compatible with this one: render-pass compatibility compares them.
-        const bool hasColour =
-             std::any_of( colourRefs.begin(), colourRefs.end(), []( const VkAttachmentReference& reference )
-                          { return reference.attachment != VK_ATTACHMENT_UNUSED; } );
-        const std::vector<VkSubpassDependency> dependencies =
-             SinglePassDependencies( hasColour, key.Depth.has_value(), false );
-
-        VkRenderPassCreateInfo info{};
-        info.sType                = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        info.attachmentCount      = static_cast<uint32_t>( attachments.size() );
-        info.pAttachments         = attachments.data();
-        info.subpassCount         = 1;
-        info.pSubpasses           = &subpass;
-        info.dependencyCount      = static_cast<uint32_t>( dependencies.size() );
-        info.pDependencies        = dependencies.data();
+        // The engine's one single-subpass builder: a pipeline built against a framebuffer's render pass (MSAA
+        // with its resolves, or single-sample), or against RdgCompatibleRenderPassKey, is compatible with this one.
         VkRenderPass   renderPass = VK_NULL_HANDLE;
-        const VkResult result     = vkCreateRenderPass( device, &info, nullptr, &renderPass );
+        const VkResult result     = CreateSinglePassRenderPass( device, attachments, colourRefs, resolveRefs,
+                                                                key.Depth ? &depthRef : nullptr, false, renderPass );
         if ( result != VK_SUCCESS )
             return Common::MakeFormattedError<VkRenderPass>( "vkCreateRenderPass failed ({})",
                                                              static_cast<int>( result ) );
@@ -815,6 +807,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( !attachment.IsDepth )
                 colourCount = std::max( colourCount, attachment.Slot + 1 );
         }
+        const bool resolves = std::any_of( pass.Attachments.begin(), pass.Attachments.end(),
+                                           []( const RDG::AttachmentDecision& a ) { return a.IsResolve; } );
         // Attachment order in the render pass: colour slots first (unused slots have no attachment), depth
         // last; views and clear values follow the same order.
         RdgRenderPassKey key;
@@ -822,6 +816,9 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::pair<VkImageView, VkClearValue>> colourViews( colourCount,
                                                                        { VK_NULL_HANDLE, VkClearValue{} } );
         std::pair<VkImageView, VkClearValue>              depthView{ VK_NULL_HANDLE, VkClearValue{} };
+        std::vector<VkImageView>                          resolveViews( resolves ? colourCount : 0u, VK_NULL_HANDLE );
+        if ( resolves )
+            key.Resolves.resize( colourCount, RdgAttachmentKey{} );
         std::vector<std::weak_ptr<VulkanRdgTexture>>      textures;
         VkExtent2D                                        extent{ 0, 0 };
         uint32_t                                          layers = 1;
@@ -844,6 +841,13 @@ namespace Desert::Graphic::API::Vulkan
                                                    : VK_ATTACHMENT_STORE_OP_DONT_CARE,
                                               RdgVulkanLayout( RDG::GetAccessState( attachment.Usage ).Layout ) };
             VkClearValue           clear{};
+            if ( attachment.IsResolve )
+            {
+                key.Resolves[attachment.Slot]   = described;
+                resolveViews[attachment.Slot]   = view.GetValue();
+                continue;
+            }
+            key.Samples = std::max( 1u, desc.Samples );
             if ( attachment.IsDepth )
             {
                 clear.depthStencil = { attachment.Clear.Depth, attachment.Clear.Stencil };
@@ -876,6 +880,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             views.push_back( depthView.first );
             clears.push_back( depthView.second );
+        }
+        for ( const VkImageView view : resolveViews )
+        {
+            if ( view != VK_NULL_HANDLE )
+            {
+                views.push_back( view );
+                clears.push_back( VkClearValue{} );
+            }
         }
 
         // The pool hands out the same images while the graph is unchanged, so the same views come back

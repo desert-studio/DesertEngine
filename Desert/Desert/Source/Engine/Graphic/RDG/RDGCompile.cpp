@@ -541,6 +541,7 @@ namespace Desert::Graphic::RDG
                 AttachmentDecision decision;
                 decision.Slot                 = attachment.Slot;
                 decision.IsDepth              = attachment.IsDepth;
+                decision.IsResolve            = attachment.IsResolve;
                 const int32_t attachmentIndex = static_cast<int32_t>( &attachment - pass.Attachments.data() );
                 for ( const ResourceUse& use : pass.Uses )
                 {
@@ -602,7 +603,8 @@ namespace Desert::Graphic::RDG
         {
             auto sameAttachment = []( const AttachmentDecision& a, const AttachmentDecision& b )
             {
-                return a.IsDepth == b.IsDepth && a.Slot == b.Slot && a.Usage == b.Usage &&
+                return a.IsDepth == b.IsDepth && a.IsResolve == b.IsResolve && a.Slot == b.Slot &&
+                       a.Usage == b.Usage &&
                        a.Resource == b.Resource && a.Mip == b.Mip && a.BaseLayer == b.BaseLayer &&
                        a.LayerCount == b.LayerCount;
             };
@@ -640,8 +642,10 @@ namespace Desert::Graphic::RDG
                 bool          merge    = HasFlag( previous.Flags, PassFlags::Raster ) &&
                              HasFlag( current.Flags, PassFlags::Raster ) && !current.Attachments.empty() &&
                              sameAttachments( previous, current );
+                // A resolve target is never loaded (the resolve at the end of the run overwrites it), so it
+                // does not stop the run.
                 for ( const AttachmentDecision& attachment : current.Attachments )
-                    merge = merge && attachment.Load == LoadAction::Load;
+                    merge = merge && ( attachment.IsResolve || attachment.Load == LoadAction::Load );
                 for ( const RdgRawTransition& raw : raws[position] )
                     merge = merge && raw.Before == raw.After && isOwnAttachment( current, raw );
                 if ( !merge )

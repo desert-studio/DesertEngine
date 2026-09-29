@@ -58,9 +58,25 @@ namespace Desert::Graphic::RDG
     // ── Builder: resources ─────────────────────────────────────────────────────────────────────────────
 
     ImportedFramebuffer Builder::ImportFramebuffer( std::span<ExternalTexture* const> colors,
-                                                    ExternalTexture* depth, std::string_view name )
+                                                    ExternalTexture* depth, std::string_view name,
+                                                    std::span<ExternalTexture* const> resolves )
     {
         ImportedFramebuffer imported;
+        if ( !resolves.empty() && resolves.size() != colors.size() )
+            RecordError( std::format( "graph '{}': ImportFramebuffer('{}') has {} colour(s) and {} resolve(s)",
+                                      m_Name, name, colors.size(), resolves.size() ) );
+        for ( size_t i = 0; i < resolves.size(); ++i )
+        {
+            if ( resolves[i] == nullptr )
+            {
+                RecordError(
+                     std::format( "graph '{}': ImportFramebuffer('{}') resolve {} is null", m_Name, name, i ) );
+                imported.Resolves.push_back( {} );
+                continue;
+            }
+            imported.Resolves.push_back(
+                 RegisterExternal( *resolves[i], std::format( "{}.Resolve{}", name, i ) ) );
+        }
         for ( size_t i = 0; i < colors.size(); ++i )
         {
             if ( colors[i] == nullptr )
@@ -249,6 +265,12 @@ namespace Desert::Graphic::RDG
         DeclareAttachment( slot, false, texture, Access::ColorTarget, load, mip, layer, store );
     }
 
+    void PassBuilder::ResolveTarget( uint32_t slot, TextureRef texture )
+    {
+        DeclareAttachment( slot, false, texture, Access::ColorTarget, LoadOp::DontCare(), 0, 0, StoreAction::Store,
+                           true );
+    }
+
     void PassBuilder::DepthTarget( TextureRef texture, const LoadOp& load, bool write, uint32_t layer,
                                    StoreAction store )
     {
@@ -344,12 +366,13 @@ namespace Desert::Graphic::RDG
     }
 
     void PassBuilder::DeclareAttachment( uint32_t slot, bool isDepth, TextureRef texture, Access access,
-                                         const LoadOp& load, uint32_t mip, uint32_t layer, StoreAction store )
+                                         const LoadOp& load, uint32_t mip, uint32_t layer, StoreAction store,
+                                         bool isResolve )
     {
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
         const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
         const std::string&             graph    = m_Builder.m_Name;
-        const std::string_view         call     = isDepth ? "DepthTarget" : "ColorTarget";
+        const std::string_view call = isResolve ? "ResolveTarget" : ( isDepth ? "DepthTarget" : "ColorTarget" );
         if ( !resource )
             return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}() of invalid texture handle {}",
                                                        graph, pass.Name, call, texture.Index ) );
@@ -364,10 +387,41 @@ namespace Desert::Graphic::RDG
                               graph, pass.Name, resource->Name ) );
         for ( const Builder::AttachmentRecord& existing : pass.Attachments )
         {
-            if ( existing.IsDepth == isDepth && ( isDepth || existing.Slot == slot ) )
+            if ( existing.IsDepth == isDepth && existing.IsResolve == isResolve &&
+                 ( isDepth || existing.Slot == slot ) )
                 return m_Builder.RecordError( fmt::format( "graph '{}' pass '{}': {}('{}') binds slot {} twice",
                                                            graph, pass.Name, call, resource->Name, slot ) );
         }
+        // One render pass has one sample count: every colour and depth attachment shares it. A resolve target is
+        // single-sample and matches the multisampled colour of its slot in format and size.
+        const TextureDesc& self = resource->Texture;
+        for ( const Builder::AttachmentRecord& existing : pass.Attachments )
+        {
+            const Builder::ResourceRecord& otherRecord = m_Builder.m_Resources[existing.Resource];
+            const TextureDesc&             other       = otherRecord.Texture;
+            if ( isResolve && !existing.IsResolve && !existing.IsDepth && existing.Slot == slot &&
+                 ( other.Samples <= 1 || self.Samples != 1 || other.Format != self.Format ||
+                   other.Size.Width != self.Size.Width || other.Size.Height != self.Size.Height ) )
+                return m_Builder.RecordError( fmt::format(
+                     "graph '{}' pass '{}': ResolveTarget('{}') cannot resolve colour slot {} ('{}'): the colour "
+                     "has {} sample(s), format {}, {}x{}; the resolve target {} sample(s), format {}, {}x{}",
+                     graph, pass.Name, resource->Name, slot, otherRecord.Name, other.Samples,
+                     static_cast<uint32_t>( other.Format ), other.Size.Width, other.Size.Height, self.Samples,
+                     static_cast<uint32_t>( self.Format ), self.Size.Width, self.Size.Height ) );
+            if ( !isResolve && !existing.IsResolve && other.Samples != self.Samples )
+                return m_Builder.RecordError(
+                     fmt::format( "graph '{}' pass '{}': {}('{}') has {} sample(s), '{}' in the same pass has {}",
+                                  graph, pass.Name, call, resource->Name, self.Samples, otherRecord.Name,
+                                  other.Samples ) );
+        }
+        if ( isResolve &&
+             std::none_of( pass.Attachments.begin(), pass.Attachments.end(),
+                           [slot]( const Builder::AttachmentRecord& existing )
+                           { return !existing.IsDepth && !existing.IsResolve && existing.Slot == slot; } ) )
+            return m_Builder.RecordError(
+                 fmt::format( "graph '{}' pass '{}': ResolveTarget('{}') for colour slot {}, which has no "
+                              "ColorTarget declared before it",
+                              graph, pass.Name, resource->Name, slot ) );
 
         const TextureDesc& desc       = resource->Texture;
         const uint32_t     baseLayer  = layer == kAllRemaining ? 0 : layer;
@@ -381,6 +435,7 @@ namespace Desert::Graphic::RDG
         Builder::AttachmentRecord attachment;
         attachment.Slot       = slot;
         attachment.IsDepth    = isDepth;
+        attachment.IsResolve  = isResolve;
         attachment.Resource   = texture.Index;
         attachment.Load       = load;
         attachment.Mip        = mip;

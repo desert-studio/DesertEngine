@@ -120,29 +120,13 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
-        VkSubpassDescription subpassDescription = {};
-        subpassDescription.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpassDescription.colorAttachmentCount = static_cast<uint32_t>( colorAttachmentReferences.size() );
-        subpassDescription.pColorAttachments    = colorAttachmentReferences.data();
-        subpassDescription.pResolveAttachments =
-             resolveAttachmentReferences.empty() ? nullptr : resolveAttachmentReferences.data();
-        subpassDescription.pDepthStencilAttachment = hasDepth ? &depthAttachmentReference : nullptr;
-
-        // The dependencies every engine render pass shares, so pipelines built against this one also draw in
-        // the render graph's passes on the same attachments (see VulkanRenderPassDependencies.hpp).
-        const std::vector<VkSubpassDependency> dependencies = SinglePassDependencies(
-             !colorAttachmentReferences.empty(), hasDepth, m_FramebufferSpecification.PresentTarget );
-
-        VkRenderPassCreateInfo renderPassInfo = {};
-        renderPassInfo.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        renderPassInfo.attachmentCount = static_cast<uint32_t>( attachmentDescriptions.size() );
-        renderPassInfo.pAttachments    = attachmentDescriptions.data();
-        renderPassInfo.subpassCount    = 1;
-        renderPassInfo.pSubpasses      = &subpassDescription;
-        renderPassInfo.dependencyCount = static_cast<uint32_t>( dependencies.size() );
-        renderPassInfo.pDependencies    = dependencies.data();
-
-        VK_CHECK_RESULT( vkCreateRenderPass( vkDevice, &renderPassInfo, nullptr, &m_RenderPass ) );
+        // The engine's one single-subpass builder (VulkanRenderPassDependencies.hpp), which the render graph's
+        // passes use too: pipelines built against this pass draw in the graph's passes on these attachments,
+        // multisampled ones with their resolves included.
+        VK_CHECK_RESULT( CreateSinglePassRenderPass( vkDevice, attachmentDescriptions, colorAttachmentReferences,
+                                                     resolveAttachmentReferences,
+                                                     hasDepth ? &depthAttachmentReference : nullptr,
+                                                     m_FramebufferSpecification.PresentTarget, m_RenderPass ) );
 
         // Build a second compatible render pass that uses LOAD_OP_LOAD for every attachment.
         // Render-graph passes use this so they accumulate into the framebuffer instead of
@@ -166,10 +150,10 @@ namespace Desert::Graphic::API::Vulkan
             // beginning it with a load RP whose dependencies differ is flagged incompatible. Identical
             // dependencies keep the two render passes compatible so a pass (e.g. deferred lighting) can LOAD
             // and composite over the already-rendered forward scene. Only loadOp/initialLayout differ.
-            VkRenderPassCreateInfo loadInfo  = renderPassInfo;
-            loadInfo.pAttachments            = loadDescs.data();
-
-            VK_CHECK_RESULT( vkCreateRenderPass( vkDevice, &loadInfo, nullptr, &m_RenderPassLoad ) );
+            VK_CHECK_RESULT( CreateSinglePassRenderPass(
+                 vkDevice, loadDescs, colorAttachmentReferences, resolveAttachmentReferences,
+                 hasDepth ? &depthAttachmentReference : nullptr, m_FramebufferSpecification.PresentTarget,
+                 m_RenderPassLoad ) );
         }
 
         std::vector<VkImageView> attachments;

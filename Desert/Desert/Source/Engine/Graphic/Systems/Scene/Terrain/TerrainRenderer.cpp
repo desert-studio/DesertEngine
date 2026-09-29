@@ -405,18 +405,10 @@ namespace Desert::Graphic::System
         if ( !gbuffer || ( camera == nullptr ) || !m_GBufferPipeline || m_FrameDraws.empty() )
             return;
 
-        // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it (MeshRenderer::
-        // RenderGBufferManual) — its depth is what the terrain tests against.
-        RenderPassSpecification rpSpec;
-        rpSpec.TargetFramebuffer = gbuffer;
-        rpSpec.DebugName         = "TerrainGBufferPass";
-        auto rp                  = RenderPass::Create( rpSpec );
-
-        auto& renderer = Renderer::GetInstance();
-        renderer.BeginRenderPass( rp.get(), /*clearFrame*/ false );
+        // LOAD, not clear: the meshes' G-buffer fill ran just before and cleared it. The graph opens the
+        // render pass (SceneRenderer::AddFrameTerrainGBuffer); its depth is what the terrain tests against.
         RecordDraws( m_GBufferPipeline.get(), &ProgramMaterials::GBuffer,
                      camera->GetProjectionMatrix() * camera->GetViewMatrix() );
-        renderer.EndRenderPass();
     }
 
     void TerrainRenderer::RecordShadowCascade( uint32_t /*cascade*/, const glm::mat4& cascadeViewProj )

@@ -68,7 +68,8 @@ namespace Desert::Graphic::API::Vulkan
 
     struct RdgRenderPassKey
     {
-        std::vector<RdgAttachmentKey>   Colours; // by slot
+        std::vector<RdgAttachmentKey>   Colours;  // by slot
+        std::vector<RdgAttachmentKey>   Resolves; // by colour slot (Format UNDEFINED: not resolved); empty if none
         std::optional<RdgAttachmentKey> Depth;
         bool                            HasStencil = false;
         uint32_t                        Samples    = 1;

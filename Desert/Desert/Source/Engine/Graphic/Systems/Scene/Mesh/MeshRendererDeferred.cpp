@@ -11,20 +11,10 @@ namespace Desert::Graphic::System
         if ( !gbuffer || !m_SceneRenderer->GetMainCamera() )
             return;
 
-        auto& renderer = Renderer::GetInstance();
-        // Clear the G-buffer to ZERO (not the default 0.1 grey) so empty texels have a zero normal — the
-        // lighting pass uses dot(normal,normal) to tell geometry from sky, and 0.1 would read as "geometry".
-        RenderPassSpecification rpSpec;
-        rpSpec.TargetFramebuffer = gbuffer;
-        rpSpec.DebugName         = "DeferredGBufferPass";
-        rpSpec.ClearColor.Color  = glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f );
-        auto rp                  = RenderPass::Create( rpSpec );
-
-        renderer.BeginRenderPass( rp.get() );
+        // The graph opens the render pass and clears it to ZERO (SceneRenderer::AddFrameGBuffer).
         m_DeferredGeometry = true;
         DrawStaticMeshes();
         m_DeferredGeometry = false;
-        renderer.EndRenderPass();
     }
 
     bool MeshRenderer::SetupGBufferPass()

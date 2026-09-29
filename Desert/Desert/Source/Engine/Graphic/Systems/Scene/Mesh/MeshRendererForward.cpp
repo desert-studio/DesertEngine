@@ -443,16 +443,8 @@ namespace Desert::Graphic::System
             return;
         }
 
-        auto& renderer = Renderer::GetInstance();
-
-        RenderPassSpecification rpSpec;
-        rpSpec.TargetFramebuffer = target;
-        rpSpec.DebugName         = "GenericForwardPass";
-        auto rp                  = RenderPass::Create( rpSpec );
-
-        renderer.BeginRenderPass( rp.get(), false ); // LOAD: over the deferred lighting composite
+        // The graph opens the render pass (LOAD, over the deferred lighting composite).
         DrawGenericMeshes( /*useLoadPass*/ true );
-        renderer.EndRenderPass();
     }
 
     void MeshRenderer::RenderGlassManual( const std::shared_ptr<Image2D>& sceneColor )
@@ -506,13 +498,7 @@ namespace Desert::Graphic::System
             if ( auto tex = m_GlassMaterial->GetMaterialExecutor()->GetTexture2DProperty( "u_SceneColor" ) )
                 tex->SetImage( sceneColor.get() );
 
-        // --- Draw the glass over the composited scene (LOAD + blend) ---
-        RenderPassSpecification rpSpec;
-        rpSpec.TargetFramebuffer = target;
-        rpSpec.DebugName         = "GlassPass";
-        auto rp                  = RenderPass::Create( rpSpec );
-
-        renderer.BeginRenderPass( rp.get(), false ); // LOAD: composite over the opaque scene
+        // --- Draw the glass over the composited scene: the graph opens the render pass (LOAD + blend) ---
         for ( uint32_t i = 0; i < static_cast<uint32_t>( glassObjs.size() ); ++i )
         {
             const auto* obj = glassObjs[i];
@@ -523,7 +509,6 @@ namespace Desert::Graphic::System
                                  m_GlassMaterial->GetMaterialExecutor(), 1, 0, obj->HiddenSubmeshes,
                                  ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ) );
         }
-        renderer.EndRenderPass();
     }
 
     // SUPPRESSED, NAMED, AND NOT FIXED HERE: cognitive complexity 153 against a threshold of 19. That is
@@ -1207,16 +1192,8 @@ namespace Desert::Graphic::System
         if ( !target || !m_SceneRenderer->GetMainCamera() )
             return;
 
-        auto& renderer = Renderer::GetInstance();
-
-        RenderPassSpecification rpSpec;
-        rpSpec.TargetFramebuffer = target;
-        rpSpec.DebugName         = "SkinnedForwardPass";
-        auto rp                  = RenderPass::Create( rpSpec );
-
-        renderer.BeginRenderPass( rp.get(), false ); // LOAD: over the deferred lighting composite
+        // The graph opens the render pass (LOAD, over the deferred lighting composite).
         DrawSkinnedMeshes( /*useLoadPass*/ true );
-        renderer.EndRenderPass();
     }
 
     bool MeshRenderer::SetupGeometryPass()

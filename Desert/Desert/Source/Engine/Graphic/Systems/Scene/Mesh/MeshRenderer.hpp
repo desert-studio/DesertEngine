@@ -210,7 +210,8 @@ namespace Desert::Graphic::System
         // Overdraw debug view: re-rasterize every opaque mesh with additive blend (no depth) into a float
         // accumulation buffer, then heat-map the per-pixel overdraw count over the finished scene colour.
         // Path-independent (re-draws geometry; ignores the G-buffer), so it works in Forward and Deferred.
-        void RenderOverdrawManual();
+        void RenderOverdrawAccumManual();   // node "Debug: Overdraw" (m_OverdrawFB)
+        void RenderOverdrawResolveManual(); // node "Debug: Overdraw Resolve" (the scene target)
 
         const std::shared_ptr<Framebuffer>& GetOverdrawFramebuffer() const
         {

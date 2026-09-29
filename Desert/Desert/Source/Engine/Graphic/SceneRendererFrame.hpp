@@ -95,6 +95,32 @@ namespace Desert::Graphic
             return imported;
         }
 
+        // The depth attachment of @p framebuffer (a depth target never sits in SHADER_READ_ONLY), imported with
+        // the layout its image records; Execute writes the layout the graph leaves back into the image. An
+        // image that cannot be imported gets an invalid ref, and the error is logged.
+        RDG::TextureRef Depth( const std::shared_ptr<Framebuffer>& framebuffer, std::string_view name )
+        {
+            if ( !framebuffer || framebuffer->GetDepthAttachmentCount() == 0 )
+                return {};
+            return Import( framebuffer->GetDepthAttachmentImage(), std::format( "{}.Depth", name ) );
+        }
+
+        // The multisampled colour images of @p framebuffer (Samples > 1), by slot, imported with the layout their
+        // images record, as the depth is; Colors() of the same framebuffer are the images they resolve into.
+        std::vector<RDG::TextureRef> MultisampleColors( const std::shared_ptr<Framebuffer>& framebuffer,
+                                                        std::string_view                    name )
+        {
+            std::vector<RDG::TextureRef> refs;
+            if ( !framebuffer || framebuffer->GetSpecification().Samples <= 1 )
+                return refs;
+            for ( uint32_t i = 0; i < framebuffer->GetColorAttachmentCount(); ++i )
+                if ( const RDG::TextureRef ref = Import( framebuffer->GetMultisampleColorAttachmentImage( i ),
+                                                         std::format( "{}.Color{}.MSAA", name, i ) );
+                     ref.IsValid() )
+                    refs.push_back( ref );
+            return refs;
+        }
+
     private:
         RDG::TextureRef Get( const std::shared_ptr<Image2D>& image, std::string_view name )
         {
@@ -113,6 +139,7 @@ namespace Desert::Graphic
                 desc.Format    = spec.Format;
                 desc.Mips      = image->GetMipmapLevels();
                 desc.Layers    = 1;
+                desc.Samples   = std::max( 1u, spec.Samples );
                 auto& external = m_Storage.emplace_back(
                      std::make_unique<RDG::ExternalTexture>( desc, RDG::Access::LegacyWrite ) );
                 external->Physical = std::move( physical );
