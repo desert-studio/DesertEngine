@@ -844,6 +844,46 @@ TEST_F( ShaderRootFixture, AFieldTheCellLacksIsNotWrittenAndAWrongSizeIsRefused 
     EXPECT_EQ( push.At<uint32_t>( 64 ), 0u );
 }
 
+// THE ROUTING QUESTION (MeshCellPath): a material is drawn by the batched path of the vertex path its SHADER
+// is a cell of, and by the generic path when its shader is no cell at all. The mesh system and the renderer
+// both ask exactly this, of the shader the material was allocated from (SurfaceCellShader), never of its
+// C++ class or its template's name. So the relation under test is the round trip: every cell the PBR
+// template is allocated into answers the path it was allocated for, and a DSL surface's own cell answers
+// nothing, which is what sends it to the generic queue. A cell that answered the wrong path would bind a
+// skinned material without its Bones; one that answered nothing would draw a PBR mesh through the generic
+// forward pipeline of a G-buffer shader.
+TEST( MeshCellPath, EveryCellOfThePBRTemplateRoutesToThePathItWasAllocatedFor )
+{
+    const char* pbrTemplate = MeshShaderFor( MeshVertexPath::Static, MeshPass::Forward );
+    for ( uint32_t p = 0; p < Desert::Graphic::kMeshVertexPathCount; ++p )
+        for ( uint32_t s = 0; s < Desert::Graphic::kMeshPassCount; ++s )
+        {
+            const auto path = static_cast<MeshVertexPath>( p );
+            const auto cell = Desert::Graphic::SurfaceCellShader( pbrTemplate, path, static_cast<MeshPass>( s ) );
+            ASSERT_EQ( cell.has_value(), MeshShaderFor( path, static_cast<MeshPass>( s ) ) != nullptr )
+                 << MeshVertexPathName( path ) << " x " << s;
+            if ( !cell )
+                continue;
+            const auto routed = Desert::Graphic::MeshCellPath( *cell );
+            ASSERT_TRUE( routed.has_value() ) << *cell << " is a cell of the table and must take the batched path";
+            EXPECT_EQ( *routed, path ) << *cell << " routes to " << MeshVertexPathName( *routed )
+                                       << ", allocated for " << MeshVertexPathName( path );
+        }
+}
+
+TEST( MeshCellPath, ADSLSurfacesOwnCellIsNoCellOfTheTableAndGoesGeneric )
+{
+    // Any template that does not head the table has only its own (Static x Forward) cell, named as itself.
+    const std::string dslTemplate = "TextSDF";
+    const auto own = Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Static, MeshPass::Forward );
+    ASSERT_TRUE( own.has_value() );
+    EXPECT_EQ( *own, dslTemplate );
+    EXPECT_FALSE( Desert::Graphic::MeshCellPath( *own ).has_value() ) << "a DSL surface would be batched as PBR";
+    EXPECT_FALSE( Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Skinned, MeshPass::Forward ) );
+    EXPECT_FALSE( Desert::Graphic::SurfaceCellShader( dslTemplate, MeshVertexPath::Static, MeshPass::GBuffer ) );
+    EXPECT_FALSE( Desert::Graphic::MeshCellPath( "" ).has_value() );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

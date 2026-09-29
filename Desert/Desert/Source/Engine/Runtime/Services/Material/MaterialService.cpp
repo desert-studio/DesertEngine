@@ -160,7 +160,11 @@ namespace Desert::Runtime
         auto               material   = std::make_shared<Graphic::DataDrivenMaterial>( shaderName );
         // ON LOAD, not at the first draw (AL1-12, UE's PSO precache): every renderer starts this shader's
         // pipeline compile on a worker from its next frame, so it has usually landed before the mesh is seen.
-        Graphic::MaterialPipelineRequests::Get().Request( shaderName );
+        // The request is for the GENERIC path's pipeline; a mesh-table cell is never drawn there (the mesh
+        // system routes it to the batched path by the same MeshCellPath question), so asking for one built a
+        // forward pipeline of a G-buffer shader nobody draws with, and validation flagged its unused outputs.
+        if ( !Graphic::MeshCellPath( shaderName ) )
+            Graphic::MaterialPipelineRequests::Get().Request( shaderName );
         if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
             ApplySurfaceAsset( *material, *surface );
         return material;

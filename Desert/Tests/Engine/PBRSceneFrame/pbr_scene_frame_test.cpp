@@ -26,6 +26,7 @@
 
 #include <gtest/gtest.h>
 
+#include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
@@ -331,9 +332,11 @@ TEST_F( ShaderRootFixture, EverySceneBindingTheOneApplierFillsIsDeclaredByEveryM
 TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
 {
     // Everything in a mesh PBR set 0 that is genuinely per-OBJECT and is therefore filled by the material
-    // itself rather than by the frame snapshot: the GPU-scene material row and the surface maps
-    // (MaterialFactory binds these three by name from the material asset).
-    const char* kPerObject[] = { "Materials", "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" };
+    // itself rather than by the frame snapshot: the GPU-scene material row, and the surface maps THE
+    // TEMPLATE'S LAYOUT DECLARES — the same ForEachMaterialTextureSlot walk ApplySurfaceAsset binds them by
+    // (Runtime/Services/Material/MaterialService.cpp). Not a hand list: a list here once named three maps
+    // while the binder bound three and the shaders declared five, and the two unbound ones sampled the
+    // fallback descriptor. A slot the manifest stops declaring, or the walk stops visiting, is red here.
     // The cloud-shadow pair, filled by Graphic::CloudShadowBind out of the same snapshot — see the note on
     // SceneBindingNames().
     const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };
@@ -343,11 +346,17 @@ TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
         const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ) ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
+        const auto parsed =
+             Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( shader.Path ) ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << shader.Path;
+
         std::set<std::string> accounted;
         for ( const auto& name : SceneBindingNames() )
             accounted.insert( name );
-        for ( const char* name : kPerObject )
-            accounted.insert( name );
+        accounted.insert( Desert::Core::Formats::kMaterialRowBlockName );
+        Desert::Core::Formats::ForEachMaterialTextureSlot(
+             parsed.GetValue().Meta, []( const std::string& ) { return 0ull; },
+             [&accounted]( const auto& param, uint64_t ) { accounted.insert( param.Name ); } );
         for ( const char* name : kCloudShadow )
             accounted.insert( name );
         if ( shader.PerObjectVertexBuffer )
