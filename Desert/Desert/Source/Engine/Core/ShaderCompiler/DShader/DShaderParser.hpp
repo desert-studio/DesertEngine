@@ -56,6 +56,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -106,11 +107,30 @@ namespace Desert::Core::Preprocess
     // headers when the parser builds a cell. DefaultLit is the engine's lighting (Pass_Forward/Pass_GBuffer);
     // Unlit emits s.Emissive and nothing else — its forward cell declares no lighting resource and its G-buffer
     // cell writes emission only. The depth cell is the same for both.
-    enum class SurfaceShadingModel
+    //
+    // The enumerator's VALUE is the ShadingModelID the G-buffer carries (GBufferC.w, low four bits) and the
+    // deferred composite branches on — UE's numbering, MSM_Unlit = 0, MSM_DefaultLit = 1. The shader half of
+    // the table is kShadingModelsInclude, whose SHADING_MODEL_ID_<GlslName> defines ShaderCacheKey holds equal
+    // to these values, row by row.
+    enum class SurfaceShadingModel : std::uint8_t
     {
-        DefaultLit,
-        Unlit,
+        Unlit      = 0,
+        DefaultLit = 1,
     };
+
+    struct SurfaceShadingModelRow
+    {
+        SurfaceShadingModel Model;
+        std::string_view    GlslName; // SHADING_MODEL_ID_<GlslName> in kShadingModelsInclude
+    };
+
+    // Every shading model, once: the id table's one home on the C++ side (four bits of id: at most 16 rows).
+    inline constexpr std::array<SurfaceShadingModelRow, 2> kSurfaceShadingModels{ {
+         { SurfaceShadingModel::Unlit, "UNLIT" },
+         { SurfaceShadingModel::DefaultLit, "DEFAULT_LIT" },
+    } };
+
+    inline constexpr std::string_view kShadingModelsInclude = "Mesh/Surface/ShadingModels.glslh";
 
     // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
     // Value); a Masked template that does not declare it is refused.
