@@ -9,6 +9,9 @@
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Editor/Import/LandscapeHeightmapIO.hpp>
 
@@ -113,6 +116,7 @@ namespace Desert::Editor::Commands
                 landscape.QuadsPerTile = m_Quads;
                 landscape.SpacingCm    = m_Generated.Root.SpacingCm;
                 landscape.ZScale       = m_Generated.Root.ZScale;
+                landscape.EditLayers   = m_Generated.EditLayers;
                 for ( size_t i = 0; i < m_Tiles.size(); ++i )
                 {
                     const auto& generated = m_Generated.Tiles[i];
@@ -322,9 +326,9 @@ namespace Desert::Editor::Commands
         public:
             LandscapeHeightsCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
                                      const Common::UUID& landscape, World::Landscape::LandscapeStrokeRecord record,
-                                     std::string label )
+                                     World::Landscape::LandscapeEditLayerTarget layer, std::string label )
                  : m_Scene( scene ), m_Landscape( landscape ), m_Record( std::move( record ) ),
-                   m_Label( std::move( label ) )
+                   m_Layer( std::move( layer ) ), m_Label( std::move( label ) )
             {
             }
 
@@ -358,7 +362,8 @@ namespace Desert::Editor::Commands
                     return false;
                 }
                 const auto& t = target.GetValue();
-                auto written  = World::Landscape::WriteLandscapeHeights( t.Root, t.Lookup, m_Record.Rect, values );
+                auto        written =
+                     World::Landscape::WriteLandscapeHeights( t.Root, t.Lookup, m_Record.Rect, values, m_Layer );
                 if ( !written.IsSuccess() )
                     ToastManager::Push( written.GetError(), ToastLevel::Error, 6.0f );
                 return written.IsSuccess();
@@ -366,8 +371,9 @@ namespace Desert::Editor::Commands
 
             std::weak_ptr<::Desert::Core::Scene>    m_Scene;
             Common::UUID                            m_Landscape;
-            World::Landscape::LandscapeStrokeRecord m_Record;
-            std::string                             m_Label;
+            World::Landscape::LandscapeStrokeRecord    m_Record;
+            World::Landscape::LandscapeEditLayerTarget m_Layer;
+            std::string                                m_Label;
         };
 
         Common::ResultStr<ECS::LandscapeEditTarget>
@@ -377,6 +383,25 @@ namespace Desert::Editor::Commands
             if ( !root )
                 return Common::MakeError<ECS::LandscapeEditTarget>( "heightmap: " + root.GetError() );
             return ECS::FindLandscapeEditTarget( scene->GetRegistry(), root.GetValue().Landscape );
+        }
+
+        /// The layer an import writes: the one the Landscape panel edits (LandscapeSculptState::EditingLayer),
+        /// the bottom one when none is picked — UE's Import writes the editing layer.
+        Common::ResultStr<World::Landscape::LandscapeEditLayerTarget>
+        HeightmapLayer( const std::shared_ptr<::Desert::Core::Scene>& scene, const Common::UUID& landscape )
+        {
+            auto&      registry = scene->GetRegistry();
+            const auto root     = ECS::FindLandscapeRootEntity( registry, landscape );
+            if ( root == entt::null )
+                return Common::MakeFormattedError<World::Landscape::LandscapeEditLayerTarget>(
+                     "heightmap: the landscape root is not loaded" );
+            auto rules = ECS::LandscapeLayerRulesOf( registry.get<ECS::LandscapeComponent>( root ),
+                                                     *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+            if ( !rules )
+                return Common::MakeFormattedError<World::Landscape::LandscapeEditLayerTarget>( "heightmap: {}",
+                                                                                               rules.GetError() );
+            return ECS::FindLandscapeEditLayerTarget( registry, landscape, rules.ExtractValue(),
+                                                      Core::LandscapeSculptState::Get().EditingLayer );
         }
     } // namespace
 
@@ -393,11 +418,16 @@ namespace Desert::Editor::Commands
         auto map = World::Landscape::ReadLandscapeHeightmapFile( path, size );
         if ( !map )
             return Common::MakeError<bool>( map.GetError() );
-        auto record = World::Landscape::ImportLandscapeHeightmap( t.Root, t.Lookup, t.Bounds, map.GetValue() );
+        auto layer = HeightmapLayer( scene, t.Landscape );
+        if ( !layer )
+            return Common::MakeError<bool>( layer.GetError() );
+        auto record = World::Landscape::ImportLandscapeHeightmap( t.Root, t.Lookup, t.Bounds, map.GetValue(),
+                                                                  layer.GetValue() );
         if ( !record )
             return Common::MakeFormattedError<bool>( "{}: {}", path.generic_string(), record.GetError() );
         CommandHistory::Get().PushCommand( std::make_unique<LandscapeHeightsCommand>(
-             scene, t.Landscape, record.ExtractValue(), "Import heightmap " + path.filename().string() ) );
+             scene, t.Landscape, record.ExtractValue(), layer.ExtractValue(),
+             "Import heightmap " + path.filename().string() ) );
         return Common::MakeSuccess( true );
     }
 

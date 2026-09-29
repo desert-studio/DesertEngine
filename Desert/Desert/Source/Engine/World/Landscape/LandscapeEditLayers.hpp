@@ -58,6 +58,11 @@ namespace Desert::World::Landscape
         float WeightAlpha = 1.0f;
     };
 
+    /// The Guid of the Base layer a new landscape starts with (UE: a new ALandscape's layer 0, "Layer"). A Guid
+    /// is a key within ONE root's stack, so every landscape may use the same one; it is fixed rather than drawn
+    /// so that one seed stays one landscape byte for byte (LandscapeGenerator).
+    inline constexpr uint64_t kLandscapeBaseEditLayerGuid = 0x4241534530303031ull; // "BASE0001"
+
     /// The stack, bottom first: Layers[0] is merged first and every later layer goes over it.
     struct LandscapeEditLayerStack
     {

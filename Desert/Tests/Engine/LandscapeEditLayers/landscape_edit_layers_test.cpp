@@ -22,7 +22,7 @@ using Common::UUID;
 
 namespace
 {
-    constexpr uint32_t kSize = 9u;
+    constexpr uint32_t kSize = 8u; // 7 quads: a UE section size (the brush refuses any other)
     constexpr size_t   kArea = static_cast<size_t>( kSize ) * kSize;
     constexpr uint16_t kMid  = kLandscapeMidSample;
 
@@ -351,7 +351,7 @@ namespace
         return stack;
     }
 
-    /// A 9x9 tile whose Base holds +50 and full Grass, Top a +5 plane, merged.
+    /// An 8x8 tile whose Base holds +50 and full Grass, Top a +5 plane, merged.
     LandscapeTileData BrushTile( const LandscapeEditLayerStack& stack )
     {
         LandscapeTileData tile = Flat();

@@ -77,6 +77,14 @@ namespace
     {
         LandscapeRoot                                            Root;
         std::map<std::pair<int32_t, int32_t>, LandscapeTileData> Tiles;
+        /// The root's stack: the Base layer a new landscape has (kLandscapeBaseEditLayerGuid).
+        LandscapeEditLayerStack Stack{ { { Common::UUID( kLandscapeBaseEditLayerGuid ), "Base" } } };
+
+        /// What the import writes: layer @p guid of Stack (the Base by default).
+        LandscapeEditLayerTarget Editing( uint64_t guid = kLandscapeBaseEditLayerGuid ) const
+        {
+            return { Stack, {}, Common::UUID( guid ) };
+        }
 
         LandscapeTileLookup Lookup()
         {
@@ -98,8 +106,11 @@ namespace
         for ( int32_t tz = 0; tz < tilesZ; ++tz )
             for ( int32_t tx = 0; tx < tilesX; ++tx )
             {
-                auto tile = LandscapeTileData::Create( 8u, 8u );
-                l.Tiles.emplace( std::make_pair( tx, tz ), tile.ExtractValue() );
+                auto made = LandscapeTileData::Create( 8u, 8u );
+                auto tile = made.ExtractValue();
+                // The Base layer holds no heights yet: mid, which is the flat tile's merge.
+                EXPECT_TRUE( tile.SetEditLayer( { Common::UUID( kLandscapeBaseEditLayerGuid ), {}, {} } ) );
+                l.Tiles.emplace( std::make_pair( tx, tz ), std::move( tile ) );
             }
         return l;
     }
@@ -230,7 +241,7 @@ TEST( LandscapeHeightmapIO, ExportImportOfALandscapeRoundTripsAndSeamsAgree )
     EXPECT_EQ( rect.X2 - rect.X1 + 1, 15 );
 
     const LandscapeHeightmap imported = MakeMap( 15u, 15u );
-    auto                     record   = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, imported );
+    auto                     record = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, imported, l.Editing() );
     ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
     EXPECT_EQ( record.GetValue().Before, std::vector<uint16_t>( 225u, kLandscapeMidSample ) );
     EXPECT_EQ( record.GetValue().After, imported.Samples );
@@ -254,7 +265,8 @@ TEST( LandscapeHeightmapIO, ExportImportOfALandscapeRoundTripsAndSeamsAgree )
         Landscape fresh = MakeLandscape( 2, 2 );
         auto      read  = ReadLandscapeHeightmapFile( dir / name, LandscapeHeightmapSize{ 15u, 15u } );
         ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-        ASSERT_TRUE( ImportLandscapeHeightmap( fresh.Root, fresh.Lookup(), rect, read.GetValue() ).IsSuccess() );
+        ASSERT_TRUE( ImportLandscapeHeightmap( fresh.Root, fresh.Lookup(), rect, read.GetValue(), fresh.Editing() )
+                          .IsSuccess() );
         for ( const auto& [key, tile] : l.Tiles )
             EXPECT_EQ( fresh.Tiles.at( key ).Samples(), tile.Samples() ) << name;
     }
@@ -264,7 +276,7 @@ TEST( LandscapeHeightmapIO, SelectedTilesExportTheirOwnRectangle )
 {
     Landscape l = MakeLandscape( 2, 2 );
     ASSERT_TRUE( ImportLandscapeHeightmap( l.Root, l.Lookup(), LandscapeTileRangeSamples( l.Root, 0, 0, 1, 1 ),
-                                           MakeMap( 15u, 15u ) )
+                                           MakeMap( 15u, 15u ), l.Editing() )
                       .IsSuccess() );
     auto column = ReadLandscapeHeightmap( l.Root, l.Lookup(), LandscapeTileRangeSamples( l.Root, 1, 0, 1, 1 ) );
     ASSERT_TRUE( column.IsSuccess() ) << column.GetError();
@@ -281,7 +293,7 @@ TEST( LandscapeHeightmapIO, AnImportOfTheWrongShapeWritesNothing )
     Landscape  l    = MakeLandscape( 2, 2 );
     const auto rect = LandscapeTileRangeSamples( l.Root, 1, 0, 1, 1 ); // 8 x 15
     // 15 x 8 has the same sample count: only the shape tells it apart.
-    auto refused = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, MakeMap( 15u, 8u ) );
+    auto refused = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, MakeMap( 15u, 8u ), l.Editing() );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "15 x 8" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "8 x 15" ), std::string::npos ) << refused.GetError();
@@ -293,23 +305,26 @@ TEST( LandscapeHeightmapIO, TheImportRecordUndoesAndRedoesExactly )
 {
     Landscape  l    = MakeLandscape( 2, 2 );
     const auto rect = LandscapeTileRangeSamples( l.Root, 0, 0, 1, 1 );
-    ASSERT_TRUE( ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, MakeMap( 15u, 15u ) ).IsSuccess() );
+    ASSERT_TRUE(
+         ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, MakeMap( 15u, 15u ), l.Editing() ).IsSuccess() );
     const auto original = l.Tiles;
 
-    auto record = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, MakeMap( 15u, 15u ) );
+    auto record = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, MakeMap( 15u, 15u ), l.Editing() );
     ASSERT_TRUE( record.IsSuccess() );
     LandscapeHeightmap second = MakeMap( 15u, 15u );
     for ( auto& s : second.Samples )
         s = static_cast<uint16_t>( 65535u - s );
-    record = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, second );
+    record = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, second, l.Editing() );
     ASSERT_TRUE( record.IsSuccess() );
 
     // Undo: the heights before the import, in every tile, bit for bit.
-    ASSERT_TRUE( WriteLandscapeHeights( l.Root, l.Lookup(), rect, record.GetValue().Before ).IsSuccess() );
+    ASSERT_TRUE(
+         WriteLandscapeHeights( l.Root, l.Lookup(), rect, record.GetValue().Before, l.Editing() ).IsSuccess() );
     for ( const auto& [key, tile] : original )
         EXPECT_EQ( l.Tiles.at( key ).Samples(), tile.Samples() );
     // Redo: the imported map again.
-    ASSERT_TRUE( WriteLandscapeHeights( l.Root, l.Lookup(), rect, record.GetValue().After ).IsSuccess() );
+    ASSERT_TRUE(
+         WriteLandscapeHeights( l.Root, l.Lookup(), rect, record.GetValue().After, l.Editing() ).IsSuccess() );
     auto again = ReadLandscapeHeightmap( l.Root, l.Lookup(), rect );
     ASSERT_TRUE( again.IsSuccess() );
     EXPECT_EQ( again.GetValue().Samples, second.Samples );
@@ -327,6 +342,19 @@ TEST( LandscapeHeightmapIO, ANewLandscapeFromAMapHasItsTileGridAndExportsTheSame
     for ( const auto& t : made.GetValue().Tiles )
         l.Tiles.emplace( std::make_pair( t.TileX, t.TileZ ), t.Heights );
     EXPECT_EQ( l.Tiles.size(), 6u ); // 2 x 3
+    // A new landscape has one edit layer, Base, and every tile is its merge (UE: a new ALandscape's layer 0).
+    ASSERT_EQ( made.GetValue().EditLayers.Layers.size(), 1u );
+    EXPECT_EQ( made.GetValue().EditLayers.Layers[0].Name, "Base" );
+    l.Stack = made.GetValue().EditLayers;
+    for ( auto& [key, tile] : l.Tiles )
+    {
+        const auto* base = tile.FindEditLayer( l.Stack.Layers[0].Guid );
+        ASSERT_NE( base, nullptr );
+        EXPECT_EQ( base->Heights, tile.Samples() );
+        const auto samples = tile.Samples();
+        ASSERT_TRUE( MergeLandscapeEditLayers( l.Stack, {}, tile.Bounds(), tile ) );
+        EXPECT_EQ( tile.Samples(), samples );
+    }
     auto back = ReadLandscapeHeightmap( l.Root, l.Lookup(), LandscapeTileRangeSamples( l.Root, 0, 0, 1, 2 ) );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
     EXPECT_EQ( back.GetValue().Samples, map.Samples );
@@ -355,4 +383,46 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( LandscapeHeightmapIO, AnImportIntoTheSecondLayerLeavesTheBaseAndTheTileIsTheMerge )
+{
+    constexpr uint64_t kTop  = 7u;
+    Landscape          l     = MakeLandscape( 2, 2 );
+    const auto         rect  = LandscapeTileRangeSamples( l.Root, 0, 0, 1, 1 );
+    LandscapeHeightmap first = MakeMap( 15u, 15u );
+    for ( auto& s : first.Samples )
+        s = static_cast<uint16_t>( 20000u + s % 20000u );
+    ASSERT_TRUE( ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, first, l.Editing() ).IsSuccess() );
+    l.Stack.Layers.push_back( { Common::UUID( kTop ), "Top" } );
+    std::map<std::pair<int32_t, int32_t>, std::vector<uint16_t>> base;
+    for ( const auto& [key, tile] : l.Tiles )
+        base[key] = tile.FindEditLayer( Common::UUID( kLandscapeBaseEditLayerGuid ) )->Heights;
+
+    LandscapeHeightmap delta = MakeMap( 15u, 15u );
+    for ( auto& s : delta.Samples )
+        s = static_cast<uint16_t>( kLandscapeMidSample - 1000u + s % 2000u );
+    auto record = ImportLandscapeHeightmap( l.Root, l.Lookup(), rect, delta, l.Editing( kTop ) );
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    EXPECT_EQ( record.GetValue().Before, std::vector<uint16_t>( 225u, kLandscapeMidSample ) );
+    for ( const auto& [key, tile] : l.Tiles )
+    {
+        EXPECT_EQ( tile.FindEditLayer( Common::UUID( kLandscapeBaseEditLayerGuid ) )->Heights, base.at( key ) );
+        const auto* top = tile.FindEditLayer( Common::UUID( kTop ) );
+        ASSERT_NE( top, nullptr );
+        for ( uint32_t z = 0; z < 8u; ++z )
+            for ( uint32_t x = 0; x < 8u; ++x )
+            {
+                const size_t i = static_cast<size_t>( key.second * 7 + static_cast<int32_t>( z ) ) * 15u +
+                                 static_cast<size_t>( key.first * 7 + static_cast<int32_t>( x ) );
+                EXPECT_EQ( top->Heights[z * 8u + x], delta.Samples[i] );
+                EXPECT_EQ( tile.Sample( x, z ), first.Samples[i] + delta.Samples[i] - kLandscapeMidSample )
+                     << x << ", " << z;
+            }
+    }
+    // Undo with the same layer gives the Top layer back its mid plane and the tiles the Base alone.
+    ASSERT_TRUE( WriteLandscapeHeights( l.Root, l.Lookup(), rect, record.GetValue().Before, l.Editing( kTop ) ) );
+    auto back = ReadLandscapeHeightmap( l.Root, l.Lookup(), rect );
+    ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
+    EXPECT_EQ( back.GetValue().Samples, first.Samples );
 }
