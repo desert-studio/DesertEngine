@@ -730,8 +730,12 @@ namespace Desert::Editor
              {
                  RequestEditorExit();
                  if ( const auto& window = m_Application->GetWindow() )
-                     glfwSetWindowShouldClose(
-                          static_cast<GLFWwindow*>( const_cast<void*>( window->GetNativeWindow() ) ), GLFW_FALSE );
+                 {
+                     // GLFW takes back the handle Window hands out as const void*.
+                     // NOLINTNEXTLINE(bugprone-casting-through-void,cppcoreguidelines-pro-type-const-cast)
+                     auto* native = static_cast<GLFWwindow*>( const_cast<void*>( window->GetNativeWindow() ) );
+                     glfwSetWindowShouldClose( native, GLFW_FALSE );
+                 }
                  return false;
              } );
 

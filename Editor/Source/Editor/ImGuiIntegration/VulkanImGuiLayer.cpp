@@ -167,7 +167,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( const auto step = ::Desert::Editor::Control::PointerInjection::NextStep() )
         {
             ImGuiIO& io = ::ImGui::GetIO();
-            if ( io.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport )
+            if ( ( io.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport ) != 0 )
                 io.AddMouseViewportEvent( ::Desert::Editor::Control::PointerInjection::ViewportId() );
             io.AddMousePosEvent( step->X, step->Y );
             io.AddMouseButtonEvent( ImGuiMouseButton_Left, step->Down );

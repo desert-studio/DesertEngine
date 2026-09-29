@@ -74,7 +74,7 @@ namespace Desert::Platform::MacOS
             m_Data.EventCallback = e;
         }
 
-        virtual void DispatchEvent( Common::Event& e ) override
+        void DispatchEvent( Common::Event& e ) override
         {
             m_Data.EventCallback( e );
         }
