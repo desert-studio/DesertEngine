@@ -126,56 +126,53 @@ namespace Desert::Graphic::System
         CreateImages( width, height );
     }
 
-    void LensFlareRenderer::Execute( const glm::vec2& sunScreenUv, float screenFade )
+    std::shared_ptr<Image2D> LensFlareRenderer::GetSceneColorImage() const
+    {
+        const auto scene = m_TargetFramebuffer.lock();
+        return scene ? scene->GetColorAttachmentImage() : nullptr;
+    }
+
+    bool LensFlareRenderer::Prepare( const glm::vec2& sunScreenUv, float screenFade )
     {
         // Nothing to add this frame: the sun is behind the camera or off screen, or the effect is off.
         // The dispatches are skipped and the (stale) flare image stays inert because SceneRenderer
         // derives the tonemap's flare intensity from these same numbers — the contract bloom has.
         if ( !m_Params.Enabled || screenFade <= 0.0f || m_Params.Intensity <= 0.0f )
-            return;
+            return false;
+        if ( !GetSceneColorImage() || !m_SourceImage || !m_FlareImage || !m_BrightPassPipeline ||
+             !m_FeaturesPipeline )
+            return false;
+        m_SunScreenUv = sunScreenUv;
+        return true;
+    }
 
-        const auto& scene = m_TargetFramebuffer.lock();
-        if ( !scene || !m_SourceImage || !m_FlareImage || !m_BrightPassPipeline || !m_FeaturesPipeline )
-            return;
-
-        Image2D* sceneColor = scene->GetColorAttachmentImage().get();
-        if ( !sceneColor )
-            return;
-
-        const uint32_t sw = m_SourceImage->GetWidth();
-        const uint32_t sh = m_SourceImage->GetHeight();
-        const uint32_t fw = m_FlareImage->GetWidth();
-        const uint32_t fh = m_FlareImage->GetHeight();
-
-        auto& renderer = Renderer::GetInstance();
-
-        // --- Bright pass: scene HDR -> quarter-res thresholded source, then down the chain ---------
+    void LensFlareRenderer::RecordBrightPass( uint32_t mip )
+    {
         // One shader run per mip, exactly as BloomRenderer does it; the threshold applies on the first
         // pass only, so the deeper levels are honest averages of the energy the first level admitted.
-        renderer.ComputeImageBeginWrite( m_SourceImage.get() );
+        const auto sceneColor = GetSceneColorImage();
+        if ( !sceneColor )
+            return;
+        const bool           first = ( mip == 0 );
+        const BrightPassPush brightPush{ first ? 0 : static_cast<int32_t>( mip - 1 ), first ? 1 : 0,
+                                         m_Params.Threshold, m_Params.MaxBrightness };
 
-        for ( uint32_t mip = 0; mip < m_SourceMipLevels; ++mip )
-        {
-            const bool first = ( mip == 0 );
+        m_BrightPassPipeline->SetInput( 0, first ? sceneColor.get() : m_SourceImage.get() );
+        m_BrightPassPipeline->SetOutput( 1, m_SourceImage.get(), mip );
+        m_BrightPassPipeline->SetPushConstants( &brightPush, sizeof( brightPush ) );
+        Renderer::GetInstance().DispatchComputeInFrame(
+             m_BrightPassPipeline.get(), GroupCount( MipSize( m_SourceImage->GetWidth(), mip ) ),
+             GroupCount( MipSize( m_SourceImage->GetHeight(), mip ) ), 1 );
+    }
 
-            BrightPassPush brightPush{ first ? 0 : static_cast<int32_t>( mip - 1 ), first ? 1 : 0,
-                                       m_Params.Threshold, m_Params.MaxBrightness };
-
-            m_BrightPassPipeline->SetInput( 0, first ? sceneColor : m_SourceImage.get() );
-            m_BrightPassPipeline->SetOutput( 1, m_SourceImage.get(), mip );
-            m_BrightPassPipeline->SetPushConstants( &brightPush, sizeof( brightPush ) );
-            renderer.DispatchComputeInFrame( m_BrightPassPipeline.get(), GroupCount( MipSize( sw, mip ) ),
-                                             GroupCount( MipSize( sh, mip ) ), 1 );
-        }
-
-        renderer.ComputeImageEndWrite( m_SourceImage.get() );
-
-        // --- Features: source -> ghosts + halo + streak --------------------------------------------
+    void LensFlareRenderer::RecordFeatures()
+    {
+        // Source -> ghosts + halo + streak.
         const float angle = glm::radians( m_Params.StreakAngle );
 
         FeaturesPush featuresPush{};
         featuresPush.SunUvHalo =
-             glm::vec4( sunScreenUv.x, sunScreenUv.y, m_Params.HaloIntensity, m_Params.HaloRadius );
+             glm::vec4( m_SunScreenUv.x, m_SunScreenUv.y, m_Params.HaloIntensity, m_Params.HaloRadius );
         featuresPush.GhostParams =
              glm::vec4( static_cast<float>( std::max( 0, m_Params.GhostCount ) ), m_Params.GhostSpacing,
                         m_Params.GhostSizeNear, m_Params.GhostSizeFar );
@@ -186,13 +183,11 @@ namespace Desert::Graphic::System
         featuresPush.Streak =
              glm::vec4( m_Params.StreakIntensity, m_Params.StreakLength, std::cos( angle ), std::sin( angle ) );
 
-        renderer.ComputeImageBeginWrite( m_FlareImage.get() );
-
         m_FeaturesPipeline->SetInput( 0, m_SourceImage.get() );
         m_FeaturesPipeline->SetOutput( 1, m_FlareImage.get() );
         m_FeaturesPipeline->SetPushConstants( &featuresPush, sizeof( featuresPush ) );
-        renderer.DispatchComputeInFrame( m_FeaturesPipeline.get(), GroupCount( fw ), GroupCount( fh ), 1 );
-
-        renderer.ComputeImageEndWrite( m_FlareImage.get() );
+        Renderer::GetInstance().DispatchComputeInFrame( m_FeaturesPipeline.get(),
+                                                        GroupCount( m_FlareImage->GetWidth() ),
+                                                        GroupCount( m_FlareImage->GetHeight() ), 1 );
     }
 } // namespace Desert::Graphic::System

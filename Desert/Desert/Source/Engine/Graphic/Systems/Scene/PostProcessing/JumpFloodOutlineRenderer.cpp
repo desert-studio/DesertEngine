@@ -135,71 +135,62 @@ namespace Desert::Graphic::System
         }
     }
 
-    void JumpFloodOutlineRenderer::RunQuad( const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
-                                            const GraphicsPipeline* pipeline, const MaterialExecutor* executor )
+    bool JumpFloodOutlineRenderer::Prepare() const
     {
-        auto& renderer = Renderer::GetInstance();
-
-        auto renderPass = RenderPass::Create( {
-             .TargetFramebuffer = target,
-             .DebugName         = debugName,
-        } );
-
-        renderer.BeginRenderPass( renderPass.get(), true );
-        renderer.SubmitFullscreenQuad( pipeline, executor );
-        renderer.EndRenderPass();
+        if ( !m_TargetFramebuffer.lock() || !m_Framebuffer || !m_SeedFramebuffers[0] || !m_SeedFramebuffers[1] )
+        {
+            LOG_ERROR( "JumpFloodOutlineRenderer::Prepare: the scene, seed or output framebuffer is unavailable" );
+            return false;
+        }
+        return true;
     }
 
-    void JumpFloodOutlineRenderer::Execute()
+    bool JumpFloodOutlineRenderer::RunsInit() const
     {
-        const auto& sceneFramebuffer = m_TargetFramebuffer.lock();
-        if ( !sceneFramebuffer )
-        {
-            LOG_ERROR( "JumpFloodOutlineRenderer::Execute: scene framebuffer is unavailable" );
+        return m_Enabled && m_MaskFramebuffer.lock() != nullptr;
+    }
+
+    std::shared_ptr<Image2D> JumpFloodOutlineRenderer::GetMaskImage() const
+    {
+        const auto maskFramebuffer = m_MaskFramebuffer.lock();
+        return maskFramebuffer ? maskFramebuffer->GetColorAttachmentImage() : nullptr;
+    }
+
+    std::shared_ptr<Image2D> JumpFloodOutlineRenderer::GetSceneColorImage() const
+    {
+        const auto sceneFramebuffer = m_TargetFramebuffer.lock();
+        return sceneFramebuffer ? sceneFramebuffer->GetColorAttachmentImage() : nullptr;
+    }
+
+    void JumpFloodOutlineRenderer::RecordInit()
+    {
+        // Init: silhouette mask -> seed[0].
+        const auto mask = GetMaskImage();
+        if ( !mask )
             return;
-        }
+        m_MaterialInit->BindInputs( mask.get() );
+        Renderer::GetInstance().SubmitFullscreenQuad( m_InitPipeline.get(),
+                                                      m_MaterialInit->GetMaterialExecutor() );
+    }
 
-        const auto sceneColor = sceneFramebuffer->GetColorAttachmentImage();
+    void JumpFloodOutlineRenderer::RecordStep( uint32_t step )
+    {
+        // Ping-pong propagation with halving sample distance.
+        m_StepMaterials[step]->BindInputs( GetSeedImage( GetStepSource( step ) ).get(),
+                                           1 << ( m_StepCount - 1 - step ) );
+        Renderer::GetInstance().SubmitFullscreenQuad( m_StepPipeline.get(),
+                                                      m_StepMaterials[step]->GetMaterialExecutor() );
+    }
 
-        // Index of the seed framebuffer holding the most recent result.
-        int readIndex = 0;
-
-        const auto& maskFramebuffer = m_MaskFramebuffer.lock();
-        if ( m_Enabled && maskFramebuffer )
-        {
-            // Init: silhouette mask -> seed[0]. ALWAYS run it (even with nothing selected) so seed[0] is
-            // written + transitioned to SHADER_READ_ONLY this frame and the composite below can safely
-            // sample it. (Skipping Init too leaves seed[0] in UNDEFINED layout on the first frame -> hazard.)
-            m_MaterialInit->BindInputs( maskFramebuffer->GetColorAttachmentImage().get() );
-            RunQuad( m_SeedFramebuffers[0], "JFA_Init", m_InitPipeline.get(),
-                     m_MaterialInit->GetMaterialExecutor() );
-
-            // Ping-pong propagation steps with halving sample distance — the EXPENSIVE part (~log2(width)
-            // full-screen passes). Only needed when something is actually outlined; with an empty mask the
-            // composite passes the scene through (effectiveWidth == 0) and never needs the propagated seeds.
-            // Sync between Init and the composite is guaranteed by the render pass finalLayout
-            // (SHADER_READ_ONLY) + EndRenderPass's COLOR_WRITE->SHADER_READ barrier, NOT by these passes.
-            if ( m_OutlineActive )
-            {
-                for ( uint32_t i = 0; i < m_StepCount; ++i )
-                {
-                    const int writeIndex = 1 - readIndex;
-                    m_StepMaterials[i]->BindInputs( m_SeedFramebuffers[readIndex]->GetColorAttachmentImage().get(),
-                                                    1 << ( m_StepCount - 1 - i ) );
-                    RunQuad( m_SeedFramebuffers[writeIndex], "JFA_Step", m_StepPipeline.get(),
-                             m_StepMaterials[i]->GetMaterialExecutor() );
-                    readIndex = writeIndex;
-                }
-            }
-        }
-
-        // Final composite -> output framebuffer. When disabled, width 0 makes the shader pass the
-        // scene through unchanged (JFA_Final early-out).
-        // No steps ran (nothing selected) -> width 0 makes JFA_Final pass the scene through unchanged.
-        const float effectiveWidth = ( m_Enabled && m_OutlineActive ) ? m_OutlineWidth : 0.0f;
-        m_MaterialComposite->BindInputs( m_SeedFramebuffers[readIndex]->GetColorAttachmentImage().get(),
-                                         sceneColor.get(), glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth,
-                                         m_Smoothness );
-        RunQuad( m_Framebuffer, "JFA_Final", m_FinalPipeline.get(), m_MaterialComposite->GetMaterialExecutor() );
+    void JumpFloodOutlineRenderer::RecordFinal()
+    {
+        // Final composite -> output. No steps ran (nothing selected, or the outline is off) -> width 0 makes
+        // JFA_Final pass the scene through unchanged.
+        const auto  sceneColor     = GetSceneColorImage();
+        const float effectiveWidth = RunsSteps() ? m_OutlineWidth : 0.0f;
+        m_MaterialComposite->BindInputs( GetSeedImage( GetFinalSeedIndex() ).get(), sceneColor.get(),
+                                         glm::vec4( m_OutlineColor, 1.0f ), effectiveWidth, m_Smoothness );
+        Renderer::GetInstance().SubmitFullscreenQuad( m_FinalPipeline.get(),
+                                                      m_MaterialComposite->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

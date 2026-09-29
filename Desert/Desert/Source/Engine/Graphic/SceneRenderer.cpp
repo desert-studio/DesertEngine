@@ -885,22 +885,25 @@ namespace Desert::Graphic
         AddGraphPhasePasses(
              graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::Debug; }, false );
 
+        std::vector<RDG::TextureRef> uiSamples;
         if ( m_BackdropBlurNeeded )
         {
-            AddFrameBackdropBlur( graph, textures, sceneColor() );
+            if ( const RDG::TextureRef backdrop = AddFrameBackdropBlur( graph, textures, sceneColor() );
+                 backdrop.IsValid() )
+                uiSamples.push_back( backdrop );
         }
 
         AddGraphPhasePasses(
-             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false );
+             graph, textures, []( RenderPhaseID phase ) { return phase == RenderPhase::UI; }, false, uiSamples );
 
-        AddFrameJumpFlood( graph );
+        AddFrameJumpFlood( graph, textures );
         AddFrameAutoExposure( graph, textures, sceneColor() );
         if ( m_BloomEnabled )
         {
             AddFrameBloom( graph, textures, sceneColor() );
         }
         AddFrameLightShafts( graph, textures, sceneColor(), values );
-        AddFrameLensFlare( graph, sceneColor(), values );
+        AddFrameLensFlare( graph, textures, sceneColor(), values );
         AddFrameTonemap( graph, textures );
 
         if ( m_AAMode == Common::Settings::AntiAliasingMode::FXAA )
@@ -1471,7 +1474,8 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures&      textures,
-                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst )
+                                             bool ( *selects )( RenderPhaseID ), const bool clearFirst,
+                                             const std::vector<RDG::TextureRef>& samples )
     {
         std::vector<const RenderGraphBuilder::PassConfig*> passes;
         for ( const auto& pass : m_RenderGraphBuilder.GetSortedPasses() )
@@ -1492,7 +1496,7 @@ namespace Desert::Graphic
             const bool                            opens  = i == 0 || targetOf( passes[i - 1] ) != target;
             const bool closes = i + 1 == passes.size() || targetOf( passes[i + 1] ) != target;
 
-            AddLegacy( graph, pass->Name, {},
+            AddLegacy( graph, pass->Name, opens ? samples : std::vector<RDG::TextureRef>{},
                        opens ? textures.Colors( target, pass->CachedRenderPass->GetSpecification().DebugName )
                              : std::vector<RDG::TextureRef>{},
                        [pass, opens, closes, clearFirst]()

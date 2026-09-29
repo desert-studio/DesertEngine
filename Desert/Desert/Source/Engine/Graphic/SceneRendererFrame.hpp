@@ -10,6 +10,7 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -53,6 +54,32 @@ namespace Desert::Graphic
             return refs;
         }
 
+        // An engine image a graph node renders into or copies: registered in the layout the image records, and
+        // the graph writes its final layout back (Renderer::ImportImage), so the passes that are not graph
+        // nodes and the next frame find the layout the graph left. @p final, when given, is the state the graph
+        // leaves the image in at its end. The first registration of an image wins, as for Refs.
+        RDG::TextureRef Import( const std::shared_ptr<Image2D>& image, std::string_view name,
+                                std::optional<RDG::Access> final = std::nullopt )
+        {
+            if ( !image )
+                return {};
+            if ( const auto it = m_Refs.find( image.get() ); it != m_Refs.end() )
+                return it->second;
+            RDG::ExternalTexture& external = *m_Storage.emplace_back( std::make_unique<RDG::ExternalTexture>() );
+            RDG::TextureRef       ref;
+            if ( const Common::BoolResultStr imported = Renderer::GetInstance().ImportImage( image, external );
+                 imported )
+            {
+                ref = m_Graph.RegisterExternal( external, name );
+                if ( final )
+                    m_Graph.Extract( ref, external, *final );
+            }
+            else
+                LOG_ERROR( "[SceneRenderer] the frame graph cannot import '{}': {}", name, imported.GetError() );
+            m_Refs.emplace( image.get(), ref );
+            return ref;
+        }
+
         // The depth attachment of @p framebuffer (a depth target never sits in SHADER_READ_ONLY), imported with
         // the layout its image records; Execute writes the layout the graph leaves back into the image. An
         // image that cannot be imported gets an invalid ref, and the error is logged.
@@ -77,26 +104,6 @@ namespace Desert::Graphic
                      ref.IsValid() )
                     refs.push_back( ref );
             return refs;
-        }
-
-        // An attachment the engine keeps outside SHADER_READ_ONLY (a depth, a multisampled colour), imported with
-        // the layout its image records; Execute writes the layout the graph leaves back into the image. An image
-        // that cannot be imported gets an invalid ref, and the error is logged.
-        RDG::TextureRef Import( const std::shared_ptr<Image2D>& image, const std::string& name )
-        {
-            if ( !image )
-                return {};
-            if ( const auto it = m_Refs.find( image.get() ); it != m_Refs.end() )
-                return it->second;
-            RDG::TextureRef ref;
-            auto&           external = m_Storage.emplace_back( std::make_unique<RDG::ExternalTexture>() );
-            const Common::BoolResultStr imported = Renderer::GetInstance().ImportImage( image, *external );
-            if ( imported )
-                ref = m_Graph.RegisterExternal( *external, name );
-            else
-                LOG_ERROR( "[SceneRenderer] '{}' is not in the frame graph: {}", name, imported.GetError() );
-            m_Refs.emplace( image.get(), ref );
-            return ref;
         }
 
     private:

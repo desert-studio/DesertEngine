@@ -47,17 +47,74 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph )
+    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, LegacyFrameTextures& textures )
     {
-        AddLegacy( graph, "PostFX: JumpFlood", {}, {},
-                   [this]()
-                   {
-                       const auto& jfa =
-                            UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-                       jfa->SetOutlineActive(
-                            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
-                       jfa->Execute();
-                   } );
+        auto* jfa = UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
+        if ( !jfa )
+            return;
+        // Whether anything is outlined is known once the mesh draws of this frame are gathered, before the
+        // graph is built: it decides which nodes exist.
+        jfa->SetOutlineActive(
+             UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
+        if ( !jfa->Prepare() )
+            return;
+        const RDG::TextureRef seeds[2] = { textures.Import( jfa->GetSeedImage( 0 ), "JumpFlood.Seed0" ),
+                                           textures.Import( jfa->GetSeedImage( 1 ), "JumpFlood.Seed1" ) };
+        // The old passes cleared every target (RenderPassSpecification's default clear, black); kept.
+        const RDG::LoadOp clear = RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+
+        if ( jfa->RunsInit() )
+        {
+            const RDG::TextureRef mask = textures.Import( jfa->GetMaskImage(), "JumpFlood.Mask" );
+            graph.AddPass(
+                 "PostFX: JumpFloodInit", RDG::PassFlags::Raster,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Read( mask, RDG::Access::SampledGraphics );
+                     pass.ColorTarget( 0, seeds[0], clear );
+                 },
+                 [jfa]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     jfa->RecordInit();
+                     return BOOLSUCCESS;
+                 } );
+        }
+        // Ping-pong propagation: one node per step, each sampling the seed the previous one wrote.
+        if ( jfa->RunsSteps() )
+            for ( uint32_t step = 0; step < jfa->GetStepCount(); ++step )
+            {
+                const uint32_t source = System::JumpFloodOutlineRenderer::GetStepSource( step );
+                graph.AddPass(
+                     std::format( "PostFX: JumpFloodStep{}", step ), RDG::PassFlags::Raster,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( seeds[source], RDG::Access::SampledGraphics );
+                         pass.ColorTarget( 0, seeds[1 - source], clear );
+                     },
+                     [jfa, step]( RDG::PassContext& ) -> Common::BoolResultStr
+                     {
+                         jfa->RecordStep( step );
+                         return BOOLSUCCESS;
+                     } );
+            }
+        // The composite runs on every frame, outlined or not: it is what hands the scene colour to the tonemap
+        // (TonemapRenderer::Inputs::Source is GetOutputImage()).
+        const RDG::TextureRef scene  = textures.Import( jfa->GetSceneColorImage(), "JumpFlood.Scene" );
+        const RDG::TextureRef output = textures.Import( jfa->GetOutputImage(), "Tonemap.Source" );
+        const uint32_t        seed   = jfa->GetFinalSeedIndex();
+        graph.AddPass(
+             "PostFX: JumpFloodFinal", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( scene, RDG::Access::SampledGraphics );
+                 pass.Read( seeds[seed], RDG::Access::SampledGraphics );
+                 pass.ColorTarget( 0, output, clear );
+             },
+             [jfa]( RDG::PassContext& ) -> Common::BoolResultStr
+             {
+                 jfa->RecordFinal();
+                 return BOOLSUCCESS;
+             } );
     }
 
     void SceneRenderer::AddFrameAutoExposure( RDG::Builder& graph, LegacyFrameTextures& textures,
@@ -153,6 +210,17 @@ namespace Desert::Graphic
                                              const std::vector<RDG::TextureRef>&       sceneColor,
                                              const std::shared_ptr<LegacyFrameValues>& values )
     {
+        // The sun's screen position is the frame's, known when the graph is built (the camera and the atmosphere
+        // are); the shafts here and the lens flare after them read it from the frame's shared values, whether or
+        // not the shafts run.
+        const AtmosphereEnv& atmosphere = GetAtmosphere();
+        if ( m_SceneInfo.ActiveCamera && atmosphere.Valid )
+        {
+            const glm::mat4 viewProjection =
+                 m_SceneInfo.ActiveCamera->GetProjectionMatrix() * m_SceneInfo.ActiveCamera->GetViewMatrix();
+            values->Sun = ComputeSunScreen( viewProjection, atmosphere.SunDirection );
+        }
+
         auto* shafts  = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] );
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         if ( !shafts || !tonemap || !shafts->Prepare() )
@@ -160,7 +228,7 @@ namespace Desert::Graphic
         tonemap->SetLightShaftImage( shafts->GetShaftImage() );
         const RDG::TextureRef ping = textures.Import( shafts->GetPingImage(), "LightShaft.Ping" );
 
-        // Mask: scene HDR -> ping. The sun is computed here, at record time, into the frame's shared values.
+        // Mask: scene HDR -> ping, toward the sun computed above.
         graph.AddPass(
              "PostFX: LightShaftMask", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -170,13 +238,6 @@ namespace Desert::Graphic
              },
              [this, shafts, tonemap, values]( RDG::PassContext& ) -> Common::BoolResultStr
              {
-                 const AtmosphereEnv& atmosphere = GetAtmosphere();
-                 if ( m_SceneInfo.ActiveCamera && atmosphere.Valid )
-                 {
-                     const glm::mat4 viewProjection = m_SceneInfo.ActiveCamera->GetProjectionMatrix() *
-                                                      m_SceneInfo.ActiveCamera->GetViewMatrix();
-                     values->Sun = ComputeSunScreen( viewProjection, atmosphere.SunDirection );
-                 }
                  const SunScreen& sun = values->Sun;
 
                  shafts->SetParams( System::LightShaftRenderer::Params{
@@ -214,30 +275,61 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameLensFlare( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+    void SceneRenderer::AddFrameLensFlare( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                           const std::vector<RDG::TextureRef>&       sceneColor,
                                            const std::shared_ptr<LegacyFrameValues>& values )
     {
-        UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
-             ->SetLensFlareImage( UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] )
-                                       ->GetFlareImage() );
-        AddLegacy( graph, "PostFX: LensFlare", sceneColor, {},
-                   [this, values]()
-                   {
-                       const SunScreen& sun = values->Sun;
-                       const auto&      flare =
-                            UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
-                       const auto& tonemap =
-                            UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        auto* flare   = UNIQUE_GET_AS( System::LensFlareRenderer, m_RenderSystems["LensFlareSystem"] );
+        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        if ( !flare || !tonemap )
+            return;
+        tonemap->SetLensFlareImage( flare->GetFlareImage() );
 
-                       flare->SetParams( m_LensFlare );
-                       flare->Execute( sun.Uv, sun.Fade );
+        // The sun is the frame's (AddFrameLightShafts put it in the shared values when the graph was built).
+        // The intensity is derived HERE, from the same two numbers that decide whether the dispatches run, so a
+        // zero intensity and a skipped dispatch can never disagree — the bloom image's contract.
+        const SunScreen& sun = values->Sun;
+        flare->SetParams( m_LensFlare );
+        const float intensity = m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
+        tonemap->SetLensFlare( intensity, m_LensFlareTint );
+        if ( !flare->Prepare( sun.Uv, sun.Fade ) )
+            return;
 
-                       // Derived HERE, from the same two numbers that decided whether the dispatches ran, so a
-                       // zero intensity and a skipped dispatch can never disagree — the bloom image's contract.
-                       const float intensity =
-                            m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
-                       tonemap->SetLensFlare( intensity, m_LensFlareTint );
-                   } );
+        const RDG::TextureRef source = textures.Import( flare->GetSourceImage(), "LensFlare.Source" );
+        const RDG::TextureRef image  = textures.Import( flare->GetFlareImage(), "LensFlare" );
+        const uint32_t        mips   = flare->GetSourceMipLevels();
+
+        // Bright pass: scene -> source mip 0 (thresholded), then mip i-1 -> mip i. One node per dispatch, each
+        // declaring the one mip it samples and the one it writes.
+        for ( uint32_t mip = 0; mip < mips; ++mip )
+            graph.AddPass(
+                 std::format( "PostFX: LensFlareBright{}", mip ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     if ( mip == 0 )
+                         ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                     else
+                         pass.Read( source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
+                     pass.Write( source, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
+                 },
+                 [flare, mip]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     flare->RecordBrightPass( mip );
+                     return BOOLSUCCESS;
+                 } );
+        // Features: every ghost reads the source mip its magnification picks, so the whole chain is sampled.
+        graph.AddPass(
+             "PostFX: LensFlareFeatures", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Read( source, RDG::Access::SampledCompute );
+                 pass.Write( image, RDG::Access::StorageWrite );
+             },
+             [flare]( RDG::PassContext& ) -> Common::BoolResultStr
+             {
+                 flare->RecordFeatures();
+                 return BOOLSUCCESS;
+             } );
     }
 
     void SceneRenderer::AddFrameTonemap( RDG::Builder& graph, LegacyFrameTextures& textures )
@@ -348,13 +440,34 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                              const std::vector<RDG::TextureRef>& sceneColor )
+    RDG::TextureRef SceneRenderer::AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                                         const std::vector<RDG::TextureRef>& sceneColor )
     {
-        if ( auto* backdrop =
-                  UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] ) )
-            AddLegacy( graph, "UI: BackdropBlur", sceneColor,
-                       textures.Refs( { { backdrop->GetImage(), "BackdropBlur" } } ),
-                       [backdrop]() { backdrop->Execute(); } );
+        auto* backdrop = UNIQUE_GET_AS( System::BackdropBlurRenderer, m_RenderSystems["BackdropBlurSystem"] );
+        if ( !backdrop || !backdrop->Prepare() )
+            return {};
+        const RDG::TextureRef pyramid = textures.Import( backdrop->GetImage(), "BackdropBlur" );
+        const uint32_t        mips    = backdrop->GetMipLevels();
+
+        // Scene -> pyramid mip 0, then mip i-1 -> mip i: one node per dispatch, declaring the one mip it samples
+        // and the one it writes.
+        for ( uint32_t mip = 0; mip < mips; ++mip )
+            graph.AddPass(
+                 std::format( "UI: BackdropBlur{}", mip ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     if ( mip == 0 )
+                         ReadEach( pass, sceneColor, RDG::Access::SampledCompute );
+                     else
+                         pass.Read( pyramid, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
+                     pass.Write( pyramid, RDG::Access::StorageWrite, RDG::SubresourceRange::Mip( mip ) );
+                 },
+                 [backdrop, mip]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     backdrop->RecordDownsample( mip );
+                     return BOOLSUCCESS;
+                 } );
+        // The UI phase samples the pyramid: the caller declares that read on the UI passes.
+        return pyramid;
     }
 } // namespace Desert::Graphic

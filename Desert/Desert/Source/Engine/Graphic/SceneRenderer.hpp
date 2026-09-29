@@ -504,8 +504,11 @@ namespace Desert::Graphic
         void ClearMainFramebuffer();
         // Adds the sorted registered passes whose phase @p selects accepts, one legacy pass each, in sort
         // order; consecutive passes on one framebuffer share one render pass (CLEAR iff @p clearFirst).
+        // @p samples are graph images those passes sample (the UI samples the backdrop pyramid); each render
+        // pass group's opener declares them, so their barriers land before the render pass begins.
         void AddGraphPhasePasses( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                  bool ( *selects )( RenderPhaseID ), bool  clearFirst );
+                                  bool ( *selects )( RenderPhaseID ), bool  clearFirst,
+                                  const std::vector<RDG::TextureRef>& samples = {} );
         // Exponential height fog: the closed-form COMPUTE evaluation. Called between the deferred block
         // and the Transparency-phase passes — the one point in the frame where the scene depth is finished in
         // BOTH paths and no render pass is open (an in-frame dispatch inside one is illegal). Its apply
@@ -571,7 +574,7 @@ namespace Desert::Graphic
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph );
         void AddFrameAtmosphericFog( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameVolumetricClouds( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor );
-        void AddFrameJumpFlood( RDG::Builder& graph );
+        void AddFrameJumpFlood( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameAutoExposure( RDG::Builder& graph, LegacyFrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameBloom( RDG::Builder& graph, LegacyFrameTextures& textures,
@@ -579,13 +582,15 @@ namespace Desert::Graphic
         void AddFrameLightShafts( RDG::Builder& graph, LegacyFrameTextures& textures,
                                   const std::vector<RDG::TextureRef>&       sceneColor,
                                   const std::shared_ptr<LegacyFrameValues>& values );
-        void AddFrameLensFlare( RDG::Builder& graph, const std::vector<RDG::TextureRef>& sceneColor,
+        void AddFrameLensFlare( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                const std::vector<RDG::TextureRef>&       sceneColor,
                                 const std::shared_ptr<LegacyFrameValues>& values );
         void AddFrameTonemap( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameFXAA( RDG::Builder& graph, LegacyFrameTextures& textures );
         void AddFrameSMAA( RDG::Builder& graph, LegacyFrameTextures& textures );
-        void AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
-                                   const std::vector<RDG::TextureRef>& sceneColor );
+        // The backdrop pyramid the UI samples (invalid when the blur is not recorded this frame).
+        RDG::TextureRef AddFrameBackdropBlur( RDG::Builder& graph, LegacyFrameTextures& textures,
+                                              const std::vector<RDG::TextureRef>& sceneColor );
 
     private:
         struct

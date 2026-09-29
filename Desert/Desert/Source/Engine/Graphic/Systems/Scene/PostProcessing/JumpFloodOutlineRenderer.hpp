@@ -2,15 +2,21 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/Image.hpp>
 
 #include <Engine/Graphic/Materials/PostProcessing/JumpFloodMaterials.hpp>
 #include <Engine/Graphic/Materials/PostProcessing/MaterialJFAComposite.hpp>
+
+#include <cstdint>
+#include <memory>
 
 namespace Desert::Graphic::System
 {
     // Jump Flood Algorithm based object outline.
     //
-    // Pipeline (all fullscreen passes, executed explicitly by SceneRenderer after the scene graph):
+    // Pipeline (all fullscreen passes; each is a Raster node of the frame graph, SceneRendererFramePostFX.cpp
+    // "PostFX: JumpFlood*", and the graph opens the render pass on the image the node declares):
     //   Init   : silhouette mask        -> seed[0]
     //   Step xN: seed[i%2]              -> seed[(i+1)%2]   (ping-pong, halving step length)
     //   Final  : seed[N%2] + scene color -> output (outlined scene)
@@ -24,13 +30,53 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        // JFA is driven explicitly (see Execute), not through the render graph.
+        // JFA is added to the frame graph by SceneRenderer (AddFrameJumpFlood), not through the phase graph.
         void RegisterPasses( RenderGraphBuilder& /*builder*/ ) override
         {
         }
 
-        // Runs the full Init -> Step xN -> Final chain for the current frame.
-        void Execute();
+        // False: nothing can be recorded this frame (the scene framebuffer is gone); the error is logged.
+        bool Prepare() const;
+        // Init runs when the outline is enabled and the silhouette mask exists, selected or not, so seed[0]
+        // is written this frame and the composite may sample it.
+        bool RunsInit() const;
+        // The ~log2(width) propagation steps run only when something is outlined this frame.
+        bool RunsSteps() const
+        {
+            return RunsInit() && m_OutlineActive;
+        }
+        uint32_t GetStepCount() const
+        {
+            return m_StepCount;
+        }
+        // Step @p step samples seed[GetStepSource(step)] and writes the other seed.
+        static uint32_t GetStepSource( uint32_t step )
+        {
+            return step % 2;
+        }
+        // The seed the composite samples: the last step's target, or seed[0] when no step ran.
+        uint32_t GetFinalSeedIndex() const
+        {
+            return RunsSteps() ? m_StepCount % 2 : 0u;
+        }
+
+        std::shared_ptr<Image2D> GetMaskImage() const;
+        std::shared_ptr<Image2D> GetSceneColorImage() const;
+        std::shared_ptr<Image2D> GetSeedImage( uint32_t index ) const
+        {
+            return m_SeedFramebuffers[index] ? m_SeedFramebuffers[index]->GetColorAttachmentImage() : nullptr;
+        }
+        // What the tonemap consumes: the outlined scene (or the scene passed through).
+        std::shared_ptr<Image2D> GetOutputImage() const
+        {
+            return m_Framebuffer ? m_Framebuffer->GetColorAttachmentImage() : nullptr;
+        }
+
+        // Each records one fullscreen quad inside the render pass the frame graph opens on its target:
+        // Init on seed[0], Step on the seed GetStepSource does not name, Final on GetOutputImage().
+        void RecordInit();
+        void RecordStep( uint32_t step );
+        void RecordFinal();
 
         void OnResize( uint32_t width, uint32_t height );
 
@@ -56,10 +102,9 @@ namespace Desert::Graphic::System
         {
             m_Enabled = enabled;
         }
-        // When false (nothing selected) Execute() skips the ~log2(width) ping-pong STEP passes (it still
-        // runs the cheap Init so seed[0] stays valid/sampleable for the composite). Safe: the framebuffer
-        // render pass finalLayout is SHADER_READ_ONLY and EndRenderPass inserts a COLOR_WRITE->SHADER_READ
-        // barrier, so Init's write of seed[0] is laid-out + visible for the composite's sample.
+        // When false (nothing selected) the graph gets no ~log2(width) ping-pong STEP nodes (it still gets
+        // the cheap Init, so seed[0] is written this frame and the composite may sample it; the graph
+        // orders Init's colour write before the composite's sampled read).
         void SetOutlineActive( bool active )
         {
             m_OutlineActive = active;
@@ -70,9 +115,6 @@ namespace Desert::Graphic::System
         bool CreatePipelines();
 
         static uint32_t ComputeStepCount( uint32_t width, uint32_t height );
-
-        void RunQuad( const std::shared_ptr<Framebuffer>& target, const std::string& debugName,
-                      const GraphicsPipeline* pipeline, const MaterialExecutor* executor );
 
     private:
         // Ping-pong seed targets + final output (m_Framebuffer from RenderSystem base).
