@@ -118,9 +118,9 @@ TEST( CookedRegistryGate, WithNoCacheAndNoCookedRegistryTheScanFindsTheShaders )
 
     bool staticMeshPBR = false;
     for ( const Common::Utils::AssetRegistryEntry* row : gathered.Registry.OfKind( "Shader" ) )
-        staticMeshPBR = staticMeshPBR || row->Key.find( "StaticMeshPBR" ) != std::string::npos;
+        staticMeshPBR = staticMeshPBR || row->Key.find( "StandardSurface" ) != std::string::npos;
     EXPECT_TRUE( staticMeshPBR ) << "the header scan found " << gathered.Registry.OfKind( "Shader" ).size()
-                                 << " shader row(s) and none is StaticMeshPBR";
+                                 << " shader row(s) and none is StandardSurface";
 }
 
 TEST( CookedRegistryGate, TheRegistryFromTheScanIsTheRegistryFromTheCache )

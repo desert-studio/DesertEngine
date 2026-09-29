@@ -160,8 +160,9 @@ namespace Desert::Graphic
     // meshes and a character stood in the sun casting nothing. The cell is filled now. The remaining
     // holes are deliberate and each has a reason:
     //
-    //   (Skinned  x GBuffer) — a skinned mesh is drawn FORWARD over the deferred composite instead
-    //                          (MeshRenderer::RenderSkinnedManual), so it needs no G-buffer variant.
+    //   (Skinned  x GBuffer) is NOT a hole any more: Forward and GBuffer are cells of the one
+    //                          StandardSurface template, which has every path. The skinned mesh is still
+    //                          drawn forward (MeshRenderer::RenderSkinnedManual); the cell exists unused.
     //   (* x Glass)          — transparency is a static-mesh feature; no skinned or instanced glass
     //                          exists to draw.
     //

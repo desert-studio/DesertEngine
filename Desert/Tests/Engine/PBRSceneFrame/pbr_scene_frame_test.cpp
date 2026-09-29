@@ -94,15 +94,27 @@ namespace
     }
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser.
-    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage )
+    // @p cell names a surface template's cell ("Skinned.Forward"); empty = the default program.
+    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage, const std::string& cell = {} )
     {
         auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( shaderFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << shaderFile.string();
         if ( !parsed.IsSuccess() )
             return {};
-        const auto it = parsed.GetValue().Stages.find( stage );
-        EXPECT_NE( it, parsed.GetValue().Stages.end() ) << shaderFile.string();
-        return it == parsed.GetValue().Stages.end() ? std::string{} : it->second;
+        const auto* stages = &parsed.GetValue().Stages;
+        if ( !cell.empty() )
+        {
+            const auto& passes = parsed.GetValue().Passes;
+            const auto  pass   = std::find_if( passes.begin(), passes.end(),
+                                               [&]( const auto& p ) { return p.Name == cell; } );
+            EXPECT_NE( pass, passes.end() ) << shaderFile.string() << " has no cell " << cell;
+            if ( pass == passes.end() )
+                return {};
+            stages = &pass->Stages;
+        }
+        const auto it = stages->find( stage );
+        EXPECT_NE( it, stages->end() ) << shaderFile.string();
+        return it == stages->end() ? std::string{} : it->second;
     }
 
     // Resolves `#include <...>` exactly as ShaderIncluder does, so the SPIR-V under test is the SPIR-V
@@ -159,12 +171,13 @@ namespace
 
     // Set 0 of a graphics shader, both stages folded together — which is the set a material allocates and
     // therefore the set an applier writes into.
-    ShaderResource::ShaderDescriptorSet GraphicsSetZero( const std::filesystem::path& shaderFile )
+    ShaderResource::ShaderDescriptorSet GraphicsSetZero( const std::filesystem::path& shaderFile,
+                                                         const std::string&           cell = {} )
     {
-        const auto vertexSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Vertex ), shaderFile, shaderc_vertex_shader );
-        const auto fragmentSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Fragment ), shaderFile, shaderc_fragment_shader );
+        const auto vertexSpirv   = CompileStage( StageSource( shaderFile, ShaderStage::Vertex, cell ), shaderFile,
+                                                 shaderc_vertex_shader );
+        const auto fragmentSpirv = CompileStage( StageSource( shaderFile, ShaderStage::Fragment, cell ), shaderFile,
+                                                 shaderc_fragment_shader );
         if ( vertexSpirv.empty() || fragmentSpirv.empty() )
             return {};
 
@@ -238,13 +251,14 @@ namespace
     struct MeshShader
     {
         const char* Path;
+        const char* Cell;                  // the StandardSurface cell (SURF1c: the three were programs)
         const char* PerObjectVertexBuffer; // nullptr = none
     };
 
     const MeshShader kMeshShaders[] = {
-         { "PBR/StaticMeshPBR.shader", nullptr },
-         { "PBR/StaticMeshPBR_Instanced.shader", "InstanceTransforms" },
-         { "PBR/SkinnedMeshPBR.shader", "Bones" },
+         { "PBR/StandardSurface.shader", "Static.Forward", nullptr },
+         { "PBR/StandardSurface.shader", "Instanced.Forward", "InstanceTransforms" },
+         { "PBR/StandardSurface.shader", "Skinned.Forward", "Bones" },
     };
 } // namespace
 
@@ -307,7 +321,7 @@ TEST_F( ShaderRootFixture, EverySceneBindingTheOneApplierFillsIsDeclaredByEveryM
 
     for ( const auto& shader : kMeshShaders )
     {
-        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ) ) );
+        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
         for ( const auto& name : expected )
@@ -333,7 +347,7 @@ TEST_F( ShaderRootFixture, NoMeshPBRShaderDeclaresASceneResourceNoApplierFills )
 
     for ( const auto& shader : kMeshShaders )
     {
-        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ) ) );
+        const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
         std::set<std::string> accounted;
@@ -363,7 +377,7 @@ TEST_F( ShaderRootFixture, TheThreeMeshPBRShadersDeclareOneSceneContractAndDiffe
 
     for ( const auto& shader : kMeshShaders )
     {
-        std::set<std::string> declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ) ) );
+        std::set<std::string> declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
         if ( shader.PerObjectVertexBuffer )
@@ -376,7 +390,7 @@ TEST_F( ShaderRootFixture, TheThreeMeshPBRShadersDeclareOneSceneContractAndDiffe
             reference = declared;
         else
             EXPECT_EQ( Describe( declared ), Describe( reference ) )
-                 << shader.Path << " no longer shares set 0 with StaticMeshPBR, but one applier writes both";
+                 << shader.Cell << " no longer shares set 0 with Static.Forward, but one applier writes both";
     }
 }
 
@@ -393,7 +407,7 @@ TEST_F( ShaderRootFixture, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMes
 
     for ( const auto& shader : kMeshShaders )
     {
-        const auto set = GraphicsSetZero( ShaderPath( shader.Path ) );
+        const auto set = GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell );
 
         const auto block =
              std::find_if( set.UniformBuffers.begin(), set.UniformBuffers.end(), []( const auto& entry )

@@ -630,17 +630,17 @@ TEST( CookedAssetRegistry, TheRigTagCarriesTheFullSignatureOnBothRowsAndRefusesA
 TEST( CookedAssetRegistry, TheRoleTagCarriesAShadersManifestRoleThroughAWriteAndARead )
 {
     AssetRegistry      written;
-    AssetRegistryEntry shader = Row( "engine:Shaders/Programs/PBR/StaticMeshPBR.shader", "Shader", 22 );
+    AssetRegistryEntry shader = Row( "engine:Shaders/Programs/PBR/StandardSurface.shader", "Shader", 22 );
     shader.Role               = "PBRSurface";
     ASSERT_TRUE( written.Insert( shader ) );
 
     const std::string text = written.Serialize();
-    EXPECT_NE( text.find( " Role=PBRSurface engine:Shaders/Programs/PBR/StaticMeshPBR.shader" ),
+    EXPECT_NE( text.find( " Role=PBRSurface engine:Shaders/Programs/PBR/StandardSurface.shader" ),
                std::string::npos )
          << text;
     const auto parsed = AssetRegistry::Parse( text );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().FindByKey( "engine:Shaders/Programs/PBR/StaticMeshPBR.shader" )->Role,
+    EXPECT_EQ( parsed.GetValue().FindByKey( "engine:Shaders/Programs/PBR/StandardSurface.shader" )->Role,
                "PBRSurface" );
     EXPECT_EQ( parsed.GetValue().Serialize(), text );
     EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 6\n9 Shader - - - - Role= engine:S.shader\n" ) )

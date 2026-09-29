@@ -106,15 +106,27 @@ namespace
 
     // The assembled GLSL of one stage, straight out of the engine's own DSL parser — the same string
     // the compiler hashes and hands to shaderc.
-    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage )
+    // @p cell names a surface template's cell ("Static.GBuffer"); empty = the default program.
+    std::string StageSource( const std::filesystem::path& shaderFile, ShaderStage stage, const std::string& cell = {} )
     {
         auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( shaderFile ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << shaderFile.string();
         if ( !parsed.IsSuccess() )
             return {};
-        const auto it = parsed.GetValue().Stages.find( stage );
-        EXPECT_NE( it, parsed.GetValue().Stages.end() ) << shaderFile.string();
-        return it == parsed.GetValue().Stages.end() ? std::string{} : it->second;
+        const auto* stages = &parsed.GetValue().Stages;
+        if ( !cell.empty() )
+        {
+            const auto& passes = parsed.GetValue().Passes;
+            const auto  pass   = std::find_if( passes.begin(), passes.end(),
+                                               [&]( const auto& p ) { return p.Name == cell; } );
+            EXPECT_NE( pass, passes.end() ) << shaderFile.string() << " has no cell " << cell;
+            if ( pass == passes.end() )
+                return {};
+            stages = &pass->Stages;
+        }
+        const auto it = stages->find( stage );
+        EXPECT_NE( it, stages->end() ) << shaderFile.string();
+        return it == stages->end() ? std::string{} : it->second;
     }
 
     // Resolves `#include <...>` exactly as ShaderIncluder does, so the SPIR-V under test is the SPIR-V
@@ -212,12 +224,13 @@ namespace
     // per-stage helpers above answer "what does this stage read"; this one answers "what shape must a
     // descriptor set have to be bindable to a pipeline built from this shader", and only the second
     // question can compare two different shaders.
-    std::vector<VkDescriptorSetLayoutBinding> GraphicsSetZero( const std::filesystem::path& shaderFile )
+    std::vector<VkDescriptorSetLayoutBinding> GraphicsSetZero( const std::filesystem::path& shaderFile,
+                                                               const std::string&           cell = {} )
     {
-        const auto vertexSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Vertex ), shaderFile, shaderc_vertex_shader );
-        const auto fragmentSpirv =
-             CompileStage( StageSource( shaderFile, ShaderStage::Fragment ), shaderFile, shaderc_fragment_shader );
+        const auto vertexSpirv   = CompileStage( StageSource( shaderFile, ShaderStage::Vertex, cell ), shaderFile,
+                                                 shaderc_vertex_shader );
+        const auto fragmentSpirv = CompileStage( StageSource( shaderFile, ShaderStage::Fragment, cell ), shaderFile,
+                                                 shaderc_fragment_shader );
         if ( vertexSpirv.empty() || fragmentSpirv.empty() )
             return {};
 
@@ -977,11 +990,11 @@ TEST_F( ShaderRootFixture, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActually
     // THE RELATION NOW: a pass that shades nothing declares the SURFACE and nothing else. Stated as an
     // exact set, because "fewer than the forward shader" would still pass with one cascade map left
     // behind, and a lighting descriptor in a pass with no lighting is a slot the material has no data for.
-    const auto gbuffer = GraphicsSetZero( ShaderPath( "PBR/StaticMeshGBuffer.shader" ) );
+    const auto gbuffer = GraphicsSetZero( ShaderPath( "PBR/StandardSurface.shader" ), "Static.GBuffer" );
     ASSERT_FALSE( gbuffer.empty() );
 
     EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 7u )
-         << "StaticMeshGBuffer's set 0 is " << DescribeBindings( gbuffer )
+         << "StandardSurface/Static.GBuffer's set 0 is " << DescribeBindings( gbuffer )
          << " — a G-buffer write reads the camera, the material rows and the surface's five maps, and an "
             "eighth descriptor is either a lighting slot that came back or a surface input nobody fills";
 
@@ -1003,7 +1016,7 @@ TEST_F( ShaderRootFixture, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteActually
 
     // The forward shader is the control: it still declares everything a lit draw needs, so a G-buffer set
     // this small is the PASS shrinking and not the whole family losing its lighting.
-    const auto forward = GraphicsSetZero( ShaderPath( "PBR/StaticMeshPBR.shader" ) );
+    const auto forward = GraphicsSetZero( ShaderPath( "PBR/StandardSurface.shader" ), "Static.Forward" );
     ASSERT_FALSE( forward.empty() );
     EXPECT_GT( ShaderReflection::CountDescriptors( forward ), ShaderReflection::CountDescriptors( gbuffer ) );
     EXPECT_TRUE( HasBinding( forward, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );
@@ -1107,9 +1120,10 @@ namespace
         return include.filename() == "CloudShadowReceiver.glslh";
     }
 
-    std::vector<std::filesystem::path> FragmentIncludes( const std::filesystem::path& shaderFile )
+    std::vector<std::filesystem::path> FragmentIncludes( const std::filesystem::path& shaderFile,
+                                                         const std::string&           cell = {} )
     {
-        return CollectShaderIncludes( StageSource( shaderFile, ShaderStage::Fragment ), shaderFile );
+        return CollectShaderIncludes( StageSource( shaderFile, ShaderStage::Fragment, cell ), shaderFile );
     }
 } // namespace
 
@@ -1127,7 +1141,7 @@ TEST_F( ShaderRootFixture, ALitGraphSurfaceCompilesEverySharedShadingTextTheMesh
     // shader compiles, the lit graph surface compiles as well. That fails the day somebody extracts a new
     // one into Mesh/ and wires it into StaticMeshPBR only — which is exactly how the graph fell behind the
     // first time.
-    const auto mesh  = FragmentIncludes( ShaderPath( "PBR/StaticMeshPBR.shader" ) );
+    const auto mesh  = FragmentIncludes( ShaderPath( "PBR/StandardSurface.shader" ), "Static.Forward" );
     const auto graph = FragmentIncludes( ShaderPath( "Graph/MatLitConst.shader" ) );
 
     ASSERT_FALSE( mesh.empty() );
@@ -1148,7 +1162,7 @@ TEST_F( ShaderRootFixture, ALitGraphSurfaceCompilesEverySharedShadingTextTheMesh
             continue;
         ++shared;
         EXPECT_TRUE( compiles( include ) )
-             << "StaticMeshPBR shades with " << include.filename().string()
+             << "StandardSurface/Static.Forward shades with " << include.filename().string()
              << " and the lit shader-graph surface does not — a graph material is lit by a model of its "
                 "own again";
     }

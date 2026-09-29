@@ -1013,7 +1013,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
                R"("Versions":{"MATL":4},"Dependencies":["4f1cac6af403a010c792d835dd6f7d44"]},)"
                R"("Shader":{"Guid":"4f1cac6af403a010c792d835dd6f7d44",)"
-               R"("Path":"engine:Shaders/Programs/PBR/StaticMeshPBR.shader"},)"
+               R"("Path":"engine:Shaders/Programs/PBR/StandardSurface.shader"},)"
                R"("Params":[],"Textures":[],"CloudAssets":[]})";
     }
 

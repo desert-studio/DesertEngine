@@ -2,7 +2,7 @@
 // function that returns plausible numbers. The companion of Desert/Tests/Engine/AmbientIBL, and the
 // same shape of defect one term over.
 //
-// What this suite exists for: `Programs/PBR/StaticMeshPBR.shader` computed the sun's diffuse as
+// What this suite exists for: `Programs/PBR/StandardSurface.shader` computed the sun's diffuse as
 // `kd * albedo` while `Programs/Deferred/DeferredLighting.shader` computed it as `kd * albedo / PI`.
 // The Lambertian BRDF is albedo/PI, so the forward path's sun was PI times too bright. 51 of the
 // repository's 51 scenes shade their ordinary static opaque geometry through the deferred path, and
@@ -278,9 +278,7 @@ TEST( DirectLighting, EveryDirectLightInTheEngineReachesTheOneSharedBRDF )
     // the point and spot headers already hold a normalized L and take the core.
     const std::pair<const char*, const char*> kConsumers[] = {
          { "Programs/Deferred/DeferredLighting.shader", "EvaluateDirectionalLight(" }, // the deferred sun
-         { "Programs/PBR/StaticMeshPBR.shader", "EvaluateDirectionalLight(" },         // the forward sun
-         { "Programs/PBR/StaticMeshPBR_Instanced.shader", "EvaluateDirectionalLight(" },
-         { "Programs/PBR/SkinnedMeshPBR.shader", "EvaluateDirectionalLight(" }, // drawn FORWARD in Deferred
+         { "Mesh/Surface/Pass_Forward.glslh", "EvaluateDirectionalLight(" }, // every forward surface cell
          { "Mesh/PointLight.glslh", "EvaluateDirectLight(" },
          { "Mesh/Spotlight.glslh", "EvaluateDirectLight(" },
     };
