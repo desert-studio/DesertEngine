@@ -1742,6 +1742,18 @@ TEST( ShaderCacheKeyProfile, TheTwoProfilesKeyApart )
                Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "probe", false ) );
 }
 
+// Debug info writes the compiling file's path into the binary, so under that profile the same stage text
+// in two files is two artifacts; without it the binary has no path and the text shares one entry. (SHC1:
+// before this, the Debug artifact under a key was whichever file compiled it first.)
+TEST( ShaderCacheKeyProfile, TheFileNamesTheKeyExactlyWhenTheBinaryNamesTheFile )
+{
+    const std::string src = "#version 450\nvoid main() {}\n";
+    EXPECT_NE( Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "A.shader", true ),
+               Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "B.shader", true ) );
+    EXPECT_EQ( Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "A.shader", false ),
+               Desert::Core::ComputeShaderCacheKeyForProfile( ShaderStage::Vertex, src, "B.shader", false ) );
+}
+
 // The 3-argument overload IS the profile overload at this build's own policy — the runtime asks with
 // it, the cook answers with the explicit one, and this equality is why a same-config cook always hits.
 TEST( ShaderCacheKeyProfile, TheRuntimeDefaultIsThisBuildsProfile )
