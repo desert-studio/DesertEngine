@@ -1189,9 +1189,14 @@ namespace Desert::Editor
         const ImVec2 origin = ImGui::GetCursorScreenPos();
 
         // The interactive item comes FIRST and the image is painted into it, because UIHelper::Image is not
-        // an ImGui item and so can't be hovered or dragged.
-        ImGui::InvisibleButton( "##preview_viewport", drawSize,
-                                ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight );
+        // an ImGui item and so can't be hovered or dragged. Yielded submits a plain Dummy instead: it takes
+        // no hover id, so the tool over the picture (ImGuizmo refuses a press while any item is hovered, this
+        // frame or the last) gets the press.
+        if ( mode == PreviewInteraction::Yielded )
+            ImGui::Dummy( drawSize );
+        else
+            ImGui::InvisibleButton( "##preview_viewport", drawSize,
+                                    ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight );
         const bool hovered = ImGui::IsItemHovered();
         const bool active  = ImGui::IsItemActive();
         // Claimed on the item itself, right after it is submitted (SetItemUsingMouseWheel reads the LAST
@@ -1348,7 +1353,7 @@ namespace Desert::Editor
         if ( input.Reframe )
             ResetView();
 
-        if ( hovered )
+        if ( hovered && mode != PreviewInteraction::Yielded )
         {
             ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
             // One sentence per camera, because they genuinely do different things: a promise of panning and

@@ -758,16 +758,25 @@ namespace Desert::Editor
             Control::PointerInjection::PublishTarget(
                  Control::Subject::Document,
                  { origin.x, origin.y, view.x, view.y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
+            // The gizmo is evaluated BEFORE the preview's button and painted on a channel above it: the preview
+            // then knows in the same frame that the pointer is on the gizmo and yields the press (a hover read
+            // one frame late let the orbit take the drag). Posing keys into the clip, so the gizmo is
+            // Animation mode's.
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->ChannelsSplit( 2 );
+            drawList->ChannelsSetCurrent( 1 );
+            m_GizmoHovered = false;
+            if ( animation )
+                DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
+            drawList->ChannelsSetCurrent( 0 );
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
                 (void)m_Preview->Draw( *m_UIHelper, view,
-                                       m_GizmoHovered ? PreviewInteraction::Static
-                                                      : PreviewInteraction::Interactive );
+                                       PreviewInteractionUnderTool( m_GizmoHovered, m_BoneGesture.Active(),
+                                                                    ImGui::IsAnyItemActive() ) );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
-            // Posing keys into the clip, so the gizmo is Animation mode's.
-            if ( animation )
-                DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
+            drawList->ChannelsMerge();
             DrawOverlay( glm::vec2( origin.x, origin.y ) );
         }
         ImGui::EndChild();

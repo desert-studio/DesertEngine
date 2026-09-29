@@ -209,7 +209,7 @@ namespace Desert::Editor
         int32_t             m_PosedFrame   = 0;
         bool                m_GizmoRotate  = true; // E rotate / W translate, as the level viewport
         BoneGizmoGesture    m_BoneGesture;
-        bool                m_GizmoHovered = false; // last frame's: the orbit must not take the gizmo's drag
+        bool                m_GizmoHovered = false; // this frame's: the preview yields the press to the gizmo
     };
 
     // Persona's path opener for `.anim`, `.skmesh` and `.skeleton` (its three modes): find-or-create the asset
