@@ -5818,6 +5818,8 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Subdivide: New PolyGroups",
                        []( MS& ms, bool on ) { ms.ElementSubdivide.NewPolyGroups = on; } );
+        modelingOnOff( "Modeling", "Simplify: Preserve Sharp Edges",
+                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveSharpEdges = on; } );
         for ( const auto target : { Geometry::SimplifyTarget::Percentage, Geometry::SimplifyTarget::VertexCount } )
             commands.push_back( { "Modeling", std::string( "Simplify target: " ) + Geometry::ToString( target ),
                                   [target]

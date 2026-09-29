@@ -6,6 +6,7 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshRegionOperation.hpp"
 
+#include <numbers>
 #include <gtest/gtest.h>
 
 #include <glm/geometric.hpp>
@@ -377,7 +378,7 @@ namespace
     // latitude bands are polygroups of @p bandRings rings each, so the borders are latitude circles.
     DynamicMesh3 BandedUVSphere( int rings, int segments, int bandRings )
     {
-        constexpr double kPi = 3.14159265358979323846;
+        constexpr double kPi = std::numbers::pi;
         DynamicMesh3     mesh;
         mesh.EnableTriangleGroups();
         const int        north = mesh.AppendVertex( glm::dvec3( 0, 0, kHalf ) );
@@ -396,7 +397,10 @@ namespace
         }
         const int  south = mesh.AppendVertex( glm::dvec3( 0, 0, -kHalf ) );
         const auto at    = [&]( int r, int s )
-        { return ids[static_cast<size_t>( ( r - 1 ) * segments + s % segments )]; };
+        {
+            return ids[static_cast<size_t>( r - 1 ) * static_cast<size_t>( segments ) +
+                       static_cast<size_t>( s % segments )];
+        };
         const auto group = [&]( int r ) { return r / bandRings + 1; }; // band of the ring strip r .. r + 1
         for ( int s = 0; s < segments; ++s )
         {
