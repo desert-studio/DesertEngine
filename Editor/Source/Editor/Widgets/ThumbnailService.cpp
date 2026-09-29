@@ -121,11 +121,17 @@ namespace Desert::Editor
         const auto resolved = ThumbnailSubject::ResolveLoadedMaterial( manager, asset, assetPath );
         if ( !resolved )
         {
-            LOG_WARN( "[Thumbnails] no picture for '{}': {}", assetPath, resolved.GetError() );
-            m_Failed.insert( identity );
+            Refuse( assetPath, resolved.GetError() );
             return std::string();
         }
         return RequestMaterial( resolved.GetValue(), assetPath );
+    }
+
+    void ThumbnailService::Refuse( const std::string& assetPath, const std::string& reason )
+    {
+        if ( !m_Failed.insert( ThumbnailKey::Identity( assetPath ) ).second )
+            return; // already said
+        LOG_WARN( "[Thumbnails] no picture for '{}': {}", assetPath, reason );
     }
 
     void ThumbnailService::WarmMaterial( const ThumbnailSubject::Material& material, const std::string& assetPath )

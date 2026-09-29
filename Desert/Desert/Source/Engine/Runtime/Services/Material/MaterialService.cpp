@@ -397,31 +397,47 @@ namespace Desert::Runtime
         return true;
     }
 
-    MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
+    const Assets::SurfaceMaterialAsset* MaterialService::BaseOf( const Assets::AssetHandle& handle ) const
     {
-        // Same chain walk as ResolveOverrides — an instance names no program of its own, so the answer is
-        // always the base's. Depth-capped for the same cycle reason.
+        // An instance names no program of its own, so every question about its template is the base's.
         Assets::AssetHandle current = handle;
         for ( int depth = 0; depth < 8; ++depth )
         {
             auto it = FindOrDiscover( current );
             if ( it == m_MaterialAssets.end() )
-                return MaterialTemplate{};
+                return nullptr;
             (void)EnsureLoaded( it->second );
-            auto* surf = dynamic_cast<Assets::SurfaceMaterialAsset*>( it->second.get() );
+            const auto* surf = dynamic_cast<const Assets::SurfaceMaterialAsset*>( it->second.get() );
             if ( !surf )
-                return MaterialTemplate{};
+                return nullptr;
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
-            {
-                return MaterialTemplate{ surf->GetShaderHandle(), surf->GetShaderName() };
-            }
+                return surf;
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
-                return MaterialTemplate{ surf->GetShaderHandle(), surf->GetShaderName() };
+                return surf;
             current = parent;
         }
-        return MaterialTemplate{};
+        return nullptr;
+    }
+
+    MaterialService::MaterialTemplate MaterialService::ShaderHandleOf( const Assets::AssetHandle& handle ) const
+    {
+        const auto* base = BaseOf( handle );
+        if ( base == nullptr )
+            return MaterialTemplate{};
+        return MaterialTemplate{ base->GetShaderHandle(), base->GetShaderName() };
+    }
+
+    Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
+                                                   Graphic::MeshPass pass ) const
+    {
+        const auto* base = BaseOf( handle );
+        if ( base == nullptr )
+            return Common::MakeFormattedError( "material {} (or a parent in its instance chain) is not registered "
+                                               "or not readable, so it has no cell to draw with",
+                                               static_cast<uint64_t>( handle ) );
+        return Graphic::MaterialFactory::HasCell( *base, path, pass );
     }
 
     void MaterialService::Clear()

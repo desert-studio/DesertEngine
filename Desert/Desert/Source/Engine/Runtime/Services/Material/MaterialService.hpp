@@ -19,6 +19,11 @@ namespace Desert::Graphic
     class MaterialPBR;
 }
 
+namespace Desert::Assets
+{
+    class SurfaceMaterialAsset;
+}
+
 namespace Desert::Runtime
 {
     // Owns the runtime materials behind the `.demat` assets.
@@ -168,6 +173,12 @@ namespace Desert::Runtime
         };
         [[nodiscard]] MaterialTemplate ShaderHandleOf( const Assets::AssetHandle& handle ) const;
 
+        // Whether the material at @p handle HAS a (path x pass) cell, asked of its base through the same chain
+        // walk (MaterialFactory::HasCell is the rule). For a caller that must refuse BEFORE it stages a draw
+        // instead of photographing the default material the scene substitutes (the skinned thumbnail).
+        [[nodiscard]] Common::BoolResultStr CellOf( const Assets::AssetHandle& handle,
+                                                    Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const;
+
         // For editor live-edit of a material-instance asset: entities rebuild their cached
         // runtime instances on the next tick (same mechanism as Invalidate, no graveyard needed —
         // no runtime Material dies here).
@@ -294,6 +305,8 @@ namespace Desert::Runtime
         /// from the registry row now, or `end()`.
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Assets::MaterialAsset>>::iterator
         FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        // The instance chain walked to its base (depth-capped against cycles); null when a link is missing.
+        const Assets::SurfaceMaterialAsset* BaseOf( const Assets::AssetHandle& handle ) const;
         /// True when @p asset is read; otherwise starts its read once (AsyncAssetLoader) and answers false.
         bool RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const;
 

@@ -42,6 +42,14 @@ namespace Desert::Graphic
                                                          MeshVertexPath path = MeshVertexPath::Static,
                                                          MeshPass       pass = MeshPass::Forward );
 
+        // THE ONE RULE of which (path x pass) cells a surface template has: the PBR surface template has every
+        // cell; a custom DSL surface shader has only (Static x Forward). CreateMaterial refuses by it, and a
+        // caller that must know BEFORE it stages a draw (the skinned thumbnail, THM1n-10) asks it through
+        // MaterialService::CellOf rather than learning it from a substituted default material. @p asset is a
+        // BASE material (an instance's cells are its base's). The error names the material, shader and cell.
+        static Common::BoolResultStr HasCell( const Assets::MaterialAsset& asset, MeshVertexPath path,
+                                              MeshPass pass );
+
         // Copy a PBR asset's reflected data into a live runtime material and (re)bind its textures.
         // Used by CreateMaterial and by the editor for live edit -> viewport sync.
         static void ApplyPBRAsset( MaterialPBR& material, const Assets::SurfaceMaterialAsset& asset );

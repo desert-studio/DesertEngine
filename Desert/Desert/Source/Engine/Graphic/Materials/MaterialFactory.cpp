@@ -76,6 +76,21 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    Common::BoolResultStr MaterialFactory::HasCell( const Assets::MaterialAsset& asset, MeshVertexPath path,
+                                                    MeshPass pass )
+    {
+        const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( &asset );
+        if ( surface == nullptr || !surface->UsesCustomShader() )
+            return BOOLSUCCESS; // the PBR surface template: every cell
+        if ( path == MeshVertexPath::Static && pass == MeshPass::Forward )
+            return BOOLSUCCESS;
+        return Common::MakeFormattedError(
+             "Material '{}' uses the custom shader '{}', which exists only on (Static x Forward) — there is no "
+             "({} x {}) variant of it (DSL surface shaders carry no skinning, instancing or G-buffer stage).",
+             asset.GetMetadata().Filepath.generic_string(), asset.GetShaderName(), MeshVertexPathName( path ),
+             MeshPassName( pass ) );
+    }
+
     void MaterialFactory::ApplyPBRAsset( MaterialPBR& material, const Assets::SurfaceMaterialAsset& asset )
     {
         // Build the backend's typed view from the material canon (single protocol -> optimized
@@ -192,15 +207,11 @@ namespace Desert::Graphic
         // default PBR material, so the mesh draws in plain grey rather than vanishing, and "my character
         // is the wrong colour" is a different search from "my character is missing". The message was
         // checked against a frame — it said "will not draw" and the mesh drew.
-        if ( path != MeshVertexPath::Static || pass != MeshPass::Forward )
+        if ( const auto cell = HasCell( *asset, path, pass ); !cell )
         {
-            LOG_WARN( "[MaterialFactory] Material '{}' uses the custom shader '{}', which exists only on "
-                      "(Static x Forward) — there is no ({} x {}) variant of it (DSL surface shaders carry "
-                      "no skinning, instancing or G-buffer stage). The mesh asking for it will fall back to "
-                      "the default PBR material and render in the wrong colour; assign a PBR material to "
-                      "it, or author a ({} x {}) variant of '{}'.",
-                      asset->GetMetadata().Filepath.generic_string(), shaderName, MeshVertexPathName( path ),
-                      MeshPassName( pass ), MeshVertexPathName( path ), MeshPassName( pass ), shaderName );
+            LOG_WARN( "[MaterialFactory] {} The mesh asking for it will fall back to the default PBR material "
+                      "and render in the wrong colour; assign a PBR material to it, or author that variant.",
+                      cell.GetError() );
             return nullptr;
         }
 

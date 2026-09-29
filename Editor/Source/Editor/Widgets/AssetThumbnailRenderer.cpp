@@ -1,4 +1,5 @@
 #include "AssetThumbnailRenderer.hpp"
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 #include <Engine/Geometry/PosedBounds.hpp>
 
@@ -438,6 +439,26 @@ namespace Desert::Editor
                      "mesh {} is not skinned, so there is no pose to photograph for '{}'",
                      static_cast<uint64_t>( meshHandle ), outPng );
         }
+        // EVERY SLOT MUST HAVE A (Skinned x Forward) CELL, asked BEFORE anything is queued and by the rule the
+        // scene's material build refuses by (MaterialFactory::HasCell through MaterialService::CellOf). The
+        // scene answers a missing cell by substituting its default material; a thumbnail of THAT is a picture
+        // of a material the mesh does not have, so the capture is refused with the reason instead (THM1n-10).
+        // The pass does not change the answer for a skinned path: a template either carries skinning (every
+        // pass) or is a custom DSL shader (none).
+        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return Common::MakeFormattedError( "there is no material service to ask skinned mesh {}'s slots "
+                                               "for a (Skinned x Forward) cell, for '{}'",
+                                               static_cast<uint64_t>( meshHandle ), outPng );
+        for ( const auto& slot : MeshOwnSlots( meshHandle ) )
+        {
+            if ( const auto cell =
+                      materials->CellOf( slot, Graphic::MeshVertexPath::Skinned, Graphic::MeshPass::Forward );
+                 !cell )
+                return Common::MakeFormattedError( "skinned mesh {} cannot be photographed for '{}': {}",
+                                                   static_cast<uint64_t>( meshHandle ), outPng, cell.GetError() );
+        }
+
         auto queued = RequestMesh( meshHandle, outPng );
         if ( !queued.IsSuccess() )
             return queued;

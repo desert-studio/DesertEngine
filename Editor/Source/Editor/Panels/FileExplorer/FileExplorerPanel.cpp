@@ -1904,9 +1904,17 @@ namespace Desert::Editor
              {
                  if ( resolved )
                      ThumbnailService::Get().RequestMaterial( resolved.GetValue(), assetPath );
+                 else
+                     ThumbnailService::Get().Refuse( assetPath, resolved.GetError() );
              } );
+        // A REFUSAL IS SAID, not dropped (THM1n-10): M_CubemapCheck (Skybox domain) and M_CheckerFloor_Inst
+        // kept a document icon with no request and no line in the log. The card still shows its icon; the
+        // log names why, once per asset.
         if ( !subject )
+        {
+            ThumbnailService::Get().Refuse( entry->AssetPath, subject.GetError() );
             return drew;
+        }
         const auto& material = subject.GetValue();
         if ( !material )
             return drew;

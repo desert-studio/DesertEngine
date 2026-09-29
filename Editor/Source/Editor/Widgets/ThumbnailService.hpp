@@ -106,6 +106,11 @@ namespace Desert::Editor
                                            const std::shared_ptr<Assets::SurfaceMaterialAsset>& asset,
                                            const std::string&                                   assetPath );
 
+        // An asset a panel could not even ROUTE (ThumbnailSubject refused it: a domain no producer draws, an
+        // instance whose chain names no template, an unreadable file). Logged ONCE with @p reason and entered
+        // in the failure set, so the card keeps its type icon for a stated reason — never silently (THM1n-10).
+        void Refuse( const std::string& assetPath, const std::string& reason );
+
         // Queue a mesh preview, optionally with the material to apply to every slot.
         std::string
         RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,

@@ -121,8 +121,9 @@ namespace Desert::Assets
         void AdoptStableHandle();
 
         // Every load branch runs it with no manager (a stated shader stays unresolved until
-        // ResolveDependencies), ResolveDependencies with one.
-        void ResolveShader( const AssetManager* manager );
+        // ResolveDependencies), ResolveDependencies with one. Non-const: the template is a DEPENDENCY, and a
+        // registered-but-unread shader shell is loaded here before its manifest (Role) is asked anything.
+        void ResolveShader( AssetManager* manager );
 
         bool         m_ReadyForUse  = false;
         Common::UUID m_MaterialUUID = Common::UUID::Null();
