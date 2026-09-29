@@ -35,9 +35,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/ShaderCompiler/Includer` — 2 files, 244 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 138 lines: PreprocessedPass, ShaderPreprocess
 - `Core/Traits` — 1 files, 17 lines
-- `ECS` — 17 files, 4,632 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
-- `ECS/System` — 24 files, 4,706 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
-- `Generated` — 1 files, 746 lines
+- `ECS` — 17 files, 4,640 lines: AlwaysLoadedComponent, AnimationComponent, AudioSourceComponent, AudioSourceData, CameraComponent, CameraData, CharacterControllerComponent, CharacterControllerData, CloudSpeciesResolution, ColliderComponent, ColliderData, ControlRigComponent, … (+120)
+- `ECS/System` — 25 files, 4,807 lines: AnimationECSSystem, AtmosphereSunSelection, AttachmentSystem, AudioECSSystem, ColliderMesh, DecomposedTransform, HeightFogECSSystem, LandscapeCollision, LandscapeECSSystem, LocomotionSystem, MeshECSSystem, PhysicsBodyLifetime, … (+13)
+- `Generated` — 1 files, 748 lines
 - `Geometry` — 71 files, 14,046 lines: BakeOptions, BooleanOutcome, Cell, CleanCounts, CleanOutcome, CollapseEdgeInfo, CollapseSide, CompactMaps, CutPlane, DynamicMesh, EditMesh, EditMeshAttributes, … (+65)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,410 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
@@ -88,7 +88,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Systems/Scene/Terrain` — 3 files, 827 lines: FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeTileDraw, LandscapeTileLod, LandscapeWeightDraw, ProgramMaterials, TerrainDrawData, TerrainInstance, TerrainRenderer
 - `Hair` — 2 files, 175 lines: GroomAsset, GroomBinding, GroomStepContext, HairCurves, HairGroup, HairGuideInterpolation, HairRenderFrame, HairRenderGroup, HairRootAttachment, IGroomRenderDataSource, IGroomSimulation, IGroomSimulationFactory
 - `Localization` — 10 files, 2,010 lines: CalendarDate, CurrencyRow, FormatArguments, FormattedText, LocaleRow, Localization, LocalizedEntry, PluralOperands, Resolved, Row, StringTableData, StringTableEntry
-- `Physics` — 2 files, 879 lines: BodyDesc, CharacterDesc, HeightFieldDesc, PhysicsWorld, RayHit
+- `Physics` — 2 files, 913 lines: BodyDesc, CharacterDesc, HeightFieldDesc, PhysicsWorld, RayHit
 - `Physics/Cloth` — 2 files, 259 lines: ClothCapsuleCollider, ClothConfig, ClothMeshBinding, ClothPhysicalMesh, ClothSimulationOutput, ClothSphereCollider, ClothStepContext, ClothVertexMaps, ClothingAsset, ClothingSimulationFactoryRegistry, IClothingSimulation, IClothingSimulationFactory
 - `Project` — 6 files, 806 lines: EngineRootLookup, ProjectContext, ResourceRootLookup
 - `Reflection` — 7 files, 842 lines: AssetResolver, EnumValue, FieldInfo, PropertyMetadata, ReflectionRegistry, TypeBuilder, TypeInfo
@@ -139,7 +139,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Editor — `Editor/Source/Editor`
 - `Builtin` — 2 files, 136 lines: BuiltinMeshRegistry
-- `Core` — 76 files, 18,015 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+60)
+- `Core` — 76 files, 18,005 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DemoMaterial, … (+60)
 - `Core/Commands` — 11 files, 4,669 lines: AssetFolderMoveCommand, AssetMoveCommand, BoneDelta, BoneGizmoGesture, ClipPoseCommand, ControlAutoKey, ControlEdit, ControlGizmoGesture, ControlPoseCommand, FoldCandidate, FoldMeshIdentity, FoldPlan, … (+11)
 - `Core/Control` — 8 files, 2,379 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, OpSpec, PanelSnapshot, … (+10)
 - `Core/GraphCanvas` — 4 files, 620 lines: CanvasPlan, DeferredFrameAll, ElementIdMap, ElementLedger, PlannedLink, PlannedNode, Resolved
@@ -166,14 +166,14 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/Logs` — 2 files, 454 lines: LogEntry, LogsPanel
 - `Panels/LuaConsole` — 2 files, 234 lines: Line, LuaConsolePanel
 - `Panels/MaterialEditor` — 5 files, 4,151 lines: DirtyState, DropRefusal, MaterialEditorPanel, MaterialShaderRebuild, ParameterGroup, PushedIdentity
-- `Panels/Modeling` — 2 files, 1,173 lines: ModelingPanel
+- `Panels/Modeling` — 2 files, 1,252 lines: CollisionShapeEntry, ModelingPanel
 - `Panels/NodeGraph` — 8 files, 2,906 lines: Loaded, NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Particles` — 2 files, 372 lines: ParticleEditorPanel
 - `Panels/Photogrammetry` — 2 files, 1,263 lines: PhotogrammetryPanel
 - `Panels/PropertyEditor` — 8 files, 2,451 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder
 - `Panels/Scalability` — 2 files, 156 lines: ScalabilityPanel
 - `Panels/SceneHierarchy` — 3 files, 1,431 lines: EntityTypeInfo, SceneHierarchyPanel
-- `Panels/SceneProperties` — 5 files, 3,434 lines: ComponentEditor, ScenePropertiesPanel
+- `Panels/SceneProperties` — 5 files, 3,429 lines: ComponentEditor, ScenePropertiesPanel
 - `Panels/SceneProperties/ComponentWidgets` — 16 files, 3,064 lines: AnimationComponentWidget, IComponentWidget, MaterialComponentWidget, MaterialHost, PrefabComponentWidget, SkinnedMeshComponentWidget, SkyboxComponentWidget, SlotRow, SlotSwatch, StaticMeshComponentWidget, TransformComponentWidget
 - `Panels/SceneProperties/ComponentWidgets/Helper` — 2 files, 293 lines: Context, MeshDetailsWidget
 - `Panels/Sequencer` — 6 files, 3,949 lines: CurveViewport, SectionTarget, SequencerPanel
@@ -187,7 +187,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/WorldPartition` — 4 files, 938 lines: LegendRow, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 150 lines: WorldSettingsPanel
 - `RenderSystems` — 2 files, 86 lines: RenderRegistry
-- `RenderSystems/Passes` — 8 files, 719 lines: EditorColliderPass, EditorCubemapPreviewPass, EditorGridPass, EditorUIPass
+- `RenderSystems/Passes` — 8 files, 727 lines: EditorColliderPass, EditorCubemapPreviewPass, EditorGridPass, EditorUIPass
 - `Splash` — 7 files, 809 lines: ButtonTracker, DesignPoint, Layout, ProgressModel, ProgressSnapshot, Rect, RevealState, SplashContent, SplashPixels, SplashScreen, Stage, StageTiming
 - `Splash/Windows` — 1 files, 551 lines
 - `Widgets` — 37 files, 8,401 lines: Acquired, AssetThumbnailRenderer, ButtonColour, Capture, CaptureBudget, Decoded, Encoded, EquirectMap, FaceTracker, Format, Frame, FramedSubject, … (+28)
