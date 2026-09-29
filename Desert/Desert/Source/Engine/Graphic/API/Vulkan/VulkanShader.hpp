@@ -55,6 +55,11 @@ namespace Desert::Graphic::API::Vulkan
             return m_ProgramMeta;
         }
 
+        virtual const Core::Formats::MaterialLayout& GetMaterialLayout() const override
+        {
+            return m_MaterialLayout;
+        }
+
         const std::vector<VkPipelineShaderStageCreateInfo>& GetPipelineShaderStageCreateInfos() const
         {
             return m_PipelineShaderStageCreateInfos;
@@ -201,6 +206,7 @@ namespace Desert::Graphic::API::Vulkan
         ShaderVariant m_Variant;
 
         Core::Formats::ShaderProgramMeta             m_ProgramMeta;
+        Core::Formats::MaterialLayout                m_MaterialLayout;
 
         ShaderResource::ReflectionData      m_ReflectionData;
         std::vector<DescriptorSetLayoutRef> m_DescriptorSetLayouts; // indexed by set

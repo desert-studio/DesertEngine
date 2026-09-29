@@ -42,14 +42,14 @@ namespace Desert::Core
     };
 
     // The blob's own version: the reader refuses any other. Bump it when the byte layout changes.
-    inline constexpr uint32_t kShaderMapFormatVersion = 1;
+    inline constexpr uint32_t kShaderMapFormatVersion = 2;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the
     // fingerprint of that code (kShaderMapProducerSources, whitespace and comments stripped); it is part of
     // the deriver's version, so re-recording it moves every key. ShaderCacheKey's
     // TheShaderMapProducerFingerprintIsRecorded computes it from the files and prints the value to paste.
-    inline constexpr uint64_t kShaderMapProducerFingerprint = 0xaa62457496cbe603ULL;
+    inline constexpr uint64_t kShaderMapProducerFingerprint = 0x4f0d1247e7c7ae9fULL;
 
     // Repository-relative. ShaderMapCache.hpp is not listed: it holds the fingerprint itself.
     inline constexpr std::array<std::string_view, 8> kShaderMapProducerSources{

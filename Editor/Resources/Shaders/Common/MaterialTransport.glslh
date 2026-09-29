@@ -4,10 +4,17 @@
 // draw, which is the property a per-material uniform block does not have and the reason it was deleted
 // (Engine/Core/Formats/MaterialParamRow.hpp has the measurement and the probe scene).
 //
-// SHARED, not repeated per shader, so the offsets cannot drift: the CPU writes MaterialIndex at 64
-// (Core::Formats::kMaterialIndexPushOffset) for the hand-written mesh PBR shaders and for every shader
-// the DSL generates alike. A stage that only needs Transform still declares the whole block — Vulkan
+// SHARED, not repeated per shader, so the offsets cannot drift: the CPU finds every field BY NAME in the
+// layout reflected from this block (Core/Formats/MaterialLayout.hpp, Graphic/Materials/MaterialBinder.hpp)
+// for the hand-written mesh PBR shaders and for every shader the DSL generates alike. A stage that only needs Transform still declares the whole block — Vulkan
 // takes ONE push range per pipeline, and two stages disagreeing about its length is a layout mismatch.
+//
+// ONE BLOCK FOR EVERY PIPELINE, the per-path tails included. The parser injects this header into the
+// fragment stage of any `Properties Binding(n)` shader BEFORE the authored text, so a vertex stage that
+// declared its own longer block (skinned: BoneOffset; instanced: wind) left the fragment 68 bytes against
+// a 72/112-byte vertex — one pipeline, two lengths. The tails therefore live here: a path that does not
+// read them leaves them unpushed (a push of a sub-range is legal), and every stage of every pipeline
+// reflects the same 112 bytes, inside the 128 every Vulkan device guarantees.
 //
 // The guard is real work, not ceremony: DShaderParser injects this include into the fragment stage of any
 // shader with a `Properties Binding(n)` block, and that shader's own vertex stage includes it too.
@@ -18,6 +25,9 @@ PushConstant PushConstants
 {
     mat4 Transform;     // offset 0
     uint MaterialIndex; // offset 64 — the row in Materials[]
+    uint BoneOffset;    // offset 68 — skinned vertex only: first bone of THIS draw in BoneMatrices[] (MaterialPBR)
+    vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
+    vec4 WindB;         // offset 96
 }
 m_PushConstants;
 

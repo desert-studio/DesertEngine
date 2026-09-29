@@ -1,7 +1,6 @@
 #pragma once
 
 #include "MaterialPBRBase.hpp"
-#include "PBRPush.hpp"
 
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -45,21 +44,6 @@ namespace Desert::Graphic
 
         ~MaterialPBR() override = default;
 
-        // Byte offsets inside the shared mesh push-constant block, PUBLIC because they are one half of a
-        // pair whose other half is GLSL. Reflection gives a push block's total SIZE but not its members,
-        // so the check a test can make is that the block is exactly as long as the last field this code
-        // writes — which is what fires if a field is inserted before BoneOffset and this code starts
-        // writing the bone offset into MaterialIndex. Desert/Tests/Engine/MeshVertexPath makes it.
-        //
-        // DEFINED FROM Core::Formats, not beside it. Those two constants are the same numbers the DSL
-        // emits into every generated material block, and a second spelling of them here is exactly how
-        // the two transports would drift apart after being collapsed into one.
-        static constexpr uint32_t kPushTransformOffset     = Core::Formats::kMaterialTransformPushOffset;
-        static constexpr uint32_t kPushMaterialIndexOffset = Core::Formats::kMaterialIndexPushOffset; // 64
-        static constexpr uint32_t kPushBoneOffsetOffset    = kPushMaterialIndexOffset + 4; // 68, skinned only
-        static constexpr uint32_t kPushSizeWithoutBones    = kPushMaterialIndexOffset + 4;
-        static constexpr uint32_t kPushSizeWithBones       = kPushBoneOffsetOffset + 4;
-
         MeshVertexPath VertexPath() const
         {
             return m_Path;
@@ -76,6 +60,23 @@ namespace Desert::Graphic
         const Assets::PBRSurfaceParams& Data() const
         {
             return m_Data;
+        }
+
+        // The shader's `Properties Binding(2)` manifest and this material's row of it — the SAME transport
+        // DataDrivenMaterial uses (Core/Formats/MaterialParamRow.hpp). MaterialFactory builds the row from the
+        // asset's persisted params; the renderer copies it (plus instance overrides, by name) into
+        // `Materials[]`. Every PBR pass declares the one layout, so a forward row feeds GBuffer/glass as is.
+        const Core::Formats::ShaderProgramMeta& GetSchema() const
+        {
+            return m_Schema;
+        }
+        const Core::Formats::MaterialParamRow& GetParamRow() const
+        {
+            return m_Row;
+        }
+        void SetParamRow( Core::Formats::MaterialParamRow row )
+        {
+            m_Row = std::move( row );
         }
 
         // Which row of `Materials[]` the next draw reads is Material::SetMaterialIndex — the one entry
@@ -104,7 +105,9 @@ namespace Desert::Graphic
     private:
         MaterialPBR( MeshVertexPath path, MeshPass pass, const char* shaderName );
 
-        Assets::PBRSurfaceParams m_Data;
+        Assets::PBRSurfaceParams         m_Data;
+        Core::Formats::ShaderProgramMeta m_Schema;
+        Core::Formats::MaterialParamRow  m_Row;
         uint32_t                 m_BoneOffset = 0;
         MeshVertexPath           m_Path;
         MeshPass                 m_Pass;

@@ -294,8 +294,8 @@ namespace Desert::Graphic::Render2D
                 // THE PARAMETERS ARE A ROW, NOT PUSH BYTES. One row per material and therefore index 0 —
                 // a UI material is shared by every element pointing at the same asset, which is exactly
                 // what keeps two such elements in one batch. `SetMaterialIndex` writes that index into
-                // the push block at Core::Formats::kMaterialIndexPushOffset (64), the same offset the
-                // mesh path writes it at, so the two transports cannot drift.
+                // the push block's `MaterialIndex` field, found by name in the cell's layout exactly as
+                // the mesh path finds it (Graphic/Materials/MaterialBinder.hpp), so the two cannot drift.
                 const auto& row = material->GetParamRow();
                 if ( !row.empty() )
                     if ( auto* sb = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
