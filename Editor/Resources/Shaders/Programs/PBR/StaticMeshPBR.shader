@@ -186,6 +186,8 @@ Shader "StaticMeshPBR"
         Uniform(10) sampler2D u_BRDFLUTTexture;
 
         #include <Common/TangentNormal.glslh>
+        // The source-to-surface arithmetic (UV transform, base colour, ORM, normal strength, emission).
+        #include <Common/PBRSurfaceInputs.glslh>
         Uniform(11) sampler2D u_AlbedoTexture;
         Uniform(12) sampler2D u_NormalTexture;
         Uniform(18) sampler2D u_OpacityTexture; // alpha-cutout mask (foliage); unused when cutoff == 0 (16/17 = light SSBOs)
@@ -256,7 +258,9 @@ Shader "StaticMeshPBR"
         	vec2 tiling = mat.ExtraParams.xy;
         	if (tiling.x <= 0.0) tiling.x = 1.0;
         	if (tiling.y <= 0.0) tiling.y = 1.0;
-        	vec2 uv = inVertex.Texcoord * tiling;
+        	// The forward transport (GpuMaterial) carries a scale only: offset and rotation enter at their
+        	// identities and TEXCOORD_1 is not a vertex input of this shader, so set 0 is the only set.
+        	vec2 uv = PBRTransformUV(PBRSelectUV(inVertex.Texcoord, inVertex.Texcoord, 0), vec2(0.0), tiling, 0.0);
 
         	// Alpha cutout (foliage/cards): discard transparent texels per the Opacity Map. MetalRoughEmission.w is
         	// the cutoff (0 = disabled, so opaque materials are unaffected). Done first to skip lighting on discards.
@@ -264,11 +268,11 @@ Shader "StaticMeshPBR"
         	if (alphaCutoff > 0.0 && texture(u_OpacityTexture, uv).r < alphaCutoff)
         		discard;
 
-        	m_Params.AlbedoColor = mat.AlbedoAO.rgb;
         	// Albedo maps are authored in sRGB (gamma) space; lighting must run in LINEAR space. The engine loads
         	// 8-bit textures as UNORM (no hardware sRGB sampling yet), so convert here. Normal/roughness/metallic/AO
         	// are DATA maps and are intentionally NOT converted. (Proper fix later: hardware VK_FORMAT_*_SRGB.)
-        	m_Params.AlbedoColor *= pow( texture(u_AlbedoTexture, uv).rgb, vec3(2.2) );
+        	// No vertex-colour input exists in this vertex layout, so the vertex colour is white.
+        	m_Params.AlbedoColor = PBRBaseColor(mat.AlbedoAO.rgb, pow( texture(u_AlbedoTexture, uv).rgb, vec3(2.2) ), vec3(1.0));
 
         	// Default: use the world-space normal from the vertex shader directly.
         	m_Params.Normal = normalize(inVertex.Normal);
@@ -277,7 +281,8 @@ Shader "StaticMeshPBR"
         	if(textureSize.x > 1 && textureSize.y > 1) // real normal map — not the 1x1 fallback
         	{
         		// Transform tangent-space normal to world space via TBN.
-        		vec3 tangentNormal = SampleTangentNormal(u_NormalTexture, uv);
+        		// The forward transport carries no normal scale: 1 is glTF's default and changes nothing.
+        		vec3 tangentNormal = PBRScaleTangentNormal(SampleTangentNormal(u_NormalTexture, uv), 1.0);
         		m_Params.Normal = normalize(inVertex.TBN * tangentNormal);
         	}
         	// Without a normal map the TBN transform is intentionally skipped:
@@ -290,10 +295,13 @@ Shader "StaticMeshPBR"
         		return;
         	}
 
-        	const float metalness = mat.MetalRoughEmission.x;
+        	// No ORM texture is bound on the forward path: its texel is white, so the factors pass through,
+        	// and occlusion strength stays at glTF's 1. AOStrength remains this material's ambient factor.
+        	const vec3  orm       = PBRResolveORM(vec3(1.0), 1.0, mat.MetalRoughEmission.y, mat.MetalRoughEmission.x);
+        	const float metalness = orm.z;
         	// Clamp to a minimum roughness so the GGX NDF stays finite even for mirror-smooth materials.
-        	const float roughness = max(mat.MetalRoughEmission.y, 0.04);
-        	const float ao        = mat.AlbedoAO.a;
+        	const float roughness = max(orm.y, 0.04);
+        	const float ao        = mat.AlbedoAO.a * orm.x;
 
         	const vec3 view = normalize(inVertex.CameraPosition - inVertex.WorldPosition);
 
@@ -375,7 +383,8 @@ Shader "StaticMeshPBR"
             }
 
             // Ambient occlusion attenuates only the ambient (IBL) term; emission is added unlit.
-            vec3 emission = mat.EmissionColor.rgb * mat.MetalRoughEmission.z;
+            // No emissive texture is bound on the forward path: its texel is white.
+            vec3 emission = PBREmission(vec3(1.0), mat.EmissionColor.rgb, mat.MetalRoughEmission.z);
 
             // The ambient, assembled by the shared header — the SAME call the deferred composite makes,
             // so the two paths cannot floor, occlude or albedo-weight it differently. The forward path
