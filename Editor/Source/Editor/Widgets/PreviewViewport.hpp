@@ -32,7 +32,7 @@ namespace Desert::Editor::Render
 {
     class EditorCubemapPreviewPass;
     class EditorGridPass;
-}
+} // namespace Desert::Editor::Render
 
 namespace Desert::Graphic
 {
@@ -230,7 +230,8 @@ namespace Desert::Editor
         // the target entity is reused across previews.
         void SetForcedLOD( int lod );
 
-        // Show a SKINNED mesh posed by `clip` (the Animation Editor's preview): the target entity gets a
+        // Show a SKINNED mesh posed by `clip` (the Animation Editor's preview; null = the bind pose, Persona's
+        // Skeleton and Mesh modes): the target entity gets a
         // SkinnedMeshComponent and an AnimationComponent whose own clock is stopped (Playing = false), so
         // the pose is exactly the time the owner last passed to SetAnimationTime — the scene never advances
         // it, whatever the editor's frame rate. Any other Set*/Clear drops both components again.
@@ -486,9 +487,9 @@ namespace Desert::Editor
 
         // Orbit state, persisted per widget instance so a preview keeps its angle across frames (and, since
         // the panel owns the widget, across selections of the same kind).
-        float     m_Yaw      = -0.6f; // radians
-        float     m_Pitch    = 0.5f;
-        float     m_Zoom     = 1.0f; // the wheel's multiple of the fitted distance; 1 = the subject exactly fits
+        float     m_Yaw   = -0.6f; // radians
+        float     m_Pitch = 0.5f;
+        float     m_Zoom  = 1.0f; // the wheel's multiple of the fitted distance; 1 = the subject exactly fits
         glm::vec3 m_Focus{ 0.0f };
         float     m_FrameRadius = 1.0f;                  // bounding radius of the current content
         glm::vec3 m_FrameHalfExtent{ 0.5f, 0.5f, 0.5f }; // half-size of its box, for the exact fit

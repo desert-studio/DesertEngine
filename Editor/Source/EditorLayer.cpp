@@ -164,6 +164,7 @@
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/AnimationEditor/AnimationEditorDocument.hpp"
+#include <Common/Content/ContentKinds.hpp>
 #include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
@@ -502,18 +503,17 @@ namespace Desert::Editor
         // automatic path could clear. Both directories are `LooseTextureRoots()`, the list the packager
         // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
         // fresh.)
-        m_StartupStages.push_back( { "Importing textures...",
-                                     [this]
-                                     {
-                                         // The editor derives texture platform data on a DDC miss; a packaged game
-                                         // has no builder.
-                                         Assets::SetTexturePlatformDataBuilder(
-                                              &TextureImporter::BuildPlatformData );
-                                         Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
-                                         (void)m_ImportManager->ImportLooseTextures( SplashItems() );
-                                     },
-                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr,
-                                     0 } );
+        m_StartupStages.push_back(
+             { "Importing textures...",
+               [this]
+               {
+                   // The editor derives texture platform data on a DDC miss; a packaged game
+                   // has no builder.
+                   Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
+                   Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
+                   (void)m_ImportManager->ImportLooseTextures( SplashItems() );
+               },
+               kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );
         // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
         // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
         // names them, and the scene settle below waits for the ones the scene names.
@@ -961,15 +961,21 @@ namespace Desert::Editor
                                                              Assets::AssetHandle( subject.Owner ) ) != nullptr;
                            } } );
 
-        // THE STATIC MESH VIEWER. Also a renderer-slot claimant. AssetTypeID::Mesh covers `.skmesh` as well; the
-        // open route refuses those by name (Core::AssetSubjectFor), so only static meshes reach this factory.
+        // THE MESH EDITORS. Also renderer-slot claimants. AssetTypeID::Mesh covers `.stmesh` and `.skmesh`: the
+        // static one opens the static mesh viewer, the skinned one Persona's Mesh mode (Core::PersonaModeFor).
         m_SubjectEditors.Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Mesh ) ),
              Registration{ "StaticMesh", ICON_MDI_CUBE_OUTLINE,
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
-                               return std::make_unique<Editor::StaticMeshViewerDocument>(
-                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
+                               const Assets::AssetHandle handle( subject.Owner );
+                               const auto*               meta =
+                                    m_AssetManager ? m_AssetManager->FindMetadataByHandle( handle ) : nullptr;
+                               if ( meta != nullptr && Core::PersonaModeFor( *meta ) == Core::PersonaMode::Mesh )
+                                   return std::make_unique<Editor::AnimationEditorDocument>(
+                                        handle, Core::PersonaMode::Mesh, m_AssetManager.get(), &m_SubjectEditors );
+                               return std::make_unique<Editor::StaticMeshViewerDocument>( handle,
+                                                                                          m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -977,15 +983,31 @@ namespace Desert::Editor
                                                              Assets::AssetHandle( subject.Owner ) ) != nullptr;
                            } } );
 
-        // THE ANIMATION EDITOR (ANV1a). A renderer-slot claimant like the static mesh viewer.
+        // THE ANIMATION EDITOR (ANV1a) — Persona's Animation mode. A renderer-slot claimant like the mesh viewer.
         m_SubjectEditors.Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Animation ) ),
              Registration{ "Animation", ICON_MDI_RUN,
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::AnimationEditorDocument>(
-                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get(),
-                                    &m_SubjectEditors );
+                                    Assets::AssetHandle( subject.Owner ), Core::PersonaMode::Animation,
+                                    m_AssetManager.get(), &m_SubjectEditors );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
+        // PERSONA'S SKELETON MODE (ANV1f): the same window, about the rig.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Skeleton ) ),
+             Registration{ "Skeleton", ICON_MDI_RUN,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               return std::make_unique<Editor::AnimationEditorDocument>(
+                                    Assets::AssetHandle( subject.Owner ), Core::PersonaMode::Skeleton,
+                                    m_AssetManager.get(), &m_SubjectEditors );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -1222,7 +1244,10 @@ namespace Desert::Editor
              { std::string( Common::Constants::Extensions::STATIC_MESH ) }, [this]( const std::string& path )
              { return RequestStaticMeshDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
-             { std::string( Editor::kAnimationClipExtension ) }, [this]( const std::string& path )
+             { std::string( Editor::kAnimationClipExtension ),
+               std::string( Common::Content::KindSpec( Common::Content::ContentKind::SkinnedMesh ).Extension ),
+               std::string( Common::Content::KindSpec( Common::Content::ContentKind::Skeleton ).Extension ) },
+             [this]( const std::string& path )
              { return RequestAnimationEditorDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
@@ -2487,10 +2512,10 @@ namespace Desert::Editor
                              request.Id, fmt::format( "the selected entity {} is not in the scene",
                                                       static_cast<uint64_t>( uuid ) ) );
                     const ECS::Entity entity = ref->get();
-                    auto&       tc     = entity.GetComponent<ECS::TransformComponent>();
-                    tc.Translation     = after.GetValue().Translation;
-                    tc.Rotation        = after.GetValue().Rotation;
-                    tc.Scale           = after.GetValue().Scale;
+                    auto&             tc     = entity.GetComponent<ECS::TransformComponent>();
+                    tc.Translation           = after.GetValue().Translation;
+                    tc.Rotation              = after.GetValue().Rotation;
+                    tc.Scale                 = after.GetValue().Scale;
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
@@ -2593,7 +2618,7 @@ namespace Desert::Editor
 
     Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> EditorLayer::SelectedTransform() const
     {
-        using Result = std::pair<Common::UUID, Core::SelectionTransform>;
+        using Result        = std::pair<Common::UUID, Core::SelectionTransform>;
         const auto selected = Core::SelectionManager::GetSelected();
         if ( Core::SelectionManager::Count() != 1 || !selected.has_value() )
             return Common::MakeFormattedError<Result>(
@@ -2684,13 +2709,13 @@ namespace Desert::Editor
                 continue;
 
             Control::DocumentSnapshot entry;
-            entry.Name               = DocumentDisplayName( document->GetName() );
-            entry.Type               = m_SubjectEditors.TypeName( subject );
-            entry.Subject            = subject.ToString();
-            entry.HoldsView          = document->HoldsView();
-            entry.ClaimsView         = document->ClaimsView();
-            entry.ViewForecastBytes  = document->ViewForecastBytes();
-            entry.Focused            = ( subject == m_FocusedDocument );
+            entry.Name              = DocumentDisplayName( document->GetName() );
+            entry.Type              = m_SubjectEditors.TypeName( subject );
+            entry.Subject           = subject.ToString();
+            entry.HoldsView         = document->HoldsView();
+            entry.ClaimsView        = document->ClaimsView();
+            entry.ViewForecastBytes = document->ViewForecastBytes();
+            entry.Focused           = ( subject == m_FocusedDocument );
 
             // The three states, asked of the document itself. Written out as words here rather than
             // exported as enums, because the wire is read by clients that have none of our headers.
@@ -4146,7 +4171,7 @@ namespace Desert::Editor
                 ImGuiID right  = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.20f, nullptr, &center );
                 ImGuiID left   = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Left, 0.22f, nullptr, &center );
                 ImGuiID bottom = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Down, 0.28f, nullptr, &center );
-                m_BottomDockId     = bottom; // remembered so the drawer can be collapsed/restored later
+                m_BottomDockId = bottom; // remembered so the drawer can be collapsed/restored later
                 ImGuiID leftBottom = ::ImGui::DockBuilderSplitNode( left, ImGuiDir_Down, 0.40f, nullptr, &left );
                 ImGuiID rightBottom =
                      ::ImGui::DockBuilderSplitNode( right, ImGuiDir_Down, 0.50f, nullptr, &right );
@@ -4903,21 +4928,19 @@ namespace Desert::Editor
                                   ++control )
                             {
                                 const std::string name = hierarchy.Get( control ).Name;
-                                commands.push_back( { "Control Rig", "Select control " + name,
-                                                      [this, subject, control]
-                                                      {
-                                                          // The palette takes the context the way it does for
-                                                          // "Author": after "Viewport mode: Control" the viewport
-                                                          // holds it, and picking a control by name refused.
-                                                          // Focus adopts the holder's mode for the same entity.
-                                                          auto& host = Core::ActiveAuthoringContext();
-                                                          m_PaletteAuthoring.Entity = subject;
-                                                          (void)host.Focus( m_PaletteAuthoringOwner,
-                                                                            m_PaletteAuthoring );
-                                                          return host.SetSelectedControl( m_PaletteAuthoringOwner,
-                                                                                          m_PaletteAuthoring,
-                                                                                          control );
-                                                      } } );
+                                commands.push_back(
+                                     { "Control Rig", "Select control " + name, [this, subject, control]
+                                       {
+                                           // The palette takes the context the way it does for
+                                           // "Author": after "Viewport mode: Control" the viewport
+                                           // holds it, and picking a control by name refused.
+                                           // Focus adopts the holder's mode for the same entity.
+                                           auto& host                = Core::ActiveAuthoringContext();
+                                           m_PaletteAuthoring.Entity = subject;
+                                           (void)host.Focus( m_PaletteAuthoringOwner, m_PaletteAuthoring );
+                                           return host.SetSelectedControl( m_PaletteAuthoringOwner,
+                                                                           m_PaletteAuthoring, control );
+                                       } } );
                             }
                         }
                     }
@@ -5327,24 +5350,23 @@ namespace Desert::Editor
                     const auto* info = layers.Get( handle );
                     if ( !info )
                         continue;
-                    commands.push_back( { "Landscape", "Target layer: " + info->LayerName,
-                                          [this, handle, name = info->LayerName]
-                                          {
-                                              auto&      reg   = m_MainScene->GetRegistry();
-                                              const auto id    = ECS::FirstLandscape( reg );
-                                              const auto r     = id ? ECS::FindLandscapeRootEntity( reg, *id )
-                                                                    : entt::entity( entt::null );
-                                              bool       found = false;
-                                              if ( r != entt::null )
-                                                  for ( const auto& l :
-                                                        reg.get<ECS::LandscapeComponent>( r ).Layers )
-                                                      found = found || l == handle;
-                                              if ( !found )
-                                                  return PaletteCommandOutcome( false, "landscape layer '" + name +
-                                                                                            "' no longer exists" );
-                                              Core::LandscapeSculptState::Get().Paint.Layer = name;
-                                              return PaletteCommandDone();
-                                          } } );
+                    commands.push_back(
+                         { "Landscape", "Target layer: " + info->LayerName, [this, handle, name = info->LayerName]
+                           {
+                               auto&      reg = m_MainScene->GetRegistry();
+                               const auto id  = ECS::FirstLandscape( reg );
+                               const auto r =
+                                    id ? ECS::FindLandscapeRootEntity( reg, *id ) : entt::entity( entt::null );
+                               bool found = false;
+                               if ( r != entt::null )
+                                   for ( const auto& l : reg.get<ECS::LandscapeComponent>( r ).Layers )
+                                       found = found || l == handle;
+                               if ( !found )
+                                   return PaletteCommandOutcome( false, "landscape layer '" + name +
+                                                                             "' no longer exists" );
+                               Core::LandscapeSculptState::Get().Paint.Layer = name;
+                               return PaletteCommandDone();
+                           } } );
                 }
             }
         }
@@ -7890,12 +7912,12 @@ namespace Desert::Editor
     Splash::RevealState EditorLayer::CurrentRevealState() const
     {
         Splash::RevealState state;
-        state.HasSplash        = m_Splash != nullptr;
-        state.Revealed         = m_Revealed;
-        state.StartupLoading   = StartupLoading();
-        state.SceneLoadPending = m_SceneLoadRequested.has_value();
-        state.ContentSettling  = ContentSettling();
-        state.RealFrameDrawn   = m_RealFrameDrawn;
+        state.HasSplash           = m_Splash != nullptr;
+        state.Revealed            = m_Revealed;
+        state.StartupLoading      = StartupLoading();
+        state.SceneLoadPending    = m_SceneLoadRequested.has_value();
+        state.ContentSettling     = ContentSettling();
+        state.RealFrameDrawn      = m_RealFrameDrawn;
         state.ThumbnailsUploading = m_ThumbnailsHoldReveal;
         return state;
     }
@@ -9559,7 +9581,7 @@ namespace Desert::Editor
             auto& d     = e.AddComponent<ECS::PointLightComponent>().Data;
             d.Color     = color;
             d.Intensity = intensity;
-            d.Radius                                              = Common::Units::Metres( 12.0f );
+            d.Radius    = Common::Units::Metres( 12.0f );
             e.GetComponent<ECS::TransformComponent>().Translation = pos * Common::Units::UnitsPerMetre;
         };
         pointLight( "FillWarm", { 4.0f, 3.0f, 3.0f }, { 1.0f, 0.85f, 0.6f }, 5.0f );
@@ -10182,12 +10204,12 @@ namespace Desert::Editor
         // --- Camera: a CHILD of the (unscaled) player. Offset behind+above = 3rd person; move it to ~(0,
         // 0.7, 0) with rotation 0 for 1st person. Follows the player via the hierarchy (WORLD transform).
         {
-            auto& cam            = m_MainScene->CreateNewEntity( "PlayerCamera" );
-            auto& cd             = cam.AddComponent<ECS::CameraComponent>();
+            auto& cam                     = m_MainScene->CreateNewEntity( "PlayerCamera" );
+            auto& cd                      = cam.AddComponent<ECS::CameraComponent>();
             cd.Data.AutoActivateForPlayer = true;
-            auto& ct             = cam.GetComponent<ECS::TransformComponent>();
-            ct.Translation       = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 7.0f ); // 3rd person
-            ct.Rotation          = { glm::radians( -10.0f ), 0.0f, 0.0f }; // look slightly down at the player
+            auto& ct                      = cam.GetComponent<ECS::TransformComponent>();
+            ct.Translation = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, 1.5f, 7.0f ); // 3rd person
+            ct.Rotation    = { glm::radians( -10.0f ), 0.0f, 0.0f }; // look slightly down at the player
             m_MainScene->Attach( player, cam );
         }
 
@@ -10691,7 +10713,7 @@ namespace Desert::Editor
         // the end of OnDetach reads them today, so this was latent rather than live — and "nothing reads
         // it today" is the weakest guarantee in this audit, because it is about the code that exists
         // rather than about the code. A8-2.
-        m_FileExplorerPanel = nullptr;
+        m_FileExplorerPanel   = nullptr;
         m_WorldPartitionPanel = nullptr;
         // Reported and not returned even though OnDetach has a channel: everything below this line still
         // has to run, and an early return would leave the extra documents and their render slots alive.

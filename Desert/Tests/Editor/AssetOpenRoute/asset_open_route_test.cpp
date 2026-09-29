@@ -155,6 +155,61 @@ TEST_F( AssetOpenRoute, EveryAssetTypeEitherOpensOrIsRefusedByName )
     EXPECT_FALSE( SubjectOpenRequests::HasPending() );
 }
 
+// PERSONA (ANV1f): a skeletal mesh and a skeleton open like any asset — the mesh under the Mesh type, whose
+// registration then builds Persona's Mesh mode because PersonaModeFor says so; a static mesh stays the viewer's.
+namespace
+{
+    Assets::AssetMetadata MetadataAt( const uint64_t handle, const Assets::AssetTypeID type, const char* path )
+    {
+        auto metadata     = Metadata( handle, type );
+        metadata.Filepath = path;
+        return metadata;
+    }
+
+    SubjectEditorRegistry Registering( const std::initializer_list<Assets::AssetTypeID> types )
+    {
+        SubjectEditorRegistry registry;
+        for ( const auto type : types )
+            registry.Register( AssetSubjectType( static_cast<uint32_t>( type ) ),
+                               SubjectEditorRegistry::Registration{ "Any", "A",
+                                                                    []( const SubjectId& ) { return nullptr; },
+                                                                    []( const SubjectId& ) { return true; } } );
+        return registry;
+    }
+} // namespace
+
+TEST_F( AssetOpenRoute, ASkeletalMeshOpensAsItsMeshSubjectInPersonasMeshMode )
+{
+    const auto registry = Registering( { Assets::AssetTypeID::Mesh } );
+    const auto mesh     = MetadataAt( 0x5C1, Assets::AssetTypeID::Mesh, "Characters/SK_Mannequin.skmesh" );
+    const auto subject  = AssetSubjectFor( &mesh, mesh.Handle, registry );
+    ASSERT_TRUE( subject.IsSuccess() ) << subject.GetError();
+    EXPECT_EQ( subject.GetValue(),
+               AssetSubject( mesh.Handle, static_cast<uint32_t>( Assets::AssetTypeID::Mesh ) ) );
+    EXPECT_EQ( PersonaModeFor( mesh ), PersonaMode::Mesh );
+}
+
+TEST_F( AssetOpenRoute, AStaticMeshIsNotPersonas )
+{
+    const auto mesh = MetadataAt( 0x5C2, Assets::AssetTypeID::Mesh, "Props/SM_Crate.stmesh" );
+    EXPECT_EQ( PersonaModeFor( mesh ), std::nullopt );
+    const auto texture = Metadata( 0x5C3, Assets::AssetTypeID::Texture2D );
+    EXPECT_EQ( PersonaModeFor( texture ), std::nullopt );
+}
+
+TEST_F( AssetOpenRoute, ASkeletonOpensInPersonasSkeletonModeAndAClipInItsAnimationMode )
+{
+    const auto registry = Registering( { Assets::AssetTypeID::Skeleton, Assets::AssetTypeID::Animation } );
+    const auto skeleton = MetadataAt( 0x5C4, Assets::AssetTypeID::Skeleton, "Characters/SKEL_Mannequin.skeleton" );
+    const auto clip     = MetadataAt( 0x5C5, Assets::AssetTypeID::Animation, "Characters/Run.anim" );
+    const auto opened   = AssetSubjectFor( &skeleton, skeleton.Handle, registry );
+    ASSERT_TRUE( opened.IsSuccess() ) << opened.GetError();
+    EXPECT_EQ( opened.GetValue(),
+               AssetSubject( skeleton.Handle, static_cast<uint32_t>( Assets::AssetTypeID::Skeleton ) ) );
+    EXPECT_EQ( PersonaModeFor( skeleton ), PersonaMode::Skeleton );
+    EXPECT_EQ( PersonaModeFor( clip ), PersonaMode::Animation );
+}
+
 namespace
 {
     std::string ReadRepoFile( const char* relative )

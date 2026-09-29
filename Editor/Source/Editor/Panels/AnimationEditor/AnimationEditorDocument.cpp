@@ -12,8 +12,10 @@
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include <Engine/Animation/Animator.hpp>
@@ -99,11 +101,11 @@ namespace Desert::Editor
         }
     } // namespace
 
-    AnimationEditorDocument::AnimationEditorDocument( const Assets::AssetHandle&   clip,
-                                                      Assets::AssetManager*        assets,
+    AnimationEditorDocument::AnimationEditorDocument( const Assets::AssetHandle& asset,
+                                                      const Core::PersonaMode mode, Assets::AssetManager* assets,
                                                       const SubjectEditorRegistry* editors )
-         : AnimationEditorBase( AssetSubjectTitle( clip, assets, "Animation" ), clip ), m_Assets( assets ),
-           m_Editors( editors ), m_ClipPin( clip, "open in the Animation Editor" )
+         : AnimationEditorBase( AssetSubjectTitle( asset, assets, PersonaModeName( mode ) ), asset, mode ),
+           m_Assets( assets ), m_Editors( editors ), m_ClipPin( asset, "open in the Animation Editor" )
     {
     }
 
@@ -136,6 +138,71 @@ namespace Desert::Editor
                m_Assets->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) ) != nullptr;
     }
 
+    bool AnimationEditorDocument::ResolveRig( const std::string& name, std::filesystem::path& preferredMesh )
+    {
+        const Assets::AssetHandle handle( Subject().Owner );
+        switch ( Mode() )
+        {
+            case Core::PersonaMode::Animation:
+            {
+                auto clip = m_Assets->FindByHandle<Assets::AnimationAsset>( handle );
+                if ( !clip )
+                {
+                    m_Unavailable = std::format( "'{}' is not an AnimationAsset in the asset manager.", name );
+                    return false;
+                }
+                if ( const auto loaded = clip->EnsureLoaded( *m_Assets ); !loaded )
+                {
+                    m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
+                    return false;
+                }
+                (void)ClipAsset();
+                m_Signature = clip->GetSkeletonSignature();
+                break;
+            }
+            case Core::PersonaMode::Mesh:
+            {
+                // The mesh opened IS the preview: Persona's Mesh mode shows its own asset, in the bind pose.
+                auto mesh = m_Assets->FindByHandle<Assets::SkinnedMeshAsset>( handle );
+                if ( !mesh )
+                {
+                    m_Unavailable = std::format( "'{}' is not a SkinnedMeshAsset in the asset manager.", name );
+                    return false;
+                }
+                if ( const auto loaded = mesh->EnsureLoaded( *m_Assets ); !loaded )
+                {
+                    m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
+                    return false;
+                }
+                m_Signature   = mesh->GetSkeletonSignature();
+                preferredMesh = mesh->GetMetadata().Filepath;
+                break;
+            }
+            case Core::PersonaMode::Skeleton:
+            {
+                auto skeleton = m_Assets->FindByHandle<Assets::SkeletonAsset>( handle );
+                if ( !skeleton )
+                {
+                    m_Unavailable = std::format( "'{}' is not a SkeletonAsset in the asset manager.", name );
+                    return false;
+                }
+                if ( const auto loaded = skeleton->EnsureLoaded( *m_Assets ); !loaded )
+                {
+                    m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
+                    return false;
+                }
+                m_Signature = skeleton->GetSignature();
+                break;
+            }
+        }
+        if ( m_Signature == 0 )
+        {
+            m_Unavailable = std::format( "'{}' names no skeleton (signature 0) — no mesh can show it.", name );
+            return false;
+        }
+        return true;
+    }
+
     void AnimationEditorDocument::EnsurePreview()
     {
         if ( m_Preview || !m_Unavailable.empty() )
@@ -145,67 +212,70 @@ namespace Desert::Editor
         const auto*               meta = m_Assets != nullptr ? m_Assets->FindMetadataByHandle( handle ) : nullptr;
         if ( meta == nullptr )
         {
-            m_Unavailable = "This clip is not registered with the asset manager — nothing to show.";
+            m_Unavailable = std::format( "This {} is not registered with the asset manager — nothing to show.",
+                                         PersonaModeName( Mode() ) );
             return;
         }
-        const std::string name = meta->Filepath.filename().string();
-        auto              clip = m_Assets->FindByHandle<Assets::AnimationAsset>( handle );
-        if ( !clip )
-        {
-            m_Unavailable = std::format( "'{}' is not an AnimationAsset in the asset manager.", name );
+        const std::string     name = meta->Filepath.filename().string();
+        std::filesystem::path preferred;
+        if ( !ResolveRig( name, preferred ) )
             return;
-        }
-        if ( const auto loaded = clip->EnsureLoaded( *m_Assets ); !loaded )
-        {
-            m_Unavailable = std::format( "'{}' would not load: {}", name, loaded.GetError() );
-            return;
-        }
-        (void)ClipAsset();
-        const uint64_t signature = clip->GetSkeletonSignature();
-        if ( signature == 0 )
-        {
-            m_Unavailable = std::format( "'{}' names no skeleton (signature 0) — no mesh can play it.", name );
-            return;
-        }
+        const uint64_t signature = m_Signature;
 
-        // The first `.skmesh` by path whose rig is the clip's: a stable pick, so two openings show one mesh.
-        // Asked of the CONTENT REGISTRY by its Rig tag, which the scan read from each mesh's header: nothing is
-        // loaded to list them, and only the mesh shown is loaded (ANV1c3 loaded every one, in a frame).
+        // The first `.skmesh` by path whose rig is the subject's: a stable pick, so two openings show one mesh
+        // (Mesh mode shows its own). Asked of the CONTENT REGISTRY by its Rig tag, which the scan read from each
+        // mesh's header: nothing is loaded to list them, and only the mesh shown is loaded (ANV1c3 loaded every
+        // one, in a frame).
         std::vector<std::filesystem::path> candidates;
         for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh ) )
             if ( row.RigSignature == signature )
                 candidates.push_back( row.Path );
+        std::ranges::sort( candidates );
+        size_t shown = 0;
+        if ( !preferred.empty() )
+        {
+            // By the registry's spelling of the path when it lists the mesh; a mesh the scan has not seen yet
+            // (created since) is still the one this window is about.
+            const auto found =
+                 std::ranges::find_if( candidates, [&]( const std::filesystem::path& path )
+                                       { return path.lexically_normal() == preferred.lexically_normal(); } );
+            if ( found == candidates.end() )
+                candidates.insert( candidates.begin(), preferred );
+            else
+                shown = static_cast<size_t>( found - candidates.begin() );
+        }
         if ( candidates.empty() )
         {
-            m_Unavailable =
-                 std::format( "'{}' plays on skeleton {:016x}, and no registered skeletal mesh (.skmesh) "
-                              "uses that skeleton — nothing to preview it on.",
-                              name, signature );
+            m_Unavailable = std::format( "'{}' is on skeleton {:016x}, and no registered skeletal mesh (.skmesh) "
+                                         "uses that skeleton — nothing to preview it on.",
+                                         name, signature );
             return;
         }
-        std::ranges::sort( candidates );
         m_MeshCandidates = std::move( candidates );
         std::string meshError;
-        m_Mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates.front(), signature, meshError );
+        m_Mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[shown], signature, meshError );
         if ( !m_Mesh )
         {
             m_Unavailable = meshError;
             return;
         }
-        m_MeshIndex = 0;
+        m_MeshIndex = shown;
 
-        const auto& animClip        = clip->GetClip();
-        m_ClipName                  = animClip.AnimationName.empty() ? name : animClip.AnimationName;
-        m_Transport.DurationSeconds = animClip.DurationSeconds();
-        m_Transport.DisplayRate =
-             animClip.DisplayRate.IsValid() ? animClip.DisplayRate : Animation::DEFAULT_DISPLAY_RATE;
+        if ( m_ClipAsset )
+        {
+            const auto& animClip        = m_ClipAsset->GetClip();
+            m_ClipName                  = animClip.AnimationName.empty() ? name : animClip.AnimationName;
+            m_Transport.DurationSeconds = animClip.DurationSeconds();
+            m_Transport.DisplayRate =
+                 animClip.DisplayRate.IsValid() ? animClip.DisplayRate : Animation::DEFAULT_DISPLAY_RATE;
+        }
 
         m_Preview  = std::make_unique<PreviewViewport>();
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
         m_PreviewLive = true;
 
-        SetPreviewMesh( 0 );
+        SetPreviewMesh( shown );
         // The pose changes every frame the clip plays; the gate still skips a paused, unmoved pane.
         if ( m_PendingOrbitDegrees )
         {
@@ -217,13 +287,12 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::SetPreviewMesh( const size_t candidate )
     {
-        if ( !m_Preview || candidate >= m_MeshCandidates.size() || !m_ClipAsset )
+        if ( !m_Preview || candidate >= m_MeshCandidates.size() || m_Signature == 0 )
             return;
         if ( candidate != m_MeshIndex || !m_Mesh )
         {
             std::string error;
-            auto        mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[candidate],
-                                                m_ClipAsset->GetSkeletonSignature(), error );
+            auto        mesh = LoadPreviewMesh( *m_Assets, m_MeshCandidates[candidate], m_Signature, error );
             if ( !mesh )
             {
                 m_SaveStatus = error;
@@ -270,6 +339,10 @@ namespace Desert::Editor
     std::vector<ISubjectDocument::DocumentAction> AnimationEditorDocument::Actions()
     {
         std::vector<DocumentAction> actions;
+        for ( const auto mode :
+              { Core::PersonaMode::Skeleton, Core::PersonaMode::Mesh, Core::PersonaMode::Animation } )
+            actions.push_back(
+                 { std::format( "Mode {}", PersonaModeName( mode ) ), [this, mode]() { OpenMode( mode ); } } );
         actions.push_back( { "Play/Pause", [this]() { m_Transport.TogglePlay(); } } );
         actions.push_back( { "Next Frame", [this]() { m_Transport.StepFrames( 1 ); } } );
         actions.push_back( { "Previous Frame", [this]() { m_Transport.StepFrames( -1 ); } } );
@@ -400,7 +473,8 @@ namespace Desert::Editor
 
     Assets::AnimationAsset* AnimationEditorDocument::ClipAsset()
     {
-        if ( m_Assets == nullptr )
+        // Only Animation mode is about a clip; the Skeleton and Mesh modes' subject is not one.
+        if ( m_Assets == nullptr || Mode() != Core::PersonaMode::Animation )
             return nullptr;
         // The sweep keeps this clip while the window is open (m_ClipPin). The reload below is for a clip some
         // other path unloaded (a reimport); it re-reads the file.
@@ -503,6 +577,13 @@ namespace Desert::Editor
             draw->AddText( ImVec2( at.x + 1.0f, at.y + 1.0f ), IM_COL32( 0, 0, 0, 200 ), text.c_str() );
             draw->AddText( at, IM_COL32( 235, 235, 235, 255 ), text.c_str() );
         };
+        if ( Mode() != Core::PersonaMode::Animation )
+        {
+            line( 0, std::format( "Previewing {} {}", PersonaModeName( Mode() ),
+                                  Mode() == Core::PersonaMode::Mesh ? m_MeshName : std::string( GetName() ) ) );
+            line( 1, std::format( "Bind pose   mesh {}   skeleton {:016x}", m_MeshName, m_Signature ) );
+            return;
+        }
         line( 0, std::format( "Previewing Animation {}", m_ClipName ) );
         line( 1, std::format( "Frame {} / {}   {:.3f} s / {:.3f} s", m_Transport.FrameIndex(),
                               m_Transport.LastFrame(), m_Transport.Time, m_Transport.DurationSeconds ) );
@@ -615,6 +696,7 @@ namespace Desert::Editor
         const ImGuiDockNode* node   = ImGui::DockBuilderGetNode( dockId );
         if ( node == nullptr || node->IsLeafNode() )
             BuildLayout( dockId );
+        DrawModeToolbar();
         ImGui::DockSpace( dockId, ImVec2( 0.0f, 0.0f ) );
 
         const auto panel = [this]( const char* name, const ImGuiWindowFlags flags, auto&& draw )
@@ -643,9 +725,12 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::DrawViewportPanel()
     {
-        const float  transportHeight = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetStyle().ItemSpacing.y;
-        const ImVec2 avail           = ImGui::GetContentRegionAvail();
-        const float  timelineHeight  = TimelineHeight();
+        // The transport and the timeline are about a clip: the Skeleton and Mesh modes have none (UE's too).
+        const bool  animation = Mode() == Core::PersonaMode::Animation;
+        const float transportHeight =
+             animation ? ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetStyle().ItemSpacing.y : 0.0f;
+        const ImVec2 avail          = ImGui::GetContentRegionAvail();
+        const float  timelineHeight = animation ? TimelineHeight() : 0.0f;
         const ImVec2 view(
              std::max( avail.x, 1.0f ),
              std::max( avail.y - transportHeight - timelineHeight - ImGui::GetStyle().ItemSpacing.y, 1.0f ) );
@@ -662,10 +747,14 @@ namespace Desert::Editor
                                        m_GizmoHovered ? PreviewInteraction::Static
                                                       : PreviewInteraction::Interactive );
             DrawBones( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
-            DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
+            // Posing keys into the clip, so the gizmo is Animation mode's.
+            if ( animation )
+                DrawBoneGizmo( glm::vec2( origin.x, origin.y ), glm::vec2( view.x, view.y ) );
             DrawOverlay( glm::vec2( origin.x, origin.y ) );
         }
         ImGui::EndChild();
+        if ( !animation )
+            return;
         DrawTransport();
         DrawTimeline( view.x, timelineHeight );
     }
@@ -990,6 +1079,16 @@ namespace Desert::Editor
 
     void AnimationEditorDocument::DrawAssetDetails()
     {
+        if ( Mode() == Core::PersonaMode::Mesh )
+        {
+            DrawMeshDetails();
+            return;
+        }
+        if ( Mode() == Core::PersonaMode::Skeleton )
+        {
+            DrawSkeletonDetails();
+            return;
+        }
         const auto* asset = ClipAsset();
         if ( asset == nullptr )
         {
@@ -1052,10 +1151,10 @@ namespace Desert::Editor
         // open one. Listed from the CONTENT REGISTRY by each clip's Rig tag (the scan reads a clip's stated
         // SkeletonSignature, ContentScan.cpp) - nothing is loaded to list them, as UE's browser reads the
         // registry's tags; AnimationLibrary holds only the clips something already loaded.
-        const uint64_t signature = m_ClipAsset ? m_ClipAsset->GetSkeletonSignature() : 0;
+        const uint64_t signature = m_Signature;
         if ( signature == 0 )
         {
-            ImGui::TextDisabled( "The clip names no skeleton: nothing to list clips for." );
+            ImGui::TextDisabled( "No skeleton is known yet: nothing to list clips for." );
             return;
         }
         if ( !m_BrowserListed )
@@ -1525,39 +1624,199 @@ namespace Desert::Editor
         }
     }
 
+    Assets::AssetHandle AnimationEditorDocument::ModeAsset( const Core::PersonaMode mode ) const
+    {
+        if ( mode == Mode() )
+            return Assets::AssetHandle( Subject().Owner );
+        switch ( mode )
+        {
+            case Core::PersonaMode::Skeleton:
+                // The previewed mesh's own skeleton dependency: the rig every mode here is on.
+                return m_Mesh ? Assets::AssetHandle( m_Mesh->GetSkeletonDependency().Handle )
+                              : Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+            case Core::PersonaMode::Mesh:
+                return m_Mesh ? m_Mesh->GetMetadata().Handle : Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+            case Core::PersonaMode::Animation:
+                // UE opens the last animation; this window has no history across windows, so it is the first
+                // clip the Asset Browser lists for the rig (sorted by name, a stable pick).
+                return m_BrowserClips.empty() ? Assets::AssetHandle( static_cast<uint64_t>( 0 ) )
+                                              : m_BrowserClips.front().second;
+        }
+        return Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+    }
+
+    void AnimationEditorDocument::OpenMode( const Core::PersonaMode mode )
+    {
+        if ( mode == Mode() || m_Editors == nullptr || m_Assets == nullptr )
+            return;
+        if ( mode == Core::PersonaMode::Animation && !m_BrowserListed )
+        {
+            m_BrowserClips.clear();
+            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
+                if ( row.RigSignature == m_Signature && m_Signature != 0 )
+                    m_BrowserClips.emplace_back( row.Path.filename().string(), row.Handle );
+            std::ranges::sort( m_BrowserClips );
+            m_BrowserListed = true;
+        }
+        const Assets::AssetHandle target = ModeAsset( mode );
+        if ( static_cast<uint64_t>( target ) == 0 )
+        {
+            LOG_ERROR( "Animation Editor: no {} asset on skeleton {:016x} to switch to", PersonaModeName( mode ),
+                       m_Signature );
+            return;
+        }
+        if ( const auto opened =
+                  Core::RequestOpenAsset( m_Assets->FindMetadataByHandle( target ), target, *m_Editors );
+             !opened.IsSuccess() )
+            LOG_ERROR( "Animation Editor: {} mode did not open: {}", PersonaModeName( mode ), opened.GetError() );
+    }
+
+    void AnimationEditorDocument::DrawModeToolbar()
+    {
+        // UE puts the mode switcher at the right of the asset editor's toolbar.
+        constexpr std::array kModes = { Core::PersonaMode::Skeleton, Core::PersonaMode::Mesh,
+                                        Core::PersonaMode::Animation };
+        float                width  = 0.0f;
+        for ( const auto mode : kModes )
+            width += ImGui::CalcTextSize( PersonaModeName( mode ) ).x + ImGui::GetStyle().FramePadding.x * 2.0f +
+                     ImGui::GetStyle().ItemSpacing.x;
+        ImGui::SetCursorPosX( std::max( ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - width ) );
+        for ( const auto mode : kModes )
+        {
+            const bool active = mode == Mode();
+            if ( active )
+                ImGui::PushStyleColor( ImGuiCol_Button, ImGui::GetStyleColorVec4( ImGuiCol_ButtonActive ) );
+            if ( ImGui::Button( PersonaModeName( mode ) ) )
+                OpenMode( mode );
+            if ( active )
+                ImGui::PopStyleColor();
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
+    }
+
+    void AnimationEditorDocument::DrawMeshDetails()
+    {
+        if ( !m_Mesh )
+        {
+            ImGui::TextDisabled( "The mesh is not loaded." );
+            return;
+        }
+        // Only what a SkinnedMeshAsset holds (UE's LOD settings and physics asset have no field here).
+        const auto& mesh = *m_Mesh;
+        const auto  row  = []( const char* label, const std::string& value )
+        {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled( "%s", label );
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted( value.c_str() );
+        };
+        SectionHeader( "Mesh" );
+        if ( ImGui::BeginTable( "##meshdetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            row( "File", mesh.GetMetadata().Filepath.filename().string() );
+            row( "Skeleton", std::format( "{:016x}", mesh.GetSkeletonSignature() ) );
+            row( "Vertices", std::format( "{}", mesh.GetVertices().size() ) );
+            row( "Triangles", std::format( "{}", mesh.GetIndices().size() / 3 ) );
+            row( "Sections", std::format( "{}", mesh.GetSubmeshes().size() ) );
+            row( "Morph Targets", std::format( "{}", mesh.GetMorphTargets().size() ) );
+            // Each section carries its own LOD ranges; the mesh has as many levels as its richest section.
+            size_t lods = 1;
+            for ( const auto& section : mesh.GetSubmeshes() )
+                lods = std::max( lods, section.LODs.size() );
+            row( "LODs", std::format( "{}", lods ) );
+            ImGui::EndTable();
+        }
+        SectionHeader( "Material Slots" );
+        if ( ImGui::BeginTable( "##meshslots", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            const auto& slots = mesh.GetMaterialHandles();
+            for ( size_t i = 0; i < slots.size(); ++i )
+            {
+                const auto* meta = m_Assets != nullptr ? m_Assets->FindMetadataByHandle( slots[i] ) : nullptr;
+                row( std::format( "Slot {}", i ).c_str(),
+                     meta != nullptr
+                          ? meta->Filepath.filename().string()
+                          : std::format( "{:016x} (not registered)", static_cast<uint64_t>( slots[i] ) ) );
+            }
+            ImGui::EndTable();
+        }
+    }
+
+    void AnimationEditorDocument::DrawSkeletonDetails()
+    {
+        const auto* animator = m_Preview ? m_Preview->GetAnimator() : nullptr;
+        if ( !ImGui::BeginTable( "##skeldetails", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+            return;
+        const auto row = []( const char* label, const std::string& value )
+        {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled( "%s", label );
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted( value.c_str() );
+        };
+        row( "Skeleton", GetName() );
+        row( "Signature", std::format( "{:016x}", m_Signature ) );
+        row( "Bones", animator != nullptr ? std::format( "{}", animator->GetSkeleton().GetBones().size() )
+                                          : std::string( "(the preview has not built the rig yet)" ) );
+        row( "Preview Mesh", m_MeshName );
+        row( "Meshes on it", std::format( "{}", m_MeshCandidates.size() ) );
+        ImGui::EndTable();
+    }
+
+    namespace
+    {
+        // Find-or-create the asset at @p path as T, load it, and open it through the one handle route.
+        template <typename T>
+        SubjectEditorRegistry::PathOpenOutcome
+        OpenPersonaAsset( Assets::AssetManager& assets, const std::string& path,
+                          const SubjectEditorRegistry& editors, const char* what )
+        {
+            using Outcome = SubjectEditorRegistry::PathOpenOutcome;
+            auto asset    = assets.FindByPath<T>( path );
+            if ( !asset )
+                asset = assets.CreateAsset<T>( path );
+            if ( !asset )
+            {
+                LOG_ERROR( "[Assets] '{}' could not be registered as {} — no editor was opened.", path, what );
+                return Outcome::Failed;
+            }
+            if ( const auto loaded = asset->EnsureLoaded( assets ); !loaded )
+            {
+                LOG_ERROR( "[Assets] '{}' would not load as {} — no editor was opened: {}", path, what,
+                           loaded.GetError() );
+                return Outcome::Failed;
+            }
+            const auto handle = asset->GetMetadata().Handle;
+            if ( const auto opened =
+                      Core::RequestOpenAsset( assets.FindMetadataByHandle( handle ), handle, editors );
+                 !opened.IsSuccess() )
+            {
+                LOG_ERROR( "[Assets] '{}': {}", path, opened.GetError() );
+                return Outcome::Failed;
+            }
+            return Outcome::Requested;
+        }
+    } // namespace
+
     SubjectEditorRegistry::PathOpenOutcome RequestAnimationEditorDocument( Assets::AssetManager*        assets,
                                                                            const std::string&           path,
                                                                            const SubjectEditorRegistry& editors )
     {
         using Outcome = SubjectEditorRegistry::PathOpenOutcome;
+        using Common::Content::ContentKind;
         std::error_code ec;
-        if ( assets == nullptr || std::filesystem::path( path ).extension() != kAnimationClipExtension ||
-             !std::filesystem::exists( path, ec ) )
+        if ( assets == nullptr || !std::filesystem::exists( path, ec ) )
             return Outcome::NotMine;
-
-        auto asset = assets->FindByPath<Assets::AnimationAsset>( path );
-        if ( !asset )
-            asset = assets->CreateAsset<Assets::AnimationAsset>( path );
-        if ( !asset )
-        {
-            LOG_ERROR( "[Assets] '{}' could not be registered as an animation clip — no editor was opened.",
-                       path );
-            return Outcome::Failed;
-        }
-        if ( const auto loaded = asset->EnsureLoaded( *assets ); !loaded )
-        {
-            LOG_ERROR( "[Assets] '{}' would not load as an animation clip — no editor was opened: {}", path,
-                       loaded.GetError() );
-            return Outcome::Failed;
-        }
-
-        const auto handle = asset->GetMetadata().Handle;
-        if ( const auto opened = Core::RequestOpenAsset( assets->FindMetadataByHandle( handle ), handle, editors );
-             !opened.IsSuccess() )
-        {
-            LOG_ERROR( "[Assets] '{}': {}", path, opened.GetError() );
-            return Outcome::Failed;
-        }
-        return Outcome::Requested;
+        const std::string extension = std::filesystem::path( path ).extension().string();
+        if ( extension == kAnimationClipExtension )
+            return OpenPersonaAsset<Assets::AnimationAsset>( *assets, path, editors, "an animation clip" );
+        if ( extension == Common::Content::KindSpec( ContentKind::SkinnedMesh ).Extension )
+            return OpenPersonaAsset<Assets::SkinnedMeshAsset>( *assets, path, editors, "a skeletal mesh" );
+        if ( extension == Common::Content::KindSpec( ContentKind::Skeleton ).Extension )
+            return OpenPersonaAsset<Assets::SkeletonAsset>( *assets, path, editors, "a skeleton" );
+        return Outcome::NotMine;
     }
 } // namespace Desert::Editor
