@@ -17,8 +17,11 @@
 
 #include <Engine/Core/Glfw.hpp>
 
+// Redundant exactly when glfw3.h already declared it -- which is the order-dependence this header exists
+// to remove, so the redundancy is the point.
 extern "C"
 {
+    // NOLINTNEXTLINE(readability-redundant-declaration)
     GLFWAPI VkResult glfwCreateWindowSurface( VkInstance instance, GLFWwindow* window,
                                               const VkAllocationCallbacks* allocator, VkSurfaceKHR* surface );
 }
