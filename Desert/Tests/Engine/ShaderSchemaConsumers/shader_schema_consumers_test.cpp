@@ -388,6 +388,9 @@ namespace
          { "DShaderParseResult", "Meta", kPreproc, nullptr },
          { "DShaderParseResult", "Stages", kPreproc, nullptr },
          { "DShaderParseResult", "Passes", kParser, nullptr },
+         // The generator writes the row and the samplers FROM this (BuildAutoDeclarations); MeshVertexPath
+         // reconciles it with every compiled stage (Core/Formats/MaterialLayout.hpp).
+         { "DShaderParseResult", "Layout", kParser, nullptr },
 
          { "DShaderPass", "Name", kParser, nullptr },
          { "DShaderPass", "State", kPreproc, nullptr },
@@ -578,7 +581,7 @@ TEST( ShaderSchemaConsumers, TheDeadCountIsStatedSoAShrinkageIsVisible )
     // which is a program FRAGMENT rather than a program: ShaderService recognises it at registration and
     // hands its text to the cloud renderer as one virtual include. (Forty since O1 added
     // `ShaderParam::Timing`, when an edit to a parameter reaches the picture.)
-    EXPECT_EQ( std::size( k_Census ), 41u )
+    EXPECT_EQ( std::size( k_Census ), 42u )
          << "the shader schema gained or lost a field; the count is quoted so that is a reviewable edit";
 }
 

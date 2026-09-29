@@ -393,4 +393,56 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         return total;
     }
 
+    Core::Formats::ReflectedMaterialStage ReflectMaterialStage( const std::vector<uint32_t>& spirv,
+                                                                Core::Formats::ShaderStage   stage )
+    {
+        Core::Formats::ReflectedMaterialStage out;
+        out.Stage = stage;
+
+        spirv_cross::Compiler compiler( spirv );
+        const auto            resources = compiler.get_shader_resources();
+
+        const auto membersOf = [&]( const spirv_cross::SPIRType& structType, spirv_cross::TypeID typeId )
+        {
+            std::vector<Core::Formats::ReflectedLayoutMember> members;
+            for ( uint32_t i = 0; i < (uint32_t)structType.member_types.size(); ++i )
+                members.push_back( { compiler.get_member_name( typeId, i ),
+                                     compiler.type_struct_member_offset( structType, i ),
+                                     (uint32_t)compiler.get_declared_struct_member_size( structType, i ) } );
+            return members;
+        };
+
+        for ( const auto& resource : resources.storage_buffers )
+        {
+            const auto& block = compiler.get_type( resource.base_type_id );
+            if ( compiler.get_name( resource.base_type_id ) != Core::Formats::kMaterialRowBlockName &&
+                 resource.name != Core::Formats::kMaterialRowBlockName )
+                continue;
+            if ( block.member_types.empty() )
+                continue;
+            out.RowBinding    = compiler.get_decoration( resource.id, spv::DecorationBinding );
+            const auto& array = compiler.get_type( block.member_types[0] );
+            out.RowStride     = compiler.type_struct_member_array_stride( block, 0 );
+            // A runtime array's element type is its parent; the member names live on that struct type.
+            const spirv_cross::TypeID rowId =
+                 array.array.empty() ? spirv_cross::TypeID( array.self ) : array.parent_type;
+            const auto& row = compiler.get_type( rowId );
+            if ( row.basetype == spirv_cross::SPIRType::Struct )
+                out.RowMembers = membersOf( row, rowId );
+        }
+
+        for ( const auto& resource : resources.sampled_images )
+            out.Samplers.push_back(
+                 { resource.name, compiler.get_decoration( resource.id, spv::DecorationBinding ), 0 } );
+
+        if ( !resources.push_constant_buffers.empty() )
+        {
+            const auto& res  = resources.push_constant_buffers[0];
+            const auto& type = compiler.get_type( res.base_type_id );
+            out.PushSize     = (uint32_t)compiler.get_declared_struct_size( type );
+            out.PushMembers  = membersOf( type, res.base_type_id );
+        }
+        return out;
+    }
+
 } // namespace Desert::Graphic::API::Vulkan::ShaderReflection

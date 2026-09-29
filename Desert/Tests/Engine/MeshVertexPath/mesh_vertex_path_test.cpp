@@ -604,6 +604,188 @@ TEST_F( ShaderRootFixture, EveryInstancedVertexStagePositionsThroughTheOneWindFu
     }
 }
 
+// ---- MaterialLayout: one layout, held to every compiled stage (MAT1h) ---------------------------------
+
+namespace
+{
+    using Desert::Core::Formats::MaterialLayout;
+    using Desert::Core::Formats::ReconcileMaterialLayout;
+    using Desert::Core::Formats::ReflectedMaterialStage;
+
+    struct ReconciledCell
+    {
+        MaterialLayout           Layout;
+        std::vector<std::string> Errors;
+    };
+
+    // Parse -> the layout the generator wrote from -> compile each stage -> reflect -> reconcile. The same
+    // road a template takes at runtime, with nothing in between that knows any field by name.
+    ReconciledCell Reconcile( const std::string& source, const std::string& label )
+    {
+        auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( source );
+        EXPECT_TRUE( parsed.IsSuccess() ) << label;
+        if ( !parsed.IsSuccess() )
+            return {};
+        std::vector<ReflectedMaterialStage> stages;
+        for ( const auto [stage, kind] : { std::pair{ ShaderStage::Vertex, shaderc_vertex_shader },
+                                           std::pair{ ShaderStage::Fragment, shaderc_fragment_shader } } )
+        {
+            const auto it = parsed.GetValue().Stages.find( stage );
+            if ( it == parsed.GetValue().Stages.end() )
+                continue;
+            const auto spirv = CompileStage( it->second, label, kind );
+            EXPECT_FALSE( spirv.empty() ) << label;
+            stages.push_back( ShaderReflection::ReflectMaterialStage( spirv, stage ) );
+        }
+        ReconciledCell cell{ parsed.GetValue().Layout, {} };
+        cell.Errors = ReconcileMaterialLayout( cell.Layout, parsed.GetValue().Name, "", stages );
+        return cell;
+    }
+
+    std::string MockTemplate( const std::string& extraProperties, const std::string& vertexPush,
+                              const std::string& fragmentPush )
+    {
+        return R"(Shader "LayoutMock"
+{
+    Domain Surface
+    Properties Binding(30) TextureBinding(31)
+    {
+        Color     Tint    ("Tint")    = (1, 1, 1, 1)
+        Float     Tiling  ("Tiling")  = 2
+)" + extraProperties +
+               R"(        Texture2D u_Mask ("Mask") = "white"
+    }
+    Vertex
+    {
+)" + vertexPush +
+               R"(        void main() { gl_Position = m_PushConstants.Transform * vec4( float( m_PushConstants.MaterialIndex ) ); }
+    }
+    Fragment
+    {
+)" + fragmentPush +
+               R"(        layout( location = 0 ) out vec4 o_Color;
+        void main() { o_Color = texture( u_Mask, vec2( 0.5 ) ) * u_Material.Tint * u_Material.Tiling; }
+    }
+}
+)";
+    }
+
+    std::string PushMockTemplate( const std::string& vertexPush, const std::string& fragmentPush )
+    {
+        return R"(Shader "PushMock"
+{
+    Domain Surface
+    Properties TextureBinding(31)
+    {
+        Texture2D u_Mask ("Mask") = "white"
+    }
+    Vertex
+    {
+        )" + vertexPush +
+               R"(
+        void main() { gl_Position = m_PushConstants.Transform * vec4( float( m_PushConstants.MaterialIndex ) ); }
+    }
+    Fragment
+    {
+        )" + fragmentPush +
+               R"(
+        layout( location = 0 ) out vec4 o_Color;
+        void main() { o_Color = texture( u_Mask, vec2( 0.5 ) ) * float( m_PushConstants.MaterialIndex ); }
+    }
+}
+)";
+    }
+
+    const std::string kTransportInclude = "        #include <Common/MaterialTransport.glslh>\n";
+} // namespace
+
+// The template is the only input: its parameters, its textures and the push block its include declares all
+// arrive in the layout with their compiled offsets, and the compiled stages agree with it.
+TEST_F( ShaderRootFixture, AMockTemplatesLayoutIsItsPropertiesAndItsPushBlock )
+{
+    auto cell = Reconcile( MockTemplate( "", kTransportInclude, "" ), "LayoutMock" );
+    EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
+
+    ASSERT_TRUE( cell.Layout.RowBinding.has_value() );
+    EXPECT_EQ( *cell.Layout.RowBinding, 30u );
+    ASSERT_NE( cell.Layout.FindParam( "Tiling" ), nullptr );
+    EXPECT_EQ( cell.Layout.FindParam( "Tiling" )->Offset, 16u );
+    ASSERT_NE( cell.Layout.FindTexture( "u_Mask" ), nullptr );
+    EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 31u );
+
+    const auto* index = cell.Layout.FindPush( "MaterialIndex" );
+    ASSERT_NE( index, nullptr );
+    EXPECT_EQ( index->Offset, 64u );
+    EXPECT_EQ( static_cast<uint32_t>( index->Stages ),
+               static_cast<uint32_t>( ShaderStage::Vertex ) | static_cast<uint32_t>( ShaderStage::Fragment ) );
+}
+
+// A parameter written into the template reaches the layout, at its slot, with no C++ naming it.
+TEST_F( ShaderRootFixture, ANewTemplateParameterAppearsInTheLayoutWithoutACppEdit )
+{
+    auto cell = Reconcile( MockTemplate( "        Float     Gloss   (\"Gloss\")   = 1\n", kTransportInclude, "" ),
+                           "LayoutMock" );
+    EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
+    ASSERT_NE( cell.Layout.FindParam( "Gloss" ), nullptr );
+    EXPECT_EQ( cell.Layout.FindParam( "Gloss" )->Offset, 2 * Desert::Core::Formats::kMaterialParamSlotSize );
+    EXPECT_EQ( cell.Layout.RowStride, 3 * Desert::Core::Formats::kMaterialParamSlotSize );
+}
+
+// A push field declared in the shader reaches the layout the same way: the block is read off the SPIR-V.
+// (No row here, so the parser injects no include and each stage's block is exactly the one written.)
+TEST_F( ShaderRootFixture, ANewPushFieldAppearsInTheLayoutWithoutACppEdit )
+{
+    const std::string wider =
+         "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; "
+         "uint BoneOffset; vec4 NewField; } m_PushConstants;";
+    auto cell = Reconcile( PushMockTemplate( wider, wider ), "PushMock" );
+    EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
+    const auto* field = cell.Layout.FindPush( "NewField" );
+    ASSERT_NE( field, nullptr );
+    EXPECT_EQ( field->Offset, 80u );
+    EXPECT_EQ( cell.Layout.PushSize, 96u );
+    EXPECT_FALSE( cell.Layout.RowBinding.has_value() );
+}
+
+// THE T1b REGRESSION. A vertex stage with a 72-byte block beside the fragment's 68 is one pipeline with two
+// blocks; reflection merged it into "the larger wins" and nothing noticed. Reconciling refuses it by name.
+TEST_F( ShaderRootFixture, StagesWhosePushBlocksDifferInLengthAreRefused )
+{
+    const std::string vertex72 =
+         "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; "
+         "uint BoneOffset; } m_PushConstants;";
+    const std::string fragment68 =
+         "layout( push_constant ) uniform PushConstants { mat4 Transform; uint MaterialIndex; } m_PushConstants;";
+    auto cell = Reconcile( PushMockTemplate( vertex72, fragment68 ), "PushMock" );
+    ASSERT_FALSE( cell.Errors.empty() ) << "a 72-byte vertex block beside a 68-byte fragment block was accepted";
+    EXPECT_NE( cell.Errors.front().find( "PushMock" ), std::string::npos ) << cell.Errors.front();
+    EXPECT_NE( cell.Errors.front().find( "72" ), std::string::npos ) << cell.Errors.front();
+    EXPECT_NE( cell.Errors.front().find( "68" ), std::string::npos ) << cell.Errors.front();
+}
+
+// Every shipped forward cell reconciles, and the numbers the renderer still writes by constant are the
+// numbers the layout reads off the SPIR-V — so those constants are pinned to the one layout, not beside it.
+TEST_F( ShaderRootFixture, EveryShippedForwardCellReconcilesAndPinsTheTransportConstants )
+{
+    for ( const auto path : kAllPaths )
+    {
+        const char* name = MeshShaderFor( path, MeshPass::Forward );
+        ASSERT_NE( name, nullptr );
+        const auto file = ShaderFileFor( name );
+        auto       cell = Reconcile( ReadFile( file ), name );
+        EXPECT_TRUE( cell.Errors.empty() ) << ( cell.Errors.empty() ? "" : cell.Errors.front() );
+
+        const auto* transform = cell.Layout.FindPush( "Transform" );
+        const auto* index     = cell.Layout.FindPush( "MaterialIndex" );
+        ASSERT_NE( transform, nullptr ) << name;
+        ASSERT_NE( index, nullptr ) << name;
+        EXPECT_EQ( transform->Offset, Desert::Core::Formats::kMaterialTransformPushOffset ) << name;
+        EXPECT_EQ( index->Offset, Desert::Core::Formats::kMaterialIndexPushOffset ) << name;
+        EXPECT_EQ( cell.Layout.PushSize, Desert::Core::Formats::kMaterialTransportPushSize ) << name;
+        EXPECT_TRUE( cell.Layout.RowBinding.has_value() ) << name;
+    }
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

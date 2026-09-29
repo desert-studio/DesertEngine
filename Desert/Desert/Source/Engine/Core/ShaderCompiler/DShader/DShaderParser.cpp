@@ -283,47 +283,6 @@ namespace Desert::Core::Preprocess
             return true;
         }
 
-        // GLSL declaration type for an auto-generated material-parameter field.
-        const char* GlslTypeOf( const ShaderParam& p )
-        {
-            switch ( p.Type )
-            {
-                case ShaderValueType::Float:
-                    return "float";
-                case ShaderValueType::Float2:
-                    return "vec2";
-                case ShaderValueType::Float3:
-                    return "vec3";
-                case ShaderValueType::Float4:
-                    return "vec4";
-                case ShaderValueType::Int:
-                    return "int";
-                case ShaderValueType::Bool:
-                    return "int";
-                default:
-                    return "vec4";
-            }
-        }
-
-        // How many floats of tail padding a parameter needs to fill its whole 16-byte slot. See
-        // Core/Formats/MaterialParamRow.hpp for why every parameter owns a slot instead of being packed:
-        // it makes "parameter i is at 16*i" true by construction, so the C++ packer implements no layout
-        // rules and cannot disagree with the GLSL about one.
-        uint32_t GlslSlotPaddingFloats( const ShaderParam& p )
-        {
-            switch ( p.Type )
-            {
-                case ShaderValueType::Float4:
-                    return 0;
-                case ShaderValueType::Float3:
-                    return 1;
-                case ShaderValueType::Float2:
-                    return 2;
-                default: // float, int, bool — 4 bytes of value, 12 of slot
-                    return 3;
-            }
-        }
-
         // ─── Section parsers ────────────────────────────────────────────────────────
 
         // 2D-vs-cube for the auto-generated samplers comes from ShaderParam::IsCubeTexture itself; the
@@ -836,51 +795,37 @@ namespace Desert::Core::Preprocess
         // The push constant carrying the row index is an INCLUDE and not text emitted here, because it is
         // identical in every shader in the engine and the offsets have to stay identical too — the same
         // reason the generator emits structure and lets `.glslh` files carry boilerplate.
-        std::string BuildAutoDeclarations( const ShaderProgramMeta& meta, const PropertiesInfo& info )
+        //
+        // THE LAYOUT IS THE INPUT. Every declaration below is written from Core::Formats::MaterialLayout (the
+        // one builder, kept on the parse result), so the GLSL cannot name a parameter, an offset or a binding
+        // the layout does not have — and ReconcileMaterialLayout holds the compiled SPIR-V to the same object.
+        std::string BuildAutoDeclarations( const MaterialLayout& layout )
         {
             std::ostringstream out;
 
-            if ( info.UBBinding )
+            if ( layout.RowBinding )
             {
-                bool any = false;
-                for ( const auto& p : meta.Params )
-                    if ( !p.IsTexture && !p.IsAssetRef() )
-                        any = true;
-
-                if ( any )
+                out << "#include <" << kParserInjectedIncludes[0] << ">\n";
+                out << "struct MaterialParams\n{\n";
+                uint32_t slot = 0;
+                for ( const auto& p : layout.Params )
                 {
-                    out << "#include <" << kParserInjectedIncludes[0] << ">\n";
-                    out << "struct MaterialParams\n{\n";
-                    uint32_t slot = 0;
-                    for ( const auto& p : meta.Params )
-                    {
-                        if ( p.IsTexture )
-                            continue;
-                        out << "    " << GlslTypeOf( p ) << " " << p.Name << ";\n";
-                        // The pad is a float ARRAY (std430 stride 4), so the value plus its pad is
-                        // exactly one 16-byte slot whatever the value's own type is.
-                        if ( const uint32_t pad = GlslSlotPaddingFloats( p ); pad > 0 )
-                            out << "    float _slotPad" << slot << "[" << pad << "];\n";
-                        ++slot;
-                    }
-                    out << "};\n";
-                    out << "layout( std430, binding = " << *info.UBBinding << " ) readonly buffer Materials\n"
-                        << "{\n    MaterialParams u_Materials[];\n};\n";
-                    out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
+                    out << "    " << MaterialLayoutGlslType( p.Type ) << " " << p.Name << ";\n";
+                    // The pad is a float ARRAY (std430 stride 4), so the value plus its pad is exactly one
+                    // 16-byte slot whatever the value's own type is (see Core/Formats/MaterialParamRow.hpp).
+                    if ( const uint32_t pad = ( kMaterialParamSlotSize - p.Size ) / 4; pad > 0 )
+                        out << "    float _slotPad" << slot << "[" << pad << "];\n";
+                    ++slot;
                 }
+                out << "};\n";
+                out << "layout( std430, binding = " << *layout.RowBinding << " ) readonly buffer Materials\n"
+                    << "{\n    MaterialParams u_Materials[];\n};\n";
+                out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
             }
 
-            if ( info.TextureBinding )
-            {
-                uint32_t binding = *info.TextureBinding;
-                for ( const auto& p : meta.Params )
-                {
-                    if ( !p.IsTexture )
-                        continue;
-                    out << "layout( binding = " << binding++ << " ) uniform "
-                        << ( p.IsCubeTexture ? "samplerCube" : "sampler2D" ) << " " << p.Name << ";\n";
-                }
-            }
+            for ( const auto& t : layout.Textures )
+                out << "layout( binding = " << t.Binding << " ) uniform "
+                    << ( t.IsCube ? "samplerCube" : "sampler2D" ) << " " << t.Name << ";\n";
 
             return out.str();
         }
@@ -1537,7 +1482,9 @@ namespace Desert::Core::Preprocess
             return fail();
         }
 
-        const std::string autoDecls = BuildAutoDeclarations( result.Meta, propInfo );
+        result.Layout = BuildMaterialLayout(
+             result.Meta, MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding } );
+        const std::string autoDecls = BuildAutoDeclarations( result.Layout );
 
         const auto assemblePass = [&]( const PendingPass& pending, const ShaderRenderState& state )
         {

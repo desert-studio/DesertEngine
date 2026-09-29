@@ -52,6 +52,12 @@ namespace Desert::Core::Formats
     // string is what makes "one transport" true at the CPU as well as in the shader.
     inline constexpr const char* kMaterialRowBlockName = "Materials";
 
+    // THE PUSH BLOCK'S NUMBERS ARE NOT DECIDED HERE. The block is Common/MaterialTransport.glslh, and its
+    // layout is what Core/Formats/MaterialLayout.hpp reads off each compiled stage (ReconcileMaterialLayout).
+    // The three constants below are what the renderer still writes by number; MeshVertexPath's
+    // EveryShippedForwardCellReconcilesAndPinsTheTransportConstants holds each one equal to the reconciled
+    // layout of every shipped forward cell, so a changed block fails there rather than beside them.
+    //
     // Where the row index rides. The mesh push block is `mat4 Transform; uint MaterialIndex;`, so 64 —
     // and MaterialPBR::kPushMaterialIndexOffset is defined FROM this rather than beside it, because a
     // second copy of the number is how the two transports would drift apart again.
