@@ -416,11 +416,11 @@ namespace Desert::Graphic::RDG
                 }
 
                 Allocation allocation;
-                allocation.Resource  = lifetime.Resource;
-                allocation.Class     = fp.Class;
-                allocation.Offset    = offset;
-                allocation.Size      = fp.Size;
-                allocation.Alignment = fp.Alignment;
+                allocation.Resource       = lifetime.Resource;
+                allocation.Class          = fp.Class;
+                allocation.Offset         = offset;
+                allocation.Size           = fp.Size;
+                allocation.Alignment      = fp.Alignment;
                 allocation.MemoryTypeBits = fp.MemoryTypeBits;
                 for ( size_t a = 0; a < result.Aliasing.Allocations.size(); ++a )
                 {
@@ -539,8 +539,8 @@ namespace Desert::Graphic::RDG
                          anyWritten || writtenSoFar[subBase[attachment.Resource] +
                                                     record.Texture.SubresourceIndex( attachment.Mip, layer )];
                 AttachmentDecision decision;
-                decision.Slot       = attachment.Slot;
-                decision.IsDepth    = attachment.IsDepth;
+                decision.Slot                 = attachment.Slot;
+                decision.IsDepth              = attachment.IsDepth;
                 const int32_t attachmentIndex = static_cast<int32_t>( &attachment - pass.Attachments.data() );
                 for ( const ResourceUse& use : pass.Uses )
                 {

@@ -36,12 +36,12 @@ namespace Desert::Graphic::RDG
 
     struct AttachmentDecision
     {
-        uint32_t    Slot       = 0; // colour slot; unused for depth
-        bool        IsDepth    = false;
-        Access      Usage = Access::ColorTarget; // ColorTarget, DepthWrite or DepthRead: the attachment layout
-        uint32_t    Resource   = kInvalidResource;
-        uint32_t    Mip        = 0;
-        uint32_t    BaseLayer  = 0;
+        uint32_t    Slot      = 0; // colour slot; unused for depth
+        bool        IsDepth   = false;
+        Access      Usage     = Access::ColorTarget; // ColorTarget, DepthWrite or DepthRead: the attachment layout
+        uint32_t    Resource  = kInvalidResource;
+        uint32_t    Mip       = 0;
+        uint32_t    BaseLayer = 0;
         uint32_t    LayerCount = 1;
         LoadAction  Load       = LoadAction::Load;
         StoreAction Store      = StoreAction::Store;
@@ -84,11 +84,11 @@ namespace Desert::Graphic::RDG
 
     struct Allocation
     {
-        uint32_t    Resource  = kInvalidResource;
-        MemoryClass Class     = MemoryClass::Texture;
-        uint64_t    Offset    = 0;
-        uint64_t    Size      = 0;
-        uint64_t    Alignment = 1;
+        uint32_t    Resource       = kInvalidResource;
+        MemoryClass Class          = MemoryClass::Texture;
+        uint64_t    Offset         = 0;
+        uint64_t    Size           = 0;
+        uint64_t    Alignment      = 1;
         uint32_t    MemoryTypeBits = ~0u; // from the IMemoryRequirementsProvider
         // Earlier transients whose bytes this one reuses (their lifetimes ended before it starts).
         std::vector<uint32_t> AliasPredecessors;

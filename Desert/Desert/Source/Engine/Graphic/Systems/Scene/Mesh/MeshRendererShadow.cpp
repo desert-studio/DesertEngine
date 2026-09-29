@@ -2,6 +2,8 @@
 // Reflective Shadow Map drawn from the sun.
 #include "MeshRendererInternal.hpp"
 
+#include <format>
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -145,7 +147,7 @@ namespace Desert::Graphic::System
         for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
         {
             FramebufferSpecification shadowSpec;
-            shadowSpec.DebugName = "ShadowCascade" + std::to_string( i );
+            shadowSpec.DebugName = std::format( "ShadowCascade{}", i );
             shadowSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowColor );
             shadowSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
             m_CascadeFB[i] = Graphic::Framebuffer::Create( shadowSpec );
@@ -341,7 +343,7 @@ namespace Desert::Graphic::System
                 continue;
 
             builder.AddPass(
-                 "MeshShadowCascade" + std::to_string( c ), RenderPhase::DepthPrePass,
+                 std::format( "MeshShadowCascade{}", c ), RenderPhase::DepthPrePass,
                  [this, c]()
                  {
                      if ( !m_ShadowsEnabled )

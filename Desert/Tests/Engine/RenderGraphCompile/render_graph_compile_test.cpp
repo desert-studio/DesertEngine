@@ -13,7 +13,9 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <format>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -24,6 +26,22 @@ using Desert::Core::Formats::ImageFormat;
 namespace
 {
     namespace fs = std::filesystem;
+
+    // The recorder and the expectation built from a compiled graph spell the same calls.
+    constexpr std::string_view kBeginPassFormat = "BeginPass {}";
+    constexpr std::string_view kBarriersFormat  = "Barriers {}";
+    constexpr std::string_view kEndPassFormat   = "EndPass {}";
+    constexpr std::string_view kEndGraphFormat  = "EndGraph {}";
+
+    std::string DownPassName( auto mip )
+    {
+        return std::format( "Down{}", mip );
+    }
+
+    std::string CascadePassName( auto cascade )
+    {
+        return std::format( "Cascade{}", cascade );
+    }
 
     Common::BoolResultStr Ok( PassContext& )
     {
@@ -91,22 +109,22 @@ namespace
             for ( const ResourceView& view : graph.Resources )
             {
                 if ( view.Used )
-                    used += ( used.empty() ? "" : "," ) + std::string( view.Name );
+                    std::format_to( std::back_inserter( used ), "{}{}", used.empty() ? "" : ",", view.Name );
             }
-            Calls.push_back( "BeginGraph " + std::string( graph.Name ) + " [" + used + "]" );
+            Calls.push_back( std::format( "BeginGraph {} [{}]", graph.Name, used ) );
             return Common::MakeSuccess( true );
         }
         void BeginPass( const CompiledPass& pass ) override
         {
-            Calls.push_back( "BeginPass " + pass.Name );
+            Calls.push_back( std::format( kBeginPassFormat, pass.Name ) );
         }
         void RecordBarriers( std::span<const Barrier> barriers ) override
         {
-            Calls.push_back( "Barriers " + std::to_string( barriers.size() ) );
+            Calls.push_back( std::format( kBarriersFormat, barriers.size() ) );
         }
         Common::BoolResultStr BeginRenderPass( const CompiledPass& pass ) override
         {
-            Calls.push_back( "BeginRenderPass " + std::to_string( pass.Attachments.size() ) );
+            Calls.push_back( std::format( "BeginRenderPass {}", pass.Attachments.size() ) );
             return Common::MakeSuccess( true );
         }
         void EndRenderPass() override
@@ -115,11 +133,11 @@ namespace
         }
         void EndPass( const CompiledPass& pass ) override
         {
-            Calls.push_back( "EndPass " + pass.Name );
+            Calls.push_back( std::format( kEndPassFormat, pass.Name ) );
         }
         Common::BoolResultStr EndGraph( std::span<const Barrier> finalBarriers ) override
         {
-            Calls.push_back( "EndGraph " + std::to_string( finalBarriers.size() ) );
+            Calls.push_back( std::format( kEndGraphFormat, finalBarriers.size() ) );
             return Common::MakeSuccess( true );
         }
         void AbandonGraph() override
@@ -385,7 +403,7 @@ TEST( RenderGraphCompile, BloomMipChainGetsOneBarrierPerTouchedMip )
     for ( uint32_t mip = 1; mip < kMips; ++mip )
     {
         graph.AddPass(
-             "Down" + std::to_string( mip ), PassFlags::Raster,
+             DownPassName( mip ), PassFlags::Raster,
              [&, mip]( PassBuilder& pass )
              {
                  pass.Read( bloom, Access::SampledGraphics, SubresourceRange::Mip( mip - 1 ) );
@@ -419,8 +437,7 @@ TEST( RenderGraphCompile, BloomMipChainGetsOneBarrierPerTouchedMip )
 
     for ( uint32_t mip = 1; mip < kMips; ++mip )
     {
-        const std::vector<Barrier> barriers =
-             BarriersOn( result.FindPass( "Down" + std::to_string( mip ) ), bloom.Index );
+        const std::vector<Barrier> barriers = BarriersOn( result.FindPass( DownPassName( mip ) ), bloom.Index );
         ASSERT_EQ( barriers.size(), 2u ) << "Down" << mip;
         const Barrier* read  = BarrierOnMip( barriers, mip - 1 );
         const Barrier* write = BarrierOnMip( barriers, mip );
@@ -473,7 +490,7 @@ TEST( RenderGraphCompile, CascadesAreLayersAndMergeIntoOneRange )
     for ( uint32_t cascade = 0; cascade < kCascades; ++cascade )
     {
         graph.AddPass(
-             "Cascade" + std::to_string( cascade ), PassFlags::Raster, [&, cascade]( PassBuilder& pass )
+             CascadePassName( cascade ), PassFlags::Raster, [&, cascade]( PassBuilder& pass )
              { pass.DepthTarget( shadow, LoadOp::ClearDepth( 1.0f ), true, cascade ); }, Ok );
     }
     graph.AddPass(
@@ -490,14 +507,13 @@ TEST( RenderGraphCompile, CascadesAreLayersAndMergeIntoOneRange )
     for ( uint32_t cascade = 0; cascade < kCascades; ++cascade )
     {
         const std::vector<Barrier> barriers =
-             BarriersOn( result.FindPass( "Cascade" + std::to_string( cascade ) ), shadow.Index );
+             BarriersOn( result.FindPass( CascadePassName( cascade ) ), shadow.Index );
         ASSERT_EQ( barriers.size(), 1u ) << cascade;
         EXPECT_EQ( barriers[0].Range, ( SubresourceRange{ 0, 1, cascade, 1 } ) );
         EXPECT_EQ( barriers[0].After, GetAccessState( Access::DepthWrite ) );
         EXPECT_TRUE( barriers[0].DiscardContents );
-        ASSERT_EQ( result.FindPass( "Cascade" + std::to_string( cascade ) )->Attachments.size(), 1u );
-        EXPECT_EQ( result.FindPass( "Cascade" + std::to_string( cascade ) )->Attachments[0].Load,
-                   LoadAction::Clear );
+        ASSERT_EQ( result.FindPass( CascadePassName( cascade ) )->Attachments.size(), 1u );
+        EXPECT_EQ( result.FindPass( CascadePassName( cascade ) )->Attachments[0].Load, LoadAction::Clear );
     }
     const std::vector<Barrier> lighting = BarriersOn( result.FindPass( "Lighting" ), shadow.Index );
     ASSERT_EQ( lighting.size(), 1u );
@@ -941,17 +957,17 @@ TEST( RenderGraphCompile, ExecuteDrivesTheBackendInPassOrder )
     std::vector<std::string> expected = { "BeginGraph sequence [A,Out]" };
     for ( const CompiledPass& pass : result.Passes )
     {
-        expected.push_back( "BeginPass " + pass.Name );
+        expected.push_back( std::format( kBeginPassFormat, pass.Name ) );
         if ( !pass.Barriers.empty() )
-            expected.push_back( "Barriers " + std::to_string( pass.Barriers.size() ) );
+            expected.push_back( std::format( kBarriersFormat, pass.Barriers.size() ) );
         if ( pass.Name == "Clear" )
             expected.push_back( "BeginRenderPass 1" );
-        expected.push_back( "Exec " + pass.Name );
+        expected.push_back( std::format( "Exec {}", pass.Name ) );
         if ( pass.Name == "Clear" )
             expected.push_back( "EndRenderPass" );
-        expected.push_back( "EndPass " + pass.Name );
+        expected.push_back( std::format( kEndPassFormat, pass.Name ) );
     }
-    expected.push_back( "EndGraph " + std::to_string( result.FinalBarriers.size() ) );
+    expected.push_back( std::format( kEndGraphFormat, result.FinalBarriers.size() ) );
     // Both passes need transitions and the extraction needs one: the counts above are not all zero.
     EXPECT_FALSE( result.Passes[0].Barriers.empty() );
     EXPECT_FALSE( result.Passes[1].Barriers.empty() );
@@ -1210,7 +1226,8 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
     while ( std::getline( file, line ) )
     {
         const size_t comment = line.find( "//" );
-        source += ( comment == std::string::npos ? line : line.substr( 0, comment ) ) + "\n";
+        std::format_to( std::back_inserter( source ), "{}\n",
+                        comment == std::string::npos ? line : line.substr( 0, comment ) );
     }
     const size_t begin = source.find( "void SceneRenderer::OnUpdate(" );
     ASSERT_NE( begin, std::string::npos );
@@ -1245,7 +1262,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheLegacyFrameOrder )
             const size_t ret  = body.find( "return ", phases );
             const size_t semi = body.find( ';', ret );
             ASSERT_NE( semi, std::string::npos );
-            added.push_back( "phases[" + squeeze( body.substr( ret + 7, semi - ret - 7 ) ) + "]" );
+            added.push_back( std::format( "phases[{}]", squeeze( body.substr( ret + 7, semi - ret - 7 ) ) ) );
             at = semi + 1;
         }
     }

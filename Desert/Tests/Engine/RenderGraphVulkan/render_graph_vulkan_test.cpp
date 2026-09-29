@@ -88,7 +88,7 @@ namespace
     {
         static Gpu gpu = []
         {
-            Gpu        out;
+            Gpu out;
             // The loader is linked (as in VulkanContext.cpp): its vkGetInstanceProcAddr is handed to vk-bootstrap,
             // whose own dlopen("libvulkan.dylib") misses Homebrew's loader on macOS and never sees the layers.
             const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
@@ -113,7 +113,7 @@ namespace
                       .build();
             if ( !instance )
             {
-                out.Error = "instance: " + instance.error().message();
+                out.Error = std::format( "instance: {}", instance.error().message() );
                 return out;
             }
             out.Instance = instance.value();
@@ -129,7 +129,7 @@ namespace
             auto device = vkb::DeviceBuilder( *probed.GetValue().Physical ).build();
             if ( !device )
             {
-                out.Error = "device: " + device.error().message();
+                out.Error = std::format( "device: {}", device.error().message() );
                 return out;
             }
             out.Device      = device.value();
@@ -583,13 +583,11 @@ void main()
     std::string FirstMismatch( const std::vector<uint8_t>& got, const std::vector<uint8_t>& want )
     {
         if ( got.size() != want.size() )
-            return "size " + std::to_string( got.size() ) + " != " + std::to_string( want.size() );
+            return std::format( "size {} != {}", got.size(), want.size() );
         for ( size_t i = 0; i < got.size(); ++i )
         {
             if ( got[i] != want[i] )
-                return "byte " + std::to_string( i ) + " (pixel " + std::to_string( i / 4 ) + ", channel " +
-                       std::to_string( i % 4 ) + "): " + std::to_string( got[i] ) +
-                       " != " + std::to_string( want[i] );
+                return std::format( "byte {} (pixel {}, channel {}): {} != {}", i, i / 4, i % 4, got[i], want[i] );
         }
         return {};
     }

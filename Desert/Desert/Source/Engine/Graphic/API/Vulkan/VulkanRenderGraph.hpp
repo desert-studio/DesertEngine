@@ -315,8 +315,8 @@ namespace Desert::Graphic::API::Vulkan
 #if DESERT_DEV_INSTRUMENTS
         std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> m_CpuScopes; // CPU row of the same pass
 #endif
-        bool                                           m_RenderPassOpen = false;
-        std::map<RdgRenderPassKey, VkRenderPass>       m_RenderPasses;
-        std::vector<FramebufferEntry>                  m_Framebuffers;
+        bool                                     m_RenderPassOpen = false;
+        std::map<RdgRenderPassKey, VkRenderPass> m_RenderPasses;
+        std::vector<FramebufferEntry>            m_Framebuffers;
     };
 } // namespace Desert::Graphic::API::Vulkan

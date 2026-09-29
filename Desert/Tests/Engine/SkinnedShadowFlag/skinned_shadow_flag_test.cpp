@@ -33,6 +33,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <format>
 #include <string>
 
 namespace
@@ -166,9 +167,14 @@ TEST( SkinnedShadowFlag, TheRendererCopiesTheFlagOntoTheSkinnedQueueAndTheCascad
     ASSERT_FALSE( root.empty() );
 
     // The copy is in SubmitMesh (MeshRenderer.cpp), the read in the cascade pass (MeshRendererShadow.cpp).
-    const std::string src =
-         Normalized( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" ) +
-         Normalized( root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp" );
+    const std::string src = std::format(
+         "{}{}",
+         Normalized( ( std::filesystem::path( root ) /
+                       "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" )
+                          .string() ),
+         Normalized( ( std::filesystem::path( root ) /
+                       "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp" )
+                          .string() ) );
     ASSERT_FALSE( src.empty() );
 
     // The copy in MeshRenderer::SubmitMesh's Skinned case...

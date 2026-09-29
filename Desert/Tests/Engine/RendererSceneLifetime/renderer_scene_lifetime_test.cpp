@@ -422,7 +422,8 @@ TEST( RendererSceneLifetime, TheTemporalResetReachesEverySystemAndTouchesNoPass 
 // start-up frames this run happened to take.
 TEST( RendererSceneLifetime, TheCaptureCountStartsOnATemporalReset )
 {
-    const std::string editor = StripComments( ReadAll( RepoRoot() + "Editor/Source/EditorLayer.cpp" ) );
+    const std::string editor = StripComments(
+         ReadAll( ( std::filesystem::path( RepoRoot() ) / "Editor/Source/EditorLayer.cpp" ).string() ) );
     ASSERT_FALSE( editor.empty() );
     const std::string arm = BodyAfter( editor, "EditorLayer::ArmShotCount()" );
     ASSERT_FALSE( arm.empty() ) << "EditorLayer::ArmShotCount is gone.";

@@ -2,10 +2,15 @@
 // reuses the static one), the manual forward passes drawn over the deferred composite, and their pipelines.
 #include "MeshRendererInternal.hpp"
 
+#include <format>
+#include <iterator>
+
 namespace Desert::Graphic::System
 {
     namespace
     {
+        constexpr std::string_view kGenericMeshNameFormat = "GenericMesh_{}";
+
         // The texture half of a shared generic material's identity.
         //
         // Parameters became per-draw rows; SAMPLERS did not and cannot, because a sampler is a descriptor
@@ -23,15 +28,15 @@ namespace Desert::Graphic::System
             parts.reserve( g.Overrides.Textures.size() + 1 );
             for ( const auto& [name, handle] : g.Overrides.Textures )
                 if ( handle != 0 )
-                    parts.push_back( name + "=" + std::to_string( handle ) );
+                    parts.push_back( std::format( "{}={}", name, handle ) );
             if ( g.DirectTexture && !g.DirectTextureSampler.empty() )
-                parts.push_back( g.DirectTextureSampler + "=@" +
-                                 std::to_string( reinterpret_cast<uintptr_t>( g.DirectTexture ) ) );
+                parts.push_back( std::format( "{}=@{}", g.DirectTextureSampler,
+                                              static_cast<const void*>( g.DirectTexture ) ) );
             std::sort( parts.begin(), parts.end() );
 
             std::string key;
             for ( const auto& part : parts )
-                key += "|" + part;
+                std::format_to( std::back_inserter( key ), "|{}", part );
             return key;
         }
     } // namespace
@@ -189,7 +194,7 @@ namespace Desert::Graphic::System
             // per submesh group. The cache remembers the refusal itself, so the rebuild happens once;
             // this set is only about the log line.
             GraphicsPipelineSpecification spec = GenericPipelineSpec( shader, targetFb, useLoadPass );
-            spec.DebugName                     = "GenericMesh_" + shader->GetName();
+            spec.DebugName                     = std::format( kGenericMeshNameFormat, shader->GetName() );
             const auto built                   = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
             if ( built )
             {
@@ -346,7 +351,7 @@ namespace Desert::Graphic::System
                                                                      const bool useLoadPass )
     {
         GraphicsPipelineSpecification spec;
-        spec.DebugName         = "GenericMesh_" + shader->GetName();
+        spec.DebugName         = std::format( kGenericMeshNameFormat, shader->GetName() );
         spec.Shader            = shader;
         spec.Framebuffer       = target;
         spec.Layout            = VertexBufferLayout{ { Graphic::ShaderDataType::Float3, "a_Position" },

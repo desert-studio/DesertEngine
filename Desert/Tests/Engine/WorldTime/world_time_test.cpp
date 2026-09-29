@@ -16,6 +16,8 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <format>
+#include <iterator>
 #include <vector>
 
 using Desert::Core::WorldClockMode;
@@ -27,12 +29,12 @@ namespace
 
     std::string RepoRoot()
     {
-        std::string prefix = "./";
+        std::filesystem::path prefix = ".";
         for ( int up = 0; up < 6; ++up )
         {
-            if ( std::filesystem::exists( prefix + "Desert/Desert/Source/Engine/Core/WorldTime.hpp" ) )
-                return prefix;
-            prefix += "../";
+            if ( std::filesystem::exists( prefix / "Desert/Desert/Source/Engine/Core/WorldTime.hpp" ) )
+                return ( prefix / "" ).generic_string();
+            prefix /= "..";
         }
         return {};
     }
@@ -256,13 +258,13 @@ TEST( WorldTimeOneSource, NoRenderOrSimulationCodeKeepsItsOwnClock )
             const std::string text = ReadAll( entry.path() );
             for ( const char* needle : kOwnClock )
                 if ( text.find( needle ) != std::string::npos )
-                    offenders.push_back( relative + " uses " + needle );
+                    offenders.push_back( std::format( "{} uses {}", relative, needle ) );
         }
     }
     EXPECT_GT( scanned, 50u ) << "the scan reached too few files to mean anything";
     std::string list;
     for ( const auto& o : offenders )
-        list += "\n  " + o;
+        std::format_to( std::back_inserter( list ), "\n  {}", o );
     EXPECT_TRUE( offenders.empty() ) << "render/simulation code keeping its own clock instead of "
                                         "Core::WorldTime:"
                                      << list;
