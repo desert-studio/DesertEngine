@@ -414,7 +414,7 @@ namespace Desert::Physics
             return Common::MakeError<BodyHandle>(
                  std::format( "Jolt refused the {} body: {} bodies exist, the world's limit is reached",
                               ShapeName( desc.Shape ), GetBodyCount() ) );
-        return Common::MakeSuccess( BodyHandle( id.GetIndexAndSequenceNumber() ) );
+        return Common::MakeSuccess( static_cast<BodyHandle>( id.GetIndexAndSequenceNumber() ) );
     }
 
     uint32_t PhysicsWorld::GetCookedShapeCount() const
