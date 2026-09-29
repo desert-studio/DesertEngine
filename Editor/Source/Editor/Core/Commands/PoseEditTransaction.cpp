@@ -531,6 +531,35 @@ namespace Desert::Editor
         return Common::MakeSuccess( pushed );
     }
 
+    // ── BoneGizmoGesture ─────────────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<uint32_t> BoneGizmoGesture::Step( PoseEditTransaction& transaction, const bool held,
+                                                        const std::function<Animation::Animator*()>& startPose,
+                                                        Animation::AnimationClip*                    clip )
+    {
+        if ( held && !m_Active )
+        {
+            Animation::Animator* animator = startPose();
+            if ( animator == nullptr || clip == nullptr )
+            {
+                return Common::MakeFormattedError<uint32_t>( "a bone gizmo gesture cannot start without {}",
+                                                             animator == nullptr ? "an animator" : "a clip" );
+            }
+            if ( auto begun = transaction.Begin( animator, clip ); !begun.IsSuccess() )
+            {
+                return Common::MakeError<uint32_t>( begun.GetError() );
+            }
+            m_Active = true;
+            return Common::MakeSuccess( 0U );
+        }
+        if ( held || !m_Active )
+        {
+            return Common::MakeSuccess( 0U );
+        }
+        m_Active = false;
+        return transaction.End();
+    }
+
     // ── ScopedPoseEdit ───────────────────────────────────────────────────────────────────────────────
 
     ScopedPoseEdit::ScopedPoseEdit( PoseEditTransaction& transaction, Animation::Animator* animator,

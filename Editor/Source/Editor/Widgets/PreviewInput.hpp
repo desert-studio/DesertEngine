@@ -17,11 +17,29 @@ namespace Desert::Editor
     //
     // A pure function because the decision is the whole feature and ImGui cannot be driven from a test:
     // PreviewViewport::Draw gathers the events, hands them here, and applies what comes back.
+    //
+    // Yielded is the third state, and it is per FRAME, not per preview: a tool drawn over the picture (the
+    // Animation Editor's bone gizmo) has the pointer, so the preview submits no item that could take the
+    // hover or the press and moves no camera. The gizmo wins over navigation, as in UE's viewport client.
     enum class PreviewInteraction : uint8_t
     {
         Interactive,
         Static,
+        Yielded,
     };
+
+    /// A tool over an Interactive preview: it yields while the pointer is on the tool or the tool is held,
+    /// and never in the middle of a camera drag that merely crosses the tool (`anotherItemActive` is the
+    /// preview's own button, held since the press). Decided in the SAME frame as the press: a hover read
+    /// one frame late would let the preview's button claim the press first, and the gizmo would never start.
+    [[nodiscard]] constexpr PreviewInteraction PreviewInteractionUnderTool( const bool toolUnderPointer,
+                                                                            const bool toolHeld,
+                                                                            const bool anotherItemActive ) noexcept
+    {
+        if ( toolHeld || ( toolUnderPointer && !anotherItemActive ) )
+            return PreviewInteraction::Yielded;
+        return PreviewInteraction::Interactive;
+    }
 
     // WHICH MODE EACH DETAILS PREVIEW GETS. Not one answer for all of Details, because the reason a row
     // would be Static differs by what it shows:
@@ -79,6 +97,9 @@ namespace Desert::Editor
                                                           const PreviewInputEvents& events )
     {
         PreviewInputResult result;
+
+        if ( mode == PreviewInteraction::Yielded )
+            return result;
 
         if ( mode == PreviewInteraction::Static )
         {

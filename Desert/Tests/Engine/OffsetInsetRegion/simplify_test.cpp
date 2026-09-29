@@ -6,6 +6,7 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshRegionOperation.hpp"
 
+#include <numbers>
 #include <gtest/gtest.h>
 
 #include <glm/geometric.hpp>
@@ -291,9 +292,10 @@ TEST( Simplify, ASecondSimplifyOfAHardEdgedSphereCollapsesAlongItsSeams )
         EXPECT_EQ( half.TriangleCount(), before.TriangleCount() / 2 ) << perTriangle;
         EXPECT_EQ( fourth.TriangleCount(), before.TriangleCount() / 4 ) << perTriangle;
         EXPECT_TRUE( Valid( half ) && Valid( fourth ) ) << perTriangle;
-        // Open (M18c remainder): 10 / 12 triangles of the quarter face inward - the same slivers along a kept line
-        // as KeptBordersLeaveNoSliverStandingAcrossTheSurface; no degenerate one (bPreventTinyTriangles).
-        EXPECT_EQ( InwardAndDegenerate( fourth ).second, 0 ) << perTriangle;
+        // M18d: without the fin rule 10 / 12 triangles of the quarter faced inward - ears cut off a seam line,
+        // three corners on one great circle; none is degenerate (bPreventTinyTriangles).
+        EXPECT_EQ( InwardAndDegenerate( half ), std::make_pair( 0, 0 ) ) << perTriangle;
+        EXPECT_EQ( InwardAndDegenerate( fourth ), std::make_pair( 0, 0 ) ) << perTriangle;
         if ( perTriangle )
         {
             // Every triangle keeps its own normal elements: every edge stays a seam.
@@ -309,9 +311,10 @@ TEST( Simplify, ASecondSimplifyOfAHardEdgedSphereCollapsesAlongItsSeams )
 }
 
 // M18c: with the polygroup borders kept, a collapse onto a border could leave a triangle whose three corners lie
-// on one border arc - a sliver standing across the surface (71 of 372 facing inward on this sphere).
-// Open (M18c remainder): 51 inward with the UE checks ported; needs a rule the flip check does not have.
-TEST( Simplify, DISABLED_KeptBordersLeaveNoSliverStandingAcrossTheSurface )
+// on one border arc - a sliver standing across the surface (71 of 372 facing inward on this sphere, 51 with the
+// UE checks ported). M18d: the fin rule (QemSimplification::CreatesFin) refuses it - 0 of 384; every face keeps
+// two more triangles than the pure triangulation of its 64-vertex border (62).
+TEST( Simplify, KeptBordersLeaveNoSliverStandingAcrossTheSurface )
 {
     const DynamicMesh3 before = CubeSphere( 16, true );
     SimplifySettings   settings;
@@ -320,7 +323,149 @@ TEST( Simplify, DISABLED_KeptBordersLeaveNoSliverStandingAcrossTheSurface )
     const DynamicMesh3 after         = Simplified( before, settings );
     std::printf( "kept borders 10%%: %d triangles, inward/degenerate %d/%d\n", after.TriangleCount(),
                  InwardAndDegenerate( after ).first, InwardAndDegenerate( after ).second );
+    EXPECT_EQ( after.TriangleCount(), 384 );
     EXPECT_TRUE( Valid( after ) );
     EXPECT_EQ( GroupBorders( after ), GroupBorders( before ) );
     EXPECT_EQ( InwardAndDegenerate( after ), std::make_pair( 0, 0 ) );
+}
+
+namespace
+{
+    // Every seam edge of the normal layer, by its end positions.
+    std::set<std::pair<Point, Point>> SeamSegments( const DynamicMesh3& mesh )
+    {
+        std::set<std::pair<Point, Point>> seams;
+        for ( const int e : mesh.EdgeIndicesItr() )
+        {
+            if ( !mesh.Attributes()->IsSeamEdge( e ) )
+                continue;
+            const Index2i v = mesh.GetEdgeV( e );
+            const Point   a = Key( mesh.GetVertex( v.A ) );
+            const Point   b = Key( mesh.GetVertex( v.B ) );
+            seams.emplace( std::min( a, b ), std::max( a, b ) );
+        }
+        return seams;
+    }
+} // namespace
+
+// M18e: Preserve Sharp Edges (UE's bPreserveSharpEdges) holds every hard edge where it is - the polygroups are
+// NOT preserved here, so only the seams keep the borders; off (UE's default) the seams collapse along their line.
+TEST( Simplify, PreserveSharpEdgesKeepsEverySeam )
+{
+    const DynamicMesh3 before = SeamedCubeSphere( 8, false );
+    const auto         seams  = SeamSegments( before );
+    ASSERT_EQ( seams.size(), 12u * 8u );
+    SimplifySettings settings;
+    settings.Percentage              = 50.0f;
+    settings.PreserveGroupBoundaries = false;
+    settings.PreserveSharpEdges      = true;
+    const DynamicMesh3 kept          = Simplified( before, settings );
+    EXPECT_EQ( kept.TriangleCount(), before.TriangleCount() / 2 );
+    EXPECT_TRUE( Valid( kept ) );
+    EXPECT_EQ( SeamSegments( kept ), seams );
+    EXPECT_EQ( InwardAndDegenerate( kept ), std::make_pair( 0, 0 ) );
+
+    settings.PreserveSharpEdges = false;
+    const DynamicMesh3 moved    = Simplified( before, settings );
+    std::printf( "seams %zu -> kept %zu, collapsed %zu\n", seams.size(), SeamSegments( kept ).size(),
+                 SeamSegments( moved ).size() );
+    EXPECT_LT( SeamSegments( moved ).size(), seams.size() );
+}
+
+namespace
+{
+    // A UV sphere of radius kHalf: @p rings latitude rings, @p segments longitude segments, pole fans; the
+    // latitude bands are polygroups of @p bandRings rings each, so the borders are latitude circles.
+    DynamicMesh3 BandedUVSphere( int rings, int segments, int bandRings )
+    {
+        constexpr double kPi = std::numbers::pi;
+        DynamicMesh3     mesh;
+        mesh.EnableTriangleGroups();
+        const int        north = mesh.AppendVertex( glm::dvec3( 0, 0, kHalf ) );
+        std::vector<int> ids;
+        for ( int r = 1; r < rings; ++r )
+        {
+            const double theta = kPi * r / rings;
+            for ( int s = 0; s < segments; ++s )
+            {
+                const double phi = 2.0 * kPi * s / segments;
+                ids.push_back(
+                     mesh.AppendVertex( glm::dvec3( std::sin( theta ) * std::cos( phi ),
+                                                    std::sin( theta ) * std::sin( phi ), std::cos( theta ) ) *
+                                        kHalf ) );
+            }
+        }
+        const int  south = mesh.AppendVertex( glm::dvec3( 0, 0, -kHalf ) );
+        const auto at    = [&]( int r, int s )
+        {
+            return ids[static_cast<size_t>( r - 1 ) * static_cast<size_t>( segments ) +
+                       static_cast<size_t>( s % segments )];
+        };
+        const auto group = [&]( int r ) { return r / bandRings + 1; }; // band of the ring strip r .. r + 1
+        for ( int s = 0; s < segments; ++s )
+        {
+            mesh.AppendTriangle( Index3i( north, at( 1, s ), at( 1, s + 1 ) ), group( 0 ) );
+            mesh.AppendTriangle( Index3i( south, at( rings - 1, s + 1 ), at( rings - 1, s ) ),
+                                 group( rings - 1 ) );
+            for ( int r = 1; r + 1 < rings; ++r )
+            {
+                mesh.AppendTriangle( Index3i( at( r, s ), at( r + 1, s ), at( r + 1, s + 1 ) ), group( r ) );
+                mesh.AppendTriangle( Index3i( at( r, s ), at( r + 1, s + 1 ), at( r, s + 1 ) ), group( r ) );
+            }
+        }
+        return mesh;
+    }
+} // namespace
+
+// M18e: the fin rule's straight-line threshold (kStraightCos, measured on the cube-sphere above) on two more
+// meshes - a UV sphere with latitude bands (curved borders, pole fans) and the flat 8 x 8 cube (straight borders
+// on flat faces): no fin, and the collapse gets down to its floor - every border vertex is kept, so 10 % is
+// out of reach.
+TEST( Simplify, KeptBordersLeaveNoSliverOnBandsOrAFlatCube )
+{
+    SimplifySettings settings;
+    settings.Percentage              = 10.0f;
+    settings.PreserveGroupBoundaries = true;
+    const DynamicMesh3 bands         = BandedUVSphere( 32, 64, 8 );
+    const DynamicMesh3 cube          = CubeSphere( 8, false );
+    // The floor with every border vertex kept: a 64-gon cap is 62 triangles and a band between two 64-vertex
+    // circles 128 (380); a flat face bounded by 32 border vertices is 30 (180).
+    for ( const auto& [before, floor] : { std::make_pair( &bands, 380 ), std::make_pair( &cube, 180 ) } )
+    {
+        const DynamicMesh3 after = Simplified( *before, settings );
+        EXPECT_GE( after.TriangleCount(), floor );
+        EXPECT_LE( after.TriangleCount(), floor + floor / 10 ) << "the collapse stalled above the floor";
+        std::printf( "second mesh 10%%: %d -> %d triangles (target %d), inward/degenerate %d/%d\n",
+                     before->TriangleCount(), after.TriangleCount(), before->TriangleCount() / 10,
+                     InwardAndDegenerate( after ).first, InwardAndDegenerate( after ).second );
+        EXPECT_TRUE( Valid( after ) );
+        EXPECT_EQ( GroupBorders( after ), GroupBorders( *before ) );
+        EXPECT_EQ( InwardAndDegenerate( after ), std::make_pair( 0, 0 ) );
+    }
+}
+
+// M18e: the fin threshold's own mesh was the per-triangle cube-sphere (every edge a seam); the banded UV sphere
+// with Per Face normals is the second one - pole fans and long thin quads near the poles instead of six even
+// grids.
+TEST( Simplify, ASecondSimplifyOfAPerFaceUVSphereLeavesNoFin )
+{
+    DynamicMesh3 before = BandedUVSphere( 16, 32, 4 );
+    before.EnableAttributes();
+    before.Attributes()->SetNumUVLayers( 0 );
+    MeshNormals::InitializeOverlayToPerTriangleNormals( before.Attributes()->PrimaryNormals() );
+    SimplifySettings settings;
+    settings.Percentage              = 50.0f;
+    settings.PreserveGroupBoundaries = false;
+    const DynamicMesh3 half          = Simplified( before, settings );
+    const DynamicMesh3 fourth        = Simplified( half, settings );
+    std::printf( "per-face UV sphere: %d -> %d -> %d triangles, inward/degenerate %d/%d, %d/%d\n",
+                 before.TriangleCount(), half.TriangleCount(), fourth.TriangleCount(),
+                 InwardAndDegenerate( half ).first, InwardAndDegenerate( half ).second,
+                 InwardAndDegenerate( fourth ).first, InwardAndDegenerate( fourth ).second );
+    EXPECT_EQ( half.TriangleCount(), before.TriangleCount() / 2 );
+    EXPECT_EQ( fourth.TriangleCount(), before.TriangleCount() / 4 );
+    EXPECT_TRUE( Valid( half ) && Valid( fourth ) );
+    EXPECT_EQ( InwardAndDegenerate( half ), std::make_pair( 0, 0 ) );
+    EXPECT_EQ( InwardAndDegenerate( fourth ), std::make_pair( 0, 0 ) );
+    EXPECT_EQ( SeamEdges( fourth ), fourth.EdgeCount() );
 }

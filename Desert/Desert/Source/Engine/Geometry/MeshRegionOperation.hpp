@@ -130,6 +130,9 @@ namespace Desert::Geometry
         float          Percentage              = 50.0f; // UE's TargetPercentage default
         int            VertexCount             = 1000;  // UE's TargetVertexCount default
         bool           PreserveGroupBoundaries = true;
+        // UE's bPreserveSharpEdges (default off): on, a seam (hard edge / UV split) never collapses and its
+        // vertices never move; off, a seam collapses along its own line.
+        bool PreserveSharpEdges = false;
     };
 
     [[nodiscard]] Common::ResultStr<RegionOutcome>

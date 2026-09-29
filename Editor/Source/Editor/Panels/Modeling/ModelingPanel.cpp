@@ -439,6 +439,10 @@ namespace Desert::Editor
                 ImGui::DragInt( "##ElementSimplifyVertexCount", &simplify.VertexCount, 1.0f, 3, 1000000,
                                 "%d vertices" );
             ImGui::Checkbox( "Preserve PolyGroups", &simplify.PreserveGroupBoundaries );
+            ImGui::Checkbox( "Preserve Sharp Edges", &simplify.PreserveSharpEdges );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "If enabled, UV and normal seams (hard edges) are kept: they never collapse\n"
+                                   "and their vertices never move." );
             if ( ImGui::Button( Core::ToString( MO::Simplify ), ImVec2( -1.0f, 0.0f ) ) )
                 Operate( MO::Simplify );
         }

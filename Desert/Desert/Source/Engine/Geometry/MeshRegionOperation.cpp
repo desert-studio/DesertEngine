@@ -420,13 +420,13 @@ namespace Desert::Geometry
                  byVertices ? "vertices" : "triangles", target );
 
         auto mesh = std::make_shared<DynamicMesh3>( before );
-        // UE's Simplify defaults (SimplifyMeshTool.cpp:248-249, SimplifyMeshOp.cpp:67-75): Preserve Sharp Edges
-        // off, so seams collapse along their line; the flip test then compares unit normals at 1e-5 and bowties on
-        // the seams are split first.
+        // UE's Simplify (SimplifyMeshTool.cpp:248-249, SimplifyMeshOp.cpp:67-75): Preserve Sharp Edges off by
+        // default, so seams collapse along their line; on, a seam is NoCollapse and its vertices stay. The flip
+        // test compares unit normals at 1e-5 and bowties on the seams are split first.
         BoundaryConstraintFlags flags;
         flags.GroupBoundary =
              settings.PreserveGroupBoundaries ? EdgeRefineFlags::FullyConstrained : EdgeRefineFlags::NoConstraint;
-        flags.AllowSeamCollapse = true;
+        flags.AllowSeamCollapse = !settings.PreserveSharpEdges;
         if ( mesh->HasAttributes() )
             mesh->Attributes()->SplitAllBowties();
         MeshConstraints constraints;
