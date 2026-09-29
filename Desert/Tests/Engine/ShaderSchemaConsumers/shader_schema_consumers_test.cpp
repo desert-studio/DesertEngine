@@ -395,6 +395,11 @@ namespace
          // The generator writes the row and the samplers FROM this (BuildAutoDeclarations); MeshVertexPath
          // reconciles it with every compiled stage (Core/Formats/MaterialLayout.hpp).
          { "DShaderParseResult", "Layout", kParser, nullptr },
+         // The expanded `Surface` block (SURF1a). The parser reads its Blend and TwoSided back when it
+         // builds the cells — Masked demands the clip parameter and adds the discard, TwoSided turns the
+         // cells' cull off — and publishes the cells as named passes (Meta.PassNames), which is how
+         // ShaderService registers them; MeshShaderFor names the ones a mesh pass draws with.
+         { "DShaderParseResult", "Surface", kParser, nullptr },
 
          { "DShaderPass", "Name", kParser, nullptr },
          { "DShaderPass", "State", kPreproc, nullptr },
