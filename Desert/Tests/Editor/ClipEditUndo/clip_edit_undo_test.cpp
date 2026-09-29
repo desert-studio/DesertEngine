@@ -1213,6 +1213,87 @@ TEST_F( ClipEditUndo, AutoKeyWritesExactlyOneKeyAndOneEntryPerControlGesture )
     EXPECT_EQ( PositionKeysOf( rig.m_Clip, "hand_ctrl" ), 0U );
 }
 
+namespace
+{
+    size_t RotationKeysOf( const AnimationClip& clip, const char* name )
+    {
+        for ( const BoneTrack& track : clip.Tracks )
+        {
+            if ( track.BoneName == name )
+            {
+                return track.RotationKeys.size();
+            }
+        }
+        return 0;
+    }
+} // namespace
+
+// THE ONE ENTRY POINT: a command that changes a control without the gizmo bit (the palette's rotate, a
+// nudge, the Control Rig panel's pose field) records through RecordControlDrag, and that alone makes the
+// auto-keyer key it — one key, and ONE undo entry for the edit and its key together.
+TEST_F( ClipEditUndo, AutoKeyKeysACommandEditWithoutTheGizmoAndOneUndoTakesBackPoseAndKey )
+{
+    Rig      rig( MakeClipWithEndpoints(), AutoChangeMode::All );
+    uint32_t control   = 0;
+    auto     hierarchy = MakeRig( control );
+    ASSERT_NE( control, Desert::Animation::ControlHierarchy::INVALID );
+    ControlKeyTarget target = rig.Target();
+    target.Hierarchy        = &hierarchy;
+
+    Desert::Editor::ControlAutoKey autoKey;
+    uint32_t                       entries = 0;
+    const auto                     step    = [&]()
+    {
+        const auto stepped =
+             autoKey.Step( rig.m_Transaction, &rig.m_Animator, rig.m_Keyer, target, control, false );
+        EXPECT_TRUE( stepped.IsSuccess() ) << ( stepped.IsSuccess() ? "" : stepped.GetError() );
+        entries += stepped.IsSuccess() ? stepped.GetValue() : 0U;
+    };
+
+    // An edit recorded BEFORE this keyer existed is not a new one.
+    const Desert::Animation::BoneTransform original = hierarchy.Get( control ).Pose;
+    ASSERT_TRUE( Desert::Editor::RotateControlRecorded( &hierarchy, control, 2, 45.0F ).IsSuccess() );
+    CommandHistory::Get().Clear();
+    step();
+    step();
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "an old edit must not key a new Sequencer";
+
+    // A pose change that no gesture made (the playhead writing the clip back) keys nothing.
+    ASSERT_TRUE( hierarchy.SetPose( control, original ).IsSuccess() );
+    step();
+    step();
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "a change outside a gesture is not a key";
+    EXPECT_EQ( entries, 0U );
+
+    const Desert::Animation::BoneTransform before = hierarchy.Get( control ).Pose;
+    const auto turned = Desert::Editor::RotateControlRecorded( &hierarchy, control, 2, 45.0F );
+    ASSERT_TRUE( turned.IsSuccess() ) << turned.GetError();
+    ASSERT_EQ( CommandHistory::Get().UndoStack().size(), 1U );
+    step(); // the edit is seen: the gesture is held for this frame
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U );
+    step(); // and released on the next: the key
+    step();
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 1U ) << "the rotate command is one key";
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 1U ) << "the edit and its key are ONE undo entry";
+
+    ASSERT_TRUE( CommandHistory::Get().Undo() );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 0U ) << "undo removes the key";
+    EXPECT_TRUE( Desert::Editor::SameStoredValue( hierarchy.Get( control ).Pose, before ) )
+         << "and the same undo puts the control back";
+    ASSERT_TRUE( CommandHistory::Get().Redo() );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 1U );
+
+    // Auto Key off: the command still records its pose entry, and keys nothing.
+    rig.m_Keyer.SetModes( Desert::Animation::KeyingModes{} );
+    ASSERT_TRUE( Desert::Editor::RotateControlRecorded( &hierarchy, control, 2, 45.0F ).IsSuccess() );
+    step();
+    step();
+    EXPECT_EQ( entries, 1U );
+    EXPECT_EQ( RotationKeysOf( rig.m_Clip, "hand_ctrl" ), 1U );
+    EXPECT_EQ( CommandHistory::Get().UndoStack().size(), 2U );
+}
+
 TEST_F( ClipEditUndo, AControlRowKeyMovesAndDeletesAllThreeChannelsTogether )
 {
     BoneTrack track;

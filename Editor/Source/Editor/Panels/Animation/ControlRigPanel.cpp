@@ -1,6 +1,7 @@
 #include "ControlRigPanel.hpp"
 #include <Editor/Panels/PanelContext.hpp>
 
+#include <Editor/Core/Commands/PoseEditTransaction.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
@@ -283,11 +284,30 @@ namespace Desert::Editor
             glm::vec3                translation = pose.Translation;
             if ( ImGui::DragFloat3( "Translation (cm)", &translation.x, 0.5f ) )
             {
+                if ( !m_PoseFieldEdit.has_value() )
+                {
+                    m_PoseFieldEdit = PoseFieldEdit{ selected, pose };
+                }
                 pose.Translation = translation;
                 if ( const auto ok = hierarchy.SetPose( selected, pose ); !ok )
                 {
                     LOG_WARN( "[Animation] Control '{}' refused the pose: {}", control.Name, ok.GetError() );
                 }
+            }
+            if ( m_PoseFieldEdit.has_value() && !ImGui::IsItemActive() )
+            {
+                // The field let go: the whole drag (or the typed value) is ONE entry, and the entry is
+                // the "control changed" signal the Sequencer's auto-key listens to.
+                if ( m_PoseFieldEdit->Control < hierarchy.Size() )
+                {
+                    const auto recorded =
+                         RecordControlDrag( &hierarchy, m_PoseFieldEdit->Control, m_PoseFieldEdit->Before );
+                    if ( !recorded.IsSuccess() )
+                    {
+                        LOG_WARN( "[Animation] the pose edit was not recorded for undo: {}", recorded.GetError() );
+                    }
+                }
+                m_PoseFieldEdit.reset();
             }
 
             ImGui::Separator();

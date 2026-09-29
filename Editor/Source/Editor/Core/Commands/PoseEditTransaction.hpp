@@ -53,6 +53,7 @@
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -445,6 +446,13 @@ namespace Desert::Editor
     {
     public:
         /// One call per frame. @p held is `GizmoState::ControlInteraction()`.
+        ///
+        /// A gesture is also opened by `LastControlEdit()` naming this rig and @p control: that is how the
+        /// palette's "Rotate selected", a nudge and a Details edit — none of which holds the gizmo bit —
+        /// reach the keyer, through the same edge the mouse uses. Such a gesture is held for the frame the
+        /// edit is first seen and released on the next, and its key entry is JOINED with the control's
+        /// own pose entry when that is still the top of the stack: one command, one Ctrl+Z.
+        /// A pose change outside any gesture (the playhead writing the clip onto the controls) keys nothing.
         /// @return undo entries pushed: 1 on the release frame of a gesture that moved the control, else 0.
         [[nodiscard]] Common::ResultStr<uint32_t>
         Step( PoseEditTransaction& transaction, Animation::Animator* animator, Animation::ControlKeyer& keyer,
@@ -454,7 +462,26 @@ namespace Desert::Editor
         bool                     m_Held    = false;
         uint32_t                 m_Control = Animation::ControlHierarchy::INVALID;
         Animation::BoneTransform m_Last;
+        /// `LastControlEdit().Generation` already seen; empty until the first Step, so an edit made
+        /// before this Sequencer existed is not taken for a new one.
+        std::optional<uint64_t> m_SeenEdit;
+        /// The history revision right after the control's entry of the edit inside this gesture.
+        std::optional<uint64_t> m_JoinRevision;
     };
+
+    /// THE ONE "A CONTROL WAS CHANGED" SIGNAL. Every control edit that becomes an undo entry goes through
+    /// `RecordControlDrag` (the gizmo release, a nudge, the palette's rotate, the Control Rig panel's
+    /// pose field), and that is where this is stamped — so the auto-keyer listens to one place instead of
+    /// to each tool.
+    struct ControlEdit
+    {
+        uint64_t                           Generation = 0; ///< 0 = no edit yet; +1 per recorded edit
+        const Animation::ControlHierarchy* Hierarchy  = nullptr;
+        uint32_t                           Control    = Animation::ControlHierarchy::INVALID;
+        uint64_t                           Revision   = 0; ///< CommandHistory::Revision() after its entry
+    };
+
+    [[nodiscard]] ControlEdit LastControlEdit();
 
     /// Every channel key of @p track at @p from, moved to @p to (a control's summary row is one diamond per
     /// tick, so dragging it moves the three channels together). Refuses to land on a tick that already holds

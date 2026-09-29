@@ -252,6 +252,15 @@ namespace Desert::Editor
         return "Control drag";
     }
 
+    namespace
+    {
+        ControlEdit& LastControlEditSlot()
+        {
+            static ControlEdit s_Last;
+            return s_Last;
+        }
+    } // namespace
+
     Common::ResultStr<uint32_t> RecordControlDrag( Animation::ControlHierarchy* hierarchy, uint32_t control,
                                                    const Animation::BoneTransform& before )
     {
@@ -270,7 +279,14 @@ namespace Desert::Editor
 
         CommandHistory::Get().PushCommand(
              std::make_unique<ControlPoseCommand>( hierarchy, control, before, after ) );
+        ControlEdit& last = LastControlEditSlot();
+        last              = ControlEdit{ last.Generation + 1, hierarchy, control, CommandHistory::Get().Revision() };
         return Common::MakeSuccess( 1U );
+    }
+
+    ControlEdit LastControlEdit()
+    {
+        return LastControlEditSlot();
     }
 
     Common::ResultStr<uint32_t> RotateControlRecorded( Animation::ControlHierarchy* hierarchy, uint32_t control,
@@ -591,6 +607,9 @@ namespace Desert::Editor
                                                       const Animation::ControlKeyTarget& target, uint32_t control,
                                                       bool held )
     {
+        const ControlEdit edit  = LastControlEdit();
+        const bool        fresh = m_SeenEdit.has_value() && edit.Generation != *m_SeenEdit;
+        m_SeenEdit              = edit.Generation;
         if ( target.Hierarchy == nullptr || target.Clip == nullptr || control >= target.Hierarchy->Size() )
         {
             // Nothing to observe: forget the gesture rather than carry its edge into another rig.
@@ -600,20 +619,41 @@ namespace Desert::Editor
             }
             m_Held    = false;
             m_Control = Animation::ControlHierarchy::INVALID;
+            m_JoinRevision.reset();
             return Common::MakeSuccess( 0U );
         }
 
-        const Animation::BoneTransform pose  = target.Hierarchy->Get( control ).Pose;
-        const bool                     moved = control == m_Control && !SameStoredValue( pose, m_Last );
-        m_Control                            = control;
-        m_Last                               = pose;
+        // An edit recorded against THIS control holds the gesture for the frame it is first seen, so the
+        // command's key comes out of the same edge as the mouse's.
+        const bool edited = fresh && edit.Hierarchy == target.Hierarchy && edit.Control == control;
+        if ( edited )
+        {
+            m_JoinRevision = edit.Revision;
+        }
+        const bool gesture = held || edited;
+
+        const Animation::BoneTransform pose    = target.Hierarchy->Get( control ).Pose;
+        const bool                     changed = control == m_Control && !SameStoredValue( pose, m_Last );
+        // Only a gesture moves a control as far as keying goes: the playhead writing the clip back onto
+        // the controls changes the pose too, and keying THAT would key every scrub. An edit counts as a
+        // move by itself — the recorder pushed an entry only because the pose differed, and a Details drag
+        // changed it on frames that were no gesture yet.
+        const bool moved = gesture && ( changed || edited );
+        m_Control        = control;
+        m_Last           = pose;
 
         // The release frame is the only one on which `Observe` writes the clip, so it is the only one that
         // needs the transaction. Opened here, not on the rising edge: during the gesture the CONTROL moves
         // and the clip does not, and the control's own undo entry is `ControlGizmoGesture`'s.
-        const bool release = m_Held && !held;
-        m_Held             = held;
-        bool opened        = false;
+        const bool release  = m_Held && !gesture;
+        m_Held              = gesture;
+        const bool joinable = release && m_JoinRevision.has_value() &&
+                              *m_JoinRevision == CommandHistory::Get().Revision();
+        if ( release )
+        {
+            m_JoinRevision.reset();
+        }
+        bool opened = false;
         if ( release && !transaction.Open() )
         {
             if ( auto begun = transaction.Begin( animator, target.Clip ); !begun.IsSuccess() )
@@ -624,7 +664,7 @@ namespace Desert::Editor
         }
 
         auto observed = keyer.Observe(
-             target, Animation::KeySubject{ Animation::KeySubjectKind::Control, control }, held, moved );
+             target, Animation::KeySubject{ Animation::KeySubjectKind::Control, control }, gesture, moved );
         if ( !observed.IsSuccess() )
         {
             if ( opened )
@@ -637,7 +677,13 @@ namespace Desert::Editor
         {
             return Common::MakeSuccess( 0U );
         }
-        return transaction.End();
+        auto ended = transaction.End();
+        if ( ended.IsSuccess() && ended.GetValue() == 1U && joinable )
+        {
+            // The control's pose entry and this key are one user action: one Ctrl+Z takes both back.
+            CommandHistory::Get().JoinLastTwo();
+        }
+        return ended;
     }
 
     namespace
